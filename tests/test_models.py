@@ -19,6 +19,7 @@ import subroutine.db.mixins
 import subroutine.db.models
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
@@ -29,9 +30,11 @@ EXPECTED_TABLES = {
 	"document",
 	"document_tag",
 	"event",
+	"instance",
 	"item_type",
 	"link",
 	"link_type",
+	"mention",
 	"project",
 	"project_member",
 	"role",
@@ -348,6 +351,106 @@ def test_a_link_cannot_point_at_itself (session: sqlalchemy.orm.Session) -> None
 			link_type_id=link_type.id,
 		)
 	)
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.flush()
+
+
+def test_a_mention_cannot_point_at_itself (session: sqlalchemy.orm.Session) -> None:
+	"""A task quoting its own ref records nothing."""
+
+	workspace = _make_workspace(session)
+	subject = subroutine.db.types.new_uuid()
+
+	session.add(
+		subroutine.db.models.work.Mention(
+			workspace_id=workspace.id,
+			source_type="task",
+			source_id=subject,
+			target_type="task",
+			target_id=subject,
+		)
+	)
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.flush()
+
+
+def test_a_mention_is_recorded_once_per_pair (session: sqlalchemy.orm.Session) -> None:
+	"""Citing the same item twice in one description is still one edge."""
+
+	workspace = _make_workspace(session)
+	source = subroutine.db.types.new_uuid()
+	target = subroutine.db.types.new_uuid()
+
+	def mention () -> subroutine.db.models.work.Mention:
+		"""Build a mention of the same target from the same source."""
+
+		return subroutine.db.models.work.Mention(
+			workspace_id=workspace.id,
+			source_type="task",
+			source_id=source,
+			target_type="document",
+			target_id=target,
+		)
+
+	session.add(mention())
+	session.flush()
+
+	session.add(mention())
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.flush()
+
+
+def test_a_comment_may_mention_but_never_be_mentioned (session: sqlalchemy.orm.Session) -> None:
+	"""Comments cite work items; nothing cites a comment."""
+
+	workspace = _make_workspace(session)
+
+	session.add(
+		subroutine.db.models.work.Mention(
+			workspace_id=workspace.id,
+			source_type="comment",
+			source_id=subroutine.db.types.new_uuid(),
+			target_type="task",
+			target_id=subroutine.db.types.new_uuid(),
+		)
+	)
+	session.flush()
+
+	session.add(
+		subroutine.db.models.work.Mention(
+			workspace_id=workspace.id,
+			source_type="task",
+			source_id=subroutine.db.types.new_uuid(),
+			target_type="comment",
+			target_id=subroutine.db.types.new_uuid(),
+		)
+	)
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.flush()
+
+
+def test_only_one_instance_row_can_exist (session: sqlalchemy.orm.Session) -> None:
+	"""The identity an agent keys its caches on cannot quietly become two."""
+
+	session.add(subroutine.db.models.system.Instance(name="First"))
+	session.flush()
+
+	session.add(subroutine.db.models.system.Instance(name="Second"))
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.flush()
+
+
+def test_an_instance_row_cannot_opt_out_of_the_singleton_rule (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Setting a different singleton value is refused rather than allowing a second row."""
+
+	session.add(subroutine.db.models.system.Instance(name="Sneaky", singleton=2))
 
 	with pytest.raises(sqlalchemy.exc.IntegrityError):
 		session.flush()

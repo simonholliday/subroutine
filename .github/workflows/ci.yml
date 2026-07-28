@@ -1,0 +1,130 @@
+name: CI
+
+# Two jobs rather than one matrix doing everything. Lint and type results are identical on
+# every Python version, so running them three times would add nothing but three places to
+# read the same failure.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  checks:
+    name: Lint and types
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e '.[dev,postgres]'
+
+      # `ruff check` only. `ruff format` would strip the space in `def foo (x)` and
+      # re-indent the whole codebase with spaces — it is not a formatter on this project.
+      - name: Ruff
+        run: ruff check .
+
+      - name: Mypy
+        run: mypy src tests
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        # Without this the suite can start before the server accepts connections, and the
+        # PostgreSQL half would skip rather than fail — see SUBROUTINE_TEST_REQUIRE_POSTGRES.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e '.[dev,postgres]'
+
+      # The whole suite runs twice, once per backend. The drift check that compares the
+      # models against the migration head is one of those tests, and it is the reason this
+      # job matters more than it looks: portability breaks are caught on the day they are
+      # introduced rather than at the first PostgreSQL deployment.
+      - name: Tests on SQLite and PostgreSQL
+        env:
+          SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+        run: pytest -q
+
+  # Proves the thing a new user actually does, on a clean machine with nothing configured:
+  # install the package, run one command, get a working database. It is separate from the
+  # test job because it must not see the repository's test fixtures or a pre-made database.
+  first-run:
+    name: First run
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install as a user would
+        run: python -m pip install .
+
+      - name: subroutine init
+        run: |
+          set -euo pipefail
+          output="$(subroutine init)"
+          echo "$output"
+          expected='Ready. Try: subroutine add "something to do"'
+          if [ "$output" != "$expected" ]; then
+            echo "init printed something other than its one line" >&2
+            exit 1
+          fi
+
+      - name: The database is queryable afterwards
+        run: |
+          set -euo pipefail
+          subroutine db current | grep -q '^Schema is at '
+          subroutine init | grep -q 'Already set up'

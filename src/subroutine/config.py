@@ -13,11 +13,11 @@ Two precedence chains exist and are deliberately kept apart (SPEC.md §12.3):
 
 import os
 import pathlib
+import secrets
 import sqlite3
 import tempfile
 import tomllib
 import typing
-import uuid
 
 import pydantic
 import pydantic_settings
@@ -266,6 +266,10 @@ class Settings(pydantic_settings.BaseSettings):
 	claim_lease_minutes: int = 30
 	require_verification_to_complete: bool = False
 
+	# Bounds how deep a project or subtask tree may nest, and with it the length of a
+	# materialised path and the cost of a move (SPEC.md §5.4).
+	max_hierarchy_depth: int = 10
+
 	@classmethod
 	def settings_customise_sources (
 		cls,
@@ -299,9 +303,10 @@ class Settings(pydantic_settings.BaseSettings):
 	def require_secret_key (self) -> str:
 		"""Return the signing key, refusing to run without one outside development.
 
-		The key peppers stored token hashes and signs pagination cursors. Starting with a
-		generated-per-process key would silently invalidate every issued token on every
-		restart, so this fails loudly instead.
+		The key signs pagination cursors. It deliberately does *not* pepper stored token
+		hashes (SPEC.md §7.4), so rotating it costs an in-flight page of results rather
+		than every credential in the installation. Starting with a generated-per-process
+		key would still break cursors on every restart, so this fails loudly instead.
 		"""
 
 		if self.secret_key:
@@ -343,7 +348,56 @@ def setting_sources (settings: Settings) -> dict[str, str]:
 def generate_secret_key () -> str:
 	"""Return a fresh signing key for a new installation."""
 
-	return uuid.uuid4().hex + uuid.uuid4().hex
+	return secrets.token_urlsafe(32)
+
+
+def store_setting (name: str, value: str) -> pathlib.Path:
+	"""Record one setting in the configuration file, and return where it was written.
+
+	Appends rather than rewriting. A configuration file belongs to whoever edits it, and
+	silently reformatting one — dropping their comments and their ordering — is a thing a
+	program should not do to a file it does not own.
+	"""
+
+	path = config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+
+	escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+	line = f'{name} = "{escaped}"\n'
+
+	if not path.exists():
+		path.write_text(
+			f"# Subroutine configuration. See 'subroutine config show'.\n{line}",
+			encoding="utf-8",
+		)
+
+		# Readable only by its owner: this is where the signing key lives.
+		path.chmod(0o600)
+
+		return path
+
+	existing = path.read_text(encoding="utf-8")
+	separator = "" if existing.endswith("\n") or not existing else "\n"
+
+	path.write_text(f"{existing}{separator}{line}", encoding="utf-8")
+
+	return path
+
+
+def ensure_secret_key (settings: Settings) -> tuple[str, pathlib.Path | None]:
+	"""Return the signing key, generating and storing one if there is none.
+
+	Returns the key and where it was written, or ``None`` for the path when one already
+	existed. Generating a fresh key on every start would invalidate every pagination
+	cursor on every restart, which is why this is written down rather than held in memory.
+	"""
+
+	if settings.secret_key:
+		return settings.secret_key, None
+
+	key = generate_secret_key()
+
+	return key, store_setting("secret_key", key)
 
 
 def load_settings (**overrides: typing.Any) -> Settings:

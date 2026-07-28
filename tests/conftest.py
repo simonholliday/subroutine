@@ -26,6 +26,18 @@ POSTGRES_ADMIN_URL = os.environ.get(
 
 TEST_DATABASE_NAME = "subroutine_test"
 
+#: Turns an unreachable PostgreSQL from a skip into a failure. Set in CI, and the single
+#: most important line in this file: without it, a runner whose database service failed to
+#: start would run half the suite and report success, which is precisely the state the
+#: dual-backend rule exists to prevent. A skip is a courtesy to someone working locally,
+#: not something the build should ever be allowed to do quietly.
+REQUIRE_POSTGRES = os.environ.get("SUBROUTINE_TEST_REQUIRE_POSTGRES", "").strip().lower() in {
+	"1",
+	"true",
+	"yes",
+	"on",
+}
+
 
 def _postgres_url () -> str:
 	"""Return the URL of the throwaway test database."""
@@ -60,6 +72,12 @@ def postgres_url () -> typing.Iterator[str]:
 	reason = _postgres_unavailable_reason()
 
 	if reason is not None:
+		if REQUIRE_POSTGRES:
+			pytest.fail(
+				f"{reason}\n\nSUBROUTINE_TEST_REQUIRE_POSTGRES is set, so a missing "
+				f"PostgreSQL fails the run rather than halving it."
+			)
+
 		pytest.skip(reason)
 
 	admin_engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")

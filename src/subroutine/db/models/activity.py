@@ -35,11 +35,7 @@ class Comment(
 			"entity_id",
 			"created_at",
 		),
-		subroutine.db.mixins.enum_check(
-			"entity_type",
-			subroutine.db.mixins.COMMENT_ENTITY_TYPES,
-			"ck_comment_entity_type",
-		),
+		subroutine.db.mixins.enum_check("entity_type", subroutine.db.mixins.COMMENT_ENTITY_TYPES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()

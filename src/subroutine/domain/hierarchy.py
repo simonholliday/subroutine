@@ -1,0 +1,180 @@
+"""Keeping ``path`` and ``depth`` honest about ``parent_id``.
+
+``parent_id`` is the truth; ``path`` is a maintained denormalisation of it, in the form
+``/uuid/uuid/`` including the node's own id (SPEC.md §10.6). It exists so that "this and
+everything under it" is one indexed prefix scan rather than a recursive query — the shape
+of nearly every question anyone asks of a tree.
+
+The cost is that a move rewrites every descendant, and that the two representations can
+disagree if anything writes ``parent_id`` without coming through here. SPEC.md §10.7
+invariant 1 is the rule; this module is the only thing that should be maintaining it.
+"""
+
+import typing
+import uuid
+
+import sqlalchemy
+import sqlalchemy.orm
+
+import subroutine.errors
+
+PATH_SEPARATOR = "/"
+
+#: Bounds the length of a materialised path, and with it the cost of a move. Ten is deep
+#: enough that no real structure has hit it and shallow enough that a path stays inside
+#: the 1024-character column with room to spare (SPEC.md §5.4).
+DEFAULT_MAX_DEPTH = 10
+
+
+class Node(typing.Protocol):
+	"""What this module needs of a row: an id, a place in a tree, and a workspace.
+
+	``path`` and ``depth`` are the two it writes, so they are declared as variables;
+	``id`` and ``workspace_id`` are read-only here, which also matches how the mixin
+	supplying ``workspace_id`` is typed.
+	"""
+
+	path: str
+	depth: int
+
+	@property
+	def id (self) -> uuid.UUID:
+		"""Return the row's primary key."""
+
+	@property
+	def workspace_id (self) -> uuid.UUID:
+		"""Return the workspace the row belongs to."""
+
+
+def build_path (parent_path: str | None, identifier: uuid.UUID) -> str:
+	"""Return the path of a node, given its parent's path and its own id."""
+
+	prefix = PATH_SEPARATOR if parent_path is None else parent_path
+
+	return f"{prefix}{identifier}{PATH_SEPARATOR}"
+
+
+def path_segments (path: str) -> list[str]:
+	"""Return the ids along a path, outermost first."""
+
+	return [segment for segment in path.split(PATH_SEPARATOR) if segment]
+
+
+def depth_of (path: str) -> int:
+	"""Return the depth a path implies, counting a root as zero."""
+
+	return max(len(path_segments(path)) - 1, 0)
+
+
+def is_ancestor_of (candidate: Node, node: Node) -> bool:
+	"""Report whether one node lies on another's path.
+
+	A node counts as its own ancestor, because moving something under itself is the
+	degenerate cycle and has to be refused alongside the rest.
+	"""
+
+	return node.path.startswith(candidate.path)
+
+
+def place (
+	node: Node, parent: Node | None, *, max_depth: int = DEFAULT_MAX_DEPTH
+) -> None:
+	"""Set a new node's path and depth from its parent. Does not touch the database."""
+
+	node.path = build_path(None if parent is None else parent.path, node.id)
+	node.depth = depth_of(node.path)
+
+	if node.depth > max_depth:
+		raise subroutine.errors.Conflict(
+			f"That would nest {node.depth} levels deep, and the limit is {max_depth}.",
+			code="cycle_detected",
+			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
+		)
+
+
+def reparent (
+	session: sqlalchemy.orm.Session,
+	model: type[typing.Any],
+	node: Node,
+	parent: Node | None,
+	*,
+	max_depth: int = DEFAULT_MAX_DEPTH,
+) -> int:
+	"""Move a node and rewrite its whole subtree, returning how many rows changed.
+
+	Refuses a move that would make the node its own ancestor, and one that would push any
+	descendant past ``max_depth`` — checked against the *deepest* descendant, not the node
+	itself, because the node arrives with everything below it.
+	"""
+
+	if parent is not None:
+		if parent.workspace_id != node.workspace_id:
+			raise subroutine.errors.ValidationError(
+				"A parent must be in the same workspace as the thing it contains.",
+				code="invalid_field_value",
+			)
+
+		if is_ancestor_of(node, parent):
+			raise subroutine.errors.Conflict(
+				"That would make it its own ancestor.",
+				code="cycle_detected",
+				hint="Choose a parent that is not inside this subtree.",
+			)
+
+	old_path = node.path
+	new_path = build_path(None if parent is None else parent.path, node.id)
+
+	if new_path == old_path:
+		return 0
+
+	shift = depth_of(new_path) - depth_of(old_path)
+	deepest = _deepest_below(session, model, node)
+
+	if deepest + shift > max_depth:
+		raise subroutine.errors.Conflict(
+			f"That would nest part of this subtree {deepest + shift} levels deep, and the "
+			f"limit is {max_depth}.",
+			code="cycle_detected",
+			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
+		)
+
+	# One statement covers the node and everything beneath it, since the node's own row
+	# matches its own path prefix. The new path is spliced onto the tail rather than
+	# produced by a `replace()`, because that is what a prefix change actually is and it
+	# cannot be surprised by the old prefix appearing again further along.
+	statement = (
+		sqlalchemy.update(model)
+		.where(
+			model.workspace_id == node.workspace_id,
+			model.path.startswith(old_path, autoescape=True),
+		)
+		.values(
+			path=sqlalchemy.literal(new_path)
+			+ sqlalchemy.func.substr(model.path, len(old_path) + 1),
+			depth=model.depth + shift,
+		)
+		.execution_options(synchronize_session=False)
+	)
+	# Typed as a plain Result, but DML always yields a cursor result and only that carries
+	# the row count.
+	result = typing.cast("sqlalchemy.CursorResult[typing.Any]", session.execute(statement))
+
+	# A bulk update leaves every loaded row in the session believing its old path.
+	session.expire_all()
+
+	return int(result.rowcount)
+
+
+def _deepest_below (
+	session: sqlalchemy.orm.Session, model: type[typing.Any], node: Node
+) -> int:
+	"""Return the depth of the deepest row in a node's subtree, including the node."""
+
+	deepest = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.max(model.depth)).where(
+			model.workspace_id == node.workspace_id,
+			model.path.startswith(node.path, autoescape=True),
+		)
+	)
+
+	return node.depth if deepest is None else int(deepest)

@@ -58,14 +58,14 @@ class Task(
 		sqlalchemy.Index("ix_task_workspace_id_updated_at", "workspace_id", "updated_at"),
 		sqlalchemy.Index("ix_task_workspace_id_path", "workspace_id", "path"),
 		sqlalchemy.CheckConstraint(
-			"importance IS NULL OR (importance BETWEEN 1 AND 5)", name="ck_task_importance_range"
+			"importance IS NULL OR (importance BETWEEN 1 AND 5)", name="importance_range"
 		),
 		sqlalchemy.CheckConstraint(
-			"urgency IS NULL OR (urgency BETWEEN 1 AND 5)", name="ck_task_urgency_range"
+			"urgency IS NULL OR (urgency BETWEEN 1 AND 5)", name="urgency_range"
 		),
 		sqlalchemy.CheckConstraint(
 			"recurrence_anchor IS NULL OR recurrence_anchor IN ('schedule', 'completion')",
-			name="ck_task_recurrence_anchor",
+			name="recurrence_anchor",
 		),
 	)
 
@@ -410,14 +410,10 @@ class Link(
 			"source_id",
 		),
 		sqlalchemy.CheckConstraint(
-			"NOT (source_type = target_type AND source_id = target_id)", name="ck_link_not_self"
+			"NOT (source_type = target_type AND source_id = target_id)", name="not_self"
 		),
-		subroutine.db.mixins.enum_check(
-			"source_type", subroutine.db.mixins.LINK_ENTITY_TYPES, "ck_link_source_type"
-		),
-		subroutine.db.mixins.enum_check(
-			"target_type", subroutine.db.mixins.LINK_ENTITY_TYPES, "ck_link_target_type"
-		),
+		subroutine.db.mixins.enum_check("source_type", subroutine.db.mixins.LINK_ENTITY_TYPES),
+		subroutine.db.mixins.enum_check("target_type", subroutine.db.mixins.LINK_ENTITY_TYPES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -445,4 +441,60 @@ class Link(
 		subroutine.db.types.uuid_column(),
 		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
 		nullable=True,
+	)
+
+
+class Mention(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
+	"""A reference to a work item found in someone's prose.
+
+	Derived from text and never written directly (SPEC.md §6.15): a mention that did not
+	come from a sentence would be a lie about what that sentence says. Every row for one
+	source is replaced whenever its text changes, which is why there is no soft delete and
+	no version here — there is nothing to restore and no edit to lose a race with.
+
+	Distinct from a link, deliberately. A link is an assertion that changes behaviour; a
+	mention only records that one piece of writing talks about another.
+	"""
+
+	__tablename__ = "mention"
+	__table_args__ = (
+		sqlalchemy.UniqueConstraint(
+			"source_type",
+			"source_id",
+			"target_type",
+			"target_id",
+			name="uq_mention_source_type_source_id_target_type_target_id",
+		),
+		# The backlink question — "what refers to this?" — is the whole point of the table.
+		sqlalchemy.Index(
+			"ix_mention_workspace_id_target_type_target_id",
+			"workspace_id",
+			"target_type",
+			"target_id",
+		),
+		# Used to clear a source's rows before rewriting them.
+		sqlalchemy.Index("ix_mention_source_type_source_id", "source_type", "source_id"),
+		sqlalchemy.CheckConstraint(
+			"NOT (source_type = target_type AND source_id = target_id)",
+			name="not_self",
+		),
+		subroutine.db.mixins.enum_check("source_type", subroutine.db.mixins.MENTION_SOURCE_TYPES),
+		subroutine.db.mixins.enum_check("target_type", subroutine.db.mixins.ITEM_ENTITY_TYPES),
+	)
+
+	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
+	source_type: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=False
+	)
+	source_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(), nullable=False
+	)
+	target_type: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=False
+	)
+	target_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(), nullable=False
+	)
+	created_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), default=subroutine.db.types.utcnow, nullable=False
 	)

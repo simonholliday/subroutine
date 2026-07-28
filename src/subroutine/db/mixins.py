@@ -26,6 +26,10 @@ ITEM_ENTITY_TYPES = ("task", "document")
 COMMENT_ENTITY_TYPES = ("task", "project", "document")
 LINK_ENTITY_TYPES = ("task", "document", "verification")
 
+#: What text can hold a reference to a work item (SPEC.md §6.15). A comment can mention a
+#: task; nothing mentions a comment, so the target set is just the work items.
+MENTION_SOURCE_TYPES = ("task", "document", "comment")
+
 PROJECT_VISIBILITIES = ("public", "private")
 PROJECT_TEMPLATES = ("blank", "personal", "software")
 RECURRENCE_ANCHORS = ("schedule", "completion")
@@ -35,17 +39,22 @@ RECURRENCE_ANCHORS = ("schedule", "completion")
 POSITION_GAP = 1000
 
 
-def enum_check (column: str, values: typing.Sequence[str], name: str) -> sqlalchemy.CheckConstraint:
+def enum_check (column: str, values: typing.Sequence[str]) -> sqlalchemy.CheckConstraint:
 	"""Build a named CHECK constraint restricting ``column`` to ``values``.
 
 	Native database enums are avoided throughout: altering one is painful on PostgreSQL
 	and impossible on SQLite. A named CHECK is portable, and the name is what lets
 	Alembic's batch mode drop it during a SQLite table rebuild.
+
+	The constraint is named after its column, and the naming convention in ``base`` adds
+	the ``ck_<table>_`` prefix. Passing a name that already carries that prefix produces
+	``ck_status_ck_status_category``, which is what the database then puts in front of the
+	user when the constraint fires.
 	"""
 
 	quoted = ", ".join(f"'{value}'" for value in values)
 
-	return sqlalchemy.CheckConstraint(f"{column} IN ({quoted})", name=name)
+	return sqlalchemy.CheckConstraint(f"{column} IN ({quoted})", name=column)
 
 
 def uuid_primary_key () -> sqlalchemy.orm.Mapped[uuid.UUID]:

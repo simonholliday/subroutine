@@ -33,14 +33,8 @@ class Status(
 		sqlalchemy.UniqueConstraint(
 			"workspace_id", "entity_type", "key", name="uq_status_workspace_id_entity_type_key"
 		),
-		subroutine.db.mixins.enum_check(
-			"entity_type",
-			subroutine.db.mixins.STATUS_ENTITY_TYPES,
-			"ck_status_entity_type",
-		),
-		subroutine.db.mixins.enum_check(
-			"category", subroutine.db.mixins.STATUS_CATEGORIES, "ck_status_category"
-		),
+		subroutine.db.mixins.enum_check("entity_type", subroutine.db.mixins.STATUS_ENTITY_TYPES),
+		subroutine.db.mixins.enum_check("category", subroutine.db.mixins.STATUS_CATEGORIES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -84,11 +78,7 @@ class ItemType(
 		sqlalchemy.UniqueConstraint(
 			"workspace_id", "entity_type", "key", name="uq_item_type_workspace_id_entity_type_key"
 		),
-		subroutine.db.mixins.enum_check(
-			"entity_type",
-			subroutine.db.mixins.ITEM_ENTITY_TYPES,
-			"ck_item_type_entity_type",
-		),
+		subroutine.db.mixins.enum_check("entity_type", subroutine.db.mixins.ITEM_ENTITY_TYPES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()

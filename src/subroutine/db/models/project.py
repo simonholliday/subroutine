@@ -42,11 +42,7 @@ class Project(
 		sqlalchemy.Index("ix_project_workspace_id_parent_id", "workspace_id", "parent_id"),
 		sqlalchemy.Index("ix_project_workspace_id_path", "workspace_id", "path"),
 		sqlalchemy.Index("ix_project_workspace_id_status_id", "workspace_id", "status_id"),
-		subroutine.db.mixins.enum_check(
-			"visibility",
-			subroutine.db.mixins.PROJECT_VISIBILITIES,
-			"ck_project_visibility",
-		),
+		subroutine.db.mixins.enum_check("visibility", subroutine.db.mixins.PROJECT_VISIBILITIES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
