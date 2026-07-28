@@ -1,0 +1,147 @@
+"""Shared fixtures, chiefly the engine fixture that runs every test on both backends.
+
+The dual-backend rule is not a nicety. SQLite has a single writer and no timezone-aware
+storage, so it cannot express the failures that matter most — ordering of concurrent
+inserts, NULL sort position, case sensitivity in ``LIKE``, ref allocation under
+contention. A test that runs only on SQLite is a test that agrees with itself.
+"""
+
+import os
+import pathlib
+import typing
+
+import pytest
+import sqlalchemy
+import sqlalchemy.engine
+import sqlalchemy.orm
+
+import sample_models
+import subroutine.db.session
+
+#: Connects to the maintenance database so the throwaway test database can be created.
+#: Override to point the suite at a different server.
+POSTGRES_ADMIN_URL = os.environ.get(
+	"SUBROUTINE_TEST_POSTGRES_ADMIN_URL", "postgresql+psycopg:///postgres"
+)
+
+TEST_DATABASE_NAME = "subroutine_test"
+
+
+def _postgres_url () -> str:
+	"""Return the URL of the throwaway test database."""
+
+	admin = sqlalchemy.engine.make_url(POSTGRES_ADMIN_URL)
+
+	return str(admin.set(database=TEST_DATABASE_NAME))
+
+
+def _postgres_unavailable_reason () -> str | None:
+	"""Return why PostgreSQL cannot be used, or ``None`` when it can."""
+
+	engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL)
+
+	try:
+		with engine.connect() as connection:
+			connection.execute(sqlalchemy.text("SELECT 1"))
+
+	except Exception as error:
+		return f"PostgreSQL is not reachable at {POSTGRES_ADMIN_URL}: {error}"
+
+	finally:
+		engine.dispose()
+
+	return None
+
+
+@pytest.fixture(scope="session")
+def postgres_url () -> typing.Iterator[str]:
+	"""Create a throwaway PostgreSQL database for the test session, and drop it after."""
+
+	reason = _postgres_unavailable_reason()
+
+	if reason is not None:
+		pytest.skip(reason)
+
+	admin_engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
+
+	with admin_engine.connect() as connection:
+		connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{TEST_DATABASE_NAME}"'))
+		connection.execute(sqlalchemy.text(f'CREATE DATABASE "{TEST_DATABASE_NAME}"'))
+
+	yield _postgres_url()
+
+	with admin_engine.connect() as connection:
+		connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{TEST_DATABASE_NAME}"'))
+
+	admin_engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def sqlite_url (tmp_path_factory: pytest.TempPathFactory) -> str:
+	"""Return a SQLite URL under a temporary directory on local disk.
+
+	Never inside the working tree: this repository lives on a network share where SQLite
+	cannot take a lock.
+	"""
+
+	directory: pathlib.Path = tmp_path_factory.mktemp("sqlite")
+
+	return f"sqlite:///{directory / 'test.db'}"
+
+
+@pytest.fixture(scope="session", params=["sqlite", "postgresql"])
+def engine (request: pytest.FixtureRequest) -> typing.Iterator[sqlalchemy.engine.Engine]:
+	"""Yield an engine for each supported backend in turn, with the schema created."""
+
+	if request.param == "sqlite":
+		url = request.getfixturevalue("sqlite_url")
+
+	else:
+		url = request.getfixturevalue("postgres_url")
+
+	engine = subroutine.db.session.create_engine(url)
+
+	subroutine.db.session.create_all(engine)
+	sample_models.SampleBase.metadata.create_all(engine)
+
+	yield engine
+
+	sample_models.SampleBase.metadata.drop_all(engine)
+	subroutine.db.session.drop_all(engine)
+	engine.dispose()
+
+
+@pytest.fixture
+def session (
+	engine: sqlalchemy.engine.Engine,
+) -> typing.Iterator[sqlalchemy.orm.Session]:
+	"""Yield a session whose work is rolled back afterwards, leaving no residue.
+
+	Each test runs inside one outer transaction that is never committed, so tests stay
+	independent without paying to recreate the schema between them.
+	"""
+
+	connection = engine.connect()
+	transaction = connection.begin()
+
+	# `create_savepoint` keeps the session from taking ownership of the outer
+	# transaction, so a commit inside a service under test is contained and the rollback
+	# below still discards everything.
+	factory = sqlalchemy.orm.sessionmaker(
+		bind=connection,
+		expire_on_commit=False,
+		future=True,
+		join_transaction_mode="create_savepoint",
+	)
+	db_session = factory()
+
+	try:
+		yield db_session
+
+	finally:
+		db_session.close()
+
+		if transaction.is_active:
+			transaction.rollback()
+
+		connection.close()
