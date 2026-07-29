@@ -11,6 +11,14 @@ rather than in a habit.
 
 import pydantic
 
+#: A field that names another work item, by ref or by id.
+#:
+#: A ref is an integer in every response this API sends (SPEC.md §6.2), so an integer is
+#: accepted here as well as a string: a client should be able to send back what it was
+#: given without converting it, and a rule that says "read a number, quote it, send it" is
+#: a rule somebody will get wrong. An id is a UUID and arrives as a string.
+Reference = int | str
+
 
 class RequestModel(pydantic.BaseModel):
 	"""Base for every body this API accepts."""

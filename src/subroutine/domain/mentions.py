@@ -19,21 +19,33 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.work
-import subroutine.domain.refs
 
-#: A bare ref in running text. Project keys are short and uppercase, so this is specific
-#: enough to be worth resolving and loose enough to catch what people actually write. It
-#: is only ever a *candidate*: a ref becomes a mention when it resolves, which is what
-#: keeps "the SR-71 Blackbird" and "IR-35 applies here" as prose.
-REF_PATTERN = re.compile(r"\b([A-Z][A-Z0-9]{0,15})-(\d+)\b")
-
-#: A reference to another workspace on this instance, ``subroutine:acme/SR-42``. It has to
-#: be recognised in order to be *ignored*: the ref inside it would otherwise be found by
-#: the pattern above and resolved against whatever happens to answer to it here.
+#: A reference in running text: ``#42`` (SPEC.md §6.15). It is only ever a *candidate* —
+#: a ref becomes a mention when it resolves — but the pattern still has to be tight,
+#: because ``#`` is a busy character:
 #:
-#: The local explicit form, ``[label](subroutine:SR-42)``, needs no handling at all — the
-#: pattern above already finds the ref inside it.
-FOREIGN_LINK_PATTERN = re.compile(r"subroutine:[a-z0-9][a-z0-9-]*/[A-Z][A-Z0-9]{0,15}-\d+")
+#: * **No word character either side.** The trailing guard is what keeps the hex colour
+#:   ``#42FF00`` out of the index; the leading one rejects ``rgb#42`` and ``##42``.
+#:   ``\w`` rather than an ASCII class, so ``#12ème`` is prose in French too.
+#: * **No leading zero.** ``#007`` is a Bond film, not ref 7. Refs are minted without
+#:   padding, so a padded number is somebody writing about something else.
+#: * **Lookarounds, never ``\b``.** ``\b`` sits between a letter and an apostrophe, which
+#:   is how ``\btomorrow\b`` came to match inside ``tomorrow's`` in ``domain.capture``
+#:   and mangle a title. The same mistake here would index the wrong item.
+#:
+#: ``#42`` cannot open a markdown heading — CommonMark requires a space after the ``#``
+#: run — and cannot be a ``#tag`` from quick capture, which must begin with a letter.
+REF_PATTERN = re.compile(r"(?<![\w#])#([1-9][0-9]*)(?!\w)")
+
+#: The explicit form, ``[label](subroutine:42)``. It carries no sigil, so the pattern
+#: above cannot see it and this one is not a convenience.
+LINK_PATTERN = re.compile(r"subroutine:#?([1-9][0-9]*)(?![\w/-])")
+
+#: A reference to another workspace on this instance, ``subroutine:acme/42``. It has to be
+#: recognised in order to be *ignored*: the ref inside it names a workspace this index does
+#: not cover, and resolving it locally would point at whatever happens to share the number
+#: here. Scrubbed before either pattern above runs.
+FOREIGN_LINK_PATTERN = re.compile(r"subroutine:[a-z0-9][a-z0-9-]*/#?[0-9]+")
 
 #: How many distinct references are indexed from one source. A 256 KiB body full of
 #: ref-shaped text is a plausible accident, and an unbounded write amplification on every
@@ -42,17 +54,17 @@ FOREIGN_LINK_PATTERN = re.compile(r"subroutine:[a-z0-9][a-z0-9-]*/[A-Z][A-Z0-9]{
 MAX_MENTIONS_PER_SOURCE = 100
 
 
-def candidates (*texts: str | None) -> list[str]:
+def candidates (*texts: str | None) -> list[int]:
 	"""Return the refs written across some pieces of text, in order of first appearance.
 
-	Both spellings are collected: the bare ``SR-42`` and the explicit
-	``[label](subroutine:SR-42)``. A cross-workspace link is deliberately skipped — it
-	names a workspace this index does not cover, and resolving it locally would silently
-	point at whatever happens to share the ref here.
+	Both spellings are collected: the bare ``#42`` and the explicit
+	``[label](subroutine:42)``. A cross-workspace link is deliberately skipped — it names
+	a workspace this index does not cover, and resolving it locally would silently point
+	at whatever happens to share the number here.
 	"""
 
-	found: list[str] = []
-	seen: set[str] = set()
+	found: list[int] = []
+	seen: set[int] = set()
 
 	for text in texts:
 		if not text:
@@ -60,8 +72,15 @@ def candidates (*texts: str | None) -> list[str]:
 
 		local = FOREIGN_LINK_PATTERN.sub(" ", text)
 
-		for match in REF_PATTERN.finditer(local):
-			ref = match.group(0)
+		# Ordered by where each reference appears rather than by which spelling found it,
+		# so "in order of first appearance" is true of the text and not of this function.
+		matches = sorted(
+			(*REF_PATTERN.finditer(local), *LINK_PATTERN.finditer(local)),
+			key=lambda match: match.start(),
+		)
+
+		for match in matches:
+			ref = int(match.group(1))
 
 			if ref in seen:
 				continue
@@ -73,8 +92,8 @@ def candidates (*texts: str | None) -> list[str]:
 
 
 def resolve (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, refs: typing.Sequence[str]
-) -> dict[str, tuple[str, uuid.UUID]]:
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, refs: typing.Sequence[int]
+) -> dict[int, tuple[str, uuid.UUID]]:
 	"""Look up which refs name something here, as ``{ref: (entity_type, id)}``.
 
 	Refs that name nothing are simply absent, and stay plain text. Two queries rather than
@@ -85,7 +104,7 @@ def resolve (
 		return {}
 
 	wanted = set(refs)
-	found: dict[str, tuple[str, uuid.UUID]] = {}
+	found: dict[int, tuple[str, uuid.UUID]] = {}
 
 	models: tuple[tuple[str, typing.Any], ...] = (
 		("task", subroutine.db.models.work.Task),

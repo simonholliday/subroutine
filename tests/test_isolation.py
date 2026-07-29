@@ -59,12 +59,12 @@ def _build (session: sqlalchemy.orm.Session, label: str) -> Side:
 		session, slug=f"{label}-{uuid.uuid4().hex[:6]}", title="Identical title", owner=owner
 	)
 
-	# The same key in both workspaces, so both mint the ref SR-1.
+	# Each workspace has its own counter, so both mint the ref #1.
 	project = subroutine.domain.projects.create(
 		session, workspace_id=workspace.id, key="SR", title="Identical project"
 	)
 	task = subroutine.domain.tasks.create(
-		session, project=project, title="Identical task", description="Mentions SR-1."
+		session, project=project, title="Identical task", description="Mentions #1."
 	)
 
 	return Side(workspace, owner, project, task)
@@ -84,22 +84,27 @@ def test_the_two_worlds_really_do_collide (two_worlds: tuple[Side, Side]) -> Non
 
 	assert left.workspace.id != right.workspace.id
 	assert left.project.key == right.project.key == "SR"
-	assert left.task.ref == right.task.ref == "SR-1"
+	assert left.task.ref == right.task.ref == 1
 	assert left.task.title == right.task.title
 
 
 def test_a_ref_resolves_within_its_own_workspace_only (
 	session: sqlalchemy.orm.Session, two_worlds: tuple[Side, Side]
 ) -> None:
-	"""``SR-1`` exists in both, and must never resolve across."""
+	"""``#1`` exists in both, and must never resolve across.
+
+	More pressing than it was: refs are sequential per workspace, so any two workspaces of
+	similar age hold most of the same numbers. Collision between instances is the normal
+	case rather than a contrived one.
+	"""
 
 	left, right = two_worlds
 
-	assert subroutine.domain.refs.find(session, left.workspace.id, "SR-1") == (
+	assert subroutine.domain.refs.find(session, left.workspace.id, 1) == (
 		"task",
 		left.task.id,
 	)
-	assert subroutine.domain.refs.find(session, right.workspace.id, "SR-1") == (
+	assert subroutine.domain.refs.find(session, right.workspace.id, 1) == (
 		"task",
 		right.task.id,
 	)
@@ -108,7 +113,7 @@ def test_a_ref_resolves_within_its_own_workspace_only (
 def test_a_mention_never_crosses_a_workspace (
 	session: sqlalchemy.orm.Session, two_worlds: tuple[Side, Side]
 ) -> None:
-	"""Both descriptions say "SR-1"; each must point at its own."""
+	"""Both descriptions say "#1"; each must point at its own."""
 
 	left, right = two_worlds
 

@@ -85,6 +85,22 @@ def run_migrations_online () -> None:
 def _run_with_connection (connection: sqlalchemy.Connection) -> None:
 	"""Configure Alembic for ``connection`` and run the migration."""
 
+	# SQLite cannot alter most things in place, so ``render_as_batch`` below makes Alembic
+	# rebuild the table instead: create a copy, move the rows, drop the original, rename.
+	# That drop is a foreign-key violation the moment any *other* table holds a row
+	# pointing at it — so migrating a database with data in it fails on a constraint that
+	# the migration is not actually breaking. Enforcement is therefore off for the
+	# duration, which is what Alembic's own batch-mode documentation calls for.
+	#
+	# It has to be issued before Alembic opens a transaction, because SQLite ignores this
+	# pragma inside one. The connection is discarded when the migration finishes and every
+	# application connection turns enforcement back on for itself (``db/session.py``), so
+	# this cannot leak into normal use.
+	sqlite = connection.dialect.name == "sqlite"
+
+	if sqlite:
+		_sqlite_foreign_keys(connection, False)
+
 	alembic.context.configure(
 		connection=connection,
 		target_metadata=target_metadata,
@@ -98,6 +114,28 @@ def _run_with_connection (connection: sqlalchemy.Connection) -> None:
 
 	with alembic.context.begin_transaction():
 		alembic.context.run_migrations()
+
+	# Restored rather than left off, because a caller may have handed us a connection it
+	# intends to go on using — the test suite does exactly that.
+	if sqlite:
+		_sqlite_foreign_keys(connection, True)
+
+
+def _sqlite_foreign_keys (connection: sqlalchemy.Connection, enabled: bool) -> None:
+	"""Turn SQLite's foreign-key enforcement on or off for this connection.
+
+	Issued against the driver's own connection rather than through SQLAlchemy, which is
+	not fussiness. ``Connection.exec_driver_sql`` opens a SQLAlchemy transaction, and
+	Alembic then finds one already in progress, makes its own ``begin_transaction`` a
+	no-op, and commits nothing — so the migration runs, reports success and is rolled back
+	when the connection closes. Found by migrating a database twice and watching the
+	second run start from the first revision again.
+	"""
+
+	setting = "ON" if enabled else "OFF"
+	driver: typing.Any = connection.connection.driver_connection
+
+	driver.execute(f"PRAGMA foreign_keys={setting}")
 
 
 if alembic.context.is_offline_mode():

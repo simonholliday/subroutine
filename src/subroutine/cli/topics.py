@@ -142,25 +142,32 @@ TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="refs",
 		summary="How tasks are named, and how to address them without typing a name.",
-		body="""Every task has a ref — a short name like SR-42 that never changes, even
-if the task moves. Refs are shared with documents, so a number is
-never reused.
+		body="""Every task has a number of its own — its ref — and that number never
+changes. Not when the task moves to another project, not when something
+above it in a list is finished, not ever. Numbers are shared with
+documents and are never reused, so they grow and leave gaps.
 
-You rarely need to type one. Any list this tool prints is numbered:
+Any list this tool prints shows it:
 
   subroutine today
-     1  Call the dentist  (due Sun 2 Aug)
-     2  Buy milk
+    #1  Call the dentist  (due Sun 2 Aug)
+    #7  Buy milk
 
-  subroutine done 1
+  subroutine done 7
 
-The numbers mean whatever was printed last, so they are stable for as
-long as you do not run another listing. Refs always work:
+The # is how a ref is written down — in a note, a commit message, or a
+task's own description, where #7 becomes a link to that task. You do
+not have to type it, and mostly you should not: a shell treats # as the
+start of a comment, so
 
-  subroutine done SR-42
+  subroutine done #7
 
-If a number no longer means anything, this tool says so rather than
-guessing at which task you meant.""",
+reaches this tool as 'subroutine done' with nothing after it. Type the
+bare number, or quote it as '#7'.
+
+Because the number belongs to the task rather than to the list, one you
+remember goes on working tomorrow, in another terminal, after anything
+else has been finished.""",
 	),
 	Topic(
 		name="scripting",

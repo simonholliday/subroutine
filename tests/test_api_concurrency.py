@@ -73,7 +73,9 @@ def test_a_stale_version_is_refused_with_both_numbers_and_the_current_entity (
 	assert body["code"] == "version_conflict"
 	assert body["expected_version"] == stale
 	assert body["current_version"] > stale
-	assert created["ref"] in body["detail"]
+
+	# Named the way a ref is written, so the message can be read aloud or pasted.
+	assert f"#{created['ref']}" in body["detail"]
 
 	# §8.9: "plus the current entity, so the caller can merge rather than refetch". The
 	# hint says the current one is in the response, so it had better be.

@@ -149,55 +149,49 @@ def register (
 			engine.dispose()
 
 	def _lookup (context: Context, given: str) -> subroutine.db.models.work.Task:
-		"""Resolve a ref, or a bare ref *number*, into a task.
+		"""Resolve a ref into a task.
 
-		**A bare number is a ref number, never a row.** It used to be a position in the last
+		**A ref is a number, and it is never a row.** It used to be a position in the last
 		listing, which meant the number for a task changed every time something above it was
 		completed — so an absent-minded up-arrow re-ran ``done 1`` against a different task
-		and said nothing about it. A ref number is allocated once from the project's counter
-		and is never reused, so the number somebody memorised while working on something goes
-		on meaning it.
+		and said nothing about it. A ref is allocated once from the workspace's counter and
+		is never reused, so the number somebody memorised while working on something goes on
+		meaning it.
 
-		The cost is that a bare number is ambiguous once a workspace has several projects,
-		since each counts from one. That is a refusal listing the candidates, not a guess.
+		``42`` and ``#42`` are the same request: listings print the sigil because it reads
+		as an identifier rather than a count, and it is optional on input because a shell
+		would eat it (SPEC.md §12.2a).
+
+		Resolved **through the scoping helper**, so a task in a project this caller cannot
+		see is reported as absent rather than fetched. Completed tasks are included on
+		purpose: running ``done 42`` twice should say the thing is already done, not that
+		there is no such task.
 		"""
 
-		ref = given.strip()
+		wanted = subroutine.domain.refs.parse_ref(given)
 
-		if ref.isdigit():
-			candidates = _by_number(context, int(ref))
-
-			if not candidates:
-				stop(
-					f"There is no task {ref} here.",
-					f"Refs look like {_example_ref(context)}. Run 'subroutine ls' to see "
-					"what there is.",
-				)
-
-			if len(candidates) > 1:
-				named = ", ".join(sorted(task.ref for task in candidates))
-
-				stop(
-					f"{ref} could mean any of several tasks: {named}.",
-					"Each project numbers its own tasks, so name the one you mean in full — "
-					f"'subroutine done {sorted(task.ref for task in candidates)[0]}'.",
-				)
-
-			return candidates[0]
-
-		found = subroutine.domain.refs.find(context.session, context.workspace.id, ref.upper())
-
-		if found is None or found[0] != "task":
+		if wanted is None:
 			stop(
-				f"There is no task called {given!r}.",
-				f"Refs look like {_example_ref(context)}. Run 'subroutine today' to see "
-				"what there is.",
+				f"{given!r} is not a task number.",
+				"Tasks are named by the number 'subroutine ls' prints beside them — "
+				"'subroutine done 42'.",
 			)
 
-		task = context.session.get(subroutine.db.models.work.Task, found[1])
+		model = subroutine.db.models.work.Task
 
-		if task is None or task.deleted_at is not None:
-			stop(f"There is no task called {given!r}.")
+		task = context.session.scalars(
+			subroutine.domain.scoping.readable_tasks(
+				context.principal,
+				workspace_ids=context.workspace_ids,
+				include_archived=True,
+			).where(model.ref == wanted)
+		).first()
+
+		if task is None:
+			stop(
+				f"There is no task {subroutine.domain.refs.format_ref(wanted)} here.",
+				"Run 'subroutine ls' to see what there is.",
+			)
 
 		return task
 
@@ -326,7 +320,7 @@ def register (
 
 	@app.command()
 	def done (
-		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 	) -> None:
 		"""Tick something off.
 
@@ -334,11 +328,11 @@ def register (
 
 		  subroutine done 42
 
-		  subroutine done SR-42
+		  subroutine done 42
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
+			task = _lookup(context, _asked(which, "Which one? (a number like 42 — a shell eats '#42')"))
 
 			if task.completed_at is not None:
 				# Saying so beats reporting success twice. The case this is really about is
@@ -357,7 +351,7 @@ def register (
 
 	@app.command()
 	def plan (
-		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
 	) -> None:
 		"""Say which day you will do something.
@@ -366,11 +360,11 @@ def register (
 
 		  subroutine plan 1 tomorrow
 
-		  subroutine plan SR-42 friday
+		  subroutine plan 42 friday
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
+			task = _lookup(context, _asked(which, "Which one? (a number like 42 — a shell eats '#42')"))
 
 			subroutine.domain.tasks.update(
 				context.session,
@@ -388,7 +382,7 @@ def register (
 
 	@app.command()
 	def defer (
-		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 		when: str = typer.Argument("", help="A day to hide it until."),
 	) -> None:
 		"""Hide something until later.
@@ -397,11 +391,11 @@ def register (
 
 		  subroutine defer 1 monday
 
-		  subroutine defer SR-42 2026-09-01
+		  subroutine defer 42 2026-09-01
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
+			task = _lookup(context, _asked(which, "Which one? (a number like 42 — a shell eats '#42')"))
 
 			subroutine.domain.tasks.update(
 				context.session,
@@ -420,24 +414,6 @@ def register (
 		today(json_output=False)
 
 	return show_today
-
-
-def _example_ref (context: Context) -> str:
-	"""Return a ref shape from this installation, for use in a hint.
-
-	Quoting ``SR-42`` at somebody whose every task is ``INBOX-3`` is an example that teaches
-	the wrong shape. This reads a real one, and falls back to the generic form only when
-	there is nothing to read.
-	"""
-
-	found = context.session.scalars(
-		sqlalchemy.select(subroutine.db.models.work.Task.ref)
-		.where(subroutine.db.models.work.Task.workspace_id == context.workspace.id)
-		.order_by(sqlalchemy.desc(subroutine.db.models.work.Task.created_at))
-		.limit(1)
-	).first()
-
-	return found or "SR-42"
 
 
 def _asked (given: str, question: str) -> str:
@@ -487,7 +463,7 @@ def _render (
 		("Next 7 days", agenda.upcoming, False),
 		("Unscheduled", agenda.unscheduled, False),
 	)
-	shown: list[str] = []
+	shown: list[int] = []
 	printed = False
 
 	# One width across every bucket, so the refs line up down the whole agenda rather than
@@ -543,34 +519,12 @@ def _numbered (
 		console.print(_task_line(context, task, late=False, width=width))
 
 
-def _by_number (
-	context: Context, number: int
-) -> list[subroutine.db.models.work.Task]:
-	"""Return every visible task carrying this ref number, across the readable workspaces.
-
-	Completed tasks are included on purpose: running ``done 3`` twice should say the thing
-	is already done, not that there is no such task. Narrowed through ``scoping`` like every
-	other listing, so a number belonging to a private project the caller cannot see does not
-	resolve — and does not report itself as ambiguous either.
-	"""
-
-	model = subroutine.db.models.work.Task
-
-	return list(
-		context.session.scalars(
-			subroutine.domain.scoping.readable_tasks(
-				context.principal,
-				workspace_ids=context.workspace_ids,
-				include_archived=True,
-			).where(model.number == number)
-		)
-	)
-
-
 def _ref_width (tasks: typing.Sequence[subroutine.db.models.work.Task]) -> int:
 	"""Return how wide the ref column needs to be for these tasks."""
 
-	return max((len(task.ref) for task in tasks), default=0)
+	return max(
+		(len(subroutine.domain.refs.format_ref(task.ref)) for task in tasks), default=0
+	)
 
 
 def _suggest (console: rich.console.Console, command: str) -> None:
@@ -597,7 +551,8 @@ def _task_line (
 	"""
 
 	line = rich.text.Text()
-	line.append(f"  {task.ref:>{max(width, 2)}}  ", style=POSITION)
+	shown = subroutine.domain.refs.format_ref(task.ref)
+	line.append(f"  {shown:>{max(width, 3)}}  ", style=POSITION)
 	line.append(task.title)
 
 	detail = _when(context, task)

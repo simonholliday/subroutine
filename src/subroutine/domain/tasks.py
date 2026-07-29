@@ -174,7 +174,7 @@ def create (
 		timezone=zone,
 	)
 
-	ref, number = subroutine.domain.refs.allocate(session, project)
+	ref = subroutine.domain.refs.allocate(session, workspace_id)
 
 	task = subroutine.db.models.work.Task(
 		id=subroutine.db.types.new_uuid(),
@@ -183,8 +183,6 @@ def create (
 		parent_task_id=None if parent is None else parent.id,
 		type_id=item_type.id,
 		ref=ref,
-		number=number,
-		origin_project_id=project.id,
 		title=cleaned_title,
 		description=description,
 		status_id=status.id,

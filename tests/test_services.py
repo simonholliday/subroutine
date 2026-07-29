@@ -1,6 +1,6 @@
 """Tests for the service layer: refs, events, paths and mentions.
 
-The done-criteria for this slice live here — creating a task allocates ``SR-1``, writes
+The done-criteria for this slice live here — creating a task allocates ``#1``, writes
 one event and sets a correct path, and a description citing it produces exactly one
 mention row that disappears when the sentence does.
 
@@ -105,9 +105,7 @@ def test_creating_a_task_allocates_a_ref_an_event_and_a_path (
 
 	task = subroutine.domain.tasks.create(session, project=project, title="First thing")
 
-	assert task.ref == "SR-1"
-	assert task.number == 1
-	assert task.origin_project_id == project.id
+	assert task.ref == 1
 	assert task.path == f"/{task.id}/"
 	assert task.depth == 0
 
@@ -115,13 +113,13 @@ def test_creating_a_task_allocates_a_ref_an_event_and_a_path (
 
 	assert len(events) == 1
 	assert events[0].action == "created"
-	assert events[0].changes == {"ref": {"from": None, "to": "SR-1"}, "title": {"from": None, "to": "First thing"}}
+	assert events[0].changes == {"ref": {"from": None, "to": 1}, "title": {"from": None, "to": "First thing"}}
 
 
 def test_refs_are_sequential_and_shared_with_documents (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""One counter per project, so a ref names exactly one thing (SPEC.md §6.2)."""
+	"""One counter per workspace, so a ref names exactly one thing (SPEC.md §6.2)."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -131,14 +129,32 @@ def test_refs_are_sequential_and_shared_with_documents (
 		for index in range(5)
 	]
 
-	assert refs == ["SR-1", "SR-2", "SR-3", "SR-4", "SR-5"]
+	assert refs == [1, 2, 3, 4, 5]
 
 	# The next allocation continues the same sequence whoever asks for it.
-	assert subroutine.domain.refs.allocate(session, project) == ("SR-6", 6)
+	assert subroutine.domain.refs.allocate(session, workspace.id) == 6
+
+
+def test_the_counter_is_the_workspace_not_the_project (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Two projects share one sequence, which is what makes a bare number unambiguous.
+
+	Under the per-project counters this replaced, both of these would have been ``1``.
+	"""
+
+	workspace = _workspace(session)
+	home = _project(session, workspace, key="HOME")
+	other = _project(session, workspace, key="SR")
+
+	first = subroutine.domain.tasks.create(session, project=home, title="In one")
+	second = subroutine.domain.tasks.create(session, project=other, title="In the other")
+
+	assert (first.ref, second.ref) == (1, 2)
 
 
 def test_a_ref_survives_its_task_moving_project (session: sqlalchemy.orm.Session) -> None:
-	"""``origin_project_id`` is what stops a move colliding with the destination."""
+	"""A ref names nothing the task can be moved out of, so a move cannot invalidate it."""
 
 	workspace = _workspace(session)
 	home = _project(session, workspace, key="HOME")
@@ -146,27 +162,28 @@ def test_a_ref_survives_its_task_moving_project (session: sqlalchemy.orm.Session
 
 	task = subroutine.domain.tasks.create(session, project=home, title="Moves later")
 
-	assert task.ref == "HOME-1"
+	assert task.ref == 1
 
 	task.project_id = other.id
 	session.flush()
 
-	# The destination mints its own number 1 without a collision, because uniqueness is
-	# keyed on the project that minted the number, not the one holding the task.
 	sibling = subroutine.domain.tasks.create(session, project=other, title="Native")
 
-	assert task.ref == "HOME-1"
-	assert sibling.ref == "SR-1"
+	assert task.ref == 1, "unchanged by the move"
+	assert sibling.ref == 2, "the next number, not a second 1 in this project"
 
 
-def test_split_and_format_are_inverses () -> None:
-	"""A ref parses back into the parts it was built from."""
+def test_a_ref_is_read_with_or_without_its_sigil () -> None:
+	"""``#42`` is how a ref is written; ``42`` is what a shell leaves of it."""
 
-	assert subroutine.domain.refs.format_ref("SR", 42) == "SR-42"
-	assert subroutine.domain.refs.split_ref("SR-42") == ("SR", 42)
-	assert subroutine.domain.refs.split_ref("HOME-3") == ("HOME", 3)
-	assert subroutine.domain.refs.split_ref("nonsense") is None
-	assert subroutine.domain.refs.split_ref("SR-") is None
+	assert subroutine.domain.refs.format_ref(42) == "#42"
+	assert subroutine.domain.refs.parse_ref("42") == 42
+	assert subroutine.domain.refs.parse_ref("#42") == 42
+	assert subroutine.domain.refs.parse_ref("  #42  ") == 42
+	assert subroutine.domain.refs.parse_ref("nonsense") is None
+	assert subroutine.domain.refs.parse_ref("#") is None
+	assert subroutine.domain.refs.parse_ref("SR-42") is None
+	assert subroutine.domain.refs.parse_ref("4 2") is None
 
 
 def test_a_ref_resolves_to_the_thing_it_names (session: sqlalchemy.orm.Session) -> None:
@@ -176,8 +193,8 @@ def test_a_ref_resolves_to_the_thing_it_names (session: sqlalchemy.orm.Session) 
 	project = _project(session, workspace, key="SR")
 	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
 
-	assert subroutine.domain.refs.find(session, workspace.id, "SR-1") == ("task", task.id)
-	assert subroutine.domain.refs.find(session, workspace.id, "SR-99") is None
+	assert subroutine.domain.refs.find(session, workspace.id, 1) == ("task", task.id)
+	assert subroutine.domain.refs.find(session, workspace.id, 99) is None
 
 
 def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> None:
@@ -464,8 +481,9 @@ def test_a_mention_appears_and_disappears_with_the_sentence (
 	project = _project(session, workspace, key="SR")
 
 	target = subroutine.domain.tasks.create(session, project=project, title="The spec")
+	cited = subroutine.domain.refs.format_ref(target.ref)
 	citing = subroutine.domain.tasks.create(
-		session, project=project, title="Implements it", description=f"As decided in {target.ref}."
+		session, project=project, title="Implements it", description=f"As decided in {cited}."
 	)
 
 	mentions = subroutine.domain.mentions.backlinks(
@@ -491,12 +509,13 @@ def test_the_same_ref_twice_is_one_mention (session: sqlalchemy.orm.Session) -> 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
 	target = subroutine.domain.tasks.create(session, project=project, title="Cited")
+	cited = subroutine.domain.refs.format_ref(target.ref)
 
 	subroutine.domain.tasks.create(
 		session,
 		project=project,
-		title=f"See {target.ref}",
-		description=f"{target.ref} again, and {target.ref} once more.",
+		title=f"See {cited}",
+		description=f"{cited} again, and {cited} once more.",
 	)
 
 	assert (
@@ -509,14 +528,26 @@ def test_the_same_ref_twice_is_one_mention (session: sqlalchemy.orm.Session) -> 
 	)
 
 
-def test_an_unresolvable_ref_stays_prose (session: sqlalchemy.orm.Session) -> None:
-	""""The SR-71 Blackbird" is not a reference to anything."""
+def test_numbers_that_are_not_references_stay_prose (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The cost of a bare-integer ref is that prose is full of integers.
+
+	``#`` is what separates a reference from a quantity, and this is the list of things
+	that carry a ``#`` or a number without meaning one. The hex colour is the case worth
+	keeping: ``#42FF00`` starts with exactly the characters a reference does.
+	"""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
 
+	# Something for #1 to resolve to, so this tests the pattern and not an empty database.
+	subroutine.domain.tasks.create(session, project=project, title="Exists")
+
+	prose = "1 test passing, on line 1, about 1% — brand #1FF000, and ##1, and issue#1."
+
 	task = subroutine.domain.tasks.create(
-		session, project=project, title="Reading", description="The SR-71 Blackbird, and IR-35."
+		session, project=project, title="Reading", description=prose
 	)
 
 	mentions = list(
@@ -528,8 +559,7 @@ def test_an_unresolvable_ref_stays_prose (session: sqlalchemy.orm.Session) -> No
 	)
 
 	assert mentions == []
-	assert task.description is not None
-	assert "SR-71" in task.description, "the text is never altered"
+	assert task.description == prose, "the text is never altered"
 
 
 def test_a_task_does_not_mention_itself (session: sqlalchemy.orm.Session) -> None:
@@ -538,8 +568,9 @@ def test_a_task_does_not_mention_itself (session: sqlalchemy.orm.Session) -> Non
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
 	task = subroutine.domain.tasks.create(session, project=project, title="First")
+	itself = subroutine.domain.refs.format_ref(task.ref)
 
-	subroutine.domain.tasks.update(session, task, description=f"This is {task.ref}.")
+	subroutine.domain.tasks.update(session, task, description=f"This is {itself}.")
 
 	assert (
 		subroutine.domain.mentions.backlinks(
@@ -550,7 +581,11 @@ def test_a_task_does_not_mention_itself (session: sqlalchemy.orm.Session) -> Non
 
 
 def test_the_explicit_link_form_is_recognised (session: sqlalchemy.orm.Session) -> None:
-	"""``[label](subroutine:SR-1)`` means the same as a bare ref."""
+	"""``[label](subroutine:1)`` means the same as ``#1``.
+
+	This form carries no sigil, so it is found by its own pattern rather than by the one
+	that reads prose — which is exactly why it needs its own test.
+	"""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -576,11 +611,11 @@ def test_the_explicit_link_form_is_recognised (session: sqlalchemy.orm.Session) 
 def test_a_cross_workspace_link_is_not_resolved_locally (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""``subroutine:acme/SR-1`` names a workspace this index does not cover."""
+	"""``subroutine:acme/1`` names a workspace this index does not cover."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
-	target = subroutine.domain.tasks.create(session, project=project, title="Local SR-1")
+	target = subroutine.domain.tasks.create(session, project=project, title="Local number one")
 
 	subroutine.domain.tasks.create(
 		session,
@@ -759,18 +794,17 @@ def test_concurrent_ref_allocation_never_duplicates (
 	try:
 		with factory() as setup:
 			workspace = _workspace(setup)
-			project = _project(setup, workspace, key="RACE")
+			_project(setup, workspace, key="RACE")
 			setup.commit()
-			project_id = project.id
+			workspace_id = workspace.id
 
 		def allocate_many () -> list[int]:
 			"""Claim refs from an independent connection."""
 
 			with factory() as worker:
-				held = worker.get(subroutine.db.models.project.Project, project_id)
-				assert held is not None
-
-				numbers = [subroutine.domain.refs.allocate(worker, held)[1] for _ in range(each)]
+				numbers = [
+					subroutine.domain.refs.allocate(worker, workspace_id) for _ in range(each)
+				]
 				worker.commit()
 
 				return numbers
@@ -905,10 +939,16 @@ def test_moving_a_project_moves_every_etag_it_changed (
 		)
 
 
-def test_a_project_key_must_be_one_the_mention_index_can_see (
+def test_a_project_key_can_never_look_like_a_ref (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Otherwise every ref the project mints is invisible to backlinks, permanently."""
+	"""A key starts with a letter, so a numeric path segment is always a ref (SPEC.md §6.2).
+
+	This mattered less when a ref was ``SR-42``: the two were told apart by shape. Now that
+	a ref is a bare integer, ``/v1/projects/123`` and ``/v1/tasks/123`` would be ambiguous
+	the moment a project could be keyed ``123`` — so the rule that was cosmetic is now the
+	thing keeping two address spaces apart.
+	"""
 
 	workspace = _workspace(session)
 
@@ -926,7 +966,8 @@ def test_a_project_key_must_be_one_the_mention_index_can_see (
 	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
 
 	assert project.key == "WEB2"
-	assert subroutine.domain.mentions.REF_PATTERN.fullmatch(task.ref) is not None
+	assert subroutine.domain.refs.parse_ref(project.key) is None, "a key is never a ref"
+	assert subroutine.domain.refs.parse_ref(str(task.ref)) == task.ref
 
 
 def test_a_deleted_workspace_releases_its_short_name (

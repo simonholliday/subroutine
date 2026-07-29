@@ -110,10 +110,6 @@ class Project(
 		sqlalchemy.String(64), nullable=True
 	)
 
-	# Shared by tasks and documents, so a ref names exactly one thing.
-	next_ref_number: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.Integer, default=1, nullable=False
-	)
 	archived_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True
 	)

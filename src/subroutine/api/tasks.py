@@ -36,6 +36,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.patch
 import subroutine.domain.projects
+import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.errors
@@ -55,7 +56,7 @@ SORTABLE: dict[str, typing.Any] = {
 	"due_at": subroutine.db.models.work.Task.due_at,
 	"planned_for": subroutine.db.models.work.Task.planned_for,
 	"importance": subroutine.db.models.work.Task.importance,
-	"ref": subroutine.db.models.work.Task.number,
+	"ref": subroutine.db.models.work.Task.ref,
 	"title": subroutine.db.models.work.Task.title,
 }
 
@@ -411,13 +412,20 @@ def _resolve (
 		include_templates=True,
 	)
 
-	try:
-		found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+	# A ref is all digits and a project key must start with a letter (SPEC.md §6.2), so
+	# the two path spaces cannot overlap and the order of these branches is not a guess.
+	ref = subroutine.domain.refs.parse_ref(wanted)
 
-	except ValueError:
-		# Not a UUID, so it is a ref. Refs are upper-case in storage and accepted in any
-		# case in a path (SPEC.md §8.1).
-		found = session.scalars(statement.where(model.ref == wanted.upper())).first()
+	if ref is not None:
+		found = session.scalars(statement.where(model.ref == ref)).first()
+
+	else:
+		try:
+			found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+
+		except ValueError:
+			# Neither a ref nor an id, so nothing can answer to it.
+			found = None
 
 	if found is None:
 		raise subroutine.errors.NotFound(
@@ -427,7 +435,7 @@ def _resolve (
 					field="id_or_ref",
 					code="not_found",
 					message=f"No task in {workspace.slug} answers to {id_or_ref!r}.",
-					hint="Use a ref like 'SR-42' or a task id. GET /v1/tasks lists what you "
+					hint="Use a ref like '42' or a task id. GET /v1/tasks lists what you "
 					"can see.",
 				)
 			],

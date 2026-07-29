@@ -46,7 +46,6 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
 	"domain/tags.py": "reads a task's own tag rows, having been handed the task",
 	"domain/agenda.py": "builds on the helper and adds only what the agenda means",
-	"cli/personal.py": "resolves one ref at a time; its listing goes through the helper",
 	"api/tasks.py": "every listing and lookup starts at readable_tasks; the direct select is "
 	"the include_total count, taken over that same narrowed statement as a subquery",
 	"api/projects.py": "likewise, over readable_projects",

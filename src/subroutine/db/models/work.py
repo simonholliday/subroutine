@@ -38,12 +38,6 @@ class Task(
 			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
 			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
 		),
-		# Keyed on the project that *minted* the number, not the one the task currently
-		# sits in. Tasks move between projects; their refs do not follow, so keying on
-		# `project_id` would collide the moment the destination reaches the same number.
-		sqlalchemy.UniqueConstraint(
-			"origin_project_id", "number", name="uq_task_origin_project_id_number"
-		),
 		sqlalchemy.Index(
 			"ix_task_workspace_id_project_id_status_id", "workspace_id", "project_id", "status_id"
 		),
@@ -87,17 +81,11 @@ class Task(
 		nullable=False,
 	)
 
-	# Human-readable and immutable. UUIDs are unusable in a commit message.
-	ref: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(64), nullable=False
-	)
-	number: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
+	# Human-readable and immutable: the number a person types and writes down. UUIDs are
+	# unusable in a commit message, and a prefix would name something the task can be
+	# moved out of (SPEC.md §6.2).
+	ref: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False
-	)
-	origin_project_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.uuid_column(),
-		sqlalchemy.ForeignKey("project.id", ondelete="RESTRICT"),
-		nullable=False,
 	)
 	title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(512), nullable=False
@@ -233,9 +221,6 @@ class Document(
 			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
 			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
 		),
-		sqlalchemy.UniqueConstraint(
-			"origin_project_id", "number", name="uq_document_origin_project_id_number"
-		),
 		# A document is superseded at most once, so the chain cannot fork.
 		sqlalchemy.Index(
 			"uq_document_supersedes_id",
@@ -272,17 +257,9 @@ class Document(
 		nullable=False,
 	)
 
-	# Drawn from the same per-project counter as tasks, so a ref names exactly one thing.
-	ref: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(64), nullable=False
-	)
-	number: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
+	# Drawn from the same workspace counter as tasks, so a ref names exactly one thing.
+	ref: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False
-	)
-	origin_project_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.uuid_column(),
-		sqlalchemy.ForeignKey("project.id", ondelete="RESTRICT"),
-		nullable=False,
 	)
 	title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(512), nullable=False

@@ -93,7 +93,7 @@ def test_the_inbox_is_immediately_usable (session: sqlalchemy.orm.Session) -> No
 		session, project=result.inbox, title="Call the dentist"
 	)
 
-	assert task.ref == "INBOX-1"
+	assert task.ref == 1
 
 
 def test_initialising_twice_changes_nothing (session: sqlalchemy.orm.Session) -> None:

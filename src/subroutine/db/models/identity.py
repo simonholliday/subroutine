@@ -57,6 +57,14 @@ class Workspace(
 	timezone: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(64), nullable=True
 	)
+	#: The counter every ref in this workspace is drawn from, shared by tasks and documents
+	#: so that a ref names exactly one thing (SPEC.md §6.2). It lives here rather than on
+	#: the project because a ref must not name anything the item can be moved out of: a
+	#: number minted per project either follows the item and lies about where it is, or
+	#: changes when it moves and stops being an identifier.
+	next_ref_number: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Integer, default=1, nullable=False
+	)
 	settings: sqlalchemy.orm.Mapped[dict[str, typing.Any]] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.json_column(), default=dict, nullable=False
 	)

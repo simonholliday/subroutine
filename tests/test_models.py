@@ -97,7 +97,7 @@ def _make_task (
 	workspace: subroutine.db.models.identity.Workspace,
 	project: subroutine.db.models.project.Project,
 	*,
-	number: int,
+	ref: int,
 	**overrides: object,
 ) -> subroutine.db.models.work.Task:
 	"""Create a task with the vocabulary rows it depends on."""
@@ -123,11 +123,9 @@ def _make_task (
 	fields: dict[str, object] = {
 		"workspace_id": workspace.id,
 		"project_id": project.id,
-		"origin_project_id": project.id,
 		"type_id": item_type.id,
 		"status_id": status.id,
-		"ref": f"{project.key}-{number}",
-		"number": number,
+		"ref": ref,
 		"title": "A task",
 		"path": "/",
 	}
@@ -163,9 +161,9 @@ def test_workspace_and_task_round_trip (session: sqlalchemy.orm.Session) -> None
 
 	workspace = _make_workspace(session)
 	project = _make_project(session, workspace)
-	task = _make_task(session, workspace, project, number=1)
+	task = _make_task(session, workspace, project, ref=1)
 
-	assert task.ref == "SR-1"
+	assert task.ref == 1
 	assert task.spent_minutes == 0
 	assert task.is_template is False
 	assert task.meta == {}
@@ -182,10 +180,10 @@ def test_task_ref_is_unique_among_live_rows (session: sqlalchemy.orm.Session) ->
 
 	workspace = _make_workspace(session)
 	project = _make_project(session, workspace)
-	_make_task(session, workspace, project, number=1)
+	_make_task(session, workspace, project, ref=1)
 
 	with pytest.raises(sqlalchemy.exc.IntegrityError):
-		_make_task(session, workspace, project, number=2, ref="SR-1")
+		_make_task(session, workspace, project, ref=1)
 
 
 def test_a_deleted_ref_can_be_reused (session: sqlalchemy.orm.Session) -> None:
@@ -193,50 +191,57 @@ def test_a_deleted_ref_can_be_reused (session: sqlalchemy.orm.Session) -> None:
 
 	workspace = _make_workspace(session)
 	project = _make_project(session, workspace)
-	first = _make_task(session, workspace, project, number=1)
+	first = _make_task(session, workspace, project, ref=1)
 
 	first.deleted_at = subroutine.db.types.utcnow()
 	session.flush()
 
-	second = _make_task(session, workspace, project, number=2, ref="SR-1")
+	second = _make_task(session, workspace, project, ref=1)
 
-	assert second.ref == "SR-1"
+	assert second.ref == 1
 
 
-def test_task_numbers_are_unique_within_their_originating_project (
+def test_a_ref_is_unique_across_projects_not_only_within_one (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The number belongs to the project that minted it, not the current one.
+	"""One number space per workspace, so two projects cannot both hold ``#3``.
 
-	Keying on ``project_id`` would collide as soon as a moved task's new home reached the
-	same number — from an entirely legitimate action.
+	This is what lets a bare number address a task. Under the per-project counters this
+	replaced, ``3`` meant one thing in the Inbox and another on the website, and the CLI
+	had to answer ``subroutine done 3`` with a list of candidates.
 	"""
-
-	workspace = _make_workspace(session)
-	project = _make_project(session, workspace)
-	_make_task(session, workspace, project, number=1)
-
-	with pytest.raises(sqlalchemy.exc.IntegrityError):
-		_make_task(session, workspace, project, number=1, ref="SR-99")
-
-
-def test_a_moved_task_keeps_its_ref_without_colliding (session: sqlalchemy.orm.Session) -> None:
-	"""A task moved to another project keeps its ref; the new project reuses the number."""
 
 	workspace = _make_workspace(session)
 	home = _make_project(session, workspace, key="HOME")
 	work = _make_project(session, workspace, key="SR")
 
-	moved = _make_task(session, workspace, home, number=3, ref="HOME-3")
+	_make_task(session, workspace, home, ref=3)
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		_make_task(session, workspace, work, ref=3)
+
+
+def test_a_moved_task_keeps_its_ref (session: sqlalchemy.orm.Session) -> None:
+	"""Moving a task between projects does not touch its ref, and cannot collide.
+
+	The ref used to carry the key of the project that minted it, which made this the
+	awkward case: the number had to stay while the prefix went on naming a project the
+	task had left. A ref that names nothing but the workspace has nothing to go stale.
+	"""
+
+	workspace = _make_workspace(session)
+	home = _make_project(session, workspace, key="HOME")
+	work = _make_project(session, workspace, key="SR")
+
+	moved = _make_task(session, workspace, home, ref=3)
 	moved.project_id = work.id
+
+	native = _make_task(session, workspace, work, ref=4)
 	session.flush()
 
-	# `SR` mints its own number 3. Nothing collides, because the moved task's number
-	# still belongs to HOME.
-	native = _make_task(session, workspace, work, number=3, ref="SR-3")
-
-	assert moved.ref == "HOME-3"
-	assert native.ref == "SR-3"
+	assert moved.ref == 3, "the ref is untouched by the move"
+	assert moved.project_id == work.id
+	assert native.ref == 4
 
 
 def test_importance_is_constrained_to_the_documented_range (
@@ -248,7 +253,7 @@ def test_importance_is_constrained_to_the_documented_range (
 	project = _make_project(session, workspace)
 
 	with pytest.raises(sqlalchemy.exc.IntegrityError):
-		_make_task(session, workspace, project, number=1, importance=7)
+		_make_task(session, workspace, project, ref=1, importance=7)
 
 
 def test_status_category_is_constrained (session: sqlalchemy.orm.Session) -> None:
@@ -276,7 +281,7 @@ def test_documents_use_the_same_ref_counter_as_tasks (session: sqlalchemy.orm.Se
 
 	workspace = _make_workspace(session)
 	project = _make_project(session, workspace)
-	_make_task(session, workspace, project, number=1)
+	_make_task(session, workspace, project, ref=1)
 
 	status = subroutine.db.models.vocabulary.Status(
 		workspace_id=workspace.id,
@@ -295,18 +300,16 @@ def test_documents_use_the_same_ref_counter_as_tasks (session: sqlalchemy.orm.Se
 	document = subroutine.db.models.work.Document(
 		workspace_id=workspace.id,
 		project_id=project.id,
-		origin_project_id=project.id,
 		type_id=item_type.id,
 		status_id=status.id,
-		ref="SR-2",
-		number=2,
+		ref=2,
 		title="A specification",
 		path="/",
 	)
 	session.add(document)
 	session.flush()
 
-	assert document.ref == "SR-2"
+	assert document.ref == 2
 
 
 def test_documents_have_no_scheduling_columns () -> None:

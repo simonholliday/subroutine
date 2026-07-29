@@ -33,6 +33,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.documents
 import subroutine.domain.links
+import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.errors
 
@@ -47,7 +48,7 @@ SORTABLE: dict[str, typing.Any] = {
 	"created_at": subroutine.db.models.work.Document.created_at,
 	"updated_at": subroutine.db.models.work.Document.updated_at,
 	"title": subroutine.db.models.work.Document.title,
-	"ref": subroutine.db.models.work.Document.number,
+	"ref": subroutine.db.models.work.Document.ref,
 }
 
 DEFAULT_ORDER = ("-created_at",)
@@ -60,11 +61,11 @@ class Create(subroutine.api.schemas.RequestModel):
 	body: str | None = None
 	workspace_id: str | None = None
 	project: str | None = None
-	parent: str | None = None
+	parent: subroutine.api.schemas.Reference | None = None
 	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
-	supersedes: str | None = None
+	supersedes: subroutine.api.schemas.Reference | None = None
 
 
 class Update(subroutine.api.schemas.RequestModel):
@@ -79,7 +80,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	body: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
-	supersedes: str | None = None
+	supersedes: subroutine.api.schemas.Reference | None = None
 
 	#: The version this change is based on (SPEC.md §8.9).
 	expected_version: int | None = None
@@ -90,9 +91,13 @@ class LinkRequest(subroutine.api.schemas.RequestModel):
 
 	``target`` is a ref or an id; ``target_type`` says which table to look in and defaults
 	to a task, which is what most links point at.
+
+	A ref is an integer in every response this API sends, so ``42`` is accepted as well as
+	``"42"`` — a client should be able to send back what it was given without converting
+	it. An id arrives as a string, since a UUID is not a number.
 	"""
 
-	target: str
+	target: int | str
 	link_type: str
 	target_type: str = "task"
 
@@ -102,7 +107,7 @@ class End(subroutine.api.schemas.RequestModel):
 
 	entity_type: str
 	id: uuid.UUID
-	ref: str
+	ref: int
 	title: str
 
 
@@ -135,10 +140,14 @@ def create (
 		body=body.body,
 		type_key=body.type or "note",
 		status_key=body.status,
-		parent=None if body.parent is None else _resolve(session, actor, workspace, body.parent),
+		parent=(
+			None if body.parent is None else _resolve(session, actor, workspace, str(body.parent))
+		),
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
 		supersedes=(
-			None if body.supersedes is None else _resolve(session, actor, workspace, body.supersedes)
+			None
+			if body.supersedes is None
+			else _resolve(session, actor, workspace, str(body.supersedes))
 		),
 		actor=actor,
 	)
@@ -275,7 +284,7 @@ def change (
 		changes["supersedes"] = (
 			None
 			if body.supersedes is None
-			else _resolve(session, actor, workspace, body.supersedes)
+			else _resolve(session, actor, workspace, str(body.supersedes))
 		)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
@@ -355,7 +364,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
-		far = _near(session, actor, workspace, body.target_type, body.target)
+		far = _near(session, actor, workspace, body.target_type, str(body.target))
 
 		created = subroutine.domain.links.create(
 			session,
@@ -405,7 +414,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		if found is None:
 			raise subroutine.errors.NotFound(
-				f"There is no such link on {near.ref}.",
+				f"There is no such link on {subroutine.domain.refs.format_ref(near.ref)}.",
 				hint="GET this item's /links to see the ones there are.",
 			)
 
@@ -519,11 +528,20 @@ def _resolve (
 		actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
 	)
 
-	try:
-		found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+	# A ref is all digits and a project key must start with a letter (SPEC.md §6.2), so
+	# the two path spaces cannot overlap and the order of these branches is not a guess.
+	ref = subroutine.domain.refs.parse_ref(wanted)
 
-	except ValueError:
-		found = session.scalars(statement.where(model.ref == wanted.upper())).first()
+	if ref is not None:
+		found = session.scalars(statement.where(model.ref == ref)).first()
+
+	else:
+		try:
+			found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+
+		except ValueError:
+			# Neither a ref nor an id, so nothing can answer to it.
+			found = None
 
 	if found is None:
 		raise subroutine.errors.NotFound(
@@ -533,7 +551,7 @@ def _resolve (
 					field="id_or_ref",
 					code="not_found",
 					message=f"No document in {workspace.slug} answers to {id_or_ref!r}.",
-					hint="Use a ref like 'SR-42' or a document id. GET /v1/documents lists "
+					hint="Use a ref like '42' or a document id. GET /v1/documents lists "
 					"what you can see. Note tasks and documents share one ref space, so a "
 					"ref that exists may name a task instead.",
 				)

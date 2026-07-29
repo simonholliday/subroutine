@@ -173,18 +173,18 @@ def test_a_bare_number_addresses_a_task_by_its_ref_number (
 	shown = {
 		line.split(maxsplit=1)[0]: line.split(maxsplit=1)[1].strip()
 		for line in run("today").output.splitlines()
-		if line.strip()[:1].isalpha() and "-" in line.split(maxsplit=1)[0]
+		if line.strip().startswith("#")
 	}
 
-	assert set(shown) == {"INBOX-1", "INBOX-2"}
+	assert set(shown) == {"#1", "#2"}, "listings print the ref with its sigil"
 
-	# The bare number is the ref number, so this reaches INBOX-2 without typing the prefix.
+	# Typed without the sigil, because a shell would eat it (SPEC.md §12.2a).
 	run("done", "2")
 
 	remaining = run("today").output
 
-	assert shown["INBOX-2"] not in remaining
-	assert shown["INBOX-1"] in remaining
+	assert shown["#2"] not in remaining
+	assert shown["#1"] in remaining
 
 
 def test_a_number_goes_on_meaning_the_same_task_after_something_is_completed (
@@ -207,8 +207,8 @@ def test_a_number_goes_on_meaning_the_same_task_after_something_is_completed (
 
 	listed = run("ls").output
 
-	assert "INBOX-1" not in listed, "the completed task is gone from the list"
-	assert "INBOX-2" in listed and "INBOX-3" in listed
+	assert "#1" not in listed, "the completed task is gone from the list"
+	assert "#2" in listed and "#3" in listed
 	assert "Buy salad" in listed
 
 	# The absent-minded up-arrow. It must not touch the salad.
@@ -221,29 +221,43 @@ def test_a_number_goes_on_meaning_the_same_task_after_something_is_completed (
 def test_a_number_that_matches_nothing_is_refused_with_the_remedy (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""And the refusal shows what a ref looks like here."""
+	"""And the refusal says how to find out what does exist."""
 
 	run("init")
 	run("add", "Buy milk")
 
 	result = run("done", "9", expect=1)
 
-	assert "no task 9" in result.output
-	assert "INBOX-1" in result.output
+	assert "no task #9" in result.output
+	assert "subroutine ls" in result.output
 
 
-def test_refs_work_alongside_positions (
+def test_the_sigil_is_accepted_as_well_as_the_bare_number (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""Positional addressing is a convenience over refs, which keep working."""
+	"""``#1`` is what a listing prints, so it has to work when somebody types it back.
+
+	A shell eats an unquoted ``#``, which is why the bare form is the one the CLI advertises
+	— but a quoted one, or one pasted into a script, must not be a refusal.
+	"""
 
 	run("init")
 	run("add", "Buy milk")
 
-	ref = run("ls", "--json").output
-	name = ref.split('"ref": "')[1].split('"')[0]
+	assert "Done: Buy milk" in run("done", "#1").output
 
-	assert "Done: Buy milk" in run("done", name).output
+
+def test_a_ref_is_a_number_in_json_not_a_string (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The scripted path gets the same type the API sends, so the two cannot drift."""
+
+	run("init")
+	run("add", "Buy milk")
+
+	listed = json.loads(run("ls", "--json").output)
+
+	assert listed[0]["ref"] == 1
 
 
 def test_the_capture_grammar_reaches_the_database (
@@ -344,7 +358,7 @@ def test_help_explains_concepts_not_only_commands (
 
 	assert "deadline" in run("help", "dates").output.lower()
 	assert "Nothing is ever lost" in run("help", "capture").output
-	assert "SR-42" in run("help", "refs").output
+	assert "#7" in run("help", "refs").output
 
 
 def test_the_help_topics_are_generated_from_the_parsers (

@@ -50,7 +50,7 @@ class Task(pydantic.BaseModel):
 	"""A task as the API reports it."""
 
 	id: uuid.UUID
-	ref: str
+	ref: int
 	title: str
 	description: str | None
 
@@ -128,7 +128,7 @@ class Document(pydantic.BaseModel):
 	"""
 
 	id: uuid.UUID
-	ref: str
+	ref: int
 	title: str
 	body: str | None
 

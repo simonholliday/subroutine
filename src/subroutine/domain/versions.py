@@ -18,6 +18,7 @@ without the protection.
 
 import typing
 
+import subroutine.domain.refs
 import subroutine.errors
 
 
@@ -38,7 +39,7 @@ def require (entity: typing.Any, expected: int | None, *, noun: str = "item") ->
 	if current == expected:
 		return
 
-	reference = getattr(entity, "ref", None) or getattr(entity, "key", None) or noun
+	reference = _name(entity, noun)
 
 	raise subroutine.errors.Conflict(
 		f"{reference} has changed since you read it: you have version {expected}, and it "
@@ -58,3 +59,21 @@ def require (entity: typing.Any, expected: int | None, *, noun: str = "item") ->
 		# two numbers out of a sentence is not.
 		extensions={"expected_version": expected, "current_version": current},
 	)
+
+
+def _name (entity: typing.Any, noun: str) -> str:
+	"""Return what to call an entity in a sentence: ``#42``, ``SR``, or a fallback noun.
+
+	Tested against ``None`` rather than for truthiness. A ref is an integer now, and while
+	they start at 1, ``or`` would silently fall through to the noun the day one could be 0 —
+	which is the same trap this module's docstring warns about for versions.
+	"""
+
+	ref = getattr(entity, "ref", None)
+
+	if ref is not None:
+		return subroutine.domain.refs.format_ref(int(ref))
+
+	key = getattr(entity, "key", None)
+
+	return noun if key is None else str(key)

@@ -31,6 +31,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
+import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.errors
 import subroutine.permissions
@@ -46,7 +47,7 @@ class End:
 
 	entity_type: str
 	id: uuid.UUID
-	ref: str
+	ref: int
 	title: str
 	project_id: uuid.UUID
 
@@ -93,7 +94,8 @@ def create (
 				subroutine.errors.FieldError(
 					field="target",
 					code="invalid_field_value",
-					message=f"{source.ref} is the item this link starts from.",
+					message=f"{subroutine.domain.refs.format_ref(source.ref)} is the item this "
+					"link starts from.",
 				)
 			],
 		)

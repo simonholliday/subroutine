@@ -160,7 +160,7 @@ def test_a_bare_date_string_means_the_whole_day (session: sqlalchemy.orm.Session
 
 
 def test_a_relative_expression_sets_a_date (session: sqlalchemy.orm.Session) -> None:
-	"""§9.3's grammar reaches the service layer, which is what `sr plan SR-42 tomorrow` needs."""
+	"""§9.3's grammar reaches the service layer, which is what `subroutine plan 42 tomorrow` needs."""
 
 	task = _task(session, due="end_of_week", planned_for="tomorrow")
 

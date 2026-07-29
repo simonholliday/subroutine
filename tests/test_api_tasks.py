@@ -82,7 +82,7 @@ def test_a_task_can_be_created_from_a_line_of_text (world: World) -> None:
 
 	assert body["title"] == "Ship the release"
 	assert body["importance"] == 2
-	assert body["ref"].startswith("INBOX-")
+	assert isinstance(body["ref"], int), "a ref is a number, not a string that holds one"
 	assert body["status_category"] == "todo"
 
 
@@ -108,13 +108,29 @@ def test_a_task_needs_a_title_or_a_line_to_parse_one_from (world: World) -> None
 	assert "text" in body["errors"][0]["message"]
 
 
-def test_a_task_is_readable_by_ref_in_any_case (world: World) -> None:
-	"""``GET /v1/tasks/sr-42`` and ``SR-42`` are the same task (SPEC.md §8.1)."""
+def test_a_task_is_readable_by_ref_with_or_without_the_sigil (world: World) -> None:
+	"""``GET /v1/tasks/42`` is the address; ``/v1/tasks/%2342`` is the same task.
+
+	The sigil is how a ref is *written* (SPEC.md §6.15), so a client that pastes what it
+	read should not get a 404 for it — even though nothing this project prints will put a
+	``#`` in a URL, since it has to be escaped to survive one.
+	"""
 
 	ref = world.call("POST", "/v1/tasks", json={"title": "Findable"}).json()["ref"]
 
 	assert world.call("GET", f"/v1/tasks/{ref}").json()["ref"] == ref
-	assert world.call("GET", f"/v1/tasks/{ref.lower()}").json()["ref"] == ref
+	assert world.call("GET", f"/v1/tasks/%23{ref}").json()["ref"] == ref
+
+
+def test_a_ref_and_a_project_key_cannot_be_confused_in_a_path (world: World) -> None:
+	"""Two address spaces in one path segment, told apart by the first character.
+
+	A key must start with a letter (SPEC.md §5.2) and a ref is all digits, which is what
+	makes ``/v1/tasks/{id_or_ref}`` unambiguous now that a ref carries no prefix.
+	"""
+
+	assert world.call("POST", "/v1/projects", json={"key": "12", "title": "No"}).status_code == 422
+	assert world.call("GET", "/v1/tasks/INBOX").status_code == 404
 
 
 def test_a_task_is_readable_by_id (world: World) -> None:
