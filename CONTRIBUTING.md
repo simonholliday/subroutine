@@ -1,0 +1,108 @@
+# Contributing to Subroutine
+
+Thank you for considering it. This file covers the one piece of paperwork, then how to
+get a working checkout, then the conventions the codebase holds to.
+
+## The paperwork, first
+
+**Every contributor agrees to the [Contributor Licence Agreement](CLA.md) before their
+first pull request is merged.** Say so in the pull request:
+
+> I have read the CLA document and I hereby agree to its terms.
+
+That is the whole process — there is nothing to print, sign or post.
+
+It exists because Subroutine is offered under AGPL-3.0-or-later *and* under a commercial
+licence by agreement. Offering the second one means being able to grant rights in all of
+the code, and a contribution that arrived under AGPL alone cannot be included in it. The
+CLA solves that by having you grant those rights up front. **You keep your copyright** —
+it is a licence, not an assignment, and you remain free to do anything you like with your
+own work.
+
+If your employer owns what you write at work, please make sure someone with authority to
+do so agrees on their behalf before you contribute.
+
+## Getting set up
+
+Subroutine targets Python 3.11 and later.
+
+```console
+$ git clone https://github.com/simonholliday/subroutine
+$ cd subroutine
+$ python -m venv .venv && . .venv/bin/activate
+$ pip install -e '.[dev,postgres]'
+$ pytest
+```
+
+That runs the suite against SQLite. To run it against both backends — which CI does, and
+which you should before opening a pull request — you need a PostgreSQL you can create
+databases on:
+
+```console
+$ export SUBROUTINE_TEST_POSTGRES_URL=postgresql+psycopg://localhost/postgres
+$ pytest
+```
+
+Without that variable the PostgreSQL half of the suite skips, so a laptop without
+PostgreSQL can still run the tests. In CI, `SUBROUTINE_TEST_REQUIRE_POSTGRES=1` turns
+those skips into failures — a green build there means both backends really ran.
+
+Before pushing:
+
+```console
+$ ruff check .
+$ mypy src tests
+$ pytest
+```
+
+## Conventions
+
+These are unusual enough to be worth stating plainly, because a linter will not tell you
+about most of them.
+
+**Indentation is tabs, never spaces.** Strictly. The one exception is
+`src/subroutine/db/migrations/versions/`, which Alembic generates space-indented and
+which is left in Alembic's conventions rather than half-converted to ours.
+
+**Ruff is a linter here, never a formatter.** Run `ruff check`. Do not run `ruff format`
+— it would convert the whole codebase to spaces and strip the space in `def foo (x)`.
+
+**Imports are `import x` only, never `from x import y`,** and things are called by their
+fully-qualified names: `sqlalchemy.select`, not `select`. The exceptions are
+`from __future__ import annotations` and imports inside `if typing.TYPE_CHECKING:`.
+
+Note the consequence: `import a.b.c` binds only `a`, so Ruff's unused-import check cannot
+see a stale `import subroutine.x.y`. Import hygiene is manual — when you stop using a
+module, remove its import by hand.
+
+**Function definitions take a space before the parenthesis, calls do not.** `def foo (x)`
+and `foo(x)`. It marks a definition apart from a call at a glance.
+
+**Docstrings are mandatory** on every function, and blank lines separate paragraphs of
+code the way they separate paragraphs of prose — a guard clause is followed by a blank
+line, and so is a shift from validating to acting.
+
+**Type hints are mandatory and use PEP 604**: `str | None`, `list[str]`, not
+`typing.Optional[str]`. `mypy --strict` passes across the whole tree and must keep doing
+so.
+
+**Every test runs against SQLite *and* PostgreSQL.** The engine fixture is parameterised;
+please do not add a test that silently covers one backend only. The bugs this catches —
+event ordering, NULL sort order, `LIKE` case sensitivity, string-length enforcement,
+collation — are invisible on SQLite by construction.
+
+**Schema changes go through Alembic.** `Base.metadata.create_all` is for tests. A CI
+check asserts that `--autogenerate` produces an empty diff against the models, and a
+second check compares CHECK constraints, which autogenerate does not look at.
+
+**User-facing text is read by people setting up a to-do list**, not only by Python
+developers. CLI output, error messages and docstrings describe outcomes in the user's
+terms, and errors say what to do next.
+
+## Pull requests
+
+Small and focused beats large and comprehensive. If you are planning something
+substantial, please open an issue first so we can agree the shape of it before you spend
+the time.
+
+Include tests. Include the CLA sentence if it is your first contribution.

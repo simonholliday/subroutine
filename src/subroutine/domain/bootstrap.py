@@ -2,9 +2,10 @@
 
 ``subroutine init`` is the only command a new user runs before the one they actually
 wanted, so it has one job: leave behind a database they can immediately add a task to.
-That means an instance identity, a user, a workspace with its vocabulary, an Inbox to file
-things in, and an owner membership — five things, none of which the person asked for and
-none of which they should have to think about (SPEC.md §12.1).
+That means an instance identity, a user — a superuser, since they are the one installing
+it — a workspace with its vocabulary, an Inbox to file things in, and an owner membership:
+five things, none of which the person asked for and none of which they should have to
+think about (SPEC.md §12.1).
 
 Kept apart from the CLI so it can be tested, called from a container's entrypoint, and
 later reused by whatever sets up a second workspace. The CLI's share of this is printing
@@ -75,12 +76,17 @@ def initialise (
 	if not created:
 		return _describe(session, instance)
 
+	# A superuser, because this is the person who installed it. Without the flag they would
+	# own the workspace ``init`` just made and be unable to create a second one or add
+	# anybody, since neither act is a workspace permission any role can carry
+	# (SPEC.md §7.1). Nobody else gets it by default.
 	user = subroutine.domain.users.create(
 		session,
 		username=username,
 		display_name=display_name,
 		password=password,
 		timezone=timezone,
+		is_superuser=True,
 	)
 
 	workspace = subroutine.domain.workspaces.create(

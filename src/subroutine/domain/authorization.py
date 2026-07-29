@@ -14,6 +14,12 @@ with one exception that has to be stated in the code as loudly as in the spec: *
 ``scopes`` list and a null ``project_scope`` mean "no narrowing", not "no permissions"**.
 Read as literal set algebra, the formula gives every ordinary token nothing at all — which
 is the single easiest way to ship an API where everything is refused.
+
+The instance tier (SPEC.md §7.1) has its own entry point, :func:`authorize_instance`, for
+the acts that have no workspace to be checked against — creating a workspace, creating an
+account. It is a separate function rather than the same one called with a placeholder
+workspace, because a sentinel id would be a value every future query has to remember to
+exclude.
 """
 
 import dataclasses
@@ -46,6 +52,7 @@ class AuthorizationFailure(enum.StrEnum):
 	OUT_OF_TOKEN_SCOPE = "out_of_token_scope"
 	OUT_OF_PROJECT_SCOPE = "out_of_project_scope"
 	PROJECT_INVISIBLE = "project_invisible"
+	NOT_A_SUPERUSER = "not_a_superuser"
 
 	@property
 	def conceals_existence (self) -> bool:
@@ -77,6 +84,10 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.OUT_OF_PROJECT_SCOPE: (
 		"The token you used is scoped to a different set of projects."
 	),
+	AuthorizationFailure.NOT_A_SUPERUSER: (
+		"This affects the whole installation, and needs the {permission!r} permission. "
+		"Only an administrator of this instance holds it."
+	),
 }
 
 _HINTS: dict[AuthorizationFailure, str] = {
@@ -85,6 +96,9 @@ _HINTS: dict[AuthorizationFailure, str] = {
 	),
 	AuthorizationFailure.WORKSPACE_MISMATCH: (
 		"Use a token issued without a workspace, or one issued for this workspace."
+	),
+	AuthorizationFailure.NOT_A_SUPERUSER: (
+		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
 }
 
@@ -97,10 +111,14 @@ class AuthorizationError(subroutine.errors.Forbidden):
 		failure: AuthorizationFailure,
 		*,
 		permission: str,
-		workspace_id: uuid.UUID,
+		workspace_id: uuid.UUID | None = None,
 		project_id: uuid.UUID | None = None,
 	) -> None:
-		"""Record what was refused, and where, and say something useful about it."""
+		"""Record what was refused, and where, and say something useful about it.
+
+		``workspace_id`` is absent for an instance-level refusal, which is not about any one
+		workspace (SPEC.md §7.1).
+		"""
 
 		hint = _HINTS.get(failure)
 
@@ -271,6 +289,83 @@ def authorize (
 	)
 
 
+def instance_permissions (
+	principal: subroutine.domain.authentication.Principal,
+) -> frozenset[str]:
+	"""Return what this principal may do to the installation itself.
+
+	Empty for everyone but a superuser, and narrowed by the token's scopes even then — so
+	an agent holding a scoped token is told the truth about what it can do rather than
+	discovering it by being refused (SPEC.md §7.1, §13.1).
+	"""
+
+	if not principal.is_superuser:
+		return frozenset()
+
+	scopes = principal.scopes
+
+	# The sentinel again: an empty list narrows nothing.
+	if not scopes:
+		return subroutine.permissions.INSTANCE_LEVEL
+
+	return subroutine.permissions.INSTANCE_LEVEL & frozenset(scopes)
+
+
+def may_instance (
+	principal: subroutine.domain.authentication.Principal, permission: str
+) -> bool:
+	"""Report whether a principal may do this to the installation, without raising."""
+
+	return _instance_refusal(principal, permission) is None
+
+
+def authorize_instance (
+	principal: subroutine.domain.authentication.Principal, permission: str
+) -> None:
+	"""Permit an action on the installation itself, or raise explaining why not.
+
+	Takes no workspace and no session, because neither has anything to say about it:
+	creating the second workspace happens outside every existing one, and creating an
+	account happens before that account belongs anywhere (SPEC.md §7.1).
+
+	Only :data:`subroutine.permissions.INSTANCE_LEVEL` verbs may be asked here. Passing a
+	workspace permission is a programming error rather than a refusal, and says so.
+	"""
+
+	failure = _instance_refusal(principal, permission)
+
+	if failure is None:
+		return
+
+	raise AuthorizationError(failure, permission=permission)
+
+
+def _instance_refusal (
+	principal: subroutine.domain.authentication.Principal, permission: str
+) -> AuthorizationFailure | None:
+	"""Return why an instance-level action is refused, or ``None`` if it is permitted."""
+
+	if permission not in subroutine.permissions.INSTANCE_LEVEL:
+		valid = ", ".join(sorted(subroutine.permissions.INSTANCE_LEVEL))
+
+		raise ValueError(
+			f"Unknown instance permission {permission!r}. Valid permissions are: {valid}. "
+			"Workspace permissions go through authorize, which takes a workspace."
+		)
+
+	if not principal.is_superuser:
+		return AuthorizationFailure.NOT_A_SUPERUSER
+
+	scopes = principal.scopes
+
+	# A superuser bypasses roles, never token scopes — otherwise a leaked agent token
+	# belonging to an administrator would be unbounded (SPEC.md §7.3).
+	if scopes and permission not in scopes:
+		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
+
+	return None
+
+
 def _refusal (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
@@ -281,10 +376,13 @@ def _refusal (
 ) -> AuthorizationFailure | None:
 	"""Return why the action is refused, or ``None`` if it is permitted."""
 
-	if permission not in subroutine.permissions.ALL:
-		valid = ", ".join(sorted(subroutine.permissions.ALL))
+	if permission not in subroutine.permissions.WORKSPACE_LEVEL:
+		valid = ", ".join(sorted(subroutine.permissions.WORKSPACE_LEVEL))
 
-		raise ValueError(f"Unknown permission {permission!r}. Valid permissions are: {valid}.")
+		raise ValueError(
+			f"Unknown workspace permission {permission!r}. Valid permissions are: {valid}. "
+			"Instance permissions go through authorize_instance, which takes no workspace."
+		)
 
 	# A token pinned to one workspace cannot reach into another, whatever its owner may
 	# do there.
@@ -339,8 +437,10 @@ def _role_for (
 	``project_member`` row naming a different one for this project.
 	"""
 
+	# The workspace tier only. What a superuser may do *to the installation* is
+	# :func:`_instance_refusal`'s business, and a role is never the answer there.
 	if principal.is_superuser:
-		return "superuser", subroutine.permissions.ALL
+		return "superuser", subroutine.permissions.WORKSPACE_LEVEL
 
 	if membership is not None and membership.role_id is not None:
 		project_role = session.get(subroutine.db.models.identity.Role, membership.role_id)

@@ -13,6 +13,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy.engine
 
+import conftest
 import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.session
@@ -46,7 +47,7 @@ def migrated_url (
 		with admin_engine.connect() as connection:
 			connection.execute(sqlalchemy.text(f'CREATE DATABASE "{database}"'))
 
-		url = str(sqlalchemy.engine.make_url(admin_url).set(database=database))
+		url = conftest.with_database(admin_url, database)
 
 		subroutine.db.migrate.upgrade(url)
 

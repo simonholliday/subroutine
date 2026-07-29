@@ -115,14 +115,20 @@ _READ_EVERYTHING = (
 )
 
 #: An admin differs from an owner in exactly one thing, and this is it.
-_EVERYTHING_BUT_DELETION = subroutine.permissions.ALL - {subroutine.permissions.WORKSPACE_DELETE}
+_EVERYTHING_BUT_DELETION = subroutine.permissions.WORKSPACE_LEVEL - {
+	subroutine.permissions.WORKSPACE_DELETE
+}
 
 _SYSTEM_ROLES = (
 	RoleSeed(
 		key="owner",
 		title="Owner",
 		description="Full control, including deleting the workspace. Every workspace has at least one.",
-		permissions=tuple(subroutine.permissions.sorted_permissions(subroutine.permissions.ALL)),
+		# The top of one workspace, not of the installation: creating a second workspace or
+		# a new account needs an instance permission, which no role carries (SPEC.md §7.2).
+		permissions=tuple(
+			subroutine.permissions.sorted_permissions(subroutine.permissions.WORKSPACE_LEVEL)
+		),
 	),
 	RoleSeed(
 		key="admin",

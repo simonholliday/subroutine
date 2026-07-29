@@ -226,7 +226,11 @@ def test_the_role_ladder_narrows_at_every_step (session: sqlalchemy.orm.Session)
 		)
 	}
 
-	assert granted["owner"] == set(subroutine.permissions.ALL)
+	# The workspace tier, and only that. An owner owns a workspace, not the installation.
+	assert granted["owner"] == set(subroutine.permissions.WORKSPACE_LEVEL)
+
+	for role_permissions in granted.values():
+		assert not role_permissions & subroutine.permissions.INSTANCE_LEVEL
 
 	# The whole difference between an owner and an admin, per SPEC.md §7.2.
 	assert granted["owner"] - granted["admin"] == {subroutine.permissions.WORKSPACE_DELETE}
@@ -393,6 +397,34 @@ def test_every_permission_constant_is_listed () -> None:
 	}
 
 	assert declared == set(subroutine.permissions.ALL)
+
+
+def test_the_two_permission_tiers_do_not_overlap () -> None:
+	"""A verb belongs to exactly one tier, and ``ALL`` is the two of them.
+
+	Overlap would mean a permission both granted by a role and reserved to superusers,
+	which is two different answers to the same question (SPEC.md §7.1).
+	"""
+
+	workspace_level = subroutine.permissions.WORKSPACE_LEVEL
+	instance_level = subroutine.permissions.INSTANCE_LEVEL
+
+	assert not workspace_level & instance_level
+	assert workspace_level | instance_level == subroutine.permissions.ALL
+
+	assert all(verb.startswith("instance:") for verb in instance_level)
+	assert not any(verb.startswith("instance:") for verb in workspace_level)
+
+
+def test_unknown_can_be_narrowed_to_one_tier () -> None:
+	"""A role may not carry an instance verb, though it is a real permission."""
+
+	assert subroutine.permissions.unknown([subroutine.permissions.INSTANCE_USER_CREATE]) == ()
+
+	assert subroutine.permissions.unknown(
+		[subroutine.permissions.TASK_READ, subroutine.permissions.INSTANCE_USER_CREATE],
+		within=subroutine.permissions.WORKSPACE_LEVEL,
+	) == (subroutine.permissions.INSTANCE_USER_CREATE,)
 
 
 def test_unknown_permissions_are_reported_verbatim () -> None:

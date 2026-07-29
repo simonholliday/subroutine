@@ -153,7 +153,7 @@ def test_every_role_against_every_permission (
 	principal = _member(session, workspace, role_key)
 	granted = set(_role(session, workspace, role_key).permissions)
 
-	for permission in sorted(subroutine.permissions.ALL):
+	for permission in sorted(subroutine.permissions.WORKSPACE_LEVEL):
 		allowed = subroutine.domain.authorization.may(
 			session, principal, permission, workspace_id=workspace.id
 		)
@@ -400,8 +400,12 @@ def test_a_private_project_conceals_its_existence (session: sqlalchemy.orm.Sessi
 	assert "project" in error.value.detail.lower()
 
 	# The mistake this guards against is a caller catching "the check said no" and
-	# reporting it as forbidden, which would confirm the project is there.
-	assert not isinstance(error.value, subroutine.domain.authorization.AuthorizationError)
+	# reporting it as forbidden, which would confirm the project is there. Read through a
+	# widened local because mypy can now prove the two classes are disjoint, and would
+	# otherwise call the assertion unreachable rather than let it run.
+	raised: Exception = error.value
+
+	assert not isinstance(raised, subroutine.domain.authorization.AuthorizationError)
 
 
 def test_a_project_member_can_see_a_private_project (
@@ -554,7 +558,7 @@ def test_explain_never_promises_more_than_authorize_grants (
 			session, principal, workspace_id, project=target
 		)
 
-		for permission in sorted(subroutine.permissions.ALL):
+		for permission in sorted(subroutine.permissions.WORKSPACE_LEVEL):
 			allowed = subroutine.domain.authorization.may(
 				session, principal, permission, workspace_id=workspace_id, project=target
 			)
@@ -583,3 +587,134 @@ def test_a_pinned_or_project_scoped_token_reports_itself_as_narrowing (
 
 	assert pinned.narrowed_by_token
 	assert scoped.narrowed_by_token
+
+
+def test_a_workspace_owner_holds_nothing_at_instance_level (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Owning a workspace is not owning the installation (SPEC.md §7.2)."""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+
+	assert subroutine.domain.authorization.instance_permissions(owner) == frozenset()
+
+	for permission in sorted(subroutine.permissions.INSTANCE_LEVEL):
+		assert not subroutine.domain.authorization.may_instance(owner, permission)
+
+		with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
+			subroutine.domain.authorization.authorize_instance(owner, permission)
+
+		assert (
+			raised.value.failure
+			is subroutine.domain.authorization.AuthorizationFailure.NOT_A_SUPERUSER
+		)
+		assert raised.value.workspace_id is None
+
+
+def test_a_superuser_holds_every_instance_permission (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The account ``init`` creates can create the second workspace and the second user."""
+
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+
+	assert (
+		subroutine.domain.authorization.instance_permissions(superuser)
+		== subroutine.permissions.INSTANCE_LEVEL
+	)
+
+	for permission in sorted(subroutine.permissions.INSTANCE_LEVEL):
+		subroutine.domain.authorization.authorize_instance(superuser, permission)
+
+		assert subroutine.domain.authorization.may_instance(superuser, permission)
+
+
+def test_a_superuser_token_still_narrows_instance_permissions (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""An agent gets what its token says, not what its owner is (SPEC.md §7.3).
+
+	This is what makes it safe to answer "yes, my agent may create workspaces": it may,
+	if and only if the token says so.
+	"""
+
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+	scoped = _with_token(
+		session, superuser, scopes=[subroutine.permissions.INSTANCE_WORKSPACE_CREATE]
+	)
+
+	assert subroutine.domain.authorization.instance_permissions(scoped) == frozenset(
+		{subroutine.permissions.INSTANCE_WORKSPACE_CREATE}
+	)
+
+	subroutine.domain.authorization.authorize_instance(
+		scoped, subroutine.permissions.INSTANCE_WORKSPACE_CREATE
+	)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as raised:
+		subroutine.domain.authorization.authorize_instance(
+			scoped, subroutine.permissions.INSTANCE_USER_CREATE
+		)
+
+	assert (
+		raised.value.failure
+		is subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE
+	)
+
+
+def test_an_unscoped_superuser_token_narrows_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The sentinel holds at instance level too: ``scopes == []`` is not "nothing"."""
+
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+	unscoped = _with_token(session, superuser, scopes=[])
+
+	assert (
+		subroutine.domain.authorization.instance_permissions(unscoped)
+		== subroutine.permissions.INSTANCE_LEVEL
+	)
+
+
+def test_the_two_tiers_refuse_each_others_verbs (session: sqlalchemy.orm.Session) -> None:
+	"""Asking the wrong entry point is a programming error, not a refusal."""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+
+	with pytest.raises(ValueError, match="Unknown instance permission"):
+		subroutine.domain.authorization.authorize_instance(
+			owner, subroutine.permissions.TASK_READ
+		)
+
+	with pytest.raises(ValueError, match="Unknown workspace permission"):
+		subroutine.domain.authorization.authorize(
+			session,
+			owner,
+			subroutine.permissions.INSTANCE_USER_CREATE,
+			workspace_id=workspace.id,
+		)
+
+
+def test_a_superuser_gets_the_workspace_tier_and_not_more (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Bypassing roles grants the workspace verbs, never the instance ones."""
+
+	workspace = _seeded_workspace(session)
+	superuser = subroutine.domain.authentication.Principal(
+		user=_user(session, is_superuser=True)
+	)
+
+	granted = subroutine.domain.authorization.effective_permissions(
+		session, superuser, workspace.id
+	)
+
+	assert granted == subroutine.permissions.WORKSPACE_LEVEL

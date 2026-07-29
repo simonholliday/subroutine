@@ -39,12 +39,30 @@ REQUIRE_POSTGRES = os.environ.get("SUBROUTINE_TEST_REQUIRE_POSTGRES", "").strip(
 }
 
 
+def with_database (url: str | sqlalchemy.engine.URL, name: str) -> str:
+	"""Return ``url`` pointed at a different database, with its password intact.
+
+	Exists because of a trap that cost a red CI run: **``str()`` on a SQLAlchemy ``URL``
+	renders the password as ``***``**. It is a deliberate courtesy for logs, and it turns a
+	derived URL into one that authenticates as the literal password ``***``. Nothing
+	catches it locally, where the admin URL is ``postgresql+psycopg:///postgres`` and peer
+	authentication over the Unix socket means there is no password to mask — so the bug
+	appears only where a password is actually used, which is every environment except a
+	developer's laptop.
+
+	``render_as_string(hide_password=False)`` is the round-trippable form, and it should be
+	used every time a URL is turned back into a string to connect with.
+	"""
+
+	parsed = url if isinstance(url, sqlalchemy.engine.URL) else sqlalchemy.engine.make_url(url)
+
+	return parsed.set(database=name).render_as_string(hide_password=False)
+
+
 def _postgres_url () -> str:
 	"""Return the URL of the throwaway test database."""
 
-	admin = sqlalchemy.engine.make_url(POSTGRES_ADMIN_URL)
-
-	return str(admin.set(database=TEST_DATABASE_NAME))
+	return with_database(POSTGRES_ADMIN_URL, TEST_DATABASE_NAME)
 
 
 def _postgres_unavailable_reason () -> str | None:

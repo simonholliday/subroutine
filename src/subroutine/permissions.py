@@ -6,6 +6,13 @@ rows, the authorisation check reads them back out, and the API publishes them. A
 is a plain string precisely so that a custom role is a data change and not a migration
 (SPEC.md §7.2).
 
+There are **two tiers**, and they are kept in separate sets because they are checked
+against different things (SPEC.md §7.1). A workspace permission answers "may this person
+do X *in workspace W*" and is granted by a role. An instance permission answers "may this
+person do X *to this installation*" — creating a second workspace, creating an account —
+and has no workspace to be checked against, so no role can carry it and only a superuser
+holds it.
+
 Nothing here decides anything. Which permissions a role carries is seed data
 (``subroutine.db.seed``); how they combine with a token's scopes is SPEC.md §7.3.
 """
@@ -43,12 +50,14 @@ TAG_WRITE = "tag:write"
 STATUS_WRITE = "status:write"
 LINK_TYPE_WRITE = "link_type:write"
 
+#: Managing who belongs to *this workspace* and what they may do here — inviting,
+#: removing, changing a member's role. Not the same thing as creating an account, which is
+#: :data:`INSTANCE_USER_CREATE` and belongs to the tier below (SPEC.md §7.1).
 USER_ADMIN = "user:admin"
 TOKEN_ADMIN = "token:admin"
 
-#: Every permission this build recognises. A role may be granted nothing outside it, and
-#: a token may narrow to nothing outside it.
-ALL: frozenset[str] = frozenset(
+#: Every permission that is granted by a role and checked against a workspace.
+WORKSPACE_LEVEL: frozenset[str] = frozenset(
 	{
 		WORKSPACE_READ,
 		WORKSPACE_WRITE,
@@ -70,15 +79,47 @@ ALL: frozenset[str] = frozenset(
 	}
 )
 
+#: Creating the second workspace happens outside every existing workspace, and creating an
+#: account happens before that account belongs to one — so neither can be expressed as a
+#: role permission, and without their own verbs the only way to do either is to skip the
+#: check (SPEC.md §7.1).
+INSTANCE_WORKSPACE_CREATE = "instance:workspace_create"
+INSTANCE_USER_CREATE = "instance:user_create"
 
-def unknown (candidates: typing.Iterable[str]) -> tuple[str, ...]:
+#: The installation's own identity and settings, and anything that reads across every
+#: workspace at once.
+INSTANCE_ADMIN = "instance:admin"
+
+#: Every permission held by superusers and by nobody else. A role may not carry one of
+#: these; a token may still narrow to one, which is what lets an agent be given the
+#: authority to create a workspace without being given everything else (SPEC.md §7.3).
+INSTANCE_LEVEL: frozenset[str] = frozenset(
+	{
+		INSTANCE_WORKSPACE_CREATE,
+		INSTANCE_USER_CREATE,
+		INSTANCE_ADMIN,
+	}
+)
+
+#: Every permission this build recognises, of either tier. A token may narrow to nothing
+#: outside it. A *role* is narrower still — see :data:`WORKSPACE_LEVEL`.
+ALL: frozenset[str] = WORKSPACE_LEVEL | INSTANCE_LEVEL
+
+
+def unknown (
+	candidates: typing.Iterable[str], *, within: frozenset[str] = ALL
+) -> tuple[str, ...]:
 	"""Return those candidates that are not permissions this build recognises.
+
+	``within`` narrows what counts as recognised, so a role can be checked against
+	:data:`WORKSPACE_LEVEL` alone: ``instance:user_create`` is a real permission and still
+	not a thing a role may grant.
 
 	Order and duplicates are preserved, so an error message can quote the offending value
 	back in the form it was written rather than a tidied-up version of it.
 	"""
 
-	return tuple(candidate for candidate in candidates if candidate not in ALL)
+	return tuple(candidate for candidate in candidates if candidate not in within)
 
 
 def sorted_permissions (candidates: typing.Iterable[str]) -> list[str]:

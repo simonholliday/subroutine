@@ -70,6 +70,12 @@ $ subroutine serve
 The full specification — data model, API, permissions and agent design — is written but
 not yet published. It lands here once the API has settled enough to be worth reading.
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first — it
+covers the house style and the one piece of paperwork, a [contributor licence
+agreement](CLA.md) that has to be agreed before a pull request can be merged.
+
 ## Licence
 
 [AGPL-3.0-or-later](LICENSE).
@@ -77,3 +83,8 @@ not yet published. It lands here once the API has settled enough to be worth rea
 Self-hosting and internal use are entirely unaffected by the copyleft. It applies if you
 modify Subroutine and offer it to others as a hosted service — in which case you must
 publish your modifications.
+
+**A commercial licence is available by agreement.** If the AGPL does not suit you —
+because your organisation's policy rules out copyleft, or because you want to build on
+Subroutine without publishing what you build — you can license it on other terms instead.
+Write to simon.holliday@protonmail.com and say what you have in mind.

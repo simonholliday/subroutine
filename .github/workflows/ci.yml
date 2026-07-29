@@ -43,7 +43,33 @@ jobs:
         run: ruff check .
 
       - name: Mypy
-        run: mypy src tests
+        run: mypy src tests scripts
+
+  # Subroutine is AGPL and is also offered commercially, and both rest on being able to
+  # grant rights in the whole of what ships. A copyleft dependency takes that away, and it
+  # will arrive inside somebody else's requirements rather than as a decision anybody
+  # makes. Separate job with a clean install: development tools are not distributed, so a
+  # GPL linter constrains nothing and should not fail this.
+  licences:
+    name: Dependency licences
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # `packaging` is the script's own tool for walking the closure, not a dependency of
+      # Subroutine — it is installed here rather than declared, so it never ships.
+      - name: Install runtime dependencies only
+        run: python -m pip install '.[postgres]' packaging
+
+      - name: Check
+        run: python scripts/check_licences.py
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
