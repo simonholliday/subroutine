@@ -13,6 +13,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.addressing
 import subroutine.db.mixins
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -98,6 +99,25 @@ def create (
 					else f"{normalized_key!r} is not a usable key.",
 					hint="A key starts with a letter A-Z and continues with letters and "
 					"digits, up to 16 characters — 'SR', 'HOME', 'WEB2'.",
+				)
+			],
+		)
+
+	# A key becomes a path segment, and some segments belong to an endpoint. Refused here
+	# rather than at the API, because the alternative is a project that exists, is listed,
+	# and cannot be opened — and because the CLI can create one without an API in sight.
+	if subroutine.addressing.is_reserved_word(normalized_key):
+		reserved = ", ".join(sorted(subroutine.addressing.RESERVED_PATH_WORDS))
+
+		raise subroutine.errors.ValidationError(
+			f"{normalized_key!r} cannot be used as a project key.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="invalid_field_value",
+					message=f"{normalized_key!r} is reserved: a project keyed that way "
+					f"would share an address with one of this API's own endpoints.",
+					hint=f"Reserved keys are: {reserved}. Any other key is fine.",
 				)
 			],
 		)

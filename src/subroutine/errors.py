@@ -84,6 +84,13 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"would confirm it exists (SPEC.md §7.3a).",
 		),
 		_define(
+			"method_not_allowed",
+			405,
+			"Method not allowed",
+			"The path exists but does not answer to that HTTP method. The methods it does "
+			"answer to are listed in the 'Allow' header.",
+		),
+		_define(
 			"version_conflict",
 			409,
 			"Version conflict",
@@ -154,6 +161,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Internal error",
 			"Something failed that should not have. The detail is deliberately vague; the "
 			"request id is what ties the response to the log entry that explains it.",
+		),
+		_define(
+			"service_unavailable",
+			503,
+			"Not ready",
+			"The instance is running but cannot serve requests yet — most often its "
+			"database is unreachable, or its schema has not been brought up to date. "
+			"Reported by the readiness check so that a deployment holds traffic back "
+			"rather than serving errors.",
 		),
 	)
 }
@@ -270,6 +286,12 @@ class NotFound(SubroutineError):
 	CODE = "not_found"
 
 
+class MethodNotAllowed(SubroutineError):
+	"""The path exists but not for that verb."""
+
+	CODE = "method_not_allowed"
+
+
 class Conflict(SubroutineError):
 	"""The request collides with the current state."""
 
@@ -298,6 +320,12 @@ class InternalError(SubroutineError):
 	"""Something failed that should not have."""
 
 	CODE = "internal_error"
+
+
+class ServiceUnavailable(SubroutineError):
+	"""The instance is running but not yet able to serve requests."""
+
+	CODE = "service_unavailable"
 
 
 def problem_document (

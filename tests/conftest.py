@@ -16,6 +16,7 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 
 import sample_models
+import subroutine.db.migrate
 import subroutine.db.session
 
 #: Connects to the maintenance database so the throwaway test database can be created.
@@ -140,10 +141,20 @@ def engine (request: pytest.FixtureRequest) -> typing.Iterator[sqlalchemy.engine
 	subroutine.db.session.create_all(engine)
 	sample_models.SampleBase.metadata.create_all(engine)
 
+	# The schema comes from the models, but a real installation's comes from Alembic and
+	# says so in `alembic_version` — which the readiness check reads. Stamping makes a test
+	# database describe itself the way a real one does, and the claim is honest because
+	# `test_migrations` asserts the models and the head migration agree.
+	subroutine.db.migrate.stamp(url)
+
 	yield engine
 
 	sample_models.SampleBase.metadata.drop_all(engine)
 	subroutine.db.session.drop_all(engine)
+
+	with engine.begin() as connection:
+		connection.execute(sqlalchemy.text("DROP TABLE IF EXISTS alembic_version"))
+
 	engine.dispose()
 
 

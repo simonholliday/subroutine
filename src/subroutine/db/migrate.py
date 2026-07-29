@@ -49,13 +49,37 @@ def downgrade (database_url: str, revision: str) -> None:
 	alembic.command.downgrade(build_config(database_url), revision)
 
 
+def stamp (database_url: str, revision: str = "head") -> None:
+	"""Record a database as being at a revision without running any migration.
+
+	For a schema built straight from the models — which is what the test suite does, and
+	what ``create_all`` is for — so that it can still say which revision it corresponds to.
+	The claim is only true because the drift check asserts the models and the head
+	migration describe the same schema; without that test this would be a lie a readiness
+	probe would repeat.
+	"""
+
+	alembic.command.stamp(build_config(database_url), revision)
+
+
+def revision_on (connection: sqlalchemy.engine.Connection) -> str | None:
+	"""Report which migration a database is at, over a connection already open.
+
+	The readiness check needs this: it has a session in hand and opening a second
+	connection to answer "can this instance serve requests?" would be testing something
+	other than the one it is about to use.
+	"""
+
+	context = alembic.migration.MigrationContext.configure(connection)
+
+	return context.get_current_revision()
+
+
 def current_revision (engine: sqlalchemy.engine.Engine) -> str | None:
 	"""Report which migration a database is at, or ``None`` if it has never been run."""
 
 	with engine.connect() as connection:
-		context = alembic.migration.MigrationContext.configure(connection)
-
-		return context.get_current_revision()
+		return revision_on(connection)
 
 
 def head_revision () -> str | None:
