@@ -12,7 +12,7 @@ service layer is called, with a real principal and the same ``authorize()`` the 
 use. No server, no token, no environment variables.
 
 The rendering obligations are §12.2a's, and they are product surface rather than polish:
-every command suggests the next one, positions from the last listing address tasks, and
+every command suggests the next one, tasks are addressed by a ref that never changes, and
 ``--json`` on every read command so the human path and the scripted path are the same code.
 """
 
@@ -30,7 +30,6 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 import typer
 
-import subroutine.cli.listing
 import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
@@ -150,21 +149,41 @@ def register (
 			engine.dispose()
 
 	def _lookup (context: Context, given: str) -> subroutine.db.models.work.Task:
-		"""Resolve a ref or a position from the last listing into a task."""
+		"""Resolve a ref, or a bare ref *number*, into a task.
+
+		**A bare number is a ref number, never a row.** It used to be a position in the last
+		listing, which meant the number for a task changed every time something above it was
+		completed — so an absent-minded up-arrow re-ran ``done 1`` against a different task
+		and said nothing about it. A ref number is allocated once from the project's counter
+		and is never reused, so the number somebody memorised while working on something goes
+		on meaning it.
+
+		The cost is that a bare number is ambiguous once a workspace has several projects,
+		since each counts from one. That is a refusal listing the candidates, not a guess.
+		"""
 
 		ref = given.strip()
 
 		if ref.isdigit():
-			remembered = subroutine.cli.listing.resolve(int(ref))
+			candidates = _by_number(context, int(ref))
 
-			if remembered is None:
+			if not candidates:
 				stop(
-					f"There is no {ref} in the last list shown.",
-					"Run 'subroutine today' or 'subroutine ls' first, or name the task by "
-					f"its ref — 'subroutine done {_example_ref(context)}'.",
+					f"There is no task {ref} here.",
+					f"Refs look like {_example_ref(context)}. Run 'subroutine ls' to see "
+					"what there is.",
 				)
 
-			ref = remembered
+			if len(candidates) > 1:
+				named = ", ".join(sorted(task.ref for task in candidates))
+
+				stop(
+					f"{ref} could mean any of several tasks: {named}.",
+					"Each project numbers its own tasks, so name the one you mean in full — "
+					f"'subroutine done {sorted(task.ref for task in candidates)[0]}'.",
+				)
+
+			return candidates[0]
 
 		found = subroutine.domain.refs.find(context.session, context.workspace.id, ref.upper())
 
@@ -303,23 +322,31 @@ def register (
 
 			_numbered(context, tasks, console=console)
 			say("")
-			_suggest(console, "subroutine done 1")
+			_suggest(console, f"subroutine done {tasks[0].ref}")
 
 	@app.command()
 	def done (
-		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
+		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
 	) -> None:
 		"""Tick something off.
 
 		Examples:
 
-		  subroutine done 1
+		  subroutine done 42
 
 		  subroutine done SR-42
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
+			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
+
+			if task.completed_at is not None:
+				# Saying so beats reporting success twice. The case this is really about is
+				# an up-arrow repeat, which used to land on whatever had taken that number.
+				say(f"Already done: {task.title}")
+				_suggest(console, "subroutine ls")
+
+				return
 
 			subroutine.domain.tasks.complete(
 				context.session, task, now=context.now, actor=context.principal
@@ -330,7 +357,7 @@ def register (
 
 	@app.command()
 	def plan (
-		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
+		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
 	) -> None:
 		"""Say which day you will do something.
@@ -343,7 +370,7 @@ def register (
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
+			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
 
 			subroutine.domain.tasks.update(
 				context.session,
@@ -361,7 +388,7 @@ def register (
 
 	@app.command()
 	def defer (
-		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
+		which: str = typer.Argument("", help="A ref like SR-42, or just its number."),
 		when: str = typer.Argument("", help="A day to hide it until."),
 	) -> None:
 		"""Hide something until later.
@@ -374,7 +401,7 @@ def register (
 		"""
 
 		with opened() as context:
-			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
+			task = _lookup(context, _asked(which, "Which one? (a ref, or its number)"))
 
 			subroutine.domain.tasks.update(
 				context.session,
@@ -452,7 +479,7 @@ def _render (
 	say: typing.Callable[[str], None],
 	console: rich.console.Console,
 ) -> None:
-	"""Print the agenda, and record the numbering so ``done 1`` works afterwards."""
+	"""Print the agenda, each line addressed by the ref that will still mean it tomorrow."""
 
 	sections = (
 		("Overdue", agenda.overdue, True),
@@ -462,6 +489,12 @@ def _render (
 	)
 	shown: list[str] = []
 	printed = False
+
+	# One width across every bucket, so the refs line up down the whole agenda rather than
+	# stepping in and out as the sections change.
+	width = _ref_width(
+		[*agenda.overdue, *agenda.today, *agenda.upcoming, *agenda.unscheduled]
+	)
 
 	if not agenda.overdue and not agenda.today:
 		say("Nothing due today.")
@@ -478,7 +511,7 @@ def _render (
 
 		for task in tasks:
 			shown.append(task.ref)
-			console.print(_task_line(context, len(shown), task, late=late))
+			console.print(_task_line(context, task, late=late, width=width))
 
 	if agenda.unscheduled_total > len(agenda.unscheduled):
 		remaining = agenda.unscheduled_total - len(agenda.unscheduled)
@@ -487,15 +520,13 @@ def _render (
 			rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL)
 		)
 
-	subroutine.cli.listing.remember(shown)
-
 	if not shown:
 		_suggest(console, 'subroutine add "something to do"')
 
 		return
 
 	say("")
-	_suggest(console, "subroutine done 1")
+	_suggest(console, f"subroutine done {shown[0]}")
 
 
 def _numbered (
@@ -504,12 +535,42 @@ def _numbered (
 	*,
 	console: rich.console.Console,
 ) -> None:
-	"""Print a numbered list and remember the numbering."""
+	"""Print a list, each line addressed by the ref that will still mean it tomorrow."""
 
-	for position, task in enumerate(tasks, start=1):
-		console.print(_task_line(context, position, task, late=False))
+	width = _ref_width(tasks)
 
-	subroutine.cli.listing.remember([task.ref for task in tasks])
+	for task in tasks:
+		console.print(_task_line(context, task, late=False, width=width))
+
+
+def _by_number (
+	context: Context, number: int
+) -> list[subroutine.db.models.work.Task]:
+	"""Return every visible task carrying this ref number, across the readable workspaces.
+
+	Completed tasks are included on purpose: running ``done 3`` twice should say the thing
+	is already done, not that there is no such task. Narrowed through ``scoping`` like every
+	other listing, so a number belonging to a private project the caller cannot see does not
+	resolve — and does not report itself as ambiguous either.
+	"""
+
+	model = subroutine.db.models.work.Task
+
+	return list(
+		context.session.scalars(
+			subroutine.domain.scoping.readable_tasks(
+				context.principal,
+				workspace_ids=context.workspace_ids,
+				include_archived=True,
+			).where(model.number == number)
+		)
+	)
+
+
+def _ref_width (tasks: typing.Sequence[subroutine.db.models.work.Task]) -> int:
+	"""Return how wide the ref column needs to be for these tasks."""
+
+	return max((len(task.ref) for task in tasks), default=0)
 
 
 def _suggest (console: rich.console.Console, command: str) -> None:
@@ -522,16 +583,21 @@ def _suggest (console: rich.console.Console, command: str) -> None:
 
 
 def _task_line (
-	context: Context, position: int, task: subroutine.db.models.work.Task, *, late: bool
+	context: Context, task: subroutine.db.models.work.Task, *, late: bool, width: int = 0
 ) -> rich.text.Text:
-	"""Return one numbered task line, styled without ever interpreting the title.
+	"""Return one task line, addressed by its ref and styled without interpreting the title.
+
+	**The identifier shown is the task's own ref, which never changes.** It used to be the
+	row's position in the last listing, and that was a quiet trap: completing something
+	renumbered everything below it, so re-running ``done 1`` after a fresh ``ls`` marked a
+	*different* task done — one up-arrow away, and wrong without saying so.
 
 	Built with :class:`rich.text.Text` rather than markup, because a title is user data: a
 	task called ``Fix [bold] handling`` must print as written, not as an instruction.
 	"""
 
 	line = rich.text.Text()
-	line.append(f"  {position:>2}  ", style=POSITION)
+	line.append(f"  {task.ref:>{max(width, 2)}}  ", style=POSITION)
 	line.append(task.title)
 
 	detail = _when(context, task)

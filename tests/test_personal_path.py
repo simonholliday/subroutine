@@ -161,7 +161,7 @@ def test_an_empty_list_says_what_to_do_about_it (
 	assert 'subroutine add "something to do"' in run("ls").output
 
 
-def test_positions_from_the_last_listing_address_tasks (
+def test_a_bare_number_addresses_a_task_by_its_ref_number (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
 	"""The difference between a to-do list you use and one you type identifiers into."""
@@ -170,34 +170,66 @@ def test_positions_from_the_last_listing_address_tasks (
 	run("add", "First")
 	run("add", "Second")
 
-	# The numbering is the order printed, so read it back rather than assuming it.
-	numbered = {
+	shown = {
 		line.split(maxsplit=1)[0]: line.split(maxsplit=1)[1].strip()
 		for line in run("today").output.splitlines()
-		if line.strip()[:1].isdigit()
+		if line.strip()[:1].isalpha() and "-" in line.split(maxsplit=1)[0]
 	}
 
-	assert set(numbered) == {"1", "2"}
+	assert set(shown) == {"INBOX-1", "INBOX-2"}
 
+	# The bare number is the ref number, so this reaches INBOX-2 without typing the prefix.
 	run("done", "2")
 
 	remaining = run("today").output
 
-	assert numbered["2"] not in remaining
-	assert numbered["1"] in remaining
+	assert shown["INBOX-2"] not in remaining
+	assert shown["INBOX-1"] in remaining
 
 
-def test_a_position_that_was_never_shown_is_refused_with_the_remedy (
+def test_a_number_goes_on_meaning_the_same_task_after_something_is_completed (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""A stale or missing listing must not silently address the wrong task."""
+	"""The defect this addressing scheme replaced, kept as a regression.
+
+	Positions were re-derived on every listing, so completing the first task renumbered
+	everything below it. Re-running ``done 1`` — one up-arrow away — then marked a
+	*different* task done and reported success. A ref number is allocated once and never
+	reused, so the number cannot come to mean something else.
+	"""
+
+	run("init")
+	run("add", "Buy wine")
+	run("add", "Buy salad")
+	run("add", "Test task")
+
+	assert "Done: Buy wine" in run("done", "1").output
+
+	listed = run("ls").output
+
+	assert "INBOX-1" not in listed, "the completed task is gone from the list"
+	assert "INBOX-2" in listed and "INBOX-3" in listed
+	assert "Buy salad" in listed
+
+	# The absent-minded up-arrow. It must not touch the salad.
+	repeated = run("done", "1")
+
+	assert "Already done: Buy wine" in repeated.output
+	assert "Buy salad" in run("ls").output, "nothing else was completed"
+
+
+def test_a_number_that_matches_nothing_is_refused_with_the_remedy (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the refusal shows what a ref looks like here."""
 
 	run("init")
 	run("add", "Buy milk")
 
 	result = run("done", "9", expect=1)
 
-	assert "subroutine today" in result.output
+	assert "no task 9" in result.output
+	assert "INBOX-1" in result.output
 
 
 def test_refs_work_alongside_positions (
