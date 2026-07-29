@@ -21,6 +21,7 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.text
+import subroutine.errors
 
 #: SPEC.md §10.6's column width. Enforced here so an over-long tag names itself rather than
 #: arriving as a driver error on PostgreSQL and as silent success on SQLite (§10.3).
@@ -33,6 +34,38 @@ def normalize (name: str) -> str:
 	"""Return the form two tags are considered the same by."""
 
 	return _WHITESPACE.sub(" ", name).strip().lower()
+
+
+def _refuse_a_reference (name: str) -> None:
+	"""Refuse a tag whose name is entirely digits.
+
+	``#`` means both things: a tag in quick capture (§6.13) and a reference to an item in
+	prose (§6.15). They stay apart because a reference is *all* digits and a tag is not —
+	so a tag named "42" could never be written with its own sigil, and ``#42`` in anybody's
+	description would go on pointing at task 42 instead.
+
+	Enforced here rather than only in the two parsers because this is the one function every
+	tag passes through, whatever created it. The capture grammar already declines to read
+	``#42`` as a tag, so nothing reaches this today — but the API will grow a ``tags`` field,
+	and a rule that lives only in a regex is a rule the next entry point does not have.
+	"""
+
+	if not name.isdigit():
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{name!r} cannot be used as a tag.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="tags",
+				code="invalid_field_value",
+				message=f"A tag made only of digits would be indistinguishable from a "
+				f"reference to item #{name}.",
+				hint="Add a letter — 'q3' rather than '3' — or, if you meant to refer to "
+				f"item #{name}, write that in the description instead.",
+			)
+		],
+	)
 
 
 def ensure (
@@ -58,7 +91,10 @@ def ensure (
 			limit=MAX_NAME_LENGTH,
 			label="tag",
 		)
-		wanted.setdefault(normalize(cleaned), cleaned)
+		key = normalize(cleaned)
+
+		_refuse_a_reference(key)
+		wanted.setdefault(key, cleaned)
 
 	if not wanted:
 		return []

@@ -355,6 +355,41 @@ def test_punctuation_beside_a_sigil_is_not_part_of_its_value (
 
 
 @pytest.mark.parametrize(
+	("text", "title", "tags"),
+	[
+		# All digits: a reference, so it stays in the title for the mention index (§6.15).
+		("Fix issue #12", "Fix issue #12", ()),
+		("Fix #12 and #13", "Fix #12 and #13", ()),
+		# The cost of the rule, stated rather than hidden: somebody wanting a tag for IEEE
+		# 802.11 cannot have `#80211`, because that is how item 80211 is written. `#wifi`,
+		# or `#ieee-80211`. There is no way to have both and keep them apart.
+		("Read the #80211 spec", "Read the #80211 spec", ()),
+		# Not all digits: an ordinary tag, even when it starts with one. These were refused
+		# outright while the rule was "a tag begins with a letter", and refused *silently* —
+		# the text stayed in the title and no tag was made.
+		("Print the bracket #3d-printing", "Print the bracket", ("3d-printing",)),
+		("Turn on #2fa", "Turn on", ("2fa",)),
+		# Both in one line, each read as what it is.
+		("Fix #12 for #2fa", "Fix #12 for", ("2fa",)),
+	],
+)
+def test_a_hash_is_a_tag_unless_it_is_entirely_digits (
+	text: str, title: str, tags: tuple[str, ...]
+) -> None:
+	"""``#`` means two things, and this is the whole of what separates them.
+
+	A tag and a reference share the sigil (§6.13, §6.15). The rule is that a reference is
+	*all* digits and a tag is anything else — not "a tag starts with a letter", which is
+	stronger than it needs to be and loses ``#3d-printing`` to no purpose.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == title
+	assert captured.tags == tags
+
+
+@pytest.mark.parametrize(
 	("text", "planned"),
 	[
 		# Last token: a plan.

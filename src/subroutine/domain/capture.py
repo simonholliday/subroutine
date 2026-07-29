@@ -110,10 +110,18 @@ _BARE_DAY = re.compile(
 #: ``@bob,`` failed its lookup with "there is nobody called 'bob,'".
 _TRAILING = r"(?<![,.;:!?)\]])"
 
-#: A tag begins with a letter, so ``Fix issue #12`` keeps its issue number: in this
-#: project's own domain a ``#`` followed by digits is far more often a reference than a
-#: label, and a tag named "12" helps nobody.
-_TAG = re.compile(rf"{_STARTS_A_WORD}#(?P<value>[A-Za-z][^\s#]*?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
+#: A tag is anything after a ``#`` that is not *entirely* digits, because an all-digit one
+#: is a reference to an item (SPEC.md §6.15) and the two share the sigil. So ``Fix issue
+#: #12`` keeps its number and gains no tag named "12", while ``#3d-printing`` and ``#2fa``
+#: are ordinary tags.
+#:
+#: The digit test is applied to the match rather than written into the pattern: excluding
+#: an all-digit run with a lookahead is possible and unreadable, and the loop has to skip
+#: the match *without claiming its span* anyway, so that the text stays in the title for the
+#: mention index to find.
+_TAG = re.compile(
+	rf"{_STARTS_A_WORD}#(?P<value>[^\s#]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)"
+)
 _ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
 _IMPORTANCE = re.compile(rf"{_STARTS_A_WORD}!(?P<value>[1-5])[,.;:!?)\]]*(?=\s|$)")
 
@@ -250,6 +258,12 @@ def _collect_sigils (
 	for match in _TAG.finditer(text):
 		if not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved):
 			name = match.group("value").lower()
+
+			# An all-digit name is a reference, not a label. Left in the text rather than
+			# claimed, so `Fix #12` keeps its number in the title and the mention index
+			# picks it up from there (SPEC.md §6.15).
+			if name.isdigit():
+				continue
 
 			# `#a #b #a` is one person typing quickly, not three tags. `tags.ensure` would
 			# collapse it anyway; collapsing here keeps the preview honest about what will

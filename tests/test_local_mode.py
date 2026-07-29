@@ -197,6 +197,36 @@ def test_a_tag_is_created_the_first_time_it_is_used (
 	assert first[0].name == "health"
 
 
+def test_an_all_digit_tag_is_refused_at_the_service_and_not_only_by_the_parser (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``#`` means a tag and a reference, and only one of them can be all digits.
+
+	The capture grammar already declines to read ``#42`` as a tag, so nothing in the
+	application reaches this today — which is exactly why it is worth a test. The rule lived
+	in two regexes and would not have travelled to the ``tags`` field the API is going to
+	grow. A tag named "42" could never be written with its own sigil, and ``#42`` in anybody
+	else's description would go on meaning item 42.
+	"""
+
+	installed = _installed(session)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tags.ensure(
+			session, workspace_id=installed.workspace.id, names=["42"]
+		)
+
+	assert refused.value.errors[0].field == "tags"
+	assert "#42" in (refused.value.errors[0].hint or ""), "the refusal says what it collides with"
+
+	# Digits are fine as long as the name is not only digits.
+	allowed = subroutine.domain.tags.ensure(
+		session, workspace_id=installed.workspace.id, names=["2fa", "3d-printing"]
+	)
+
+	assert [tag.name for tag in allowed] == ["2fa", "3d-printing"]
+
+
 def test_tag_names_collapse_by_their_normalised_form (
 	session: sqlalchemy.orm.Session,
 ) -> None:
