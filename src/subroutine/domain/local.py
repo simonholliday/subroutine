@@ -36,6 +36,7 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 
 #: How many usernames a "which of these did you mean" message lists before it gives up and
@@ -229,22 +230,15 @@ def readable_workspace_ids (
 
 	The agenda spans all readable workspaces by default (§8.6). A token pinned to one
 	narrows this to that one, which is where the pin does its work.
+
+	The query itself lives in :func:`subroutine.domain.workspaces.readable`, because
+	``/v1/me`` needs the same set with the rest of each row attached, and two copies of
+	"which workspaces can this person reach" is exactly the kind of pair that drifts.
 	"""
 
-	member = subroutine.db.models.identity.WorkspaceMember
-	workspace = subroutine.db.models.identity.Workspace
-
-	statement = (
-		sqlalchemy.select(workspace.id)
-		.join(member, member.workspace_id == workspace.id)
-		.where(member.user_id == principal.user.id, workspace.deleted_at.is_(None))
-		.order_by(workspace.created_at)
-	)
-
-	if principal.pinned_workspace_id is not None:
-		statement = statement.where(workspace.id == principal.pinned_workspace_id)
-
-	return list(session.scalars(statement))
+	return [
+		workspace.id for workspace in subroutine.domain.workspaces.readable(session, principal)
+	]
 
 
 def describe (principal: subroutine.domain.authentication.Principal) -> str:

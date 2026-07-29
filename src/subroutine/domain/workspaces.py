@@ -191,6 +191,34 @@ def add_member (
 	return membership
 
 
+def readable (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+) -> list[subroutine.db.models.identity.Workspace]:
+	"""Return every workspace this principal may read, oldest first.
+
+	Membership is what grants reach, so this is the member rows joined to their workspaces.
+	A token pinned to one workspace narrows the result to that one — which is the whole
+	point of pinning, and doing it here means every caller inherits it rather than each
+	remembering to (SPEC.md §7.3).
+	"""
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	workspace = subroutine.db.models.identity.Workspace
+
+	statement = (
+		sqlalchemy.select(workspace)
+		.join(member, member.workspace_id == workspace.id)
+		.where(member.user_id == principal.user.id, workspace.deleted_at.is_(None))
+		.order_by(workspace.created_at)
+	)
+
+	if principal.pinned_workspace_id is not None:
+		statement = statement.where(workspace.id == principal.pinned_workspace_id)
+
+	return list(session.scalars(statement))
+
+
 def find_role (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
 ) -> subroutine.db.models.identity.Role:

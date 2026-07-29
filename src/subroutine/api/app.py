@@ -17,6 +17,7 @@ import sqlalchemy.orm
 
 import subroutine
 import subroutine.api.health
+import subroutine.api.identity
 import subroutine.api.middleware
 import subroutine.api.problems
 import subroutine.api.routing
@@ -44,6 +45,7 @@ part of the public contract and are listed in `docs/errors.md`.
 #: same space, and :func:`subroutine.api.routing.check` reads this list to enforce it.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
+	("", subroutine.api.identity.router),
 )
 
 

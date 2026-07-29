@@ -21,6 +21,7 @@ import starlette.requests
 import starlette.responses
 
 import subroutine.api.middleware
+import subroutine.api.security
 import subroutine.errors
 
 #: Problem documents are ``application/problem+json``, not ``application/json``. A client
@@ -72,6 +73,12 @@ def respond (
 		media_type=PROBLEM_MEDIA_TYPE,
 		headers=headers,
 	)
+
+	# RFC 9110 requires a 401 to say what would be accepted. Set here rather than at each
+	# place that refuses a credential, so a new resolver cannot forget it and produce a
+	# response that a standards-abiding client treats as malformed.
+	if error.status == 401 and "www-authenticate" not in response.headers:
+		response.headers["WWW-Authenticate"] = subroutine.api.security.BEARER_SCHEME
 
 	subroutine.api.middleware.apply_headers(request, response)
 

@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
@@ -564,6 +565,52 @@ def test_explain_never_promises_more_than_authorize_grants (
 			)
 
 			assert (permission in granted) == allowed, f"{label}: {permission}"
+
+
+def test_explain_does_not_re_read_the_role_for_every_permission (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""One question about a workspace costs a handful of queries, not one per verb.
+
+	``explain`` resolves the role and then asks the decision function about each permission
+	in turn. Every one of those looked the same role up again — seventeen round trips to
+	answer a question whose input was computed before the loop started, and ``/v1/me``
+	multiplies that by the number of workspaces the caller belongs to. Measured at 18 per
+	workspace before ``known_role`` was threaded through, and 1 after.
+
+	The bound is loose on purpose: this is here to catch the shape coming back, not to pin
+	an exact number that a legitimate change would have to keep re-blessing.
+	"""
+
+	workspace = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	session.flush()
+
+	engine = session.get_bind()
+	counted = 0
+
+	def count (*_arguments: typing.Any) -> None:
+		"""Tally one statement."""
+
+		nonlocal counted
+
+		counted += 1
+
+	sqlalchemy.event.listen(engine, "before_cursor_execute", count)
+
+	try:
+		granted = subroutine.domain.authorization.effective_permissions(
+			session, owner, workspace.id
+		)
+
+	finally:
+		sqlalchemy.event.remove(engine, "before_cursor_execute", count)
+
+	assert granted, "the measurement is worthless if the call did nothing"
+	assert counted <= 5, (
+		f"explain issued {counted} queries for {len(subroutine.permissions.WORKSPACE_LEVEL)} "
+		f"permissions; it should resolve the role once."
+	)
 
 
 def test_a_pinned_or_project_scoped_token_reports_itself_as_narrowing (

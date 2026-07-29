@@ -224,7 +224,14 @@ def explain (
 	permitted = frozenset(
 		permission
 		for permission in candidates
-		if _refusal(session, principal, permission, workspace_id=workspace_id, project=project)
+		if _refusal(
+			session,
+			principal,
+			permission,
+			workspace_id=workspace_id,
+			project=project,
+			known_role=role,
+		)
 		is None
 	)
 
@@ -373,8 +380,17 @@ def _refusal (
 	*,
 	workspace_id: uuid.UUID,
 	project: subroutine.db.models.project.Project | None,
+	known_role: tuple[str, frozenset[str]] | None = None,
 ) -> AuthorizationFailure | None:
-	"""Return why the action is refused, or ``None`` if it is permitted."""
+	"""Return why the action is refused, or ``None`` if it is permitted.
+
+	``known_role`` is the caller's already-resolved role, and means *not yet looked up*
+	when absent — never *no role*, which is reported by :func:`_role_for` returning
+	``None``. It exists for :func:`explain`, which asks about every permission in turn and
+	would otherwise re-read the same role row once per permission: seventeen queries per
+	workspace to answer a question whose input it computed before the loop started. The
+	decision itself is untouched; only the lookup of one of its inputs is skipped.
+	"""
 
 	if permission not in subroutine.permissions.WORKSPACE_LEVEL:
 		valid = ", ".join(sorted(subroutine.permissions.WORKSPACE_LEVEL))
@@ -403,7 +419,7 @@ def _refusal (
 	if project is not None and not is_visible(session, principal, project):
 		return AuthorizationFailure.PROJECT_INVISIBLE
 
-	role = _role_for(session, principal, workspace_id, membership=membership)
+	role = known_role or _role_for(session, principal, workspace_id, membership=membership)
 
 	if role is None:
 		return AuthorizationFailure.NOT_A_MEMBER
