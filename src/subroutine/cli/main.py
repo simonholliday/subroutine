@@ -22,6 +22,7 @@ import sqlalchemy.orm
 import typer
 
 import subroutine.cli.personal
+import subroutine.cli.topics
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
@@ -259,6 +260,45 @@ def init (
 				return
 
 	_say('Ready. Try: subroutine add "something to do"')
+
+
+@app.command("help")
+def help_topic (
+	topic: str = typer.Argument("", help="A concept to explain. Omit to list them."),
+) -> None:
+	"""Explain a concept — refs, dates, the capture grammar, scripting.
+
+	Examples:
+
+	  subroutine help
+
+	  subroutine help dates
+	"""
+
+	if not topic.strip():
+		_say("Concepts this tool can explain:")
+		_say("")
+
+		width = max(len(item.name) for item in subroutine.cli.topics.TOPICS)
+
+		for item in subroutine.cli.topics.TOPICS:
+			_say(f"  {item.name.ljust(width)}  {item.summary}")
+
+		_say("")
+		_say("  subroutine help dates")
+		_say("  subroutine --help          for the list of commands")
+
+		return
+
+	found = subroutine.cli.topics.find(topic)
+
+	if found is None:
+		_stop(
+			f"There is nothing to say about {topic!r}.",
+			f"Topics: {', '.join(subroutine.cli.topics.names())}.",
+		)
+
+	_say(found.body)
 
 
 @config_app.command("show")

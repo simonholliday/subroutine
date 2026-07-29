@@ -18,6 +18,8 @@ import pytest
 import typer.testing
 
 import subroutine.cli.main
+import subroutine.domain.capture
+import subroutine.domain.dates
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
 #: these, and meeting one means the personal path has started leaking the full model.
@@ -58,10 +60,10 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 	runner = typer.testing.CliRunner()
 
-	def invoke (*arguments: str, expect: int = 0) -> typer.testing.Result:
+	def invoke (*arguments: str, expect: int = 0, input: str | None = None) -> typer.testing.Result:
 		"""Run one command and check how it ended."""
 
-		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=input)
 
 		assert result.exit_code == expect, (
 			f"'subroutine {' '.join(arguments)}' exited {result.exit_code}\n"
@@ -289,3 +291,111 @@ def test_a_bad_date_is_refused_with_what_would_have_worked (
 	result = run("plan", "1", "someday", expect=1)
 
 	assert "tomorrow" in result.output or "2026-08-01" in result.output
+
+
+def test_help_explains_concepts_not_only_commands (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: users need the model, not just the verbs.
+
+	``--help`` is a vocabulary. This is the grammar, and without it a user who knows every
+	flag still does not know that "due Friday" means the end of Friday.
+	"""
+
+	listed = run("help")
+
+	for topic in ("dates", "capture", "refs", "scripting"):
+		assert topic in listed.output
+
+	assert "deadline" in run("help", "dates").output.lower()
+	assert "Nothing is ever lost" in run("help", "capture").output
+	assert "SR-42" in run("help", "refs").output
+
+
+def test_the_help_topics_are_generated_from_the_parsers (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Help that lists a keyword the parser rejects is worse than no help at all.
+
+	Both topics are built from the modules that do the parsing, so this asserts they agree
+	rather than asserting a transcription.
+	"""
+
+	dates = run("help", "dates").output
+
+	for keyword in subroutine.domain.dates.KEYWORDS:
+		assert keyword in dates
+
+	capture = run("help", "capture").output
+
+	for word in subroutine.domain.capture.DEADLINE_WORDS:
+		assert word in capture
+
+
+def test_an_unknown_help_topic_lists_the_real_ones (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: errors state the remedy."""
+
+	result = run("help", "quantum", expect=1)
+
+	assert "dates" in result.output
+
+
+def test_help_leads_with_examples (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: a flag list teaches vocabulary; an example teaches a sentence.
+
+	Both are needed, in that order — so the worked example must appear before the options
+	block, not after it.
+	"""
+
+	for command in ("add", "today", "done", "plan"):
+		text = run(command, "--help").output
+
+		assert "subroutine " + command in text, command
+		assert text.index("Examples") < text.index("Options"), command
+
+
+def test_output_is_plain_when_it_is_not_a_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: colour is detected, never configured.
+
+	Captured output is not a terminal, so no escape sequence should reach it. There is no
+	flag involved on either side — that is the point.
+	"""
+
+	run("init")
+	run("add", "Buy milk before friday")
+
+	assert "\x1b[" not in run("today").output
+	assert "\x1b[" not in run("ls").output
+
+
+def test_a_missing_argument_asks_rather_than_erroring (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: a required-argument error is a dead end where a question would do."""
+
+	run("init")
+	run("add", "Buy milk")
+	run("today")
+
+	result = run("done", input="1\n")
+
+	assert "Which one?" in result.output
+	assert "Done: Buy milk" in result.output
+
+
+def test_add_with_no_text_asks_for_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The example §12.2a gives by name."""
+
+	run("init")
+
+	result = run("add", input="Buy milk\n")
+
+	assert "Added: Buy milk" in result.output

@@ -24,6 +24,7 @@ import os
 import typing
 
 import rich.console
+import rich.text
 import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -48,6 +49,15 @@ import subroutine.errors
 
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
 DEFAULT_LIST_LIMIT = 50
+
+#: Styles, applied to the parts of a line this program wrote and never to the parts the
+#: user did. Rich turns them off by itself when the output is not a terminal, which is what
+#: §12.2a means by "detected, never configured" — there is no flag and no setting.
+HEADING = "bold"
+POSITION = "dim"
+DETAIL = "dim"
+LATE = "red"
+SUGGESTION = "dim cyan"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -208,12 +218,15 @@ def register (
 			say(f"Added: {task.title}{_when(context, task)}")
 
 			if captured.unparsed:
-				say(
-					f"  Left as written: {', '.join(captured.unparsed)} "
-					"— recurring tasks are not supported yet."
+				console.print(
+					rich.text.Text(
+						f"  Left as written: {', '.join(captured.unparsed)}"
+						" — recurring tasks are not supported yet.",
+						style=DETAIL,
+					)
 				)
 
-			say("  subroutine today")
+			_suggest(console, "subroutine today")
 
 	@app.command()
 	def today (
@@ -281,16 +294,16 @@ def register (
 
 			if not tasks:
 				say("Nothing on your list.")
-				say('  subroutine add "something to do"')
+				_suggest(console, 'subroutine add "something to do"')
 
 				return
 
-			_numbered(context, tasks, say=say)
-			say("  subroutine done 1")
+			_numbered(context, tasks, console=console)
+			_suggest(console, "subroutine done 1")
 
 	@app.command()
 	def done (
-		which: str = typer.Argument(..., help="A ref like SR-42, or a number from the last list."),
+		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
 	) -> None:
 		"""Tick something off.
 
@@ -302,7 +315,7 @@ def register (
 		"""
 
 		with opened() as context:
-			task = _lookup(context, which)
+			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
 
 			subroutine.domain.tasks.update(
 				context.session,
@@ -313,12 +326,12 @@ def register (
 			)
 
 			say(f"Done: {task.title}")
-			say("  subroutine today")
+			_suggest(console, "subroutine today")
 
 	@app.command()
 	def plan (
-		which: str = typer.Argument(..., help="A ref like SR-42, or a number from the last list."),
-		when: str = typer.Argument(..., help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
+		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
+		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
 	) -> None:
 		"""Say which day you will do something.
 
@@ -330,23 +343,23 @@ def register (
 		"""
 
 		with opened() as context:
-			task = _lookup(context, which)
+			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
 
 			subroutine.domain.tasks.update(
 				context.session,
 				task,
-				planned_for=_day(context, when),
+				planned_for=_day(context, _asked(when, "Which day?")),
 				now=context.now,
 				actor=context.principal,
 			)
 
 			say(f"Planned: {task.title}{_when(context, task)}")
-			say("  subroutine today")
+			_suggest(console, "subroutine today")
 
 	@app.command()
 	def defer (
-		which: str = typer.Argument(..., help="A ref like SR-42, or a number from the last list."),
-		when: str = typer.Argument(..., help="A day to hide it until."),
+		which: str = typer.Argument("", help="A ref like SR-42, or a number from the last list."),
+		when: str = typer.Argument("", help="A day to hide it until."),
 	) -> None:
 		"""Hide something until later.
 
@@ -358,18 +371,18 @@ def register (
 		"""
 
 		with opened() as context:
-			task = _lookup(context, which)
+			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
 
 			subroutine.domain.tasks.update(
 				context.session,
 				task,
-				start=_day(context, when),
+				start=_day(context, _asked(when, "Hide it until when?")),
 				now=context.now,
 				actor=context.principal,
 			)
 
 			say(f"Hidden until {_render_date(task.start_at, context.timezone)}: {task.title}")
-			say("  subroutine today")
+			_suggest(console, "subroutine today")
 
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
@@ -377,6 +390,22 @@ def register (
 		today(json_output=False)
 
 	return show_today
+
+
+def _asked (given: str, question: str) -> str:
+	"""Return an argument, asking for it if it was left out.
+
+	SPEC.md §12.2a: bare commands prompt rather than error. A required-argument error is a
+	dead end where a question would do — and in a pipe, where there is nobody to ask, the
+	prompt fails with the usage anyway, which is the right answer there.
+	"""
+
+	if given.strip():
+		return given
+
+	answer: str = typer.prompt(question)
+
+	return answer
 
 
 def _day (context: Context, written: str) -> datetime.date:
@@ -436,10 +465,10 @@ def _render (
 	"""Print the agenda, and record the numbering so ``done 1`` works afterwards."""
 
 	sections = (
-		("Overdue", agenda.overdue),
-		("Today", agenda.today),
-		("Next 7 days", agenda.upcoming),
-		("Unscheduled", agenda.unscheduled),
+		("Overdue", agenda.overdue, True),
+		("Today", agenda.today, False),
+		("Next 7 days", agenda.upcoming, False),
+		("Unscheduled", agenda.unscheduled, False),
 	)
 	shown: list[str] = []
 	printed = False
@@ -447,46 +476,80 @@ def _render (
 	if not agenda.overdue and not agenda.today:
 		say("Nothing due today.")
 
-	for heading, tasks in sections:
+	for heading, tasks, late in sections:
 		if not tasks:
 			continue
 
 		if printed:
 			say("")
 
-		say(heading)
+		console.print(rich.text.Text(heading, style=LATE if late else HEADING))
 		printed = True
 
 		for task in tasks:
 			shown.append(task.ref)
-			say(f"  {len(shown):>2}  {task.title}{_when(context, task)}")
+			console.print(_task_line(context, len(shown), task, late=late))
 
 	if agenda.unscheduled_total > len(agenda.unscheduled):
-		say(f"      and {agenda.unscheduled_total - len(agenda.unscheduled)} more unscheduled")
+		remaining = agenda.unscheduled_total - len(agenda.unscheduled)
+
+		console.print(
+			rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL)
+		)
 
 	subroutine.cli.listing.remember(shown)
 
 	if not shown:
-		say('  subroutine add "something to do"')
+		_suggest(console, 'subroutine add "something to do"')
 
 		return
 
 	say("")
-	say("  subroutine done 1")
+	_suggest(console, "subroutine done 1")
 
 
 def _numbered (
 	context: Context,
 	tasks: typing.Sequence[subroutine.db.models.work.Task],
 	*,
-	say: typing.Callable[[str], None],
+	console: rich.console.Console,
 ) -> None:
 	"""Print a numbered list and remember the numbering."""
 
 	for position, task in enumerate(tasks, start=1):
-		say(f"  {position:>2}  {task.title}{_when(context, task)}")
+		console.print(_task_line(context, position, task, late=False))
 
 	subroutine.cli.listing.remember([task.ref for task in tasks])
+
+
+def _suggest (console: rich.console.Console, command: str) -> None:
+	"""Print the command to try next (SPEC.md §12.2a).
+
+	The single most valuable habit here: the user is never left wondering what exists.
+	"""
+
+	console.print(rich.text.Text(f"  {command}", style=SUGGESTION))
+
+
+def _task_line (
+	context: Context, position: int, task: subroutine.db.models.work.Task, *, late: bool
+) -> rich.text.Text:
+	"""Return one numbered task line, styled without ever interpreting the title.
+
+	Built with :class:`rich.text.Text` rather than markup, because a title is user data: a
+	task called ``Fix [bold] handling`` must print as written, not as an instruction.
+	"""
+
+	line = rich.text.Text()
+	line.append(f"  {position:>2}  ", style=POSITION)
+	line.append(task.title)
+
+	detail = _when(context, task)
+
+	if detail:
+		line.append(detail, style=LATE if late else DETAIL)
+
+	return line
 
 
 def _when (context: Context, task: subroutine.db.models.work.Task) -> str:
