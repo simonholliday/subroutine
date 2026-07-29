@@ -648,6 +648,12 @@ def test_events_carry_their_actor (session: sqlalchemy.orm.Session) -> None:
 	project = _project(session, workspace, key="SR")
 
 	user = subroutine.domain.users.create(session, username="agent-owner")
+
+	# A member, because the service now enforces the permission check. Before it did, this
+	# test passed with an actor who belonged to no workspace at all — which is what made
+	# the missing enforcement invisible.
+	subroutine.domain.workspaces.add_member(session, workspace, user, role_key="member")
+
 	token, _issued = subroutine.domain.authentication.issue_token(
 		session, user=user, title="Agent"
 	)

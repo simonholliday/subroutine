@@ -31,10 +31,14 @@ import subroutine.errors
 
 app = typer.Typer(
 	name="subroutine",
-	help="Project management for people and agents, in equal measure.",
-	# **Not** `no_args_is_help`. SPEC.md §12.2a: the first thing this tool does unprompted
-	# should be useful, so a bare `subroutine` prints today's agenda rather than a help
-	# wall. `--help` is still one keystroke away for anyone who wants the wall.
+	# **No `help=` here, deliberately.** An explicit help string overrides the callback's
+	# docstring, and Typer then shows only its first line — which silently dropped the
+	# worked examples from the one page a new user reads first, while every subcommand had
+	# them (SPEC.md §12.2a). The docstring on `_default` is the help text.
+	#
+	# **Not** `no_args_is_help` either: the first thing this tool does unprompted should be
+	# useful, so a bare `subroutine` prints today's agenda rather than a help wall.
+	# `--help` is still one keystroke away for anyone who wants the wall.
 	invoke_without_command=True,
 	add_completion=False,
 )
@@ -74,6 +78,12 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 		_err.print(error.hint, markup=False, highlight=False)
 
 	for field in error.errors:
+		# A single field error whose message *is* the detail says nothing new. Printing it
+		# twice reads as a stutter — `subroutine add "#tag !3"` said "A title is required."
+		# and then "  title: A title is required."
+		if len(error.errors) == 1 and field.message == error.detail:
+			continue
+
 		_err.print(f"  {field.field}: {field.message}", markup=False, highlight=False)
 
 	raise typer.Exit(code=1)
@@ -178,6 +188,15 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 
 	finally:
 		engine.dispose()
+
+
+# Registered before `init` and `help` so that they head the command list. SPEC.md §12.2
+# puts `add`, `today`, `ls`, `done`, `plan` first and says the ordering is deliberate: they
+# are the whole surface a personal user needs, and Typer lists commands in registration
+# order.
+_show_today = subroutine.cli.personal.register(
+	app, say=_say, fail=_fail, stop=_stop, settings=_settings, console=_out
+)
 
 
 @app.command()
@@ -451,16 +470,9 @@ def _default_instance_name () -> str:
 		return "Subroutine"
 
 
-_show_today = subroutine.cli.personal.register(
-	app, say=_say, fail=_fail, stop=_stop, settings=_settings, console=_out
-)
-
-
 @app.callback()
 def _default (context: typer.Context) -> None:
 	"""Project management for people and agents, in equal measure.
-
-	Run with no arguments, this shows today's agenda.
 
 	Examples:
 
@@ -469,6 +481,10 @@ def _default (context: typer.Context) -> None:
 	  subroutine today
 
 	  subroutine done 1
+
+	  subroutine help dates
+
+	Run with no arguments, this shows today's agenda.
 	"""
 
 	if context.invoked_subcommand is not None:

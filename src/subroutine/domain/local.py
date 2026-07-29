@@ -121,20 +121,29 @@ def _from_token (
 def _named (
 	session: sqlalchemy.orm.Session, username: str
 ) -> subroutine.domain.authentication.Principal:
-	"""Resolve the account named by ``local_user``."""
+	"""Resolve the account named by ``local_user``.
+
+	**Deactivated accounts are refused**, matching :func:`_sole` and the token path. This
+	was the odd one out: it filtered only ``deleted_at``, so somebody could leave, have
+	their account deactivated, and a ``local_user`` line left in a configuration file would
+	go on working. Three ways to become a principal, and they now agree.
+	"""
 
 	model = subroutine.db.models.identity.User
 	normalized = subroutine.domain.users.normalize(username)
 
 	found = session.scalars(
 		sqlalchemy.select(model).where(
-			model.username_normalized == normalized, model.deleted_at.is_(None)
+			model.username_normalized == normalized,
+			model.deleted_at.is_(None),
+			model.is_active.is_(True),
 		)
 	).one_or_none()
 
 	if found is None:
 		raise subroutine.errors.NotFound(
-			f"There is no account called {username!r} in this database.",
+			f"There is no account called {username!r} in this database, or it is no longer "
+			"active.",
 			hint=_candidates_hint(session),
 		)
 

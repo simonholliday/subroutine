@@ -398,8 +398,9 @@ def _refusal (
 	membership = _project_membership(session, principal, project)
 
 	# Checked before anything else about the project, so that a private one refuses
-	# identically no matter what else is or is not true.
-	if project is not None and project.visibility == "private" and membership is None:
+	# identically no matter what else is or is not true. Asks about ancestors as well:
+	# privacy inherits down the tree (SPEC.md §7.3a).
+	if project is not None and not is_visible(session, principal, project):
 		return AuthorizationFailure.PROJECT_INVISIBLE
 
 	role = _role_for(session, principal, workspace_id, membership=membership)
@@ -465,12 +466,84 @@ def _role_for (
 	return title, frozenset(permissions)
 
 
+def visible_projects (
+	principal: subroutine.domain.authentication.Principal,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a predicate selecting the projects this principal may see (SPEC.md §7.3a).
+
+	**Privacy inherits down the tree.** A project is hidden when it is private, *or when any
+	ancestor of it is*, unless the principal holds a ``project_member`` row on the private
+	one. Restricting visibility to a single row would make "private" useless one level down:
+	somebody would mark a project private, create a sub-project inside it, and quietly
+	publish its titles to the whole workspace.
+
+	This is the same reasoning :func:`_within_project_scope` applies to a token's project
+	restriction, and the two disagreeing was a finding in the slice-2 review. They agree now
+	— both read the materialised ``path``, which is what makes an ancestor test a string
+	comparison rather than a recursive query.
+
+	Written as a predicate rather than a function of one project so that the agenda, search
+	and every future listing narrow with the same rule instead of reimplementing it.
+	"""
+
+	project = subroutine.db.models.project.Project
+	ancestor = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+	membership = subroutine.db.models.project.ProjectMember
+
+	hidden = (
+		sqlalchemy.select(ancestor.id)
+		.where(
+			ancestor.visibility == "private",
+			# `path` holds every ancestor's id, so a prefix match *is* the ancestor test.
+			# It includes the project itself, whose path is trivially its own prefix.
+			#
+			# `like(... || '%')` rather than `startswith(autoescape=True)`, which requires a
+			# literal and cannot take a column. Unescaped is safe here for the reason the
+			# slice-1 review already recorded about the other path queries: a path is
+			# lowercase hex, hyphens and slashes, and contains no `%` or `_` to be read as a
+			# wildcard. **Not** a range comparison — that is wrong under a non-byte-wise
+			# collation, measured and recorded in `hierarchy.subtree`.
+			project.path.like(ancestor.path.concat("%")),
+			ancestor.id.not_in(
+				sqlalchemy.select(membership.project_id).where(
+					membership.user_id == principal.user.id
+				)
+			),
+		)
+		.exists()
+	)
+
+	return sqlalchemy.not_(hidden)
+
+
+def is_visible (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether one project is visible to this principal, ancestors included."""
+
+	model = subroutine.db.models.project.Project
+
+	found = session.scalar(
+		sqlalchemy.select(model.id).where(model.id == project.id, visible_projects(principal))
+	)
+
+	return found is not None
+
+
 def _project_membership (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	project: subroutine.db.models.project.Project | None,
 ) -> subroutine.db.models.project.ProjectMember | None:
-	"""Return this principal's membership row for a project, if there is one."""
+	"""Return this principal's membership row for a project, if there is one.
+
+	Looks for a row on *this* project only. Visibility of an ancestor is a separate question
+	answered by :func:`visible_projects`, and a role override (§7.3) is deliberately not
+	inherited — being given `contributor` on a parent project does not silently make you a
+	contributor on everything under it.
+	"""
 
 	if project is None:
 		return None

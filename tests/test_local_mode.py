@@ -14,8 +14,10 @@ import pytest
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.local
 import subroutine.domain.projects
@@ -321,3 +323,154 @@ def test_describe_says_who_is_acting_without_printing_the_token (
 		assert issued.value.get_secret_value() not in subroutine.domain.local.describe(principal)
 
 	assert installed.user.username in subroutine.domain.local.describe(principal)
+
+
+def test_a_deactivated_account_cannot_be_named_by_local_user (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""All three ways to become a principal agree about deactivation.
+
+	`_named` filtered only `deleted_at` until the slice-2 review, so somebody could leave,
+	have their account deactivated, and a `local_user` line left in a configuration file
+	would go on working.
+	"""
+
+	_installed(session)
+	departed = subroutine.domain.users.create(
+		session, username=f"departed-{uuid.uuid4().hex[:8]}"
+	)
+	departed.is_active = False
+	session.flush()
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.local.principal(session, local_user=departed.username)
+
+
+def test_a_read_only_token_cannot_write (session: sqlalchemy.orm.Session) -> None:
+	"""The claim §12.1a makes, asserted against the service rather than the principal.
+
+	The slice-2 review found this false: `authorize()` existed and nothing called it, so a
+	token scoped to `task:read` created tasks freely. The test that existed asserted
+	`principal.scopes == ["task:read"]` — true, and evidence of nothing.
+	"""
+
+	installed = _installed(session)
+	_token, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=installed.user,
+		title="Agent",
+		scopes=[subroutine.permissions.TASK_READ],
+	)
+	principal = subroutine.domain.local.principal(
+		session, token=issued.value.get_secret_value()
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden) as raised:
+		subroutine.domain.tasks.create(
+			session, project=installed.inbox, title="Should be refused", actor=principal
+		)
+
+	assert "task:write" in raised.value.detail
+
+	# And the read half still works, or the token would be useless rather than narrow.
+	assert subroutine.domain.authorization.may(
+		session,
+		principal,
+		subroutine.permissions.TASK_READ,
+		workspace_id=installed.workspace.id,
+	)
+
+
+def test_a_stranger_to_the_workspace_cannot_create_a_task (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Membership is the floor for writing, not only for reading."""
+
+	installed = _installed(session)
+	outsider = subroutine.domain.users.create(
+		session, username=f"outsider-{uuid.uuid4().hex[:8]}"
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.tasks.create(
+			session,
+			project=installed.inbox,
+			title="Not yours",
+			actor=subroutine.domain.authentication.Principal(user=outsider),
+		)
+
+
+def test_creating_a_workspace_needs_the_instance_permission (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The instance tier had no call site until now (SPEC.md §7.1, Appendix A)."""
+
+	installed = _installed(session)
+	ordinary = subroutine.domain.users.create(
+		session, username=f"member-{uuid.uuid4().hex[:8]}"
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.workspaces.create(
+			session,
+			slug=f"ws-{uuid.uuid4().hex[:8]}",
+			title="Not allowed",
+			owner=ordinary,
+			actor=subroutine.domain.authentication.Principal(user=ordinary),
+		)
+
+	# The account `init` created is a superuser, so it may.
+	second = subroutine.domain.workspaces.create(
+		session,
+		slug=f"ws-{uuid.uuid4().hex[:8]}",
+		title="Allowed",
+		owner=installed.user,
+		actor=subroutine.domain.authentication.Principal(user=installed.user),
+	)
+
+	assert second.id is not None
+
+
+def test_privacy_reaches_a_private_projects_children (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Settled 2026-07-29: private inherits down the tree (SPEC.md §7.3a).
+
+	Before this, marking a project private and creating a sub-project inside it published
+	the sub-project's titles to the whole workspace — while the token-scope rule beside it
+	applied the subtree reading. Two controls, same shape, opposite answers.
+	"""
+
+	installed = _installed(session)
+	principal = subroutine.domain.authentication.Principal(user=installed.user)
+
+	private = subroutine.domain.projects.create(
+		session,
+		workspace_id=installed.workspace.id,
+		key="PRIV",
+		title="Private",
+		visibility="private",
+	)
+	child = subroutine.domain.projects.create(
+		session,
+		workspace_id=installed.workspace.id,
+		key="CHILD",
+		title="Public child",
+		parent=private,
+		visibility="public",
+	)
+
+	assert not subroutine.domain.authorization.is_visible(session, principal, private)
+	assert not subroutine.domain.authorization.is_visible(session, principal, child)
+
+	session.add(
+		subroutine.db.models.project.ProjectMember(
+			project_id=private.id,
+			user_id=installed.user.id,
+			workspace_id=installed.workspace.id,
+		)
+	)
+	session.flush()
+
+	assert subroutine.domain.authorization.is_visible(session, principal, private)
+	assert subroutine.domain.authorization.is_visible(session, principal, child)

@@ -14,9 +14,11 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.db.seed
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.text
 import subroutine.errors
+import subroutine.permissions
 
 #: The role the creating user is given. SPEC.md §10.7 invariant 7 requires at least one
 #: owner per workspace, and creating one without its owner would break that between two
@@ -45,6 +47,16 @@ def create (
 	workspace without an owner cannot be administered — neither is a state worth being
 	able to reach.
 	"""
+
+	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
+	# checked against the installation rather than against one — and `authorize_instance`
+	# honours a token's scopes even for a superuser, which is what makes it safe to hand an
+	# agent a token that may do this and nothing else.
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_WORKSPACE_CREATE
+		)
+
 
 	title = subroutine.domain.text.fit(
 		subroutine.domain.text.require(title, field="title"),

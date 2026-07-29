@@ -33,6 +33,7 @@ import sqlalchemy.orm
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.dates
 import subroutine.domain.schedule
 
@@ -187,13 +188,6 @@ def _visible (
 
 	model = subroutine.db.models.work.Task
 	project = subroutine.db.models.project.Project
-	membership = subroutine.db.models.project.ProjectMember
-
-	visible_private = (
-		sqlalchemy.select(membership.project_id)
-		.where(membership.user_id == principal.user.id)
-		.scalar_subquery()
-	)
 
 	return (
 		sqlalchemy.select(model)
@@ -205,9 +199,10 @@ def _visible (
 			model.is_template.is_(False),
 			project.deleted_at.is_(None),
 			sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now),
-			sqlalchemy.or_(
-				project.visibility != "private", project.id.in_(visible_private)
-			),
+			# The one visibility rule, borrowed rather than restated. The agenda had its
+			# own copy until the slice-2 review found the two disagreeing about whether
+			# privacy reaches a private project's children.
+			subroutine.domain.authorization.visible_projects(principal),
 		)
 	)
 

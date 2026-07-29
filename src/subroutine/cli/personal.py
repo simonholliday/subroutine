@@ -160,7 +160,7 @@ def register (
 				stop(
 					f"There is no {ref} in the last list shown.",
 					"Run 'subroutine today' or 'subroutine ls' first, or name the task by "
-					"its ref — 'subroutine done SR-42'.",
+					f"its ref — 'subroutine done {_example_ref(context)}'.",
 				)
 
 			ref = remembered
@@ -170,7 +170,8 @@ def register (
 		if found is None or found[0] != "task":
 			stop(
 				f"There is no task called {given!r}.",
-				"Refs look like SR-42. Run 'subroutine today' to see what there is.",
+				f"Refs look like {_example_ref(context)}. Run 'subroutine today' to see "
+				"what there is.",
 			)
 
 		task = context.session.get(subroutine.db.models.work.Task, found[1])
@@ -299,6 +300,7 @@ def register (
 				return
 
 			_numbered(context, tasks, console=console)
+			say("")
 			_suggest(console, "subroutine done 1")
 
 	@app.command()
@@ -353,7 +355,10 @@ def register (
 				actor=context.principal,
 			)
 
-			say(f"Planned: {task.title}{_when(context, task)}")
+			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
+			# right in a list and wrong in the confirmation of a command whose whole job was
+			# to set the other field — the user said "tomorrow" and was shown Friday.
+			say(f"Planned for {_render_day(task.planned_for)}: {task.title}")
 			_suggest(console, "subroutine today")
 
 	@app.command()
@@ -390,6 +395,24 @@ def register (
 		today(json_output=False)
 
 	return show_today
+
+
+def _example_ref (context: Context) -> str:
+	"""Return a ref shape from this installation, for use in a hint.
+
+	Quoting ``SR-42`` at somebody whose every task is ``INBOX-3`` is an example that teaches
+	the wrong shape. This reads a real one, and falls back to the generic form only when
+	there is nothing to read.
+	"""
+
+	found = context.session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task.ref)
+		.where(subroutine.db.models.work.Task.workspace_id == context.workspace.id)
+		.order_by(sqlalchemy.desc(subroutine.db.models.work.Task.created_at))
+		.limit(1)
+	).first()
+
+	return found or "SR-42"
 
 
 def _asked (given: str, question: str) -> str:
@@ -552,6 +575,12 @@ def _task_line (
 	return line
 
 
+def _render_day (day: datetime.date | None) -> str:
+	"""Render a calendar date the way a person reads one."""
+
+	return "—" if day is None else day.strftime("%a %-d %b")
+
+
 def _when (context: Context, task: subroutine.db.models.work.Task) -> str:
 	"""Return a short trailing phrase describing a task's dates, or nothing at all.
 
@@ -563,7 +592,7 @@ def _when (context: Context, task: subroutine.db.models.work.Task) -> str:
 		return f"  (due {_render_date(task.due_at, context.timezone)})"
 
 	if task.planned_for is not None:
-		return f"  (for {task.planned_for.strftime('%a %-d %b')})"
+		return f"  (for {_render_day(task.planned_for)})"
 
 	return ""
 

@@ -252,7 +252,10 @@ def test_plan_and_defer_move_a_task_between_days (
 	run("add", "Buy milk")
 	run("today")
 
-	assert "Planned:" in run("plan", "1", "tomorrow").output
+	# The confirmation echoes the day that was just set, not the deadline. `_when` prefers
+	# a deadline, which is right in a list and wrong here — the user said "tomorrow" and
+	# used to be shown Friday.
+	assert "Planned for" in run("plan", "1", "tomorrow").output
 
 	run("today")
 

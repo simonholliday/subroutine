@@ -19,6 +19,7 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.events
@@ -30,6 +31,7 @@ import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.errors
+import subroutine.permissions
 
 
 class _Unset:
@@ -57,6 +59,40 @@ FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
 #: arriving as a driver error from PostgreSQL — and arriving not at all on SQLite, which
 #: does not enforce VARCHAR lengths.
 MAX_TITLE_LENGTH = 512
+
+
+def _permitted (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	permission: str,
+	*,
+	project: subroutine.db.models.project.Project | None = None,
+	workspace_id: uuid.UUID | None = None,
+) -> None:
+	"""Check that an actor may do this, or raise.
+
+	**``actor=None`` is an unauthenticated internal caller and skips the check.** There are
+	exactly two: ``domain.bootstrap``, which runs before any principal exists, and the tests.
+	Everything reachable from a user — the CLI today, the API at S3-03 — must pass one, and
+	``tests/test_actor_discipline.py`` fails the build if any module under ``src`` calls a
+	mutating service without doing so.
+
+	That static check is the mechanism, not this default. A missing ``actor=`` here would
+	otherwise disable a permission check silently, which is exactly how the slice-2 review
+	found the whole layer unenforced: four documents said the check ran and nothing called it.
+	"""
+
+	if actor is None:
+		return
+
+	scope = workspace_id if project is None else project.workspace_id
+
+	if scope is None:
+		raise ValueError("A workspace or a project is needed to check a permission against.")
+
+	subroutine.domain.authorization.authorize(
+		session, actor, permission, workspace_id=scope, project=project
+	)
 
 
 def _clean_title (title: str) -> str:
@@ -117,6 +153,9 @@ def create (
 		)
 
 	workspace_id = project.workspace_id
+
+	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
+
 	item_type = _item_type(session, workspace_id, type_key)
 	status = _status(session, workspace_id, status_key)
 
@@ -394,6 +433,16 @@ def update (
 	half-applied change that raised on the way through would be committed silently along
 	with whatever else that transaction was doing.
 	"""
+
+	# Permission first, before anything is even read: a caller who may not touch this task
+	# should not be able to learn from the error message whether their new title was valid.
+	_permitted(
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		project=session.get(subroutine.db.models.project.Project, task.project_id),
+		workspace_id=task.workspace_id,
+	)
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = UNSET if title is UNSET else _clean_title(title)

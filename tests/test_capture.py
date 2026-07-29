@@ -236,3 +236,146 @@ def test_ordinary_words_always_survive_intact (words: list[str]) -> None:
 	text = " ".join(words)
 
 	assert _parse(text).title == text
+
+
+#: Realistic task lines, and the fragments that have broken this grammar before. The
+#: cartesian product of these is what the invariants below run against.
+_VERBS = ("Call", "Email", "Review", "Fix", "Buy", "Read", "Ask", "Book", "Renew", "Pay")
+_NOUNS = (
+	"the dentist", "Bob", "the report", "issue 12", "the C# port", "milk",
+	"chapter 3.1", "the C++ build", "the invoice", "4/5 stars", "1+1 pounds",
+)
+_TAILS = (
+	"", "!", "?", " re: 3pm", " -- urgent", " (again)", ", then relax",
+	" before the meeting", " on the phone", " from the top", " every day",
+	" at ~5 people", " for @home use", " #1 priority", " due diligence",
+	" tomorrow's party", " today's news", " tomorrow-ish", " by hand", " on time",
+	" #tag, and more", " @bob, and Sue", " !3, not !4", " ~2h, then rest",
+)
+
+
+def _words (text: str) -> list[str]:
+	"""Split on whitespace the way the title is normalised."""
+
+	import re
+
+	return re.sub(r"\s+", " ", text).strip().split()
+
+
+def _generated () -> list[str]:
+	"""Return every combination of the fragments above."""
+
+	import itertools
+
+	return [f"{verb} {noun}{tail}" for verb, noun, tail in itertools.product(_VERBS, _NOUNS, _TAILS)]
+
+
+def test_a_title_never_contains_a_word_the_input_did_not () -> None:
+	"""The invariant that would have caught the possessive bug, on 2,530 generated lines.
+
+	``tomorrow's party`` used to yield a title of ``'s party``: ``\\b`` sits between ``w``
+	and ``'``, so the match tore the word in half. The losslessness table did not catch it
+	because none of its fourteen strings had a possessive, and the earlier property test did
+	not either, because its invariant was "a word may only vanish if a field was set" — and
+	here one was.
+
+	This states the other half: **a word may not appear in the title unless the input had
+	it**. Any parse that cuts a word produces a fragment the input never contained.
+	"""
+
+	offenders = []
+
+	for text in _generated():
+		captured = _parse(text)
+		original = set(_words(text))
+
+		for word in _words(captured.title):
+			if word not in original:
+				offenders.append((text, captured.title, word))
+
+	assert offenders == [], f"{len(offenders)} mangled titles, first: {offenders[:3]}"
+
+
+def test_a_word_vanishes_only_when_something_was_parsed () -> None:
+	"""The complementary invariant: nothing is dropped silently.
+
+	If no field was set, the title must be the input with only its whitespace normalised.
+	"""
+
+	offenders = []
+
+	for text in _generated():
+		captured = _parse(text)
+
+		parsed_anything = any(
+			(
+				captured.due,
+				captured.planned_for,
+				captured.start,
+				captured.importance,
+				captured.estimate_minutes,
+				captured.tags,
+				captured.assignee,
+				captured.project_key,
+			)
+		)
+
+		if not parsed_anything and _words(captured.title) != _words(text):
+			offenders.append((text, captured.title))
+
+	assert offenders == [], f"{len(offenders)} silent losses, first: {offenders[:3]}"
+
+
+@pytest.mark.parametrize(
+	("text", "title", "expected"),
+	[
+		# Trailing punctuation belongs to the sentence, not to the value beside it.
+		("Note the #hashtag, then move on", "Note the then move on", {"tags": ("hashtag",)}),
+		("Ping @bob, then talk", "Ping then talk", {"assignee": "bob"}),
+		("Write it up ~2h, then rest", "Write it up then rest", {"estimate_minutes": 120}),
+		("Fix the build +WEB, please", "Fix the build please", {"project_key": "WEB"}),
+		# …which also restores first-wins for importance: `!3,` used to fail to match at
+		# all, letting the later `!4` win.
+		("Set it to !3, not !4", "Set it to not !4", {"importance": 3}),
+		# `#a #b #a` is one person typing quickly, not three tags.
+		("Tag it #a #b #a", "Tag it", {"tags": ("a", "b")}),
+	],
+)
+def test_punctuation_beside_a_sigil_is_not_part_of_its_value (
+	text: str, title: str, expected: dict[str, object]
+) -> None:
+	"""``#hashtag,`` created a tag named "hashtag," — permanent litter, since tags auto-create."""
+
+	captured = _parse(text)
+
+	assert captured.title == title
+
+	for field, value in expected.items():
+		assert getattr(captured, field) == value, field
+
+
+@pytest.mark.parametrize(
+	("text", "planned"),
+	[
+		# Last token: a plan.
+		("Buy milk tomorrow", datetime.date(2026, 7, 31)),
+		("Buy milk today", datetime.date(2026, 7, 30)),
+		("Buy milk tomorrow.", datetime.date(2026, 7, 31)),
+		# Anywhere else: prose.
+		("Remember what happened today, then write it up", None),
+		("Ask about tomorrow-ish plans", None),
+		("Buy a present for tomorrow's party", None),
+		("Today I will rest", None),
+	],
+)
+def test_a_bare_day_plans_only_at_the_end_of_the_line (
+	text: str, planned: datetime.date | None
+) -> None:
+	"""Settled 2026-07-29: bare ``today``/``tomorrow`` plan only as the final token.
+
+	Mid-sentence they are almost always prose, and reading one as a field both sets a date
+	nobody asked for and takes a word out of the title. At the end of the line —
+	"buy milk tomorrow" — the reading is unambiguous and it is how people write.
+	"""
+
+	assert _parse(text).planned_for == planned

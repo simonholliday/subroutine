@@ -18,10 +18,12 @@ import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.text
 import subroutine.errors
+import subroutine.permissions
 
 #: The shape a project key must take. It is deliberately identical to the ref half of
 #: ``subroutine.domain.mentions.REF_PATTERN``, and that is the whole reason it is
@@ -80,6 +82,8 @@ def create (
 	title = subroutine.domain.text.fit(
 		subroutine.domain.text.require(title, field="title"), field="title", limit=512
 	)
+	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id)
+
 	normalized_key = normalize_key(key)
 
 	if not KEY_PATTERN.fullmatch(normalized_key):
@@ -184,6 +188,11 @@ def move (
 ) -> int:
 	"""Move a project and everything under it, returning how many rows were rewritten."""
 
+	_permitted(
+		session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=project.workspace_id
+	)
+
+
 	previous_parent = project.parent_id
 	previous_path = project.path
 
@@ -260,6 +269,27 @@ def default_status (
 		)
 
 	return status
+
+
+def _permitted (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	permission: str,
+	*,
+	workspace_id: uuid.UUID,
+) -> None:
+	"""Check that an actor may do this, or raise. ``None`` is an internal caller.
+
+	See ``domain.tasks._permitted`` for why the ``None`` case is a skip and what stops it
+	being a silent hole.
+	"""
+
+	if actor is None:
+		return
+
+	subroutine.domain.authorization.authorize(
+		session, actor, permission, workspace_id=workspace_id
+	)
 
 
 def normalize_key (key: str) -> str:

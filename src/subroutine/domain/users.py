@@ -13,9 +13,11 @@ import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.text
 import subroutine.errors
+import subroutine.permissions
 
 #: Column widths from SPEC.md §10.6, enforced here so the refusal names the field rather
 #: than arriving as a driver error on PostgreSQL and not at all on SQLite.
@@ -37,6 +39,16 @@ def create (
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.User:
 	"""Create a person or a machine identity."""
+
+	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
+	# checked against the installation rather than against one — and `authorize_instance`
+	# honours a token's scopes even for a superuser, which is what makes it safe to hand an
+	# agent a token that may do this and nothing else.
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_USER_CREATE
+		)
+
 
 	name = subroutine.domain.text.fit(
 		subroutine.domain.text.require(username, field="username"),

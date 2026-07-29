@@ -38,6 +38,11 @@ DEFER_WORDS = ("from", "defer")
 #: Bare words that plan a task without needing a preposition. Deliberately only these two:
 #: they are unambiguous and overwhelmingly common, and every further one is a word somebody
 #: wanted in their title.
+#:
+#: **Only at the very end of the line** (:data:`_BARE_DAY`). "Buy milk tomorrow" plans;
+#: "Remember what happened today" does not, and neither does "Ask about tomorrow-ish
+#: plans". Mid-sentence these words are almost always prose, and reading them as a field
+#: both sets a date nobody asked for and takes a word out of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
 #: Weekday names and their common abbreviations, mapped to Python's Monday-is-zero.
@@ -81,26 +86,45 @@ _DATED = re.compile(
 	re.IGNORECASE,
 )
 
-_BARE_DAY = re.compile(rf"\b(?P<phrase>{'|'.join(BARE_PLANNED_WORDS)})\b", re.IGNORECASE)
-
 #: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
 #: task to "example.com" and leaves "Email bob about it" as the title — data lost, exactly
 #: what rule 1 forbids. Measured, not theorised: it was the first thing tried.
 _STARTS_A_WORD = r"(?<![^\s])"
 
-#: A tag begins with a letter, so ``Fix issue #12`` keeps its issue number. In this
+#: A bare planning word, anchored to the end of the line and required to be a whole word.
+#:
+#: The end-anchor is the decision above. The ``(?<![^\s])`` guard is a defect fix: ``\b``
+#: sits between ``w`` and ``'``, so ``tomorrow's party`` matched ``tomorrow`` and left
+#: ``'s party`` as the title — a mangled title *and* a date set from the wreckage, which is
+#: exactly what §6.13 rule 1 forbids.
+_BARE_DAY = re.compile(
+	rf"{_STARTS_A_WORD}(?P<phrase>{'|'.join(BARE_PLANNED_WORDS)})[.!?]*\s*$",
+	re.IGNORECASE,
+)
+
+#: Punctuation that ends a sentence rather than belonging to the value beside it. Trimmed
+#: from every sigil, because ``#hashtag,`` created a tag literally named "hashtag," — a
+#: permanent piece of litter, since tags are auto-created and never reviewed — and
+#: ``@bob,`` failed its lookup with "there is nobody called 'bob,'".
+_TRAILING = r"(?<![,.;:!?)\]])"
+
+#: A tag begins with a letter, so ``Fix issue #12`` keeps its issue number: in this
 #: project's own domain a ``#`` followed by digits is far more often a reference than a
 #: label, and a tag named "12" helps nobody.
-_TAG = re.compile(rf"{_STARTS_A_WORD}#(?P<value>[A-Za-z][^\s#]*)")
-_ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+)")
-_IMPORTANCE = re.compile(rf"{_STARTS_A_WORD}!(?P<value>[1-5])(?=\s|$)")
+_TAG = re.compile(rf"{_STARTS_A_WORD}#(?P<value>[A-Za-z][^\s#]*?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
+_ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
+_IMPORTANCE = re.compile(rf"{_STARTS_A_WORD}!(?P<value>[1-5])[,.;:!?)\]]*(?=\s|$)")
 
 #: **An estimate must carry a unit**, so ``~90m`` and ``~2h`` parse and ``~5`` does not.
 #: The duration grammar reads a bare number as minutes (§6.4) and that is right there; here
 #: it is wrong, because in prose ``~5`` means "about five" — ``Invite ~5 people`` would
 #: otherwise become a five-minute task to invite people.
-_ESTIMATE = re.compile(rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z]\S*)(?=\s|$)")
-_PROJECT = re.compile(rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*)(?=\s|$)")
+_ESTIMATE = re.compile(
+	rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z][a-zA-Z0-9]*)[,.;:!?)\]]*(?=\s|$)"
+)
+_PROJECT = re.compile(
+	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*)[,.;:!?)\]]*(?=\s|$)"
+)
 
 #: Whole-day phrases. Anything else names an instant, so it is not all-day.
 _WHOLE_DAY_KEYWORDS = frozenset({"today", "tomorrow", "yesterday"})
@@ -223,7 +247,14 @@ def _collect_sigils (
 
 	for match in _TAG.finditer(text):
 		if not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved):
-			tags.append(match.group("value").lower())
+			name = match.group("value").lower()
+
+			# `#a #b #a` is one person typing quickly, not three tags. `tags.ensure` would
+			# collapse it anyway; collapsing here keeps the preview honest about what will
+			# happen.
+			if name not in tags:
+				tags.append(name)
+
 			claimed.append(match.span())
 
 	for pattern, name in ((_ASSIGNEE, "assignee"), (_PROJECT, "project_key")):
