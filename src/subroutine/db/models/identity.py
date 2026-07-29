@@ -49,8 +49,13 @@ class Workspace(
 	description: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Text, nullable=True
 	)
-	timezone: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(64), default="UTC", nullable=False
+	#: Nullable, and null means *not stated* rather than UTC — the same convention
+	#: ``user.timezone`` and ``instance.timezone`` use. A workspace that never chose one
+	#: follows the installation, so moving the instance moves it too; a workspace that did
+	#: choose is pinned. Defaulting the column to UTC would have shadowed the instance for
+	#: every workspace created without an explicit zone (SPEC.md §6.5).
+	timezone: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(64), nullable=True
 	)
 	settings: sqlalchemy.orm.Mapped[dict[str, typing.Any]] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.json_column(), default=dict, nullable=False

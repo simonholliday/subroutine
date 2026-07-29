@@ -20,7 +20,7 @@ def get (session: sqlalchemy.orm.Session) -> subroutine.db.models.system.Instanc
 
 
 def establish (
-	session: sqlalchemy.orm.Session, *, name: str
+	session: sqlalchemy.orm.Session, *, name: str, timezone: str = "UTC"
 ) -> tuple[subroutine.db.models.system.Instance, bool]:
 	"""Return this installation's row, creating it if there is not one yet.
 
@@ -34,7 +34,7 @@ def establish (
 	if existing is not None:
 		return existing, False
 
-	instance = subroutine.db.models.system.Instance(name=name)
+	instance = subroutine.db.models.system.Instance(name=name, timezone=timezone)
 	session.add(instance)
 	session.flush()
 

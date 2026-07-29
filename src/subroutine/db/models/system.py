@@ -40,3 +40,14 @@ class Instance(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 	name: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(255), nullable=False
 	)
+
+	#: Where this installation *is*, and the last word in §6.5's timezone chain. Set from
+	#: the machine's own zone by ``subroutine init``; ``UTC`` for anything upgraded from
+	#: before the column existed, which is what those installations were already doing.
+	#:
+	#: A server has a locality and it is not necessarily its users'. A person in London
+	#: reading a task on a New York instance needs both times to make sense of a meeting,
+	#: and neither the user's zone nor the workspace's can supply the other half.
+	timezone: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(64), server_default="UTC", nullable=False
+	)

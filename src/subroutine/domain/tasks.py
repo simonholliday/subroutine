@@ -24,6 +24,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.instances
 import subroutine.domain.mentions
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -593,8 +594,8 @@ def _timezone (
 ) -> str:
 	"""Return the timezone this task's dates are read in, per SPEC.md §6.5's chain.
 
-	The workspace is fetched only when the answer is not already settled, so the common
-	path — a person with a timezone, editing their own tasks — costs no query.
+	The workspace and the instance are fetched only when the answer is not already settled,
+	so the common path — a person with a timezone, editing their own tasks — costs no query.
 	"""
 
 	if explicit:
@@ -605,7 +606,12 @@ def _timezone (
 
 	workspace = session.get(subroutine.db.models.identity.Workspace, workspace_id)
 
-	return subroutine.domain.schedule.zone_for(workspace=workspace)
+	if workspace is not None and workspace.timezone:
+		return workspace.timezone
+
+	return subroutine.domain.schedule.zone_for(
+		instance=subroutine.domain.instances.get(session)
+	)
 
 
 def _item_type (

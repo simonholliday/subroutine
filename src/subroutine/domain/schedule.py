@@ -24,6 +24,7 @@ import re
 import zoneinfo
 
 import subroutine.db.models.identity
+import subroutine.db.models.system
 import subroutine.db.models.work
 import subroutine.domain.dates
 import subroutine.errors
@@ -63,19 +64,30 @@ def zone_for (
 	*,
 	user: subroutine.db.models.identity.User | None = None,
 	workspace: subroutine.db.models.identity.Workspace | None = None,
+	instance: subroutine.db.models.system.Instance | None = None,
 	explicit: str | None = None,
 ) -> str:
-	"""Return the timezone dates should be read in — explicit, then user, then workspace, then UTC.
+	"""Return the timezone dates should be read in: explicit → user → workspace → instance.
 
 	SPEC.md §6.5's chain, in the one place that owns it. Before this existed every caller
 	picked a timezone by hand, which is the sort of thing that agrees everywhere until it
 	does not.
+
+	**Null means "not stated" at every level**, which is why the workspace column is
+	nullable rather than defaulting to UTC: a default would have shadowed the instance for
+	every workspace created without an explicit zone, and the chain would have had a step
+	nothing could ever reach.
+
+	The instance is the last word because a server has a locality of its own. UTC below it
+	is defensive — ``subroutine init`` always sets an instance timezone, so the only way to
+	reach it is to call this without one.
 	"""
 
 	candidates = (
 		explicit,
 		None if user is None else user.timezone,
 		None if workspace is None else workspace.timezone,
+		None if instance is None else instance.timezone,
 	)
 
 	for candidate in candidates:

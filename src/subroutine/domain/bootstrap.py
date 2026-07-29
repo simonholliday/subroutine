@@ -71,7 +71,11 @@ def initialise (
 	first thing, so a re-run cannot half-create a second workspace before noticing.
 	"""
 
-	instance, created = subroutine.domain.instances.establish(session, name=instance_name)
+	# The machine's own zone, which for a personal installation is also the person's.
+	# Everything below inherits it unless it says otherwise (SPEC.md §6.5).
+	instance, created = subroutine.domain.instances.establish(
+		session, name=instance_name, timezone=timezone
+	)
 
 	if not created:
 		return _describe(session, instance)

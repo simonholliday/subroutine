@@ -20,7 +20,9 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.system
 import subroutine.db.models.work
+import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.schedule
 import subroutine.domain.tasks
@@ -364,3 +366,107 @@ def test_a_date_that_is_not_in_any_accepted_form_is_refused (
 
 	assert raised.value.status == 422
 	assert raised.value.errors[0].field == "due_at"
+
+
+def test_the_timezone_chain_runs_user_workspace_instance (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""SPEC.md §6.5's chain in full, each level shadowing the one below it.
+
+	Null means *not stated* at every level, which is why the workspace column is nullable:
+	a default of UTC there would have shadowed the instance for every workspace created
+	without an explicit zone, leaving a step in the chain nothing could reach.
+	"""
+
+	zone_for = subroutine.domain.schedule.zone_for
+
+	instance = subroutine.db.models.system.Instance(name="I", timezone="America/New_York")
+	workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+	user = subroutine.db.models.identity.User(username="u", username_normalized="u")
+
+	# Nothing stated anywhere below the instance.
+	assert zone_for(user=user, workspace=workspace, instance=instance) == "America/New_York"
+
+	workspace.timezone = "Europe/Berlin"
+
+	assert zone_for(user=user, workspace=workspace, instance=instance) == "Europe/Berlin"
+
+	user.timezone = LONDON
+
+	assert zone_for(user=user, workspace=workspace, instance=instance) == LONDON
+	assert zone_for(user=user, workspace=workspace, instance=instance, explicit="UTC") == "UTC"
+
+	# And UTC only when there is nothing at all — which `init` makes unreachable.
+	assert zone_for() == "UTC"
+
+
+def test_init_records_the_machines_timezone_on_the_instance (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""An installation has a locality, and it is not necessarily its users'."""
+
+	installed = subroutine.domain.bootstrap.initialise(
+		session,
+		username=f"si-{uuid.uuid4().hex[:8]}",
+		instance_name="Test instance",
+		timezone="America/New_York",
+	)
+
+	assert installed.instance.timezone == "America/New_York"
+
+
+def test_a_task_falls_back_to_the_instance_when_nothing_else_says (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The case that motivated the column: a remote instance in another zone.
+
+	A workspace on a New York instance, and a task created there with no user or workspace
+	opinion, is authored in New York — so a person in London reading it later has both
+	halves of "your 16:00 is their 10:00" rather than a date silently read as UTC.
+	"""
+
+	installed = subroutine.domain.bootstrap.initialise(
+		session,
+		username=f"si-{uuid.uuid4().hex[:8]}",
+		instance_name="New York instance",
+		timezone="America/New_York",
+	)
+
+	# Neither the workspace nor the actor states one.
+	installed.workspace.timezone = None
+	installed.user.timezone = None
+	session.flush()
+
+	task = subroutine.domain.tasks.create(
+		session, project=installed.inbox, title="Stand-up", due=datetime.date(2026, 8, 3)
+	)
+
+	assert task.timezone == "America/New_York"
+
+	# 23:59:59.999999 in New York is 04:59 the next morning in London — which is exactly
+	# the difference a client needs the instance zone to be able to explain.
+	assert _local(task.due_at, "America/New_York") == "2026-08-03 23:59:59.999999"
+	assert _local(task.due_at, LONDON) == "2026-08-04 04:59:59.999999"
+
+
+def test_a_workspace_with_no_timezone_follows_the_instance (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Not stated means *follow the installation*, not UTC.
+
+	So moving an instance's timezone moves every workspace that never chose one, and leaves
+	alone every workspace that did.
+	"""
+
+	installed = subroutine.domain.bootstrap.initialise(
+		session,
+		username=f"si-{uuid.uuid4().hex[:8]}",
+		instance_name="Test instance",
+		timezone="Australia/Sydney",
+	)
+	installed.workspace.timezone = None
+	session.flush()
+
+	assert subroutine.domain.schedule.zone_for(
+		workspace=installed.workspace, instance=installed.instance
+	) == "Australia/Sydney"
