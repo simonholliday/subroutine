@@ -273,6 +273,12 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared. That distinction is the only way to clear a due date.",
 		"",
+		"**If you read something, think, and then write it, send the version back.** Put "
+		"`expected_version` in the body or `If-Match: \"<version>\"` in the header, and a "
+		"change made by somebody else in between is refused with a `409` carrying both "
+		"version numbers — rather than silently overwriting their work. A human may be "
+		"editing the same task in a text editor while you think.",
+		"",
 	]
 
 	for topic in subroutine.cli.topics.TOPICS:

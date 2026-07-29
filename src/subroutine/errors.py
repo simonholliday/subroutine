@@ -230,8 +230,15 @@ class SubroutineError(Exception):
 		code: str | None = None,
 		errors: typing.Sequence[FieldError] = (),
 		hint: str | None = None,
+		extensions: typing.Mapping[str, typing.Any] | None = None,
 	) -> None:
-		"""Record what went wrong, in terms the caller can act on."""
+		"""Record what went wrong, in terms the caller can act on.
+
+		``extensions`` are RFC 9457 extension members — additional top-level fields on the
+		problem document, for facts a caller needs to *act on* rather than read. A version
+		conflict carries the two version numbers this way, because "merge and retry" is a
+		thing a program does and parsing them out of a sentence is not.
+		"""
 
 		super().__init__(detail)
 
@@ -239,6 +246,7 @@ class SubroutineError(Exception):
 		self.detail = detail
 		self.errors = tuple(errors)
 		self.hint = hint
+		self.extensions = dict(extensions or {})
 
 		expected = definition(self.CODE).status
 		actual = self.definition.status
@@ -362,6 +370,12 @@ def problem_document (
 
 	if error.errors:
 		document["errors"] = [field.as_dict() for field in error.errors]
+
+	# Extension members last, and never allowed to overwrite a member RFC 9457 defines: a
+	# document whose `status` disagreed with its HTTP status would be worse than one missing
+	# whatever the extension wanted to say.
+	for name, value in error.extensions.items():
+		document.setdefault(name, value)
 
 	return document
 

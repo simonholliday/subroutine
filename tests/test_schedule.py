@@ -62,7 +62,7 @@ def _project (
 	return subroutine.domain.projects.create(
 		session,
 		workspace_id=workspace.id,
-		key=f"P{uuid.uuid4().hex[:4].upper()}",
+		key=f"P{uuid.uuid4().hex[:10].upper()}",
 		title="Test project",
 	)
 

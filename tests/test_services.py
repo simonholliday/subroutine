@@ -66,7 +66,7 @@ def _project (
 ) -> subroutine.db.models.project.Project:
 	"""Create a project in a workspace."""
 
-	kwargs.setdefault("key", f"P{uuid.uuid4().hex[:4].upper()}")
+	kwargs.setdefault("key", f"P{uuid.uuid4().hex[:10].upper()}")
 	kwargs.setdefault("title", "Test project")
 
 	return subroutine.domain.projects.create(session, workspace_id=workspace.id, **kwargs)

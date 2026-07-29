@@ -19,7 +19,9 @@ import uuid
 import fastapi
 import sqlalchemy
 import sqlalchemy.orm
+import starlette.requests
 
+import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.schemas
@@ -109,6 +111,10 @@ class Update(subroutine.api.schemas.RequestModel):
 	start: str | None = None
 	start_is_all_day: bool | None = None
 	timezone: str | None = None
+
+	#: The version this change is based on (SPEC.md §8.9). Optional; ``If-Match`` does the
+	#: same job for a client that prefers the header.
+	expected_version: int | None = None
 
 
 @router.post("", status_code=201, summary="Create a task")
@@ -276,6 +282,7 @@ def read (
 
 @router.patch("/{id_or_ref}", summary="Change a task")
 def change (
+	request: starlette.requests.Request,
 	id_or_ref: str,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
@@ -312,15 +319,22 @@ def change (
 		if name in supplied and getattr(body, name) is not None:
 			changes[parameter] = getattr(body, name)
 
-	updated = subroutine.domain.tasks.update(
-		session, task, timezone=body.timezone, actor=actor, **changes
-	)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		updated = subroutine.domain.tasks.update(
+			session,
+			task,
+			timezone=body.timezone,
+			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			actor=actor,
+			**changes,
+		)
 
 	return _rendered(session, updated)
 
 
 @router.post("/{id_or_ref}/complete", summary="Mark a task finished")
 def complete (
+	request: starlette.requests.Request,
 	id_or_ref: str,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -331,11 +345,20 @@ def complete (
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	return _rendered(session, subroutine.domain.tasks.complete(session, task, actor=actor))
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		finished = subroutine.domain.tasks.complete(
+			session,
+			task,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, finished)
 
 
 @router.delete("/{id_or_ref}", summary="Move a task to the trash")
 def remove (
+	request: starlette.requests.Request,
 	id_or_ref: str,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -351,7 +374,15 @@ def remove (
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	return _rendered(session, subroutine.domain.tasks.delete(session, task, actor=actor))
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		removed = subroutine.domain.tasks.delete(
+			session,
+			task,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, removed)
 
 
 def _resolve (

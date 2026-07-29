@@ -11,7 +11,9 @@ import uuid
 import fastapi
 import sqlalchemy
 import sqlalchemy.orm
+import starlette.requests
 
+import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.schemas
@@ -68,6 +70,9 @@ class Update(subroutine.api.schemas.RequestModel):
 	description: str | None = None
 	visibility: str | None = None
 	owner_id: uuid.UUID | None = None
+
+	#: The version this change is based on (SPEC.md §8.9).
+	expected_version: int | None = None
 
 
 class Move(subroutine.api.schemas.RequestModel):
@@ -198,6 +203,7 @@ def read (
 
 @router.patch("/{id_or_key}", summary="Change a project")
 def change (
+	request: starlette.requests.Request,
 	id_or_key: str,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
@@ -219,7 +225,14 @@ def change (
 	if "visibility" in supplied and body.visibility is not None:
 		changes["visibility"] = body.visibility
 
-	updated = subroutine.domain.projects.update(session, project, actor=actor, **changes)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
+		updated = subroutine.domain.projects.update(
+			session,
+			project,
+			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			actor=actor,
+			**changes,
+		)
 
 	return _rendered(session, updated)
 
@@ -245,6 +258,7 @@ def move (
 
 @router.delete("/{id_or_key}", summary="Move a project to the trash")
 def remove (
+	request: starlette.requests.Request,
 	id_or_key: str,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -255,7 +269,15 @@ def remove (
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
 
-	return _rendered(session, subroutine.domain.projects.delete(session, project, actor=actor))
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
+		removed = subroutine.domain.projects.delete(
+			session,
+			project,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, removed)
 
 
 def resolve (

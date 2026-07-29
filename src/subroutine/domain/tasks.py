@@ -32,6 +32,7 @@ import subroutine.domain.schedule
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.users
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
@@ -405,6 +406,7 @@ def update (
 	start_is_all_day: bool | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Change a task, recording only what actually changed.
@@ -421,6 +423,8 @@ def update (
 
 	# Permission first, before anything is even read: a caller who may not touch this task
 	# should not be able to learn from the error message whether their new title was valid.
+	# The version check follows it, for the same reason — a stranger should not learn what
+	# version a task is at (SPEC.md §8.9).
 	_permitted(
 		session,
 		actor,
@@ -428,6 +432,7 @@ def update (
 		project=session.get(subroutine.db.models.project.Project, task.project_id),
 		workspace_id=task.workspace_id,
 	)
+	subroutine.domain.versions.require(task, expected_version, noun="This task")
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
@@ -586,6 +591,7 @@ def complete (
 	task: subroutine.db.models.work.Task,
 	*,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Mark a task finished, in whatever this workspace calls its finished status.
@@ -601,6 +607,7 @@ def complete (
 		task,
 		status_key=finished_status_key(session, task.workspace_id),
 		now=now,
+		expected_version=expected_version,
 		actor=actor,
 	)
 
@@ -610,6 +617,7 @@ def delete (
 	task: subroutine.db.models.work.Task,
 	*,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Move a task to the trash, where it stays recoverable (SPEC.md §6.9).
@@ -630,6 +638,7 @@ def delete (
 		project=session.get(subroutine.db.models.project.Project, task.project_id),
 		workspace_id=task.workspace_id,
 	)
+	subroutine.domain.versions.require(task, expected_version, noun="This task")
 
 	if task.deleted_at is not None:
 		return task

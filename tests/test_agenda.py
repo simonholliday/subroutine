@@ -56,7 +56,7 @@ class World:
 		self.project = subroutine.domain.projects.create(
 			session,
 			workspace_id=self.workspace.id,
-			key=f"P{uuid.uuid4().hex[:4].upper()}",
+			key=f"P{uuid.uuid4().hex[:10].upper()}",
 			title="Test project",
 		)
 		self.principal = subroutine.domain.authentication.Principal(user=self.user)

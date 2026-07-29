@@ -16,7 +16,9 @@ import uuid
 import fastapi
 import sqlalchemy
 import sqlalchemy.orm
+import starlette.requests
 
+import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.projects
@@ -78,6 +80,9 @@ class Update(subroutine.api.schemas.RequestModel):
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
 	supersedes: str | None = None
+
+	#: The version this change is based on (SPEC.md §8.9).
+	expected_version: int | None = None
 
 
 class LinkRequest(subroutine.api.schemas.RequestModel):
@@ -246,6 +251,7 @@ def read (
 
 @router.patch("/{id_or_ref}", summary="Change a document")
 def change (
+	request: starlette.requests.Request,
 	id_or_ref: str,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
@@ -272,13 +278,21 @@ def change (
 			else _resolve(session, actor, workspace, body.supersedes)
 		)
 
-	return _rendered(
-		session, subroutine.domain.documents.update(session, document, actor=actor, **changes)
-	)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
+		updated = subroutine.domain.documents.update(
+			session,
+			document,
+			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			actor=actor,
+			**changes,
+		)
+
+	return _rendered(session, updated)
 
 
 @router.delete("/{id_or_ref}", summary="Move a document to the trash")
 def remove (
+	request: starlette.requests.Request,
 	id_or_ref: str,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -289,9 +303,15 @@ def remove (
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
 
-	return _rendered(
-		session, subroutine.domain.documents.delete(session, document, actor=actor)
-	)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
+		removed = subroutine.domain.documents.delete(
+			session,
+			document,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, removed)
 
 
 def _links_for (entity_type: str) -> typing.Any:

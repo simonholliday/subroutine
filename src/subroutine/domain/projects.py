@@ -26,6 +26,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.patch
 import subroutine.domain.text
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
@@ -284,6 +285,7 @@ def update (
 	description: str | None = subroutine.domain.patch.UNSET,
 	visibility: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
 	"""Change a project, recording only what actually changed.
@@ -301,6 +303,7 @@ def update (
 	_permitted(
 		session, actor, subroutine.permissions.PROJECT_WRITE, project=project
 	)
+	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET
@@ -389,6 +392,7 @@ def delete (
 	project: subroutine.db.models.project.Project,
 	*,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
 	"""Move a project to the trash, where it stays recoverable (SPEC.md §6.9).
@@ -401,6 +405,7 @@ def delete (
 	_permitted(
 		session, actor, subroutine.permissions.PROJECT_DELETE, project=project
 	)
+	subroutine.domain.versions.require(project, expected_version, noun="This project")
 
 	if project.deleted_at is not None:
 		return project

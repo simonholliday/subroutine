@@ -36,6 +36,7 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.refs
 import subroutine.domain.text
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
@@ -156,6 +157,7 @@ def update (
 	status_key: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	supersedes: subroutine.db.models.work.Document | None = subroutine.domain.patch.UNSET,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
 	"""Change a document, recording only what actually changed.
@@ -173,6 +175,7 @@ def update (
 		project=session.get(subroutine.db.models.project.Project, document.project_id),
 		workspace_id=document.workspace_id,
 	)
+	subroutine.domain.versions.require(document, expected_version, noun="This document")
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = (
@@ -290,6 +293,7 @@ def delete (
 	document: subroutine.db.models.work.Document,
 	*,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
 	"""Move a document to the trash, where it stays recoverable (SPEC.md §6.9)."""
@@ -301,6 +305,7 @@ def delete (
 		project=session.get(subroutine.db.models.project.Project, document.project_id),
 		workspace_id=document.workspace_id,
 	)
+	subroutine.domain.versions.require(document, expected_version, noun="This document")
 
 	if document.deleted_at is not None:
 		return document
