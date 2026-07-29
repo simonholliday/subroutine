@@ -154,3 +154,24 @@ jobs:
           set -euo pipefail
           subroutine db current | grep -q '^Schema is at '
           subroutine init | grep -q 'Already set up'
+
+      # SPEC.md §13.5b, the gating criterion for M2: a fresh installation to a working
+      # to-do list in three commands and a completed task in a fourth, with none of the
+      # output mentioning a workspace, a status, a project, a criterion, a verification, a
+      # session or a claim. The suite runs this too; it runs here as well because this job
+      # is the only one with nothing configured and no fixtures — which is the state the
+      # person it is written about is actually in.
+      - name: The personal test
+        run: |
+          set -euo pipefail
+          subroutine add "Call the dentist before Sunday" | tee /tmp/add.txt
+          subroutine today | tee /tmp/today.txt
+          subroutine done 1 | tee /tmp/done.txt
+          grep -q 'Added: Call the dentist' /tmp/add.txt
+          grep -q 'Call the dentist' /tmp/today.txt
+          grep -q 'Done: Call the dentist' /tmp/done.txt
+          if grep -Eiq 'workspace|status|project|criterion|verification|session|claim' \
+              /tmp/add.txt /tmp/today.txt /tmp/done.txt; then
+            echo "The personal path mentioned something §1.4 says it must not." >&2
+            exit 1
+          fi

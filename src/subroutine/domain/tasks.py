@@ -19,12 +19,16 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
+import subroutine.domain.capture
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.tags
 import subroutine.domain.text
+import subroutine.domain.users
 import subroutine.errors
 
 
@@ -198,6 +202,167 @@ def create (
 	session.flush()
 
 	return task
+
+
+def create_from_text (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace: subroutine.db.models.identity.Workspace,
+	text: str,
+	now: datetime.datetime | None = None,
+	timezone: str | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+	**overrides: typing.Any,
+) -> tuple[subroutine.db.models.work.Task, subroutine.domain.capture.Capture]:
+	"""Create a task from a captured line, resolving the names it mentions.
+
+	Returns the task **and** what was parsed, so a caller can tell the user what it did
+	with their sentence rather than making them infer it from the result.
+
+	**Structured fields win over parsed ones** (SPEC.md §6.13): anything in ``overrides``
+	replaces what the text said, so a client that wants no magic simply does not send text
+	worth parsing. The capture still runs, so the title is still cleaned of tokens the
+	caller did supply values for — otherwise passing ``importance`` explicitly would leave
+	a stray ``!3`` in the title.
+	"""
+
+	zone = _timezone(session, workspace.id, actor=actor, explicit=timezone)
+	instant = now or subroutine.db.types.utcnow()
+
+	captured = subroutine.domain.capture.parse(text, now=instant, timezone=zone)
+
+	project = (
+		subroutine.domain.bootstrap.inbox_for(session, workspace)
+		if captured.project_key is None
+		else _project_by_key(session, workspace.id, captured.project_key)
+	)
+
+	if project is None:
+		raise subroutine.errors.InternalError(
+			"This workspace has no Inbox to file a task in.",
+			hint="It was interrupted part-way through setup; run 'subroutine init' again.",
+		)
+
+	fields: dict[str, typing.Any] = {
+		"title": captured.title,
+		"due": captured.due,
+		"due_is_all_day": captured.due_is_all_day,
+		"planned_for": captured.planned_for,
+		"start": captured.start,
+		"start_is_all_day": captured.start_is_all_day,
+		"importance": captured.importance,
+		"assignee_id": (
+			None
+			if captured.assignee is None
+			else _user_by_name(session, workspace.id, captured.assignee).id
+		),
+	}
+	fields.update(overrides)
+
+	task = create(
+		session,
+		project=project,
+		now=instant,
+		timezone=zone,
+		actor=actor,
+		**fields,
+	)
+
+	if captured.estimate_minutes is not None and "estimate_minutes" not in overrides:
+		task.estimate_minutes = captured.estimate_minutes
+
+	tags = subroutine.domain.tags.ensure(
+		session, workspace_id=workspace.id, names=captured.tags
+	)
+	subroutine.domain.tags.apply_to_task(session, task, tags)
+	session.flush()
+
+	return task, captured
+
+
+def _project_by_key (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
+) -> subroutine.db.models.project.Project:
+	"""Return a project by its key, or say which keys exist.
+
+	``+WEB`` naming nothing is a typo, and filing the task in the Inbox instead would be
+	the wrong kind of helpful — the person would not find it where they put it.
+	"""
+
+	model = subroutine.db.models.project.Project
+
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.workspace_id == workspace_id,
+			model.key == key,
+			model.deleted_at.is_(None),
+		)
+	).one_or_none()
+
+	if found is not None:
+		return found
+
+	available = sorted(
+		session.scalars(
+			sqlalchemy.select(model.key).where(
+				model.workspace_id == workspace_id, model.deleted_at.is_(None)
+			)
+		)
+	)
+
+	raise subroutine.errors.ValidationError(
+		f"There is no project called {key!r} here.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="project",
+				code="not_found",
+				message=f"No project with key {key!r} exists in this workspace.",
+				hint=f"Projects here: {', '.join(available)}." if available else None,
+			)
+		],
+	)
+
+
+def _user_by_name (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, username: str
+) -> subroutine.db.models.identity.User:
+	"""Return a member of this workspace by username, or say who is here."""
+
+	user = subroutine.db.models.identity.User
+	member = subroutine.db.models.identity.WorkspaceMember
+
+	found = session.scalars(
+		sqlalchemy.select(user)
+		.join(member, member.user_id == user.id)
+		.where(
+			member.workspace_id == workspace_id,
+			user.username_normalized == subroutine.domain.users.normalize(username),
+			user.deleted_at.is_(None),
+		)
+	).one_or_none()
+
+	if found is not None:
+		return found
+
+	available = sorted(
+		session.scalars(
+			sqlalchemy.select(user.username)
+			.join(member, member.user_id == user.id)
+			.where(member.workspace_id == workspace_id, user.deleted_at.is_(None))
+		)
+	)
+
+	raise subroutine.errors.ValidationError(
+		f"There is nobody called {username!r} in this workspace.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="assignee",
+				code="not_found",
+				message=f"No member of this workspace is called {username!r}.",
+				hint=f"Members here: {', '.join(available)}." if available else None,
+			)
+		],
+	)
 
 
 def update (

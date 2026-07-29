@@ -52,6 +52,21 @@ def data_home () -> pathlib.Path:
 	return pathlib.Path(base) / APPLICATION_NAME
 
 
+def state_home () -> pathlib.Path:
+	"""Return the directory holding state that is useful to keep but safe to lose.
+
+	The last listing lives here, which is what makes ``subroutine done 1`` work. It is
+	deliberately not in the data directory: deleting it costs a person one re-run of
+	``subroutine today`` and nothing else, and XDG's own description of ``STATE_HOME`` —
+	state that should persist between restarts but is not important enough for the data
+	directory — describes it exactly.
+	"""
+
+	base = os.environ.get("XDG_STATE_HOME") or pathlib.Path.home() / ".local" / "state"
+
+	return pathlib.Path(base) / APPLICATION_NAME
+
+
 def config_file_path () -> pathlib.Path:
 	"""Return the path of the configuration file, whether or not it exists."""
 
@@ -258,6 +273,12 @@ class Settings(pydantic_settings.BaseSettings):
 	log_level: str = "INFO"
 	cors_origins: list[str] = pydantic.Field(default_factory=list)
 	default_timezone: str = pydantic.Field(default_factory=system_timezone)
+
+	# Which account local mode acts as, when the database holds more than one (SPEC.md
+	# §12.1a). Unset is the ordinary case: with a single user there is nothing to choose,
+	# and with several, guessing whose to-do list is on screen is not an error that
+	# announces itself.
+	local_user: str | None = None
 
 	# Installation-wide defaults for behavioural settings. A workspace or a project may
 	# override any of these; see the module docstring.

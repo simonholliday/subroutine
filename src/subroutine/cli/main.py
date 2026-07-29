@@ -21,6 +21,7 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 import typer
 
+import subroutine.cli.personal
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
@@ -30,7 +31,10 @@ import subroutine.errors
 app = typer.Typer(
 	name="subroutine",
 	help="Project management for people and agents, in equal measure.",
-	no_args_is_help=True,
+	# **Not** `no_args_is_help`. SPEC.md §12.2a: the first thing this tool does unprompted
+	# should be useful, so a bare `subroutine` prints today's agenda rather than a help
+	# wall. `--help` is still one keystroke away for anyone who wants the wall.
+	invoke_without_command=True,
 	add_completion=False,
 )
 
@@ -405,6 +409,34 @@ def _default_instance_name () -> str:
 
 	except OSError:
 		return "Subroutine"
+
+
+_show_today = subroutine.cli.personal.register(
+	app, say=_say, fail=_fail, stop=_stop, settings=_settings, console=_out
+)
+
+
+@app.callback()
+def _default (context: typer.Context) -> None:
+	"""Project management for people and agents, in equal measure.
+
+	Run with no arguments, this shows today's agenda.
+
+	Examples:
+
+	  subroutine add "Call the dentist before Sunday"
+
+	  subroutine today
+
+	  subroutine done 1
+	"""
+
+	if context.invoked_subcommand is not None:
+		return
+
+	# The bare invocation (SPEC.md §12.2a). `today` answers the question somebody opening
+	# this tool is actually asking; a help wall answers one nobody asked.
+	_show_today()
 
 
 def main () -> None:
