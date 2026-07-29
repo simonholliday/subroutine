@@ -1,0 +1,140 @@
+"""The one place a listing is narrowed to what its caller may see.
+
+SPEC.md §7.3 has asked for this since slice 1 — "every repository query is scoped by
+workspace through a single injected helper" — and until now nothing built it, so every
+listing narrowed itself by hand. Two of them got it wrong, and both were found by running
+the code rather than reading it:
+
+* ``subroutine ls`` filtered by workspace and never joined the project at all, so a member
+  of a workspace saw the titles of tasks in private projects they were not a member of.
+  The agenda, three modules away, did it correctly.
+* the agenda narrowed by project *visibility* but not by a token's ``project_scope``, so an
+  agent restricted to one project was correctly refused writes elsewhere and then shown
+  everything anyway. §7.3 calls ``project_scope`` a restriction on *which rows*, which is
+  precisely the thing a listing decides.
+
+Neither is a mistake anybody would make twice; both are mistakes anybody would make once,
+which is why the answer is one function rather than more care. Everything that lists tasks
+or projects starts from here, and ``tests/test_scoping.py`` fails the build when a query
+elsewhere reaches those tables without a written reason.
+
+**A superuser is narrowed like everyone else.** Roles are bypassed for superusers (§7.3);
+visibility is not. A privacy control a role can override is not a privacy control, and an
+operator with database access has honest ways to read the data.
+"""
+
+import typing
+import uuid
+
+import sqlalchemy
+import sqlalchemy.orm
+
+import subroutine.db.models.project
+import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.authorization
+
+
+def within_project_scope (
+	principal: subroutine.domain.authentication.Principal,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a predicate selecting the projects a credential's scope admits.
+
+	A scoped project brings its whole subtree, for the reason
+	:func:`subroutine.domain.authorization._within_project_scope` gives about the
+	single-project form: restricting an agent to a project and then refusing it the
+	sub-projects underneath makes the restriction useless below one level. This is the
+	same rule as a predicate, so a listing can apply it to rows it has not loaded.
+	"""
+
+	allowed = principal.project_scope
+
+	# The sentinel: no list means no restriction, never "no projects" (SPEC.md §7.3).
+	if allowed is None:
+		return sqlalchemy.true()
+
+	project = subroutine.db.models.project.Project
+
+	# A project's `path` contains its *own* id as well as every ancestor's — measured, not
+	# assumed: a root's path is `/<its own id>/`. So one substring test covers both "this
+	# is the scoped project" and "this is underneath it", and no separate check on `id` is
+	# needed. Never a range comparison, which is wrong under a non-byte-wise collation.
+	return sqlalchemy.or_(
+		*[project.path.contains(f"/{identifier}/") for identifier in allowed]
+	)
+
+
+def readable_projects (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	include_archived: bool = False,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.project.Project]]:
+	"""Return a select over the projects this principal may see, and no others.
+
+	``workspace_ids`` is required and is never allowed to be empty-meaning-all: a listing
+	that quietly spans every workspace when handed an empty list is one refactor away from
+	spanning every workspace belonging to everybody.
+	"""
+
+	project = subroutine.db.models.project.Project
+
+	statement = sqlalchemy.select(project).where(
+		project.workspace_id.in_(workspace_ids),
+		project.deleted_at.is_(None),
+		subroutine.domain.authorization.visible_projects(principal),
+		within_project_scope(principal),
+	)
+
+	if not include_archived:
+		statement = statement.where(project.archived_at.is_(None))
+
+	return statement
+
+
+def readable_tasks (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	include_deleted: bool = False,
+	include_completed: bool = True,
+	include_archived: bool = False,
+	include_templates: bool = False,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+	"""Return a select over the tasks this principal may see, and no others.
+
+	The join to ``project`` is what makes the visibility rules expressible at all, and is
+	the step ``subroutine ls`` was missing. The defaults describe an ordinary listing:
+	nothing deleted, nothing archived, and no recurrence templates, which are machinery
+	rather than work (§6.7).
+	"""
+
+	task = subroutine.db.models.work.Task
+	project = subroutine.db.models.project.Project
+
+	statement = (
+		sqlalchemy.select(task)
+		.join(project, project.id == task.project_id)
+		.where(
+			task.workspace_id.in_(workspace_ids),
+			project.deleted_at.is_(None),
+			subroutine.domain.authorization.visible_projects(principal),
+			within_project_scope(principal),
+		)
+	)
+
+	if not include_deleted:
+		statement = statement.where(task.deleted_at.is_(None))
+
+	if not include_completed:
+		# `completed_at` is non-null exactly when the status category is done or cancelled
+		# (invariant 5), so this needs no join to the status table.
+		statement = statement.where(task.completed_at.is_(None))
+
+	if not include_archived:
+		statement = statement.where(task.archived_at.is_(None))
+
+	if not include_templates:
+		statement = statement.where(task.is_template.is_(False))
+
+	return statement

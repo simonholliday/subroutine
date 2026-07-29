@@ -16,11 +16,14 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 
 import subroutine
+import subroutine.api.agenda
 import subroutine.api.health
 import subroutine.api.identity
 import subroutine.api.middleware
 import subroutine.api.problems
+import subroutine.api.projects
 import subroutine.api.routing
+import subroutine.api.tasks
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
@@ -46,6 +49,9 @@ part of the public contract and are listed in `docs/errors.md`.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
 	("", subroutine.api.identity.router),
+	("", subroutine.api.agenda.router),
+	("", subroutine.api.tasks.router),
+	("", subroutine.api.projects.router),
 )
 
 

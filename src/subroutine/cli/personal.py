@@ -43,6 +43,7 @@ import subroutine.domain.dates
 import subroutine.domain.local
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.errors
@@ -274,14 +275,15 @@ def register (
 		with opened() as context:
 			model = subroutine.db.models.work.Task
 
+			# Narrowed by `scoping`, not by hand. This query filtered by workspace and never
+			# joined the project, so it listed the titles of tasks in private projects the
+			# caller was not a member of — while the agenda, three modules away, hid them.
 			tasks = list(
 				context.session.scalars(
-					sqlalchemy.select(model)
-					.where(
-						model.workspace_id.in_(context.workspace_ids),
-						model.deleted_at.is_(None),
-						model.completed_at.is_(None),
-						model.is_template.is_(False),
+					subroutine.domain.scoping.readable_tasks(
+						context.principal,
+						workspace_ids=context.workspace_ids,
+						include_completed=False,
 					)
 					.order_by(sqlalchemy.desc(model.created_at))
 					.limit(limit)
@@ -319,12 +321,8 @@ def register (
 		with opened() as context:
 			task = _lookup(context, _asked(which, "Which one? (a number or a ref)"))
 
-			subroutine.domain.tasks.update(
-				context.session,
-				task,
-				status_key=_finished_status_key(context),
-				now=context.now,
-				actor=context.principal,
+			subroutine.domain.tasks.complete(
+				context.session, task, now=context.now, actor=context.principal
 			)
 
 			say(f"Done: {task.title}")
@@ -445,37 +443,6 @@ def _day (context: Context, written: str) -> datetime.date:
 		)
 
 	return resolved
-
-
-def _finished_status_key (context: Context) -> str:
-	"""Return the key of a status meaning finished, whatever this workspace calls it.
-
-	Statuses are data — an installation renames and adds them freely (§5.5) — so the
-	personal path cannot hard-code ``"done"``. It asks for the first status in the ``done``
-	category instead, which is what makes ``subroutine done`` keep working after somebody
-	renames it to "Shipped".
-	"""
-
-	model = subroutine.db.models.vocabulary.Status
-
-	found = context.session.scalars(
-		sqlalchemy.select(model)
-		.where(
-			model.workspace_id == context.workspace.id,
-			model.entity_type == "task",
-			model.category == "done",
-		)
-		.order_by(model.position)
-	).first()
-
-	if found is None:
-		raise subroutine.errors.InternalError(
-			"This workspace has no status meaning 'done'.",
-			hint="Its vocabulary is incomplete; restore it, or start again from an empty "
-			"database.",
-		)
-
-	return found.key
 
 
 def _render (

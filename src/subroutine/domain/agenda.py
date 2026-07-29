@@ -30,12 +30,11 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
-import subroutine.domain.authorization
 import subroutine.domain.dates
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 
 #: How many undated tasks the agenda shows before it stops. A person with two hundred
 #: captured-and-forgotten tasks does not want all of them every morning; they want the
@@ -174,37 +173,24 @@ def _visible (
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
-	The exclusions are the same for all four buckets, so they live here rather than being
-	repeated and eventually diverging:
+	Everything about *who may see what* — the workspace scope, project visibility and the
+	token's project scope — comes from :func:`subroutine.domain.scoping.readable_tasks`,
+	which is the one copy of those rules (§7.3). The agenda kept its own until the slice-2
+	review found two copies disagreeing about whether privacy reaches a private project's
+	children; a third copy is not the lesson to take from that.
 
-	- **workspace-scoped**, always, and never with an empty list standing for "all";
-	- **not deleted, not finished** — ``completed_at`` is non-null exactly when the status
-	  category is done or cancelled (invariant 5), so this needs no join to the status;
-	- **not deferred** — ``start_at`` in the future means "don't show me this yet" (§6.5);
-	- **not a recurrence template** (§6.7);
-	- **not in a private project this caller is not a member of** (§7.3a). A superuser does
-	  not bypass this: a privacy control a role can override is not a privacy control.
+	What is left here is what the *agenda* means, as opposed to what the caller may read:
+
+	- **not finished** — ``completed_at`` is non-null exactly when the status category is
+	  done or cancelled (invariant 5), so this needs no join to the status;
+	- **not deferred** — ``start_at`` in the future means "don't show me this yet" (§6.5).
 	"""
 
 	model = subroutine.db.models.work.Task
-	project = subroutine.db.models.project.Project
 
-	return (
-		sqlalchemy.select(model)
-		.join(project, project.id == model.project_id)
-		.where(
-			model.workspace_id.in_(workspace_ids),
-			model.deleted_at.is_(None),
-			model.completed_at.is_(None),
-			model.is_template.is_(False),
-			project.deleted_at.is_(None),
-			sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now),
-			# The one visibility rule, borrowed rather than restated. The agenda had its
-			# own copy until the slice-2 review found the two disagreeing about whether
-			# privacy reaches a private project's children.
-			subroutine.domain.authorization.visible_projects(principal),
-		)
-	)
+	return subroutine.domain.scoping.readable_tasks(
+		principal, workspace_ids=workspace_ids, include_completed=False
+	).where(sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now))
 
 
 def _run (

@@ -27,6 +27,7 @@ import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.mentions
 import subroutine.domain.projects
@@ -280,6 +281,36 @@ def test_a_password_verifies_and_rehashes_transparently (
 
 	assert subroutine.domain.users.verify_password(session, user, "a decent passphrase")
 	assert not subroutine.domain.users.verify_password(session, user, "the wrong one")
+
+
+def test_creating_a_project_makes_its_owner_a_member_of_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Otherwise a private project is invisible to the person who created it.
+
+	SPEC.md §7.3a grants sight of a private project to holders of a ``project_member`` row
+	and to nobody else. Nothing in the application ever wrote one until this was added —
+	every row in existence had been inserted by a test — so private visibility was a
+	feature that could not be reached through any supported entry point. The row is written
+	for public projects too, so that making one private later does not lock its owner out.
+	"""
+
+	workspace = _workspace(session)
+	owner = _founder(session)
+	project = _project(session, workspace, owner_id=owner.id, visibility="private")
+
+	model = subroutine.db.models.project.ProjectMember
+	membership = session.scalars(
+		sqlalchemy.select(model).where(
+			model.project_id == project.id, model.user_id == owner.id
+		)
+	).one()
+
+	assert membership.role_id is None, "an owner keeps their workspace role, not a new one"
+
+	principal = subroutine.domain.authentication.Principal(user=owner)
+
+	assert subroutine.domain.authorization.is_visible(session, principal, project)
 
 
 def test_a_project_template_writes_settings_and_nothing_else (

@@ -26,6 +26,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.mentions
+import subroutine.domain.patch
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.tags
@@ -33,23 +34,6 @@ import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.errors
 import subroutine.permissions
-
-
-class _Unset:
-	"""The absence of a value, as distinct from ``None``.
-
-	SPEC.md §8.3: on an update, a field that is absent is left alone and a field set to
-	``null`` is cleared. Collapsing those two into one would make it impossible to ever
-	clear a due date.
-	"""
-
-	def __repr__ (self) -> str:
-		"""Describe the sentinel in a way that reads clearly in a signature."""
-
-		return "UNSET"
-
-
-UNSET: typing.Any = _Unset()
 
 #: Status categories that mean a task is finished, and so must carry a ``completed_at``
 #: (SPEC.md §10.7 invariant 5). Read from the status row's category rather than its key,
@@ -157,8 +141,8 @@ def create (
 
 	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
 
-	item_type = _item_type(session, workspace_id, type_key)
-	status = _status(session, workspace_id, status_key)
+	item_type = item_type_for(session, workspace_id, type_key)
+	status = status_for(session, workspace_id, status_key)
 
 	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
@@ -409,15 +393,15 @@ def update (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
 	*,
-	title: str = UNSET,
-	description: str | None = UNSET,
-	status_key: str = UNSET,
-	assignee_id: uuid.UUID | None = UNSET,
-	importance: int | None = UNSET,
-	due: datetime.datetime | datetime.date | str | None = UNSET,
+	title: str = subroutine.domain.patch.UNSET,
+	description: str | None = subroutine.domain.patch.UNSET,
+	status_key: str = subroutine.domain.patch.UNSET,
+	assignee_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
+	importance: int | None = subroutine.domain.patch.UNSET,
+	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	due_is_all_day: bool | None = None,
-	planned_for: datetime.date | str | None = UNSET,
-	start: datetime.datetime | datetime.date | str | None = UNSET,
+	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
+	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start_is_all_day: bool | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
@@ -425,7 +409,7 @@ def update (
 ) -> subroutine.db.models.work.Task:
 	"""Change a task, recording only what actually changed.
 
-	Anything left at ``UNSET`` is untouched; passing ``None`` clears the field. An update
+	Anything left at ``subroutine.domain.patch.UNSET`` is untouched; passing ``None`` clears the field. An update
 	that changes nothing writes no event, so the change feed stays a record of changes
 	rather than of requests.
 
@@ -446,9 +430,9 @@ def update (
 	)
 
 	# Validation pass. Nothing below this point may raise.
-	cleaned_title: typing.Any = UNSET if title is UNSET else _clean_title(title)
+	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
 	status: typing.Any = (
-		UNSET if status_key is UNSET else _status(session, task.workspace_id, status_key)
+		subroutine.domain.patch.UNSET if status_key is subroutine.domain.patch.UNSET else status_for(session, task.workspace_id, status_key)
 	)
 
 	zone = _timezone(
@@ -456,7 +440,7 @@ def update (
 	)
 	instant = now or subroutine.db.types.utcnow()
 
-	deadline: typing.Any = UNSET if due is UNSET else subroutine.domain.schedule.interpret(
+	deadline: typing.Any = subroutine.domain.patch.UNSET if due is subroutine.domain.patch.UNSET else subroutine.domain.schedule.interpret(
 		due,
 		boundary=subroutine.domain.schedule.Boundary.END,
 		timezone=zone,
@@ -464,7 +448,7 @@ def update (
 		all_day=due_is_all_day,
 		field="due_at",
 	)
-	defer: typing.Any = UNSET if start is UNSET else subroutine.domain.schedule.interpret(
+	defer: typing.Any = subroutine.domain.patch.UNSET if start is subroutine.domain.patch.UNSET else subroutine.domain.schedule.interpret(
 		start,
 		boundary=subroutine.domain.schedule.Boundary.START,
 		timezone=zone,
@@ -473,8 +457,8 @@ def update (
 		field="start_at",
 	)
 	planned: typing.Any = (
-		UNSET
-		if planned_for is UNSET
+		subroutine.domain.patch.UNSET
+		if planned_for is subroutine.domain.patch.UNSET
 		else subroutine.domain.schedule.interpret_day(planned_for, timezone=zone, now=instant)
 	)
 
@@ -482,25 +466,25 @@ def update (
 	# passed in: moving only the deadline still has to be consistent with the defer that is
 	# already there, and the caller did not mention it.
 	subroutine.domain.schedule.check_order(
-		start_at=task.start_at if defer is UNSET else defer.instant,
-		start_is_all_day=task.start_is_all_day if defer is UNSET else defer.is_all_day,
-		due_at=task.due_at if deadline is UNSET else deadline.instant,
-		due_is_all_day=task.due_is_all_day if deadline is UNSET else deadline.is_all_day,
+		start_at=task.start_at if defer is subroutine.domain.patch.UNSET else defer.instant,
+		start_is_all_day=task.start_is_all_day if defer is subroutine.domain.patch.UNSET else defer.is_all_day,
+		due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
+		due_is_all_day=task.due_is_all_day if deadline is subroutine.domain.patch.UNSET else deadline.is_all_day,
 		timezone=zone,
 	)
 
 	before = _snapshot(task)
 	touches_content = False
 
-	if cleaned_title is not UNSET:
+	if cleaned_title is not subroutine.domain.patch.UNSET:
 		task.title = cleaned_title
 		touches_content = True
 
-	if description is not UNSET:
+	if description is not subroutine.domain.patch.UNSET:
 		task.description = description
 		touches_content = True
 
-	if status is not UNSET:
+	if status is not subroutine.domain.patch.UNSET:
 		task.status_id = status.id
 		touches_content = True
 
@@ -512,20 +496,20 @@ def update (
 			subroutine.db.types.utcnow() if status.category in FINISHED_CATEGORIES else None
 		)
 
-	if assignee_id is not UNSET:
+	if assignee_id is not subroutine.domain.patch.UNSET:
 		task.assignee_id = assignee_id
 
-	if importance is not UNSET:
+	if importance is not subroutine.domain.patch.UNSET:
 		task.importance = importance
 
-	if deadline is not UNSET:
+	if deadline is not subroutine.domain.patch.UNSET:
 		task.due_at = deadline.instant
 		task.due_is_all_day = deadline.is_all_day
 
-	if planned is not UNSET:
+	if planned is not subroutine.domain.patch.UNSET:
 		task.planned_for = planned
 
-	if defer is not UNSET:
+	if defer is not subroutine.domain.patch.UNSET:
 		task.start_at = defer.instant
 		task.start_is_all_day = defer.is_all_day
 
@@ -544,7 +528,7 @@ def update (
 	task.updated_by = None if actor is None else actor.user.id
 	session.flush()
 
-	if title is not UNSET or description is not UNSET:
+	if title is not subroutine.domain.patch.UNSET or description is not subroutine.domain.patch.UNSET:
 		subroutine.domain.mentions.synchronize(
 			session,
 			workspace_id=task.workspace_id,
@@ -560,6 +544,105 @@ def update (
 		entity_id=task.id,
 		action=subroutine.domain.events.EventAction.UPDATED,
 		changes=changes,
+		actor=actor,
+	)
+	session.flush()
+
+	return task
+
+
+def finished_status_key (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> str:
+	"""Return the key of a status meaning finished, whatever this workspace calls it.
+
+	Statuses are data — an installation renames and adds them freely (§5.5) — so nothing may
+	hard-code ``"done"``. This asks for the first status in the ``done`` *category*, which is
+	what keeps "mark it finished" working after somebody renames it to "Shipped".
+	"""
+
+	model = subroutine.db.models.vocabulary.Status
+
+	found = session.scalars(
+		sqlalchemy.select(model)
+		.where(
+			model.workspace_id == workspace_id,
+			model.entity_type == "task",
+			model.category == "done",
+		)
+		.order_by(model.position)
+	).first()
+
+	if found is None:
+		raise subroutine.errors.InternalError(
+			"This workspace has no status meaning 'done'.",
+			hint="Its vocabulary is incomplete; restore it, or start again from an empty "
+			"database.",
+		)
+
+	return found.key
+
+
+def complete (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""Mark a task finished, in whatever this workspace calls its finished status.
+
+	A thin wrapper over :func:`update`, and deliberately so: completion is a status change
+	and giving it a second code path would be how the two come to disagree about events,
+	permissions or the ``completed_at`` invariant. What it adds is not having to know the
+	installation's vocabulary in order to say "done".
+	"""
+
+	return update(
+		session,
+		task,
+		status_key=finished_status_key(session, task.workspace_id),
+		now=now,
+		actor=actor,
+	)
+
+
+def delete (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""Move a task to the trash, where it stays recoverable (SPEC.md §6.9).
+
+	Soft, always: ``deleted_at`` is set and the row remains. Deleting twice is not an error
+	and does not move the timestamp — when something was thrown away is a fact worth not
+	overwriting, and a caller retrying a request should not change it.
+
+	Needs ``task:delete`` rather than ``task:write``. A `member` can close and cancel, which
+	covers the ordinary reasons for wanting something gone; deletion is for `admin` and
+	`owner` (§7.2).
+	"""
+
+	_permitted(
+		session,
+		actor,
+		subroutine.permissions.TASK_DELETE,
+		project=session.get(subroutine.db.models.project.Project, task.project_id),
+		workspace_id=task.workspace_id,
+	)
+
+	if task.deleted_at is not None:
+		return task
+
+	task.deleted_at = now if now is not None else subroutine.db.types.utcnow()
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=task.workspace_id,
+		entity_type="task",
+		entity_id=task.id,
+		action=subroutine.domain.events.EventAction.DELETED,
 		actor=actor,
 	)
 	session.flush()
@@ -614,7 +697,7 @@ def _timezone (
 	)
 
 
-def _item_type (
+def item_type_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
 ) -> subroutine.db.models.vocabulary.ItemType:
 	"""Return a task type by key, or list the ones this workspace has."""
@@ -651,7 +734,7 @@ def _item_type (
 	)
 
 
-def _status (
+def status_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None
 ) -> subroutine.db.models.vocabulary.Status:
 	"""Return a task status by key, or the workspace's default when none is named."""

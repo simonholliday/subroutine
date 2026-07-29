@@ -6,6 +6,7 @@ keeping: the materialised path that makes "everything under here" cheap to read 
 makes moving expensive to write, and reads outnumber moves by a very wide margin.
 """
 
+import datetime
 import re
 import typing
 import uuid
@@ -15,6 +16,7 @@ import sqlalchemy.orm
 
 import subroutine.addressing
 import subroutine.db.mixins
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.types
@@ -22,6 +24,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.patch
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
@@ -184,6 +187,18 @@ def create (
 	session.add(project)
 	session.flush()
 
+	if owner_id is not None:
+		# **An owner is a member of their own project.** Without this row a private project
+		# is invisible to the person who created it: §7.3a grants sight of a private project
+		# to holders of a ``project_member`` row and to nobody else, and until now nothing
+		# anywhere in the application ever wrote one — the only rows in existence were the
+		# ones the tests inserted by hand, which is why the feature looked covered.
+		#
+		# Written for public projects too, so that making a project private later does not
+		# lock its owner out of it. ``role_id`` stays null, which means "keeps whatever role
+		# they hold at workspace level" rather than granting anything new.
+		_ensure_member(session, project, owner_id)
+
 	subroutine.domain.events.record(
 		session,
 		workspace_id=workspace_id,
@@ -208,10 +223,7 @@ def move (
 ) -> int:
 	"""Move a project and everything under it, returning how many rows were rewritten."""
 
-	_permitted(
-		session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=project.workspace_id
-	)
-
+	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
 
 	previous_parent = project.parent_id
 	previous_path = project.path
@@ -264,6 +276,200 @@ def move (
 	return moved
 
 
+def update (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	title: str = subroutine.domain.patch.UNSET,
+	description: str | None = subroutine.domain.patch.UNSET,
+	visibility: str = subroutine.domain.patch.UNSET,
+	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.Project:
+	"""Change a project, recording only what actually changed.
+
+	Anything left at ``subroutine.domain.patch.UNSET`` is untouched; passing ``None`` clears the field. **Everything
+	is validated before anything is assigned**, for the reason ``tasks.update`` gives: the
+	caller holds a live session it may still commit, so a half-applied change that raised on
+	the way through would be committed silently alongside whatever else was in flight.
+
+	The key is deliberately not changeable. It is the first half of every ref the project has
+	ever minted, and those refs are written into commit messages, chat and other people's
+	documents; renaming it would not rewrite them.
+	"""
+
+	_permitted(
+		session, actor, subroutine.permissions.PROJECT_WRITE, project=project
+	)
+
+	# Validation pass. Nothing below this point may raise.
+	cleaned_title: typing.Any = subroutine.domain.patch.UNSET
+
+	if title is not subroutine.domain.patch.UNSET:
+		cleaned_title = subroutine.domain.text.fit(
+			subroutine.domain.text.require(title, field="title"), field="title", limit=512
+		)
+
+	if visibility is not subroutine.domain.patch.UNSET and visibility not in subroutine.db.mixins.PROJECT_VISIBILITIES:
+		raise subroutine.errors.ValidationError(
+			f"A project is public or private, not {visibility!r}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="visibility",
+					code="invalid_field_value",
+					message=f"Unknown visibility {visibility!r}.",
+					hint=f"Valid values: {', '.join(subroutine.db.mixins.PROJECT_VISIBILITIES)}.",
+				)
+			],
+		)
+
+	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
+		owner = session.get(subroutine.db.models.identity.User, owner_id)
+
+		if owner is None:
+			raise subroutine.errors.ValidationError(
+				"That owner does not exist.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="owner_id",
+						code="not_found",
+						message=f"No user with id {owner_id}.",
+					)
+				],
+			)
+
+	# Assignment pass.
+	changes: dict[str, typing.Any] = {}
+
+	for field, value in (
+		("title", cleaned_title),
+		("description", description),
+		("visibility", visibility),
+		("owner_id", owner_id),
+	):
+		if value is subroutine.domain.patch.UNSET:
+			continue
+
+		previous = getattr(project, field)
+
+		if previous == value:
+			continue
+
+		setattr(project, field, value)
+		changes[field] = {"from": previous, "to": value}
+
+	if not changes:
+		# An update that changes nothing writes no event, so the change feed stays a record
+		# of changes rather than of requests.
+		return project
+
+	if "owner_id" in changes and project.owner_id is not None:
+		_ensure_member(session, project, project.owner_id)
+
+	project.version += 1
+	project.updated_by = None if actor is None else actor.user.id
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=project.workspace_id,
+		entity_type="project",
+		entity_id=project.id,
+		action=subroutine.domain.events.EventAction.UPDATED,
+		changes=changes,
+		actor=actor,
+	)
+	session.flush()
+
+	return project
+
+
+def delete (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.Project:
+	"""Move a project to the trash, where it stays recoverable (SPEC.md §6.9).
+
+	Soft, and idempotent: when something was thrown away is a fact worth not overwriting.
+	Its tasks are not touched, and do not need to be — every listing joins the project and
+	excludes deleted ones, so they leave the visible world with it and come back with it.
+	"""
+
+	_permitted(
+		session, actor, subroutine.permissions.PROJECT_DELETE, project=project
+	)
+
+	if project.deleted_at is not None:
+		return project
+
+	if project.is_inbox:
+		raise subroutine.errors.ValidationError(
+			"The Inbox cannot be deleted.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="invalid_field_value",
+					message="This is the project tasks are filed in when they have no other, "
+					"so a workspace is not usable without it.",
+				)
+			],
+		)
+
+	project.deleted_at = now if now is not None else subroutine.db.types.utcnow()
+	project.version += 1
+	project.updated_by = None if actor is None else actor.user.id
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=project.workspace_id,
+		entity_type="project",
+		entity_id=project.id,
+		action=subroutine.domain.events.EventAction.DELETED,
+		actor=actor,
+	)
+	session.flush()
+
+	return project
+
+
+def _ensure_member (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user_id: uuid.UUID,
+) -> None:
+	"""Make sure a user holds a membership row for a project, without duplicating one.
+
+	Called when ownership changes, for the same reason :func:`create` writes one: §7.3a
+	grants sight of a private project to members and to nobody else, so handing somebody a
+	private project without this would hand them one they cannot see.
+	"""
+
+	model = subroutine.db.models.project.ProjectMember
+
+	existing = session.scalars(
+		sqlalchemy.select(model).where(
+			model.project_id == project.id, model.user_id == user_id
+		)
+	).first()
+
+	if existing is not None:
+		return
+
+	session.add(
+		model(
+			workspace_id=project.workspace_id,
+			project_id=project.id,
+			user_id=user_id,
+			role_id=None,
+		)
+	)
+	session.flush()
+
+
 def default_status (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
 ) -> subroutine.db.models.vocabulary.Status:
@@ -296,19 +502,31 @@ def _permitted (
 	actor: subroutine.domain.authentication.Principal | None,
 	permission: str,
 	*,
-	workspace_id: uuid.UUID,
+	project: subroutine.db.models.project.Project | None = None,
+	workspace_id: uuid.UUID | None = None,
 ) -> None:
 	"""Check that an actor may do this, or raise. ``None`` is an internal caller.
 
 	See ``domain.tasks._permitted`` for why the ``None`` case is a skip and what stops it
 	being a silent hole.
+
+	Pass ``project`` whenever there is one. Checking against the workspace alone skips the
+	two rules that are about the individual project — whether it is private and out of
+	sight, and whether the token's ``project_scope`` admits it — so an existing project must
+	never be checked by workspace id. Only :func:`create`, where there is no project yet,
+	has any business doing that.
 	"""
 
 	if actor is None:
 		return
 
+	scope = workspace_id if project is None else project.workspace_id
+
+	if scope is None:
+		raise ValueError("A workspace or a project is needed to check a permission against.")
+
 	subroutine.domain.authorization.authorize(
-		session, actor, permission, workspace_id=workspace_id
+		session, actor, permission, workspace_id=scope, project=project
 	)
 
 

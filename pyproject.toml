@@ -115,10 +115,22 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-bugbear]
-# Typer declares a command's interface *in* the signature, so its constructors are the one
-# legitimate function call in a default argument. B008 is right about the general case and
-# wrong about this one; naming them keeps the check on everywhere else.
-extend-immutable-calls = ["typer.Argument", "typer.Option"]
+# Typer and FastAPI both declare an interface *in* the signature, so their constructors are
+# the legitimate function calls in a default argument. B008 is right about the general case
+# and wrong about these; naming them keeps the check on everywhere else.
+#
+# Without this the rule fires unevenly rather than consistently, which is worse than either:
+# ruff exempts a default whose *annotation* is a builtin it knows to be immutable, so the
+# same `fastapi.Query(None)` passes on `str | None` and fails on `uuid.UUID | None`. Measured,
+# not assumed — the alternative reading was that ruff understood FastAPI, and it does not.
+extend-immutable-calls = [
+	"fastapi.Body",
+	"fastapi.Header",
+	"fastapi.Path",
+	"fastapi.Query",
+	"typer.Argument",
+	"typer.Option",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # The models package imports its submodules purely so that Base.metadata is complete

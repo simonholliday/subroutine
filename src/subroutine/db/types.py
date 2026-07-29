@@ -42,6 +42,17 @@ class UtcDateTime(sqlalchemy.types.TypeDecorator[datetime.datetime]):
 	impl = sqlalchemy.types.DateTime(timezone=True)
 	cache_ok = True
 
+	@property
+	def python_type (self) -> type[datetime.datetime]:
+		"""Report what a value of this column is, in Python.
+
+		``TypeDecorator`` does not delegate this to ``impl``; left unimplemented it raises,
+		and anything introspecting a column to decide how to read a value back gets an
+		exception rather than an answer. Keyset pagination is the first caller to need it.
+		"""
+
+		return datetime.datetime
+
 	def process_bind_param (
 		self, value: datetime.datetime | None, dialect: sqlalchemy.Dialect
 	) -> datetime.datetime | None:
@@ -84,6 +95,12 @@ class CalendarDate(sqlalchemy.types.TypeDecorator[datetime.date]):
 
 	impl = sqlalchemy.types.Date
 	cache_ok = True
+
+	@property
+	def python_type (self) -> type[datetime.date]:
+		"""Report what a value of this column is, in Python. See :class:`UtcDateTime`."""
+
+		return datetime.date
 
 	def process_bind_param (
 		self, value: datetime.date | None, dialect: sqlalchemy.Dialect
