@@ -52,11 +52,24 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"api/projects.py": "likewise, over readable_projects",
 	"api/views.py": "reads display columns by id for rows the caller already holds; it "
 	"decides how a row is rendered, never which rows there are",
+	"api/documents.py": "listings start at readable_documents and single-document lookups "
+	"go through the same statement; the direct select is the include_total count and the "
+	"link lookup, which is keyed to a link already resolved from a visible item",
+	"domain/documents.py": "single-row reads by id, each after an authorize() call; the "
+	"vocabulary lookups are workspace-scoped and hold no work",
+	"domain/links.py": "resolves each end through scoping.readable_tasks/_documents and "
+	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
+	"content of their own",
 }
 
 
 def _modules_touching_work () -> dict[str, str]:
-	"""Return every module under ``src`` that both selects and names a task or project."""
+	"""Return every module under ``src`` that both selects and names a scoped entity.
+
+	Documents joined the list when S3-04 built them: they live in projects and inherit the
+	same visibility, so a document listing that forgets to narrow leaks a private project's
+	specifications exactly as a task listing leaks its work.
+	"""
 
 	found: dict[str, str] = {}
 
@@ -71,7 +84,7 @@ def _modules_touching_work () -> dict[str, str]:
 			if isinstance(node, ast.Attribute)
 		}
 
-		if "select" in names and {"Task", "Project"} & names:
+		if "select" in names and {"Task", "Project", "Document"} & names:
 			found[str(path.relative_to(SOURCE))] = text
 
 	return found

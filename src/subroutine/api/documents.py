@@ -1,0 +1,533 @@
+"""Documents and the links between work items, over HTTP.
+
+This is the endpoint set that makes the project able to hold its own planning: a
+specification goes in as a document, and the work comes out of it as tasks joined by
+``derives_from``. Everything else in slice 3 is machinery for this.
+
+Links live here rather than in their own module because they are addressed as a
+sub-resource of the thing they hang off — ``/v1/tasks/{id_or_ref}/links`` and
+``/v1/documents/{id_or_ref}/links`` — and splitting one small concern across two files
+would put the two halves of "what may I link" in different places.
+"""
+
+import typing
+import uuid
+
+import fastapi
+import sqlalchemy
+import sqlalchemy.orm
+
+import subroutine.api.dependencies
+import subroutine.api.pagination
+import subroutine.api.projects
+import subroutine.api.schemas
+import subroutine.api.security
+import subroutine.api.selection
+import subroutine.api.tasks
+import subroutine.api.views
+import subroutine.config
+import subroutine.db.models.identity
+import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.documents
+import subroutine.domain.links
+import subroutine.domain.scoping
+import subroutine.errors
+
+router = fastapi.APIRouter(prefix="/v1/documents", tags=["documents"])
+
+#: Links hang off both entities, so the router carrying them is mounted twice — once under
+#: tasks and once under documents — with the entity type bound at registration.
+task_links = fastapi.APIRouter(prefix="/v1/tasks", tags=["links"])
+document_links = fastapi.APIRouter(prefix="/v1/documents", tags=["links"])
+
+SORTABLE: dict[str, typing.Any] = {
+	"created_at": subroutine.db.models.work.Document.created_at,
+	"updated_at": subroutine.db.models.work.Document.updated_at,
+	"title": subroutine.db.models.work.Document.title,
+	"ref": subroutine.db.models.work.Document.number,
+}
+
+DEFAULT_ORDER = ("-created_at",)
+
+
+class Create(subroutine.api.schemas.RequestModel):
+	"""What ``POST /v1/documents`` accepts."""
+
+	title: str
+	body: str | None = None
+	workspace_id: str | None = None
+	project: str | None = None
+	parent: str | None = None
+	type: str | None = None
+	status: str | None = None
+	owner_id: uuid.UUID | None = None
+	supersedes: str | None = None
+
+
+class Update(subroutine.api.schemas.RequestModel):
+	"""What ``PATCH /v1/documents/{id_or_ref}`` accepts.
+
+	Omitted is unchanged; null clears (§8.3). Setting ``supersedes`` moves the document it
+	names to the status that says so — the two are one fact, and a superseded document still
+	reading as active is one somebody will act on.
+	"""
+
+	title: str | None = None
+	body: str | None = None
+	status: str | None = None
+	owner_id: uuid.UUID | None = None
+	supersedes: str | None = None
+
+
+class LinkRequest(subroutine.api.schemas.RequestModel):
+	"""What ``POST /…/links`` accepts.
+
+	``target`` is a ref or an id; ``target_type`` says which table to look in and defaults
+	to a task, which is what most links point at.
+	"""
+
+	target: str
+	link_type: str
+	target_type: str = "task"
+
+
+class End(subroutine.api.schemas.RequestModel):
+	"""One end of a link, with enough of the row to render it without a second call."""
+
+	entity_type: str
+	id: uuid.UUID
+	ref: str
+	title: str
+
+
+class Link(subroutine.api.schemas.RequestModel):
+	"""A link as seen from the item it was asked about."""
+
+	id: uuid.UUID
+	link_type: str
+
+	#: Already the right way round: "Blocks" from one end, "Blocked by" from the other.
+	label: str
+	direction: str
+	other: End
+
+
+@router.post("", status_code=201, summary="Write a document")
+def create (
+	body: Create,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.api.views.Document:
+	"""Create a document — a spec, a design, a note, a decision, a finding or a dead end."""
+
+	workspace = subroutine.api.selection.workspace(session, actor, requested=body.workspace_id)
+
+	created = subroutine.domain.documents.create(
+		session,
+		project=subroutine.api.tasks._project(session, actor, workspace, body.project),
+		title=body.title,
+		body=body.body,
+		type_key=body.type or "note",
+		status_key=body.status,
+		parent=None if body.parent is None else _resolve(session, actor, workspace, body.parent),
+		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
+		supersedes=(
+			None if body.supersedes is None else _resolve(session, actor, workspace, body.supersedes)
+		),
+		actor=actor,
+	)
+
+	return _rendered(session, created)
+
+
+@router.get("", summary="List documents")
+def listing (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+	project: str | None = fastapi.Query(None, description="Restrict to one project."),
+	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
+	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
+	q: str | None = fastapi.Query(None, description="Match this text in the title."),
+	order: str | None = fastapi.Query(None, description="Comma-separated sort fields."),
+	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
+	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
+	include_total: bool = fastapi.Query(False, description="Count the whole result."),
+) -> subroutine.api.views.Collection[subroutine.api.views.Document]:
+	"""List the documents this caller can see."""
+
+	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	statement = subroutine.domain.scoping.readable_documents(
+		actor, workspace_ids=[workspace.id]
+	)
+
+	model = subroutine.db.models.work.Document
+
+	if project is not None:
+		statement = statement.where(
+			model.project_id
+			== subroutine.api.tasks._project(session, actor, workspace, project).id
+		)
+
+	if type is not None:
+		statement = statement.where(
+			model.type_id
+			== subroutine.domain.documents.item_type_for(session, workspace.id, type).id
+		)
+
+	if status is not None:
+		statement = statement.where(
+			model.status_id
+			== subroutine.domain.documents.status_for(session, workspace.id, status).id
+		)
+
+	if q:
+		statement = statement.where(
+			model.title.ilike(f"%{subroutine.api.tasks._escaped(q)}%", escape="\\")
+		)
+
+	keys = subroutine.api.pagination.parse_order(
+		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id
+	)
+	size = min(limit or settings.default_page_size, settings.max_page_size)
+	total = None
+
+	if include_total:
+		total = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+		)
+
+	if cursor is not None:
+		statement = statement.where(
+			subroutine.api.pagination.after(
+				keys,
+				subroutine.api.pagination.decode(settings.require_secret_key(), keys, cursor),
+			)
+		)
+
+	rows = list(
+		session.scalars(statement.order_by(*[key.ordering() for key in keys]).limit(size + 1))
+	)
+	has_more = len(rows) > size
+	rows = rows[:size]
+
+	vocabulary = subroutine.api.views.Vocabulary.for_documents(session, rows)
+
+	return subroutine.api.views.Collection[subroutine.api.views.Document](
+		items=[subroutine.api.views.document(row, vocabulary) for row in rows],
+		page=subroutine.api.views.Page(
+			limit=size,
+			has_more=has_more,
+			next_cursor=(
+				subroutine.api.pagination.encode(settings.require_secret_key(), keys, rows[-1])
+				if has_more and rows
+				else None
+			),
+			total=total,
+		),
+	)
+
+
+@router.get("/{id_or_ref}", summary="Read one document")
+def read (
+	id_or_ref: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.api.views.Document:
+	"""Return one document, by id or by ref."""
+
+	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+
+	return _rendered(session, _resolve(session, actor, workspace, id_or_ref))
+
+
+@router.patch("/{id_or_ref}", summary="Change a document")
+def change (
+	id_or_ref: str,
+	body: Update,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.api.views.Document:
+	"""Change a document. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
+
+	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	document = _resolve(session, actor, workspace, id_or_ref)
+
+	supplied = body.model_fields_set
+	changes: dict[str, typing.Any] = {
+		name: getattr(body, name) for name in ("title", "body", "owner_id") if name in supplied
+	}
+
+	if "status" in supplied and body.status is not None:
+		changes["status_key"] = body.status
+
+	if "supersedes" in supplied:
+		changes["supersedes"] = (
+			None
+			if body.supersedes is None
+			else _resolve(session, actor, workspace, body.supersedes)
+		)
+
+	return _rendered(
+		session, subroutine.domain.documents.update(session, document, actor=actor, **changes)
+	)
+
+
+@router.delete("/{id_or_ref}", summary="Move a document to the trash")
+def remove (
+	id_or_ref: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.api.views.Document:
+	"""Soft-delete a document. It stays recoverable (SPEC.md §6.9)."""
+
+	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	document = _resolve(session, actor, workspace, id_or_ref)
+
+	return _rendered(
+		session, subroutine.domain.documents.delete(session, document, actor=actor)
+	)
+
+
+def _links_for (entity_type: str) -> typing.Any:
+	"""Build the two link handlers for one entity type.
+
+	The endpoints are identical apart from which table the *near* end lives in, so they are
+	made rather than written twice — two copies of "may I link these" is the pair that comes
+	to disagree.
+	"""
+
+	def listing (
+		id_or_ref: str,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> list[Link]:
+		"""Return every link touching this item, labelled from its point of view."""
+
+		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+
+		return [
+			_link(related)
+			for related in subroutine.domain.links.around(
+				session,
+				actor,
+				workspace_id=workspace.id,
+				entity_type=entity_type,
+				identifier=near.id,
+			)
+		]
+
+	def create (
+		id_or_ref: str,
+		body: LinkRequest,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> Link:
+		"""Join this item to another one."""
+
+		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		far = _near(session, actor, workspace, body.target_type, body.target)
+
+		created = subroutine.domain.links.create(
+			session,
+			workspace_id=workspace.id,
+			source=near,
+			target=far,
+			link_type_key=body.link_type,
+			actor=actor,
+		)
+
+		for related in subroutine.domain.links.around(
+			session, actor, workspace_id=workspace.id, entity_type=entity_type, identifier=near.id
+		):
+			if related.id == created.id:
+				return _link(related)
+
+		raise subroutine.errors.InternalError("The link was created but cannot be read back.")
+
+	def remove (
+		id_or_ref: str,
+		link_id: uuid.UUID,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> fastapi.Response:
+		"""Withdraw a link."""
+
+		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+
+		model = subroutine.db.models.work.Link
+		found = session.scalars(
+			sqlalchemy.select(model).where(
+				model.id == link_id,
+				model.workspace_id == workspace.id,
+				model.deleted_at.is_(None),
+				sqlalchemy.or_(
+					sqlalchemy.and_(
+						model.source_type == entity_type, model.source_id == near.id
+					),
+					sqlalchemy.and_(
+						model.target_type == entity_type, model.target_id == near.id
+					),
+				),
+			)
+		).first()
+
+		if found is None:
+			raise subroutine.errors.NotFound(
+				f"There is no such link on {near.ref}.",
+				hint="GET this item's /links to see the ones there are.",
+			)
+
+		subroutine.domain.links.remove(session, found, actor=actor)
+
+		return fastapi.Response(status_code=204)
+
+	return listing, create, remove
+
+
+def _register (target: fastapi.APIRouter, entity_type: str) -> None:
+	"""Mount the link endpoints for one entity type."""
+
+	listing, create, remove = _links_for(entity_type)
+	noun = "task" if entity_type == "task" else "document"
+
+	target.add_api_route(
+		"/{id_or_ref}/links",
+		listing,
+		methods=["GET"],
+		name=f"{noun}_links",
+		summary=f"List a {noun}'s links",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/links",
+		create,
+		methods=["POST"],
+		status_code=201,
+		name=f"{noun}_link_create",
+		summary=f"Link a {noun} to something",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/links/{link_id}",
+		remove,
+		methods=["DELETE"],
+		status_code=204,
+		name=f"{noun}_link_delete",
+		summary="Withdraw a link",
+	)
+
+
+_register(task_links, "task")
+_register(document_links, "document")
+
+
+def _near (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	entity_type: str,
+	id_or_ref: str,
+) -> subroutine.domain.links.End:
+	"""Resolve one end of a link from a ref or an id, refusing an unknown entity type."""
+
+	if entity_type not in subroutine.domain.links.LINKABLE:
+		raise subroutine.errors.ValidationError(
+			f"{entity_type!r} is not something that can be linked.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="target_type",
+					code="invalid_field_value",
+					message=f"Unknown entity type {entity_type!r}.",
+					hint=f"Linkable types are: {', '.join(subroutine.domain.links.LINKABLE)}.",
+				)
+			],
+		)
+
+	if entity_type == "task":
+		row: typing.Any = subroutine.api.tasks._resolve(session, actor, workspace, id_or_ref)
+
+	else:
+		row = _resolve(session, actor, workspace, id_or_ref)
+
+	return subroutine.domain.links.End(
+		entity_type=entity_type,
+		id=row.id,
+		ref=row.ref,
+		title=row.title,
+		project_id=row.project_id,
+	)
+
+
+def _link (related: subroutine.domain.links.Related) -> Link:
+	"""Render one link."""
+
+	return Link(
+		id=related.id,
+		link_type=related.link_type,
+		label=related.label,
+		direction=related.direction,
+		other=End(
+			entity_type=related.other.entity_type,
+			id=related.other.id,
+			ref=related.other.ref,
+			title=related.other.title,
+		),
+	)
+
+
+def _resolve (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	id_or_ref: str,
+) -> subroutine.db.models.work.Document:
+	"""Find one document by id or ref, or report that there is no such thing."""
+
+	model = subroutine.db.models.work.Document
+	wanted = id_or_ref.strip()
+	statement = subroutine.domain.scoping.readable_documents(
+		actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
+	)
+
+	try:
+		found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+
+	except ValueError:
+		found = session.scalars(statement.where(model.ref == wanted.upper())).first()
+
+	if found is None:
+		raise subroutine.errors.NotFound(
+			f"There is no document {id_or_ref!r} here.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="id_or_ref",
+					code="not_found",
+					message=f"No document in {workspace.slug} answers to {id_or_ref!r}.",
+					hint="Use a ref like 'SR-42' or a document id. GET /v1/documents lists "
+					"what you can see. Note tasks and documents share one ref space, so a "
+					"ref that exists may name a task instead.",
+				)
+			],
+		)
+
+	return found
+
+
+def _rendered (
+	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Document
+) -> subroutine.api.views.Document:
+	"""Render one document, loading the vocabulary it names."""
+
+	return subroutine.api.views.document(
+		row, subroutine.api.views.Vocabulary.for_documents(session, [row])
+	)

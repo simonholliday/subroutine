@@ -39,10 +39,12 @@ DEFER_WORDS = ("from", "defer")
 #: they are unambiguous and overwhelmingly common, and every further one is a word somebody
 #: wanted in their title.
 #:
-#: **Only at the very end of the line** (:data:`_BARE_DAY`). "Buy milk tomorrow" plans;
-#: "Remember what happened today" does not, and neither does "Ask about tomorrow-ish
-#: plans". Mid-sentence these words are almost always prose, and reading them as a field
-#: both sets a date nobody asked for and takes a word out of the title.
+#: **Only at the very end of the line** (:data:`_BARE_DAY`), and the end is measured once
+#: the sigils have been taken out — see :func:`_collect_bare_days`. "Buy milk tomorrow"
+#: plans, and so does "Buy milk tomorrow !3"; "Remember what happened today" does not, and
+#: neither does "Ask about tomorrow-ish plans". Mid-sentence these words are almost always
+#: prose, and reading them as a field both sets a date nobody asked for and takes a word out
+#: of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
 #: Weekday names and their common abbreviations, mapped to Python's Monday-is-zero.
@@ -296,13 +298,26 @@ def _collect_bare_days (
 	*,
 	today: datetime.date,
 ) -> None:
-	"""Consume a bare ``today`` or ``tomorrow``, which plans rather than deadlines."""
+	"""Consume a bare ``today`` or ``tomorrow``, which plans rather than deadlines.
+
+	**Last means last once the sigils are gone.** A bare day only plans when nothing follows
+	it, which is what stops ``Discuss tomorrow's plan with Bob`` from setting a date. Read
+	against the raw line that rule also caught ``Renew the domain tomorrow !3``, where the
+	only thing after the word is a token being removed from the title anyway — so the search
+	runs against the line with every claimed span blanked out. Blanking rather than deleting,
+	because it keeps every offset where it was and the spans recorded here address the
+	original text.
+
+	Spans that are *reserved* rather than claimed are deliberately not blanked: an unparsed
+	``every monday`` stays in the title (M7), so a ``tomorrow`` in front of it really is
+	mid-sentence.
+	"""
 
 	if "planned_for" in fields:
 		return
 
-	for match in _BARE_DAY.finditer(text):
-		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
+	for match in _BARE_DAY.finditer(_blanked(text, claimed)):
+		if _overlaps(match.span(), reserved):
 			continue
 
 		offset = 1 if match.group("phrase").lower() == "tomorrow" else 0
@@ -310,6 +325,22 @@ def _collect_bare_days (
 		claimed.append(match.span())
 
 		return
+
+
+def _blanked (text: str, spans: typing.Sequence[tuple[int, int]]) -> str:
+	"""Return ``text`` with each span replaced by spaces of the same width.
+
+	Same length in, same length out, so an index into the result is an index into the
+	original. That is the whole reason this blanks rather than deletes.
+	"""
+
+	characters = list(text)
+
+	for start, end in spans:
+		for position in range(max(start, 0), min(end, len(characters))):
+			characters[position] = " "
+
+	return "".join(characters)
 
 
 def _read_phrase (

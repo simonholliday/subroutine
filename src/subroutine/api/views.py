@@ -119,6 +119,41 @@ class Project(pydantic.BaseModel):
 	version: int
 
 
+class Document(pydantic.BaseModel):
+	"""A document as the API reports it.
+
+	No ``due_at``, ``planned_for``, ``estimate_minutes`` or ``assignee_id``, and their
+	absence is the point (SPEC.md §6.14): a specification is never "done" and nobody is
+	working on it. A deadline about a document belongs on a task that ``documents`` it.
+	"""
+
+	id: uuid.UUID
+	ref: str
+	title: str
+	body: str | None
+
+	workspace_id: uuid.UUID
+	project_id: uuid.UUID
+	project_key: str
+	parent_id: uuid.UUID | None
+
+	status: str
+	status_category: str
+	status_id: uuid.UUID
+	type: str
+	type_id: uuid.UUID
+
+	owner_id: uuid.UUID | None
+	supersedes_id: uuid.UUID | None
+
+	archived_at: datetime.datetime | None
+	deleted_at: datetime.datetime | None
+	created_at: datetime.datetime
+	updated_at: datetime.datetime
+	content_updated_at: datetime.datetime
+	version: int
+
+
 class Vocabulary:
 	"""The status, type and project names a page of rows needs, fetched once.
 
@@ -158,6 +193,21 @@ class Vocabulary:
 			status_ids={task.status_id for task in tasks},
 			type_ids={task.type_id for task in tasks},
 			project_ids={task.project_id for task in tasks},
+		)
+
+	@classmethod
+	def for_documents (
+		cls,
+		session: sqlalchemy.orm.Session,
+		documents: typing.Sequence[subroutine.db.models.work.Document],
+	) -> "Vocabulary":
+		"""Load everything a page of documents needs to be rendered."""
+
+		return cls(
+			session,
+			status_ids={document.status_id for document in documents},
+			type_ids={document.type_id for document in documents},
+			project_ids={document.project_id for document in documents},
 		)
 
 	@classmethod
@@ -206,6 +256,38 @@ def task (
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,
 		updated_at=row.updated_at,
+		version=row.version,
+	)
+
+
+def document (
+	row: subroutine.db.models.work.Document, vocabulary: Vocabulary
+) -> Document:
+	"""Render one document."""
+
+	status = vocabulary.statuses.get(row.status_id, {})
+
+	return Document(
+		id=row.id,
+		ref=row.ref,
+		title=row.title,
+		body=row.body,
+		workspace_id=row.workspace_id,
+		project_id=row.project_id,
+		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
+		parent_id=row.parent_id,
+		status=str(status.get("key", "")),
+		status_category=str(status.get("category", "")),
+		status_id=row.status_id,
+		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
+		type_id=row.type_id,
+		owner_id=row.owner_id,
+		supersedes_id=row.supersedes_id,
+		archived_at=row.archived_at,
+		deleted_at=row.deleted_at,
+		created_at=row.created_at,
+		updated_at=row.updated_at,
+		content_updated_at=row.content_updated_at,
 		version=row.version,
 	)
 

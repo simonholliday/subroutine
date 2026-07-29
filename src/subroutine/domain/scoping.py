@@ -92,6 +92,44 @@ def readable_projects (
 	return statement
 
 
+def readable_documents (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	include_deleted: bool = False,
+	include_archived: bool = False,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Document]]:
+	"""Return a select over the documents this principal may see, and no others.
+
+	The same narrowing as :func:`readable_tasks`, because a document is a work item under
+	the same permissions as the task beside it (SPEC.md §5.6, §7.3a) — a specification in a
+	private project is exactly as hidden as the work derived from it, and it would be an odd
+	kind of privacy if it were not.
+	"""
+
+	document = subroutine.db.models.work.Document
+	project = subroutine.db.models.project.Project
+
+	statement = (
+		sqlalchemy.select(document)
+		.join(project, project.id == document.project_id)
+		.where(
+			document.workspace_id.in_(workspace_ids),
+			project.deleted_at.is_(None),
+			subroutine.domain.authorization.visible_projects(principal),
+			within_project_scope(principal),
+		)
+	)
+
+	if not include_deleted:
+		statement = statement.where(document.deleted_at.is_(None))
+
+	if not include_archived:
+		statement = statement.where(document.archived_at.is_(None))
+
+	return statement
+
+
 def readable_tasks (
 	principal: subroutine.domain.authentication.Principal,
 	*,

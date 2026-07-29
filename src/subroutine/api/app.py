@@ -17,6 +17,7 @@ import sqlalchemy.orm
 
 import subroutine
 import subroutine.api.agenda
+import subroutine.api.documents
 import subroutine.api.health
 import subroutine.api.identity
 import subroutine.api.middleware
@@ -51,7 +52,13 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.identity.router),
 	("", subroutine.api.agenda.router),
 	("", subroutine.api.tasks.router),
+	# The link sub-resources come after the routers whose paths they extend. They cannot
+	# shadow or be shadowed — `/{id_or_ref}/links` is longer than anything in either — but
+	# `routing.check` is what says so rather than anybody's reading of it.
+	("", subroutine.api.documents.task_links),
 	("", subroutine.api.projects.router),
+	("", subroutine.api.documents.router),
+	("", subroutine.api.documents.document_links),
 )
 
 

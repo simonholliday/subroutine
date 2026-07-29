@@ -361,11 +361,18 @@ def test_punctuation_beside_a_sigil_is_not_part_of_its_value (
 		("Buy milk tomorrow", datetime.date(2026, 7, 31)),
 		("Buy milk today", datetime.date(2026, 7, 30)),
 		("Buy milk tomorrow.", datetime.date(2026, 7, 31)),
+		# Last *once the sigils are gone*: still a plan. Refined 2026-07-29 after the API
+		# work found `Renew the domain tomorrow !4` keeping the word and setting no date.
+		("Buy milk tomorrow !3", datetime.date(2026, 7, 31)),
+		("Buy milk tomorrow #shopping", datetime.date(2026, 7, 31)),
+		("Buy milk tomorrow ~20m @alice !2", datetime.date(2026, 7, 31)),
+		("Buy milk !3 tomorrow", datetime.date(2026, 7, 31)),
 		# Anywhere else: prose.
 		("Remember what happened today, then write it up", None),
 		("Ask about tomorrow-ish plans", None),
 		("Buy a present for tomorrow's party", None),
 		("Today I will rest", None),
+		("Buy milk tomorrow and bread", None),
 	],
 )
 def test_a_bare_day_plans_only_at_the_end_of_the_line (
@@ -376,6 +383,24 @@ def test_a_bare_day_plans_only_at_the_end_of_the_line (
 	Mid-sentence they are almost always prose, and reading one as a field both sets a date
 	nobody asked for and takes a word out of the title. At the end of the line —
 	"buy milk tomorrow" — the reading is unambiguous and it is how people write.
+
+	**Refined the same day: last means last once the sigils are removed.** Read against the
+	raw line, the rule also caught ``Buy milk tomorrow !3``, where the only thing following
+	the word is a token being taken out of the title anyway. The protection is unchanged —
+	what it exists to stop is a bare day inside *prose*, and a trailing ``!3`` is not prose.
 	"""
 
 	assert _parse(text).planned_for == planned
+
+
+def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> None:
+	"""``every monday`` stays in the title (M7), so a ``tomorrow`` before it is mid-sentence.
+
+	This is the edge the sigil refinement had to not break: a claimed span is one that
+	*leaves* the title, and a reserved one is not.
+	"""
+
+	captured = _parse("Do it tomorrow every monday")
+
+	assert captured.planned_for is None
+	assert captured.title == "Do it tomorrow every monday"
