@@ -270,3 +270,97 @@ def test_db_current_reports_an_empty_database_honestly (
 	after = _run(isolated_home, "db", "current")
 
 	assert "Schema is at" in after.stdout
+
+
+def test_an_empty_password_pipe_is_refused (isolated_home: dict[str, str]) -> None:
+	"""A container whose secret failed to mount must not come up looking healthy."""
+
+	result = subprocess.run(
+		[
+			sys.executable,
+			"-c",
+			"import subroutine.cli.main; subroutine.cli.main.main()",
+			"init",
+			"--password-stdin",
+		],
+		input="",
+		capture_output=True,
+		text=True,
+		env={"PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home()), **isolated_home},
+		check=False,
+	)
+
+	assert result.returncode == 1
+	assert "--password-stdin" in result.stderr
+	assert "Ready." not in result.stdout
+
+
+def test_a_supplied_password_is_used (isolated_home: dict[str, str]) -> None:
+	"""The flag still works when something actually arrives."""
+
+	result = subprocess.run(
+		[
+			sys.executable,
+			"-c",
+			"import subroutine.cli.main; subroutine.cli.main.main()",
+			"init",
+			"--password-stdin",
+		],
+		input="a decent passphrase\n",
+		capture_output=True,
+		text=True,
+		env={"PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home()), **isolated_home},
+		check=False,
+	)
+
+	assert result.returncode == 0, result.stderr
+	assert result.stdout.strip() == EXPECTED_FIRST_LINE
+
+
+def test_a_broken_config_file_explains_itself (isolated_home: dict[str, str]) -> None:
+	"""Every command reads configuration first, so every command inherits the explanation."""
+
+	config = pathlib.Path(isolated_home["XDG_CONFIG_HOME"]) / "subroutine" / "config.toml"
+	config.parent.mkdir(parents=True, exist_ok=True)
+	config.write_text("this is not = = toml\n", encoding="utf-8")
+
+	for command in (["config", "show"], ["db", "current"], ["init"]):
+		result = _run(isolated_home, *command)
+
+		assert result.returncode == 1, command
+		assert "not valid TOML" in result.stderr, command
+		assert "Traceback" not in result.stderr, command
+
+
+def test_a_bad_environment_value_explains_itself (isolated_home: dict[str, str]) -> None:
+	"""A mistyped SUBROUTINE_* variable is an ordinary mistake, not a crash."""
+
+	result = _run({**isolated_home, "SUBROUTINE_PORT": "not-a-number"}, "config", "show")
+
+	assert result.returncode == 1
+	assert "configuration value" in result.stderr
+	assert "Traceback" not in result.stderr
+
+
+def test_an_unreachable_database_explains_itself (isolated_home: dict[str, str]) -> None:
+	"""And does not print the password from the URL while doing it."""
+
+	unreachable = "postgresql+psycopg://someone:hunter2@127.0.0.1:1/nothing"
+
+	for command in (["db", "current"], ["init"], ["db", "upgrade"]):
+		result = _run({**isolated_home, "SUBROUTINE_DATABASE_URL": unreachable}, *command)
+
+		assert result.returncode == 1, command
+		assert "Traceback" not in result.stderr, command
+		assert "hunter2" not in result.stderr, f"{command} leaked the database password"
+
+
+def test_config_show_masks_the_database_password (isolated_home: dict[str, str]) -> None:
+	"""It is the output people paste into bug reports."""
+
+	url = "postgresql+psycopg://someone:hunter2@example.test:5432/subroutine"
+	result = _run({**isolated_home, "SUBROUTINE_DATABASE_URL": url}, "config", "show")
+
+	assert result.returncode == 0
+	assert "hunter2" not in result.stdout
+	assert "example.test" in result.stdout, "the rest of the URL is still useful"

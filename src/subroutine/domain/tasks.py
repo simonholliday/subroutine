@@ -21,6 +21,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.refs
+import subroutine.domain.text
 import subroutine.errors
 
 
@@ -40,6 +41,31 @@ class _Unset:
 
 UNSET: typing.Any = _Unset()
 
+#: Status categories that mean a task is finished, and so must carry a ``completed_at``
+#: (SPEC.md §10.7 invariant 5). Read from the status row's category rather than its key,
+#: because an installation renames and adds statuses freely.
+FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
+
+#: SPEC.md §6.10. Enforced here so the message names the field and the limit, rather than
+#: arriving as a driver error from PostgreSQL — and arriving not at all on SQLite, which
+#: does not enforce VARCHAR lengths.
+MAX_TITLE_LENGTH = 512
+
+
+def _clean_title (title: str) -> str:
+	"""Return a usable task title, or refuse with a reason.
+
+	One rule, applied by both create and update. A task whose title has been blanked is
+	not a task anybody can find again, so an update is held to the same standard as a
+	create.
+	"""
+
+	return subroutine.domain.text.fit(
+		subroutine.domain.text.require(title, field="title"),
+		field="title",
+		limit=MAX_TITLE_LENGTH,
+	)
+
 
 def create (
 	session: sqlalchemy.orm.Session,
@@ -57,16 +83,7 @@ def create (
 ) -> subroutine.db.models.work.Task:
 	"""Create a task in a project, allocating its ref and recording that it happened."""
 
-	if not title.strip():
-		raise subroutine.errors.ValidationError(
-			"A task needs a title.",
-			code="missing_field",
-			errors=[
-				subroutine.errors.FieldError(
-					field="title", code="missing_field", message="A task needs a title."
-				)
-			],
-		)
+	cleaned_title = _clean_title(title)
 
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
@@ -95,7 +112,7 @@ def create (
 		ref=ref,
 		number=number,
 		origin_project_id=project.id,
-		title=title.strip(),
+		title=cleaned_title,
 		description=description,
 		status_id=status.id,
 		assignee_id=assignee_id,
@@ -147,22 +164,41 @@ def update (
 	Anything left at ``UNSET`` is untouched; passing ``None`` clears the field. An update
 	that changes nothing writes no event, so the change feed stays a record of changes
 	rather than of requests.
+
+	**Everything is validated before anything is assigned.** A rejected update must leave
+	the task exactly as it was: the caller holds a live session it may still commit, so a
+	half-applied change that raised on the way through would be committed silently along
+	with whatever else that transaction was doing.
 	"""
+
+	# Validation pass. Nothing below this point may raise.
+	cleaned_title: typing.Any = UNSET if title is UNSET else _clean_title(title)
+	status: typing.Any = (
+		UNSET if status_key is UNSET else _status(session, task.workspace_id, status_key)
+	)
 
 	before = _snapshot(task)
 	touches_content = False
 
-	if title is not UNSET:
-		task.title = title.strip()
+	if cleaned_title is not UNSET:
+		task.title = cleaned_title
 		touches_content = True
 
 	if description is not UNSET:
 		task.description = description
 		touches_content = True
 
-	if status_key is not UNSET:
-		task.status_id = _status(session, task.workspace_id, status_key).id
+	if status is not UNSET:
+		task.status_id = status.id
 		touches_content = True
+
+		# SPEC.md §10.7 invariant 5: `completed_at` is non-null exactly when the status
+		# category is `done` or `cancelled`. Set here rather than by a database trigger,
+		# because the category lives on the status row and an installation may rename or
+		# add statuses freely.
+		task.completed_at = (
+			subroutine.db.types.utcnow() if status.category in FINISHED_CATEGORIES else None
+		)
 
 	if assignee_id is not UNSET:
 		task.assignee_id = assignee_id
@@ -213,6 +249,7 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 
 	return {
 		"title": task.title,
+		"completed_at": task.completed_at,
 		"description": task.description,
 		"status_id": task.status_id,
 		"assignee_id": task.assignee_id,

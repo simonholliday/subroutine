@@ -11,8 +11,10 @@ Two precedence chains exist and are deliberately kept apart (SPEC.md §12.3):
   that chain, never the whole of it.
 """
 
+import contextlib
 import os
 import pathlib
+import re
 import secrets
 import sqlite3
 import tempfile
@@ -354,34 +356,80 @@ def generate_secret_key () -> str:
 def store_setting (name: str, value: str) -> pathlib.Path:
 	"""Record one setting in the configuration file, and return where it was written.
 
-	Appends rather than rewriting. A configuration file belongs to whoever edits it, and
-	silently reformatting one — dropping their comments and their ordering — is a thing a
-	program should not do to a file it does not own.
+	Rewrites the line in place when the setting is already there, and otherwise inserts it
+	*before the first table header* — because everything this program reads is a top-level
+	key, and text appended after a ``[table]`` header belongs to that table, not to the
+	document. Getting either wrong produces a file TOML cannot parse, after which every
+	command fails, including the ``config show`` that error messages recommend.
+
+	Comments and ordering are preserved everywhere else. A configuration file belongs to
+	whoever edits it, and silently reformatting one is not a thing a program should do to a
+	file it does not own.
 	"""
 
 	path = config_file_path()
 	path.parent.mkdir(parents=True, exist_ok=True)
 
-	escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-	line = f'{name} = "{escaped}"\n'
+	line = f"{name} = {_toml_string(value)}"
 
 	if not path.exists():
-		path.write_text(
-			f"# Subroutine configuration. See 'subroutine config show'.\n{line}",
-			encoding="utf-8",
-		)
-
-		# Readable only by its owner: this is where the signing key lives.
-		path.chmod(0o600)
+		_write_private(path, f"# Subroutine configuration. See 'subroutine config show'.\n{line}\n")
 
 		return path
 
-	existing = path.read_text(encoding="utf-8")
-	separator = "" if existing.endswith("\n") or not existing else "\n"
+	lines = path.read_text(encoding="utf-8").splitlines()
+	assignment = re.compile(rf"^\s*{re.escape(name)}\s*=")
+	table = re.compile(r"^\s*\[")
+	replaced = False
 
-	path.write_text(f"{existing}{separator}{line}", encoding="utf-8")
+	for index, existing in enumerate(lines):
+		if table.match(existing):
+			# Past this point the key would belong to a table rather than the document.
+			break
+
+		if assignment.match(existing):
+			lines[index] = line
+			replaced = True
+			break
+
+	if not replaced:
+		insert_at = next((i for i, text in enumerate(lines) if table.match(text)), len(lines))
+		lines.insert(insert_at, line)
+
+	_write_private(path, "\n".join(lines) + "\n")
 
 	return path
+
+
+def _toml_string (value: str) -> str:
+	"""Return a value as a TOML basic string, escaped."""
+
+	escaped = (
+		value.replace("\\", "\\\\")
+		.replace('"', '\\"')
+		.replace("\n", "\\n")
+		.replace("\r", "\\r")
+		.replace("\t", "\\t")
+	)
+
+	return f'"{escaped}"'
+
+
+def _write_private (path: pathlib.Path, text: str) -> None:
+	"""Write the configuration file, keeping it readable only by its owner.
+
+	The permissions are reasserted on every write, not only on creation: the signing key
+	can be added to a file the user made earlier to set a port or a database URL, and that
+	file will have been created with their default umask.
+	"""
+
+	path.write_text(text, encoding="utf-8")
+
+	# Some filesystems — the CIFS share this project is developed on among them — do not
+	# carry POSIX modes. Refusing to write the config over that would be worse than
+	# writing it without the tightened permissions.
+	with contextlib.suppress(OSError):
+		path.chmod(0o600)
 
 
 def ensure_secret_key (settings: Settings) -> tuple[str, pathlib.Path | None]:

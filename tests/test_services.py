@@ -203,7 +203,18 @@ def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> N
 	assert role is not None
 	assert role.key == "owner"
 
-	assert len(_events(session, workspace.id, "workspace", workspace.id)) == 1
+	# Creation, then the vocabulary that was written for it — one event for ~35 rows, so
+	# the feed's first page is not entirely statuses and roles (SPEC.md §10.7 invariant 9).
+	events = _events(session, workspace.id, "workspace", workspace.id)
+
+	assert [event.action for event in events] == ["created", "seeded"]
+
+	seeded = events[1].changes
+
+	assert seeded is not None
+	assert seeded["seed_version"]["to"] == subroutine.db.seed.SEED_VERSION
+	assert seeded["roles"]["to"] == 5
+	assert seeded["statuses"]["to"] == 14
 
 
 def test_a_duplicate_workspace_slug_is_refused_by_name (
@@ -745,3 +756,156 @@ def test_concurrent_ref_allocation_never_duplicates (
 
 	finally:
 		setup_engine.dispose()
+
+
+def test_a_refused_update_changes_nothing (session: sqlalchemy.orm.Session) -> None:
+	"""A caller holds a live session it may still commit, so a half-applied update ships."""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	task = subroutine.domain.tasks.create(session, project=project, title="Original")
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(
+			session, task, title="Changed", status_key="no-such-status"
+		)
+
+	assert task.title == "Original", "the title was assigned before the status was validated"
+	assert task.version == 1
+	assert [event.action for event in _events(session, workspace.id, "task", task.id)] == [
+		"created"
+	]
+
+
+def test_an_update_holds_a_title_to_the_same_rule_as_a_create (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A task whose title has been blanked is not a task anybody can find again."""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
+
+	with pytest.raises(subroutine.errors.ValidationError) as error:
+		subroutine.domain.tasks.update(session, task, title="   ")
+
+	assert error.value.errors[0].field == "title"
+	assert task.title == "Findable"
+
+
+def test_over_length_text_is_refused_the_same_way_on_both_backends (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""SQLite does not enforce VARCHAR lengths and PostgreSQL does; neither should decide."""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+
+	with pytest.raises(subroutine.errors.PayloadTooLarge) as too_long:
+		subroutine.domain.tasks.create(session, project=project, title="x" * 513)
+
+	assert too_long.value.status == 413
+	assert too_long.value.errors[0].field == "title"
+
+	with pytest.raises(subroutine.errors.PayloadTooLarge):
+		subroutine.domain.users.create(session, username="u" * 65)
+
+	with pytest.raises(subroutine.errors.PayloadTooLarge):
+		subroutine.domain.workspaces.create(
+			session, slug="s" * 65, title="Fine", owner=_founder(session)
+		)
+
+
+def test_completing_a_task_records_when (session: sqlalchemy.orm.Session) -> None:
+	"""SPEC.md §10.7 invariant 5: completed_at is set exactly when the category is final."""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	task = subroutine.domain.tasks.create(session, project=project, title="Finish me")
+
+	# Read through a local each time: asserting on the attribute directly narrows its type
+	# for the rest of the function, and mypy cannot see that the next update changes it.
+	created = task.completed_at
+
+	assert created is None
+
+	subroutine.domain.tasks.update(session, task, status_key="done")
+	finished = task.completed_at
+
+	assert finished is not None
+
+	subroutine.domain.tasks.update(session, task, status_key="open")
+	reopened = task.completed_at
+
+	assert reopened is None, "reopening must clear it, or the invariant is one-way"
+
+	subroutine.domain.tasks.update(session, task, status_key="cancelled")
+	cancelled = task.completed_at
+
+	assert cancelled is not None, "cancelled is a finished category too"
+
+
+def test_moving_a_project_moves_every_etag_it_changed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`version` is the ETag (SPEC.md §8.9), and a move rewrites descendants' paths."""
+
+	workspace = _workspace(session)
+	root = _project(session, workspace)
+	child = _project(session, workspace, parent=root)
+	grandchild = _project(session, workspace, parent=child)
+	elsewhere = _project(session, workspace)
+
+	versions = {p.id: p.version for p in (child, grandchild)}
+
+	subroutine.domain.projects.move(session, child, parent=elsewhere)
+
+	for project in (child, grandchild):
+		session.refresh(project)
+
+		assert project.version > versions[project.id], (
+			f"{project.key}'s path changed but its ETag did not"
+		)
+
+
+def test_a_project_key_must_be_one_the_mention_index_can_see (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Otherwise every ref the project mints is invisible to backlinks, permanently."""
+
+	workspace = _workspace(session)
+
+	for refused in ("3D", "CAFÉ", "123", "!!"):
+		with pytest.raises(subroutine.errors.ValidationError) as error:
+			subroutine.domain.projects.create(
+				session, workspace_id=workspace.id, key=refused, title="No"
+			)
+
+		assert error.value.errors[0].field == "key"
+
+	project = subroutine.domain.projects.create(
+		session, workspace_id=workspace.id, key="web2", title="Yes"
+	)
+	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
+
+	assert project.key == "WEB2"
+	assert subroutine.domain.mentions.REF_PATTERN.fullmatch(task.ref) is not None
+
+
+def test_a_deleted_workspace_releases_its_short_name (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Every other identifier frees on soft delete; this one used to be the exception."""
+
+	first = subroutine.domain.workspaces.create(
+		session, slug="reusable", title="First", owner=_founder(session)
+	)
+	first.deleted_at = subroutine.db.types.utcnow()
+	session.flush()
+
+	second = subroutine.domain.workspaces.create(
+		session, slug="reusable", title="Second", owner=_founder(session)
+	)
+
+	assert second.slug == "reusable"
+	assert second.id != first.id

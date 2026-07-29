@@ -79,6 +79,27 @@ def test_migrations_produce_no_drift_against_the_models (migrated_url: str) -> N
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_check_constraints_match_the_models (migrated_url: str) -> None:
+	"""The half of the schema autogenerate cannot see.
+
+	Alembic does not compare CHECK constraints, and this project keeps its status
+	categories, its entity-type vocabularies and its numeric ranges in them. Without this
+	assertion, widening an ``enum_check`` passes the whole suite — which builds its schema
+	from the models — and reaches production with the old constraint still in place.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		differences = subroutine.db.migrate.check_constraint_differences(engine)
+
+	finally:
+		engine.dispose()
+
+	assert differences == [], f"CHECK constraints disagree: {differences}"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_migrations_create_every_table (migrated_url: str) -> None:
 	"""Every table the models declare exists after an upgrade."""
 

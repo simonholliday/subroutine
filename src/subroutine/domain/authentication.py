@@ -149,6 +149,8 @@ def issue_token (
 			f"Unknown permission(s) in scopes: {', '.join(unknown)}. Valid permissions are: {valid}."
 		)
 
+	project_scope = None if project_scope is None else _canonical_project_scope(project_scope)
+
 	issued = _mint_unused_token(session)
 
 	token = subroutine.db.models.identity.ApiToken(
@@ -226,6 +228,43 @@ def revoke_token (
 
 	if token.revoked_at is None:
 		token.revoked_at = at if at is not None else subroutine.db.types.utcnow()
+
+
+def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
+	"""Return the project ids in the exact form the permission check compares against.
+
+	Two failures are being closed here, and both are silent without it. A malformed id
+	produces a token that is refused on every project for a reason nobody can see; and a
+	correctly-typed id in the wrong case does the same, because the check compares strings
+	against the lowercase form the path is built from.
+
+	An empty list is refused outright rather than guessed at. Its sibling ``scopes == []``
+	means "no narrowing", so one reading of ``project_scope == []`` widens the token to
+	every project and the other denies it every project — and picking either on the
+	caller's behalf gets a security control wrong in silence.
+
+	The ids are *not* checked against existing projects: a token may legitimately name a
+	project its issuer cannot see, or one created later.
+	"""
+
+	if not project_scope:
+		raise ValueError(
+			"project_scope must name at least one project, or be None for no restriction. "
+			"An empty list is ambiguous: it could mean either."
+		)
+
+	canonical: list[str] = []
+
+	for entry in project_scope:
+		try:
+			canonical.append(str(uuid.UUID(str(entry))))
+
+		except (ValueError, AttributeError, TypeError):
+			raise ValueError(
+				f"project_scope entries must be project ids; {entry!r} is not one."
+			) from None
+
+	return canonical
 
 
 def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.IssuedToken:

@@ -14,7 +14,14 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.events
+import subroutine.domain.text
 import subroutine.errors
+
+#: Column widths from SPEC.md §10.6, enforced here so the refusal names the field rather
+#: than arriving as a driver error on PostgreSQL and not at all on SQLite.
+MAX_USERNAME_LENGTH = 64
+MAX_EMAIL_LENGTH = 320
+MAX_DISPLAY_NAME_LENGTH = 255
 
 
 def create (
@@ -31,17 +38,20 @@ def create (
 ) -> subroutine.db.models.identity.User:
 	"""Create a person or a machine identity."""
 
-	name = username.strip()
+	name = subroutine.domain.text.fit(
+		subroutine.domain.text.require(username, field="username"),
+		field="username",
+		limit=MAX_USERNAME_LENGTH,
+	)
 
-	if not name:
-		raise subroutine.errors.ValidationError(
-			"A username is required.",
-			code="missing_field",
-			errors=[
-				subroutine.errors.FieldError(
-					field="username", code="missing_field", message="A username is required."
-				)
-			],
+	if email is not None:
+		email = subroutine.domain.text.fit(
+			email, field="email", limit=MAX_EMAIL_LENGTH, label="email address"
+		)
+
+	if display_name is not None:
+		display_name = subroutine.domain.text.fit(
+			display_name, field="display_name", limit=MAX_DISPLAY_NAME_LENGTH, label="display name"
 		)
 
 	if password is not None and is_service_account:

@@ -7,6 +7,7 @@ which.
 """
 
 import pathlib
+import re
 import typing
 
 import alembic.autogenerate
@@ -75,10 +76,19 @@ def is_up_to_date (engine: sqlalchemy.engine.Engine) -> bool:
 def schema_differences (engine: sqlalchemy.engine.Engine) -> list[typing.Any]:
 	"""Return the differences between the models and the live schema.
 
-	An empty list means the migrations and the models agree. Anything else means someone
-	changed a model without writing the migration to match — the drift that turns a
-	routine deployment into an outage, and the reason this is checked in CI rather than
-	remembered.
+	Anything in the returned list means someone changed a model without writing the
+	migration to match — the drift that turns a routine deployment into an outage, and the
+	reason this is checked in CI rather than remembered.
+
+	**An empty list does not mean the schemas are identical.** Alembic's autogenerate
+	compares tables, columns, types, indexes and foreign keys; it does **not** compare
+	CHECK constraints. So changing the vocabulary inside an ``enum_check`` — adding a
+	status category, say — is invisible here. Worse than invisible: the test suite builds
+	its schema with ``create_all`` straight from the models, so the new vocabulary is
+	enforced in every test and reported as zero drift by this function, while every
+	migrated database, fresh installs included, still carries the old CHECK.
+
+	:func:`check_constraint_differences` covers that gap and is asserted alongside this.
 	"""
 
 	with engine.connect() as connection:
@@ -94,6 +104,77 @@ def schema_differences (engine: sqlalchemy.engine.Engine) -> list[typing.Any]:
 		return list(
 			alembic.autogenerate.compare_metadata(context, subroutine.db.base.Base.metadata)
 		)
+
+
+def check_constraint_differences (engine: sqlalchemy.engine.Engine) -> list[str]:
+	"""Return the CHECK constraints where the models and the live schema disagree.
+
+	Exists because :func:`schema_differences` cannot see them, and because CHECK
+	constraints here are not decoration: they carry the status categories, the entity-type
+	vocabularies and the importance range. A model that has moved on from its migration
+	means a database that accepts values the code believes are impossible.
+
+	Constraints are matched by name, and their *values* compared rather than their text.
+	Comparing text is not possible across backends: PostgreSQL rewrites ``x IN ('a', 'b')``
+	into ``x = ANY (ARRAY['a', 'b'])`` when it stores the constraint, so a verbatim
+	comparison would report drift on every table on every run.
+
+	What is compared is the multiset of literals — quoted strings and numbers — which both
+	backends preserve exactly. That covers the constraints where drift actually costs
+	something: the status categories, the entity-type vocabularies, the importance and
+	urgency ranges, the instance singleton. It does *not* notice a restructured boolean
+	expression containing no literals, such as ``ck_link_not_self``; those are compared on
+	presence alone.
+	"""
+
+	inspector = sqlalchemy.inspect(engine)
+	differences: list[str] = []
+
+	for name, table in sorted(subroutine.db.base.Base.metadata.tables.items()):
+		if name not in inspector.get_table_names():
+			continue
+
+		declared = {
+			str(constraint.name): _check_literals(str(constraint.sqltext))
+			for constraint in table.constraints
+			if isinstance(constraint, sqlalchemy.CheckConstraint) and constraint.name is not None
+		}
+		reflected = {
+			str(found["name"]): _check_literals(str(found["sqltext"]))
+			for found in inspector.get_check_constraints(name)
+			if found.get("name")
+		}
+
+		for constraint_name in sorted(set(declared) | set(reflected)):
+			in_models = declared.get(constraint_name)
+			in_database = reflected.get(constraint_name)
+
+			if in_models is None:
+				differences.append(f"{name}.{constraint_name}: in the database, not in the models")
+
+			elif in_database is None:
+				differences.append(f"{name}.{constraint_name}: in the models, not in the database")
+
+			elif in_models != in_database:
+				differences.append(
+					f"{name}.{constraint_name}: models allow {list(in_models)}, "
+					f"database allows {list(in_database)}"
+				)
+
+	return differences
+
+
+def _check_literals (text: str) -> tuple[str, ...]:
+	"""Return the literal values a CHECK expression constrains against, in a stable order.
+
+	Quoted strings and bare numbers only. Keywords, operators, casts and parenthesisation
+	are all discarded, because those are exactly what the two backends spell differently.
+	"""
+
+	quoted = re.findall(r"'([^']*)'", text)
+	numbers = re.findall(r"(?<![\w'])(\d+)(?![\w'])", text)
+
+	return tuple(sorted(quoted)) + tuple(sorted(numbers))
 
 
 def _include_object (

@@ -15,12 +15,18 @@ import subroutine.db.models.identity
 import subroutine.db.seed
 import subroutine.domain.authentication
 import subroutine.domain.events
+import subroutine.domain.text
 import subroutine.errors
 
 #: The role the creating user is given. SPEC.md §10.7 invariant 7 requires at least one
 #: owner per workspace, and creating one without its owner would break that between two
 #: statements of the same transaction.
 FOUNDING_ROLE = "owner"
+
+#: Column widths from SPEC.md §10.6. See `subroutine.domain.text` for why these are checked
+#: in Python rather than left to the backend.
+MAX_SLUG_LENGTH = 64
+MAX_TITLE_LENGTH = 255
 
 
 def create (
@@ -40,6 +46,11 @@ def create (
 	able to reach.
 	"""
 
+	title = subroutine.domain.text.fit(
+		subroutine.domain.text.require(title, field="title"),
+		field="title",
+		limit=MAX_TITLE_LENGTH,
+	)
 	normalized = normalize_slug(slug)
 
 	if not normalized:
@@ -54,6 +65,10 @@ def create (
 				)
 			],
 		)
+
+	normalized = subroutine.domain.text.fit(
+		normalized, field="slug", limit=MAX_SLUG_LENGTH, label="short name"
+	)
 
 	if _slug_taken(session, normalized):
 		raise subroutine.errors.Conflict(
@@ -77,7 +92,7 @@ def create (
 	session.add(workspace)
 	session.flush()
 
-	subroutine.db.seed.seed_workspace(session, workspace)
+	report = subroutine.db.seed.seed_workspace(session, workspace)
 	add_member(session, workspace, owner, role_key=FOUNDING_ROLE, actor=actor)
 
 	subroutine.domain.events.record(
@@ -89,9 +104,48 @@ def create (
 		changes={"slug": {"from": None, "to": normalized}},
 		actor=actor,
 	)
+	record_seeding(session, workspace, report, actor=actor)
 	session.flush()
 
 	return workspace
+
+
+def record_seeding (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	report: subroutine.db.seed.SeedReport,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> None:
+	"""Record that a workspace's vocabulary was seeded, if anything was written.
+
+	One event carrying the version and the counts, rather than ~35 events for individual
+	role and status rows — a change feed whose first page is entirely vocabulary is exactly
+	the noise the feed exists to cut through (SPEC.md §10.7 invariant 9).
+
+	It matters most on the path that has no creation event to stand in for it: a later
+	release seeding new rows into a workspace that already exists. Without this, those rows
+	appear with nothing in the history to say where they came from.
+	"""
+
+	if report.total == 0:
+		return
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=workspace.id,
+		entity_type="workspace",
+		entity_id=workspace.id,
+		action=subroutine.domain.events.EventAction.SEEDED,
+		changes={
+			"seed_version": {"from": report.from_version, "to": report.to_version},
+			"roles": {"from": None, "to": report.roles},
+			"statuses": {"from": None, "to": report.statuses},
+			"item_types": {"from": None, "to": report.item_types},
+			"link_types": {"from": None, "to": report.link_types},
+		},
+		actor=actor,
+	)
 
 
 def add_member (
@@ -169,10 +223,17 @@ def normalize_slug (slug: str) -> str:
 
 
 def _slug_taken (session: sqlalchemy.orm.Session, slug: str) -> bool:
-	"""Report whether a workspace short name is already in use."""
+	"""Report whether a live workspace already uses this short name.
+
+	Deleted workspaces are ignored, matching the partial unique index: a name in the trash
+	is available again.
+	"""
 
 	model = subroutine.db.models.identity.Workspace
 
 	return (
-		session.scalars(sqlalchemy.select(model.id).where(model.slug == slug)).first() is not None
+		session.scalars(
+			sqlalchemy.select(model.id).where(model.slug == slug, model.deleted_at.is_(None))
+		).first()
+		is not None
 	)

@@ -1,6 +1,7 @@
 """Tests for path resolution, settings precedence and the SQLite storage probe."""
 
 import pathlib
+import tomllib
 
 import pytest
 
@@ -145,3 +146,114 @@ def test_system_timezone_is_an_iana_name () -> None:
 
 	assert name
 	assert " " not in name
+
+
+def test_storing_a_setting_twice_leaves_the_file_parseable (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Appending blindly used to produce a duplicate key, which TOML refuses to parse."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	subroutine.config.store_setting("secret_key", "first")
+	subroutine.config.store_setting("secret_key", "second")
+
+	path = subroutine.config.config_file_path()
+	parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+
+	assert parsed["secret_key"] == "second"
+
+
+def test_a_setting_lands_above_any_table_header (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Everything the program reads is a top-level key.
+
+	Text appended after a ``[table]`` header belongs to that table, so a key written there
+	is invisible to Settings — and the *next* run, seeing it still unset, would append
+	another and make the file unparseable.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text("# a comment\nport = 9000\n\n[server]\nhost = \"0.0.0.0\"\n", encoding="utf-8")
+
+	subroutine.config.store_setting("secret_key", "written")
+
+	text = path.read_text(encoding="utf-8")
+	parsed = tomllib.loads(text)
+
+	assert parsed["secret_key"] == "written", "the key must be readable at the top level"
+	assert parsed["server"] == {"host": "0.0.0.0"}, "the table must be left alone"
+	assert "# a comment" in text, "comments are preserved"
+
+
+def test_the_config_file_is_private_however_it_was_made (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The signing key can be added to a file the user created with their own umask."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text("port = 1\n", encoding="utf-8")
+	path.chmod(0o644)
+
+	subroutine.config.store_setting("secret_key", "private")
+
+	assert path.stat().st_mode & 0o077 == 0, "the file must not be group- or world-readable"
+
+
+def test_a_blanked_key_is_regenerated_without_corrupting_the_file (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""An empty value is falsy, so ensure_secret_key regenerates — in place, not appended."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+	monkeypatch.delenv("SUBROUTINE_SECRET_KEY", raising=False)
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text('secret_key = ""\n', encoding="utf-8")
+
+	key, written = subroutine.config.ensure_secret_key(subroutine.config.load_settings())
+
+	assert key
+	assert written is not None
+	assert tomllib.loads(path.read_text(encoding="utf-8"))["secret_key"] == key
+
+
+def test_an_existing_key_is_not_rewritten (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Rotating the signing key on every start would break every cursor in flight."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+	monkeypatch.delenv("SUBROUTINE_SECRET_KEY", raising=False)
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text('secret_key = "already here"\n', encoding="utf-8")
+
+	key, written = subroutine.config.ensure_secret_key(subroutine.config.load_settings())
+
+	assert key == "already here"
+	assert written is None
+
+
+def test_a_value_with_awkward_characters_round_trips (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Keys are base64url, but a database URL can contain anything."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	awkward = 'postgresql://u:p"a\\ss@host/db'
+	subroutine.config.store_setting("database_url", awkward)
+
+	parsed = tomllib.loads(subroutine.config.config_file_path().read_text(encoding="utf-8"))
+
+	assert parsed["database_url"] == awkward

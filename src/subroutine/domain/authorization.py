@@ -174,7 +174,17 @@ def explain (
 	*,
 	project: subroutine.db.models.project.Project | None = None,
 ) -> Grant:
-	"""Return the effective permissions along with where they came from."""
+	"""Return the effective permissions along with where they came from.
+
+	Agrees with :func:`authorize` for every permission, by construction: it asks the same
+	decision function. Anything the decision refuses to grant is absent here, so an agent
+	reading its own permissions is told the truth rather than a superset it will be refused
+	on later.
+
+	A refusal that would conceal a project's existence returns an empty grant rather than
+	raising. The caller is asking "what may I do here", and "nothing" is an honest answer
+	that discloses nothing — the route that resolved the project id is where a 404 belongs.
+	"""
 
 	membership = _project_membership(session, principal, project)
 	role = _role_for(session, principal, workspace_id, membership=membership)
@@ -184,14 +194,23 @@ def explain (
 
 	title, granted = role
 	scopes = principal.scopes
+	narrowed = bool(scopes) or principal.project_scope is not None or (
+		principal.pinned_workspace_id is not None
+	)
 
 	# The sentinel. An empty list narrows nothing; it does not deny everything.
-	if not scopes:
-		return Grant(permissions=granted, from_role=title, narrowed_by_token=False)
+	candidates = granted if not scopes else granted & frozenset(scopes)
 
-	return Grant(
-		permissions=granted & frozenset(scopes), from_role=title, narrowed_by_token=True
+	# Ask the real decision about each candidate rather than reproducing its checks here.
+	# Duplicating them is how the two answers drifted apart in the first place.
+	permitted = frozenset(
+		permission
+		for permission in candidates
+		if _refusal(session, principal, permission, workspace_id=workspace_id, project=project)
+		is None
 	)
+
+	return Grant(permissions=permitted, from_role=title, narrowed_by_token=narrowed)
 
 
 def may (

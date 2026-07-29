@@ -25,10 +25,23 @@ class Workspace(
 	"""
 
 	__tablename__ = "workspace"
+	__table_args__ = (
+		# Partial, so a deleted workspace releases its short name. Every other identifier
+		# in the schema — username, email, project key, task and document refs — frees on
+		# soft delete the same way; a plain UNIQUE here would retire a slug permanently,
+		# which turns deleting a typo into a name you can never use again.
+		sqlalchemy.Index(
+			"uq_workspace_slug",
+			"slug",
+			unique=True,
+			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
+			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
+		),
+	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
 	slug: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(64), nullable=False, unique=True
+		sqlalchemy.String(64), nullable=False
 	)
 	title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(255), nullable=False

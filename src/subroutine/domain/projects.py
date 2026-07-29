@@ -6,6 +6,7 @@ keeping: the materialised path that makes "everything under here" cheap to read 
 makes moving expensive to write, and reads outnumber moves by a very wide margin.
 """
 
+import re
 import typing
 import uuid
 
@@ -19,7 +20,19 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.text
 import subroutine.errors
+
+#: The shape a project key must take. It is deliberately identical to the ref half of
+#: ``subroutine.domain.mentions.REF_PATTERN``, and that is the whole reason it is
+#: constrained: a key becomes the first part of every ref the project mints, and a ref the
+#: mention scanner cannot match is a ref that is silently invisible to backlinks for the
+#: life of the project.
+#:
+#: The cost is that a key must be ASCII — 'CAFÉ' is refused. Titles, descriptions, tags and
+#: comments are all fully Unicode; only this one identifier is not, because it is the piece
+#: that ends up in commit messages, chat and URLs, where being typeable matters more.
+KEY_PATTERN = re.compile(r"[A-Z][A-Z0-9]{0,15}")
 
 #: What a template writes into ``project.settings``, and nothing else (SPEC.md §6.12).
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
@@ -64,17 +77,23 @@ def create (
 ) -> subroutine.db.models.project.Project:
 	"""Create a project, placed in the tree and stamped with its template's defaults."""
 
+	title = subroutine.domain.text.fit(
+		subroutine.domain.text.require(title, field="title"), field="title", limit=512
+	)
 	normalized_key = normalize_key(key)
 
-	if not normalized_key:
+	if not KEY_PATTERN.fullmatch(normalized_key):
 		raise subroutine.errors.ValidationError(
-			"A project needs a short key, like 'SR' or 'HOME'.",
+			f"{key!r} cannot be used as a project key.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="key",
 					code="invalid_field_value",
-					message=f"{key!r} contains nothing usable as a key.",
-					hint="Keys are short and uppercase; they become the first half of every ref.",
+					message=f"{key!r} contains nothing usable as a key."
+					if not normalized_key
+					else f"{normalized_key!r} is not a usable key.",
+					hint="A key starts with a letter A-Z and continues with letters and "
+					"digits, up to 16 characters — 'SR', 'HOME', 'WEB2'.",
 				)
 			],
 		)
@@ -176,6 +195,26 @@ def move (
 		return 0
 
 	project.parent_id = None if parent is None else parent.id
+
+	# `version` is the ETag (SPEC.md §8.9), so anything a client can read has to move it.
+	# `reparent` rewrote `path` and `depth` on this row and every descendant with one Core
+	# UPDATE, which sets no version — so the descendants are bumped here too, or a client
+	# holding an ETag for a child cannot tell that the child's path changed.
+	project.version += 1
+	project.updated_by = None if actor is None else actor.user.id
+
+	model = subroutine.db.models.project.Project
+	session.execute(
+		sqlalchemy.update(model)
+		.where(
+			model.workspace_id == project.workspace_id,
+			subroutine.domain.hierarchy.subtree(model, project),
+			model.id != project.id,
+		)
+		.values(version=model.version + 1, updated_by=project.updated_by)
+		.execution_options(synchronize_session=False)
+	)
+	session.expire_all()
 	session.flush()
 
 	subroutine.domain.events.record(
@@ -224,9 +263,16 @@ def default_status (
 
 
 def normalize_key (key: str) -> str:
-	"""Return the stored form of a project key: short, uppercase, alphanumeric."""
+	"""Return the stored form of a project key: trimmed and upper-cased, nothing more.
 
-	return "".join(character for character in key.strip().upper() if character.isalnum())[:16]
+	Deliberately *not* a filter. An earlier version dropped any character outside the
+	allowed set, which turned ``'CAFÉ'`` into the perfectly valid key ``'CAF'`` — the user
+	asked for one project and silently got another. Case-folding is the only change anyone
+	would expect to be made on their behalf; everything else is refused by
+	:func:`create` with an explanation, which is the honest half of the same job.
+	"""
+
+	return key.strip().upper()
 
 
 def _refuse_duplicate_key (

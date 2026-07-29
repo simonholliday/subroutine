@@ -7,12 +7,16 @@ to-do list has not asked about workspaces. ``--verbose`` prints the full transcr
 whoever does want it.
 """
 
+import contextlib
 import getpass
 import pathlib
 import sys
+import tomllib
 import typing
 
+import pydantic
 import rich.console
+import sqlalchemy.engine
 import sqlalchemy.exc
 import sqlalchemy.orm
 import typer
@@ -70,6 +74,107 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 	raise typer.Exit(code=1)
 
 
+def _stop (message: str, hint: str | None = None) -> typing.NoReturn:
+	"""Report a failure that has no error code yet, and stop."""
+
+	_err.print(message, markup=False, highlight=False)
+
+	if hint is not None:
+		_err.print(hint, markup=False, highlight=False)
+
+	raise typer.Exit(code=1)
+
+
+def safe_url (url: str) -> str:
+	"""Return a database URL with any password replaced by ``***``.
+
+	Every path that shows a URL goes through this. The URL is the one piece of
+	configuration that routinely carries a credential, and it is also the value the CLI
+	tells people to check when a connection fails — so it is exactly what ends up pasted
+	into a bug report. Masking the signing key while printing a PostgreSQL password beside
+	it would be a strange place to draw the line.
+	"""
+
+	try:
+		parsed = sqlalchemy.engine.make_url(url)
+
+	except Exception:
+		# An unparseable URL cannot be masked field by field. Rather than guess at its
+		# shape with a regular expression, say nothing about its contents.
+		return "(unparseable database_url)"
+
+	return parsed.render_as_string(hide_password=True)
+
+
+def _settings () -> subroutine.config.Settings:
+	"""Resolve configuration, explaining a bad value rather than raising through it.
+
+	Every command starts here, so every command inherits the explanation. An unreadable
+	config file or a mistyped environment variable is an ordinary mistake, and it should
+	read like one.
+	"""
+
+	try:
+		return subroutine.config.load_settings()
+
+	except tomllib.TOMLDecodeError as error:
+		_stop(
+			f"{subroutine.config.config_file_path()} is not valid TOML: {error}",
+			"Fix the file, or move it aside and run 'subroutine init' to write a new one.",
+		)
+
+	except pydantic.ValidationError as error:
+		problems = "; ".join(
+			f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}"
+			for item in error.errors()
+		)
+
+		_stop(
+			f"A configuration value could not be used: {problems}",
+			"Check your SUBROUTINE_* environment variables and "
+			f"{subroutine.config.config_file_path()}.",
+		)
+
+
+@contextlib.contextmanager
+def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalchemy.engine.Engine]:
+	"""Yield an engine, turning connection failures into sentences.
+
+	The failures here are ordinary operational ones — a server that is not running, a URL
+	with a typo, a password that changed — and none of them is a bug in Subroutine. A
+	traceback tells the user nothing they can act on and hides the one line that would.
+	"""
+
+	try:
+		engine = subroutine.db.session.create_engine(settings.database_url)
+
+	except Exception as error:
+		_stop(
+			f"That database URL cannot be used: {error}",
+			"Check 'database_url' in 'subroutine config show'.",
+		)
+
+	try:
+		yield engine
+
+	except sqlalchemy.exc.OperationalError as error:
+		_stop(
+			f"Could not reach the database at {safe_url(settings.database_url)}: "
+			f"{error.orig or error}",
+			"Check that the server is running, and check 'database_url' in "
+			"'subroutine config show'.",
+		)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		_stop(
+			f"The database rejected that: {error.orig if hasattr(error, 'orig') else error}",
+			"If this looks like a bug rather than a bad value, please report it.",
+		)
+
+	finally:
+		engine.dispose()
+
+
 @app.command()
 def init (
 	username: str = typer.Option(
@@ -91,27 +196,34 @@ def init (
 ) -> None:
 	"""Set up Subroutine: create the database and everything a first task needs."""
 
-	settings = subroutine.config.load_settings()
+	settings = _settings()
 
 	_refuse_unusable_storage(settings)
 
-	_key, written_to = subroutine.config.ensure_secret_key(settings)
 	password = _read_password(password_stdin, non_interactive)
+	_key, written_to = subroutine.config.ensure_secret_key(settings)
 
 	if verbose:
-		_say(f"Database:   {settings.database_url}")
+		_say(f"Database:   {safe_url(settings.database_url)}")
 
 		if written_to is not None:
 			_say(f"Config:     {written_to} (signing key written)")
 
-	subroutine.db.migrate.upgrade(settings.database_url)
+	try:
+		subroutine.db.migrate.upgrade(settings.database_url)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		_stop(
+			f"Could not prepare the database at {safe_url(settings.database_url)}: "
+			f"{getattr(error, 'orig', None) or error}",
+			"Check that the server is running, and check 'database_url' in "
+			"'subroutine config show'.",
+		)
 
 	if verbose:
 		_say(f"Schema:     migrated to {subroutine.db.migrate.head_revision()}")
 
-	engine = subroutine.db.session.create_engine(settings.database_url)
-
-	try:
+	with _database(settings) as engine:
 		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
 
 		with factory() as session:
@@ -142,9 +254,6 @@ def init (
 
 				return
 
-	finally:
-		engine.dispose()
-
 	_say('Ready. Try: subroutine add "something to do"')
 
 
@@ -152,7 +261,7 @@ def init (
 def config_show () -> None:
 	"""Print the resolved settings and where each value came from."""
 
-	settings = subroutine.config.load_settings()
+	settings = _settings()
 	sources = subroutine.config.setting_sources(settings)
 	fields = sorted(type(settings).model_fields)
 	width = max(len(name) for name in fields)
@@ -160,10 +269,14 @@ def config_show () -> None:
 	for name in fields:
 		value = getattr(settings, name)
 
-		# The signing key is the one setting that must never be printed; whether it is set
-		# is the useful part anyway.
+		# Two settings are never printed as they stand. The signing key is not shown at
+		# all — whether it is set is the useful part. The database URL carries a password
+		# on any networked backend, and this output is what people paste into bug reports.
 		if name == "secret_key":
 			value = "(set)" if value else "(not set)"
+
+		elif name == "database_url":
+			value = safe_url(str(value))
 
 		_say(f"{name.ljust(width)}  {value}  [{sources[name]}]")
 
@@ -172,10 +285,20 @@ def config_show () -> None:
 def database_upgrade () -> None:
 	"""Bring the database up to the newest schema."""
 
-	settings = subroutine.config.load_settings()
+	settings = _settings()
 
 	_refuse_unusable_storage(settings)
-	subroutine.db.migrate.upgrade(settings.database_url)
+
+	try:
+		subroutine.db.migrate.upgrade(settings.database_url)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		_stop(
+			f"Could not upgrade the database at {safe_url(settings.database_url)}: "
+			f"{getattr(error, 'orig', None) or error}",
+			"Check that the server is running, and check 'database_url' in "
+			"'subroutine config show'.",
+		)
 
 	_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
 
@@ -184,34 +307,16 @@ def database_upgrade () -> None:
 def database_current () -> None:
 	"""Report which migration the database is at."""
 
-	settings = subroutine.config.load_settings()
+	settings = _settings()
 
 	if _database_is_absent(settings):
 		_say("There is no database here yet. Run 'subroutine init'.")
 
 		return
 
-	engine = subroutine.db.session.create_engine(settings.database_url)
-
-	try:
+	with _database(settings) as engine:
 		current = subroutine.db.migrate.current_revision(engine)
 		head = subroutine.db.migrate.head_revision()
-
-	except sqlalchemy.exc.OperationalError as error:
-		_err.print(
-			f"Could not reach the database at {settings.database_url}: "
-			f"{error.orig or error}",
-			markup=False,
-			highlight=False,
-		)
-		_err.print(
-			"Check 'database_url' in 'subroutine config show'.", markup=False, highlight=False
-		)
-
-		raise typer.Exit(code=1) from None
-
-	finally:
-		engine.dispose()
 
 	if current is None:
 		_say("This database has no schema yet. Run 'subroutine init'.")
@@ -266,18 +371,30 @@ def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:
 def _read_password (from_stdin: bool, non_interactive: bool) -> str | None:
 	"""Return the first user's password, if one was offered.
 
-	None is the ordinary case. Local mode opens the database directly, so a password is
+	``None`` is the ordinary case. Local mode opens the database directly, so a password is
 	only wanted once there is a server to log in to — asking for one during setup would be
 	ceremony in service of nothing.
+
+	An empty pipe under ``--password-stdin`` is refused rather than treated as "no
+	password". Passing the flag states that a password is coming, so nothing arriving means
+	a broken pipeline — most likely a secret that failed to mount in a container. Creating
+	a passwordless account and exiting 0 would be the worst of the available outcomes,
+	because it succeeds and nobody investigates a zero exit code.
 	"""
 
-	if from_stdin:
-		return sys.stdin.readline().rstrip("\n") or None
-
-	if non_interactive:
+	if not from_stdin:
 		return None
 
-	return None
+	password = sys.stdin.readline().rstrip("\n")
+
+	if not password:
+		_stop(
+			"--password-stdin was given but nothing arrived on standard input.",
+			"Pipe the password in, or leave the flag off to create an account with no "
+			"password (local use needs none).",
+		)
+
+	return password
 
 
 def _default_instance_name () -> str:

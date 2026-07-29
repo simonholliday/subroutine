@@ -3,7 +3,10 @@
 **Project management for people and agents, in equal measure.**
 
 > ⚠️ **Early development.** The specification is settled; the code is being built.
-> Nothing here is usable yet. See [`MVP-PLAN.md`](MVP-PLAN.md) for where it is up to.
+> The foundations are in place — schema, migrations, auth, permissions and a
+> `subroutine init` that produces a working database — but there is nothing yet to add
+> a task with, so it is not usable for its own purpose. The specification and the
+> implementation plan are not published yet.
 
 Every project management tool was built for humans, and has been bolting AI onto the side
 ever since. Subroutine starts from the assumption that both kinds of user are here to

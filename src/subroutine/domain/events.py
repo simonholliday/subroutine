@@ -36,6 +36,14 @@ class EventAction(enum.StrEnum):
 	DELETED = "deleted"
 	RESTORED = "restored"
 	MOVED = "moved"
+
+	#: A workspace was stocked with its vocabulary, or an upgrade added to it. Carries the
+	#: seed version and the per-kind counts rather than one event per row.
+	SEEDED = "seeded"
+
+	#: Reserved for the completion work in slice 2. Until something emits them, a status
+	#: change is recorded as an ordinary `updated` with the status in its `changes` —
+	#: which is accurate, just less specific than these will be.
 	STATUS_CHANGED = "status_changed"
 	COMPLETED = "completed"
 

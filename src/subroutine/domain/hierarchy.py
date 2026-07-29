@@ -76,20 +76,57 @@ def is_ancestor_of (candidate: Node, node: Node) -> bool:
 	return node.path.startswith(candidate.path)
 
 
+def subtree (model: type[typing.Any], node: Node) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching a node and everything beneath it.
+
+	``LIKE`` rather than a range, and the reason is worth recording because the range looks
+	obviously better and is **wrong**. A half-open ``path >= prefix AND path < prefix'``
+	compares under the database's collation, and PostgreSQL's default here is
+	``en_GB.UTF-8``, which does not sort byte-wise: measured against a real server, that
+	predicate returns ``/aaa/`` and silently *omits* ``/aaa/bbb/``. It would have looked
+	right on SQLite, whose default collation is binary, and quietly lost descendants in
+	production. ``LIKE 'prefix%'`` is collation-independent for this purpose and correct on
+	both.
+
+	The cost is that neither backend turns it into an index seek, so a subtree query scans
+	the workspace's rows. That is acceptable at any size this will see for a long time, and
+	the fix when it stops being acceptable is an index, not a different predicate: a
+	``text_pattern_ops`` index on PostgreSQL makes exactly this form index-usable under any
+	collation. Filed rather than done, because it is a schema change with no measurement
+	behind it yet.
+
+	``autoescape`` is belt-and-braces: paths are lowercase hex and separators, so they carry
+	no ``%`` or ``_`` to escape.
+	"""
+
+	predicate: sqlalchemy.ColumnElement[bool] = model.path.startswith(
+		node.path, autoescape=True
+	)
+
+	return predicate
+
+
 def place (
 	node: Node, parent: Node | None, *, max_depth: int = DEFAULT_MAX_DEPTH
 ) -> None:
-	"""Set a new node's path and depth from its parent. Does not touch the database."""
+	"""Set a new node's path and depth from its parent. Does not touch the database.
 
-	node.path = build_path(None if parent is None else parent.path, node.id)
-	node.depth = depth_of(node.path)
+	Validates before assigning, so a refused placement leaves the object as it was — the
+	same rule :func:`reparent` follows, and worth keeping identical between them.
+	"""
 
-	if node.depth > max_depth:
+	path = build_path(None if parent is None else parent.path, node.id)
+	depth = depth_of(path)
+
+	if depth > max_depth:
 		raise subroutine.errors.Conflict(
-			f"That would nest {node.depth} levels deep, and the limit is {max_depth}.",
+			f"That would nest {depth} levels deep, and the limit is {max_depth}.",
 			code="cycle_detected",
 			hint="Move it somewhere shallower, or raise max_hierarchy_depth.",
 		)
+
+	node.path = path
+	node.depth = depth
 
 
 def reparent (
@@ -144,10 +181,7 @@ def reparent (
 	# cannot be surprised by the old prefix appearing again further along.
 	statement = (
 		sqlalchemy.update(model)
-		.where(
-			model.workspace_id == node.workspace_id,
-			model.path.startswith(old_path, autoescape=True),
-		)
+		.where(model.workspace_id == node.workspace_id, subtree(model, node))
 		.values(
 			path=sqlalchemy.literal(new_path)
 			+ sqlalchemy.func.substr(model.path, len(old_path) + 1),
@@ -172,8 +206,7 @@ def _deepest_below (
 
 	deepest = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.max(model.depth)).where(
-			model.workspace_id == node.workspace_id,
-			model.path.startswith(node.path, autoescape=True),
+			model.workspace_id == node.workspace_id, subtree(model, node)
 		)
 	)
 

@@ -524,3 +524,62 @@ def test_effective_permissions_is_empty_for_a_stranger (
 		subroutine.domain.authorization.effective_permissions(session, stranger, workspace.id)
 		== frozenset()
 	)
+
+
+def test_explain_never_promises_more_than_authorize_grants (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The two used to disagree in four ways; a second answer is not worth having."""
+
+	workspace = _seeded_workspace(session)
+	elsewhere = _seeded_workspace(session)
+	owner = _member(session, workspace, "owner")
+	project = _project(session, workspace)
+	private = _project(session, workspace, visibility="private")
+	foreign = _project(session, elsewhere)
+
+	pinned = _with_token(session, owner, workspace_id=workspace.id)
+	scoped = _with_token(session, owner, project_scope=[str(project.id)])
+
+	cases = (
+		("pinned token, other workspace", pinned, elsewhere.id, None),
+		("project outside the token's scope", scoped, workspace.id, private),
+		("private project, no membership", owner, workspace.id, private),
+		("project from another workspace", owner, workspace.id, foreign),
+		("ordinary case", owner, workspace.id, project),
+	)
+
+	for label, principal, workspace_id, target in cases:
+		granted = subroutine.domain.authorization.effective_permissions(
+			session, principal, workspace_id, project=target
+		)
+
+		for permission in sorted(subroutine.permissions.ALL):
+			allowed = subroutine.domain.authorization.may(
+				session, principal, permission, workspace_id=workspace_id, project=target
+			)
+
+			assert (permission in granted) == allowed, f"{label}: {permission}"
+
+
+def test_a_pinned_or_project_scoped_token_reports_itself_as_narrowing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Narrowing is not only about the scopes list."""
+
+	workspace = _seeded_workspace(session)
+	member = _member(session, workspace, "member")
+	project = _project(session, workspace)
+
+	pinned = subroutine.domain.authorization.explain(
+		session, _with_token(session, member, workspace_id=workspace.id), workspace.id
+	)
+	scoped = subroutine.domain.authorization.explain(
+		session,
+		_with_token(session, member, project_scope=[str(project.id)]),
+		workspace.id,
+		project=project,
+	)
+
+	assert pinned.narrowed_by_token
+	assert scoped.narrowed_by_token

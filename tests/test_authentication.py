@@ -302,3 +302,44 @@ def test_tokens_do_not_collide (session: sqlalchemy.orm.Session) -> None:
 	prefixes = {_issue(session, user)[0].token_prefix for _ in range(25)}
 
 	assert len(prefixes) == 25
+
+
+def test_a_project_scope_is_canonicalised_at_issue (session: sqlalchemy.orm.Session) -> None:
+	"""The check compares against the lowercase form, so an upper-cased id must not deny."""
+
+	user = _make_user(session)
+	identifier = subroutine.db.types.new_uuid()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session, user=user, title="Scoped", project_scope=[str(identifier).upper()]
+	)
+
+	assert token.project_scope == [str(identifier)]
+
+
+def test_a_malformed_project_scope_is_refused (session: sqlalchemy.orm.Session) -> None:
+	"""Silently producing a token denied on every project helps nobody."""
+
+	user = _make_user(session)
+
+	with pytest.raises(ValueError) as error:
+		subroutine.domain.authentication.issue_token(
+			session, user=user, title="Broken", project_scope=["SR", "not-a-uuid"]
+		)
+
+	assert "SR" in str(error.value)
+
+
+def test_an_empty_project_scope_is_refused_rather_than_guessed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""One reading widens the token to everything, the other denies it everything."""
+
+	user = _make_user(session)
+
+	with pytest.raises(ValueError) as error:
+		subroutine.domain.authentication.issue_token(
+			session, user=user, title="Ambiguous", project_scope=[]
+		)
+
+	assert "ambiguous" in str(error.value).lower()
