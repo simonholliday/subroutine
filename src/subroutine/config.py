@@ -266,6 +266,15 @@ class Settings(pydantic_settings.BaseSettings):
 	)
 
 	database_url: str = pydantic.Field(default_factory=default_database_url)
+
+	# Where this instance's source can be obtained. **A product requirement, not a legal
+	# footnote** (SPEC.md §2.2): the AGPL's network clause means a *served* instance must
+	# offer its source to the people using it, so `/v1/meta` publishes this and any future
+	# web UI carries it in a footer. It lives in configuration rather than in the database
+	# because it describes a deployment — somebody running a modified fork must be able to
+	# point at *their* source, and will be wrong to point at this one.
+	source_url: str = "https://github.com/simonholliday/subroutine"
+
 	host: str = "127.0.0.1"
 	port: int = 8471
 	secret_key: str | None = None
