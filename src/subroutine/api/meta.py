@@ -273,6 +273,24 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared. That distinction is the only way to clear a due date.",
 		"",
+		# The `refs` topic below is written for somebody at a terminal, and says useful
+		# things an HTTP client does not need — how a shell treats `#`. These are the facts
+		# it does not cover, and they belong here rather than there: sharing one text with
+		# `subroutine help` is deliberate (§12.2a), and the way to keep that honest is to put
+		# audience-specific detail in the audience's own preamble.
+		"**An item's `ref` is an integer, and it is how you address one.** "
+		"`GET /v1/tasks/42` and `GET /v1/tasks/{id}` are the same request; every "
+		"task- and document-addressed endpoint takes either. Refs are unique per workspace "
+		"and shared between tasks and documents, they are never reused, and they never "
+		"change — not when an item moves between projects. In a request body, a field that "
+		"names another item (`target`, `supersedes`, `parent`) takes the same integer, so "
+		"you can send back what you were given without converting it.",
+		"",
+		"In prose — a title, a description, a comment — a reference is written `#42`, and "
+		"that is what builds the mention index. The sigil belongs to the *text*: do not put "
+		"it in a URL, where it would have to be escaped, and do not expect it in the `ref` "
+		"field, which is a number.",
+		"",
 		"**If you read something, think, and then write it, send the version back.** Put "
 		"`expected_version` in the body or `If-Match: \"<version>\"` in the header, and a "
 		"change made by somebody else in between is refused with a `409` carrying both "

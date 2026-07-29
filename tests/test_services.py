@@ -135,6 +135,26 @@ def test_refs_are_sequential_and_shared_with_documents (
 	assert subroutine.domain.refs.allocate(session, workspace.id) == 6
 
 
+def test_allocating_refreshes_the_counter_a_caller_is_holding (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``allocate`` expires the in-memory counter, and this is what keeps that alive.
+
+	Nothing in the application reads ``workspace.next_ref_number`` — the counter is only ever
+	moved by the ``UPDATE … RETURNING`` inside ``allocate`` — so if the expiry stopped
+	working, no behaviour would change and no other test would fail. It is cheap insurance
+	against a stale attribute being written back, and insurance nothing observes is
+	insurance somebody deletes while tidying.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+
+	subroutine.domain.tasks.create(session, project=project, title="First")
+
+	assert workspace.next_ref_number == 2, "the loaded workspace was refreshed, not left stale"
+
+
 def test_the_counter_is_the_workspace_not_the_project (
 	session: sqlalchemy.orm.Session,
 ) -> None:
@@ -186,15 +206,87 @@ def test_a_ref_is_read_with_or_without_its_sigil () -> None:
 	assert subroutine.domain.refs.parse_ref("4 2") is None
 
 
+def test_a_ref_too_large_for_the_column_is_not_a_ref () -> None:
+	"""Bounded in Python, because both backends refuse the query and neither does it quietly.
+
+	Asking for ref 2147483648 raised ``NumericValueOutOfRange`` on PostgreSQL and
+	``OverflowError`` on SQLite — each unhandled, each a 500 where the honest answer is that
+	nothing answers to it. Python integers have no ceiling, so a bound the parser does not
+	impose is one nothing imposes until a driver refuses.
+	"""
+
+	assert subroutine.domain.refs.parse_ref(str(subroutine.domain.refs.MAX_REF)) == (
+		subroutine.domain.refs.MAX_REF
+	)
+	assert subroutine.domain.refs.parse_ref(str(subroutine.domain.refs.MAX_REF + 1)) is None
+	assert subroutine.domain.refs.parse_ref("9" * 40) is None
+
+
+def test_an_address_is_read_relatively_nearest_scope_first () -> None:
+	"""SPEC.md §13.7's grammar: ``42``, ``acme/42``, ``work/acme/42``.
+
+	Two components mean *workspace*, never *connection*, and that has to be a stated rule
+	rather than a guess — with two names in the text there is nothing to tell them apart.
+	"""
+
+	parse = subroutine.domain.refs.parse_address
+
+	assert parse("42") == subroutine.domain.refs.Address(ref=42)
+	assert parse("#42") == subroutine.domain.refs.Address(ref=42)
+	assert parse("acme/42") == subroutine.domain.refs.Address(ref=42, workspace="acme")
+	assert parse("acme/#42") == subroutine.domain.refs.Address(ref=42, workspace="acme")
+	assert parse("work/acme/42") == subroutine.domain.refs.Address(
+		ref=42, workspace="acme", connection="work"
+	)
+
+	# Shapes that are not addresses at all.
+	assert parse("") is None
+	assert parse("/42") is None, "an empty component names nothing"
+	assert parse("acme//42") is None
+	assert parse("acme/") is None
+	assert parse("a/b/c/42") is None, "there is no fourth level"
+	assert parse("acme/nonsense") is None
+	assert parse(f"acme/{subroutine.domain.refs.MAX_REF + 1}") is None
+
+
+def test_an_address_prints_only_the_context_it_needs () -> None:
+	"""The shortest form that resolves, which is what makes a listing safe to copy from."""
+
+	assert subroutine.domain.refs.format_address(42) == "#42"
+	assert subroutine.domain.refs.format_address(42, workspace="acme") == "acme/#42"
+
+
+def test_a_ref_has_one_spelling_in_both_parsers () -> None:
+	"""``007`` is not ref 7, in a path or in prose.
+
+	The two patterns have to agree: ``mentions.REF_PATTERN`` leaves ``#007`` as prose — "a
+	Bond film, not ref 7" — so ``parse_ref`` must not resolve it either, or the same string
+	means different things depending on which one reads it. Zero is not a ref at all; the
+	counter starts at one.
+	"""
+
+	assert subroutine.domain.refs.parse_ref("007") is None
+	assert subroutine.domain.refs.parse_ref("0") is None
+	assert subroutine.domain.refs.parse_ref("#0") is None
+	assert subroutine.domain.mentions.candidates("see #007 and #0") == []
+
+
 def test_a_ref_resolves_to_the_thing_it_names (session: sqlalchemy.orm.Session) -> None:
-	"""What the mention index is built on."""
+	"""What the mention index is built on.
+
+	Against ``mentions.resolve`` rather than the ``refs.find`` this used to call, because
+	that helper was deleted: it narrowed by nothing and had no callers left. Testing the
+	function the application actually uses is the point of the change.
+	"""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
 	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
 
-	assert subroutine.domain.refs.find(session, workspace.id, 1) == ("task", task.id)
-	assert subroutine.domain.refs.find(session, workspace.id, 99) is None
+	assert subroutine.domain.mentions.resolve(session, workspace.id, [1]) == {
+		1: ("task", task.id)
+	}
+	assert subroutine.domain.mentions.resolve(session, workspace.id, [99]) == {}
 
 
 def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> None:

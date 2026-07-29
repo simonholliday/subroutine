@@ -25,7 +25,6 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.mentions
 import subroutine.domain.projects
-import subroutine.domain.refs
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -100,14 +99,12 @@ def test_a_ref_resolves_within_its_own_workspace_only (
 
 	left, right = two_worlds
 
-	assert subroutine.domain.refs.find(session, left.workspace.id, 1) == (
-		"task",
-		left.task.id,
-	)
-	assert subroutine.domain.refs.find(session, right.workspace.id, 1) == (
-		"task",
-		right.task.id,
-	)
+	assert subroutine.domain.mentions.resolve(session, left.workspace.id, [1]) == {
+		1: ("task", left.task.id)
+	}
+	assert subroutine.domain.mentions.resolve(session, right.workspace.id, [1]) == {
+		1: ("task", right.task.id)
+	}
 
 
 def test_a_mention_never_crosses_a_workspace (

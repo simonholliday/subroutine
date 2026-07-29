@@ -122,6 +122,52 @@ def test_a_task_is_readable_by_ref_with_or_without_the_sigil (world: World) -> N
 	assert world.call("GET", f"/v1/tasks/%23{ref}").json()["ref"] == ref
 
 
+@pytest.mark.parametrize("wanted", ["2147483648", "99999999999999999999", "9" * 40, "007", "0"])
+def test_a_ref_the_column_cannot_hold_is_a_404_not_a_500 (world: World, wanted: str) -> None:
+	"""It was a 500, on both backends, at different thresholds.
+
+	``parse_ref`` was unbounded and the value went straight into a comparison against an
+	``Integer`` column: PostgreSQL raised ``NumericValueOutOfRange`` above 2³¹ and SQLite
+	``OverflowError`` above 2⁶³, both unhandled. Any authenticated caller could reach it by
+	iterating a counter or mistyping a number, and a 500 carries none of the machine-readable
+	remediation §8.8 promises.
+
+	The zero-padded and zero cases are here for the same reason and a different one: they are
+	not refs either, and they must agree with how ``#007`` is read in prose.
+	"""
+
+	response = world.call("GET", f"/v1/tasks/{wanted}")
+
+	assert response.status_code == 404, response.text
+	assert response.json()["code"] == "not_found"
+
+
+def test_a_body_field_naming_an_impossible_item_is_refused_not_resolved (
+	world: World,
+) -> None:
+	"""A path segment that names nothing is a 404; a *field* holding nonsense is a 422.
+
+	The difference is what the request is asking for. ``GET /v1/tasks/99…9`` asks to fetch
+	something and the answer is that there is no such thing. A body that says
+	``target: true`` is not asking anything coherent — and ``bool`` being a subclass of
+	``int`` meant pydantic quietly read it as item #1 and linked to the wrong task.
+	"""
+
+	one = world.call("POST", "/v1/tasks", json={"title": "One"}).json()
+	world.call("POST", "/v1/tasks", json={"title": "Two"})
+
+	for value in (True, False, 2147483648, "2147483648", 0):
+		response = world.call(
+			"POST",
+			f"/v1/tasks/{one['ref']}/links",
+			json={"target": value, "link_type": "blocks"},
+		)
+
+		assert response.status_code == 422, f"{value!r} was accepted: {response.text}"
+
+	assert world.call("GET", f"/v1/tasks/{one['ref']}/links").json() == [], "nothing was linked"
+
+
 def test_a_ref_and_a_project_key_cannot_be_confused_in_a_path (world: World) -> None:
 	"""Two address spaces in one path segment, told apart by the first character.
 

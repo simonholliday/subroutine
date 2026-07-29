@@ -68,18 +68,29 @@ def run_migrations_offline () -> None:
 def run_migrations_online () -> None:
 	"""Apply the migration against a live database."""
 
+	# Alembic's documented way for a host application to migrate on a connection it already
+	# holds. Nothing in this project does that today — it is here because ``alembic`` itself
+	# supports it and a future embedded caller would arrive through it, not because a caller
+	# exists. Do not write a comment elsewhere that claims one does.
 	connectable = config.attributes.get("connection", None)
 
-	if connectable is None:
-		engine = subroutine.db.session.create_engine(database_url())
+	if connectable is not None:
+		_run_with_connection(connectable)
 
+		return
+
+	engine = subroutine.db.session.create_engine(database_url())
+
+	# Disposed in a ``finally`` because the pool is what makes the pragma below safe: a
+	# physical connection carries its foreign-key setting until it is closed, so an engine
+	# that outlives a *failed* migration is an engine holding a connection with enforcement
+	# off.
+	try:
 		with engine.connect() as connection:
 			_run_with_connection(connection)
 
+	finally:
 		engine.dispose()
-
-	else:
-		_run_with_connection(connectable)
 
 
 def _run_with_connection (connection: sqlalchemy.Connection) -> None:
@@ -93,9 +104,14 @@ def _run_with_connection (connection: sqlalchemy.Connection) -> None:
 	# duration, which is what Alembic's own batch-mode documentation calls for.
 	#
 	# It has to be issued before Alembic opens a transaction, because SQLite ignores this
-	# pragma inside one. The connection is discarded when the migration finishes and every
-	# application connection turns enforcement back on for itself (``db/session.py``), so
-	# this cannot leak into normal use.
+	# pragma inside one.
+	#
+	# **The restore below is the only thing that turns it back on, and it is not optional.**
+	# ``db/session.py`` applies its pragmas on the ``connect`` event, which fires once per
+	# *physical* connection — not on checkout from the pool. Measured: the same DBAPI
+	# connection handed out twice reports ``foreign_keys = 1`` then ``0``, and only
+	# ``engine.dispose()`` gets a fresh one. So "the application will turn it back on for
+	# itself" is false, and an earlier version of this comment said it.
 	sqlite = connection.dialect.name == "sqlite"
 
 	if sqlite:
@@ -112,13 +128,16 @@ def _run_with_connection (connection: sqlalchemy.Connection) -> None:
 		sqlalchemy_module_prefix="sqlalchemy.",
 	)
 
-	with alembic.context.begin_transaction():
-		alembic.context.run_migrations()
+	try:
+		with alembic.context.begin_transaction():
+			alembic.context.run_migrations()
 
-	# Restored rather than left off, because a caller may have handed us a connection it
-	# intends to go on using — the test suite does exactly that.
-	if sqlite:
-		_sqlite_foreign_keys(connection, True)
+	finally:
+		# In a ``finally`` because a migration that raises must not leave enforcement off on
+		# a connection that goes back into a pool. The failure would be silent and would
+		# outlive the thing that caused it.
+		if sqlite:
+			_sqlite_foreign_keys(connection, True)
 
 
 def _sqlite_foreign_keys (connection: sqlalchemy.Connection, enabled: bool) -> None:

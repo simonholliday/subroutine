@@ -269,7 +269,7 @@ def listing (
 
 @router.get("/{id_or_ref}", summary="Read one task")
 def read (
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
@@ -284,7 +284,7 @@ def read (
 @router.patch("/{id_or_ref}", summary="Change a task")
 def change (
 	request: starlette.requests.Request,
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -336,7 +336,7 @@ def change (
 @router.post("/{id_or_ref}/complete", summary="Mark a task finished")
 def complete (
 	request: starlette.requests.Request,
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
@@ -360,7 +360,7 @@ def complete (
 @router.delete("/{id_or_ref}", summary="Move a task to the trash")
 def remove (
 	request: starlette.requests.Request,
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),

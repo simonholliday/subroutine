@@ -232,6 +232,124 @@ def test_a_number_that_matches_nothing_is_refused_with_the_remedy (
 	assert "subroutine ls" in result.output
 
 
+def _second_workspace (home: pathlib.Path, slug: str = "work") -> None:
+	"""Add a second workspace to the installation in ``home``.
+
+	Reaching past the CLI because there is no ``subroutine workspace create`` yet — but this
+	is a supported state, not a contrived one: ``init`` makes the first user a superuser
+	precisely so they can create more (SPEC.md §7.1).
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.session
+	import subroutine.domain.local
+	import subroutine.domain.projects
+	import subroutine.domain.tasks
+	import subroutine.domain.workspaces
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			principal = subroutine.domain.local.principal(session)
+			workspace = subroutine.domain.workspaces.create(
+				session, slug=slug, title=slug.title(), owner=principal.user
+			)
+			session.flush()
+
+			project = subroutine.domain.projects.create(
+				session,
+				workspace_id=workspace.id,
+				key="SR",
+				title="Work",
+				owner_id=principal.user.id,
+				actor=principal,
+			)
+			subroutine.domain.tasks.create(
+				session, project=project, title="Deploy to production", actor=principal
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+
+def test_a_bare_number_is_refused_when_two_workspaces_both_have_it (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""It used to silently complete whichever row the database yielded first.
+
+	Refs are unique per workspace, so two workspaces each reach ``#1``. ``_lookup`` took
+	``.first()`` on an unordered query across every readable workspace — no refusal, no
+	warning, and which task got completed was up to the database. That is the same defect as
+	the positional numbering this addressing scheme replaced, and no test could see it
+	because every fixture had exactly one workspace.
+	"""
+
+	run("init")
+	run("add", "Pay the gas bill")
+	_second_workspace(home)
+
+	result = run("done", "1", expect=1)
+
+	assert "could mean any of these" in result.output
+	assert "Pay the gas bill" in result.output, "the candidates are named, with their titles"
+	assert "Deploy to production" in result.output
+	assert "/1" in result.output, "and the refusal shows how to say which"
+
+	# Nothing was completed by the refusal.
+	assert "Pay the gas bill" in run("ls").output
+
+
+def test_a_workspace_qualified_address_resolves (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""The refusal above suggests ``workspace/1``, so that had better work."""
+
+	run("init")
+	run("add", "Pay the gas bill")
+	_second_workspace(home)
+
+	listed = run("ls").output
+	slug = next(
+		line.split("/")[0].strip()
+		for line in listed.splitlines()
+		if "/" in line and "Pay the gas bill" in line
+	)
+
+	assert f"Done: {slug}/#1" in run("done", f"{slug}/1").output
+
+
+def test_a_listing_qualifies_every_ref_once_a_bare_one_would_not_resolve (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""What is printed has to be what can be typed back.
+
+	With one workspace a bare ``#1`` resolves and is what shows. With two it does not, so
+	every row carries its workspace — otherwise a listing invites the very ambiguity the
+	lookup then refuses, which is a worse experience than either alone.
+	"""
+
+	run("init")
+	run("add", "Pay the gas bill")
+
+	assert "#1" in run("ls").output
+
+	_second_workspace(home)
+
+	qualified = run("ls").output
+
+	assert "/#1" in qualified, "both rows now name their workspace"
+	assert "Deploy to production" in qualified, "and reads still span everything readable"
+
+
 def test_the_sigil_is_accepted_as_well_as_the_bare_number (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

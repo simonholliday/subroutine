@@ -45,6 +45,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.tags
 import subroutine.domain.tasks
+import subroutine.domain.workspaces
 import subroutine.errors
 
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
@@ -75,6 +76,18 @@ class Context:
 		"""Return every workspace this principal may read."""
 
 		return subroutine.domain.local.readable_workspace_ids(self.session, self.principal)
+
+	@property
+	def qualifies (self) -> bool:
+		"""Report whether a bare number would be ambiguous here.
+
+		True once a second workspace is readable, and it governs *printing*: a listing must
+		show the shortest form that actually resolves, so what somebody copies out of it can
+		be typed back. One workspace and nothing is qualified, which is the whole of the
+		personal path (SPEC.md §13.5b) and is why that output is unchanged by this.
+		"""
+
+		return len(self.workspace_ids) > 1
 
 
 def register (
@@ -148,6 +161,29 @@ def register (
 		finally:
 			engine.dispose()
 
+	def _named_workspace (
+		context: Context, slug: str | None
+	) -> subroutine.db.models.identity.Workspace | None:
+		"""Return the workspace an address named, or ``None`` when it named none.
+
+		Resolved against the readable set, so naming a workspace this caller cannot see is
+		"no such workspace" rather than a hint that it exists.
+		"""
+
+		if slug is None:
+			return None
+
+		wanted = subroutine.domain.workspaces.normalize_slug(slug)
+
+		for workspace in subroutine.domain.workspaces.readable(context.session, context.principal):
+			if workspace.slug == wanted:
+				return workspace
+
+		stop(
+			f"There is nothing called {slug!r} here.",
+			"An address is a number, or a workspace and a number — 'subroutine done acme/42'.",
+		)
+
 	def _lookup (context: Context, given: str) -> subroutine.db.models.work.Task:
 		"""Resolve a ref into a task.
 
@@ -162,38 +198,75 @@ def register (
 		as an identifier rather than a count, and it is optional on input because a shell
 		would eat it (SPEC.md §12.2a).
 
+		**A ref is unique in a workspace, not in an installation, so a bare number is
+		ambiguous the moment a second workspace is readable** — and this used to resolve it
+		with ``.first()`` on an unordered query, which silently completed whichever row the
+		database happened to yield. Two workspaces each with a ``#1`` was enough, and
+		creating a second workspace is something ``init`` deliberately allows. That is the
+		same defect as the positional numbering this replaced, so it refuses now and names
+		the candidates. ``acme/42`` says which (SPEC.md §13.7).
+
 		Resolved **through the scoping helper**, so a task in a project this caller cannot
 		see is reported as absent rather than fetched. Completed tasks are included on
 		purpose: running ``done 42`` twice should say the thing is already done, not that
 		there is no such task.
 		"""
 
-		wanted = subroutine.domain.refs.parse_ref(given)
+		address = subroutine.domain.refs.parse_address(given)
 
-		if wanted is None:
+		if address is None:
 			stop(
 				f"{given!r} is not a task number.",
 				"Tasks are named by the number 'subroutine ls' prints beside them — "
 				"'subroutine done 42'.",
 			)
 
+		if address.connection is not None:
+			stop(
+				f"{given!r} names another instance, which this cannot reach yet.",
+				"Connections arrive with 'subroutine serve'. For now an address is a "
+				"number, or a workspace and a number — 'subroutine done acme/42'.",
+			)
+
+		named = _named_workspace(context, address.workspace)
 		model = subroutine.db.models.work.Task
 
-		task = context.session.scalars(
-			subroutine.domain.scoping.readable_tasks(
-				context.principal,
-				workspace_ids=context.workspace_ids,
-				include_archived=True,
-			).where(model.ref == wanted)
-		).first()
+		matches = list(
+			context.session.scalars(
+				subroutine.domain.scoping.readable_tasks(
+					context.principal,
+					workspace_ids=[named.id] if named is not None else context.workspace_ids,
+					include_archived=True,
+				)
+				.where(model.ref == address.ref)
+				# Ordered so the candidate list below is stable between runs. Without it the
+				# refusal would name the same tasks in a different order each time.
+				.order_by(model.workspace_id)
+			)
+		)
 
-		if task is None:
+		if not matches:
 			stop(
-				f"There is no task {subroutine.domain.refs.format_ref(wanted)} here.",
+				f"There is no task {_shown(context, address.ref, named)} here.",
 				"Run 'subroutine ls' to see what there is.",
 			)
 
-		return task
+		if len(matches) > 1:
+			# Aligned like every other listing this program prints: a column of addresses is
+			# read by scanning down it, and a ragged one is read by scanning each line.
+			addresses = [_shown_for(context, task) for task in matches]
+			width = max(len(address) for address in addresses)
+			candidates = "\n".join(
+				f"    {address:>{width}}  {task.title}"
+				for address, task in zip(addresses, matches, strict=True)
+			)
+
+			stop(
+				f"{given!r} could mean any of these:\n{candidates}",
+				f"Say which — 'subroutine done {_address_for(context, matches[0])}'.",
+			)
+
+		return matches[0]
 
 	@app.command()
 	def add (
@@ -316,7 +389,7 @@ def register (
 
 			_numbered(context, tasks, console=console)
 			say("")
-			_suggest(console, f"subroutine done {tasks[0].ref}")
+			_suggest(console, f"subroutine done {_address_for(context, tasks[0])}")
 
 	@app.command()
 	def done (
@@ -327,8 +400,6 @@ def register (
 		Examples:
 
 		  subroutine done 42
-
-		  subroutine done 42
 		"""
 
 		with opened() as context:
@@ -337,7 +408,7 @@ def register (
 			if task.completed_at is not None:
 				# Saying so beats reporting success twice. The case this is really about is
 				# an up-arrow repeat, which used to land on whatever had taken that number.
-				say(f"Already done: {task.title}")
+				say(_acted(context, task, "Already done"))
 				_suggest(console, "subroutine ls")
 
 				return
@@ -346,7 +417,7 @@ def register (
 				context.session, task, now=context.now, actor=context.principal
 			)
 
-			say(f"Done: {task.title}")
+			say(_acted(context, task, "Done"))
 			_suggest(console, "subroutine today")
 
 	@app.command()
@@ -377,7 +448,7 @@ def register (
 			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
 			# right in a list and wrong in the confirmation of a command whose whole job was
 			# to set the other field — the user said "tomorrow" and was shown Friday.
-			say(f"Planned for {_render_day(task.planned_for)}: {task.title}")
+			say(_acted(context, task, f"Planned for {_render_day(task.planned_for)}"))
 			_suggest(console, "subroutine today")
 
 	@app.command()
@@ -405,7 +476,13 @@ def register (
 				actor=context.principal,
 			)
 
-			say(f"Hidden until {_render_date(task.start_at, context.timezone)}: {task.title}")
+			say(
+				_acted(
+					context,
+					task,
+					f"Hidden until {_render_date(task.start_at, context.timezone)}",
+				)
+			)
 			_suggest(console, "subroutine today")
 
 	def show_today () -> None:
@@ -463,13 +540,14 @@ def _render (
 		("Next 7 days", agenda.upcoming, False),
 		("Unscheduled", agenda.unscheduled, False),
 	)
-	shown: list[int] = []
+	# The addresses printed, in order, so the suggestion below names one that resolves.
+	shown: list[str] = []
 	printed = False
 
 	# One width across every bucket, so the refs line up down the whole agenda rather than
 	# stepping in and out as the sections change.
 	width = _ref_width(
-		[*agenda.overdue, *agenda.today, *agenda.upcoming, *agenda.unscheduled]
+		context, [*agenda.overdue, *agenda.today, *agenda.upcoming, *agenda.unscheduled]
 	)
 
 	if not agenda.overdue and not agenda.today:
@@ -486,7 +564,7 @@ def _render (
 		printed = True
 
 		for task in tasks:
-			shown.append(task.ref)
+			shown.append(_address_for(context, task))
 			console.print(_task_line(context, task, late=late, width=width))
 
 	if agenda.unscheduled_total > len(agenda.unscheduled):
@@ -513,18 +591,81 @@ def _numbered (
 ) -> None:
 	"""Print a list, each line addressed by the ref that will still mean it tomorrow."""
 
-	width = _ref_width(tasks)
+	width = _ref_width(context, tasks)
 
 	for task in tasks:
 		console.print(_task_line(context, task, late=False, width=width))
 
 
-def _ref_width (tasks: typing.Sequence[subroutine.db.models.work.Task]) -> int:
+def _ref_width (
+	context: Context, tasks: typing.Sequence[subroutine.db.models.work.Task]
+) -> int:
 	"""Return how wide the ref column needs to be for these tasks."""
 
-	return max(
-		(len(subroutine.domain.refs.format_ref(task.ref)) for task in tasks), default=0
-	)
+	return max((len(_shown_for(context, task)) for task in tasks), default=0)
+
+
+def _acted (context: Context, task: subroutine.db.models.work.Task, verb: str) -> str:
+	"""Return what to say after acting on a task, naming it absolutely when that matters.
+
+	A command that acts on a *relative* address should say what it actually acted on — the
+	moment of consequence is where a confirmation belongs, the same reason ``git commit``
+	prints the branch and the sha. But only where the address was relative: with one
+	workspace there is nothing to disambiguate, and adding ``#1`` to "Done: Buy wine" is
+	noise for the person §1.4 exists to protect.
+	"""
+
+	if not context.qualifies:
+		return f"{verb}: {task.title}"
+
+	return f"{verb}: {_shown_for(context, task)}  {task.title}"
+
+
+def _address_for (context: Context, task: subroutine.db.models.work.Task) -> str:
+	"""Return what to type to reach one task — the printed form without its sigil.
+
+	A suggested command has to be one that works, and ``#`` starts a comment in every POSIX
+	shell (SPEC.md §12.2a), so a suggestion carries the bare number or ``workspace/number``.
+	"""
+
+	return _shown_for(context, task).replace(subroutine.domain.refs.SIGIL, "")
+
+
+def _workspace_slugs (context: Context) -> dict[typing.Any, str]:
+	"""Map each readable workspace's id to its slug, for printing an address."""
+
+	return {
+		workspace.id: workspace.slug
+		for workspace in subroutine.domain.workspaces.readable(
+			context.session, context.principal
+		)
+	}
+
+
+def _shown (
+	context: Context,
+	ref: int,
+	workspace: subroutine.db.models.identity.Workspace | None,
+) -> str:
+	"""Return how to write one ref for this caller, qualified only when it must be."""
+
+	if not context.qualifies:
+		return subroutine.domain.refs.format_ref(ref)
+
+	named = context.workspace.slug if workspace is None else workspace.slug
+
+	return subroutine.domain.refs.format_address(ref, workspace=named)
+
+
+def _shown_for (context: Context, task: subroutine.db.models.work.Task) -> str:
+	"""Return how to write one task's ref, qualified only when it must be."""
+
+	if not context.qualifies:
+		return subroutine.domain.refs.format_ref(task.ref)
+
+	slug = _workspace_slugs(context).get(task.workspace_id)
+
+	return subroutine.domain.refs.format_address(task.ref, workspace=slug)
 
 
 def _suggest (console: rich.console.Console, command: str) -> None:
@@ -551,7 +692,7 @@ def _task_line (
 	"""
 
 	line = rich.text.Text()
-	shown = subroutine.domain.refs.format_ref(task.ref)
+	shown = _shown_for(context, task)
 	line.append(f"  {shown:>{max(width, 3)}}  ", style=POSITION)
 	line.append(task.title)
 

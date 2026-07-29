@@ -8,8 +8,11 @@ real installation is upgraded and the schema no longer matches the code that que
 import datetime
 import pathlib
 import typing
+import unittest.mock
 import uuid
 
+import alembic.command
+import alembic.runtime.migration
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
@@ -210,31 +213,138 @@ def test_every_migration_survives_a_database_with_data_in_it (migrated_url: str)
 		engine.dispose()
 
 
-def _populate (engine: sqlalchemy.engine.Engine) -> None:
-	"""Insert one row into every table that something else references.
+def _foreign_keys (connection: sqlalchemy.Connection) -> int:
+	"""Return SQLite's foreign-key enforcement setting for this connection."""
 
-	Built from the models rather than written out, so a column added later does not turn
-	this into a guessing game — and deliberately minimal, because what matters is that the
-	referencing rows *exist*, not what they say.
+	driver: typing.Any = connection.connection.driver_connection
+
+	return int(driver.execute("PRAGMA foreign_keys").fetchone()[0])
+
+
+def test_migrating_leaves_foreign_key_enforcement_on (tmp_path: pathlib.Path) -> None:
+	"""``env.py`` turns enforcement off to migrate, and must turn it back on.
+
+	Not merely tidiness. ``db/session.py`` applies its pragmas on the ``connect`` event,
+	which fires once per *physical* connection and **not** on checkout from the pool — so a
+	connection that goes back into a pool with enforcement off hands it out that way next
+	time. The restore in ``env.py`` is the only thing that prevents it, which is why it has
+	a test rather than a comment.
+	"""
+
+	url = f"sqlite:///{tmp_path / 'restored.db'}"
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		with engine.connect() as connection:
+			assert _foreign_keys(connection) == 1, "the session pragmas ran"
+
+			config = subroutine.db.migrate.build_config(url)
+			config.attributes["connection"] = connection
+
+			alembic.command.upgrade(config, "head")
+
+			assert _foreign_keys(connection) == 1, "enforcement was restored"
+
+	finally:
+		engine.dispose()
+
+
+def test_a_failed_migration_still_restores_foreign_key_enforcement (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The restore is in a ``finally``, because the silent failure outlives its cause.
+
+	A migration that raises half way through would otherwise leave the connection — and so
+	the pooled connection behind it — with foreign keys off, in a process that goes on
+	running. Nothing would report it and the next writer would simply not have referential
+	integrity.
+	"""
+
+	url = f"sqlite:///{tmp_path / 'failed.db'}"
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		with engine.connect() as connection:
+			config = subroutine.db.migrate.build_config(url)
+			config.attributes["connection"] = connection
+
+			# Patched rather than arranged: a genuine mid-migration failure needs a broken
+			# migration in the tree. If Alembic moves this method the patch raises
+			# AttributeError, which is a loud failure rather than a test that stops testing.
+			with (
+				unittest.mock.patch.object(
+					alembic.runtime.migration.MigrationContext,
+					"run_migrations",
+					side_effect=RuntimeError("deliberate failure mid-migration"),
+				),
+				pytest.raises(RuntimeError, match="deliberate"),
+			):
+				alembic.command.upgrade(config, "head")
+
+			assert _foreign_keys(connection) == 1, "enforcement was restored despite the failure"
+
+	finally:
+		engine.dispose()
+
+
+def _populate (engine: sqlalchemy.engine.Engine) -> None:
+	"""Insert a row into every table that holds a reference to a rebuilt one.
+
+	**Which tables those are is derived, not listed.** The first version of this seeded six
+	tables by hand, which happened to cover everything pointing at ``project`` and nothing
+	pointing at ``task`` or ``document`` — so it exercised one of the four rebuilds in the
+	ref migration and would have passed a future migration that rebuilt only ``task``.
+	:func:`_referencing_tables` now reports the set, and :func:`test_the_seeded_data_covers_
+	every_referencing_table` fails if this function stops covering it.
+
+	Rows are built from the models rather than written out, so a column added later does not
+	turn this into a guessing game — and are deliberately minimal, because what matters is
+	that the referencing rows *exist*, not what they say.
 	"""
 
 	workspace = subroutine.db.types.new_uuid()
+	parent_project = subroutine.db.types.new_uuid()
 	project = subroutine.db.types.new_uuid()
 	item_type = subroutine.db.types.new_uuid()
 	status = subroutine.db.types.new_uuid()
+	user = subroutine.db.types.new_uuid()
+	role = subroutine.db.types.new_uuid()
+	parent_task = subroutine.db.types.new_uuid()
+	task = subroutine.db.types.new_uuid()
+	parent_document = subroutine.db.types.new_uuid()
+	document = subroutine.db.types.new_uuid()
+	tag = subroutine.db.types.new_uuid()
+	token = subroutine.db.types.new_uuid()
+	link_type = subroutine.db.types.new_uuid()
 
 	rows: tuple[tuple[str, dict[str, typing.Any]], ...] = (
 		("workspace", {"id": workspace, "slug": "w", "title": "W"}),
+		("user", {"id": user, "username": "someone"}),
 		(
 			"item_type",
 			{"id": item_type, "workspace_id": workspace, "key": "task", "label": "Task"},
 		),
 		("status", {"id": status, "workspace_id": workspace, "key": "open", "label": "Open"}),
+		("role", {"id": role, "workspace_id": workspace, "key": "member", "title": "Member"}),
+		("tag", {"id": tag, "workspace_id": workspace, "name": "t", "name_normalized": "t"}),
+		# A parent and a child, so the self-referencing foreign keys are exercised too.
+		(
+			"project",
+			{
+				"id": parent_project,
+				"workspace_id": workspace,
+				"key": "TOP",
+				"title": "Top",
+				"status_id": status,
+				"visibility": "public",
+			},
+		),
 		(
 			"project",
 			{
 				"id": project,
 				"workspace_id": workspace,
+				"parent_id": parent_project,
 				"key": "SR",
 				"title": "Work",
 				"status_id": status,
@@ -242,25 +352,126 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 			},
 		),
 		(
+			"project_member",
+			{"workspace_id": workspace, "project_id": project, "user_id": user},
+		),
+		(
 			"task",
 			{
+				"id": parent_task,
 				"workspace_id": workspace,
 				"project_id": project,
 				"type_id": item_type,
 				"status_id": status,
 				"ref": 1,
+				"title": "A parent task",
+			},
+		),
+		(
+			"task",
+			{
+				"id": task,
+				"workspace_id": workspace,
+				"project_id": project,
+				"parent_task_id": parent_task,
+				"type_id": item_type,
+				"status_id": status,
+				"ref": 2,
 				"title": "A task",
+			},
+		),
+		("task_tag", {"task_id": task, "tag_id": tag}),
+		(
+			"document",
+			{
+				"id": parent_document,
+				"workspace_id": workspace,
+				"project_id": project,
+				"type_id": item_type,
+				"status_id": status,
+				"ref": 3,
+				"title": "A parent document",
 			},
 		),
 		(
 			"document",
 			{
+				"id": document,
 				"workspace_id": workspace,
 				"project_id": project,
+				"parent_id": parent_document,
 				"type_id": item_type,
 				"status_id": status,
-				"ref": 2,
+				"ref": 4,
 				"title": "A document",
+			},
+		),
+		("document_tag", {"document_id": document, "tag_id": tag}),
+		# Everything below references `workspace`, which the ref migration also rebuilds —
+		# by dropping its server default, which SQLite can only do by recreating the table.
+		("workspace_member", {"workspace_id": workspace, "user_id": user, "role_id": role}),
+		(
+			"api_token",
+			{
+				"id": token,
+				"workspace_id": workspace,
+				"user_id": user,
+				"title": "A token",
+				"token_prefix": "sr_probe0",
+				"token_hash": "0" * 64,
+			},
+		),
+		(
+			"comment",
+			{
+				"workspace_id": workspace,
+				"entity_type": "task",
+				"entity_id": task,
+				"author_id": user,
+				"body": "A comment",
+			},
+		),
+		(
+			"event",
+			{
+				"workspace_id": workspace,
+				"entity_type": "task",
+				"entity_id": task,
+				"action": "created",
+				"actor_user_id": user,
+				"actor_token_id": token,
+			},
+		),
+		(
+			"link_type",
+			{
+				"id": link_type,
+				"workspace_id": workspace,
+				"key": "blocks",
+				"title": "Blocks",
+				"inverse_title": "Blocked by",
+			},
+		),
+		(
+			"link",
+			{
+				"workspace_id": workspace,
+				"link_type_id": link_type,
+				"source_type": "task",
+				"source_id": task,
+				"target_type": "document",
+				"target_id": document,
+				"created_by": user,
+			},
+		),
+		(
+			"mention",
+			{
+				"workspace_id": workspace,
+				"source_type": "task",
+				"source_id": task,
+				"target_type": "document",
+				"target_id": document,
 			},
 		),
 	)
@@ -268,6 +479,64 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 	with engine.begin() as connection:
 		for table_name, values in rows:
 			_insert(connection, table_name, values)
+
+
+#: The tables the ref migration rebuilds. A SQLite batch rebuild drops and recreates the
+#: table, so every one of these needs referencing rows present for the test to mean anything.
+REBUILT = ("workspace", "project", "task", "document")
+
+#: What :func:`_populate` puts a row into. Declared as data so the guard below can compare
+#: it against the schema rather than against a reading of the function.
+SEEDED = frozenset(
+	{
+		"workspace",
+		"user",
+		"item_type",
+		"status",
+		"role",
+		"tag",
+		"project",
+		"project_member",
+		"task",
+		"task_tag",
+		"document",
+		"document_tag",
+		"workspace_member",
+		"api_token",
+		"comment",
+		"event",
+		"link_type",
+		"link",
+		"mention",
+	}
+)
+
+
+def _referencing_tables () -> set[str]:
+	"""Return every table holding a foreign key into one of :data:`REBUILT`."""
+
+	return {
+		name
+		for name, table in subroutine.db.base.Base.metadata.tables.items()
+		if {key.column.table.name for key in table.foreign_keys} & set(REBUILT)
+	}
+
+
+def test_the_seeded_data_covers_every_referencing_table () -> None:
+	"""The guard on the guard: seeded coverage must keep up with the schema.
+
+	Without this, :func:`_populate` is a hand-written list that silently stops covering the
+	thing it was written for the next time a table gains a foreign key — which is exactly how
+	its first version came to exercise one of four rebuilds while reading as though it
+	covered them all.
+	"""
+
+	missing = sorted(_referencing_tables() - SEEDED)
+
+	assert not missing, (
+		f"These tables reference a rebuilt table but are not seeded by _populate: "
+		f"{', '.join(missing)}. Add a row, or the migration test stops covering them."
+	)
 
 
 #: Columns whose CHECK constraint a generic filler value would violate.

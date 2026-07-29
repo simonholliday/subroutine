@@ -97,7 +97,7 @@ class LinkRequest(subroutine.api.schemas.RequestModel):
 	it. An id arrives as a string, since a UUID is not a number.
 	"""
 
-	target: int | str
+	target: subroutine.api.schemas.Reference
 	link_type: str
 	target_type: str = "task"
 
@@ -246,7 +246,7 @@ def listing (
 
 @router.get("/{id_or_ref}", summary="Read one document")
 def read (
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
@@ -261,7 +261,7 @@ def read (
 @router.patch("/{id_or_ref}", summary="Change a document")
 def change (
 	request: starlette.requests.Request,
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -302,7 +302,7 @@ def change (
 @router.delete("/{id_or_ref}", summary="Move a document to the trash")
 def remove (
 	request: starlette.requests.Request,
-	id_or_ref: str,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
@@ -332,7 +332,7 @@ def _links_for (entity_type: str) -> typing.Any:
 	"""
 
 	def listing (
-		id_or_ref: str,
+		id_or_ref: subroutine.api.schemas.ItemAddress,
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
 		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
@@ -354,7 +354,7 @@ def _links_for (entity_type: str) -> typing.Any:
 		]
 
 	def create (
-		id_or_ref: str,
+		id_or_ref: subroutine.api.schemas.ItemAddress,
 		body: LinkRequest,
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
@@ -384,7 +384,7 @@ def _links_for (entity_type: str) -> typing.Any:
 		raise subroutine.errors.InternalError("The link was created but cannot be read back.")
 
 	def remove (
-		id_or_ref: str,
+		id_or_ref: subroutine.api.schemas.ItemAddress,
 		link_id: uuid.UUID,
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,

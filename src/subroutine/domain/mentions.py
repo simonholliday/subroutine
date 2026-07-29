@@ -181,7 +181,20 @@ def backlinks (
 	target_type: str,
 	target_id: uuid.UUID,
 ) -> list[subroutine.db.models.work.Mention]:
-	"""Return everything whose prose refers to one item."""
+	"""Return everything whose prose refers to one item.
+
+	**Narrowed by workspace and nothing else, and that is not yet sufficient.** §6.15 says a
+	mention from a project the reader cannot see is *omitted entirely* — not reported as
+	invisible the way a cross-boundary link is, because "something you cannot see mentioned
+	this" discloses that activity exists and explains nothing. This function does not do
+	that, which is safe only because nothing calls it: it is here ahead of
+	``include=backlinks`` (M3).
+
+	So: **whoever wires this to an endpoint owes the project-visibility narrowing**, through
+	``domain.scoping``, before it returns anything to a caller. Written down here rather than
+	left to be noticed, because an unnarrowed read path that already looks finished is how
+	the agenda came to ignore ``project_scope``.
+	"""
 
 	model = subroutine.db.models.work.Mention
 

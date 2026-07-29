@@ -39,7 +39,6 @@ SOURCE = pathlib.Path(subroutine.__file__).parent
 REACHES_DIRECTLY: dict[str, str] = {
 	"domain/scoping.py": "the helper itself",
 	"domain/authorization.py": "defines the visibility predicate the helper applies",
-	"domain/refs.py": "resolves one ref to one id; the caller authorises what it gets",
 	"domain/mentions.py": "rewrites refs inside text it was already given",
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
