@@ -6,12 +6,14 @@ description refers to is indexed — all inside one transaction, so a task never
 without its ref or its history.
 """
 
+import datetime
 import typing
 import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -21,6 +23,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.refs
+import subroutine.domain.schedule
 import subroutine.domain.text
 import subroutine.errors
 
@@ -78,10 +81,22 @@ def create (
 	parent: subroutine.db.models.work.Task | None = None,
 	assignee_id: uuid.UUID | None = None,
 	importance: int | None = None,
+	due: datetime.datetime | datetime.date | str | None = None,
+	due_is_all_day: bool | None = None,
+	planned_for: datetime.date | str | None = None,
+	start: datetime.datetime | datetime.date | str | None = None,
+	start_is_all_day: bool | None = None,
+	timezone: str | None = None,
+	now: datetime.datetime | None = None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
-	"""Create a task in a project, allocating its ref and recording that it happened."""
+	"""Create a task in a project, allocating its ref and recording that it happened.
+
+	Dates are interpreted in ``timezone``, which defaults down §6.5's chain from the actor
+	to the workspace to UTC. ``now`` is supplied so that every relative expression in one
+	call resolves against a single instant.
+	"""
 
 	cleaned_title = _clean_title(title)
 
@@ -101,6 +116,35 @@ def create (
 	item_type = _item_type(session, workspace_id, type_key)
 	status = _status(session, workspace_id, status_key)
 
+	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
+	instant = now or subroutine.db.types.utcnow()
+
+	deadline = subroutine.domain.schedule.interpret(
+		due,
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=zone,
+		now=instant,
+		all_day=due_is_all_day,
+		field="due_at",
+	)
+	defer = subroutine.domain.schedule.interpret(
+		start,
+		boundary=subroutine.domain.schedule.Boundary.START,
+		timezone=zone,
+		now=instant,
+		all_day=start_is_all_day,
+		field="start_at",
+	)
+	planned = subroutine.domain.schedule.interpret_day(planned_for, timezone=zone, now=instant)
+
+	subroutine.domain.schedule.check_order(
+		start_at=defer.instant,
+		start_is_all_day=defer.is_all_day,
+		due_at=deadline.instant,
+		due_is_all_day=deadline.is_all_day,
+		timezone=zone,
+	)
+
 	ref, number = subroutine.domain.refs.allocate(session, project)
 
 	task = subroutine.db.models.work.Task(
@@ -117,6 +161,14 @@ def create (
 		status_id=status.id,
 		assignee_id=assignee_id,
 		importance=importance,
+		due_at=deadline.instant,
+		due_is_all_day=deadline.is_all_day,
+		planned_for=planned,
+		start_at=defer.instant,
+		start_is_all_day=defer.is_all_day,
+		# Recorded even when no date was given: recurrence and all-day rendering need to
+		# know the zone the task was authored in, and inferring it later is guesswork.
+		timezone=zone,
 		path="",
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
@@ -157,6 +209,13 @@ def update (
 	status_key: str = UNSET,
 	assignee_id: uuid.UUID | None = UNSET,
 	importance: int | None = UNSET,
+	due: datetime.datetime | datetime.date | str | None = UNSET,
+	due_is_all_day: bool | None = None,
+	planned_for: datetime.date | str | None = UNSET,
+	start: datetime.datetime | datetime.date | str | None = UNSET,
+	start_is_all_day: bool | None = None,
+	timezone: str | None = None,
+	now: datetime.datetime | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Change a task, recording only what actually changed.
@@ -175,6 +234,44 @@ def update (
 	cleaned_title: typing.Any = UNSET if title is UNSET else _clean_title(title)
 	status: typing.Any = (
 		UNSET if status_key is UNSET else _status(session, task.workspace_id, status_key)
+	)
+
+	zone = _timezone(
+		session, task.workspace_id, actor=actor, explicit=timezone or task.timezone
+	)
+	instant = now or subroutine.db.types.utcnow()
+
+	deadline: typing.Any = UNSET if due is UNSET else subroutine.domain.schedule.interpret(
+		due,
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=zone,
+		now=instant,
+		all_day=due_is_all_day,
+		field="due_at",
+	)
+	defer: typing.Any = UNSET if start is UNSET else subroutine.domain.schedule.interpret(
+		start,
+		boundary=subroutine.domain.schedule.Boundary.START,
+		timezone=zone,
+		now=instant,
+		all_day=start_is_all_day,
+		field="start_at",
+	)
+	planned: typing.Any = (
+		UNSET
+		if planned_for is UNSET
+		else subroutine.domain.schedule.interpret_day(planned_for, timezone=zone, now=instant)
+	)
+
+	# Invariant 8 is checked against what the task *will* look like, not against what was
+	# passed in: moving only the deadline still has to be consistent with the defer that is
+	# already there, and the caller did not mention it.
+	subroutine.domain.schedule.check_order(
+		start_at=task.start_at if defer is UNSET else defer.instant,
+		start_is_all_day=task.start_is_all_day if defer is UNSET else defer.is_all_day,
+		due_at=task.due_at if deadline is UNSET else deadline.instant,
+		due_is_all_day=task.due_is_all_day if deadline is UNSET else deadline.is_all_day,
+		timezone=zone,
 	)
 
 	before = _snapshot(task)
@@ -205,6 +302,17 @@ def update (
 
 	if importance is not UNSET:
 		task.importance = importance
+
+	if deadline is not UNSET:
+		task.due_at = deadline.instant
+		task.due_is_all_day = deadline.is_all_day
+
+	if planned is not UNSET:
+		task.planned_for = planned
+
+	if defer is not UNSET:
+		task.start_at = defer.instant
+		task.start_is_all_day = defer.is_all_day
 
 	changes = subroutine.domain.events.changes_between(before, _snapshot(task))
 
@@ -254,7 +362,36 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 		"status_id": task.status_id,
 		"assignee_id": task.assignee_id,
 		"importance": task.importance,
+		"due_at": task.due_at,
+		"due_is_all_day": task.due_is_all_day,
+		"planned_for": task.planned_for,
+		"start_at": task.start_at,
+		"start_is_all_day": task.start_is_all_day,
 	}
+
+
+def _timezone (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+	explicit: str | None,
+) -> str:
+	"""Return the timezone this task's dates are read in, per SPEC.md §6.5's chain.
+
+	The workspace is fetched only when the answer is not already settled, so the common
+	path — a person with a timezone, editing their own tasks — costs no query.
+	"""
+
+	if explicit:
+		return explicit
+
+	if actor is not None and actor.user.timezone:
+		return actor.user.timezone
+
+	workspace = session.get(subroutine.db.models.identity.Workspace, workspace_id)
+
+	return subroutine.domain.schedule.zone_for(workspace=workspace)
 
 
 def _item_type (
