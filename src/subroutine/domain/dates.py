@@ -80,7 +80,7 @@ def resolve (
 	would ever reproduce.
 	"""
 
-	zone = _zone(timezone, field)
+	resolved = zone(timezone, field)
 	text = expression.strip()
 
 	if not text:
@@ -101,10 +101,10 @@ def resolve (
 			f"'+7d' or '-2h'. Units are {_VALID_UNITS}.",
 		)
 
-	local = _base(keyword, now.astimezone(zone))
+	local = _base(keyword, now.astimezone(resolved))
 
 	for match in terms:
-		local = _offset(local, match, zone, expression, field)
+		local = _offset(local, match, resolved, expression, field)
 
 	return local.astimezone(datetime.UTC)
 
@@ -209,8 +209,12 @@ def _days_into_week (local: datetime.datetime) -> int:
 	return (local.weekday() - WEEK_STARTS_ON) % 7
 
 
-def _zone (timezone: str, field: str) -> zoneinfo.ZoneInfo:
-	"""Return the caller's timezone, or refuse an identifier the system does not know."""
+def zone (timezone: str, field: str = "timezone") -> zoneinfo.ZoneInfo:
+	"""Return a timezone by IANA name, or refuse an identifier the system does not know.
+
+	Public because three modules need exactly this and exactly this error message; a private
+	copy in each is three chances for them to disagree about what an unknown zone does.
+	"""
 
 	try:
 		return zoneinfo.ZoneInfo(timezone)

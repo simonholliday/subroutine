@@ -113,7 +113,7 @@ def interpret (
 	if not whole_day:
 		return Moment(instant=resolved.astimezone(datetime.UTC), is_all_day=False)
 
-	local = resolved.astimezone(_zone(timezone, field))
+	local = resolved.astimezone(subroutine.domain.dates.zone(timezone, field))
 	moment = (
 		subroutine.domain.dates.LAST_MICROSECOND
 		if boundary is Boundary.END
@@ -142,14 +142,14 @@ def interpret_day (
 		return None
 
 	if isinstance(value, datetime.datetime):
-		return value.astimezone(_zone(timezone, field)).date()
+		return value.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
 
 	if isinstance(value, datetime.date):
 		return value
 
 	resolved, _inferred = _to_instant(value, timezone=timezone, now=now, field=field)
 
-	return resolved.astimezone(_zone(timezone, field)).date()
+	return resolved.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
 
 
 def check_order (
@@ -172,7 +172,7 @@ def check_order (
 		return
 
 	if start_is_all_day and due_is_all_day:
-		zone = _zone(timezone, "start_at")
+		zone = subroutine.domain.dates.zone(timezone, "start_at")
 
 		if start_at.astimezone(zone).date() <= due_at.astimezone(zone).date():
 			return
@@ -212,7 +212,7 @@ def is_overdue (task: subroutine.db.models.work.Task, *, now: datetime.datetime)
 def local_date (instant: datetime.datetime, timezone: str, *, field: str = "date") -> datetime.date:
 	"""Return the calendar date an instant falls on, where the caller is."""
 
-	return instant.astimezone(_zone(timezone, field)).date()
+	return instant.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
 
 
 def _to_instant (
@@ -224,7 +224,7 @@ def _to_instant (
 ) -> tuple[datetime.datetime, bool]:
 	"""Return the instant a value names, and whether the value itself implied a whole day."""
 
-	zone = _zone(timezone, field)
+	zone = subroutine.domain.dates.zone(timezone, field)
 
 	# Checked before `date`, which it subclasses. The other order silently reads every
 	# datetime as a whole day and throws away the time.
@@ -302,27 +302,6 @@ def _is_expression (written: str) -> bool:
 			return True
 
 	return False
-
-
-def _zone (timezone: str, field: str) -> zoneinfo.ZoneInfo:
-	"""Return a timezone, refusing an identifier the system does not know."""
-
-	try:
-		return zoneinfo.ZoneInfo(timezone)
-
-	except (zoneinfo.ZoneInfoNotFoundError, ValueError):
-		raise subroutine.errors.ValidationError(
-			f"{timezone!r} is not a timezone this system knows.",
-			code="invalid_field_value",
-			hint="Use an IANA identifier such as 'Europe/London' or 'UTC'.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="timezone",
-					code="invalid_field_value",
-					message=f"Unknown timezone {timezone!r}, resolving {field}.",
-				)
-			],
-		) from None
 
 
 def _invalid (value: object, field: str, message: str) -> subroutine.errors.ValidationError:
