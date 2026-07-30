@@ -211,6 +211,22 @@ class Task(pydantic.BaseModel):
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
 
+	#: When the *meaning* last changed, as against when the row did (§6.1). Reported on a
+	#: document since it existed and not on a task, off the same distinction — an
+	#: inconsistency rather than an absence, which is the harder kind to notice.
+	content_updated_at: datetime.datetime
+
+	#: Who made it and who last changed it (§6.1). **Ids rather than resolved names**, the same
+	#: choice ``assignee_id`` makes and for ``views.Event``'s reason: resolving every actor on
+	#: every page is what the compact format exists to avoid, and a client that wants a name
+	#: asks once and caches it.
+	#:
+	#: Null where a system action wrote the row — ``domain.bootstrap`` runs before any
+	#: principal exists — so null means "nobody was signed in", never "unknown".
+	created_by: uuid.UUID | None
+	updated_by: uuid.UUID | None
+
+
 	#: The concurrency token (SPEC.md §8.9), reported so a caller can send it back.
 	version: int
 
@@ -488,6 +504,17 @@ class Document(pydantic.BaseModel):
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
 	content_updated_at: datetime.datetime
+
+	#: Who made it and who last changed it (§6.1). **Ids rather than resolved names**, the same
+	#: choice ``assignee_id`` makes and for ``views.Event``'s reason: resolving every actor on
+	#: every page is what the compact format exists to avoid, and a client that wants a name
+	#: asks once and caches it.
+	#:
+	#: Null where a system action wrote the row — ``domain.bootstrap`` runs before any
+	#: principal exists — so null means "nobody was signed in", never "unknown".
+	created_by: uuid.UUID | None
+	updated_by: uuid.UUID | None
+
 	version: int
 
 	def address (self) -> int:
@@ -654,6 +681,9 @@ def task (
 		start_at=row.start_at,
 		start_is_all_day=row.start_is_all_day,
 		timezone=row.timezone,
+		content_updated_at=row.content_updated_at,
+		created_by=row.created_by,
+		updated_by=row.updated_by,
 		estimate_minutes=row.estimate_minutes,
 		estimate_human=(
 			None
@@ -698,6 +728,8 @@ def document (
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		content_updated_at=row.content_updated_at,
+		created_by=row.created_by,
+		updated_by=row.updated_by,
 		version=row.version,
 	)
 

@@ -75,6 +75,8 @@ DERIVED: dict[str, str] = {
 	"content_updated_at": "When the *meaning* last changed (§6.1); the service decides, not the caller.",
 	"version": "The concurrency token (§8.9). Sent back as `expected_version`, never assigned.",
 	"supersedes_id": "Set by writing the superseding document, not by editing the superseded one.",
+	"created_by": "The actor who wrote the row. Taken from the credential, never from the body — a caller that could name someone else could forge attribution.",
+	"updated_by": "The actor who last changed it, on the same terms.",
 }
 
 #: Settable at creation and fixed afterwards, on purpose.
@@ -228,15 +230,6 @@ UNBUILT: dict[str, str] = {
 UNREPORTED: dict[str, str] = {
 	"spent_minutes": (
 		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
-	),
-	"created_by": (
-		"#67 — every item records who made it and no response says so. Reachable only "
-		"through the item's history, which is a second call to learn a fact the row holds."
-	),
-	"updated_by": "#67, the same column's other half.",
-	"content_updated_at": (
-		"#67 — reported on a document and not on a task, off the same §6.1 distinction. An "
-		"inconsistency rather than an absence, which is the harder kind to notice."
 	),
 }
 

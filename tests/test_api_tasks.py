@@ -1162,3 +1162,73 @@ def test_a_priority_ordering_still_pages_correctly_across_the_bands (world: Worl
 
 	assert sorted(seen) == sorted(made)
 	assert len(seen) == len(set(seen)), "a task appeared twice across a band boundary"
+
+
+def test_a_task_says_who_made_it_and_who_last_changed_it (world: World) -> None:
+	"""SPEC.md §6.1's attribution, on the item rather than only in its history.
+
+	The README's claim is that every action is attributed. That was true and expensive: the
+	event table recorded an actor and SR#12's histories exposed it, so learning who created
+	an item meant a second request and a scan of its whole history for the `created` event.
+	The row held the answer the whole time.
+
+	Ids rather than resolved names, the same choice `assignee_id` makes: resolving every
+	actor on every page is what the compact format exists to avoid.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Attributed"}).json()
+
+	assert created["created_by"] == str(world.user.id)
+	assert created["updated_by"] is None, "nothing has changed it yet"
+
+	changed = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"title": "Renamed"}
+	).json()
+
+	assert changed["updated_by"] == str(world.user.id)
+
+
+def test_attribution_cannot_be_supplied_by_the_caller (world: World) -> None:
+	"""It comes from the credential, never from the body.
+
+	A caller that could name someone else could forge attribution, which would make the
+	whole record worth less than not having one — an audit trail anybody can write is a
+	story rather than evidence.
+	"""
+
+	for field in ("created_by", "updated_by"):
+		response = world.call(
+			"POST", "/v1/tasks", json={"title": "Forged", field: str(uuid.uuid4())}
+		)
+
+		assert response.status_code == 422, f"{field} was accepted from the body"
+
+
+def test_a_task_reports_when_its_meaning_last_changed (world: World) -> None:
+	"""§6.1's distinction, which a document reported and a task did not.
+
+	`updated_at` moves on any write and `content_updated_at` only when the *meaning* did —
+	which is what lets a verification know whether it is stale, and stops a repositioning
+	from invalidating evidence. Reporting it on one of the two entities and not the other
+	was an inconsistency rather than an absence, and those are harder to notice.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Meaningful"}).json()
+
+	# Not asserted equal to `created_at`: the two are stamped independently and differ by
+	# microseconds, which is a fact about how a row is written rather than about the rule.
+	assert created["content_updated_at"] is not None
+
+	moved = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"planned_for": "tomorrow"}
+	).json()
+
+	assert moved["content_updated_at"] == created["content_updated_at"], (
+		"planning a task is not a change to what it means"
+	)
+
+	edited = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"title": "Reworded"}
+	).json()
+
+	assert edited["content_updated_at"] > created["content_updated_at"]
