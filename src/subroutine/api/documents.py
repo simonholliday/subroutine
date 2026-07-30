@@ -58,7 +58,7 @@ document_links = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
-SORTABLE: dict[str, typing.Any] = {
+SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
 	"created_at": subroutine.db.models.work.Document.created_at,
 	"updated_at": subroutine.db.models.work.Document.updated_at,
 	"title": subroutine.db.models.work.Document.title,

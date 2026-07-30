@@ -1183,6 +1183,7 @@ CHANGEABLE: tuple[tuple[str, typing.Any], ...] = (
 	("status_key", "in_progress"),
 	("importance", 4),
 	("urgency", 5),
+	("estimate", "4h"),
 	("due", "2026-09-01"),
 	("planned_for", "2026-09-02"),
 	("start", "2026-08-30"),

@@ -38,7 +38,7 @@ router = fastapi.APIRouter(
 )
 
 #: What ``?order=`` accepts here. ``key`` is the one people think in.
-SORTABLE: dict[str, typing.Any] = {
+SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
 	"created_at": subroutine.db.models.project.Project.created_at,
 	"updated_at": subroutine.db.models.project.Project.updated_at,
 	"key": subroutine.db.models.project.Project.key,

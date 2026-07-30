@@ -13,6 +13,7 @@ import pytest
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.tasks
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
@@ -612,3 +613,189 @@ def test_capture_still_uses_the_project_named_in_the_line (world: World) -> None
 	response = world.call("POST", "/v1/tasks", json={"text": "Fix the header +WEB"})
 
 	assert response.json()["project_key"] == "WEB"
+
+
+def test_an_estimate_can_be_given_at_creation_and_revised_afterwards (world: World) -> None:
+	"""SPEC.md §6.4 through the API rather than only through a captured line.
+
+	Until 2026-07-30 ``estimate_minutes`` was reported by the view, printed by ``show``,
+	drawn on the compact line and published in ``/v1/meta``, and could be set only by the
+	``~4h`` token of a quick-capture line. Both endpoints refused ``estimate`` and
+	``estimate_minutes`` with a 422, so an estimate could come only from whoever typed the
+	original sentence and could never be revised — which is what made the roadmap in ``#18``
+	unbuildable, six of twelve items having no estimate that nobody was able to supply.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Build the thing", "estimate": "4h"})
+
+	assert created.status_code == 201
+	assert created.json()["estimate_minutes"] == 240
+
+	ref = created.json()["ref"]
+	revised = world.call("PATCH", f"/v1/tasks/{ref}", json={"estimate": "1h30m"})
+
+	assert revised.status_code == 200
+	assert revised.json()["estimate_minutes"] == 90
+
+
+def test_an_estimate_can_be_withdrawn_rather_than_only_replaced (world: World) -> None:
+	"""§8.3: a field sent as ``null`` is cleared, and an estimate is not an exception.
+
+	A guess that turned out to be meaningless should be removable. Leaving a wrong number
+	because the only alternative is a different wrong number is how an unreliable estimate
+	becomes a permanent one.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Unknowable", "estimate": 90})
+
+	assert created.json()["estimate_minutes"] == 90
+
+	ref = created.json()["ref"]
+	cleared = world.call("PATCH", f"/v1/tasks/{ref}", json={"estimate": None})
+
+	assert cleared.status_code == 200
+	assert cleared.json()["estimate_minutes"] is None
+
+
+def test_an_unparseable_estimate_is_refused_before_the_task_is_touched (world: World) -> None:
+	"""The validation pass in ``tasks.update`` must reject before anything is assigned.
+
+	The caller holds a session it may still commit, so a refusal that arrived after a
+	partial assignment would commit half the change alongside whatever else was in flight.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Careful", "estimate": "2h"})
+	ref = created.json()["ref"]
+
+	refused = world.call("PATCH", f"/v1/tasks/{ref}", json={"title": "Renamed", "estimate": "2x"})
+
+	assert refused.status_code == 422
+
+	unchanged = world.call("GET", f"/v1/tasks/{ref}").json()
+
+	assert unchanged["title"] == "Careful", "the title moved despite the estimate being refused"
+	assert unchanged["estimate_minutes"] == 120
+
+
+def test_an_explicit_estimate_beats_the_one_in_the_captured_line (world: World) -> None:
+	"""SPEC.md §6.13: structured fields win over parsed ones, ``estimate`` included.
+
+	It used to be enforced by a condition nothing could satisfy — ``create`` had no
+	``estimate`` parameter, so the override it checked for would have raised ``TypeError``
+	before reaching the guard. The rule now holds by the same ``fields.update(overrides)``
+	every other field goes through.
+	"""
+
+	response = world.call(
+		"POST", "/v1/tasks", json={"text": "Write the report ~30m", "estimate": "3h"}
+	)
+
+	assert response.status_code == 201
+
+	body = response.json()
+
+	assert body["estimate_minutes"] == 180
+	assert body["title"] == "Write the report", "the token is still stripped from the title"
+
+
+def test_a_response_says_the_estimate_in_both_spellings (world: World) -> None:
+	"""SPEC.md §6.4: a response carries ``estimate_minutes`` *and* ``estimate_human``.
+
+	It said so from the beginning and only the first was ever rendered — §6.4 itself, the
+	module docstring of ``domain.durations`` and a test docstring in ``test_durations.py``
+	all described a response field no response contained. ``humanize`` was correct and
+	reachable only from the CLI.
+
+	The round trip is the reason it is worth the bytes: what a caller reads here is exactly
+	what ``estimate`` accepts on the way back, so an agent can echo a value it did not
+	parse.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Long one", "estimate": "1h30m"})
+
+	assert created.json()["estimate_human"] == "1h 30m"
+
+	ref = created.json()["ref"]
+	echoed = world.call(
+		"PATCH", f"/v1/tasks/{ref}", json={"estimate": created.json()["estimate_human"]}
+	)
+
+	assert echoed.status_code == 200
+	assert echoed.json()["estimate_minutes"] == 90
+
+
+def test_a_task_with_no_estimate_says_so_in_both_spellings (world: World) -> None:
+	"""Null rather than an empty string: a task nobody has sized is not a task sized at zero."""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Unsized"})
+
+	assert created.json()["estimate_minutes"] is None
+	assert created.json()["estimate_human"] is None
+
+
+@pytest.mark.parametrize("field", sorted(subroutine.api.tasks.SORTABLE))
+def test_every_sortable_field_can_be_paged_through (world: World, field: str) -> None:
+	"""Every ordering this endpoint advertises must survive a cursor.
+
+	Read from ``SORTABLE`` itself rather than from a list written out here, so a sort field
+	added to the endpoint is covered by this test the moment it is declared. That matters
+	because of what it was written for.
+
+	``priority_score`` — §6.3's derived key, the one ``/v1/docs/agent`` recommends to an
+	agent working a backlog — was declared as a bare ``importance * urgency`` expression. It
+	*ordered* perfectly. But a cursor has to name the row it stopped at, and ``encode`` read
+	each sort value with ``getattr(row, key.column.key)``; a computed expression has a
+	``.key`` of ``None``, so every request whose result set exceeded one page died with
+	``TypeError: attribute name must be string, not 'NoneType'``.
+
+	Nothing caught it. The test above walks pages in the *default* order; ``/v1/meta``
+	publishes the field name without exercising it; the only installation using it had
+	fifteen items and a default page size of fifty, so no page ever filled. It surfaced by
+	accident, asking for three rows instead of fifty. **The sort recommended for agents was
+	the one that broke as soon as there was enough work to page through** — which is the
+	worst possible distribution for a defect, since it is absent exactly while a project is
+	small enough for anyone to be looking.
+	"""
+
+	for index in range(5):
+		world.call(
+			"POST",
+			"/v1/tasks",
+			json={
+				"title": f"Task {index}",
+				# Both axes on some and neither on others, so `priority_score` is null for
+				# part of the page: with NULLS LAST that is the case the seek predicate
+				# treats specially, and a derived key has to get it right too.
+				"importance": (index % 5) + 1 if index % 2 == 0 else None,
+				"urgency": 5 - (index % 5) if index % 2 == 0 else None,
+				"due": "tomorrow" if index % 3 == 0 else None,
+				"planned_for": "today" if index % 4 == 0 else None,
+			},
+		)
+
+	for direction in ("", "-"):
+		seen: list[int] = []
+		cursor = None
+
+		for _ in range(10):
+			query = f"/v1/tasks?limit=2&order={direction}{field}" + (
+				f"&cursor={cursor}" if cursor else ""
+			)
+			response = world.call("GET", query)
+
+			assert response.status_code == 200, (
+				f"paging by {direction}{field} failed: {response.json()}"
+			)
+
+			page = response.json()
+			seen.extend(item["ref"] for item in page["items"])
+
+			if not page["page"]["has_more"]:
+				break
+
+			cursor = page["page"]["next_cursor"]
+
+			assert cursor is not None, "has_more with no cursor is a page nobody can reach"
+
+		assert len(seen) == 5, f"paging by {direction}{field} returned {len(seen)} of 5"
+		assert len(seen) == len(set(seen)), f"paging by {direction}{field} repeated a task"

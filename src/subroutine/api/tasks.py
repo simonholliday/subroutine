@@ -57,7 +57,7 @@ DEFAULT_LIMIT = 50
 #: Fields ``?order=`` accepts, and the columns they mean. Deliberately a short list: every
 #: entry is a promise about an index, and a sort the database cannot serve cheaply is worse
 #: than no sort at all.
-SORTABLE: dict[str, typing.Any] = {
+SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
 	"created_at": subroutine.db.models.work.Task.created_at,
 	"updated_at": subroutine.db.models.work.Task.updated_at,
 	"due_at": subroutine.db.models.work.Task.due_at,
@@ -66,8 +66,19 @@ SORTABLE: dict[str, typing.Any] = {
 	"urgency": subroutine.db.models.work.Task.urgency,
 	# §6.3's derived ordering key, so an agent has one sensible sort without inventing it.
 	# NULL when either axis is unset, which the NULLS LAST in every ordering then handles.
-	"priority_score": (
-		subroutine.db.models.work.Task.importance * subroutine.db.models.work.Task.urgency
+	#
+	# Declared as a `Derived` rather than a bare expression because a cursor has to carry
+	# this value and there is no attribute to read it from. As a bare expression it ordered
+	# correctly and 500'd the moment a page filled — see `pagination.Derived`.
+	"priority_score": subroutine.api.pagination.Derived(
+		expression=(
+			subroutine.db.models.work.Task.importance * subroutine.db.models.work.Task.urgency
+		),
+		read=lambda row: (
+			None
+			if row.importance is None or row.urgency is None
+			else row.importance * row.urgency
+		),
 	),
 	"ref": subroutine.db.models.work.Task.ref,
 	"title": subroutine.db.models.work.Task.title,
@@ -102,6 +113,10 @@ class Create(subroutine.api.schemas.RequestModel):
 	importance: int | None = None
 	urgency: int | None = None
 
+	#: How long the work is expected to take, in §6.4's grammar — ``"4h"``, ``"1h30m"``, or
+	#: a bare number of minutes. The same values ``~4h`` accepts in a captured line.
+	estimate: int | str | None = None
+
 	due: str | None = None
 	due_is_all_day: bool | None = None
 	planned_for: str | None = None
@@ -124,6 +139,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	assignee_id: uuid.UUID | None = None
 	importance: int | None = None
 	urgency: int | None = None
+	estimate: int | str | None = None
 	due: str | None = None
 	due_is_all_day: bool | None = None
 	planned_for: str | None = None
@@ -154,6 +170,7 @@ def create (
 			"assignee_id",
 			"importance",
 			"urgency",
+			"estimate",
 			"due",
 			"due_is_all_day",
 			"planned_for",
@@ -367,6 +384,7 @@ def change (
 			"assignee_id",
 			"importance",
 			"urgency",
+			"estimate",
 			"due",
 			"planned_for",
 			"start",

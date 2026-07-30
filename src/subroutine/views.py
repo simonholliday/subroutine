@@ -42,6 +42,7 @@ import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.agenda
+import subroutine.domain.durations
 import subroutine.domain.links
 import subroutine.domain.refs
 import subroutine.domain.tags
@@ -137,7 +138,13 @@ class Task(pydantic.BaseModel):
 	start_is_all_day: bool
 	timezone: str | None
 
+	#: §6.4 promises both spellings, and until 2026-07-30 only the first was here — the
+	#: section, two docstrings in ``domain.durations`` and a test docstring all described a
+	#: response field that no response carried. ``estimate_human`` is what a person would
+	#: say, and it feeds straight back into ``estimate`` on a write: an agent that reads
+	#: ``"1h 30m"`` and sends it back is understood.
 	estimate_minutes: int | None
+	estimate_human: str | None
 
 	#: The tag names on this task, alphabetical. Batch-loaded per page like the vocabulary
 	#: above and for the same reason. A tag is never an id here: a client acts on the word,
@@ -611,6 +618,11 @@ def task (
 		start_is_all_day=row.start_is_all_day,
 		timezone=row.timezone,
 		estimate_minutes=row.estimate_minutes,
+		estimate_human=(
+			None
+			if row.estimate_minutes is None
+			else subroutine.domain.durations.humanize(row.estimate_minutes)
+		),
 		tags=vocabulary.tags.get(row.id, []),
 		completed_at=row.completed_at,
 		archived_at=row.archived_at,

@@ -22,6 +22,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
+import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
@@ -143,6 +144,7 @@ def create (
 	assignee_id: uuid.UUID | None = None,
 	importance: int | None = None,
 	urgency: int | None = None,
+	estimate: int | str | None = None,
 	due: datetime.datetime | datetime.date | str | None = None,
 	due_is_all_day: bool | None = None,
 	planned_for: datetime.date | str | None = None,
@@ -180,6 +182,10 @@ def create (
 
 	item_type = item_type_for(session, workspace_id, type_key)
 	status = status_for(session, workspace_id, status_key)
+
+	# Accepts what §6.4's grammar accepts, so `"4h"` works here exactly as `~4h` does in a
+	# captured line. Parsed before anything is assigned, like the two priority axes.
+	estimated = None if estimate is None else subroutine.domain.durations.parse(estimate)
 
 	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
@@ -225,6 +231,7 @@ def create (
 		assignee_id=assignee_id,
 		importance=_priority(importance, field="importance"),
 		urgency=_priority(urgency, field="urgency"),
+		estimate_minutes=estimated,
 		due_at=deadline.instant,
 		due_is_all_day=deadline.is_all_day,
 		planned_for=planned,
@@ -319,6 +326,13 @@ def create_from_text (
 		"start": captured.start,
 		"start_is_all_day": captured.start_is_all_day,
 		"importance": captured.importance,
+		# Passed through like every other parsed field rather than assigned after the fact.
+		# It used to be written onto the task below, guarded by `"estimate_minutes" not in
+		# overrides` — a condition nothing could satisfy, since `create` had no parameter of
+		# that name and an override so spelled raised `TypeError` before reaching it. So the
+		# rule "structured wins over parsed" was enforced for `estimate` by unreachable code,
+		# and now holds by the same mechanism as everything else: `fields.update(overrides)`.
+		"estimate": captured.estimate_minutes,
 		"assignee_id": (
 			None
 			if captured.assignee is None
@@ -335,9 +349,6 @@ def create_from_text (
 		actor=actor,
 		**fields,
 	)
-
-	if captured.estimate_minutes is not None and "estimate_minutes" not in overrides:
-		task.estimate_minutes = captured.estimate_minutes
 
 	tags = subroutine.domain.tags.ensure(
 		session, workspace_id=workspace.id, names=captured.tags
@@ -443,6 +454,7 @@ def update (
 	assignee_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	importance: int | None = subroutine.domain.patch.UNSET,
 	urgency: int | None = subroutine.domain.patch.UNSET,
+	estimate: int | str | None = subroutine.domain.patch.UNSET,
 	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	due_is_all_day: bool | None = None,
 	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
@@ -497,6 +509,15 @@ def update (
 		if urgency is subroutine.domain.patch.UNSET
 		else _priority(urgency, field="urgency")
 	)
+
+	# Same reasoning, and the same pass: `"90x"` must be refused before the task is touched.
+	# Written as a guard rather than the ternary above because `durations.parse` has no
+	# null case — ``None`` means clear the estimate, so an over-optimistic guess can be
+	# withdrawn rather than only replaced, and it must reach the assignment unparsed.
+	cleaned_estimate: typing.Any = estimate
+
+	if estimate is not subroutine.domain.patch.UNSET and estimate is not None:
+		cleaned_estimate = subroutine.domain.durations.parse(estimate)
 
 	zone = _timezone(
 		session, task.workspace_id, actor=actor, explicit=timezone or task.timezone
@@ -567,6 +588,9 @@ def update (
 
 	if urgency is not subroutine.domain.patch.UNSET:
 		task.urgency = cleaned_urgency
+
+	if estimate is not subroutine.domain.patch.UNSET:
+		task.estimate_minutes = cleaned_estimate
 
 	if deadline is not subroutine.domain.patch.UNSET:
 		task.due_at = deadline.instant
@@ -751,6 +775,7 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 		"assignee_id": task.assignee_id,
 		"importance": task.importance,
 		"urgency": task.urgency,
+		"estimate_minutes": task.estimate_minutes,
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
 		"planned_for": task.planned_for,

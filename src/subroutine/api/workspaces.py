@@ -42,7 +42,7 @@ router = fastapi.APIRouter(
 )
 
 #: What ``?order=`` accepts. ``slug`` is the one people think in.
-SORTABLE: dict[str, typing.Any] = {
+SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
 	"created_at": subroutine.db.models.identity.Workspace.created_at,
 	"updated_at": subroutine.db.models.identity.Workspace.updated_at,
 	"slug": subroutine.db.models.identity.Workspace.slug,

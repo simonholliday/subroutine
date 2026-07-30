@@ -39,12 +39,65 @@ _SEPARATOR = "."
 
 
 @dataclasses.dataclass(frozen=True)
+class Derived:
+	"""A sort field computed from other columns rather than stored in one of its own.
+
+	**Both halves are required, and that is the whole point of this class.** An ordering
+	needs an expression the database can sort by; a *cursor* needs the same value read back
+	off a loaded row, and a derived field has no attribute for :func:`encode` to look up.
+
+	``priority_score`` was declared as a bare ``importance * urgency`` expression, which
+	orders perfectly and has a ``.key`` of ``None``. So every ``?order=priority_score``
+	request whose result set exceeded one page died in ``encode`` with ``TypeError:
+	attribute name must be string, not 'NoneType'`` — the sort this API recommends to
+	agents, failing precisely when there is enough work to page through. It survived
+	because the only installation using it had fewer items than the default page size, and
+	because the ``SORTABLE`` maps were annotated ``dict[str, typing.Any]``, which told the
+	type checker to look away at exactly the declaration that was wrong.
+	"""
+
+	expression: sqlalchemy.ColumnElement[typing.Any]
+	read: typing.Callable[[typing.Any], typing.Any]
+
+
+#: What a ``SORTABLE`` map may hold: a column, or a computed field that knows how to read
+#: itself back. Annotate those maps with this rather than with ``typing.Any``.
+Sortable = sqlalchemy.orm.InstrumentedAttribute[typing.Any] | Derived
+
+
+@dataclasses.dataclass(frozen=True)
 class SortKey:
 	"""One column of an ordering, and which way it runs."""
 
 	name: str
-	column: sqlalchemy.orm.InstrumentedAttribute[typing.Any]
+	column: sqlalchemy.orm.InstrumentedAttribute[typing.Any] | sqlalchemy.ColumnElement[typing.Any]
 	descending: bool = False
+
+	#: How to take this key's value off a loaded row, when it is not simply an attribute.
+	#: ``None`` means the ordinary case: the column names an attribute of its own.
+	read: typing.Callable[[typing.Any], typing.Any] | None = None
+
+	def value_of (self, row: typing.Any) -> typing.Any:
+		"""Return this key's value for one row, for a cursor to carry."""
+
+		if self.read is not None:
+			return self.read(row)
+
+		attribute = self.column.key
+
+		if attribute is None:
+			# A computed expression that arrived without a reader. Unreachable through
+			# `parse_order`, which builds one of these only from a `Derived` and `Derived`
+			# demands the reader — so this is a wrong construction rather than bad input.
+			# Stated here because the alternative was `getattr`'s "attribute name must be
+			# string, not 'NoneType'", which named nothing a reader could act on.
+			raise subroutine.errors.InternalError(
+				f"The sort field {self.name!r} is computed and has no way to read itself "
+				f"off a row.",
+				hint="Declare it as a pagination.Derived, which requires both halves.",
+			)
+
+		return getattr(row, attribute)
 
 	def ordering (self) -> sqlalchemy.UnaryExpression[typing.Any]:
 		"""Return this key as an ``ORDER BY`` term.
@@ -62,7 +115,7 @@ class SortKey:
 def parse_order (
 	expression: str | None,
 	*,
-	allowed: dict[str, sqlalchemy.orm.InstrumentedAttribute[typing.Any]],
+	allowed: typing.Mapping[str, Sortable],
 	default: typing.Sequence[str],
 	tiebreak: sqlalchemy.orm.InstrumentedAttribute[typing.Any],
 ) -> tuple[SortKey, ...]:
@@ -112,7 +165,20 @@ def parse_order (
 				],
 			)
 
-		keys.append(SortKey(name=bare, column=allowed[bare], descending=descending))
+		chosen = allowed[bare]
+
+		if isinstance(chosen, Derived):
+			keys.append(
+				SortKey(
+					name=bare,
+					column=chosen.expression,
+					descending=descending,
+					read=chosen.read,
+				)
+			)
+
+		else:
+			keys.append(SortKey(name=bare, column=chosen, descending=descending))
 
 	# The tiebreaker follows the last key's direction, so that "newest first" stays newest
 	# first among rows that tie.
@@ -162,7 +228,7 @@ def encode (
 ) -> str:
 	"""Return a signed cursor naming one row's position in an ordering."""
 
-	payload = {key.name: _to_json(getattr(row, key.column.key)) for key in keys}
+	payload = {key.name: _to_json(key.value_of(row)) for key in keys}
 	body = base64.urlsafe_b64encode(
 		json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 	).decode("ascii")
