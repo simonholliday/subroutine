@@ -196,14 +196,30 @@ def _candidates_hint (session: sqlalchemy.orm.Session) -> str:
 def _live_users (
 	session: sqlalchemy.orm.Session, *, limit: int
 ) -> list[subroutine.db.models.identity.User]:
-	"""Return accounts that still exist, oldest first."""
+	"""Return the *people* who could own the to-do list on screen, oldest first.
+
+	**Service accounts are excluded, and that is not a detail.** They were counted until
+	2026-07-30, which meant ``subroutine token create --service-account claude`` — the command
+	§12.3a exists for — immediately broke ``subroutine add`` with "this database has more than
+	one account, so there is no way to tell whose to-do list to show". Setting up an agent
+	should not cost you your own to-do list, and a machine identity was never a candidate for
+	the answer to *whose* list this is.
+
+	Naming one explicitly still works: ``local_user = "claude"`` is a deliberate choice to act
+	as the agent, which is how its scoping is checked without running a server (§12.1a). Only
+	the *guess* narrows.
+	"""
 
 	model = subroutine.db.models.identity.User
 
 	return list(
 		session.scalars(
 			sqlalchemy.select(model)
-			.where(model.deleted_at.is_(None), model.is_active.is_(True))
+			.where(
+				model.deleted_at.is_(None),
+				model.is_active.is_(True),
+				model.is_service_account.is_(False),
+			)
 			.order_by(model.created_at)
 			.limit(limit)
 		)
@@ -218,7 +234,11 @@ def _count (session: sqlalchemy.orm.Session) -> int:
 	return session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count())
 		.select_from(model)
-		.where(model.deleted_at.is_(None), model.is_active.is_(True))
+		.where(
+			model.deleted_at.is_(None),
+			model.is_active.is_(True),
+			model.is_service_account.is_(False),
+		)
 	) or 0
 
 

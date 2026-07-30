@@ -9,6 +9,7 @@ whoever does want it.
 
 import contextlib
 import getpass
+import ipaddress
 import pathlib
 import sys
 import tomllib
@@ -16,6 +17,7 @@ import typing
 
 import pydantic
 import rich.console
+import sqlalchemy
 import sqlalchemy.engine
 import sqlalchemy.exc
 import sqlalchemy.orm
@@ -24,9 +26,15 @@ import typer
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
+import subroutine.credentials
 import subroutine.db.migrate
+import subroutine.db.models.identity
 import subroutine.db.session
+import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.local
+import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 
 app = typer.Typer(
@@ -48,6 +56,9 @@ app.add_typer(config_app, name="config")
 
 database_app = typer.Typer(help="Look after the database.", no_args_is_help=True)
 app.add_typer(database_app, name="db")
+
+token_app = typer.Typer(help="Issue credentials for agents and other machines.", no_args_is_help=True)
+app.add_typer(token_app, name="token")
 
 #: Soft wrapping leaves line breaking to the terminal. Rich's own wrapper breaks inside a
 #: long path, which makes an unreadable mess of exactly the values a user needs to copy.
@@ -98,6 +109,18 @@ def _stop (message: str, hint: str | None = None) -> typing.NoReturn:
 		_err.print(hint, markup=False, highlight=False)
 
 	raise typer.Exit(code=1)
+
+
+def _warn (message: str) -> None:
+	"""Report something that went wrong without stopping.
+
+	To standard error, so that ``--json`` and a pipe stay clean, and the command still exits
+	0. A connection being unreachable is the case this exists for (SPEC.md §13.7): an agenda
+	that refuses to print because one of three servers is down is worse than an agenda with a
+	line saying which one.
+	"""
+
+	_err.print(message, markup=False, highlight=False)
 
 
 def safe_url (url: str) -> str:
@@ -194,8 +217,15 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 # puts `add`, `today`, `ls`, `done`, `plan` first and says the ordering is deliberate: they
 # are the whole surface a personal user needs, and Typer lists commands in registration
 # order.
-_show_today = subroutine.cli.personal.register(
-	app, say=_say, fail=_fail, stop=_stop, settings=_settings, console=_out
+_show_today, _selected = subroutine.cli.personal.register(
+	app,
+	say=_say,
+	fail=_fail,
+	stop=_stop,
+	settings=_settings,
+	console=_out,
+	warn=_warn,
+	mask=safe_url,
 )
 
 
@@ -279,6 +309,134 @@ def init (
 				return
 
 	_say('Ready. Try: subroutine add "something to do"')
+
+
+#: Host names that mean "this machine only" without being addresses. ``ipaddress`` cannot
+#: parse a name, and refusing to serve on ``localhost`` because it is not spelled ``127.0.0.1``
+#: would be a check failing on the one case it exists to allow.
+LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+
+
+def is_loopback (host: str) -> bool:
+	"""Report whether binding to this host keeps the socket on one machine.
+
+	A wildcard — ``0.0.0.0`` or ``::`` — is *not* loopback even though it includes it: it
+	accepts a connection from anywhere the machine has an address, which is the whole of what
+	SPEC.md §12.4 is about. An unparseable name is treated as non-loopback, because guessing
+	the safe answer wrong in that direction only costs one flag.
+	"""
+
+	name = host.strip().lower().strip("[]")
+
+	if name in LOOPBACK_NAMES:
+		return True
+
+	try:
+		address = ipaddress.ip_address(name)
+
+	except ValueError:
+		return False
+
+	return address.is_loopback
+
+
+@app.command()
+def serve (
+	host: str = typer.Option("", "--host", help="What to listen on. Defaults to 127.0.0.1."),
+	port: int = typer.Option(0, "--port", help="Which port to listen on."),
+	insecure: bool = typer.Option(
+		False,
+		"--insecure",
+		help="Listen beyond this machine without TLS. Say this out loud, or set public_url.",
+	),
+	log_level: str = typer.Option("", "--log-level", help="How much to log."),
+) -> None:
+	"""Serve the HTTP API.
+
+	Examples:
+
+	  subroutine serve
+
+	  subroutine serve --host 0.0.0.0 --insecure
+
+	There is no setting that turns the API on or off, deliberately (SPEC.md §12.4): if this
+	process is not running there is no socket, and a configuration key that made ``serve``
+	refuse to start would be a confusing way of saying "do not run it". The control that
+	actually controls anything is the bind address, and its default is loopback.
+	"""
+
+	settings = _settings()
+	where = host.strip() or settings.host
+	listening = port or settings.port
+
+	_refuse_unusable_storage(settings)
+	_refuse_public_bind(settings, where, insecure=insecure)
+
+	if _database_is_absent(settings):
+		_stop(
+			"There is no database here yet, so there would be nothing to serve.",
+			"Run 'subroutine init' first.",
+		)
+
+	# **Imported here rather than at the top of the module**, and measured rather than
+	# assumed: FastAPI and uvicorn together cost 0.3 seconds of this program's 0.8-second
+	# start, on every `subroutine add` — for one command most people never run. The `as`
+	# aliases are the house style's documented exception for a nested import, because a plain
+	# `import subroutine.api.app` here would bind `subroutine` as a *local* name and shadow
+	# every other use of it in this function.
+	from uvicorn import run as listen
+
+	from subroutine.api import app as api
+
+	_say(f"Serving on http://{where}:{listening} — the agent guide is at /v1/docs/agent.")
+
+	listen(
+		api.create_app(settings=settings),
+		host=where,
+		port=listening,
+		log_level=(log_level.strip() or settings.log_level).lower(),
+	)
+
+
+def _refuse_public_bind (
+	settings: subroutine.config.Settings, host: str, *, insecure: bool
+) -> None:
+	"""Refuse a non-loopback bind unless somebody has said out loud that it is intended.
+
+	SPEC.md §12.4. Binding beyond this machine is the moment bearer tokens start crossing a
+	network, and the previous posture — a note about TLS in the documentation — put the
+	warning where it would not be read. One-time friction, imposed at exactly the moment the
+	risk appears.
+
+	The check passes when ``public_url`` is an ``https://`` address, which is the correct
+	production setup and says a TLS-terminating proxy is in front; or when ``--insecure`` is
+	passed, which is the honest way to say "this is a home LAN and I know". A *warning* was
+	rejected rather than overlooked: a warning on a long-running server scrolls away in the
+	first minute.
+	"""
+
+	if insecure or is_loopback(host):
+		return
+
+	public = (settings.public_url or "").strip()
+
+	if public.lower().startswith("https://"):
+		return
+
+	if public:
+		_stop(
+			f"Refusing to listen on {host} without TLS: public_url is set to {public!r}, "
+			"which is not an https:// address.",
+			"Point public_url at the https:// address your proxy serves this on, or pass "
+			"--insecure if this network is genuinely trusted.",
+		)
+
+	_stop(
+		f"Refusing to listen on {host} without TLS: bearer tokens sent over plain HTTP are "
+		"compromised tokens.",
+		"Either put a TLS-terminating proxy in front and set public_url to its https:// "
+		"address, or pass --insecure if this network is genuinely trusted.",
+	)
 
 
 @app.command("help")
@@ -389,6 +547,210 @@ def database_current () -> None:
 	_say(f"Schema is at {current}." if current == head else f"Schema is at {current}; newest is {head}.")
 
 
+#: The role a new service account is given in the workspace it is made for. ``contributor``
+#: reads everything and writes tasks and comments, and cannot restructure projects — which is
+#: the right starting authority for an agent, and is narrowable further by the token's own
+#: scopes (SPEC.md §7.3).
+SERVICE_ACCOUNT_ROLE = "contributor"
+
+
+@token_app.command("create")
+def token_create (
+	title: str = typer.Option("", "--title", help="What this credential is for."),
+	service_account: str = typer.Option(
+		"",
+		"--service-account",
+		help="Issue for a machine identity of this name, creating it if needed.",
+	),
+	workspace: str = typer.Option(
+		"", "--workspace", help="Pin the token to one workspace. Unset means all of them."
+	),
+	scope: list[str] = typer.Option(
+		None, "--scope", help="Narrow the token to these permissions. Repeatable."
+	),
+	store: str = typer.Option(
+		"", "--store", help="Also write it to credentials.toml under this connection name."
+	),
+) -> None:
+	"""Issue a token, and print it once.
+
+	Examples:
+
+	  subroutine token create --title "My laptop"
+
+	  subroutine token create --service-account claude --scope task:read --scope task:write
+
+	**The secret is readable exactly once**, here. Nothing recovers it afterwards, including
+	this program: what is stored is a hash (SPEC.md §7.4). It is never passed as an argument
+	to anything, because that would put it in ``ps`` output and shell history.
+
+	``--store`` is opt-in rather than the default, and that is a deliberate choice. Writing a
+	narrow token into ``credentials.toml`` under the local connection would silently narrow
+	*your own* CLI to whatever the agent was given — a token that quietly takes authority away
+	is worse than one you have to paste somewhere.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	with _database(settings) as engine:
+		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+		with factory() as session:
+			try:
+				# Who is running this, and the actor every service call below is checked
+				# against. Creating an account is an *instance* permission held only by a
+				# superuser (§7.1), and `init` makes the first user one — so the operator's
+				# own authority is what decides whether they may mint an agent, rather than
+				# their having a shell. `tests/test_actor_discipline.py` is what caught this
+				# being omitted, which is the whole reason that check exists.
+				operator = subroutine.domain.local.principal(
+					session, local_user=settings.local_user
+				)
+				owner, created = _token_owner(session, operator, service_account, workspace)
+				pinned = _pinned_workspace(session, owner, workspace)
+				_row, issued = subroutine.domain.authentication.issue_token(
+					session,
+					user=owner,
+					title=title.strip() or f"{owner.username}'s token",
+					workspace_id=None if pinned is None else pinned.id,
+					scopes=[item.strip() for item in (scope or []) if item.strip()],
+				)
+
+			except subroutine.errors.SubroutineError as error:
+				session.rollback()
+				_fail(error)
+
+			session.commit()
+
+			secret = issued.value.get_secret_value()
+			written = subroutine.credentials.store(store.strip(), secret) if store.strip() else None
+
+	if created:
+		_say(f"Created service account {owner.username}, with the {SERVICE_ACCOUNT_ROLE} role.")
+
+	_say("")
+	_say(secret)
+	_say("")
+	_say("That is the only time it is shown. Store it now.")
+
+	if written is not None:
+		_say(f"Written to {written} for connection {store.strip()!r}.")
+
+	else:
+		_say(
+			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}, or add it to "
+			f"{subroutine.credentials.credentials_file_path()}."
+		)
+
+
+def _token_owner (
+	session: sqlalchemy.orm.Session,
+	operator: subroutine.domain.authentication.Principal,
+	service_account: str,
+	workspace: str,
+) -> tuple[subroutine.db.models.identity.User, bool]:
+	"""Return whose token this is, making a service account if one was named.
+
+	Returns ``(user, created)``. Running the same command twice reuses the account rather than
+	refusing: issuing a second token for one agent is an ordinary thing to want, and "that
+	name is taken" would be a strange thing to say about the account you asked for.
+	"""
+
+	name = service_account.strip()
+
+	if not name:
+		return operator.user, False
+
+	normalized = subroutine.domain.users.normalize(name)
+	model = subroutine.db.models.identity.User
+	existing = session.scalars(
+		sqlalchemy.select(model).where(
+			model.username_normalized == normalized, model.deleted_at.is_(None)
+		)
+	).one_or_none()
+
+	if existing is not None:
+		return existing, False
+
+	account = subroutine.domain.users.create(
+		session, username=name, is_service_account=True, actor=operator
+	)
+	home = _pinned_workspace(session, account, workspace) or _sole_workspace(session)
+
+	# An account with no role can authenticate and do nothing, which reads as a broken token
+	# rather than as a missing membership. Given the narrowest role that can actually work.
+	subroutine.domain.workspaces.add_member(
+		session, home, account, role_key=SERVICE_ACCOUNT_ROLE, actor=operator
+	)
+
+	return account, True
+
+
+def _pinned_workspace (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	workspace: str,
+) -> subroutine.db.models.identity.Workspace | None:
+	"""Return the workspace a token is pinned to, or ``None`` for all of them.
+
+	**Never pinned by default** (SPEC.md §7.4, §13.7). A presented token should give the
+	access it gives locally; narrowing a credential to shorten an address, or because one
+	workspace is the common case, is letting a convenience dictate the access model.
+	"""
+
+	wanted = workspace.strip()
+
+	if not wanted:
+		return None
+
+	model = subroutine.db.models.identity.Workspace
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.slug == subroutine.domain.workspaces.normalize_slug(wanted),
+			model.deleted_at.is_(None),
+		)
+	).one_or_none()
+
+	if found is None:
+		_stop(
+			f"There is no workspace called {wanted!r} here.",
+			"Run 'subroutine use' to see which one you are in.",
+		)
+
+	return found
+
+
+def _sole_workspace (
+	session: sqlalchemy.orm.Session,
+) -> subroutine.db.models.identity.Workspace:
+	"""Return the only workspace, or refuse because a new account needs a home."""
+
+	model = subroutine.db.models.identity.Workspace
+	found = list(
+		session.scalars(
+			sqlalchemy.select(model)
+			.where(model.deleted_at.is_(None))
+			.order_by(model.created_at)
+			.limit(2)
+		)
+	)
+
+	if len(found) == 1:
+		return found[0]
+
+	if not found:
+		_stop("There are no workspaces here.", "Run 'subroutine init' first.")
+
+	_stop(
+		"There is more than one workspace, so a new service account needs to be told which "
+		"one it works in.",
+		f"Pass --workspace, one of: {', '.join(item.slug for item in found)}.",
+	)
+
+
 def _database_is_absent (settings: subroutine.config.Settings) -> bool:
 	"""Report whether the configured SQLite file has not been created yet.
 
@@ -471,7 +833,15 @@ def _default_instance_name () -> str:
 
 
 @app.callback()
-def _default (context: typer.Context) -> None:
+def _default (
+	context: typer.Context,
+	workspace: str = typer.Option(
+		"", "--workspace", "-w", help="Which workspace this command is about."
+	),
+	connection: str = typer.Option(
+		"", "--connection", "-c", help="Which instance this command is about."
+	),
+) -> None:
 	"""Project management for people and agents, in equal measure.
 
 	Examples:
@@ -486,6 +856,12 @@ def _default (context: typer.Context) -> None:
 
 	Run with no arguments, this shows today's agenda.
 	"""
+
+	# Before the subcommand, because that is where Typer puts an application-wide option and
+	# because these two change what every command means rather than what one of them does.
+	# `subroutine use` makes the same choice durably (SPEC.md §13.7).
+	_selected.workspace = workspace.strip() or None
+	_selected.connection = connection.strip() or None
 
 	if context.invoked_subcommand is not None:
 		return

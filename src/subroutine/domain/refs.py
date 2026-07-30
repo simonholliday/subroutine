@@ -175,17 +175,36 @@ def parse_address (text: str) -> Address | None:
 	)
 
 
-def format_address (ref: int, *, workspace: str | None = None) -> str:
+def format_address (
+	ref: int, *, workspace: str | None = None, connection: str | None = None
+) -> str:
 	"""Return the way an item is written for a reader who may need the wider context.
 
-	``#42`` on its own when that resolves, ``acme/#42`` when it would not. Printing the
-	shortest form that *resolves* is the rule that makes a listing safe to copy from: a bare
-	number beside an item in another workspace is an invitation to act on the wrong one.
+	``#42`` on its own when that resolves, ``acme/#42`` when it would not, and
+	``work/acme/#42`` when even that would not. Printing the shortest form that *resolves* is
+	the rule that makes a listing safe to copy from: a bare number beside an item in another
+	workspace is an invitation to act on the wrong one.
+
+	A connection without a workspace is refused rather than rendered. Two components always
+	mean *workspace* on the way back in (§13.7), so ``work/#42`` would be read as a workspace
+	called ``work`` — an address that prints one thing and resolves to another is worse than
+	no address at all.
 	"""
 
 	shown = format_ref(ref)
 
-	return shown if workspace is None else f"{workspace}{SEPARATOR}{shown}"
+	if workspace is None:
+		if connection is not None:
+			raise ValueError(
+				"An address naming a connection must name its workspace too, or it would be "
+				"read as a workspace on the way back in."
+			)
+
+		return shown
+
+	qualified = f"{workspace}{SEPARATOR}{shown}"
+
+	return qualified if connection is None else f"{connection}{SEPARATOR}{qualified}"
 
 
 #: There was a ``find(session, workspace_id, ref)`` here, and it was **deleted on

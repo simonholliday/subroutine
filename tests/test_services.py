@@ -885,10 +885,23 @@ def test_concurrent_ref_allocation_never_duplicates (
 
 	try:
 		with factory() as setup:
-			workspace = _workspace(setup)
+			# The founder is made here rather than inside `_workspace`, so that the cleanup
+			# below can name it. This test is the only one that *commits* to the shared
+			# PostgreSQL database, so anything it leaves behind is there for the rest of the
+			# run — see the cleanup for what that cost once.
+			founder = subroutine.domain.users.create(
+				setup, username=f"founder-{uuid.uuid4().hex[:8]}"
+			)
+			workspace = subroutine.domain.workspaces.create(
+				setup,
+				slug=f"ws-{uuid.uuid4().hex[:8]}",
+				title="Test workspace",
+				owner=founder,
+			)
 			_project(setup, workspace, key="RACE")
 			setup.commit()
 			workspace_id = workspace.id
+			founder_id = founder.id
 
 		def allocate_many () -> list[int]:
 			"""Claim refs from an independent connection."""
@@ -909,10 +922,22 @@ def test_concurrent_ref_allocation_never_duplicates (
 		assert allocated == sorted(set(allocated)), "the same ref was handed out twice"
 		assert allocated == list(range(1, workers * each + 1))
 
+		# **Everything this test created, not just the workspace.** The user was left behind
+		# until 2026-07-30, and it was invisible for as long as nothing asserted that the
+		# database held exactly one account. Local mode does exactly that (§12.1a), so the
+		# first test to open a local client against PostgreSQL failed with "this database has
+		# more than one account" — a failure in a test that was correct, caused by a test
+		# that had passed for weeks. A test that commits to the shared database owns the
+		# whole of what it wrote.
 		with factory() as cleanup:
 			cleanup.execute(
 				sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
 					subroutine.db.models.identity.Workspace.id == workspace.id
+				)
+			)
+			cleanup.execute(
+				sqlalchemy.delete(subroutine.db.models.identity.User).where(
+					subroutine.db.models.identity.User.id == founder_id
 				)
 			)
 			cleanup.commit()

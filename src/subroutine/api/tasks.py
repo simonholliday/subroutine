@@ -26,9 +26,7 @@ import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.schemas
 import subroutine.api.security
-import subroutine.api.selection
 import subroutine.api.shaping
-import subroutine.api.views
 import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -39,8 +37,10 @@ import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.errors
+import subroutine.views
 
 router = fastapi.APIRouter(prefix="/v1/tasks", tags=["tasks"])
 
@@ -71,7 +71,7 @@ SORTABLE: dict[str, typing.Any] = {
 DEFAULT_ORDER = ("-created_at",)
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
-SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Task)
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Task)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -135,10 +135,10 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
-) -> subroutine.api.views.Task:
+) -> subroutine.views.Task:
 	"""Create a task, from structured fields or from a captured line."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=body.workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
 	supplied = body.model_fields_set
 
 	structured: dict[str, typing.Any] = {
@@ -212,7 +212,7 @@ def create (
 @router.get(
 	"",
 	summary="List tasks",
-	response_model=subroutine.api.views.Collection[subroutine.api.views.Task],
+	response_model=subroutine.views.Collection[subroutine.views.Task],
 )
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
@@ -246,7 +246,7 @@ def listing (
 		format=format, fields=fields, available=SELECTABLE, entity="task"
 	)
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_tasks(
 		actor, workspace_ids=[workspace.id], include_completed=include_completed
 	)
@@ -296,7 +296,7 @@ def listing (
 
 
 @router.get(
-	"/{id_or_ref}", summary="Read one task", response_model=subroutine.api.views.Task
+	"/{id_or_ref}", summary="Read one task", response_model=subroutine.views.Task
 )
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,
@@ -311,7 +311,7 @@ def read (
 	shape = subroutine.api.shaping.wanted(
 		format=format, fields=fields, available=SELECTABLE, entity="task"
 	)
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return subroutine.api.shaping.single(
 		_rendered(session, _resolve(session, actor, workspace, id_or_ref)), shape
@@ -326,10 +326,10 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Task:
+) -> subroutine.views.Task:
 	"""Change a task. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
 	supplied = body.model_fields_set
@@ -378,10 +378,10 @@ def complete (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Task:
+) -> subroutine.views.Task:
 	"""Mark a task finished, in whatever this workspace calls its finished status."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
@@ -402,7 +402,7 @@ def remove (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Task:
+) -> subroutine.views.Task:
 	"""Soft-delete a task. It stays recoverable (SPEC.md §6.9).
 
 	The deleted task is returned rather than an empty 204, so a caller can see when it
@@ -410,7 +410,7 @@ def remove (
 	first one.
 	"""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
@@ -582,11 +582,11 @@ def _page (
 	has_more = len(rows) > size
 	rows = rows[:size]
 
-	vocabulary = subroutine.api.views.Vocabulary.for_tasks(session, rows)
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
 
 	return subroutine.api.shaping.response(
-		[subroutine.api.views.task(row, vocabulary) for row in rows],
-		subroutine.api.views.Page(
+		[subroutine.views.task(row, vocabulary) for row in rows],
+		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -602,11 +602,11 @@ def _page (
 
 def _rendered (
 	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Task
-) -> subroutine.api.views.Task:
+) -> subroutine.views.Task:
 	"""Render one task, loading the vocabulary it names."""
 
-	return subroutine.api.views.task(
-		row, subroutine.api.views.Vocabulary.for_tasks(session, [row])
+	return subroutine.views.task(
+		row, subroutine.views.Vocabulary.for_tasks(session, [row])
 	)
 
 

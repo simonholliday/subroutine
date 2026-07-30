@@ -11,6 +11,7 @@ directory, the local-mode principal, and the numbering that makes ``done 1`` wor
 """
 
 import json
+import os
 import pathlib
 import typing
 
@@ -47,8 +48,14 @@ def home (
 	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
 		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
 
-	# Local mode must not pick up a token from whatever shell the suite was started in.
-	monkeypatch.delenv("SUBROUTINE_TOKEN", raising=False)
+	# Nothing about the shell the suite was started in may reach these commands. A token
+	# would narrow local mode; a workspace or a connection would move the current context
+	# (§13.7), and a test that passes or fails depending on the developer's exports is the
+	# least useful kind of flake.
+	for name in list(os.environ):
+		if name.startswith(("SUBROUTINE_TOKEN", "SUBROUTINE_WORKSPACE", "SUBROUTINE_CONNECTION")):
+			monkeypatch.delenv(name, raising=False)
+
 	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", "Europe/London")
 
 	yield tmp_path

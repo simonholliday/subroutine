@@ -49,6 +49,7 @@ import subroutine.domain.links
 import subroutine.domain.scoping
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.views
 
 router = fastapi.APIRouter(prefix="/v1", tags=["discovery"])
 
@@ -168,28 +169,28 @@ class Limits(pydantic.BaseModel):
 	max_estimate_minutes: int
 
 
-class Instance(pydantic.BaseModel):
-	"""Which installation this is, and where it thinks it is."""
-
-	id: uuid.UUID
-	name: str
-	timezone: str
-
-
 class Meta(pydantic.BaseModel):
 	"""Everything needed to construct a valid request against *this* installation."""
 
 	api_version: str
 	server_time: datetime.datetime
-	instance: Instance | None
+	instance: subroutine.views.Instance | None
 
 	#: Where this instance's source can be obtained. Published because the AGPL's network
 	#: clause requires a served instance to offer its source to the people using it
 	#: (SPEC.md §2.2), which makes this a product requirement rather than a footnote.
 	source_url: str
 
+	#: The address this instance is served on, when a deployment has said (SPEC.md §12.4).
+	#: Null on a laptop listening on loopback, which is the ordinary case and is not a gap: a
+	#: client that reached this response already knows one address that works. It is here for
+	#: the client that must hand out a *durable* one — a webhook target, a shared link, or the
+	#: ``subroutine:`` address of an item on this instance — which is not the same as whatever
+	#: host happened to be dialled.
+	public_url: str | None
+
 	workspace: uuid.UUID | None
-	workspaces: list[dict[str, str]]
+	workspaces: list[subroutine.views.WorkspaceRef]
 
 	statuses: dict[str, list[Status]]
 	item_types: dict[str, list[Named]]
@@ -229,17 +230,11 @@ def meta (
 	return Meta(
 		api_version=subroutine.API_VERSION,
 		server_time=subroutine.db.types.utcnow(),
-		instance=(
-			None
-			if instance is None
-			else Instance(id=instance.id, name=instance.name, timezone=instance.timezone)
-		),
+		instance=None if instance is None else subroutine.views.instance(instance),
 		source_url=settings.source_url,
+		public_url=settings.public_url,
 		workspace=None if chosen is None else chosen.id,
-		workspaces=[
-			{"id": str(workspace.id), "slug": workspace.slug, "title": workspace.title}
-			for workspace in reachable
-		],
+		workspaces=[subroutine.views.workspace_ref(workspace) for workspace in reachable],
 		statuses={} if chosen is None else _statuses(session, chosen.id),
 		item_types={} if chosen is None else _item_types(session, chosen.id),
 		link_types=[] if chosen is None else _link_types(session, chosen.id),

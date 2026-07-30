@@ -1,6 +1,20 @@
 """How a task and a project look on the wire, and the envelope a collection travels in.
 
-Two decisions shape everything here.
+**This is deliberately not in the ``api`` package**, and moving it out was a requirement
+rather than tidying. SPEC.md §13.7 makes the local database a connection like any other, so
+``subroutine today`` fans out across it and every remote through one code path that does not
+know which of its answers arrived over a socket — and that is only true if the local client
+and the HTTP client return *the same objects*. Two definitions of "a task" that happen to
+agree would be two definitions free to stop agreeing. So the schemas live where both can
+reach them and the routers are a transport over them, which is what §4's layering rule asks
+for anyway. The practical test is ``tests/test_transport_equivalence.py``.
+
+The second consequence: nothing here may import ``fastapi``, or every ``subroutine add``
+would pay to load a web framework to print one line. That is why
+:func:`subroutine.domain.text.truncated` lives in the domain rather than beside the rest of
+``api.shaping``.
+
+Two decisions shape everything else here.
 
 **Vocabulary is resolved, not left as ids.** A task carries ``status`` and ``type`` as
 *keys* — ``"in_progress"``, ``"bug"`` — as well as the ids. §8.5 says unrequested relations
@@ -21,11 +35,15 @@ import pydantic
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.api.shaping
+import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.agenda
 import subroutine.domain.refs
+import subroutine.domain.tags
+import subroutine.domain.text
 
 Item = typing.TypeVar("Item")
 
@@ -46,6 +64,37 @@ class Collection(pydantic.BaseModel, typing.Generic[Item]):
 
 	items: list[Item]
 	page: Page
+
+
+class Instance(pydantic.BaseModel):
+	"""Which installation this is, and where it thinks it is.
+
+	``id`` is the one value in this program that must never change (SPEC.md §13.7). A client
+	keys its caches on it, notices the same instance configured twice under two names by it,
+	and labels merged results with it — so an id that moved would silently corrupt all three
+	at once. ``name`` is the server's own label and may be changed freely; neither is the
+	*connection* name, which is the nickname in the reader's own configuration.
+
+	``timezone`` is here so that a merged view can say what 16:00 on a New York server is
+	*there*, which is the difference between a calendar entry a person can act on and one
+	they have to do arithmetic on.
+	"""
+
+	id: uuid.UUID
+	name: str
+	timezone: str
+
+
+class WorkspaceRef(pydantic.BaseModel):
+	"""One workspace, by both the name it is stored under and the name a person types.
+
+	Typed rather than left as a bare mapping because a client resolves ``acme/42`` through
+	this: the slug comes off a command line and the id goes into a query.
+	"""
+
+	id: uuid.UUID
+	slug: str
+	title: str
 
 
 class Task(pydantic.BaseModel):
@@ -87,6 +136,13 @@ class Task(pydantic.BaseModel):
 	timezone: str | None
 
 	estimate_minutes: int | None
+
+	#: The tag names on this task, alphabetical. Batch-loaded per page like the vocabulary
+	#: above and for the same reason. A tag is never an id here: a client acts on the word,
+	#: applies one by writing ``#health`` in a captured line, and would have to fetch a
+	#: second list to learn what any id meant.
+	tags: list[str] = pydantic.Field(default_factory=list)
+
 	completed_at: datetime.datetime | None
 	archived_at: datetime.datetime | None
 	deleted_at: datetime.datetime | None
@@ -107,12 +163,14 @@ class Task(pydantic.BaseModel):
 
 		Each view renders its own columns because each knows which of its fields are worth a
 		line, and the alignment across a page is ``shaping.aligned``'s job. The order is the
-		one §14.10 gives: address, status, priority, deadline, title.
+		one §14.10 gives: address, status, priority, deadline, title, tags.
 
-		``@assignee`` and ``#tags`` appear in §14.10's example and not here. Both need data
-		this view does not carry — a username rather than an ``assignee_id``, and tag rows
-		that would be another batched query per page — so they are view *enrichment* rather
-		than shaping, and filed as such rather than half-done.
+		Tags cost nothing on a page that has none: ``shaping.aligned`` drops a column that is
+		empty in every row, so the common case is the line it was before they existed.
+
+		``@assignee`` still appears in §14.10's example and not here. It needs a username
+		rather than an ``assignee_id``, which is a lookup this view does not carry — view
+		*enrichment* rather than shaping, and filed as such rather than half-done.
 		"""
 
 		return (
@@ -120,7 +178,8 @@ class Task(pydantic.BaseModel):
 			f"[{self.status}]",
 			_priority_cell(self.importance, self.urgency),
 			"—" if self.due_at is None else self.due_at.date().isoformat(),
-			subroutine.api.shaping.truncated(self.title),
+			subroutine.domain.text.truncated(self.title),
+			" ".join(f"#{name}" for name in self.tags),
 		)
 
 
@@ -165,7 +224,7 @@ class Project(pydantic.BaseModel):
 			self.key,
 			f"[{self.status}]",
 			"private" if self.visibility == "private" else "",
-			subroutine.api.shaping.truncated(self.title),
+			subroutine.domain.text.truncated(self.title),
 		)
 
 
@@ -220,8 +279,31 @@ class Document(pydantic.BaseModel):
 			subroutine.domain.refs.format_ref(self.ref),
 			f"[{self.status}]",
 			self.type,
-			subroutine.api.shaping.truncated(self.title),
+			subroutine.domain.text.truncated(self.title),
 		)
+
+
+class Agenda(pydantic.BaseModel):
+	"""The four buckets, and what they were computed against.
+
+	``date`` and ``timezone`` are both reported because "today" is not a fact about the
+	server (SPEC.md §6.5) — and a client merging several instances resolves the date *once*,
+	in its own zone, then asks every connection for that explicit day. Without that, a person
+	whose work profile says ``America/New_York`` and whose personal one says
+	``Europe/London`` would get two different days merged into one list.
+	"""
+
+	date: datetime.date
+	timezone: str
+
+	overdue: list[Task]
+	today: list[Task]
+	upcoming: list[Task]
+	unscheduled: list[Task]
+
+	#: How many unscheduled tasks there are in total, which is usually more than are listed:
+	#: an agenda that dumped a 400-item backlog would not be an agenda.
+	unscheduled_total: int
 
 
 def _priority_cell (importance: int | None, urgency: int | None) -> str:
@@ -252,6 +334,7 @@ class Vocabulary:
 		status_ids: typing.Iterable[uuid.UUID] = (),
 		type_ids: typing.Iterable[uuid.UUID] = (),
 		project_ids: typing.Iterable[uuid.UUID] = (),
+		task_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -264,6 +347,7 @@ class Vocabulary:
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
 		)
+		self.tags = subroutine.domain.tags.names_for_tasks(session, task_ids)
 
 	@classmethod
 	def for_tasks (
@@ -276,6 +360,7 @@ class Vocabulary:
 			status_ids={task.status_id for task in tasks},
 			type_ids={task.type_id for task in tasks},
 			project_ids={task.project_id for task in tasks},
+			task_ids={task.id for task in tasks},
 		)
 
 	@classmethod
@@ -342,6 +427,7 @@ def task (
 		start_is_all_day=row.start_is_all_day,
 		timezone=row.timezone,
 		estimate_minutes=row.estimate_minutes,
+		tags=vocabulary.tags.get(row.id, []),
 		completed_at=row.completed_at,
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
@@ -412,6 +498,41 @@ def project (
 		updated_at=row.updated_at,
 		version=row.version,
 	)
+
+
+def agenda (
+	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
+) -> Agenda:
+	"""Render a built agenda, loading the vocabulary for all four buckets at once.
+
+	One :class:`Vocabulary` across the whole thing rather than one per bucket: the same
+	three statuses turn up in every bucket, and four loads would be three too many.
+	"""
+
+	everything = [*built.overdue, *built.today, *built.upcoming, *built.unscheduled]
+	vocabulary = Vocabulary.for_tasks(session, everything)
+
+	return Agenda(
+		date=built.date,
+		timezone=built.timezone,
+		overdue=[task(row, vocabulary) for row in built.overdue],
+		today=[task(row, vocabulary) for row in built.today],
+		upcoming=[task(row, vocabulary) for row in built.upcoming],
+		unscheduled=[task(row, vocabulary) for row in built.unscheduled],
+		unscheduled_total=built.unscheduled_total,
+	)
+
+
+def instance (row: subroutine.db.models.system.Instance) -> Instance:
+	"""Render this installation's identity."""
+
+	return Instance(id=row.id, name=row.name, timezone=row.timezone)
+
+
+def workspace_ref (row: subroutine.db.models.identity.Workspace) -> WorkspaceRef:
+	"""Render one workspace as a client addresses it."""
+
+	return WorkspaceRef(id=row.id, slug=row.slug, title=row.title)
 
 
 def _by_id (

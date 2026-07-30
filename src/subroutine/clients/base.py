@@ -1,0 +1,171 @@
+"""What every connection can be asked, whichever side of a socket it is on.
+
+SPEC.md §13.7 makes the local database a connection like any other, so that
+``subroutine today`` fans out across it and every configured remote through one code path
+that does not know which of its answers arrived over a network. That is only true if both
+transports answer the *same questions* with the *same objects*, which is what this module
+declares and ``tests/test_transport_equivalence.py`` is what checks.
+
+**Reads fan out; writes never do.** A read is issued to every connection concurrently and
+merged by the caller. A write names exactly one connection, explicitly or by default, because
+there is no transaction that could span two instances and no sensible way to report a
+half-failure.
+
+The granularity of each method is the granularity of the endpoint behind it, and that is not
+an accident either. :meth:`Client.agenda` spans every workspace a credential reaches, because
+``GET /v1/agenda`` does and because "what am I doing today" is a question about a person's
+day. :meth:`Client.tasks` takes one workspace, because ``GET /v1/tasks`` refuses an ambiguous
+one (§8.2) and a client that quietly spanned them locally would return different rows
+depending on where the tasks were.
+"""
+
+import dataclasses
+import datetime
+import types
+import typing
+
+import subroutine.config
+import subroutine.connections
+import subroutine.errors
+import subroutine.views
+
+#: Distinguishes "leave this alone" from "clear it" on a scheduling call, the same way §8.3
+#: distinguishes an omitted field from a null one. ``None`` genuinely means "clear the
+#: date", so it cannot double as "not asked for".
+UNSET: typing.Any = object()
+
+
+@dataclasses.dataclass(frozen=True)
+class Identity:
+	"""Who a connection says it is, and what it lets this credential reach.
+
+	One call answers both because ``GET /v1/meta`` does. The instance is what settles whether
+	two connections are secretly the same server; the workspaces are what resolve ``acme/42``.
+	"""
+
+	instance: subroutine.views.Instance | None
+	workspaces: tuple[subroutine.views.WorkspaceRef, ...]
+
+	def workspace (self, slug: str) -> subroutine.views.WorkspaceRef | None:
+		"""Return the workspace with this short name, or ``None``."""
+
+		wanted = slug.strip().lower()
+
+		for candidate in self.workspaces:
+			if candidate.slug == wanted:
+				return candidate
+
+		return None
+
+
+@dataclasses.dataclass(frozen=True)
+class Captured:
+	"""A task that was made from a line of text, and what the grammar declined to read.
+
+	``unparsed`` is §6.13's obligation rather than a nicety: text that looks like grammar and
+	is not implemented stays in the title verbatim, and the user is told so. Left unsaid, a
+	person who wrote "every monday" has no way to tell whether it was understood, ignored, or
+	silently dropped.
+	"""
+
+	task: subroutine.views.Task
+	unparsed: tuple[str, ...] = ()
+
+
+class Client(typing.Protocol):
+	"""One connection, ready to be asked things.
+
+	Every implementation is a context manager, because both of them hold something that has
+	to be given back — an engine on one side, a pooled socket on the other.
+	"""
+
+	connection: subroutine.connections.Connection
+
+	def identity (self) -> Identity:
+		"""Report which instance this is and which workspaces the credential reaches."""
+
+	def agenda (
+		self,
+		*,
+		date: datetime.date | None = None,
+		timezone: str | None = None,
+		horizon_days: int | None = None,
+		unscheduled_limit: int | None = None,
+	) -> subroutine.views.Agenda:
+		"""Return the four buckets, across every workspace this credential reaches.
+
+		``date`` is passed explicitly by a client merging several instances, which resolves
+		"today" **once** in its own zone (§13.7). Each instance would otherwise apply its own
+		notion of the caller's timezone, and a person whose work profile says
+		``America/New_York`` and whose personal one says ``Europe/London`` would get two
+		different days merged into one list.
+		"""
+
+	def tasks (
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		include_completed: bool = False,
+	) -> list[subroutine.views.Task]:
+		"""List one workspace's open tasks, newest first."""
+
+	def task (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Task | None:
+		"""Return one task by ref, or ``None`` if there is no such task here.
+
+		``None`` rather than a refusal, because resolving an address across several
+		connections asks this of all of them and expects most to say no. A caller wanting a
+		refusal makes one, with the candidates it collected.
+		"""
+
+	def capture (
+		self, *, text: str, workspace: str | None = None, timezone: str | None = None
+	) -> Captured:
+		"""Create a task from a line of text (§6.13)."""
+
+	def complete (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Mark a task finished."""
+
+	def schedule (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		planned_for: datetime.date | None = UNSET,
+		start: datetime.date | None = UNSET,
+	) -> subroutine.views.Task:
+		"""Set the day a task is planned for, or the day it becomes visible."""
+
+	def close (self) -> None:
+		"""Release whatever this holds."""
+
+	def __enter__ (self) -> "Client":
+		"""Return this client, ready to use."""
+
+	def __exit__ (
+		self,
+		kind: type[BaseException] | None,
+		value: BaseException | None,
+		traceback: types.TracebackType | None,
+	) -> None:
+		"""Release whatever this holds."""
+
+
+def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoReturn:
+	"""Refuse a write to a connection configured read-only.
+
+	Enforced client-side and worth having (§13.7): pointing an agent at a company instance
+	for context while forbidding it to write there is a reasonable posture, and it is not one
+	the company's server can be asked to arrange on the agent-owner's behalf.
+	"""
+
+	raise subroutine.errors.Forbidden(
+		f"Connection {connection.name!r} is configured read-only, so nothing can be changed "
+		"there.",
+		hint=f"Remove 'read_only' from [connections.{connection.name}] in "
+		f"{subroutine.config.config_file_path()} if that is no longer what you want.",
+	)

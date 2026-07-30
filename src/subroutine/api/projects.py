@@ -18,9 +18,7 @@ import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.schemas
 import subroutine.api.security
-import subroutine.api.selection
 import subroutine.api.shaping
-import subroutine.api.views
 import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -28,7 +26,9 @@ import subroutine.domain.authentication
 import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.errors
+import subroutine.views
 
 router = fastapi.APIRouter(prefix="/v1/projects", tags=["projects"])
 
@@ -46,7 +46,7 @@ SORTABLE: dict[str, typing.Any] = {
 DEFAULT_ORDER = ("path",)
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
-SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Project)
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Project)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -94,10 +94,10 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
-) -> subroutine.api.views.Project:
+) -> subroutine.views.Project:
 	"""Create a project, optionally inside another."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=body.workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
 	parent = None if body.parent is None else resolve(session, actor, workspace, body.parent)
 
 	created = subroutine.domain.projects.create(
@@ -121,7 +121,7 @@ def create (
 @router.get(
 	"",
 	summary="List projects",
-	response_model=subroutine.api.views.Collection[subroutine.api.views.Project],
+	response_model=subroutine.views.Collection[subroutine.views.Project],
 )
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
@@ -144,7 +144,7 @@ def listing (
 		format=format, fields=fields, available=SELECTABLE, entity="project"
 	)
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_projects(
 		actor, workspace_ids=[workspace.id], include_archived=include_archived
 	)
@@ -184,11 +184,11 @@ def listing (
 	has_more = len(rows) > size
 	rows = rows[:size]
 
-	vocabulary = subroutine.api.views.Vocabulary.for_projects(session, rows)
+	vocabulary = subroutine.views.Vocabulary.for_projects(session, rows)
 
 	return subroutine.api.shaping.response(
-		[subroutine.api.views.project(row, vocabulary) for row in rows],
-		subroutine.api.views.Page(
+		[subroutine.views.project(row, vocabulary) for row in rows],
+		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -203,7 +203,7 @@ def listing (
 
 
 @router.get(
-	"/{id_or_key}", summary="Read one project", response_model=subroutine.api.views.Project
+	"/{id_or_key}", summary="Read one project", response_model=subroutine.views.Project
 )
 def read (
 	id_or_key: str,
@@ -218,7 +218,7 @@ def read (
 	shape = subroutine.api.shaping.wanted(
 		format=format, fields=fields, available=SELECTABLE, entity="project"
 	)
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return subroutine.api.shaping.single(
 		_rendered(session, resolve(session, actor, workspace, id_or_key)), shape
@@ -233,10 +233,10 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Project:
+) -> subroutine.views.Project:
 	"""Change a project. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
 
 	supplied = body.model_fields_set
@@ -268,10 +268,10 @@ def move (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Project:
+) -> subroutine.views.Project:
 	"""Reparent a project, taking its whole subtree with it."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
 	parent = None if body.parent is None else resolve(session, actor, workspace, body.parent)
 
@@ -287,10 +287,10 @@ def remove (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Project:
+) -> subroutine.views.Project:
 	"""Soft-delete a project. Its tasks leave the visible world with it, and return with it."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
@@ -349,9 +349,9 @@ def resolve (
 
 def _rendered (
 	session: sqlalchemy.orm.Session, row: subroutine.db.models.project.Project
-) -> subroutine.api.views.Project:
+) -> subroutine.views.Project:
 	"""Render one project, loading the vocabulary it names."""
 
-	return subroutine.api.views.project(
-		row, subroutine.api.views.Vocabulary.for_projects(session, [row])
+	return subroutine.views.project(
+		row, subroutine.views.Vocabulary.for_projects(session, [row])
 	)

@@ -380,6 +380,106 @@ def problem_document (
 	return document
 
 
+#: Which class reports each status. The inverse of the subclasses above, and the reason
+#: :func:`from_problem` can hand back the *same* exception a local call would have raised.
+_BY_STATUS: dict[int, type[SubroutineError]] = {
+	400: BadRequest,
+	401: Unauthenticated,
+	403: Forbidden,
+	404: NotFound,
+	405: MethodNotAllowed,
+	409: Conflict,
+	413: PayloadTooLarge,
+	422: ValidationError,
+	429: RateLimited,
+	500: InternalError,
+	503: ServiceUnavailable,
+}
+
+#: The members :func:`problem_document` writes itself. Anything else in a document is an
+#: RFC 9457 extension member and is carried back as one.
+_DOCUMENT_MEMBERS = frozenset(
+	{"type", "title", "status", "detail", "code", "instance", "request_id", "hint", "errors"}
+)
+
+
+def from_problem (
+	document: typing.Mapping[str, typing.Any], *, status: int | None = None
+) -> SubroutineError:
+	"""Read a problem document back into the exception that would have raised it.
+
+	The inverse of :func:`problem_document`, and it lives beside it so the two cannot drift.
+	This is what lets a connection over HTTP refuse in exactly the words a local one does
+	(SPEC.md §13.7): a client fanning out across a local database and a remote server must
+	not have two vocabularies of failure, or every message it prints has to say which kind of
+	failure it was before it says what went wrong.
+
+	Nothing here trusts the document. A ``code`` that is not in the registry falls back to
+	the HTTP status, and a status that is not a failure we publish becomes an internal error
+	— which is the truth, because something answered in a shape this program does not
+	define.
+	"""
+
+	code = document.get("code")
+	registered = REGISTRY.get(code) if isinstance(code, str) else None
+
+	if registered is not None:
+		reported = registered.status
+
+	else:
+		code = None
+		reported = int(document.get("status") or status or 500)
+
+	failure = _BY_STATUS.get(reported, InternalError)
+	detail = document.get("detail")
+	hint = document.get("hint")
+
+	return failure(
+		str(detail) if isinstance(detail, str) and detail else f"HTTP {reported}.",
+		code=code,
+		errors=_field_errors(document.get("errors")),
+		hint=str(hint) if isinstance(hint, str) else None,
+		extensions={
+			name: value
+			for name, value in document.items()
+			if name not in _DOCUMENT_MEMBERS
+		},
+	)
+
+
+def _field_errors (value: typing.Any) -> tuple[FieldError, ...]:
+	"""Read the ``errors`` array of a problem document, skipping anything malformed."""
+
+	if not isinstance(value, list):
+		return ()
+
+	found: list[FieldError] = []
+
+	for item in value:
+		if not isinstance(item, dict):
+			continue
+
+		field, code, message = item.get("field"), item.get("code"), item.get("message")
+
+		if not isinstance(field, str) or not isinstance(message, str):
+			continue
+
+		hint = item.get("hint")
+
+		found.append(
+			FieldError(
+				field=field,
+				# A field error's code is reported as sent when it is one we publish, and as
+				# the generic one otherwise. It is display text here, not a decision.
+				code=code if isinstance(code, str) and code in REGISTRY else "invalid_field_value",
+				message=message,
+				hint=hint if isinstance(hint, str) else None,
+			)
+		)
+
+	return tuple(found)
+
+
 def registry_markdown () -> str:
 	"""Render the registry as the published ``docs/errors.md``.
 

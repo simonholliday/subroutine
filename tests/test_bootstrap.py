@@ -68,7 +68,13 @@ def test_initialising_creates_everything_a_first_task_needs (
 	assert result.created
 	assert result.instance.name == "Laptop"
 	assert result.user.username == "simon"
-	assert result.workspace.slug == "simon"
+
+	# Named after the workspace rather than after the person. A slug is part of an address
+	# (§13.7), so `init --workspace Acme` has to produce something `subroutine use acme`
+	# accepts — it produced the login name until 2026-07-30, which nothing printed and so
+	# nobody noticed.
+	assert result.workspace.title == "Personal"
+	assert result.workspace.slug == "personal"
 	assert result.inbox.key == "INBOX"
 	assert result.inbox.is_inbox
 	assert result.inbox.template == "personal"

@@ -24,10 +24,8 @@ import subroutine.api.pagination
 import subroutine.api.projects
 import subroutine.api.schemas
 import subroutine.api.security
-import subroutine.api.selection
 import subroutine.api.shaping
 import subroutine.api.tasks
-import subroutine.api.views
 import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.work
@@ -36,7 +34,9 @@ import subroutine.domain.documents
 import subroutine.domain.links
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.errors
+import subroutine.views
 
 router = fastapi.APIRouter(prefix="/v1/documents", tags=["documents"])
 
@@ -55,7 +55,7 @@ SORTABLE: dict[str, typing.Any] = {
 DEFAULT_ORDER = ("-created_at",)
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
-SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Document)
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Document)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -132,10 +132,10 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
-) -> subroutine.api.views.Document:
+) -> subroutine.views.Document:
 	"""Create a document — a spec, a design, a note, a decision, a finding or a dead end."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=body.workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
 
 	created = subroutine.domain.documents.create(
 		session,
@@ -162,7 +162,7 @@ def create (
 @router.get(
 	"",
 	summary="List documents",
-	response_model=subroutine.api.views.Collection[subroutine.api.views.Document],
+	response_model=subroutine.views.Collection[subroutine.views.Document],
 )
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
@@ -185,7 +185,7 @@ def listing (
 	shape = subroutine.api.shaping.wanted(
 		format=format, fields=fields, available=SELECTABLE, entity="document"
 	)
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_documents(
 		actor, workspace_ids=[workspace.id]
 	)
@@ -240,11 +240,11 @@ def listing (
 	has_more = len(rows) > size
 	rows = rows[:size]
 
-	vocabulary = subroutine.api.views.Vocabulary.for_documents(session, rows)
+	vocabulary = subroutine.views.Vocabulary.for_documents(session, rows)
 
 	return subroutine.api.shaping.response(
-		[subroutine.api.views.document(row, vocabulary) for row in rows],
-		subroutine.api.views.Page(
+		[subroutine.views.document(row, vocabulary) for row in rows],
+		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -259,7 +259,7 @@ def listing (
 
 
 @router.get(
-	"/{id_or_ref}", summary="Read one document", response_model=subroutine.api.views.Document
+	"/{id_or_ref}", summary="Read one document", response_model=subroutine.views.Document
 )
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,
@@ -274,7 +274,7 @@ def read (
 	shape = subroutine.api.shaping.wanted(
 		format=format, fields=fields, available=SELECTABLE, entity="document"
 	)
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return subroutine.api.shaping.single(
 		_rendered(session, _resolve(session, actor, workspace, id_or_ref)), shape
@@ -289,10 +289,10 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Document:
+) -> subroutine.views.Document:
 	"""Change a document. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
 
 	supplied = body.model_fields_set
@@ -329,10 +329,10 @@ def remove (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Document:
+) -> subroutine.views.Document:
 	"""Soft-delete a document. It stays recoverable (SPEC.md §6.9)."""
 
-	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
@@ -362,7 +362,7 @@ def _links_for (entity_type: str) -> typing.Any:
 	) -> list[Link]:
 		"""Return every link touching this item, labelled from its point of view."""
 
-		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 
 		return [
@@ -385,7 +385,7 @@ def _links_for (entity_type: str) -> typing.Any:
 	) -> Link:
 		"""Join this item to another one."""
 
-		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 		far = _near(session, actor, workspace, body.target_type, str(body.target))
 
@@ -415,7 +415,7 @@ def _links_for (entity_type: str) -> typing.Any:
 	) -> fastapi.Response:
 		"""Withdraw a link."""
 
-		workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 
 		model = subroutine.db.models.work.Link
@@ -586,9 +586,9 @@ def _resolve (
 
 def _rendered (
 	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Document
-) -> subroutine.api.views.Document:
+) -> subroutine.views.Document:
 	"""Render one document, loading the vocabulary it names."""
 
-	return subroutine.api.views.document(
-		row, subroutine.api.views.Vocabulary.for_documents(session, [row])
+	return subroutine.views.document(
+		row, subroutine.views.Vocabulary.for_documents(session, [row])
 	)

@@ -32,11 +32,6 @@ import subroutine.errors
 #: this existed, so an unshaped request is unchanged.
 FORMATS = ("full", "compact", "ids")
 
-#: How much of a title survives a compact line. A compact response exists to be small; a
-#: 512-character title (§6.10's limit) in a one-line rendering defeats that on its own. The
-#: full form is where the whole title lives.
-TITLE_LIMIT = 60
-
 
 class Shape(typing.NamedTuple):
 	"""What a caller asked a response to look like."""
@@ -272,9 +267,3 @@ def selectable (model: type[pydantic.BaseModel]) -> frozenset[str]:
 	return frozenset(model.model_fields)
 
 
-def truncated (text: str, limit: int = TITLE_LIMIT) -> str:
-	"""Shorten text for a one-line rendering, marking that something was cut."""
-
-	collapsed = " ".join(text.split())
-
-	return collapsed if len(collapsed) <= limit else f"{collapsed[: limit - 1]}…"

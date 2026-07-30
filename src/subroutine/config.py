@@ -55,11 +55,17 @@ def data_home () -> pathlib.Path:
 def state_home () -> pathlib.Path:
 	"""Return the directory holding state that is useful to keep but safe to lose.
 
-	The last listing lives here, which is what makes ``subroutine done 1`` work. It is
-	deliberately not in the data directory: deleting it costs a person one re-run of
-	``subroutine today`` and nothing else, and XDG's own description of ``STATE_HOME`` —
-	state that should persist between restarts but is not important enough for the data
-	directory — describes it exactly.
+	The current context lives here — which connection and which workspace a bare number
+	means (SPEC.md §13.7). It is deliberately not in the data directory, because XDG's own
+	description of ``STATE_HOME`` fits it exactly: state that should persist between
+	restarts but is not important enough for the data directory.
+
+	**The test that keeps it safe to lose: losing this file must degrade to a question,
+	never to a different outcome.** It holds only which workspace is current, and every ref
+	stays absolute within one — so a missing file makes ``subroutine done 42`` ask which
+	``42``. That is what distinguishes it from the *other* file that lived here, the
+	number-to-item map deleted in §12.2a, whose loss silently changed what an identifier
+	meant.
 	"""
 
 	base = os.environ.get("XDG_STATE_HOME") or pathlib.Path.home() / ".local" / "state"
@@ -226,7 +232,7 @@ def probe_sqlite_locking (directory: pathlib.Path) -> str | None:
 	return None
 
 
-def _read_config_file () -> dict[str, typing.Any]:
+def read_config_file () -> dict[str, typing.Any]:
 	"""Read the configuration file, returning an empty mapping when there is none."""
 
 	path = config_file_path()
@@ -246,12 +252,12 @@ class TomlSettingsSource(pydantic_settings.PydanticBaseSettingsSource):
 	) -> tuple[typing.Any, str, bool]:
 		"""Return one field's value as read from the configuration file."""
 
-		return _read_config_file().get(field_name), field_name, False
+		return read_config_file().get(field_name), field_name, False
 
 	def __call__ (self) -> dict[str, typing.Any]:
 		"""Return every setting present in the configuration file."""
 
-		data = _read_config_file()
+		data = read_config_file()
 
 		return {key: value for key, value in data.items() if value is not None}
 
@@ -277,6 +283,17 @@ class Settings(pydantic_settings.BaseSettings):
 
 	host: str = "127.0.0.1"
 	port: int = 8471
+
+	# The https:// address a TLS-terminating proxy serves this instance on. Unset is the
+	# ordinary case — one person on a laptop, listening on loopback. Setting it is what makes
+	# a non-loopback bind something `serve` will agree to (SPEC.md §12.4).
+	public_url: str | None = None
+
+	# Which connection a write goes to when the command did not say (SPEC.md §13.7). The
+	# connections themselves are tables rather than settings, and live in
+	# `subroutine.connections`; this is the one scalar among them.
+	default_connection: str = "local"
+
 	secret_key: str | None = None
 	dev_mode: bool = False
 	log_level: str = "INFO"
@@ -361,7 +378,7 @@ def setting_sources (settings: Settings) -> dict[str, str]:
 	guessing is the slowest possible way to find out.
 	"""
 
-	file_data = _read_config_file()
+	file_data = read_config_file()
 	sources: dict[str, str] = {}
 
 	for name in type(settings).model_fields:

@@ -93,9 +93,18 @@ def initialise (
 		is_superuser=True,
 	)
 
+	# **Named after the workspace, not after the person.** The slug used to be the username,
+	# which was invisible while nothing printed it — and became wrong the moment §13.7 made a
+	# slug part of an address: somebody who ran `init --workspace Acme` then found that
+	# `subroutine use acme` did not work, because their workspace was addressed by their own
+	# login name. The username is still the fallback, for a title that normalises to nothing.
 	workspace = subroutine.domain.workspaces.create(
 		session,
-		slug=workspace_slug or username,
+		slug=(
+			workspace_slug
+			or subroutine.domain.workspaces.normalize_slug(workspace_title)
+			or username
+		),
 		title=workspace_title,
 		owner=user,
 		timezone=timezone,

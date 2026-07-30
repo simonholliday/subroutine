@@ -13,6 +13,10 @@ backend's behaviour — the user would not be told that the end of their sentenc
 
 import subroutine.errors
 
+#: How much of a title fits on one line of a compact listing before it is cut. Sixty
+#: characters is what leaves room for an address, a date and a priority inside eighty.
+ONE_LINE_LIMIT = 60
+
 
 def fit (
 	value: str,
@@ -61,3 +65,17 @@ def require (value: str, *, field: str, label: str | None = None) -> str:
 			)
 		],
 	)
+
+
+def truncated (text: str, limit: int = ONE_LINE_LIMIT) -> str:
+	"""Shorten text for a one-line rendering, marking that something was cut.
+
+	Nothing is refused and nothing is stored — this is how a title is *printed* in a
+	compact listing or an aligned column, which is why it lives here rather than beside
+	:func:`fit`. The ellipsis is the whole point: a line that has quietly lost its end reads
+	as the whole title.
+	"""
+
+	collapsed = " ".join(text.split())
+
+	return collapsed if len(collapsed) <= limit else f"{collapsed[: limit - 1]}…"

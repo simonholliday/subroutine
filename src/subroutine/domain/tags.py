@@ -177,3 +177,38 @@ def for_task (
 			.order_by(tag.name_normalized)
 		)
 	)
+
+
+def names_for_tasks (
+	session: sqlalchemy.orm.Session, task_ids: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, list[str]]:
+	"""Return the tag names on each of these tasks, as one query keyed by task id.
+
+	The batched form of :func:`for_task`, for rendering a page. Calling that one per row is
+	fifty queries for a listing of fifty, and a listing is the thing this program does most.
+
+	Only the names are read. A renderer needs the word, never the row, and loading whole tag
+	objects to take one string off each is a cost paid on every page.
+	"""
+
+	wanted = {identifier for identifier in task_ids if identifier is not None}
+
+	if not wanted:
+		return {}
+
+	tag = subroutine.db.models.vocabulary.Tag
+	join = subroutine.db.models.work.TaskTag
+
+	rows = session.execute(
+		sqlalchemy.select(join.task_id, tag.name)
+		.join(tag, tag.id == join.tag_id)
+		.where(join.task_id.in_(wanted))
+		.order_by(join.task_id, tag.name_normalized)
+	).all()
+
+	found: dict[uuid.UUID, list[str]] = {}
+
+	for task_id, name in rows:
+		found.setdefault(task_id, []).append(name)
+
+	return found

@@ -7,6 +7,12 @@ they find out days later.
 
 The refusal lists the workspaces they can reach, with both id and slug, so the second
 attempt is informed rather than another guess.
+
+**In the domain rather than in ``api``, because the CLI applies the identical rule.** §13.7
+resolves a current context in five steps — flag, environment, stored context, the sole
+workspace, then refuse — and steps four and five *are* this function. Two copies of "which
+workspace is this about" would be two copies free to disagree about the one case that
+matters, which is the ambiguous one.
 """
 
 import typing

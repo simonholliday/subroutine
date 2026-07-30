@@ -48,7 +48,7 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"api/tasks.py": "every listing and lookup starts at readable_tasks; the direct select is "
 	"the include_total count, taken over that same narrowed statement as a subquery",
 	"api/projects.py": "likewise, over readable_projects",
-	"api/views.py": "reads display columns by id for rows the caller already holds; it "
+	"views.py": "reads display columns by id for rows the caller already holds; it "
 	"decides how a row is rendered, never which rows there are",
 	"api/documents.py": "listings start at readable_documents and single-document lookups "
 	"go through the same statement; the direct select is the include_total count and the "
