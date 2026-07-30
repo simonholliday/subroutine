@@ -294,7 +294,7 @@ def test_the_local_connection_legitimately_has_no_token (config_home: pathlib.Pa
 	"""The filesystem permission on the database is the authentication (§12.1a)."""
 
 	resolved = subroutine.credentials.resolve(
-		subroutine.connections.Connection(name="local")
+		subroutine.connections.Connection(name="local"), default_connection="local"
 	)
 
 	assert not resolved.found
@@ -308,7 +308,7 @@ def test_a_per_connection_variable_wins (
 
 	monkeypatch.setenv("SUBROUTINE_TOKEN_MY_WORK", "sr_from_environment")
 
-	resolved = subroutine.credentials.resolve(connection(name="my-work"))
+	resolved = subroutine.credentials.resolve(connection(name="my-work"), default_connection="local")
 
 	assert resolved.token == "sr_from_environment"
 	assert resolved.source == "SUBROUTINE_TOKEN_MY_WORK"
@@ -341,7 +341,7 @@ def test_token_env_names_a_variable_explicitly (
 
 	monkeypatch.setenv("WORK_TASKS_TOKEN", "sr_named")
 
-	resolved = subroutine.credentials.resolve(connection(token_env="WORK_TASKS_TOKEN"))
+	resolved = subroutine.credentials.resolve(connection(token_env="WORK_TASKS_TOKEN"), default_connection="local")
 
 	assert resolved.token == "sr_named"
 	assert "token_env" in resolved.source
@@ -355,7 +355,7 @@ def test_token_env_naming_an_unset_variable_is_reported (config_home: pathlib.Pa
 	"""
 
 	with pytest.raises(subroutine.errors.Unauthenticated) as raised:
-		subroutine.credentials.resolve(connection(token_env="NOT_SET_ANYWHERE"))
+		subroutine.credentials.resolve(connection(token_env="NOT_SET_ANYWHERE"), default_connection="local")
 
 	assert "NOT_SET_ANYWHERE" in raised.value.detail
 
@@ -364,7 +364,8 @@ def test_token_command_takes_the_first_line (config_home: pathlib.Path) -> None:
 	"""Rule 3, and ``pass show`` prints the secret first and anything at all after it."""
 
 	resolved = subroutine.credentials.resolve(
-		connection(token_command="printf 'sr_piped\\nnotes about it\\n'")
+		connection(token_command="printf 'sr_piped\\nnotes about it\\n'"),
+		default_connection="local",
 	)
 
 	assert resolved.token == "sr_piped"
@@ -388,7 +389,8 @@ def test_a_failing_token_command_reports_its_own_message (
 		subroutine.credentials.resolve(
 			connection(
 				token_command="sh -c 'echo $HELPER_OUTPUT; echo no key found >&2; exit 2'"
-			)
+			),
+			default_connection="local",
 		)
 
 	assert "no key found" in raised.value.detail
@@ -400,7 +402,8 @@ def test_a_missing_token_command_says_it_is_not_installed (config_home: pathlib.
 
 	with pytest.raises(subroutine.errors.Unauthenticated) as raised:
 		subroutine.credentials.resolve(
-			connection(token_command="subroutine-no-such-credential-helper")
+			connection(token_command="subroutine-no-such-credential-helper"),
+			default_connection="local",
 		)
 
 	assert "not installed" in raised.value.detail
@@ -410,7 +413,7 @@ def test_a_silent_token_command_is_refused (config_home: pathlib.Path) -> None:
 	"""Succeeding while printing nothing would present as an empty bearer token."""
 
 	with pytest.raises(subroutine.errors.Unauthenticated) as raised:
-		subroutine.credentials.resolve(connection(token_command="true"))
+		subroutine.credentials.resolve(connection(token_command="true"), default_connection="local")
 
 	assert "printed nothing" in raised.value.detail
 
@@ -420,7 +423,7 @@ def test_the_credentials_file_is_the_last_resort (config_home: pathlib.Path) -> 
 
 	subroutine.credentials.store("work", "sr_stored")
 
-	resolved = subroutine.credentials.resolve(connection())
+	resolved = subroutine.credentials.resolve(connection(), default_connection="local")
 
 	assert resolved.token == "sr_stored"
 	assert resolved.source.endswith("credentials.toml")

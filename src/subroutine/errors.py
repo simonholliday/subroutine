@@ -17,6 +17,7 @@ status code and a document; turning that into a response is the API layer's job,
 keeping them apart is what lets the CLI report the same failures without one.
 """
 
+import contextlib
 import dataclasses
 import typing
 
@@ -428,7 +429,7 @@ def from_problem (
 
 	else:
 		code = None
-		reported = int(document.get("status") or status or 500)
+		reported = _status(document.get("status"), status)
 
 	failure = _BY_STATUS.get(reported, InternalError)
 	detail = document.get("detail")
@@ -445,6 +446,38 @@ def from_problem (
 			if name not in _DOCUMENT_MEMBERS
 		},
 	)
+
+
+def _status (reported: typing.Any, actual: int | None) -> int:
+	"""Read a problem document's ``status`` member, trusting nothing about it.
+
+	``int(document.get("status") or …)`` was here until 2026-07-30, which raised ``ValueError``
+	on ``"abc"`` and ``TypeError`` on ``[500]`` — from inside the function whose whole job is to
+	*translate* a remote failure into a local one. Neither is a :class:`SubroutineError`, so a
+	half-conformant remote crashed the client's fan-out instead of being named and skipped, and
+	this function's docstring claimed "nothing here trusts the document" while trusting exactly
+	this member.
+
+	The HTTP status the response really carried wins over anything the body says about itself,
+	because a body can be forged, cached or rewritten by a proxy and the status line cannot be
+	misread the same way. A body value is used only when there is no real status to hand — which
+	is the case when this is called on a document read from a file or a queue.
+	"""
+
+	if actual is not None:
+		return actual
+
+	if isinstance(reported, bool):
+		return 500
+
+	if isinstance(reported, int):
+		return reported
+
+	if isinstance(reported, str):
+		with contextlib.suppress(ValueError):
+			return int(reported.strip())
+
+	return 500
 
 
 def _field_errors (value: typing.Any) -> tuple[FieldError, ...]:

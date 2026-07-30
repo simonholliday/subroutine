@@ -922,17 +922,20 @@ def test_concurrent_ref_allocation_never_duplicates (
 		assert allocated == sorted(set(allocated)), "the same ref was handed out twice"
 		assert allocated == list(range(1, workers * each + 1))
 
-		# **Everything this test created, not just the workspace.** The user was left behind
-		# until 2026-07-30, and it was invisible for as long as nothing asserted that the
-		# database held exactly one account. Local mode does exactly that (§12.1a), so the
-		# first test to open a local client against PostgreSQL failed with "this database has
-		# more than one account" — a failure in a test that was correct, caused by a test
-		# that had passed for weeks. A test that commits to the shared database owns the
-		# whole of what it wrote.
+	finally:
+		# **In the ``finally``, and everything this test created — not just the workspace.**
+		# Two separate lessons in one block. The user was left behind until 2026-07-30, which was
+		# invisible for as long as nothing asserted that the database held exactly one account;
+		# local mode does exactly that (§12.1a), so the first test to open a local client against
+		# PostgreSQL failed with "this database has more than one account" — a correct test
+		# broken by one that had passed for weeks. And the cleanup then sat *after* the
+		# assertions, so the one outcome it most needed to survive — this test failing — was the
+		# one where it did not run. A test that commits to the shared database owns the whole of
+		# what it wrote, on every path.
 		with factory() as cleanup:
 			cleanup.execute(
 				sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
-					subroutine.db.models.identity.Workspace.id == workspace.id
+					subroutine.db.models.identity.Workspace.id == workspace_id
 				)
 			)
 			cleanup.execute(
@@ -942,7 +945,6 @@ def test_concurrent_ref_allocation_never_duplicates (
 			)
 			cleanup.commit()
 
-	finally:
 		setup_engine.dispose()
 
 

@@ -78,4 +78,14 @@ def truncated (text: str, limit: int = ONE_LINE_LIMIT) -> str:
 
 	collapsed = " ".join(text.split())
 
-	return collapsed if len(collapsed) <= limit else f"{collapsed[: limit - 1]}…"
+	if len(collapsed) <= limit:
+		return collapsed
+
+	# A limit below 1 has no honest answer, and `collapsed[: limit - 1]` turned into a negative
+	# slice — returning *more* characters than the limit asked for, which is the one outcome the
+	# function exists to prevent. Every caller uses the default today; the parameter is public,
+	# and the obvious next caller is a computed column width.
+	if limit < 1:
+		return "…"
+
+	return f"{collapsed[: limit - 1]}…"

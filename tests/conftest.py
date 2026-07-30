@@ -9,6 +9,7 @@ contention. A test that runs only on SQLite is a test that agrees with itself.
 import os
 import pathlib
 import typing
+import uuid
 
 import pytest
 import sqlalchemy
@@ -25,7 +26,13 @@ POSTGRES_ADMIN_URL = os.environ.get(
 	"SUBROUTINE_TEST_POSTGRES_ADMIN_URL", "postgresql+psycopg:///postgres"
 )
 
-TEST_DATABASE_NAME = "subroutine_test"
+#: A fresh name per test session, because the fixture below **drops** the database it is
+#: about to use. A constant meant two pytest processes on one machine destroyed each other's
+#: schema mid-run, and the failure surfaced as unrelated tests raising `relation "sample_row"
+#: does not exist` or `database "subroutine_test" is being accessed by other users` — no hint
+#: of the cause, and about the machine rather than the code. It cost this project three
+#: separate false alarms, one of them mid-review. `test_migrations` already did this.
+TEST_DATABASE_NAME = f"subroutine_test_{uuid.uuid4().hex[:12]}"
 
 #: Turns an unreachable PostgreSQL from a skip into a failure. Set in CI, and the single
 #: most important line in this file: without it, a runner whose database service failed to

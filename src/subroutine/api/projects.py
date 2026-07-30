@@ -16,14 +16,14 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
+import subroutine.api.query
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
-import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
-import subroutine.domain.patch
+import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -84,9 +84,21 @@ class Move(subroutine.api.schemas.RequestModel):
 
 	``parent: null`` makes it a root, which is why this is a body rather than a query
 	parameter — "no parent" and "unchanged" have to be distinguishable (§8.3).
+
+	**And they were not, until 2026-07-30.** The handler read ``body.parent`` directly, so an
+	*omitted* parent and an explicit ``null`` both meant "move to root" — and
+	``POST /v1/projects/web/move {}`` silently flattened a project and its whole subtree. This
+	was the one mutating site in the API that did not use ``model_fields_set``, twenty lines
+	below a docstring saying it must. A move is not a field being dropped; it rewrites the
+	materialised path of every descendant, and there is no undo.
 	"""
 
 	parent: str | None = None
+
+	def requested (self) -> bool:
+		"""Report whether the caller actually named a destination."""
+
+		return "parent" in self.model_fields_set
 
 
 @router.post("", status_code=201, summary="Create a project")
@@ -121,6 +133,7 @@ def create (
 @router.get(
 	"",
 	summary="List projects",
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Project],
 )
 def listing (
@@ -132,7 +145,14 @@ def listing (
 	visibility: str | None = fastapi.Query(None, description="'public' or 'private'."),
 	include_archived: bool = fastapi.Query(False, description="Include archived projects."),
 	order: str | None = fastapi.Query(None, description="Comma-separated sort fields, '-' reverses."),
-	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
+	limit: int | None = fastapi.Query(
+		None,
+		# **No `ge=1` here, deliberately.** `domain.paging.size` is the one arbiter, so that
+		# this endpoint and the local client refuse an impossible page identically — with
+		# `limit` as the field, not FastAPI's `query.limit`. Two copies of the rule produced
+		# two different refusals for the same mistake.
+		description="How many to return. At least 1; capped at the instance's max_page_size.",
+	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
@@ -162,7 +182,9 @@ def listing (
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id
 	)
-	size = min(limit or settings.default_page_size, settings.max_page_size)
+	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# transports disagreed about limit until 2026-07-30 because each had its own copy.
+	size = subroutine.domain.paging.size(limit, settings)
 	total = None
 
 	if include_total:
@@ -270,6 +292,22 @@ def move (
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
 	"""Reparent a project, taking its whole subtree with it."""
+
+	if not body.requested():
+		raise subroutine.errors.ValidationError(
+			"A move has to say where to.",
+			code="missing_field",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="missing_field",
+					message="Send 'parent' with a project key or id, or 'parent': null to make "
+					"this a root project.",
+				)
+			],
+			hint="An omitted 'parent' used to mean 'move to root', which flattened whole "
+			"subtrees by accident.",
+		)
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)

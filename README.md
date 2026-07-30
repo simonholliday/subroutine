@@ -3,9 +3,11 @@
 **Project management for people and agents, in equal measure.**
 
 > ⚠️ **Early development.** The specification is settled; the code is being built.
-> The foundations are in place — schema, migrations, auth, permissions and a
-> `subroutine init` that produces a working database — but there is nothing yet to add
-> a task with, so it is not usable for its own purpose. The specification and the
+> **The personal to-do list works, and so does the HTTP API** — quick capture, an agenda,
+> projects, tasks, documents and the links between them, scoped tokens, and a `serve` that
+> refuses an unsafe bind. What is not built yet is most of what makes it interesting for an
+> agent over *weeks* rather than minutes: comments, session handoffs, recorded decisions,
+> verification evidence and claims are specified and not written. The specification and the
 > implementation plan are not published yet.
 
 Every project management tool was built for humans, and has been bolting AI onto the side
@@ -24,13 +26,17 @@ good personal to-do list: three commands from install to ticking something off. 
 every human and you have a substrate agents can plan, claim and verify work in. Neither is
 a degraded mode of the other.
 
-What that buys you *today* — and this part will keep changing as agents do — is continuity
-and accountability. An agent can leave a handoff: what it did, what it verified, what it
-decided, and what turned out to be a dead end, so the next session doesn't start cold or
-re-propose something you already ruled out. A project can refuse to let a task be closed
-without passing evidence attached to it. Every action is attributed, so you can see what
-happened while you weren't watching — and an agent's token can be scoped narrower than
-your own, because an agent you can't bound isn't one you can trust.
+What that is *for* — and this part will keep changing as agents do — is continuity and
+accountability. An agent leaves a handoff: what it did, what it verified, what it decided,
+and what turned out to be a dead end, so the next session doesn't start cold or re-propose
+something you already ruled out. A project can refuse to let a task be closed without
+passing evidence attached to it. Every action is attributed, so you can see what happened
+while you weren't watching — and an agent's token can be scoped narrower than your own,
+because an agent you can't bound isn't one you can trust.
+
+Of that, what works **now** is attribution, scoped tokens, and documents linked to the tasks
+they came from. The handoff, the recorded decision and the evidence gate are written down in
+full and not yet built; the warning at the top of this file is the honest boundary.
 
 Free, open source, self-hosted. SQLite by default with no configuration, PostgreSQL when
 you outgrow it. Your data stays yours.
@@ -45,24 +51,55 @@ $ subroutine init
 
 $ subroutine add "Call the dentist before Sunday"
   Added: Call the dentist  (due Sun 2 Aug)
+  subroutine today
 
 $ subroutine today
   Nothing due today.
-  Unscheduled
-    1  Call the dentist            due Sun 2 Aug
+  Next 7 days
+     #1  Call the dentist  (due Sun 2 Aug)
+
+  subroutine done 1
 
 $ subroutine done 1
   Done: Call the dentist
+  subroutine today
 ```
+
+`#1` is the task's own number. It is allocated once and never reused, so it goes on meaning
+that task after you have finished a dozen others — and every command tells you the next one
+to try.
 
 No server, no token, no configuration. When you want an agent involved, or a second
 person, the same install grows an HTTP API:
 
 ```console
 $ subroutine token create --service-account claude
+  Created service account claude, with the contributor role.
+
+  sr_d78d5d93_hU5ak4GqR_E2GyX2lC0Zq8Mz5JA1kbm-byrlb5hXEfY
+
+  That is the only time it is shown. Store it now.
+
 $ subroutine serve
-  Listening on http://127.0.0.1:8471
-  Agent guide:  http://127.0.0.1:8471/v1/docs/agent
+  Serving on http://127.0.0.1:8471 — the agent guide is at /v1/docs/agent.
+```
+
+`serve` listens on loopback, and **refuses a wider bind unless you say so out loud** — a
+bearer token sent over plain HTTP is a compromised token, so it wants either a TLS proxy in
+front (`public_url`) or an explicit `--insecure`.
+
+Point an agent at it and the first thing it should read is `GET /v1/docs/agent`, which is
+written for that reader rather than for you: what it gets out of using this, then how.
+
+And if you keep your own list here and your team's on a company server, both are just
+*connections* — one `subroutine today` shows the dentist and the stand-up together, and each
+row prints an address you can type back:
+
+```console
+$ subroutine today
+  Today
+    #7             Pay the gas bill
+    work/acme/#12  Fix the deploy script
 ```
 
 ## Documentation

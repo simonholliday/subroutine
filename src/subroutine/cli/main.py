@@ -26,6 +26,7 @@ import typer
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
+import subroutine.connections
 import subroutine.credentials
 import subroutine.db.migrate
 import subroutine.db.models.identity
@@ -366,8 +367,18 @@ def serve (
 	"""
 
 	settings = _settings()
-	where = host.strip() or settings.host
+	# Brackets are how a *URL* writes an IPv6 address, not how a socket takes one. `is_loopback`
+	# strips them so `[::1]` is recognised; handing them on unstripped made uvicorn die in
+	# `getaddrinfo` with `[Errno -2]` after the safety check had already approved the bind.
+	where = (host.strip() or settings.host).strip("[]")
 	listening = port or settings.port
+
+	if not 1 <= listening <= 65535:
+		_stop(
+			f"{listening} is not a port.",
+			"A port is between 1 and 65535. Leave --port off to use "
+			f"{settings.port}.",
+		)
 
 	_refuse_unusable_storage(settings)
 	_refuse_public_bind(settings, where, insecure=insecure)
@@ -388,7 +399,9 @@ def serve (
 
 	from subroutine.api import app as api
 
-	_say(f"Serving on http://{where}:{listening} — the agent guide is at /v1/docs/agent.")
+	shown = f"[{where}]" if ":" in where else where
+
+	_say(f"Serving on http://{shown}:{listening} — the agent guide is at /v1/docs/agent.")
 
 	listen(
 		api.create_app(settings=settings),
@@ -595,20 +608,21 @@ def token_create (
 	if _database_is_absent(settings):
 		_stop("There is no database here yet.", "Run 'subroutine init' first.")
 
+	# Checked *before* anything is issued, so a credential is never minted and then
+	# stranded. `store` reads the existing file (which refuses unparseable TOML) and writes
+	# a new one; both can fail, and doing that after the commit left a live token whose
+	# secret had never been shown and cannot be recovered — only a hash is kept (§7.4).
+	target = store.strip()
+
+	if target:
+		_refuse_unusable_credentials_file(target)
+
 	with _database(settings) as engine:
 		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
 
 		with factory() as session:
 			try:
-				# Who is running this, and the actor every service call below is checked
-				# against. Creating an account is an *instance* permission held only by a
-				# superuser (§7.1), and `init` makes the first user one — so the operator's
-				# own authority is what decides whether they may mint an agent, rather than
-				# their having a shell. `tests/test_actor_discipline.py` is what caught this
-				# being omitted, which is the whole reason that check exists.
-				operator = subroutine.domain.local.principal(
-					session, local_user=settings.local_user
-				)
+				operator = _operator(session, settings)
 				owner, created = _token_owner(session, operator, service_account, workspace)
 				pinned = _pinned_workspace(session, owner, workspace)
 				_row, issued = subroutine.domain.authentication.issue_token(
@@ -617,6 +631,10 @@ def token_create (
 					title=title.strip() or f"{owner.username}'s token",
 					workspace_id=None if pinned is None else pinned.id,
 					scopes=[item.strip() for item in (scope or []) if item.strip()],
+					created_by=operator.user.id,
+					# The actor, so a credential cannot mint a wider one. Omitting this was
+					# the privilege escalation: `task:read` could issue itself no-restriction.
+					actor=operator,
 				)
 
 			except subroutine.errors.SubroutineError as error:
@@ -626,8 +644,8 @@ def token_create (
 			session.commit()
 
 			secret = issued.value.get_secret_value()
-			written = subroutine.credentials.store(store.strip(), secret) if store.strip() else None
 
+	# Printed before it is stored. If the write fails now, the secret is at least on screen.
 	if created:
 		_say(f"Created service account {owner.username}, with the {SERVICE_ACCOUNT_ROLE} role.")
 
@@ -636,14 +654,67 @@ def token_create (
 	_say("")
 	_say("That is the only time it is shown. Store it now.")
 
-	if written is not None:
-		_say(f"Written to {written} for connection {store.strip()!r}.")
+	if target:
+		try:
+			written = subroutine.credentials.store(target, secret)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+		_say(f"Written to {written} for connection {target!r}.")
 
 	else:
 		_say(
 			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}, or add it to "
 			f"{subroutine.credentials.credentials_file_path()}."
 		)
+
+
+def _refuse_unusable_credentials_file (name: str) -> None:
+	"""Check the credentials file can be read, before a token is issued against it.
+
+	Only the read is checked here — a directory that becomes unwritable between this and the
+	write is not worth guarding against, and the secret is now printed before the write in any
+	case. What this catches is the common one: a `credentials.toml` that does not parse.
+	"""
+
+	try:
+		subroutine.credentials.read_file()
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+
+def _operator (
+	session: sqlalchemy.orm.Session, settings: subroutine.config.Settings
+) -> subroutine.domain.authentication.Principal:
+	"""Return who is running an administrative command, honouring a presented token.
+
+	**The token is not optional here, and leaving it out was a privilege escalation.** §12.1a
+	says the check runs in local mode exactly as it runs over HTTP; this path resolved the
+	principal with no token at all, so an agent holding a credential scoped to `task:read`
+	could not add a task and *could* mint itself an unrestricted one — because it was
+	authorised as the sole human, which after `init` is a superuser. The scoping refusal was
+	correct, well-worded, and bypassable by the command next to it.
+
+	The token is resolved the way every other connection's is (§12.3a), so `SUBROUTINE_TOKEN`,
+	`token_env`, `token_command` and `credentials.toml` all behave here as they do elsewhere.
+	"""
+
+	roster = subroutine.connections.roster(settings)
+	local = roster.find(subroutine.connections.LOCAL_NAME)
+
+	# `local` can be turned off (§13.7), in which case there is no local credential to read
+	# and an administrative command still operates on this database.
+	resolved = (
+		subroutine.credentials.Resolved(token=None, source="nowhere")
+		if local is None
+		else subroutine.credentials.resolve(local, default_connection=roster.default)
+	)
+
+	return subroutine.domain.local.principal(
+		session, token=resolved.token, local_user=settings.local_user
+	)
 
 
 def _token_owner (

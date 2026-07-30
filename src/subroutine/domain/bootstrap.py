@@ -17,6 +17,7 @@ import dataclasses
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.system
@@ -93,18 +94,9 @@ def initialise (
 		is_superuser=True,
 	)
 
-	# **Named after the workspace, not after the person.** The slug used to be the username,
-	# which was invisible while nothing printed it — and became wrong the moment §13.7 made a
-	# slug part of an address: somebody who ran `init --workspace Acme` then found that
-	# `subroutine use acme` did not work, because their workspace was addressed by their own
-	# login name. The username is still the fallback, for a title that normalises to nothing.
 	workspace = subroutine.domain.workspaces.create(
 		session,
-		slug=(
-			workspace_slug
-			or subroutine.domain.workspaces.normalize_slug(workspace_title)
-			or username
-		),
+		slug=workspace_slug or _derived_slug(workspace_title, username),
 		title=workspace_title,
 		owner=user,
 		timezone=timezone,
@@ -182,3 +174,42 @@ def _describe (
 	return Bootstrap(
 		instance=instance, user=user, workspace=workspace, inbox=inbox, created=False
 	)
+
+
+def _derived_slug (title: str, username: str) -> str:
+	"""Return a short name for the first workspace, from its title.
+
+	**Named after the workspace, not after the person.** The slug used to be the username,
+	which was invisible while nothing printed it — and became wrong the moment §13.7 made a
+	slug part of an address: somebody who ran ``init --workspace Acme`` then found
+	``subroutine use acme`` did not work, because their workspace was addressed by their login
+	name.
+
+	**Derived, therefore shaped rather than validated.** A title may be 255 characters and a
+	slug 64, and passing the derived value to ``workspaces.create`` unchanged made
+	``init --workspace "<a 69-character title>"`` refuse to set up the database at all — with a
+	413 about a "short name" the user had never typed, naming a field they had never heard of.
+	``text.fit`` exists to refuse *input*; this is not input, so it is trimmed. The same applies
+	to §5.4's leading-letter rule and to the reserved words: a title that cannot produce a legal
+	slug falls back to the username rather than becoming a refusal, because the user asked for a
+	*workspace* and the short name is this function's problem.
+	"""
+
+	candidate = subroutine.domain.workspaces.normalize_slug(title)
+
+	# Trimmed at a hyphen where there is one within reach, so a truncated name reads as words
+	# rather than as a word cut in half.
+	if len(candidate) > subroutine.domain.workspaces.MAX_SLUG_LENGTH:
+		candidate = candidate[: subroutine.domain.workspaces.MAX_SLUG_LENGTH]
+		spare = candidate.rsplit("-", 1)[0]
+		candidate = spare if len(spare) >= subroutine.domain.workspaces.MAX_SLUG_LENGTH // 2 else candidate
+
+	candidate = candidate.strip("-")
+	usable = (
+		candidate
+		and candidate[0].isascii()
+		and candidate[0].isalpha()
+		and not subroutine.addressing.is_reserved_workspace_word(candidate)
+	)
+
+	return candidate if usable else subroutine.domain.workspaces.normalize_slug(username)

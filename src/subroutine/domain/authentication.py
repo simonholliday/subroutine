@@ -127,6 +127,7 @@ def issue_token (
 	project_scope: typing.Sequence[str] | None = None,
 	expires_at: datetime.datetime | None = None,
 	created_by: uuid.UUID | None = None,
+	actor: Principal | None = None,
 ) -> tuple[subroutine.db.models.identity.ApiToken, subroutine.auth.IssuedToken]:
 	"""Mint a token for ``user`` and store its hash, returning both halves.
 
@@ -138,7 +139,25 @@ def issue_token (
 	so a typo becomes an error rather than a silently inert restriction. They are *not*
 	checked against what the user can actually do: a token spans workspaces where its
 	owner may hold different roles, and §7.3 intersects the two at every check anyway.
+
+	**A credential may not mint a wider credential, and nothing enforced that until
+	2026-07-30.** This function took no actor at all, so an agent holding a token scoped to
+	``task:read`` could issue itself one with no scope restriction — the scoping refusal it had
+	just met was correct, well-worded, and one command away from being irrelevant. §7.4's whole
+	least-privilege story rests on a narrow token *staying* narrow, and a credential that can
+	widen itself is not a restriction, it is a formality. :func:`_refuse_amplification` is the
+	rule; ``actor=None`` remains the unauthenticated internal caller, which for this function
+	means ``subroutine init`` and a script holding the database file.
 	"""
+
+	if actor is not None:
+		_refuse_amplification(
+			actor,
+			user=user,
+			workspace_id=workspace_id,
+			scopes=scopes,
+			project_scope=project_scope,
+		)
 
 	unknown = subroutine.permissions.unknown(scopes)
 
@@ -168,6 +187,92 @@ def issue_token (
 	session.flush()
 
 	return token, issued
+
+
+def _refuse_amplification (
+	actor: Principal,
+	*,
+	user: subroutine.db.models.identity.User,
+	workspace_id: uuid.UUID | None,
+	scopes: typing.Sequence[str],
+	project_scope: typing.Sequence[str] | None,
+) -> None:
+	"""Refuse a token that would grant more than the credential asking for it.
+
+	Three separate ways to amplify, and all three are refused:
+
+	* **Issuing for somebody else.** That is minting authority you do not hold, and it needs
+	  the instance permission that creating an account needs — the same authority, since a
+	  service account plus a token for it is one act in two steps.
+	* **Widening the scopes.** ``[]`` means *no narrowing* (§7.3), so a presenter with any
+	  scopes at all may only issue a subset of them. Getting this backwards — treating the
+	  empty list as "no permissions" — would refuse every ordinary case, which is why the
+	  emptiness of each side is tested explicitly rather than by set algebra alone.
+	* **Widening the project scope, or unpinning a pinned workspace.** ``None`` means *every
+	  project* for the same reason, and a token pinned to one workspace may not hand out one
+	  that reaches them all.
+
+	A presenter with no credential at all — a person at a terminal with the database file — is
+	not narrowed by any of this, which is §12.1a's position: the filesystem permission is the
+	authentication, and a check inside a process that already holds the file handle is a lock
+	on a door in a field.
+	"""
+
+	if actor.token is None:
+		return
+
+	if user.id != actor.user.id:
+		# Imported here, not at the top: `domain.authorization` imports *this* module for
+		# `Principal`, so a module-level import is the circular-import trap CLAUDE.md records.
+		# The house style's documented exception for a nested `from X import Y as alias` exists
+		# for exactly this, and the alias keeps `subroutine` from being rebound as a local.
+		from subroutine.domain import authorization as permits
+
+		permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
+
+	held = set(actor.scopes)
+
+	if held and (not scopes or not set(scopes) <= held):
+		raise subroutine.errors.Forbidden(
+			"A token cannot grant more than the one that asked for it.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="scopes",
+					code="forbidden",
+					message="The credential you presented is scoped to: "
+					f"{', '.join(sorted(held))}.",
+					hint="Issue a token scoped to the same permissions or fewer.",
+				)
+			],
+		)
+
+	if actor.token.project_scope is not None:
+		allowed = set(actor.token.project_scope)
+
+		if project_scope is None or not set(_canonical_project_scope(project_scope)) <= allowed:
+			raise subroutine.errors.Forbidden(
+				"A token cannot reach more projects than the one that asked for it.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project_scope",
+						code="forbidden",
+						message=f"The credential you presented reaches: {', '.join(sorted(allowed))}.",
+					)
+				],
+			)
+
+	if actor.pinned_workspace_id is not None and workspace_id != actor.pinned_workspace_id:
+		raise subroutine.errors.Forbidden(
+			"A token pinned to one workspace cannot issue one that is not.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="workspace_id",
+					code="forbidden",
+					message="The credential you presented is pinned to "
+					f"{actor.pinned_workspace_id}.",
+				)
+			],
+		)
 
 
 def authenticate (

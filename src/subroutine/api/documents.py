@@ -21,17 +21,17 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
-import subroutine.api.projects
+import subroutine.api.query
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.api.tasks
-import subroutine.config
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.documents
 import subroutine.domain.links
+import subroutine.domain.paging
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -162,6 +162,7 @@ def create (
 @router.get(
 	"",
 	summary="List documents",
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Document],
 )
 def listing (
@@ -174,7 +175,14 @@ def listing (
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
 	q: str | None = fastapi.Query(None, description="Match this text in the title."),
 	order: str | None = fastapi.Query(None, description="Comma-separated sort fields."),
-	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
+	limit: int | None = fastapi.Query(
+		None,
+		# **No `ge=1` here, deliberately.** `domain.paging.size` is the one arbiter, so that
+		# this endpoint and the local client refuse an impossible page identically — with
+		# `limit` as the field, not FastAPI's `query.limit`. Two copies of the rule produced
+		# two different refusals for the same mistake.
+		description="How many to return. At least 1; capped at the instance's max_page_size.",
+	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
@@ -218,7 +226,9 @@ def listing (
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id
 	)
-	size = min(limit or settings.default_page_size, settings.max_page_size)
+	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# transports disagreed about limit until 2026-07-30 because each had its own copy.
+	size = subroutine.domain.paging.size(limit, settings)
 	total = None
 
 	if include_total:

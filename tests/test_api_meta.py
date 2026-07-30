@@ -6,6 +6,7 @@ sorts. A discovery endpoint that describes an installation slightly inaccurately
 than none, because a client believes it.
 """
 
+import re
 import uuid
 
 import pytest
@@ -14,6 +15,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine
+import subroutine.api.app
 import subroutine.api.meta
 import subroutine.db.models.vocabulary
 import subroutine.domain.dates
@@ -273,3 +275,91 @@ def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
 	guide = world.call("GET", "/v1/docs/agent").text
 
 	assert len(guide.encode("utf-8")) < 8192, "the guide has grown past its budget"
+
+
+def test_meta_says_what_this_is_for_the_caller_that_cannot_read_the_readme (
+	world: test_api_tasks.World,
+) -> None:
+	"""An agent arriving with a base URL and a token has no other way to find out.
+
+	A person has the README. This is the one response every client fetches first, which is
+	why the sentence is here as well as in the guide it points at.
+	"""
+
+	body = world.call("GET", "/v1/meta").json()
+
+	assert "docs/agent" in body["purpose"], "and it says where the rest is"
+	assert body["docs"]["agent_guide"] == "/v1/docs/agent"
+
+
+def test_the_agent_guide_says_what_the_reader_gets_before_how_to_authenticate (
+	world: test_api_tasks.World,
+) -> None:
+	"""Ordering, asserted rather than left to whoever edits next.
+
+	A guide that opens with "read /v1/meta first" reads as a chore having been handed over.
+	An agent has no other source for why it should bother, and §14.1 had already enumerated
+	the failure modes this answers without ever pointing them at that reader.
+	"""
+
+	guide = world.call("GET", "/v1/docs/agent").text
+
+	why = guide.index("Why this is worth your context")
+	how = guide.index("## How to use it")
+
+	assert why < how
+	assert why < guide.index("Authorization: Bearer")
+
+	# The reciprocal argument, which is the part an agent will act on and will not infer.
+	assert "Being bounded is what earns you more to do" in guide
+
+
+def test_the_agent_guide_names_no_endpoint_this_application_does_not_serve (
+	world: test_api_tasks.World,
+) -> None:
+	"""The guard on §13.1's rule, pointed at the guide rather than at ``/v1/meta``.
+
+	Publishing what an installation does not implement is worse than publishing less, and it
+	is worse here than anywhere: an agent told to leave a handoff at an endpoint that 404s
+	stops trusting the rest of the document. Sessions, decisions and verification evidence are
+	specified and unbuilt, so the guide must name them as absent and never as reachable.
+
+	Compared by path prefix rather than by the whole path, because the guide writes
+	illustrative forms — ``/v1/tasks/42`` for ``/v1/tasks/{id_or_ref}``. The prefix is what
+	catches the failure this exists for.
+	"""
+
+	guide = world.call("GET", "/v1/docs/agent").text
+	# ``getattr`` rather than ``route.path``: Starlette's ``BaseRoute`` does not declare one,
+	# and a route without a path is exactly what `api/routing.check` exists to notice — see
+	# CLAUDE.md on `_IncludedRouter`.
+	paths = [
+		getattr(route, "path", "")
+		for _prefix, router in subroutine.api.app.ROUTERS
+		for route in router.routes
+	]
+	served = {
+		"/".join(path.split("/")[:3]) for path in paths if path.startswith("/v1/")
+	}
+	named = {"/".join(found.split("/")[:3]) for found in re.findall(r"/v1/[\w/{}-]+", guide)}
+
+	assert named, "the guide should reference at least one endpoint"
+	assert named <= served, f"the guide names endpoints that do not exist: {named - served}"
+
+
+@pytest.mark.parametrize(
+	"unbuilt", ["/v1/sessions", "/v1/decisions", "/v1/verifications", "/v1/claims"]
+)
+def test_the_guide_does_not_offer_the_unbuilt_agent_machinery (
+	world: test_api_tasks.World, unbuilt: str
+) -> None:
+	"""Named explicitly, because these are the four an agent would most want to exist.
+
+	They are specified in full (§14, §15) and are M4-M7. The guide says so in one sentence;
+	what it must not do is describe how to call them.
+	"""
+
+	guide = world.call("GET", "/v1/docs/agent").text
+
+	assert unbuilt not in guide
+	assert "Not built yet" in guide, "and the absence is stated rather than left to be found"

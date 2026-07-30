@@ -200,15 +200,22 @@ def names_for_tasks (
 	join = subroutine.db.models.work.TaskTag
 
 	rows = session.execute(
-		sqlalchemy.select(join.task_id, tag.name)
+		sqlalchemy.select(join.task_id, tag.name, tag.name_normalized)
 		.join(tag, tag.id == join.tag_id)
 		.where(join.task_id.in_(wanted))
-		.order_by(join.task_id, tag.name_normalized)
 	).all()
 
-	found: dict[uuid.UUID, list[str]] = {}
+	found: dict[uuid.UUID, list[tuple[str, str]]] = {}
 
-	for task_id, name in rows:
-		found.setdefault(task_id, []).append(name)
+	for task_id, name, normalized in rows:
+		found.setdefault(task_id, []).append((normalized, name))
 
-	return found
+	# **Sorted here, not by the database.** PostgreSQL's collation on this machine is
+	# `en_GB.UTF-8` and does not sort byte-wise, so `ORDER BY name_normalized` put `ähnlich`
+	# before `apple` there and after `zebra` on SQLite — measured. `tags` is a published API
+	# field and a compact-line column, so the same task rendered `#ähnlich #apple` on one
+	# deployment and `#apple #ähnlich` on the other, and the transport-equivalence test could
+	# not see it because both of its sides run on one backend (SPEC.md §10.3).
+	return {
+		task_id: [name for _key, name in sorted(pairs)] for task_id, pairs in found.items()
+	}

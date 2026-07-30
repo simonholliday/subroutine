@@ -19,6 +19,25 @@ what a valid key is would have the dependency exactly the wrong way round.
 RESERVED_PATH_WORDS = frozenset({"batch", "next", "parse", "search", "sync"})
 
 
+#: Words a *workspace* short name may not take, because a workspace slug became part of an
+#: address in §13.7 — ``connection/workspace/ref``. Position tells a connection from a
+#: workspace, so there is no structural ambiguity; what these prevent is the human kind. A
+#: workspace called ``local`` beside the implicit ``local`` connection makes ``use local``
+#: mean two things, and ``all``/``none``/``me`` read as instructions rather than places.
+#:
+#: Reserved now rather than later, on the same reasoning as :data:`RESERVED_PATH_WORDS`:
+#: reserving costs nothing today and un-reserving would cost somebody their workspace name.
+RESERVED_WORKSPACE_WORDS = frozenset(
+	{"all", "default", "here", "local", "me", "mine", "none", "self"}
+)
+
+
+def is_reserved_workspace_word (value: str) -> bool:
+	"""Report whether a workspace short name would be confusing as an address segment."""
+
+	return value.strip().lower() in RESERVED_WORKSPACE_WORDS
+
+
 def is_reserved_word (value: str) -> bool:
 	"""Report whether a value would be swallowed by a literal route.
 

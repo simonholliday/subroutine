@@ -21,6 +21,7 @@ the discovery endpoint the most expensive call in the API.
 """
 
 import datetime
+import json
 import typing
 import uuid
 
@@ -47,6 +48,8 @@ import subroutine.domain.durations
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.scoping
+import subroutine.domain.selection
+import subroutine.domain.tasks
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -57,6 +60,24 @@ router = fastapi.APIRouter(prefix="/v1", tags=["discovery"])
 #: a client is most likely to need. Appendix A filed this against M3: embedding the whole
 #: list makes ``/v1/meta`` exactly the large response §13.1 exists to avoid.
 TAG_LIMIT = 50
+
+#: Which ``subroutine help`` topics the agent guide inlines. **Not all of them**, because
+#: §13.3 caps the guide at 8 KB and the topics are what push it over: `scripting` is about a
+#: terminal and `refs` says useful things about how a *shell* treats ``#``, neither of which an
+#: HTTP client needs. The two that carry grammar it cannot guess — the date vocabulary and the
+#: capture line — stay. The rest are one request away at ``/v1/docs/examples`` and in the CLI.
+GUIDE_TOPICS = frozenset({"dates", "capture"})
+
+#: The answer to "what is this?" for a caller that has a base URL, a token and nothing else.
+#: One sentence about what it is *for that caller*, and one pointer. Deliberately not a
+#: description of the data model: an agent can read the model from the rest of this response,
+#: and cannot read the reason it should bother from anywhere.
+PURPOSE = (
+	"Shared project management for people and agents. You are a principal here, not a "
+	"tool being driven: what you write is attributed to you, addressable, and still here "
+	"after your context is gone. Read GET /v1/docs/agent — it is written for you and says "
+	"what that is worth before it says how."
+)
 
 #: Query parameters that are not *filters*. Reflection cannot tell the difference by
 #: itself — they are all query parameters — and calling `format` a filter would tell an
@@ -176,6 +197,13 @@ class Meta(pydantic.BaseModel):
 	server_time: datetime.datetime
 	instance: subroutine.views.Instance | None
 
+	#: What this is, for the reader who arrived here with a base URL and a token and nothing
+	#: else. **Addressed to an agent, because an agent is the caller that has no other way to
+	#: find out** — a person has the README. It costs about thirty tokens against §13.1's size
+	#: budget and it is the one response every client fetches first, which is the whole
+	#: argument for it being here rather than only in the guide it points at.
+	purpose: str
+
 	#: Where this instance's source can be obtained. Published because the AGPL's network
 	#: clause requires a served instance to offer its source to the people using it
 	#: (SPEC.md §2.2), which makes this a product requirement rather than a footnote.
@@ -224,12 +252,24 @@ def meta (
 	# there are, and answering "which workspace?" to the request that would have told it
 	# is a loop. With several and none named, the vocabulary sections are empty and the
 	# workspace list is the answer.
-	chosen = _chosen(reachable, workspace_id)
+	# **An unknown name is a refusal; an *ambiguous* one is not.** The leniency below is about
+	# a caller that named nothing, which is right — this is often the first request, before it
+	# knows what workspaces exist. A name that matches nothing is a different thing, and
+	# answering it with `200` and an empty vocabulary told an agent the workspace had none:
+	# "discover by being refused" inverted into "discover by being told something false", from
+	# the one endpoint whose purpose is to prevent that. Resolved through the same
+	# `domain.selection` every other module uses, so the matching rule cannot drift either.
+	chosen = (
+		subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		if workspace_id is not None
+		else _sole(reachable)
+	)
 	instance = subroutine.domain.instances.get(session)
 
 	return Meta(
 		api_version=subroutine.API_VERSION,
 		server_time=subroutine.db.types.utcnow(),
+		purpose=PURPOSE,
 		instance=None if instance is None else subroutine.views.instance(instance),
 		source_url=settings.source_url,
 		public_url=settings.public_url,
@@ -252,6 +292,7 @@ def meta (
 		error_codes=sorted(subroutine.errors.REGISTRY),
 		docs={
 			"agent_guide": "/v1/docs/agent",
+			"examples": "/v1/docs/examples",
 			"openapi": "/v1/openapi.json",
 			"human": "/docs",
 		},
@@ -276,10 +317,66 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	SPEC.md §13.3 asks for more than this — ten worked request/response examples, executed
 	by a CI job so they cannot drift. That is still owed and is filed in Appendix A. What is
 	here is the half that already exists and is already drift-proof.
+
+	**It opens with what the reader gets, not with how to authenticate.** An agent arriving
+	with a base URL and a token has no other way to learn why it should bother, and a guide
+	that begins "read /v1/meta first" reads as a chore having been handed over. §14.1 already
+	enumerates the failure modes this is for; that list had simply never been pointed at the
+	reader it describes.
+
+	**And it describes only what is built.** §13.1's rule — publishing what an installation
+	does not implement is worse than publishing less — matters more here than anywhere: an
+	agent told to leave a handoff at an endpoint that 404s trusts nothing else in the
+	document. Sessions, decisions, verification evidence and claims are M4-M7 and named as
+	unbuilt rather than promised.
 	"""
 
 	sections = [
 		"# Subroutine — a guide for agents",
+		"",
+		"You are a principal here, not a tool being driven. You have an identity, your actions "
+		"are attributed to you, and what you write is addressable by everyone else working on "
+		"the same thing. Neither kind of user is a guest in the other's system.",
+		"",
+		"## Why this is worth your context",
+		"",
+		"Four things reliably go wrong across sessions. Each has somewhere to put the answer, "
+		"and the reason to write it there is that *you* get it back:",
+		"",
+		"| What goes wrong | Where it goes | What you get back |",
+		"| --- | --- | --- |",
+		"| Your context ends, and what is not written down is gone | A document, linked to "
+		"the task it came from | The next session opens with your conclusion rather than "
+		"re-deriving it |",
+		"| You re-propose an approach already ruled out | A document recording the decision "
+		"*and* what was rejected | You find it before proposing it again — the failure a human "
+		"finds most irritating, and the cheapest to prevent |",
+		"| You re-read the same files to rebuild the same understanding | A document, with "
+		"`#42` in its body to tie it to the work | The mention is indexed, so the next "
+		"session finds it from either end |",
+		"| You cannot tell what changed while you were thinking | `expected_version` on every "
+		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
+		"edit |",
+		"",
+		"**Being bounded is what earns you more to do.** Your token can be scoped narrower "
+		"than its owner's — particular permissions, particular projects, one workspace. That "
+		"is the reason a human hands over work they would otherwise supervise. `GET /v1/me` "
+		"says exactly what you may do, so you never learn it by being refused.",
+		"",
+		"**Not built yet, and named rather than promised:** session handoffs, decisions as a "
+		"first-class entity, verification evidence on a completion, and task claims. Specified "
+		"in full, not here. What is above is what exists.",
+		"",
+		"## How to use it",
+		"",
+		"**`GET /v1/docs/examples` has a worked request and response for each of these.** Read "
+		"it once; it is the fastest way to stop guessing at shapes.",
+		"",
+		"The four endpoints that do most of the work: `GET /v1/agenda` answers \"what should I "
+		"do today\" across every workspace at once; `GET /v1/tasks` lists one workspace's; "
+		"`POST /v1/tasks` creates one, from `title` or from a `text` line; and "
+		"`POST /v1/documents` is where a conclusion goes, tied to the task it came from with "
+		"`POST /v1/tasks/{ref}/links`.",
 		"",
 		"Read `GET /v1/meta` first: it reports this installation's statuses, item types, "
 		"link types and limits, which are workspace data and are not the same everywhere.",
@@ -289,7 +386,10 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"work that out by being refused.",
 		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
-		"cleared. That distinction is the only way to clear a due date.",
+		"cleared — the only way to clear a date. **The names you write are not the names you "
+		"read:** send `due` and `start`, which accept the whole date grammar; you get back "
+		"`due_at` and `start_at`, which are instants. Sending `due_at` is a 422, because an "
+		"unknown field is refused rather than ignored.",
 		"",
 		# The `refs` topic below is written for somebody at a terminal, and says useful
 		# things an HTTP client does not need — how a shell treats `#`. These are the facts
@@ -312,10 +412,13 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"of them, so pagination does not change. `fields` and `format` cannot be combined. "
 		"`GET /v1/meta` lists the selectable fields and formats per entity.",
 		"",
-		"In prose — a title, a description, a comment — a reference is written `#42`, and "
-		"that is what builds the mention index. The sigil belongs to the *text*: do not put "
-		"it in a URL, where it would have to be escaped, and do not expect it in the `ref` "
-		"field, which is a number.",
+		# "a comment" was in this list before comments had an API, which the rule stated in
+		# this function's docstring forbids: a reader told that references work in comments
+		# would go looking for an endpoint that is not there.
+		"In prose — a title, a description, a document body — a reference is written `#42`, "
+		"and that is what builds the mention index. The sigil belongs to the *text*: do not "
+		"put it in a URL, where it would have to be escaped, and do not expect it in the "
+		"`ref` field, which is a number.",
 		"",
 		"**If you read something, think, and then write it, send the version back.** Put "
 		"`expected_version` in the body or `If-Match: \"<version>\"` in the header, and a "
@@ -326,6 +429,9 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	]
 
 	for topic in subroutine.cli.topics.TOPICS:
+		if topic.name not in GUIDE_TOPICS:
+			continue
+
 		sections.append(f"## {topic.name.capitalize()}")
 		sections.append("")
 		sections.append(topic.summary)
@@ -336,19 +442,17 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	return "\n".join(sections)
 
 
-def _chosen (
-	reachable: typing.Sequence[typing.Any], workspace_id: str | None
-) -> typing.Any:
-	"""Return which workspace's vocabulary to report, or ``None`` when it is ambiguous."""
+def _sole (reachable: typing.Sequence[typing.Any]) -> typing.Any:
+	"""Return the only workspace there is, or ``None`` when the caller must choose.
 
-	if workspace_id is not None:
-		wanted = workspace_id.strip()
+	**The one place in the API that does not refuse an ambiguous workspace**, and deliberately:
+	a client's first call is often this one, before it knows what workspaces there are, so
+	answering "which workspace?" to the request that would have told it is a loop. With several
+	and none named, the vocabulary sections are empty and the ``workspaces`` list is the answer.
 
-		for candidate in reachable:
-			if str(candidate.id) == wanted or candidate.slug == wanted.lower():
-				return candidate
-
-		return None
+	Naming one that does not exist is *not* this case and is refused by the caller, through
+	``domain.selection`` like everything else.
+	"""
 
 	return reachable[0] if len(reachable) == 1 else None
 
@@ -533,3 +637,115 @@ def _grammars () -> dict[str, Grammar]:
 			],
 		),
 	}
+
+#: Worked calls, in the order an agent actually needs them. §13.3 has asked for these since
+#: S3-05 and they did not fit: the guide is capped at 8 KB and orientation had to win. Their own
+#: path is the honest answer — it also means an example can be long enough to be useful, and
+#: that the guide's promises ("a document, linked to the task it came from") have somewhere to
+#: point instead of being unactionable.
+#:
+#: Every ``EXAMPLES`` entry is executed by ``tests/test_api_examples.py`` against a real
+#: application, so a shape here cannot drift from the endpoint. That is the whole reason they
+#: are data rather than prose.
+EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
+	(
+		"What should I work on today, across every workspace at once?",
+		"GET",
+		"/v1/agenda",
+		None,
+	),
+	(
+		"List one workspace's open tasks, cheaply. `format=ids` is ~200x smaller than full.",
+		"GET",
+		"/v1/tasks?format=compact&limit=5",
+		None,
+	),
+	(
+		"Create a task from a line of text — dates, tags, priority and estimate are parsed "
+		"out of it (see the Capture section of /v1/docs/agent).",
+		"POST",
+		"/v1/tasks",
+		{"text": "Research audio devices for 4.0 output on Windows !3 ~2h #audio"},
+	),
+	(
+		"Write down what you concluded. This is where a finding belongs — a comment is what "
+		"happened, a document is what you concluded.",
+		"POST",
+		"/v1/documents",
+		{
+			"title": "Audio device options for 4.0 on Windows",
+			"body": "WASAPI exclusive mode gives 4.0. Realtek drivers refuse it; see #1.",
+			"type": "note",
+		},
+	),
+	(
+		"Tie the document to the task it came from. **`target_type` defaults to `task`**, so "
+		"linking to a document without it is a 404 about a task that does not exist — refs "
+		"are shared between tasks and documents, so this is the easiest mistake to make.",
+		"POST",
+		"/v1/tasks/1/links",
+		{"target": 2, "target_type": "document", "link_type": "derives_from"},
+	),
+	(
+		"Set the day you will do something. Send `planned_for`, `due` or `start` — the names "
+		"you *write*. You read back `due_at` and `start_at`.",
+		"PATCH",
+		"/v1/tasks/1",
+		{"planned_for": "tomorrow"},
+	),
+	(
+		"Clear a date: send it as null. Omitting it would leave it alone (§8.3).",
+		"PATCH",
+		"/v1/tasks/1",
+		{"due": None},
+	),
+	(
+		"Finish it, without needing to know what this installation calls 'done'.",
+		"POST",
+		"/v1/tasks/1/complete",
+		None,
+	),
+)
+
+
+@router.get(
+	"/docs/examples",
+	summary="Worked calls, in the order an agent needs them",
+	response_class=fastapi.responses.PlainTextResponse,
+)
+def agent_examples (actor: subroutine.api.security.PrincipalDep) -> str:
+	"""Return a worked request for each thing an agent most often needs to do.
+
+	Requests only, deliberately. A recorded *response* is a second copy of the view models and
+	would drift the moment a field is added — whereas a request is short, and the endpoint
+	itself is the authority on what comes back. ``tests/test_api_examples.py`` executes every
+	one of these against a real application, so an example that stopped working fails the build.
+	"""
+
+	lines = [
+		"# Subroutine — worked examples",
+		"",
+		"Authenticate every one of these with `Authorization: Bearer sr_…`. Read",
+		"`GET /v1/docs/agent` first for what these are *for*; this file is the shapes.",
+		"",
+		"A `ref` is the small integer in every response. It is unique per workspace, shared",
+		"between tasks and documents, and never reused — so `/v1/tasks/1` and `/v1/tasks/{id}`",
+		"are the same request.",
+		"",
+	]
+
+	for description, method, path, body in EXAMPLES:
+		lines.append(f"## {description}")
+		lines.append("")
+		lines.append("```http")
+		lines.append(f"{method} {path}")
+
+		if body is not None:
+			lines.append("Content-Type: application/json")
+			lines.append("")
+			lines.append(json.dumps(body, indent=2))
+
+		lines.append("```")
+		lines.append("")
+
+	return "\n".join(lines)

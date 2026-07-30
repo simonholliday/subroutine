@@ -11,6 +11,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.seed
 import subroutine.domain.authentication
@@ -81,6 +82,41 @@ def create (
 	normalized = subroutine.domain.text.fit(
 		normalized, field="slug", limit=MAX_SLUG_LENGTH, label="short name"
 	)
+
+	# **A short name must begin with a letter, and this is structural rather than cosmetic.**
+	# §5.4 forces the same on a project key so that `/v1/tasks/42` and `/v1/projects/WEB`
+	# cannot be confused; §13.7 then made a workspace slug the middle segment of
+	# `connection/workspace/ref`, and gave it no equivalent rule. A slug of `2026` reads as a
+	# number wherever an address is written, and `subroutine use 2026` is a sentence nobody can
+	# parse at a glance.
+	if not normalized[0].isascii() or not normalized[0].isalpha():
+		raise subroutine.errors.ValidationError(
+			"A workspace's short name has to start with a letter.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="invalid_field_value",
+					message=f"{normalized!r} starts with {normalized[0]!r}.",
+					hint="A short name is part of an address — 'work/acme/42' — so it must not "
+					"read as a number. Try 'acme' or 'q3-planning'.",
+				)
+			],
+		)
+
+	if subroutine.addressing.is_reserved_workspace_word(normalized):
+		raise subroutine.errors.ValidationError(
+			f"{normalized!r} cannot be a workspace's short name.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="invalid_field_value",
+					message=f"{normalized!r} is reserved, because it means something else in "
+					"an address or a command.",
+					hint="Reserved short names: "
+					f"{', '.join(sorted(subroutine.addressing.RESERVED_WORKSPACE_WORDS))}.",
+				)
+			],
+		)
 
 	if _slug_taken(session, normalized):
 		raise subroutine.errors.Conflict(

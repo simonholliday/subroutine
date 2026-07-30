@@ -22,6 +22,7 @@ import types
 import typing
 
 import httpx
+import pydantic
 
 import subroutine.clients.base
 import subroutine.connections
@@ -30,6 +31,9 @@ import subroutine.db.types
 import subroutine.domain.capture
 import subroutine.errors
 import subroutine.views
+
+#: Any view model this client parses a response into.
+Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 
 #: What a problem document is served as. Anything else with a failing status is a proxy, a
 #: load balancer or a captive portal answering instead of the instance — worth saying so,
@@ -83,15 +87,24 @@ class Client:
 		"""
 
 		body = self._json("GET", "/v1/meta")
+
+		# `workspaces` is *required*, not defaulted. Reading a missing key as an empty list
+		# turned a wrong-shaped 200 — a captive portal, a JSON-serving proxy, a typo'd url —
+		# into a reachable, un-initialised, empty instance: no failure line, no duplicate-id
+		# refusal, and a listing that was silently short. §13.7's contract is that a partial
+		# view announces itself.
+		if "workspaces" not in body:
+			raise self._not_an_instance("its /v1/meta response has no 'workspaces'")
+
 		instance = body.get("instance")
 
 		return subroutine.clients.base.Identity(
 			instance=(
-				None if instance is None else subroutine.views.Instance.model_validate(instance)
+				None if instance is None else self._parsed(subroutine.views.Instance, instance)
 			),
 			workspaces=tuple(
-				subroutine.views.WorkspaceRef.model_validate(item)
-				for item in body.get("workspaces", [])
+				self._parsed(subroutine.views.WorkspaceRef, item)
+				for item in body["workspaces"]
 			),
 		)
 
@@ -116,7 +129,7 @@ class Client:
 			),
 		)
 
-		return subroutine.views.Agenda.model_validate(body)
+		return self._parsed(subroutine.views.Agenda, body)
 
 	def tasks (
 		self,
@@ -137,9 +150,10 @@ class Client:
 			),
 		)
 
-		return [
-			subroutine.views.Task.model_validate(item) for item in body.get("items", [])
-		]
+		if "items" not in body:
+			raise self._not_an_instance("its /v1/tasks response has no 'items'")
+
+		return [self._parsed(subroutine.views.Task, item) for item in body["items"]]
 
 	def task (
 		self, *, ref: int, workspace: str | None = None
@@ -155,7 +169,7 @@ class Client:
 		if response.status_code == 404:
 			return None
 
-		return subroutine.views.Task.model_validate(self._read(response))
+		return self._parsed(subroutine.views.Task, self._read(response))
 
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
@@ -175,6 +189,8 @@ class Client:
 		every ``subroutine add``.
 		"""
 
+		self._refuse_if_read_only()
+
 		body = self._json(
 			"POST",
 			"/v1/tasks",
@@ -182,7 +198,7 @@ class Client:
 		)
 
 		return subroutine.clients.base.Captured(
-			task=subroutine.views.Task.model_validate(body),
+			task=self._parsed(subroutine.views.Task, body),
 			unparsed=subroutine.domain.capture.parse(
 				text, now=subroutine.db.types.utcnow()
 			).unparsed,
@@ -193,11 +209,13 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Mark a task finished."""
 
+		self._refuse_if_read_only()
+
 		body = self._json(
 			"POST", f"/v1/tasks/{ref}/complete", params=_given(workspace_id=workspace)
 		)
 
-		return subroutine.views.Task.model_validate(body)
+		return self._parsed(subroutine.views.Task, body)
 
 	def schedule (
 		self,
@@ -214,6 +232,8 @@ class Client:
 		anything being invented in between.
 		"""
 
+		self._refuse_if_read_only()
+
 		changes: dict[str, typing.Any] = {}
 
 		if planned_for is not subroutine.clients.base.UNSET:
@@ -229,7 +249,7 @@ class Client:
 			json=changes,
 		)
 
-		return subroutine.views.Task.model_validate(body)
+		return self._parsed(subroutine.views.Task, body)
 
 	def close (self) -> None:
 		"""Give back the pooled connections."""
@@ -252,6 +272,60 @@ class Client:
 		self.close()
 
 	# --- Inside ------------------------------------------------------------------------
+
+	def _parsed (self, model: type[Parsed], body: typing.Any) -> Parsed:
+		"""Read one object into a view model, or say the instance answered something else.
+
+		**Every parse on this client goes through here, and that is the point.**
+		``model_validate`` raises :class:`pydantic.ValidationError`, which is not a
+		:class:`~subroutine.errors.SubroutineError` — so it escaped ``fanout._attempt`` (which
+		catches only those, deliberately) and took down the *whole* fan-out. One instance on a
+		mismatched version, one typo'd url or one JSON-serving proxy replaced a person's entire
+		agenda, including the local half sitting on the same machine, with a traceback.
+
+		Reported as ``service_unavailable`` rather than as a bad request, because that is the
+		truth: the request was fine and the thing that answered is not an instance this client
+		can talk to.
+		"""
+
+		try:
+			return model.model_validate(body)
+
+		except pydantic.ValidationError as error:
+			# The first error names the field, which is the useful half. The whole report is
+			# hundreds of lines for a wrong-shaped response and would bury the connection name.
+			reported = error.errors()
+			where = (
+				".".join(str(part) for part in reported[0]["loc"]) if reported else ""
+			) or "the body"
+			why = reported[0]["msg"] if reported else "unexpected shape"
+
+			raise self._not_an_instance(
+				f"{model.__name__} could not be read from its response ({where}: {why})"
+			) from None
+
+	def _not_an_instance (self, because: str) -> subroutine.errors.SubroutineError:
+		"""Return the failure for a server that answered, but not as an instance."""
+
+		return subroutine.errors.ServiceUnavailable(
+			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
+			hint=f"Check what is serving {self.connection.url} — a proxy, a captive portal or "
+			"an instance on a different API version will answer like this.",
+		)
+
+	def _refuse_if_read_only (self) -> None:
+		"""Refuse a write to a connection configured read-only, before the request leaves.
+
+		**This is the transport the setting exists for**, and it had no check at all until
+		2026-07-30 — `read_only = true` on an employer's instance accepted `subroutine add`,
+		while the local connection, where the setting is nearly pointless, enforced it. §13.7
+		calls this a client-side control precisely because the company's server cannot be asked
+		to arrange it on the agent-owner's behalf, so a client that does not enforce it is the
+		whole feature missing.
+		"""
+
+		if self.connection.read_only:
+			subroutine.clients.base.refuse_a_write(self.connection)
 
 	def _json (self, method: str, path: str, **options: typing.Any) -> dict[str, typing.Any]:
 		"""Make one request and return the object it answered with."""
@@ -338,7 +412,7 @@ def _given (**values: typing.Any) -> dict[str, typing.Any]:
 def opened (
 	connection: subroutine.connections.Connection,
 	*,
-	default_connection: str | None = None,
+	default_connection: str,
 	transport: httpx.BaseTransport | None = None,
 	base_url: str | None = None,
 ) -> Client:

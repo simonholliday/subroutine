@@ -39,19 +39,24 @@ which you should before opening a pull request — you need a PostgreSQL you can
 databases on:
 
 ```console
-$ export SUBROUTINE_TEST_POSTGRES_URL=postgresql+psycopg://localhost/postgres
+$ export SUBROUTINE_TEST_POSTGRES_ADMIN_URL=postgresql+psycopg:///postgres
 $ pytest
 ```
 
-Without that variable the PostgreSQL half of the suite skips, so a laptop without
-PostgreSQL can still run the tests. In CI, `SUBROUTINE_TEST_REQUIRE_POSTGRES=1` turns
-those skips into failures — a green build there means both backends really ran.
+That variable is only needed if your server is somewhere other than the default, which is
+a local Unix socket (`postgresql+psycopg:///postgres`) — the suite tries PostgreSQL without
+being asked. If it cannot be reached, that half of the suite **skips**, so a laptop without
+PostgreSQL can still run the tests. In CI, `SUBROUTINE_TEST_REQUIRE_POSTGRES=1` turns those
+skips into failures — a green build there means both backends really ran.
+
+Each run creates and drops its own database, named with a random suffix, so two `pytest`
+processes on one machine do not destroy each other's schema.
 
 Before pushing:
 
 ```console
 $ ruff check .
-$ mypy src tests
+$ mypy src tests scripts
 $ pytest
 ```
 

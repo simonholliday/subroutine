@@ -45,6 +45,7 @@ import typing
 
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.workspaces
 import subroutine.errors
 
 #: Where the stored context lives. Under ``STATE_HOME`` rather than the data directory: XDG
@@ -154,10 +155,15 @@ def resolve (
 		(stored.get("workspace") if stored.get("connection") == chosen else None, FROM_STORED),
 	)
 
+	# **Both halves are normalised, and not doing so was a §13.5b regression.** `Roster.find`
+	# and `Identity.workspace` both match case-insensitively, so `use PERSONAL` and `-c LOCAL`
+	# *resolved* — and then `World.address_of` compared the stored text against the canonical
+	# slug, failed, and qualified every address on a one-workspace installation. A
+	# capitalisation turned on labelling where there was nothing to disambiguate.
 	return Current(
-		connection=chosen,
+		connection=roster.require(chosen).name,
 		connection_source=source,
-		workspace=wanted,
+		workspace=None if wanted is None else subroutine.domain.workspaces.normalize_slug(wanted),
 		workspace_source=workspace_source if wanted is not None else FROM_NOTHING,
 	)
 

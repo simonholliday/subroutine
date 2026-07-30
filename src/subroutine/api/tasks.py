@@ -24,6 +24,7 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
+import subroutine.api.query
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
@@ -33,7 +34,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
-import subroutine.domain.patch
+import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.scoping
@@ -212,6 +213,9 @@ def create (
 @router.get(
 	"",
 	summary="List tasks",
+	# Refuses a query parameter this endpoint does not declare (SPEC.md §8.1). On a
+	# listing an ignored `fields` costs the caller the whole object.
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Task],
 )
 def listing (
@@ -232,7 +236,14 @@ def listing (
 	order: str | None = fastapi.Query(
 		None, description="Comma-separated sort fields, '-' for descending: '-importance,due_at'."
 	),
-	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
+	limit: int | None = fastapi.Query(
+		None,
+		# **No `ge=1` here, deliberately.** `domain.paging.size` is the one arbiter, so that
+		# this endpoint and the local client refuse an impossible page identically — with
+		# `limit` as the field, not FastAPI's `query.limit`. Two copies of the rule produced
+		# two different refusals for the same mistake.
+		description="How many to return. At least 1; capped at the instance's max_page_size.",
+	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(
 		False, description="Count the whole result. Costs a second scan; off by default."
@@ -560,7 +571,9 @@ def _page (
 		default=DEFAULT_ORDER,
 		tiebreak=subroutine.db.models.work.Task.id,
 	)
-	size = min(limit or settings.default_page_size, settings.max_page_size)
+	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# transports disagreed about limit until 2026-07-30 because each had its own copy.
+	size = subroutine.domain.paging.size(limit, settings)
 	total = None
 
 	if include_total:

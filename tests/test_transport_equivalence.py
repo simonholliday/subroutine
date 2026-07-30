@@ -17,6 +17,8 @@ NULL ordering and datetime awareness — are invisible on one of them.
 """
 
 import datetime
+import subprocess
+import sys
 import typing
 import uuid
 
@@ -160,6 +162,77 @@ def test_both_list_the_same_rows_in_the_same_order (pair: Pair) -> None:
 	]
 
 
+def test_both_honour_the_same_page_size (pair: Pair) -> None:
+	"""Equivalence over the *parameters*, not just the methods.
+
+	This is where the claim was actually false. `local.tasks(limit=1000)` returned every row
+	and `remote.tasks(limit=1000)` returned `max_page_size`, because each side had its own copy
+	of "how big is a page" — and the test above compares default arguments only, so it could not
+	notice. Both now go through `domain.paging.size`.
+	"""
+
+	settings = subroutine.config.Settings(dev_mode=True)
+	beyond = settings.max_page_size + 5
+
+	for index in range(beyond):
+		make(pair, f"Task number {index}")
+
+	local, remote = pair.both()
+
+	assert len(local.tasks(limit=beyond)) == settings.max_page_size
+	assert local.tasks(limit=beyond) == remote.tasks(limit=beyond)
+	assert local.tasks(limit=3) == remote.tasks(limit=3)
+	assert len(local.tasks(limit=3)) == 3
+
+
+@pytest.mark.parametrize("refused", [0, -1])
+def test_both_refuse_a_page_size_nothing_could_honour (pair: Pair, refused: int) -> None:
+	"""And they refuse it the same way, rather than one guessing.
+
+	`limit=-1` meant *no limit* on SQLite and raised a bare ``DataError`` on PostgreSQL — a
+	non-``SubroutineError`` that escaped the fan-out's containment, so one bad flag took down
+	every connection. `limit=0` quietly meant "the default".
+	"""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(limit=refused)
+
+		assert raised.value.errors[0].field == "limit"
+
+
+def test_both_span_completed_tasks_the_same_way (pair: Pair) -> None:
+	"""The HTTP client spells this parameter itself, and nothing compared the two spellings."""
+
+	created = make(pair, "Finish this one")
+	local, remote = pair.both()
+	local.complete(ref=created.ref)
+
+	assert local.tasks() == remote.tasks() == []
+	assert local.tasks(include_completed=True) == remote.tasks(include_completed=True)
+	assert len(local.tasks(include_completed=True)) == 1
+
+
+def test_both_take_a_named_workspace_the_same_way (pair: Pair) -> None:
+	"""`workspace=` was never passed to any method by any equivalence test."""
+
+	created = make(pair, "In the named workspace")
+	slug = pair.workspace.slug
+	local, remote = pair.both()
+
+	assert local.tasks(workspace=slug) == remote.tasks(workspace=slug)
+	assert local.task(ref=created.ref, workspace=slug) == remote.task(
+		ref=created.ref, workspace=slug
+	)
+
+	# And an unknown one is refused identically, rather than answered emptily by one of them.
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.tasks(workspace="no-such-workspace")
+
+
 def test_both_return_the_same_agenda (pair: Pair) -> None:
 	"""Four buckets, a date, a zone and a total, all resolved the same way."""
 
@@ -282,27 +355,98 @@ def test_a_remote_refusal_keeps_its_field_errors (pair: Pair) -> None:
 	] == ["title"]
 
 
-def test_a_read_only_connection_refuses_a_write_before_it_leaves (
-	session: sqlalchemy.orm.Session,
+@pytest.mark.parametrize("transport", ["local", "remote"])
+def test_a_read_only_connection_refuses_every_write_before_it_leaves (
+	session: sqlalchemy.orm.Session, transport: str
 ) -> None:
 	"""Client-side enforcement, which is the only place it can be (§13.7).
 
 	Pointing an agent at a company instance for context while forbidding it to write there
 	is a reasonable posture, and it is not one the company's server can arrange on the
 	agent-owner's behalf.
+
+	**Parameterised over both transports, because it was not.** This test existed, passed, and
+	exercised the *local* client — where the setting is nearly pointless — while its own
+	docstring described the remote case. The HTTP client had no check at all, so a
+	``read_only = true`` employer's instance accepted ``subroutine add``. A true assertion that
+	proved nothing, which is the failure mode the slice-2 review was written about.
 	"""
 
-	subroutine.domain.bootstrap.initialise(
+	setup = subroutine.domain.bootstrap.initialise(
 		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
 	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Read only"
+	)
+	session.flush()
 
-	client = subroutine.clients.local.Client(
-		subroutine.connections.Connection(name="local", read_only=True),
-		subroutine.config.Settings(dev_mode=True),
-		session_factory=api_support.factory_for(session),
+	factory = api_support.factory_for(session)
+	client: subroutine.clients.base.Client
+
+	if transport == "local":
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local", read_only=True),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=factory,
+		)
+
+	else:
+		client = subroutine.clients.http.Client(
+			subroutine.connections.Connection(
+				name="work", url="https://employer.example.com", read_only=True
+			),
+			token=issued.value.get_secret_value(),
+			transport=api_support.SyncTransport(api_support.build_app(factory)),
+			base_url=api_support.BASE_URL,
+		)
+
+	with client:
+		# Every write, not just the first. A check added to `capture` alone would leave the
+		# other two open, and nothing would say so.
+		for attempt in (
+			lambda: client.capture(text="This should not be written"),
+			lambda: client.complete(ref=1),
+			lambda: client.schedule(ref=1, planned_for=datetime.date(2026, 8, 3)),
+		):
+			with pytest.raises(subroutine.errors.Forbidden) as raised:
+				attempt()
+
+			assert "read-only" in raised.value.detail
+
+	# And nothing was written by any of them.
+	assert (
+		session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(
+				subroutine.db.models.work.Task
+			)
+		)
+		== 0
 	)
 
-	with client, pytest.raises(subroutine.errors.Forbidden) as raised:
-		client.capture(text="This should not be written")
 
-	assert "read-only" in raised.value.detail
+def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
+	"""The invariant the whole `views.py` move exists for, held by a test rather than by prose.
+
+	`views.py` was moved out of the `api` package so both clients could return the same objects.
+	Nothing enforced the other half of that — that importing it costs a CLI nothing — and the
+	rule was stated twice in docstrings and checked nowhere. Measured: `import fastapi` is 0.23s
+	and 371 modules against a 0.50s CLI start, so a regression makes every `subroutine add`
+	roughly 45% slower and changes no test result.
+
+	Run in a subprocess because the suite itself imports FastAPI, so `sys.modules` in *this*
+	process can never answer the question.
+	"""
+
+	probe = (
+		"import sys; import subroutine.views, subroutine.cli.main; "
+		"bad = sorted(n for n in sys.modules if n.split('.')[0] in {'fastapi', 'starlette'}); "
+		"print('|'.join(bad))"
+	)
+	done = subprocess.run(
+		[sys.executable, "-c", probe], capture_output=True, text=True, check=True
+	)
+
+	assert done.stdout.strip() == "", (
+		"importing subroutine.views or the CLI now loads a web framework: "
+		f"{done.stdout.strip()}"
+	)

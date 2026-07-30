@@ -258,3 +258,51 @@ def test_a_project_scoped_token_sees_only_its_own_subtree (
 	visible = {item["key"] for item in scoped.call("GET", "/v1/projects").json()["items"]}
 
 	assert visible == {"WEB", "API"}, "the scope carries the subtree and stops at it"
+
+
+def test_a_move_with_no_parent_is_refused_rather_than_flattening_the_tree (
+	world: test_api_tasks.World,
+) -> None:
+	"""``POST /v1/projects/web/move {}`` used to reparent the project *and its subtree* to root.
+
+	`Move.parent` defaults to `None` and the handler read it directly, so an omitted field and
+	an explicit `null` were indistinguishable — the one mutating site in the API that did not
+	use `model_fields_set`, twenty lines below its own docstring saying it must. A move rewrites
+	the materialised path of every descendant and there is no undo, so this is the worst place
+	in the API for §8.3's distinction to be missing.
+	"""
+
+	parent = world.call(
+		"POST", "/v1/projects", json={"key": "TOP", "title": "Top"}
+	).json()
+	child = world.call(
+		"POST", "/v1/projects", json={"key": "MID", "title": "Middle", "parent": "TOP"}
+	).json()
+
+	assert child["parent_id"] == parent["id"]
+
+	refused = world.call("POST", "/v1/projects/MID/move", json={})
+
+	assert refused.status_code == 422
+	assert refused.json()["code"] == "missing_field"
+	assert refused.json()["errors"][0]["field"] == "parent"
+
+	# Nothing moved.
+	assert world.call("GET", "/v1/projects/MID").json()["parent_id"] == parent["id"]
+
+
+def test_an_explicit_null_parent_still_makes_a_project_a_root (
+	world: test_api_tasks.World,
+) -> None:
+	"""The distinction §8.3 asks for cuts both ways: saying `null` must still work."""
+
+	world.call("POST", "/v1/projects", json={"key": "TOP2", "title": "Top"})
+	world.call(
+		"POST", "/v1/projects", json={"key": "MID2", "title": "Middle", "parent": "TOP2"}
+	)
+
+	moved = world.call("POST", "/v1/projects/MID2/move", json={"parent": None})
+
+	assert moved.status_code == 200
+	assert moved.json()["parent_id"] is None
+	assert moved.json()["depth"] == 0

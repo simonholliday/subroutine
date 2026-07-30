@@ -53,11 +53,11 @@ DEFAULT_VARIABLE = "SUBROUTINE_TOKEN"
 _UNSAFE = re.compile(r"[^A-Za-z0-9]")
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, repr=False)
 class Resolved:
 	"""One connection's token, and which of the four places supplied it.
 
-	``source`` exists for ``subroutine doctor``, which reports where each token came from
+	``source`` exists for ``subroutine connections``, which reports where each token came from
 	*without printing any of them*. The standing footgun in comparable tooling is not having
 	several sources but not knowing which one won.
 	"""
@@ -70,6 +70,17 @@ class Resolved:
 		"""Report whether there is a token at all."""
 
 		return self.token is not None
+
+	def __repr__ (self) -> str:
+		"""Describe this without the secret in it.
+
+		The generated ``__repr__`` printed the token. Nothing called it, which is exactly why it
+		was worth removing: a live local in two ``opened`` functions reaches any
+		traceback-with-locals renderer, ``pytest -l``, or a debug log — and this module's whole
+		purpose is that the token is never written down anywhere.
+		"""
+
+		return f"Resolved(token={'<set>' if self.found else None}, source={self.source!r})"
 
 
 def credentials_file_path () -> pathlib.Path:
@@ -85,7 +96,10 @@ def variable_for (name: str) -> str:
 
 
 def resolve (
-	connection: subroutine.connections.Connection, *, default_connection: str | None = None
+	connection: subroutine.connections.Connection,
+	*,
+	default_connection: str,
+	describe_only: bool = False,
 ) -> Resolved:
 	"""Find one connection's token, in §12.3a's order, first hit winning.
 
@@ -95,6 +109,12 @@ def resolve (
 	2. ``token_env`` on the connection, naming a variable explicitly.
 	3. ``token_command`` on the connection: a command whose standard output is the token.
 	4. The connection's entry in ``credentials.toml``.
+
+	``describe_only`` answers *where* the token would come from without fetching it, which is
+	all ``subroutine connections`` needs. Without it, listing connections spawned every
+	``token_command`` — ``pass show``, ``gpg`` — purely to build a string it already had the
+	ingredients for: an informational, read-only command that could prompt for a passphrase and
+	block for thirty seconds per connection.
 
 	Returns a :class:`Resolved` with ``token=None`` when there is none anywhere, rather than
 	refusing. **The local connection legitimately has no token** — the filesystem permission
@@ -107,7 +127,11 @@ def resolve (
 	if specific:
 		return Resolved(token=specific, source=variable_for(connection.name))
 
-	if connection.name == (default_connection or subroutine.connections.LOCAL_NAME):
+	# **Required, not defaulted.** It fell back to `"local"`, which is wrong exactly when
+	# `local` is not the default — and `connections._default_name` returns the first declared
+	# connection whenever `local` is turned off. The bare `SUBROUTINE_TOKEN` would then have
+	# been offered to the local database instead of to the remote it was set for.
+	if connection.name == default_connection:
 		general = os.environ.get(DEFAULT_VARIABLE)
 
 		if general:
@@ -130,7 +154,7 @@ def resolve (
 
 	if connection.token_command is not None:
 		return Resolved(
-			token=_from_command(connection),
+			token=None if describe_only else _from_command(connection),
 			source=f"{connection.token_command!r} (token_command)",
 		)
 
@@ -269,7 +293,7 @@ def store (name: str, token: str) -> pathlib.Path:
 
 	lines = [
 		"# Subroutine credentials. Keep this file private and out of any repository.",
-		"# See 'subroutine doctor' for which token each connection is using.",
+		"# See 'subroutine connections' for which token each connection is using.",
 	]
 
 	for key in sorted(tokens):
@@ -298,7 +322,7 @@ def permission_warning () -> str | None:
 
 	``ssh`` refuses a private key with loose permissions outright. This warns instead,
 	because the consequence of refusing is that a person cannot see their own to-do list —
-	and their tasks are not their SSH key. It is reported by ``subroutine doctor`` and by any
+	and their tasks are not their SSH key. It is reported by ``subroutine connections`` and by any
 	command that actually reads a token from the file.
 	"""
 

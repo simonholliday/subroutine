@@ -15,6 +15,7 @@ import datetime
 import fastapi
 
 import subroutine.api.dependencies
+import subroutine.api.query
 import subroutine.api.security
 import subroutine.db.types
 import subroutine.domain.agenda
@@ -26,7 +27,11 @@ import subroutine.views
 router = fastapi.APIRouter(prefix="/v1", tags=["agenda"])
 
 
-@router.get("/agenda", summary="What am I doing today?")
+@router.get(
+	"/agenda",
+	summary="What am I doing today?",
+	dependencies=[subroutine.api.query.UnknownQueryDep],
+)
 def read (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,

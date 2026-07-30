@@ -89,6 +89,11 @@ markers = [
 filterwarnings = ["error"]
 
 [tool.coverage.run]
+# The data file is a SQLite database, and this working tree lives on a CIFS share where
+# SQLite cannot take a lock — so without this, `pytest --cov` does not degrade, it dies with
+# `INTERNALERROR sqlite3.OperationalError: database is locked`. The same trap as `mypy`'s
+# `cache_dir` above, and it meant the plan's >=90% coverage gate had never once been measured.
+data_file = "/tmp/subroutine-coverage"
 branch = true
 source = ["subroutine"]
 

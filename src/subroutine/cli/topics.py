@@ -68,16 +68,21 @@ def _dates_body () -> str:
 
 Most tasks use one of them. Many use none.
 
-Ways to write a date:
+Ways to write a date. **Everything below works at the command line and in a
+captured line; the ones marked (api) are also accepted in a `due`, `start` or
+`planned_for` field over HTTP.** A weekday name is shorthand this tool resolves
+for you, so `subroutine plan 1 friday` works while `{{"due": "friday"}}` is
+refused — send `2026-07-31` or `end_of_week` there instead. /v1/meta publishes
+the exact list the API takes, under grammars.relative_dates.
 
   a weekday      {weekdays}
                  — or mon, tue, wed, thu, fri, sat, sun
                  — the soonest such day, counting today
   next <weekday> the one in the following week
-  today, tomorrow
-  a date         2026-08-01
-  a time         2026-08-01T17:00:00Z
-  an expression  {keywords}
+  today, tomorrow                                              (api)
+  a date         2026-08-01                                    (api)
+  a time         2026-08-01T17:00:00Z                          (api)
+  an expression  {keywords}                                    (api)
                  with offsets: now+7d, end_of_week-1d, today+1w
 
 Offset units are m minutes, h hours, d days, w weeks, M months, y years.
@@ -121,7 +126,8 @@ def _capture_body () -> str:
 Rules worth knowing:
 
   Nothing is ever lost. 'Email Bob re: 3pm' stays exactly as typed, because
-  none of it is grammar. So does 'Fix issue #12' — a tag starts with a letter.
+  none of it is grammar. So does 'Fix issue #12': a reference is *entirely*
+  digits and a tag is anything else, so #12 is item 12 and #3d-printing is a tag.
 
   An estimate needs a unit ({units}), so '~5 people' is not five minutes.
 

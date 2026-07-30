@@ -14,6 +14,7 @@ import contextlib
 import json
 import os
 import pathlib
+import re
 import socket
 import subprocess
 import sys
@@ -22,6 +23,7 @@ import typing
 
 import httpx
 import pytest
+import sqlalchemy
 import typer.testing
 
 import subroutine.cli.main
@@ -531,3 +533,144 @@ def test_issuing_a_second_token_for_one_agent_reuses_the_account (
 	again = run("token", "create", "--service-account", "claude")
 
 	assert "Created service account" not in again.output
+
+
+def test_a_scoped_token_cannot_mint_itself_a_wider_one (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The privilege escalation this file exists to prevent recurring.
+
+	`token create` resolved the operator with no token at all, so an agent holding a credential
+	scoped to `task:read` could not add a task and *could* mint itself an unrestricted one — it
+	was authorised as the sole human, which after `init` is a superuser. Two commands defeated
+	§7.4's whole least-privilege model, and §12.1a's promise that "the check runs in local mode
+	exactly as it runs over HTTP" was false for the one command that hands out authority.
+	"""
+
+	run("init")
+
+	issued = run("token", "create", "--service-account", "claude", "--scope", "task:read")
+	narrow = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", narrow)
+
+	# The baseline: this token cannot write, and says so usefully.
+	refused = run("add", "agent writing", expect=1)
+
+	assert "task:write" in refused.output
+
+	# And it cannot route around that by issuing itself a better one.
+	escalation = run("token", "create", "--title", "escalated", expect=1)
+
+	assert "cannot grant more" in escalation.output
+	assert "task:read" in escalation.output, "and it says what the presented token allows"
+	assert not re.search(r"sr_[0-9a-f]{8}_", escalation.output), "no credential was printed"
+
+	# The legitimate case still works: same scopes, or fewer.
+	narrower = run("token", "create", "--title", "fine", "--scope", "task:read")
+
+	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
+
+
+def test_a_service_account_token_actually_works_over_http (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The role a service account is given has to grant what the CLI claims it does.
+
+	This was asserted by string-matching the word "contributor" in the command's own output —
+	a true assertion that proved nothing. An account with no usable membership authenticates
+	and can do nothing, which reads as a broken token rather than a missing role.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	issued = run("token", "create", "--service-account", "claude")
+	token = next(word for word in issued.output.split() if word.startswith("sr_"))
+	port = free_port()
+
+	server = subprocess.Popen(
+		[sys.executable, "-m", "subroutine", "serve", "--port", str(port)],
+		env={
+			**os.environ,
+			"XDG_CONFIG_HOME": str(home / "xdg_config_home"),
+			"XDG_DATA_HOME": str(home / "xdg_data_home"),
+			"XDG_STATE_HOME": str(home / "xdg_state_home"),
+		},
+		stdout=subprocess.PIPE,
+		stderr=subprocess.STDOUT,
+		text=True,
+	)
+	url = f"http://127.0.0.1:{port}"
+
+	try:
+		_await(server, url)
+		headers = {"authorization": f"Bearer {token}"}
+
+		created = httpx.post(
+			f"{url}/v1/tasks", json={"text": "written by the agent"}, headers=headers
+		)
+
+		assert created.status_code == 201, created.text
+		assert created.json()["title"] == "written by the agent"
+
+		# And it can read back what it wrote, which needs the read half of the role too.
+		assert httpx.get(f"{url}/v1/tasks", headers=headers).status_code == 200
+
+	finally:
+		server.terminate()
+
+		try:
+			server.communicate(timeout=10)
+
+		except subprocess.TimeoutExpired:
+			server.kill()
+			server.communicate()
+
+
+def test_a_token_is_never_issued_against_an_unusable_credentials_file (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`--store` committed the token before it could store or print it.
+
+	With a malformed `credentials.toml`, the command died with a traceback after `commit()` —
+	leaving a live, unrevoked credential whose secret was never displayed and cannot be
+	recovered, because only a hash is kept (§7.4). Every retry made another orphan.
+	"""
+
+	run("init")
+
+	broken = home / "xdg_config_home" / "subroutine" / "credentials.toml"
+	broken.parent.mkdir(parents=True, exist_ok=True)
+	broken.write_text("[work\ntoken =\n", encoding="utf-8")
+
+	result = run("token", "create", "--store", "work", expect=1)
+
+	assert "not valid TOML" in result.output
+	assert not re.search(r"sr_[0-9a-f]{8}_", result.output), "nothing was printed"
+
+	# The refusal happened before anything was issued.
+	assert _tokens_in(home) == 0, "a credential was minted and stranded"
+
+
+def _tokens_in (home: pathlib.Path) -> int:
+	"""Count the credentials in the installation under this temporary home."""
+
+	path = home / "xdg_data_home" / "subroutine" / "subroutine.db"
+
+	if not path.exists():
+		return 0
+
+	engine = sqlalchemy.create_engine(f"sqlite:///{path}")
+
+	try:
+		with engine.connect() as connection:
+			return int(
+				connection.execute(
+					sqlalchemy.text("select count(*) from api_token")
+				).scalar_one()
+			)
+
+	finally:
+		engine.dispose()

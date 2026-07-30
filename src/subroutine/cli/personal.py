@@ -362,10 +362,35 @@ def register (
 		if found is not None:
 			return Located(connection=named[0].name, workspace=named[1], task=found)
 
+		# Not in the place the address named. Ask everywhere else before giving up, so the
+		# refusal can say where it *is* — the docstring above promised this and the code did
+		# not do it, which is the documented-but-absent shape this project keeps meeting.
+		# Only for a *bare* number: if the caller named a workspace, they meant that one.
+		elsewhere = (
+			[]
+			if address.workspace is not None or address.connection is not None
+			else [item for item in _everywhere(world, address.ref) if item.workspace != named[1]]
+		)
+
+		if not elsewhere:
+			stop(
+				f"There is no task {subroutine.domain.refs.format_ref(address.ref)} in "
+				f"{named[1]}.",
+				"Run 'subroutine ls' to see what there is.",
+			)
+
+		shown = [_absolute(world, item) for item in elsewhere]
+		width = max(len(text) for text in shown)
+		listed = "\n".join(
+			f"    {text:>{width}}  {item.task.title}"
+			for text, item in zip(shown, elsewhere, strict=True)
+		)
+
 		stop(
-			f"There is no task {subroutine.domain.refs.format_ref(address.ref)} in "
-			f"{named[1]}.",
-			"Run 'subroutine ls' to see what there is.",
+			f"There is no {subroutine.domain.refs.format_ref(address.ref)} in {named[1]}, "
+			f"but there is one here:\n{listed}",
+			f"Say which — 'subroutine done "
+			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
 		)
 
 	def _named_place (
@@ -487,15 +512,25 @@ def register (
 		text = " ".join(words or [])
 
 		if not text.strip():
-			# A required-argument error is a dead end where a question would do (§12.2a).
-			text = typer.prompt("What do you need to do?")
+			# A required-argument error is a dead end where a question would do (§12.2a) — but
+			# the question goes to **stderr**, because `typer.prompt` echoes to stdout by
+			# default and `add --json` then emitted `What do you need to do?: {…}`, which is not
+			# JSON. The scripted path is the agent's path, and `topics.py` advertises it.
+			text = typer.prompt("What do you need to do?", err=True)
 
 		with opened() as world:
 			where = world.writing_to()
 			captured = where.client.capture(text=text, workspace=_writing_workspace(world))
 
 			if json_output:
-				say(json.dumps(_as_json(world, where.name, captured.task), indent=2))
+				# `unparsed` is carried on the scripted path too. §6.13 requires the caller to
+				# be told what the grammar declined to read, and the human was while the agent
+				# was not — which is backwards, since the agent is the caller most likely to
+				# have written something it believes was understood.
+				body = _as_json(world, where.name, captured.task)
+				body["unparsed"] = list(captured.unparsed)
+
+				say(json.dumps(body, indent=2))
 
 				return
 
@@ -582,7 +617,7 @@ def register (
 
 			_report(world, gathered.failures)
 
-			rows = [row for answer in gathered.answers for row in answer.value]
+			rows = _merged(gathered)
 
 			if json_output:
 				say(json.dumps([_as_json(world, name, task) for name, task in rows], indent=2))
@@ -702,12 +737,20 @@ def register (
 				_acted(
 					world,
 					dataclasses.replace(located, task=changed),
-					f"Hidden until {_render_date(changed.start_at, world.settings.default_timezone)}",
+					# The *task's* zone, like every other instant this program renders.
+					# `start_at` is midnight where the task lives, so re-reading it in a
+					# westward client zone named the day before the one that was asked for.
+					f"Hidden until {_render_date(changed.start_at, changed.timezone)}",
 				)
 			)
 			_suggest(console, "subroutine today")
 
-	@app.command()
+	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
+	# are the full model's vocabulary — a workspace, an instance — and somebody with one
+	# database and one workspace has no use for either. Both stay fully documented, fully
+	# callable and fully discoverable through `--help` on themselves; they are simply not in
+	# the way of the six commands §12.2 puts first.
+	@app.command(hidden=not _worth_showing(settings))
 	def use (
 		where: str = typer.Argument("", help="A workspace, or 'connection/workspace'."),
 		reset: bool = typer.Option(
@@ -758,7 +801,7 @@ def register (
 			say("")
 			_suggest(console, "subroutine today")
 
-	@app.command()
+	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:
 		"""List the instances this reaches, and where each one's token came from.
 
@@ -801,7 +844,7 @@ def register (
 
 		try:
 			token = subroutine.credentials.resolve(
-				connection, default_connection=roster.default
+				connection, default_connection=roster.default, describe_only=True
 			).source
 
 		except subroutine.errors.SubroutineError as error:
@@ -1012,7 +1055,8 @@ def _asked (given: str, question: str) -> str:
 	if given.strip():
 		return given
 
-	answer: str = typer.prompt(question)
+	# To stderr, so that a `--json` reader on stdout is never handed a prompt (see `add`).
+	answer: str = typer.prompt(question, err=True)
 
 	return answer
 
@@ -1040,12 +1084,20 @@ def _render (
 	)
 	rows: dict[str, list[tuple[str, subroutine.views.Task]]] = {}
 
-	for answer in gathered.answers:
-		for _heading, field, _late in buckets:
-			rows.setdefault(field, []).extend(
+	for _heading, field, _late in buckets:
+		# **Re-sorted across connections, not concatenated.** Each connection answers already
+		# ordered, and appending one block after another left `--merged` showing all of A
+		# newest-first and then all of B — two sorted runs end to end, which §13.7 explicitly
+		# rules out ("sorting is re-applied after the merge"). It also made the suggested
+		# `done` command name the first *connection's* first row rather than the newest one.
+		rows[field] = _in_order(
+			[
 				(answer.connection.name, task)
+				for answer in gathered.answers
 				for task in getattr(answer.value, field)
-			)
+			],
+			field,
+		)
 
 	# One width across every bucket, so the addresses line up down the whole agenda rather
 	# than stepping in and out as the sections change.
@@ -1267,5 +1319,80 @@ def _agenda_json (
 		"unscheduled_total": sum(
 			answer.value.unscheduled_total for answer in gathered.answers
 		),
-		"unreachable": [failure.connection.name for failure in gathered.failures],
+		# **Every connection that did not answer, not only the ones that failed at this
+		# call.** A connection that could not be *opened* (no token, unparseable
+		# credentials) or that failed at `identity()` was named on stderr and reported here
+		# as absent — so a script could not tell a partial view from a complete one, which
+		# is the only reason this field exists.
+		"unreachable": sorted(
+			{failure.connection.name for failure in world.unreachable}
+			| {failure.connection.name for failure in gathered.failures}
+		),
 	}
+
+
+def _worth_showing (
+	settings: typing.Callable[[], subroutine.config.Settings],
+) -> bool:
+	"""Report whether the context commands are worth putting in front of a new user.
+
+	They are, as soon as a second connection is configured. Until then ``subroutine --help`` is
+	the six commands §12.2 lists first plus the administrative ones, and neither ``use`` nor
+	``connections`` says "workspace" or "instance" at somebody who has not asked (§1.4).
+
+	Deliberately cheap and deliberately fallible: this runs when the commands are registered,
+	before any of them, so it reads a file and never opens a database. If the configuration
+	cannot be read it returns ``True`` — a visible command is a smaller mistake than a hidden
+	one, and the command itself explains a broken file far better than its absence would.
+	"""
+
+	try:
+		return len(subroutine.connections.roster(settings())) > 1
+
+	except Exception:
+		return True
+
+
+def _merged (
+	gathered: subroutine.fanout.Gathered[list[tuple[str, subroutine.views.Task]]],
+) -> list[tuple[str, subroutine.views.Task]]:
+	"""Flatten a listing across connections, newest first.
+
+	§13.7: "sorting is re-applied after the merge". Each connection answers already ordered, so
+	concatenating them produced one sorted run per connection rather than one ordered list —
+	which is not what "newest first" means and is not what the suggested next command assumed.
+	"""
+
+	rows = [row for answer in gathered.answers for row in answer.value]
+	rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
+
+	return rows
+
+
+def _in_order (
+	rows: list[tuple[str, subroutine.views.Task]], bucket: str
+) -> list[tuple[str, subroutine.views.Task]]:
+	"""Order one agenda bucket the way that bucket is read.
+
+	The three dated buckets read by date — soonest first, because that is the order the days
+	arrive in — and `unscheduled` has no date to sort by, so it falls back to newest first like
+	a listing. The ref is the tiebreak throughout, so two tasks with the same date do not swap
+	places between runs.
+	"""
+
+	if bucket == "unscheduled":
+		rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
+
+		return rows
+
+	# NULLs last, explicitly: a task in `today` may be there for `planned_for` and carry no
+	# deadline at all, and it belongs after the ones that do rather than before them.
+	rows.sort(
+		key=lambda row: (
+			row[1].due_at is None,
+			row[1].due_at or datetime.datetime.max.replace(tzinfo=datetime.UTC),
+			row[1].ref,
+		)
+	)
+
+	return rows

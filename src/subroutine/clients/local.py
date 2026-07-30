@@ -25,6 +25,7 @@ import types
 import typing
 
 import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 
 import subroutine.clients.base
@@ -38,6 +39,7 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.instances
 import subroutine.domain.local
+import subroutine.domain.paging
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.scoping
@@ -139,6 +141,7 @@ class Client:
 		"""List one workspace's tasks, newest first."""
 
 		model = subroutine.db.models.work.Task
+		size = subroutine.domain.paging.size(limit, self.settings)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -158,7 +161,7 @@ class Client:
 					.order_by(
 						model.created_at.desc().nullslast(), model.id.desc().nullslast()
 					)
-					.limit(limit or self.settings.default_page_size)
+					.limit(size)
 				)
 			)
 			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
@@ -269,11 +272,16 @@ class Client:
 			)
 
 	def close (self) -> None:
-		"""Dispose the engine, if this object made one."""
+		"""Dispose the engine, if this object made one.
+
+		The engine reference is kept rather than cleared. Nulling it made a second ``close()`` a
+		no-op *and* left the sessionmaker bound to a disposed engine — which silently reopens a
+		fresh pool on the next use, one that nothing then disposes. Idempotent because
+		``dispose()`` is.
+		"""
 
 		if self._engine is not None:
 			self._engine.dispose()
-			self._engine = None
 
 	def __enter__ (self) -> "Client":
 		"""Return this client, ready to use."""
@@ -300,7 +308,7 @@ class Client:
 	]:
 		"""Yield a session and who is acting, for a read."""
 
-		with self._sessions() as session:
+		with self._sessions() as session, self._reported():
 			yield session, self._principal(session)
 
 	@contextlib.contextmanager
@@ -313,9 +321,14 @@ class Client:
 
 		Rolled back on any failure, including one this program raised on purpose: a refusal
 		that left half a change behind would be a worse outcome than the refusal.
+
+		**The commit is inside the guard too.** It was outside until 2026-07-30, so a database
+		that refused it — a locked SQLite file past its busy timeout, a ref-allocation race
+		between two processes — raised a bare SQLAlchemy error rather than a named failure, and
+		went straight past the fan-out's containment.
 		"""
 
-		with self._sessions() as session:
+		with self._sessions() as session, self._reported():
 			try:
 				yield session, self._principal(session)
 
@@ -325,6 +338,31 @@ class Client:
 				raise
 
 			session.commit()
+
+	@contextlib.contextmanager
+	def _reported (self) -> typing.Iterator[None]:
+		"""Turn a database failure into this program's own vocabulary.
+
+		**A connection is allowed to fail; it is not allowed to escape.** ``fanout._attempt``
+		catches only :class:`~subroutine.errors.SubroutineError`, deliberately — so a bare
+		``OperationalError`` from *this* connection would take down the whole of
+		``subroutine today``, including every remote that answered perfectly. The local database
+		is a connection like any other (§13.7), and that has to include how it fails.
+
+		Reported as ``service_unavailable`` for the same reason the HTTP client does: the
+		request was fine and the thing behind it is not answering.
+		"""
+
+		try:
+			yield
+
+		except sqlalchemy.exc.SQLAlchemyError as error:
+			raise subroutine.errors.ServiceUnavailable(
+				f"{self.connection.name} could not be read: "
+				f"{getattr(error, 'orig', None) or error}",
+				hint="Check that the database is reachable, and check 'database_url' in "
+				"'subroutine config show'.",
+			) from None
 
 	def _principal (
 		self, session: sqlalchemy.orm.Session
@@ -388,7 +426,7 @@ def opened (
 	connection: subroutine.connections.Connection,
 	settings: subroutine.config.Settings,
 	*,
-	default_connection: str | None = None,
+	default_connection: str,
 	session_factory: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session] | None = None,
 ) -> Client:
 	"""Build a local client, resolving its token the same way a remote one's is resolved.
