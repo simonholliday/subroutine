@@ -35,6 +35,7 @@ import pydantic
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.system
@@ -180,6 +181,83 @@ class Task(pydantic.BaseModel):
 			"—" if self.due_at is None else self.due_at.date().isoformat(),
 			subroutine.domain.text.truncated(self.title),
 			" ".join(f"#{name}" for name in self.tags),
+		)
+
+
+class Comment(pydantic.BaseModel):
+	"""One entry in an item's record of what happened (SPEC.md §5.10).
+
+	No ``parent_comment_id``: comments are flat and chronological by decision, and the column
+	stays in the schema as the escape hatch rather than as a field anybody can set.
+	"""
+
+	id: uuid.UUID
+	body: str
+
+	entity_type: str
+	entity_id: uuid.UUID
+	workspace_id: uuid.UUID
+	author_id: uuid.UUID | None
+
+	deleted_at: datetime.datetime | None
+	created_at: datetime.datetime
+	updated_at: datetime.datetime
+	version: int
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by. A comment has no ref of its own."""
+
+		return str(self.id)
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this comment as the cells of one compact line."""
+
+		return (
+			self.created_at.date().isoformat(),
+			subroutine.domain.text.truncated(self.body),
+		)
+
+
+class Workspace(pydantic.BaseModel):
+	"""A workspace as the API reports it.
+
+	Richer than :class:`WorkspaceRef`, which is the two-field form embedded in other responses.
+	This is what ``/v1/workspaces`` returns, and the difference is that a caller reading *this*
+	is administering the workspace rather than resolving an address through it.
+
+	``next_ref_number`` is deliberately absent. It is the counter behind the ref sequence, and
+	publishing it would invite a client to predict the next ref — which is exactly the guess that
+	breaks the moment two writes race.
+	"""
+
+	id: uuid.UUID
+	slug: str
+	title: str
+	description: str | None
+
+	#: Null means "not stated", which lets the instance's zone show through (§12.3). It is not
+	#: a missing value to be helpfully defaulted.
+	timezone: str | None
+
+	settings: dict[str, typing.Any]
+
+	deleted_at: datetime.datetime | None
+	created_at: datetime.datetime
+	updated_at: datetime.datetime
+	version: int
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — its short name (SPEC.md §13.7)."""
+
+		return self.slug
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this workspace as the cells of one compact line."""
+
+		return (
+			self.slug,
+			self.timezone or "—",
+			subroutine.domain.text.truncated(self.title),
 		)
 
 
@@ -465,6 +543,44 @@ def document (
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		content_updated_at=row.content_updated_at,
+		version=row.version,
+	)
+
+
+def comment (row: subroutine.db.models.activity.Comment) -> Comment:
+	"""Render one comment."""
+
+	return Comment(
+		id=row.id,
+		body=row.body,
+		entity_type=row.entity_type,
+		entity_id=row.entity_id,
+		workspace_id=row.workspace_id,
+		author_id=row.author_id,
+		deleted_at=row.deleted_at,
+		created_at=row.created_at,
+		updated_at=row.updated_at,
+		version=row.version,
+	)
+
+
+def workspace (row: subroutine.db.models.identity.Workspace) -> Workspace:
+	"""Render one workspace.
+
+	No vocabulary argument: a workspace has no status or item type to resolve, which is what
+	makes it the one entity here that needs no batch loading.
+	"""
+
+	return Workspace(
+		id=row.id,
+		slug=row.slug,
+		title=row.title,
+		description=row.description,
+		timezone=row.timezone,
+		settings=dict(row.settings or {}),
+		deleted_at=row.deleted_at,
+		created_at=row.created_at,
+		updated_at=row.updated_at,
 		version=row.version,
 	)
 

@@ -91,8 +91,15 @@ class Client(typing.Protocol):
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
+		workspace: str | None = None,
 	) -> subroutine.views.Agenda:
 		"""Return the four buckets, across every workspace this credential reaches.
+
+		``workspace`` narrows to one, by id or short name. Spanning everything stays the
+		default, because "what am I doing today" is a question about a person's day — but one
+		instance may hold a personal list *and* a project's backlog, and then the person wants
+		to ask about half of it. Named as on ``tasks`` rather than ``workspace_id``, so a caller
+		learns one word.
 
 		``date`` is passed explicitly by a client merging several instances, which resolves
 		"today" **once** in its own zone (§13.7). Each instance would otherwise apply its own

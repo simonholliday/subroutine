@@ -410,6 +410,12 @@ class Settings(pydantic_settings.BaseSettings):
 	# only protects whoever remembers to type it.
 	protected: bool = False
 
+	# Where `db backup` writes (SPEC.md §12.6b). Unset means the instance's own data directory,
+	# which is right for one laptop and wrong as soon as the point of a backup is surviving the
+	# disk it is on. A network volume is a good destination and a **bad** place for the database
+	# itself — so this is a separate setting rather than a directory beside `database_url`.
+	backup_directory: str | None = None
+
 	# The https:// address a TLS-terminating proxy serves this instance on. Unset is the
 	# ordinary case — one person on a laptop, listening on loopback. Setting it is what makes
 	# a non-loopback bind something `serve` will agree to (SPEC.md §12.4).

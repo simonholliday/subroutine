@@ -559,7 +559,15 @@ def register (
 		Examples:
 
 		  subroutine today
+
+		  subroutine -w work today
 		"""
+
+		# **`-w` precedes the command**, because it is an application-wide option: it changes
+		# what every command means, not what this one does. `subroutine today -w work` is
+		# therefore refused by Typer as an unknown option, which is correct and is also the
+		# order most people will try first — so the example above is written the working way
+		# round rather than the natural-reading way.
 
 		with opened(strict=strict) as world:
 			# **Resolved once, here, in this machine's zone** (§13.7). Each instance would
@@ -579,6 +587,11 @@ def register (
 					date=day,
 					timezone=zone,
 					horizon_days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+					# `-w` narrows the agenda the same way it narrows every other listing.
+					# Unset spans everything, which is what makes `today` one list rather
+					# than one per workspace (§13.7) — the dentist and the stand-up belong
+					# in the same place. Naming a workspace is how you ask for half of it.
+					workspace=selected.workspace,
 				),
 				strict=strict,
 			)

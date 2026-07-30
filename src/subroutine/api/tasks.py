@@ -171,11 +171,21 @@ def create (
 		structured["parent"] = _resolve(session, actor, workspace, str(body.parent_task_id))
 
 	if body.text is not None:
+		# **Only when it was sent.** `_project` defaults to the Inbox, so passing its result
+		# unconditionally would override a `+KEY` in the captured line with the Inbox — turning
+		# one silent misfiling into another. `project` was missing from the structured fields
+		# above, so `POST /v1/tasks {"text": …, "project": "SR"}` was accepted, returned 201, and
+		# filed the task in the Inbox with nothing to say it had.
 		created, _capture = subroutine.domain.tasks.create_from_text(
 			session,
 			workspace=workspace,
 			text=body.text,
 			timezone=body.timezone,
+			project=(
+				_project(session, actor, workspace, body.project)
+				if body.project is not None
+				else None
+			),
 			actor=actor,
 			**structured,
 		)

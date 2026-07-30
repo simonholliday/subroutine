@@ -309,6 +309,13 @@ def delete (
 		return document
 
 	document.deleted_at = now if now is not None else subroutine.db.types.utcnow()
+
+	# **The version moves, because a delete is a change.** §8.9's promise is that a change is
+	# based on the state you read, and a version that stands still across a soft delete breaks
+	# it silently: read at v3, somebody trashes it, and `expected_version: 3` still passes — so
+	# you edit a deleted item believing nothing happened. `projects.delete` did this and the
+	# other two did not, which is what kept the gap invisible.
+	document.version += 1
 	session.flush()
 
 	subroutine.domain.events.record(

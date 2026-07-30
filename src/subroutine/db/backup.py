@@ -17,6 +17,7 @@ a courtesy to whoever is reading a directory listing, but the value inside is th
 because a filename can be renamed and a table cannot.
 """
 
+import contextlib
 import dataclasses
 import datetime
 import os
@@ -84,14 +85,48 @@ class Backup:
 		return self.path.name
 
 
-def directory () -> pathlib.Path:
+def directory (settings: subroutine.config.Settings) -> pathlib.Path:
 	"""Return the directory holding this instance's backups, creating it if needed.
 
-	Takes no settings: the path follows the active profile through ``data_home``, so asking
-	for it always answers for the instance this process is acting on.
+	``settings`` is here to say **where**, never *what kind* — the backend is always asked of the
+	engine (see ``_is_sqlite``). Keeping those two questions apart is what stopped ``VACUUM
+	INTO`` being aimed at PostgreSQL, so do not collapse them again.
+
+	Unset ``backup_directory`` means the instance's own data directory, which follows the active
+	profile and is right for one machine. Pointing it at a network volume is the case §12.6b
+	exists for.
 	"""
 
-	path = subroutine.config.data_home() / DIRECTORY_NAME
+	configured = (settings.backup_directory or "").strip()
+	path = (
+		pathlib.Path(configured).expanduser()
+		if configured
+		else subroutine.config.data_home() / DIRECTORY_NAME
+	)
+
+	try:
+		path.mkdir(parents=True, exist_ok=True)
+
+	except OSError as error:
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup directory {path} could not be used: {error}. If it is on a network "
+			f"volume, check that the volume is mounted."
+		) from error
+
+	return path
+
+
+def _staging_directory () -> pathlib.Path:
+	"""Return a local directory to build a backup in before moving it to its destination.
+
+	**Always local, and that is the point.** ``VACUUM INTO`` creates a database and takes a lock
+	on it, so it cannot be aimed at a filesystem where SQLite cannot lock — which is exactly the
+	kind of volume somebody sensibly wants their backups on (SPEC.md §12.6b). The data directory
+	is guaranteed usable, because the database itself lives there and ``probe_sqlite_locking``
+	refuses an installation where it would not work.
+	"""
+
+	path = subroutine.config.data_home() / DIRECTORY_NAME / ".staging"
 	path.mkdir(parents=True, exist_ok=True)
 
 	return path
@@ -133,7 +168,11 @@ _MAX_NAME_ATTEMPTS = 120
 
 
 def _free_name (
-	moment: datetime.datetime, profile: str | None, head: str, suffix: str
+	into: pathlib.Path,
+	moment: datetime.datetime,
+	profile: str | None,
+	head: str,
+	suffix: str,
 ) -> tuple[datetime.datetime, pathlib.Path]:
 	"""Return an instant and path that no existing backup already occupies.
 
@@ -146,8 +185,6 @@ def _free_name (
 	So the instant walks forward until the name is free. The recorded ``taken_at`` moves with
 	it, because the filename is what a catalogue reads back and the two must not disagree.
 	"""
-
-	into = directory()
 
 	for step in range(_MAX_NAME_ATTEMPTS):
 		when = moment + datetime.timedelta(seconds=step)
@@ -193,11 +230,13 @@ def _described (path: pathlib.Path) -> Backup | None:
 	)
 
 
-def catalogue () -> list[Backup]:
+def catalogue (settings: subroutine.config.Settings) -> list[Backup]:
 	"""Return this instance's backups, newest first."""
 
 	found = [
-		described for path in directory().iterdir() if (described := _described(path))
+		described
+		for path in directory(settings).iterdir()
+		if (described := _described(path))
 	]
 	found.sort(key=lambda backup: backup.taken_at, reverse=True)
 
@@ -282,6 +321,7 @@ def _single_head (values: list[str], path: pathlib.Path) -> str:
 
 def take (
 	engine: sqlalchemy.engine.Engine,
+	settings: subroutine.config.Settings,
 	*,
 	keep: int | None = None,
 	moment: datetime.datetime | None = None,
@@ -303,28 +343,87 @@ def take (
 
 	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_SUFFIX
 	active = subroutine.config.profile()
+	into = directory(settings)
 	taken_at, target = _free_name(
-		moment or datetime.datetime.now(datetime.UTC), active, head, suffix
+		into, moment or datetime.datetime.now(datetime.UTC), active, head, suffix
 	)
 
-	if _is_sqlite(engine):
-		_take_sqlite(engine, target)
+	# Built locally, then moved. See `_staging_directory` — the destination may be a volume
+	# SQLite cannot write a database to, which is a perfectly good place to keep a backup.
+	staged = _staging_directory() / target.name
 
-	else:
-		_take_postgresql(engine, target)
+	try:
+		if _is_sqlite(engine):
+			_take_sqlite(engine, staged)
+
+		else:
+			_take_postgresql(engine, staged)
+
+		size = staged.stat().st_size
+		_delivered(staged, target, head=head, size=size)
+
+	finally:
+		staged.unlink(missing_ok=True)
 
 	written = Backup(
 		path=target,
 		taken_at=taken_at,
 		schema_head=head,
-		size_bytes=target.stat().st_size,
+		size_bytes=size,
 		profile=active,
 	)
 
 	if keep is not None:
-		prune(keep=keep)
+		prune(settings, keep=keep)
 
 	return written
+
+
+def _delivered (
+	staged: pathlib.Path, target: pathlib.Path, *, head: str, size: int
+) -> None:
+	"""Move a finished backup to its destination and prove that what arrived is readable.
+
+	**A half-written file on a network volume is the failure worth spending code on**, because it
+	looks like a backup: it appears in the catalogue, its name says which schema it holds, and it
+	is discovered to be short only on the day it is needed. So the copy is checked where it landed
+	— its size, and that its schema version can still be read out of it — and a file that fails
+	is deleted rather than left looking valid.
+
+	``shutil.move`` rather than ``os.replace``: the destination is usually on another filesystem,
+	where a rename cannot work at all, and this share does not honour the create-then-rename dance
+	either.
+	"""
+
+	try:
+		shutil.move(str(staged), str(target))
+
+	except OSError as error:
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup could not be written to {target}: {error}. If that is a network "
+			f"volume, check that it is mounted and writable."
+		) from error
+
+	try:
+		arrived = target.stat().st_size
+
+		if arrived != size:
+			raise subroutine.errors.ServiceUnavailable(
+				f"The backup written to {target} is {arrived} bytes and should be {size}. "
+				f"It has been removed rather than left looking usable."
+			)
+
+		if head_in(target) != head:
+			raise subroutine.errors.ServiceUnavailable(
+				f"The backup written to {target} could not be read back as schema {head}. "
+				f"It has been removed rather than left looking usable."
+			)
+
+	except Exception:
+		with contextlib.suppress(OSError):
+			target.unlink(missing_ok=True)
+
+		raise
 
 
 def _take_sqlite (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> None:
@@ -429,7 +528,7 @@ def _run (command: list[str], *, what: str) -> None:
 		raise subroutine.errors.BadRequest(f"{what} failed: {reported}")
 
 
-def prune (*, keep: int) -> list[Backup]:
+def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
 	"""Delete all but the ``keep`` most recent backups, returning what was removed."""
 
 	if keep < 1:
@@ -438,7 +537,7 @@ def prune (*, keep: int) -> list[Backup]:
 			f"backup this instance has."
 		)
 
-	removed = catalogue()[keep:]
+	removed = catalogue(settings)[keep:]
 
 	for backup in removed:
 		backup.path.unlink(missing_ok=True)

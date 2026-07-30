@@ -248,6 +248,16 @@ def test_both_return_the_same_agenda (pair: Pair) -> None:
 	)
 	assert local.agenda(date=day).date == day
 
+	# Narrowing has to agree too, including how each refuses a workspace that is not there —
+	# a filter one client honours and the other ignores is the divergence S3-07 removed.
+	assert local.agenda(date=day, workspace=pair.workspace.slug) == remote.agenda(
+		date=day, workspace=pair.workspace.slug
+	)
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.agenda(date=day, workspace="no-such-workspace")
+
 
 def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	"""Including what the grammar declined to read, which each works out differently."""

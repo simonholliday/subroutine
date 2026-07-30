@@ -563,3 +563,50 @@ def test_the_agenda_spans_every_readable_workspace (session: sqlalchemy.orm.Sess
 	assert titles == {"A personal thing", "A work thing"}
 	assert body["timezone"]
 	assert body["date"]
+
+
+def test_capture_respects_an_explicit_project (world: World) -> None:
+	"""``{"text": …, "project": "K"}`` files the task in K, not in the Inbox.
+
+	Found by using the product: the switch created seven tasks with ``text`` and ``project``
+	together, every one of them returned 201, and every one landed in the Inbox. ``project`` was
+	a declared and accepted field that the capture path simply did not pass on — the recurring
+	shape here, and silent, because there is nothing in a 201 to say where the task went.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+
+	response = world.call(
+		"POST", "/v1/tasks", json={"text": "Ship the release ~2h", "project": "WEB"}
+	)
+
+	assert response.status_code == 201
+
+	body = response.json()
+
+	assert body["project_key"] == "WEB"
+	assert body["title"] == "Ship the release", "capture should still clean the line"
+	assert body["estimate_minutes"] == 120, "and still parse what it parses"
+
+
+def test_an_explicit_project_beats_one_named_in_the_captured_line (world: World) -> None:
+	"""§6.13's rule — structured fields win over parsed ones — applied to where it lands."""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "OPS", "title": "Ops"})
+
+	response = world.call(
+		"POST", "/v1/tasks", json={"text": "Rotate the keys +WEB", "project": "OPS"}
+	)
+
+	assert response.json()["project_key"] == "OPS"
+
+
+def test_capture_still_uses_the_project_named_in_the_line (world: World) -> None:
+	"""And the fix must not have replaced a `+KEY` with the Inbox, which is the other misfiling."""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+
+	response = world.call("POST", "/v1/tasks", json={"text": "Fix the header +WEB"})
+
+	assert response.json()["project_key"] == "WEB"

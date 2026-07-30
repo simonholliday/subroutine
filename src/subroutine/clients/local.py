@@ -101,6 +101,7 @@ class Client:
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
+		workspace: str | None = None,
 	) -> subroutine.views.Agenda:
 		"""Return the four buckets, across every workspace this credential reaches."""
 
@@ -114,10 +115,18 @@ class Client:
 			built = subroutine.domain.agenda.build(
 				session,
 				principal=actor,
-				workspace_ids=[
-					workspace.id
-					for workspace in subroutine.domain.workspaces.readable(session, actor)
-				],
+				workspace_ids=(
+					[
+						subroutine.domain.selection.workspace(
+							session, actor, requested=workspace
+						).id
+					]
+					if workspace is not None
+					else [
+						found.id
+						for found in subroutine.domain.workspaces.readable(session, actor)
+					]
+				),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,
 				date=date,

@@ -271,6 +271,7 @@ def create_from_text (
 	text: str,
 	now: datetime.datetime | None = None,
 	timezone: str | None = None,
+	project: subroutine.db.models.project.Project | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 	**overrides: typing.Any,
 ) -> tuple[subroutine.db.models.work.Task, subroutine.domain.capture.Capture]:
@@ -284,6 +285,12 @@ def create_from_text (
 	worth parsing. The capture still runs, so the title is still cleaned of tokens the
 	caller did supply values for — otherwise passing ``importance`` explicitly would leave
 	a stray ``!3`` in the title.
+
+	``project`` is that same rule applied to where the task lands, and it is a **named
+	parameter rather than one of the overrides** because this function derives a project of
+	its own: an override of that name would have collided with the argument below and raised
+	``TypeError`` rather than doing anything useful. Given explicitly it wins over a ``+KEY``
+	in the text and over the Inbox default.
 	"""
 
 	zone = _timezone(session, workspace.id, actor=actor, explicit=timezone)
@@ -291,11 +298,12 @@ def create_from_text (
 
 	captured = subroutine.domain.capture.parse(text, now=instant, timezone=zone)
 
-	project = (
-		subroutine.domain.bootstrap.inbox_for(session, workspace)
-		if captured.project_key is None
-		else _project_by_key(session, workspace.id, captured.project_key)
-	)
+	if project is None:
+		project = (
+			subroutine.domain.bootstrap.inbox_for(session, workspace)
+			if captured.project_key is None
+			else _project_by_key(session, workspace.id, captured.project_key)
+		)
 
 	if project is None:
 		raise subroutine.errors.InternalError(
@@ -697,6 +705,13 @@ def delete (
 		return task
 
 	task.deleted_at = now if now is not None else subroutine.db.types.utcnow()
+
+	# **The version moves, because a delete is a change.** §8.9's promise is that a change is
+	# based on the state you read, and a version that stands still across a soft delete breaks
+	# it silently: read at v3, somebody trashes it, and `expected_version: 3` still passes — so
+	# you edit a deleted item believing nothing happened. `projects.delete` did this and the
+	# other two did not, which is what kept the gap invisible.
+	task.version += 1
 	session.flush()
 
 	subroutine.domain.events.record(

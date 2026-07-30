@@ -22,8 +22,10 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -394,3 +396,62 @@ def test_the_day_is_computed_where_the_caller_is (session: sqlalchemy.orm.Sessio
 	assert _titles(world.agenda(now=late, timezone="Australia/Sydney").today) == [
 		"Tomorrow in London"
 	]
+
+
+def test_the_agenda_can_be_narrowed_to_one_workspace (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§8.6: every other listing took ``workspace_id`` and the agenda did not.
+
+	The gap showed up the first time this project used itself — a personal to-do list and a
+	project backlog in one instance, and seven undated project tasks above "buy salad". Spanning
+	everything stays the default; naming a workspace is how you ask for half.
+	"""
+
+	first = subroutine.domain.bootstrap.initialise(
+		session, username=f"a-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	second = subroutine.domain.workspaces.create(
+		session, slug=f"work-{uuid.uuid4().hex[:6]}", title="Work", owner=first.user
+	)
+	session.flush()
+
+	subroutine.domain.tasks.create_from_text(
+		session, workspace=first.workspace, text="Personal thing", actor=None
+	)
+	# A bare workspace has no Inbox — that is `bootstrap.initialise`'s doing — so this names
+	# its project, which is also the parameter the switch found missing from capture.
+	elsewhere = subroutine.domain.projects.create(
+		session,
+		workspace_id=second.id,
+		key="WRK",
+		title="Work",
+		owner_id=first.user.id,
+	)
+	subroutine.domain.tasks.create_from_text(
+		session, workspace=second, text="Work thing", project=elsewhere, actor=None
+	)
+	session.flush()
+
+	principal = subroutine.domain.authentication.Principal(user=first.user, token=None)
+	everywhere = subroutine.domain.agenda.build(
+		session,
+		principal=principal,
+		workspace_ids=[first.workspace.id, second.id],
+		now=subroutine.db.types.utcnow(),
+		timezone="Europe/London",
+	)
+	narrowed = subroutine.domain.agenda.build(
+		session,
+		principal=principal,
+		workspace_ids=[first.workspace.id],
+		now=subroutine.db.types.utcnow(),
+		timezone="Europe/London",
+	)
+
+	assert {task.title for task in everywhere.unscheduled} == {
+		"Personal thing",
+		"Work thing",
+	}
+	assert {task.title for task in narrowed.unscheduled} == {"Personal thing"}
+	assert narrowed.unscheduled_total == 1, "the total must narrow with the rows"

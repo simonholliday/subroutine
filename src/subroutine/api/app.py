@@ -18,6 +18,7 @@ import sqlalchemy.orm
 import subroutine
 import subroutine.api.admin
 import subroutine.api.agenda
+import subroutine.api.comments
 import subroutine.api.documents
 import subroutine.api.health
 import subroutine.api.identity
@@ -27,6 +28,7 @@ import subroutine.api.problems
 import subroutine.api.projects
 import subroutine.api.routing
 import subroutine.api.tasks
+import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
@@ -52,6 +54,7 @@ part of the public contract and are listed in `docs/errors.md`.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
 	("", subroutine.api.identity.router),
+	("", subroutine.api.workspaces.router),
 	("", subroutine.api.meta.router),
 	("", subroutine.api.agenda.router),
 	("", subroutine.api.tasks.router),
@@ -62,6 +65,11 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.projects.router),
 	("", subroutine.api.documents.router),
 	("", subroutine.api.documents.document_links),
+	# The comment sub-resources come after the routers whose paths they extend, like links.
+	("", subroutine.api.comments.task_comments),
+	("", subroutine.api.comments.project_comments),
+	("", subroutine.api.comments.document_comments),
+	("", subroutine.api.comments.router),
 	("", subroutine.api.admin.router),
 )
 

@@ -58,6 +58,11 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/links.py": "resolves each end through scoping.readable_tasks/_documents and "
 	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
 	"content of their own",
+	"domain/comments.py": "every caller-facing path resolves the subject through "
+	"scoping.readable_tasks/_projects/_documents; the one direct `session.get` is the "
+	"actor=None branch, which is the unauthenticated internal caller that has no principal to "
+	"scope by — the same escape hatch every service here has, and the one "
+	"test_actor_discipline guards",
 }
 
 

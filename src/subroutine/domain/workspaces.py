@@ -16,8 +16,11 @@ import subroutine.db.models.identity
 import subroutine.db.seed
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.dates
 import subroutine.domain.events
+import subroutine.domain.patch
 import subroutine.domain.text
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
@@ -82,6 +85,11 @@ def create (
 	normalized = subroutine.domain.text.fit(
 		normalized, field="slug", limit=MAX_SLUG_LENGTH, label="short name"
 	)
+
+	# Same check as `update`, and it was missing here: `create` took whatever string it was
+	# handed, so `{"timezone": "Mars/Olympus"}` was stored and only surfaced later, as a
+	# refusal that named the caller's request rather than the workspace holding the bad value.
+	subroutine.domain.dates.zone(timezone)
 
 	# **A short name must begin with a letter, and this is structural rather than cosmetic.**
 	# §5.4 forces the same on a project key so that `/v1/tasks/42` and `/v1/projects/WEB`
@@ -153,6 +161,95 @@ def create (
 		actor=actor,
 	)
 	record_seeding(session, workspace, report, actor=actor)
+	session.flush()
+
+	return workspace
+
+
+def update (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	title: str = subroutine.domain.patch.UNSET,
+	description: str | None = subroutine.domain.patch.UNSET,
+	timezone: str | None = subroutine.domain.patch.UNSET,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.identity.Workspace:
+	"""Change a workspace, recording only what actually changed.
+
+	Anything left at ``patch.UNSET`` is untouched; passing ``None`` clears the field (§8.3).
+	**Everything is validated before anything is assigned**, for the reason ``projects.update``
+	gives: the caller holds a live session it may still commit, so a half-applied change that
+	raised on the way through would be committed silently alongside whatever else was in flight.
+
+	**The slug is deliberately not changeable**, for the same reason a project key is not. It is
+	the middle segment of every address this workspace's items are written as —
+	``work/acme/#42`` (§13.7) — and those strings are in other people's notes, in shell history
+	and in `config.toml` files on other machines. Renaming it here would not rewrite them.
+
+	``timezone`` may be set to ``None``, and that is meaningful rather than sloppy: null means
+	"not stated", which lets the instance's own zone show through (§12.3). It was
+	``NOT NULL DEFAULT 'UTC'`` until migration ``233f898a2bee`` precisely because a default here
+	shadowed the instance and left a step in the chain nothing could reach.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_WRITE,
+			workspace_id=workspace.id,
+		)
+
+	subroutine.domain.versions.require(workspace, expected_version, noun="This workspace")
+
+	changed: dict[str, typing.Any] = {}
+
+	if title is not subroutine.domain.patch.UNSET:
+		changed["title"] = subroutine.domain.text.fit(
+			subroutine.domain.text.require(title, field="title"),
+			field="title",
+			limit=MAX_TITLE_LENGTH,
+		)
+
+	if description is not subroutine.domain.patch.UNSET:
+		changed["description"] = description
+
+	if timezone is not subroutine.domain.patch.UNSET:
+		# Validated on the way *in*. Unvalidated, a bad zone is stored happily and then fails
+		# on every later date computation with a 422 naming the *request's* timezone — a message
+		# about the wrong thing entirely, arriving days after the mistake.
+		if timezone is not None:
+			subroutine.domain.dates.zone(timezone)
+
+		changed["timezone"] = timezone
+
+	before = {name: getattr(workspace, name) for name in changed}
+
+	for name, value in changed.items():
+		setattr(workspace, name, value)
+
+	differences = subroutine.domain.events.changes_between(before, changed)
+
+	if differences:
+		# **Bumped by hand, because `VersionMixin` is a plain column.** There is no
+		# `version_id_col` on the mapper, so nothing increments it for us — every service that
+		# mutates has to, and the one that forgets leaves §8.9's check comparing a number that
+		# never moves. Which means `expected_version` silently *passes* for every stale caller:
+		# the failure mode is a concurrency guard that is present, exercised, and useless.
+		workspace.version += 1
+
+		subroutine.domain.events.record(
+			session,
+			workspace_id=workspace.id,
+			entity_type="workspace",
+			entity_id=workspace.id,
+			action=subroutine.domain.events.EventAction.UPDATED,
+			changes=differences,
+			actor=actor,
+		)
+
 	session.flush()
 
 	return workspace

@@ -373,7 +373,10 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"it once; it is the fastest way to stop guessing at shapes.",
 		"",
 		"The four endpoints that do most of the work: `GET /v1/agenda` answers \"what should I "
-		"do today\" across every workspace at once; `GET /v1/tasks` lists one workspace's; "
+		"do today\" across every workspace at once — add `?workspace_id=` (an id or a short "
+		"name from the `workspaces` list above) to narrow it to one, which is what you want "
+		"when a personal list and a project's backlog share an instance; `GET /v1/tasks` "
+		"lists one workspace's; "
 		"`POST /v1/tasks` creates one, from `title` or from a `text` line; and "
 		"`POST /v1/documents` is where a conclusion goes, tied to the task it came from with "
 		"`POST /v1/tasks/{ref}/links`.",

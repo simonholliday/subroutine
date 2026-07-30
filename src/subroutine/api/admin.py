@@ -76,7 +76,7 @@ def create_backup (
 		actor, subroutine.permissions.INSTANCE_ADMIN
 	)
 
-	return _rendered(subroutine.db.backup.take(_engine_behind(session), keep=keep))
+	return _rendered(subroutine.db.backup.take(_engine_behind(session), settings, keep=keep))
 
 
 def _engine_behind (session: sqlalchemy.orm.Session) -> sqlalchemy.engine.Engine:
@@ -110,4 +110,4 @@ def list_backups (
 		actor, subroutine.permissions.INSTANCE_ADMIN
 	)
 
-	return Backups(items=[_rendered(found) for found in subroutine.db.backup.catalogue()])
+	return Backups(items=[_rendered(found) for found in subroutine.db.backup.catalogue(settings)])

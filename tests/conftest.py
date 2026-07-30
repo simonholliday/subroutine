@@ -49,6 +49,36 @@ REQUIRE_POSTGRES = os.environ.get("SUBROUTINE_TEST_REQUIRE_POSTGRES", "").strip(
 
 
 @pytest.fixture(autouse=True)
+def _no_inherited_installation (
+	tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Give every test its own empty XDG home, so none of them can read the real one.
+
+	**Found by doing it.** A `backup_directory` was configured on this machine, pointing at a
+	network volume, and the next test run wrote two backups *of the test database* into it —
+	named identically to real ones, and distinguishable only by size. The test that did it
+	patched ``XDG_DATA_HOME`` and not ``XDG_CONFIG_HOME``, so it took its own database
+	directory and the developer's `config.toml`.
+
+	The general rule is the point rather than that one fixture: a test must not read the
+	configuration of the machine it happens to be running on, in either direction. Reading it
+	lets a developer's settings change what the suite does, and lets the suite change the
+	developer's data.
+
+	``SUBROUTINE_TEST_*`` is left alone — those configure the harness, not the product.
+	"""
+
+	root = tmp_path_factory.mktemp("xdg")
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(root / variable.lower()))
+
+	for name in list(os.environ):
+		if name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_"):
+			monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_inherited_profile () -> typing.Iterator[None]:
 	"""Make every test start on the default instance, whatever ran before it.
 

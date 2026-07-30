@@ -28,6 +28,8 @@ import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.bootstrap
+import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.mentions
 import subroutine.domain.projects
@@ -1106,3 +1108,67 @@ def test_a_deleted_workspace_releases_its_short_name (
 
 	assert second.slug == "reusable"
 	assert second.id != first.id
+
+
+@pytest.mark.parametrize("entity", ["task", "document", "project"])
+def test_a_soft_delete_moves_the_version (
+	session: sqlalchemy.orm.Session, entity: str
+) -> None:
+	"""§8.9: a version that stands still across a delete makes the guard silently useless.
+
+	Read an item at v3, somebody trashes it, and ``expected_version: 3`` still passes — so a
+	caller edits a deleted item believing nothing had happened. ``projects.delete`` bumped and
+	``tasks.delete``/``documents.delete`` did not, which is precisely what kept the gap
+	invisible: anyone checking "does delete bump?" could land on the one that did.
+
+	Parameterised over all three because the defect was *inconsistency*, and a test naming one
+	entity would have been the same mistake in test form.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"v-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	inbox = subroutine.domain.bootstrap.inbox_for(session, setup.workspace)
+	assert inbox is not None
+
+	if entity == "task":
+		row: typing.Any = subroutine.domain.tasks.create(
+			session, project=inbox, title="Doomed", actor=None
+		)
+		remove: typing.Callable[..., typing.Any] = subroutine.domain.tasks.delete
+
+	elif entity == "document":
+		row = subroutine.domain.documents.create(
+			session, project=inbox, title="Doomed", actor=None
+		)
+		remove = subroutine.domain.documents.delete
+
+	else:
+		row = subroutine.domain.projects.create(
+			session,
+			workspace_id=setup.workspace.id,
+			key="DOOM",
+			title="Doomed",
+			owner_id=setup.user.id,
+			actor=None,
+		)
+		remove = subroutine.domain.projects.delete
+
+	session.flush()
+	before = row.version
+
+	remove(session, row, actor=None)
+	session.flush()
+
+	assert row.deleted_at is not None
+	assert row.version > before, (
+		f"{entity}.delete left version at {before}, so a stale expected_version would pass"
+	)
+
+	# Deleting twice is idempotent and must not keep moving the version either — the timestamp
+	# of when something was thrown away is a fact worth not overwriting.
+	again = row.version
+	remove(session, row, actor=None)
+	session.flush()
+
+	assert row.version == again

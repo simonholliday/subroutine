@@ -629,7 +629,7 @@ def database_backup (
 	with _database(settings) as engine:
 		try:
 			written = subroutine.db.backup.take(
-				engine, keep=keep if keep > 0 else None
+				engine, settings, keep=keep if keep > 0 else None
 			)
 
 		except subroutine.errors.SubroutineError as error:
@@ -643,15 +643,15 @@ def database_backup (
 def database_backups () -> None:
 	"""List the backups this instance has, newest first."""
 
-	_settings()
-	found = subroutine.db.backup.catalogue()
+	settings = _settings()
+	found = subroutine.db.backup.catalogue(settings)
 
 	if not found:
 		_say(f"No backups of {_instance_label()} yet. Run 'subroutine db backup'.")
 
 		return
 
-	_say(f"Backups of {_instance_label()}, in {subroutine.db.backup.directory()}:")
+	_say(f"Backups of {_instance_label()}, in {subroutine.db.backup.directory(settings)}:")
 
 	for backup in found:
 		when = backup.taken_at.strftime("%Y-%m-%d %H:%M UTC")
@@ -695,7 +695,7 @@ def database_restore (
 	path = pathlib.Path(source).expanduser()
 
 	if not path.is_file():
-		candidate = subroutine.db.backup.directory() / source
+		candidate = subroutine.db.backup.directory(settings) / source
 
 		if not candidate.is_file():
 			_stop(
@@ -723,7 +723,7 @@ def database_restore (
 			_database(settings) as engine,
 			contextlib.suppress(subroutine.errors.SubroutineError),
 		):
-			kept = subroutine.db.backup.take(engine)
+			kept = subroutine.db.backup.take(engine, settings)
 			_say(f"The database being replaced was saved to {kept.path}")
 
 	with _database(settings) as engine:

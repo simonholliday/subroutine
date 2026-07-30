@@ -261,7 +261,7 @@ def test_a_backup_records_the_schema_it_was_taken_on (
 	property they have to share is that the copy says which schema it holds.
 	"""
 
-	written = subroutine.db.backup.take(engine)
+	written = subroutine.db.backup.take(engine, _settings())
 	head = subroutine.db.migrate.head_revision()
 
 	assert written.path.is_file()
@@ -294,7 +294,7 @@ def test_a_newer_schema_is_refused_and_an_equal_one_is_not (
 ) -> None:
 	"""§12.6's asymmetry. Refusing the newer case is the only honest answer available."""
 
-	written = subroutine.db.backup.take(engine)
+	written = subroutine.db.backup.take(engine, _settings())
 
 	# Equal: this installation took it, so it can put it back.
 	assert subroutine.db.backup.check_restorable(written.path) == (
@@ -353,18 +353,18 @@ def test_pruning_keeps_the_newest_and_refuses_to_keep_none (
 
 	for offset in range(3):
 		subroutine.db.backup.take(
-			engine, moment=moment + datetime.timedelta(minutes=offset)
+			engine, _settings(), moment=moment + datetime.timedelta(minutes=offset)
 		)
 
-	assert len(subroutine.db.backup.catalogue()) == 3
+	assert len(subroutine.db.backup.catalogue(_settings())) == 3
 
 	with pytest.raises(subroutine.errors.ValidationError):
-		subroutine.db.backup.prune(keep=0)
+		subroutine.db.backup.prune(_settings(), keep=0)
 
-	assert len(subroutine.db.backup.catalogue()) == 3
+	assert len(subroutine.db.backup.catalogue(_settings())) == 3
 
-	subroutine.db.backup.prune(keep=1)
-	remaining = subroutine.db.backup.catalogue()
+	subroutine.db.backup.prune(_settings(), keep=1)
+	remaining = subroutine.db.backup.catalogue(_settings())
 
 	assert len(remaining) == 1
 	assert remaining[0].taken_at == moment + datetime.timedelta(minutes=2)
@@ -430,7 +430,7 @@ def test_a_restore_puts_the_data_back (
 	engine = subroutine.db.session.create_engine(own_database)
 
 	try:
-		written = subroutine.db.backup.take(engine)
+		written = subroutine.db.backup.take(engine, _settings())
 
 	finally:
 		engine.dispose()
@@ -467,7 +467,7 @@ def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 	engine = subroutine.db.session.create_engine(own_database)
 
 	try:
-		written = subroutine.db.backup.take(engine)
+		written = subroutine.db.backup.take(engine, _settings())
 
 	finally:
 		engine.dispose()
@@ -588,3 +588,95 @@ def test_a_narrowed_token_cannot_take_a_backup (
 
 	assert world.call("POST", "/v1/admin/backups").status_code == 403
 	assert world.call("GET", "/v1/admin/backups").status_code == 403
+
+
+def _settings () -> subroutine.config.Settings:
+	"""Resolve settings the way a command does, for the active instance."""
+
+	return subroutine.config.load_settings()
+
+
+# --------------------------------------------------------------------------------------
+# Where backups go (§12.6b)
+# --------------------------------------------------------------------------------------
+
+
+def test_backups_go_where_they_are_configured_to (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The point of a backup is surviving the disk it is on, so the path has to be settable."""
+
+	elsewhere = tmp_path / "volume" / "subroutine-backups"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+
+	written = subroutine.db.backup.take(engine, _settings())
+
+	assert written.path.parent == elsewhere
+	assert written.path.is_file()
+
+	# And the catalogue reads the same place, or `db backups` would list nothing.
+	assert [found.name for found in subroutine.db.backup.catalogue(_settings())] == [
+		written.name
+	]
+
+
+def test_the_database_never_gets_written_to_the_backup_volume (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""§12.6b: a backup is built locally and moved, because the destination may not take a lock.
+
+	``VACUUM INTO`` creates a database and locks it, and the volume somebody sensibly wants
+	backups on is often one where SQLite cannot lock at all. Nothing proves the staging happened
+	from the outside, so this asserts what it is for: no leftovers, and a readable result.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+
+	written = subroutine.db.backup.take(engine, _settings())
+	staging = subroutine.config.data_home() / subroutine.db.backup.DIRECTORY_NAME / ".staging"
+
+	assert list(staging.iterdir()) == [], "the staged copy should not be left behind"
+	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
+
+
+def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""**The failure worth spending code on.** A short file on a flaky mount looks like a backup.
+
+	It appears in the catalogue, its name states which schema it holds, and it is discovered to be
+	truncated on the one day it matters. So delivery is verified where the file landed, and a copy
+	that fails is removed rather than left.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+
+	def truncating_move (source: str, destination: str) -> str:
+		"""Stand in for a network write that stops half way through."""
+
+		pathlib.Path(destination).write_bytes(pathlib.Path(source).read_bytes()[:512])
+		pathlib.Path(source).unlink()
+
+		return destination
+
+	# Named as a string: the module under test reaches `shutil` through its own namespace, and
+	# `--strict` will not have an attribute access into another module's imports.
+	monkeypatch.setattr("subroutine.db.backup.shutil.move", truncating_move)
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable):
+		subroutine.db.backup.take(engine, _settings())
+
+	assert subroutine.db.backup.catalogue(_settings()) == [], (
+		"a truncated backup must not survive to be listed as one"
+	)

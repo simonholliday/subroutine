@@ -115,6 +115,7 @@ class Client:
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
+		workspace: str | None = None,
 	) -> subroutine.views.Agenda:
 		"""Return the four buckets, across every workspace this credential reaches."""
 
@@ -126,6 +127,7 @@ class Client:
 				timezone=timezone,
 				horizon_days=horizon_days,
 				unscheduled_limit=unscheduled_limit,
+				workspace_id=workspace,
 			),
 		)
 
