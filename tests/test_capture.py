@@ -313,6 +313,7 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 				captured.planned_for,
 				captured.start,
 				captured.importance,
+				captured.urgency,
 				captured.estimate_minutes,
 				captured.tags,
 				captured.assignee,
@@ -439,3 +440,53 @@ def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> Non
 
 	assert captured.planned_for is None
 	assert captured.title == "Do it tomorrow every monday"
+
+
+def test_a_captured_line_can_set_both_priority_axes () -> None:
+	"""SPEC.md §6.3 has two axes and this grammar reached one until 2026-07-30.
+
+	``!4`` alone is not a smaller version of ``!4/2`` — it is a *worse* one. ``priority_score``
+	is null unless both axes are set and every ordering is NULLS LAST, so a task captured
+	``!4`` scored null and sank below everything ranked, looking exactly like something judged
+	unimportant. Anybody typing ``!4`` reached that; it was not a corner case.
+
+	Spelled the way a listing renders it back, so what you read is what you can type.
+	"""
+
+	captured = _parse("Fix the boiler !4/2")
+
+	assert captured.title == "Fix the boiler"
+	assert (captured.importance, captured.urgency) == (4, 2)
+
+
+def test_an_importance_on_its_own_still_works_and_leaves_urgency_unset () -> None:
+	"""The older spelling is unchanged, and does not invent the axis it was not given.
+
+	Defaulting the missing axis here would be a guess wearing a convenience's clothes — and
+	it would put a number nobody chose into the ordering everything is ranked by.
+	"""
+
+	captured = _parse("Fix the boiler !4")
+
+	assert (captured.importance, captured.urgency) == (4, None)
+
+
+@pytest.mark.parametrize(
+	"text",
+	[
+		"Reduce it by !4/9 percent",
+		"Ratio is !0/2 here",
+		"Scale !6/2 up",
+	],
+)
+def test_a_pair_outside_the_range_is_left_in_the_title (text: str) -> None:
+	"""Out of range is not grammar, so §6.13 rule 1 applies: it stays in the title verbatim.
+
+	The failure this guards is the one the date tokens already caused once — a pattern that
+	half-matches, claims part of the span, and leaves a mangled title behind.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.urgency is None
+	assert _words(captured.title) == _words(text), "part of the text was eaten"

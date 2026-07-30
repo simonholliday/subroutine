@@ -123,7 +123,23 @@ _TAG = re.compile(
 	rf"{_STARTS_A_WORD}#(?P<value>[^\s#]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)"
 )
 _ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
-_IMPORTANCE = re.compile(rf"{_STARTS_A_WORD}!(?P<value>[1-5])[,.;:!?)\]]*(?=\s|$)")
+#: §6.3 has *two* axes and this used to reach one. ``!4`` sets importance; ``!4/2`` sets
+#: both. Spelled exactly as the listing renders it back, so what you read is what you can
+#: type — and needing no second sigil, since the plausible ones are either cryptic (``!!4``)
+#: or collide with ordinary words (``u4``).
+#:
+#: **Urgency alone is not expressible here**, deliberately: ``!/2`` reads as a typo more
+#: readily than as a field. The structured ``urgency`` on ``POST /v1/tasks`` covers it, and
+#: a captured line is for the common case.
+#:
+#: Why it matters more than a missing convenience: ``priority_score`` is null unless both
+#: axes are set and every ordering is NULLS LAST, so a task captured ``!4`` scored null and
+#: sank below everything ranked, looking exactly like something judged unimportant. Anybody
+#: typing ``!4`` reached that. Found by #26's priority column rendering the missing axis as
+#: ``?`` rather than as a blank.
+_IMPORTANCE = re.compile(
+	rf"{_STARTS_A_WORD}!(?P<value>[1-5])(?:/(?P<urgency>[1-5]))?[,.;:!?)\]]*(?=\s|$)"
+)
 
 #: **An estimate must carry a unit**, so ``~90m`` and ``~2h`` parse and ``~5`` does not.
 #: The duration grammar reads a bare number as minutes (§6.4) and that is right there; here
@@ -155,6 +171,7 @@ class Capture:
 	start: datetime.date | str | None = None
 	start_is_all_day: bool | None = None
 	importance: int | None = None
+	urgency: int | None = None
 	estimate_minutes: int | None = None
 	tags: tuple[str, ...] = ()
 	assignee: str | None = None
@@ -287,6 +304,10 @@ def _collect_sigils (
 			continue
 
 		fields["importance"] = int(match.group("value"))
+
+		if match.group("urgency") is not None:
+			fields["urgency"] = int(match.group("urgency"))
+
 		claimed.append(match.span())
 
 	for match in _ESTIMATE.finditer(text):

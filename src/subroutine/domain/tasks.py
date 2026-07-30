@@ -326,6 +326,7 @@ def create_from_text (
 		"start": captured.start,
 		"start_is_all_day": captured.start_is_all_day,
 		"importance": captured.importance,
+		"urgency": captured.urgency,
 		# Passed through like every other parsed field rather than assigned after the fact.
 		# It used to be written onto the task below, guarded by `"estimate_minutes" not in
 		# overrides` — a condition nothing could satisfy, since `create` had no parameter of

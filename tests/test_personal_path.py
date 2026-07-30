@@ -1003,3 +1003,86 @@ def test_a_scripted_row_says_which_kind_of_item_it_is (
 	assert rows["How the thing works"]["entity_type"] == "document"
 	assert "due_at" not in rows["How the thing works"]
 	assert rows["How the thing works"]["ref"] == 2
+
+
+def test_a_personal_list_gets_no_columns_at_all (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""SPEC.md §1.4 falling out of a layout rule rather than being enforced by one.
+
+	The item type, the priority and the estimate are all worth a column on a mixed backlog
+	and all say nothing on a to-do list — every row is an ordinary undated task with no
+	priority, so every cell would be identical or empty. :func:`_column` drops a column with
+	fewer than two distinct values, so this page is exactly what it was before any of them
+	existed.
+
+	The failure this guards against is the quiet one: a list that starts printing ``task``
+	and a blank priority against ``buy milk`` has not broken anything, it has just become a
+	page about the data model for somebody who only wanted their shopping.
+	"""
+
+	run("init")
+
+	for line in ("buy milk", "call the dentist", "renew passport"):
+		run("add", line)
+
+	listed = run("list").output
+
+	assert "buy milk" in listed
+
+	for shown in ("task", "!", "None", "  0  "):
+		assert shown not in listed, f"a plain personal list printed {shown!r}"
+
+
+def test_a_column_appears_only_once_it_has_something_to_say (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One priority among four tasks is the moment the column earns its place."""
+
+	run("init")
+
+	for line in ("buy milk", "call the dentist", "renew passport"):
+		run("add", line)
+
+	assert "!" not in run("list").output
+
+	run("add", "fix the boiler !4")
+
+	assert "!4" in run("list").output, "the column did not appear once a row had one"
+
+
+def test_an_axis_nobody_set_is_marked_rather_than_left_blank (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``!4/?`` reads as half-ranked; a blank reads as unranked, and they sort the same way.
+
+	``priority_score`` is null unless *both* axes are set and every ordering is NULLS LAST, so
+	a task with an importance and no urgency sinks below everything ranked while looking like
+	something judged unimportant. That happened to this project's own backlog for a day.
+
+	Quick capture reaches only one of the two axes (``!4`` and nothing for urgency), so this
+	is not a corner case — it is what *every* captured priority looks like, which is what this
+	rendering revealed the moment it existed. Tracked as its own defect.
+	"""
+
+	run("init")
+	run("add", "fix the boiler !4")
+	run("add", "something else")
+
+	assert "!4/?" in run("list").output
+
+
+def test_the_type_column_stays_hidden_when_everything_is_one_kind (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The rule is "fewer than two distinct values", which covers identical as well as empty.
+
+	A page of nothing but ordinary tasks would otherwise carry the word ``task`` on every
+	line — a word about the model, on every row, answering a question nobody asked.
+	"""
+
+	run("init")
+	run("add", "buy milk")
+	run("add", "call the dentist")
+
+	assert "task" not in run("list").output

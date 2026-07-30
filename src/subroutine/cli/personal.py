@@ -230,6 +230,104 @@ class Listing:
 	more: bool = False
 
 
+# These live above every function that annotates with them. A module-level annotation is
+# evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
+# definition raises `NameError` on import while mypy reports nothing — the same trap as
+# `Item` above `World`, which cost an import failure on 2026-07-30.
+def _column (values: typing.Iterable[str]) -> int:
+	"""Return how wide a column must be, or zero when it would say nothing.
+
+	**A column that says the same thing on every row says nothing**, whether what it says is
+	a word or is nothing at all. Both cases collapse to one test: fewer than two distinct
+	values and the column does not earn its place.
+
+	This is the generalisation of ``shaping.aligned``'s empty-column rule — that drops a
+	column nothing fills, this also drops one everything fills identically. It is what lets
+	the item type, the priority and the estimate be shown at all: a personal to-do list is
+	ordinary undated tasks with no priorities, so it gets none of them and looks exactly as
+	it did before they existed. A mixed backlog gets all three, which is the case they were
+	asked for — with bugs, features and spikes in one list, ranked, what kind of thing
+	something is and how it is ranked are the first two things you want.
+
+	That is §1.4 falling out of a layout rule rather than being enforced by one: the columns
+	appear when the data has something to say and are invisible to somebody keeping a to-do
+	list.
+	"""
+
+	distinct = set(values)
+
+	if len(distinct) < 2:
+		return 0
+
+	return max(len(value) for value in distinct)
+
+
+@dataclasses.dataclass(frozen=True)
+class Columns:
+	"""How much room each cell needs on this page. Zero means the column is not shown.
+
+	Measured once for the whole page rather than per row, because "is this list all one kind
+	of thing?" is a question about the page — and measured across every bucket of an agenda
+	and every connection of a grouped listing, so the addresses line up down the whole output
+	rather than stepping in and out as the sections change.
+	"""
+
+	address: int = 0
+	kind: int = 0
+	priority: int = 0
+	estimate: int = 0
+
+	@classmethod
+	def measured (cls, world: World, rows: typing.Sequence[Row]) -> "Columns":
+		"""Return the widths this page needs."""
+
+		return cls(
+			address=max(
+				(len(world.address_of_item(name, item)) for name, item in rows), default=0
+			),
+			kind=_column(item.type for _name, item in rows),
+			priority=_column(_priority_cell(item) for _name, item in rows),
+			estimate=_column(_estimate_cell(item) for _name, item in rows),
+		)
+
+
+def _priority_cell (item: Item) -> str:
+	"""Return §6.3's two axes as one self-describing cell, or nothing when neither is set.
+
+	Written ``!4/2``, marked with the same ``!`` that *sets* importance in a captured line, so
+	the cell says what it is wherever the column happens to land. §14.10 already paid for that
+	lesson on the compact line: dropping a column moves every later cell, so a bare number
+	beside a title is one a reader has to work out from position.
+
+	**An unset axis is ``?`` rather than blank**, so ``!4/?`` reads as half-ranked rather than
+	as unranked. That distinction is not cosmetic — ``priority_score`` is null unless *both*
+	are set and every ordering is NULLS LAST, so a half-ranked item sinks to the bottom of a
+	ranked list looking exactly like one judged unimportant. It happened to this project's own
+	backlog for a day. The cell is where that becomes visible.
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	if item.importance is None and item.urgency is None:
+		return ""
+
+	return f"!{item.importance or '?'}/{item.urgency or '?'}"
+
+
+def _estimate_cell (item: Item) -> str:
+	"""Return how long the work is thought to take, as a person would say it."""
+
+	if not isinstance(item, subroutine.views.Task) or item.estimate_human is None:
+		return ""
+
+	return item.estimate_human
+
+
+#: A page with nothing worth putting in a column, which is what a bare row looks like.
+NO_COLUMNS = Columns()
+
+
 @dataclasses.dataclass(frozen=True)
 class Located:
 	"""One item, and which connection and workspace it was found on."""
@@ -1436,8 +1534,7 @@ def _render (
 	# whole agenda for the same reason, and because "is this page all one kind of thing?" is
 	# a question about the agenda rather than about whichever bucket a row landed in.
 	everything = [row for group in rows.values() for row in group]
-	width = _width(world, everything)
-	kind_width = _kind_width(everything)
+	columns = Columns.measured(world, everything)
 	remaining = sum(
 		answer.value.unscheduled_total - len(answer.value.unscheduled)
 		for answer in gathered.answers
@@ -1463,9 +1560,7 @@ def _render (
 
 		for connection, task in group:
 			console.print(
-				_item_line(
-					world, connection, task, late=late, width=width, kind_width=kind_width
-				)
+				_item_line(world, connection, task, late=late, columns=columns)
 			)
 
 	if remaining > 0:
@@ -1485,18 +1580,19 @@ def _flat (
 	rows: typing.Sequence[Row],
 	*,
 	console: rich.console.Console,
+	columns: Columns | None = None,
 ) -> None:
-	"""Print one list, every row addressed by the shortest form that resolves."""
+	"""Print one list, every row addressed by the shortest form that resolves.
 
-	width = _width(world, rows)
-	kind_width = _kind_width(rows)
+	``columns`` is passed in when the page is larger than these rows — a grouped listing
+	measures across every connection, so the addresses line up down the whole output rather
+	than stepping in and out as each heading changes what is below it.
+	"""
+
+	measured = Columns.measured(world, rows) if columns is None else columns
 
 	for connection, task in rows:
-		console.print(
-			_item_line(
-				world, connection, task, late=False, width=width, kind_width=kind_width
-			)
-		)
+		console.print(_item_line(world, connection, task, late=False, columns=measured))
 
 
 def _grouped (
@@ -1514,6 +1610,9 @@ def _grouped (
 	"""
 
 	printed = False
+	columns = Columns.measured(
+		world, [row for answer in gathered.answers for row in answer.value.rows]
+	)
 
 	for answer in gathered.answers:
 		if not answer.value.rows:
@@ -1525,29 +1624,7 @@ def _grouped (
 		console.print(rich.text.Text(answer.connection.label, style=GROUP))
 		printed = True
 
-		_flat(world, answer.value.rows, console=console)
-
-
-def _kind_width (rows: typing.Sequence[Row]) -> int:
-	"""Return how wide the item-type column must be, or zero when it would say nothing.
-
-	**A column that says the same thing on every row says nothing**, so a page whose rows are
-	all one type does not get one. That is the rule that lets the type be shown at all: a
-	personal to-do list is entirely ordinary tasks, and labelling every line ``task`` would be
-	the §1.4 leak — a word about the model, on every row, answering a question nobody asked.
-	A mixed backlog is the opposite case and the reason this was asked for: with bugs, features
-	and spikes in one list, what kind of thing something is is the first thing you want.
-
-	It is the generalisation of ``shaping.aligned``'s empty-column rule rather than a new idea
-	— that drops a column nothing fills, this drops one everything fills identically.
-	"""
-
-	kinds = {task.type for _connection, task in rows}
-
-	if len(kinds) < 2:
-		return 0
-
-	return max(len(kind) for kind in kinds)
+		_flat(world, answer.value.rows, console=console, columns=columns)
 
 
 def _width (world: World, rows: typing.Sequence[Row]) -> int:
@@ -1573,8 +1650,7 @@ def _item_line (
 	item: Item,
 	*,
 	late: bool,
-	width: int = 0,
-	kind_width: int = 0,
+	columns: Columns = NO_COLUMNS,
 ) -> rich.text.Text:
 	"""Return one listing line, addressed by a ref that never changes.
 
@@ -1586,9 +1662,14 @@ def _item_line (
 	Takes a task **or a document**, because refs are shared between them (§6.2) and a listing
 	that showed only one kind told a reader that half the numbers did not exist.
 
-	``kind_width`` is how much room the item type needs, and **zero means there is nothing
-	worth saying** — see :func:`_kind_width`. It is the caller's measurement rather than this
-	function's because it is a property of the page, not of the row.
+	``columns`` carries how much room each optional cell needs, and **a zero width means the
+	column is not shown at all** — see :class:`Columns`. It is the caller's measurement rather
+	than this function's because it is a property of the page, not of the row.
+
+	**Not the same rendering as ``views.Task.columns()``, and deliberately so.** That is
+	§14.10's compact line, which leads with the status — a word §13.5b forbids on the personal
+	path. Two audiences, two renderings; the shared thing is the *rule* about when a column
+	earns its place, not the columns themselves.
 
 	Built with :class:`rich.text.Text` rather than markup, because a title is user data: an
 	item called ``Fix [bold] handling`` must print as written, not as an instruction.
@@ -1596,10 +1677,18 @@ def _item_line (
 
 	line = rich.text.Text()
 	shown = world.address_of_item(connection, item)
-	line.append(f"  {shown:>{max(width, 3)}}  ", style=POSITION)
+	line.append(f"  {shown:>{max(columns.address, 3)}}  ", style=POSITION)
 
-	if kind_width:
-		line.append(f"{item.type:<{kind_width}}  ", style=DETAIL)
+	if columns.kind:
+		line.append(f"{item.type:<{columns.kind}}  ", style=DETAIL)
+
+	if columns.priority:
+		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)
+
+	if columns.estimate:
+		# Right-aligned: durations are read by magnitude and `30m` under `2d` compares at a
+		# glance only if the units line up.
+		line.append(f"{_estimate_cell(item):>{columns.estimate}}  ", style=DETAIL)
 
 	line.append(item.title)
 

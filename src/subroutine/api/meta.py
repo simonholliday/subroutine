@@ -642,7 +642,7 @@ def _grammars () -> dict[str, Grammar]:
 			vocabulary=[
 				"#tag",
 				"@assignee",
-				"!importance (1-5)",
+				"!importance (1-5), or !importance/urgency for both of §6.3's axes",
 				"~estimate",
 				"+project",
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.PLANNED_WORDS)),

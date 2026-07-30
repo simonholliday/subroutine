@@ -108,6 +108,7 @@ def _capture_body () -> str:
 		("#tag", "labels it, creating the tag if it is new — but #12 means task 12"),
 		("@name", "assigns it to somebody"),
 		("!1 to !5", "how important it is"),
+		("!3/5", "important and urgent — both, and how a list shows it back"),
 		("~90m, ~2h", "how long you think it will take"),
 		("+KEY", "puts it in a particular list"),
 	)
