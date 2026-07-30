@@ -35,6 +35,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.hierarchy
 import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.paging
@@ -239,6 +240,16 @@ def listing (
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
 	assignee_id: uuid.UUID | None = fastapi.Query(None, description="Restrict to one assignee."),
 	type: str | None = fastapi.Query(None, description="Restrict to one item type key."),
+	parent: str | None = fastapi.Query(
+		None,
+		description=(
+			"Restrict to the children of one task, by ref or id. Use with subtree=true for "
+			"everything beneath it rather than one level."
+		),
+	),
+	subtree: bool = fastapi.Query(
+		False, description="With parent: include the whole subtree, not only direct children."
+	),
 	q: str | None = fastapi.Query(None, description="Match this text in the title."),
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
@@ -288,6 +299,33 @@ def listing (
 	if type is not None:
 		statement = statement.where(
 			model.type_id == subroutine.domain.tasks.item_type_for(session, workspace.id, type).id
+		)
+
+	if parent is not None:
+		# Resolved through `_resolve`, so a parent the caller cannot see is "no such task"
+		# rather than an empty list — an empty listing would say the subtree is empty, which
+		# is a different and false claim (§7.3a).
+		above = _resolve(session, actor, workspace, parent)
+
+		statement = (
+			statement.where(
+				subroutine.domain.hierarchy.subtree(model, above), model.id != above.id
+			)
+			if subtree
+			else statement.where(model.parent_task_id == above.id)
+		)
+
+	elif subtree:
+		raise subroutine.errors.ValidationError(
+			"'subtree' says how much of a parent's tree to return, so it needs a parent.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="subtree",
+					code="invalid_field_value",
+					message="'subtree' has no meaning without 'parent'.",
+					hint="Pass parent=<ref> as well, or drop subtree.",
+				)
+			],
 		)
 
 	if assignee_id is not None:

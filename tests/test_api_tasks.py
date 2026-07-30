@@ -1232,3 +1232,114 @@ def test_a_task_reports_when_its_meaning_last_changed (world: World) -> None:
 	).json()
 
 	assert edited["content_updated_at"] > created["content_updated_at"]
+
+
+def _tree (world: World) -> tuple[int, int, int]:
+	"""Build parent → child → grandchild and return their refs."""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Parent"}).json()
+	child = world.call(
+		"POST", "/v1/tasks", json={"title": "Child", "parent_task_id": parent["id"]}
+	).json()
+	grandchild = world.call(
+		"POST", "/v1/tasks", json={"title": "Grandchild", "parent_task_id": child["id"]}
+	).json()
+
+	return parent["ref"], child["ref"], grandchild["ref"]
+
+
+def test_a_listing_can_return_one_task_s_children (world: World) -> None:
+	"""There was no way to ask what is under an item, which made hierarchy nearly write-only.
+
+	The column, the materialised path, the depth ceiling and `hierarchy.subtree` all existed
+	and nothing read them — a subtree was real in the database and invisible from outside,
+	which is this codebase's recurring defect at the scale of a whole feature rather than a
+	field. Found on 2026-07-30 by building the first real subtree in this project's own
+	instance and being unable to list it.
+	"""
+
+	parent, child, _grandchild = _tree(world)
+	listed = world.call("GET", f"/v1/tasks?parent={parent}").json()
+
+	assert [item["ref"] for item in listed["items"]] == [child]
+
+
+def test_a_subtree_is_deeper_than_a_child_listing (world: World) -> None:
+	"""``parent=`` is one level; ``subtree=true`` is everything beneath.
+
+	Both are wanted and they are different questions — "what did I break this into" against
+	"how much work is under here", which is what SR#17's rollup will need.
+	"""
+
+	parent, child, grandchild = _tree(world)
+	listed = world.call("GET", f"/v1/tasks?parent={parent}&subtree=true").json()
+
+	assert sorted(item["ref"] for item in listed["items"]) == sorted([child, grandchild])
+
+
+def test_a_subtree_excludes_the_parent_itself (world: World) -> None:
+	"""``hierarchy.subtree`` matches the node *and* its descendants.
+
+	Right for the predicate and wrong for this question: "what is under #42" does not include
+	#42, and a caller totalling estimates would count the parent twice.
+	"""
+
+	parent, _child, _grandchild = _tree(world)
+	listed = world.call("GET", f"/v1/tasks?parent={parent}&subtree=true").json()
+
+	assert parent not in [item["ref"] for item in listed["items"]]
+
+
+def test_subtree_without_a_parent_is_refused (world: World) -> None:
+	"""It qualifies another parameter and means nothing alone.
+
+	Ignored, it would return the whole listing to a caller who believes they asked for one
+	tree — the failure `api/query.py` exists to prevent, one level in.
+	"""
+
+	response = world.call("GET", "/v1/tasks?subtree=true")
+
+	assert response.status_code == 422
+	assert response.json()["errors"][0]["field"] == "subtree"
+
+
+def test_a_parent_the_caller_cannot_see_is_not_found_rather_than_empty (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""SPEC.md §7.3a, and the distinction matters especially here.
+
+	An empty listing says "that tree is empty", which is a different and false claim from
+	"there is no such task" — and it would confirm the item exists to somebody probing refs.
+	"""
+
+	world = _world(session)
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	private = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="SECRET",
+		title="Secret",
+		visibility="private",
+		owner_id=world.user.id,
+	)
+	hidden = subroutine.domain.tasks.create(session, project=private, title="Confidential")
+	session.flush()
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+
+	nosy = World(
+		application=world.application,
+		session=session,
+		user=outsider,
+		workspace=world.workspace,
+		secret=issued.value.get_secret_value(),
+	)
+
+	assert nosy.call("GET", f"/v1/tasks?parent={hidden.ref}").status_code == 404
