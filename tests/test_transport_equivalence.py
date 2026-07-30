@@ -36,7 +36,12 @@ import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.comments
+import subroutine.domain.links
+import subroutine.domain.projects
 import subroutine.domain.tasks
+import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 
@@ -459,4 +464,200 @@ def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
 	assert done.stdout.strip() == "", (
 		"importing subroutine.views or the CLI now loads a web framework: "
 		f"{done.stdout.strip()}"
+	)
+
+
+def test_both_render_a_link_identically (pair: Pair) -> None:
+	"""Links crossed the transport boundary for the first time with ``subroutine show``.
+
+	The reason this test exists at all: the link view lived inside ``api/documents.py``, so
+	the HTTP client had a definition of a link and the local one had none. Moving it to
+	``views.py`` is what makes the two the same object rather than two that agree — the same
+	requirement, and the same fix, as S3-07 applied to a task.
+	"""
+
+	blocker = make(pair, "Do this first")
+	blocked = make(pair, "Then this")
+
+	subroutine.domain.links.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		source=subroutine.domain.links.End(
+			entity_type="task",
+			id=blocker.id,
+			ref=blocker.ref,
+			title=blocker.title,
+			project_id=blocker.project_id,
+		),
+		target=subroutine.domain.links.End(
+			entity_type="task",
+			id=blocked.id,
+			ref=blocked.ref,
+			title=blocked.title,
+			project_id=blocked.project_id,
+		),
+		link_type_key="blocks",
+	)
+	pair.session.flush()
+
+	local, remote = pair.both()
+
+	assert local.links(ref=blocker.ref) == remote.links(ref=blocker.ref)
+	assert [link.label for link in local.links(ref=blocker.ref)] == ["Blocks"]
+
+	# And the same row read from the other end, which is the half a client could invert.
+	assert local.links(ref=blocked.ref) == remote.links(ref=blocked.ref)
+	assert [link.label for link in local.links(ref=blocked.ref)] == ["Blocked by"]
+
+
+def test_both_read_and_write_the_record_of_what_happened (pair: Pair) -> None:
+	"""Comments through both transports, written by one and read by the other.
+
+	Written locally and read remotely on purpose: a comment created through the service layer
+	and one created through the router must be the same row, or ``subroutine comment`` and an
+	agent's ``POST`` would produce records that only look alike.
+	"""
+
+	task = make(pair, "Fix the parser")
+
+	local, remote = pair.both()
+	written = local.remark(ref=task.ref, body="Ran the suite: two failures.")
+
+	assert remote.comments(ref=task.ref) == local.comments(ref=task.ref)
+	assert [item.body for item in remote.comments(ref=task.ref)] == [written.body]
+
+	# The other direction, and the ordering that makes a record a record.
+	remote.remark(ref=task.ref, body="Both were in the date parser.")
+
+	assert [item.body for item in local.comments(ref=task.ref)] == [
+		"Ran the suite: two failures.",
+		"Both were in the date parser.",
+	]
+
+
+def test_both_refuse_a_ref_that_names_nothing_the_same_way (pair: Pair) -> None:
+	"""A refusal is part of the interface, and the two used to raise different classes."""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.comments(ref=9999)
+
+	assert local.document(ref=9999) is None
+	assert remote.document(ref=9999) is None
+
+
+def test_neither_transport_reads_an_item_a_token_may_not_see (pair: Pair) -> None:
+	"""The new read surface, narrowed the same way everything else is (SPEC.md §7.3).
+
+	``show`` gave the clients three new ways into the database — a document by ref, an item's
+	links and its record of what happened — and each is a point lookup by ref, which is the
+	shape most likely to be written as a direct query with the narrowing forgotten. That is
+	the defect this codebase keeps producing, so it gets a test on both transports rather
+	than a comment saying the helper is used.
+	"""
+
+	private = subroutine.domain.projects.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		key="SECRET",
+		title="Secret",
+		visibility="private",
+		owner_id=pair.user.id,
+	)
+	hidden = subroutine.domain.tasks.create(
+		pair.session, project=private, title="Acquire the rival company"
+	)
+	pair.session.flush()
+
+	subroutine.domain.comments.create(
+		pair.session,
+		entity_type="task",
+		entity_id=hidden.id,
+		body="Bid rejected.",
+	)
+	pair.session.flush()
+
+	# Asserted here, before a second account exists: local mode resolves "the only user" by
+	# counting them, so `pair.local` stops having an identity the moment the outsider is
+	# created. That the narrowing is a narrowing and not a wall has to be established first.
+	assert [item.body for item in pair.local.comments(ref=hidden.ref)] == ["Bid rejected."]
+
+	outsider = subroutine.domain.users.create(
+		pair.session, username=f"other-{uuid.uuid4().hex[:8]}"
+	)
+	subroutine.domain.workspaces.add_member(
+		pair.session, pair.workspace, outsider, role_key="member"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		pair.session, user=outsider, title="outsider"
+	)
+	pair.session.flush()
+
+	factory = api_support.factory_for(pair.session)
+	settings = subroutine.config.Settings(dev_mode=True)
+	secret = issued.value.get_secret_value()
+
+	nosy_local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		settings,
+		session_factory=factory,
+		token=secret,
+	)
+	nosy_remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(api_support.build_app(factory)),
+		base_url=api_support.BASE_URL,
+	)
+
+	with nosy_local, nosy_remote:
+		for client in (nosy_local, nosy_remote):
+			# Absent rather than forbidden: saying "forbidden" would confirm it exists,
+			# which is the disclosure §7.3a's existence rule is written to prevent.
+			assert client.task(ref=hidden.ref) is None
+			assert client.document(ref=hidden.ref) is None
+
+			with pytest.raises(subroutine.errors.NotFound):
+				client.comments(ref=hidden.ref)
+
+			with pytest.raises(subroutine.errors.NotFound):
+				client.links(ref=hidden.ref)
+
+			with pytest.raises(subroutine.errors.NotFound):
+				client.remark(ref=hidden.ref, body="I should not be able to write this.")
+
+
+def test_both_take_an_explicit_workspace_on_every_new_method (pair: Pair) -> None:
+	"""The parameter the equivalence tests were not passing, and so could not check.
+
+	``_given()`` on the HTTP client drops a ``None``, so a test that leaves ``workspace``
+	unset never puts ``workspace_id`` on the wire — and every test above leaves it unset.
+	The comments endpoints did not declare the parameter and refused it, which nothing here
+	could see: the CLI always sends it, because it has resolved which workspace the ref was
+	found in before it asks. It failed the first time ``subroutine show`` was pointed at a
+	remote connection.
+
+	The general lesson, which this codebase keeps relearning: **a default argument is not
+	covered by a test that never overrides it.** Same shape as the page-size divergence,
+	where both sides agreed until somebody passed ``limit``.
+	"""
+
+	task = make(pair, "Something to talk about")
+	local, remote = pair.both()
+	slug = pair.workspace.slug
+
+	local.remark(ref=task.ref, body="Said once.", workspace=slug)
+
+	for client in (local, remote):
+		assert client.task(ref=task.ref, workspace=slug) is not None
+		assert client.document(ref=task.ref, workspace=slug) is None
+		assert client.links(ref=task.ref, workspace=slug) == []
+		assert [item.body for item in client.comments(ref=task.ref, workspace=slug)] == [
+			"Said once."
+		]
+
+	assert local.comments(ref=task.ref, workspace=slug) == remote.comments(
+		ref=task.ref, workspace=slug
 	)

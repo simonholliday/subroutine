@@ -23,6 +23,7 @@ import contextlib
 import datetime
 import types
 import typing
+import uuid
 
 import sqlalchemy
 import sqlalchemy.exc
@@ -37,7 +38,9 @@ import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.comments
 import subroutine.domain.instances
+import subroutine.domain.links
 import subroutine.domain.local
 import subroutine.domain.paging
 import subroutine.domain.refs
@@ -193,6 +196,66 @@ class Client:
 				row, subroutine.views.Vocabulary.for_tasks(session, [row])
 			)
 
+	def document (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Document | None:
+		"""Return one document by ref, or ``None`` if there is no such document here."""
+
+		model = subroutine.db.models.work.Document
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			row = session.scalars(
+				subroutine.domain.scoping.readable_documents(
+					actor, workspace_ids=[chosen.id], include_archived=True
+				).where(model.ref == ref)
+			).one_or_none()
+
+			if row is None:
+				return None
+
+			return subroutine.views.document(
+				row, subroutine.views.Vocabulary.for_documents(session, [row])
+			)
+
+	def links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Link]:
+		"""Return every link touching one item, labelled from that item's point of view."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return [
+				subroutine.views.link(related)
+				for related in subroutine.domain.links.around(
+					session,
+					actor,
+					workspace_id=chosen.id,
+					entity_type=entity_type,
+					identifier=subject,
+				)
+			]
+
+	def comments (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Comment]:
+		"""Return one item's record of what happened, oldest first."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			rows = session.scalars(
+				subroutine.domain.comments.listing(
+					session, entity_type=entity_type, entity_id=subject, actor=actor
+				)
+			).all()
+
+			return [subroutine.views.comment(row) for row in rows]
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> subroutine.clients.base.Captured:
@@ -222,6 +285,32 @@ class Client:
 					row, subroutine.views.Vocabulary.for_tasks(session, [row])
 				),
 				unparsed=captured.unparsed,
+			)
+
+	def remark (
+		self,
+		*,
+		ref: int,
+		body: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Comment:
+		"""Add one entry to an item's record of what happened."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return subroutine.views.comment(
+				subroutine.domain.comments.create(
+					session,
+					entity_type=entity_type,
+					entity_id=subject,
+					body=body,
+					actor=actor,
+				)
 			)
 
 	def complete (
@@ -402,6 +491,50 @@ class Client:
 			)
 
 		return row
+
+	def _subject (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		workspace_id: typing.Any,
+		entity_type: str,
+		ref: int,
+	) -> uuid.UUID:
+		"""Turn a ref into the id of the task or document it names, or refuse.
+
+		Links and comments hang off an *id*, because a project has no ref to be named by, while
+		a command line only ever carries a ref. Resolving it here rather than in the caller
+		keeps the two transports asking the same question: the HTTP client hands the ref
+		straight to a route that resolves it identically, so a ref that names nothing must fail
+		the same way on both sides.
+		"""
+
+		model: typing.Any = (
+			subroutine.db.models.work.Task
+			if entity_type == "task"
+			else subroutine.db.models.work.Document
+		)
+		statement = (
+			subroutine.domain.scoping.readable_tasks(
+				actor, workspace_ids=[workspace_id], include_completed=True, include_archived=True
+			)
+			if entity_type == "task"
+			else subroutine.domain.scoping.readable_documents(
+				actor, workspace_ids=[workspace_id], include_archived=True
+			)
+		)
+
+		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
+
+		if row is None:
+			raise subroutine.errors.NotFound(
+				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} here.",
+				hint="Run 'subroutine ls' to see what there is.",
+			)
+
+		found: uuid.UUID = row.id
+
+		return found
 
 	def _row (
 		self,

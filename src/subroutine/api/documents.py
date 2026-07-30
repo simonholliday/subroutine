@@ -106,27 +106,6 @@ class LinkRequest(subroutine.api.schemas.RequestModel):
 	target_type: str = "task"
 
 
-class End(subroutine.api.schemas.RequestModel):
-	"""One end of a link, with enough of the row to render it without a second call."""
-
-	entity_type: str
-	id: uuid.UUID
-	ref: int
-	title: str
-
-
-class Link(subroutine.api.schemas.RequestModel):
-	"""A link as seen from the item it was asked about."""
-
-	id: uuid.UUID
-	link_type: str
-
-	#: Already the right way round: "Blocks" from one end, "Blocked by" from the other.
-	label: str
-	direction: str
-	other: End
-
-
 @router.post("", status_code=201, summary="Write a document")
 def create (
 	body: Create,
@@ -369,14 +348,21 @@ def _links_for (entity_type: str) -> typing.Any:
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
 		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
-	) -> list[Link]:
-		"""Return every link touching this item, labelled from its point of view."""
+	) -> subroutine.views.Collection[subroutine.views.Link]:
+		"""Return every link touching this item, labelled from its point of view.
+
+		Enveloped like every other collection (§8.4), and returned whole: an item's links are
+		bounded by how many somebody typed, so there is nothing to page through. ``has_more``
+		is therefore always false — which is a *statement* the caller can rely on, and is the
+		reason this is worth an envelope rather than a bare array. Until 2026-07-30 it was a
+		bare array, and a caller had no way to tell a complete set from a truncated one.
+		"""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 
-		return [
-			_link(related)
+		found = [
+			subroutine.views.link(related)
 			for related in subroutine.domain.links.around(
 				session,
 				actor,
@@ -386,13 +372,18 @@ def _links_for (entity_type: str) -> typing.Any:
 			)
 		]
 
+		return subroutine.views.Collection(
+			items=found,
+			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+		)
+
 	def create (
 		id_or_ref: subroutine.api.schemas.ItemAddress,
 		body: LinkRequest,
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
 		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
-	) -> Link:
+	) -> subroutine.views.Link:
 		"""Join this item to another one."""
 
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
@@ -412,7 +403,7 @@ def _links_for (entity_type: str) -> typing.Any:
 			session, actor, workspace_id=workspace.id, entity_type=entity_type, identifier=near.id
 		):
 			if related.id == created.id:
-				return _link(related)
+				return subroutine.views.link(related)
 
 		raise subroutine.errors.InternalError("The link was created but cannot be read back.")
 
@@ -527,23 +518,6 @@ def _near (
 		ref=row.ref,
 		title=row.title,
 		project_id=row.project_id,
-	)
-
-
-def _link (related: subroutine.domain.links.Related) -> Link:
-	"""Render one link."""
-
-	return Link(
-		id=related.id,
-		link_type=related.link_type,
-		label=related.label,
-		direction=related.direction,
-		other=End(
-			entity_type=related.other.entity_type,
-			id=related.other.id,
-			ref=related.other.ref,
-			title=related.other.title,
-		),
 	)
 
 

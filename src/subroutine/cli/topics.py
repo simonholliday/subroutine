@@ -159,6 +159,7 @@ Any list this tool prints shows it:
     #1  Call the dentist  (due Sun 2 Aug)
     #7  Buy milk
 
+  subroutine show 7
   subroutine done 7
 
 The # is how a ref is written down — in a note, a commit message, or a
@@ -182,10 +183,13 @@ else has been finished.""",
 
   subroutine today --json
   subroutine ls --json
+  subroutine show 7 --json
   subroutine add "Buy milk" --json
 
-The JSON carries the ref, the title, the dates and the tags — enough to
-act on without asking again.
+A listing's JSON carries the ref, the title, the dates and the tags —
+enough to act on without asking again. 'show' carries the whole item
+instead, with its links and everything recorded against it, because the
+reason to ask about one thing is to read what a list left out.
 
 There is no login for local use: the file permissions on your database
 are what protect it. If you want to give an agent narrower access than

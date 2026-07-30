@@ -173,6 +173,46 @@ class Client:
 
 		return self._parsed(subroutine.views.Task, self._read(response))
 
+	def document (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Document | None:
+		"""Return one document by ref, or ``None`` if there is no such document here."""
+
+		response = self._call(
+			"GET", f"/v1/documents/{ref}", params=_given(workspace_id=workspace)
+		)
+
+		if response.status_code == 404:
+			return None
+
+		return self._parsed(subroutine.views.Document, self._read(response))
+
+	def links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Link]:
+		"""Return every link touching one item, labelled from that item's point of view."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/links",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(subroutine.views.Link, body, endpoint="links")
+
+	def comments (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Comment]:
+		"""Return one item's record of what happened, oldest first."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/comments",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(subroutine.views.Comment, body, endpoint="comments")
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> subroutine.clients.base.Captured:
@@ -205,6 +245,27 @@ class Client:
 				text, now=subroutine.db.types.utcnow()
 			).unparsed,
 		)
+
+	def remark (
+		self,
+		*,
+		ref: int,
+		body: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Comment:
+		"""Add one entry to an item's record of what happened."""
+
+		self._refuse_if_read_only()
+
+		answered = self._json(
+			"POST",
+			f"/v1/{_plural(entity_type)}/{ref}/comments",
+			params=_given(workspace_id=workspace),
+			json={"body": body},
+		)
+
+		return self._parsed(subroutine.views.Comment, answered)
 
 	def complete (
 		self, *, ref: int, workspace: str | None = None
@@ -306,6 +367,22 @@ class Client:
 				f"{model.__name__} could not be read from its response ({where}: {why})"
 			) from None
 
+	def _collected (
+		self, model: type[Parsed], body: typing.Any, *, endpoint: str
+	) -> list[Parsed]:
+		"""Read an enveloped collection into view models.
+
+		Insists on the envelope rather than tolerating a bare array, even though one endpoint
+		used to send one. Accepting both shapes would make this client the place where the
+		§8.4 rule quietly stopped being true, and the next endpoint to forget it would be
+		found by somebody else's client rather than by ours.
+		"""
+
+		if not isinstance(body, dict) or "items" not in body:
+			raise self._not_an_instance(f"its /v1/…/{endpoint} response has no 'items'")
+
+		return [self._parsed(model, item) for item in body["items"]]
+
 	def _not_an_instance (self, because: str) -> subroutine.errors.SubroutineError:
 		"""Return the failure for a server that answered, but not as an instance."""
 
@@ -398,6 +475,31 @@ def _parsed (response: httpx.Response) -> dict[str, typing.Any] | None:
 		return None
 
 	return body if isinstance(body, dict) else None
+
+
+def _plural (entity_type: str) -> str:
+	"""Return the path segment an entity type is addressed under.
+
+	Three names rather than a rule, because the segment is a *route* and a route is not
+	derivable from a noun: adding an ``s`` would invent ``/v1/verifications`` for something
+	that has no endpoint, and would do it silently.
+	"""
+
+	segments = {"task": "tasks", "document": "documents", "project": "projects"}
+
+	if entity_type not in segments:
+		raise subroutine.errors.ValidationError(
+			f"{entity_type!r} is not something this client can address.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="entity_type",
+					code="invalid_field_value",
+					message=f"Expected one of: {', '.join(segments)}.",
+				)
+			],
+		)
+
+	return segments[entity_type]
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:

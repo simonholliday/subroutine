@@ -415,13 +415,19 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"of them, so pagination does not change. `fields` and `format` cannot be combined. "
 		"`GET /v1/meta` lists the selectable fields and formats per entity.",
 		"",
-		# "a comment" was in this list before comments had an API, which the rule stated in
-		# this function's docstring forbids: a reader told that references work in comments
-		# would go looking for an endpoint that is not there.
-		"In prose — a title, a description, a document body — a reference is written `#42`, "
-		"and that is what builds the mention index. The sigil belongs to the *text*: do not "
-		"put it in a URL, where it would have to be escaped, and do not expect it in the "
-		"`ref` field, which is a number.",
+		# "a comment" was removed from this list while comments had no API, per the rule in
+		# this function's docstring — a reader told that references work in comments would
+		# have gone looking for an endpoint that was not there. It is back because the
+		# endpoint is: `POST /v1/tasks/{ref}/comments`, and the same on projects and
+		# documents.
+		"In prose — a title, a description, a document body, a comment — a reference is "
+		"written `#42`, and that is what builds the mention index. The sigil belongs to the "
+		"*text*: do not put it in a URL, where it would have to be escaped, and do not "
+		"expect it in the `ref` field, which is a number.",
+		"",
+		"**Record what happened as you go:** `POST /v1/tasks/{ref}/comments` with a `body`, "
+		"and the same on projects and documents. A comment is what happened; a document is "
+		"what you concluded.",
 		"",
 		"**If you read something, think, and then write it, send the version back.** Put "
 		"`expected_version` in the body or `If-Match: \"<version>\"` in the header, and a "

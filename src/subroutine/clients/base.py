@@ -127,10 +127,51 @@ class Client(typing.Protocol):
 		refusal makes one, with the candidates it collected.
 		"""
 
+	def document (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Document | None:
+		"""Return one document by ref, or ``None`` if there is no such document here.
+
+		The counterpart to :meth:`task`, and needed for the same reason a ref carries no
+		prefix (§6.2): **one counter per workspace serves tasks and documents alike**, so
+		``#4`` may perfectly well be a specification rather than a job. A reader that only
+		ever asked about tasks would report that ``#4`` does not exist while it sits in the
+		same listing the reader printed.
+		"""
+
+	def links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Link]:
+		"""Return every link touching one item, labelled from that item's point of view."""
+
+	def comments (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Comment]:
+		"""Return one item's record of what happened, oldest first (§5.10).
+
+		**Oldest first, unlike every other listing here.** A record is read from the
+		beginning; a task list is read newest-first because the newest is the one you act on.
+		"""
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> Captured:
 		"""Create a task from a line of text (§6.13)."""
+
+	def remark (
+		self,
+		*,
+		ref: int,
+		body: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Comment:
+		"""Add one entry to an item's record of what happened.
+
+		Named ``remark`` rather than ``comment`` so that it does not collide with
+		:meth:`comments` by a single letter. A method that reads and a method that writes
+		should not be told apart by a plural.
+		"""
 
 	def complete (
 		self, *, ref: int, workspace: str | None = None

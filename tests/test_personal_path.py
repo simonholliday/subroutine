@@ -20,6 +20,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.domain.capture
+import subroutine.domain.comments
 import subroutine.domain.dates
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
@@ -228,15 +229,25 @@ def test_a_number_goes_on_meaning_the_same_task_after_something_is_completed (
 def test_a_number_that_matches_nothing_is_refused_with_the_remedy (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""And the refusal says how to find out what does exist."""
+	"""And the refusal says how to find out what does exist.
+
+	It also says it **without naming a workspace**. A refusal is the last output anybody
+	re-reads for stray vocabulary, and this one was telling a person with one workspace that
+	there is no ``#9`` "in si" — a word they had never met, introduced by an error message
+	about their shopping. §13.5b's transcript cannot catch that, because a refusal is not in
+	the transcript.
+	"""
 
 	run("init")
 	run("add", "Buy milk")
 
 	result = run("done", "9", expect=1)
 
-	assert "no task #9" in result.output
+	assert "no #9" in result.output
 	assert "subroutine ls" in result.output
+
+	for word in FORBIDDEN:
+		assert word not in result.output.lower(), f"the refusal mentions a {word}"
 
 
 def _second_workspace (home: pathlib.Path, slug: str = "work") -> None:
@@ -573,3 +584,167 @@ def test_add_with_no_text_asks_for_it (
 	result = run("add", input="Buy milk\n")
 
 	assert "Added: Buy milk" in result.output
+
+
+def test_show_reads_one_item_without_naming_the_full_model (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4 applied to the command most likely to break it.
+
+	``show`` exists to print everything an item carries, which is exactly the shape that
+	leaks a status, a project and a type into a personal to-do list. The rule that keeps it
+	honest is that a field nobody set is not printed and a default nobody chose is not a
+	field: on a plain "buy milk" there is nothing to say beyond the title and the day.
+	"""
+
+	run("init")
+	run("add", "Buy milk tomorrow")
+
+	result = run("show", "1")
+
+	assert "Buy milk" in result.output
+	assert "#1" in result.output
+
+	for word in FORBIDDEN:
+		assert word not in result.output.lower(), f"'show' said {word!r}:\n{result.output}"
+
+
+def test_show_prints_the_record_of_what_happened (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The half of SPEC.md §5.10 that had a service and an API and no way to read it."""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	noted = run("comment", "1", "ran the suite, two failures in the date parser")
+
+	assert "Noted on: Fix the parser" in noted.output
+
+	result = run("show", "1")
+
+	assert "two failures in the date parser" in result.output
+
+
+def test_a_comment_with_nothing_in_it_asks_rather_than_erroring (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a again: a blank argument is a question, not a refusal.
+
+	Whitespace counts as blank. Somebody who typed ``subroutine comment 1 ""`` meant to say
+	something and has not said it yet, which is a prompt — while an empty record entry that
+	*was* accepted would timestamp a claim that nothing was said.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	result = run("comment", "1", "   ", input="found it in the tokeniser\n")
+
+	assert "What happened?" in result.output
+	assert "Noted on: Fix the parser" in result.output
+	assert "found it in the tokeniser" in run("show", "1").output
+
+
+def test_a_comment_longer_than_the_limit_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A service-layer bound, reported through the CLI with the field named (§6.3's lesson).
+
+	The path this really tests is the *translation*: a refusal raised in the domain has to
+	arrive as a message rather than as a traceback, whichever transport carried it.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	result = run(
+		"comment",
+		"1",
+		"x" * (subroutine.domain.comments.MAX_BODY_LENGTH + 1),
+		expect=1,
+	)
+
+	assert "body" in result.output.lower()
+	assert "Traceback" not in result.output
+
+
+def test_show_reads_a_document_as_readily_as_a_task (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""One ref counter serves both (SPEC.md §6.2), so a reader that only knew tasks was wrong.
+
+	This is the case that made ``show`` search documents at all: before it did,
+	``subroutine show 2`` reported that ``#2`` did not exist while it sat in the same
+	workspace, because the number happened to have been allocated to a specification.
+	"""
+
+	run("init")
+	run("add", "Build the thing")
+	_a_document(home, title="How the thing works", body="It works like this.")
+
+	result = run("show", "2")
+
+	assert "How the thing works" in result.output
+	assert "It works like this." in result.output
+
+
+def test_an_acting_command_says_a_document_is_a_document (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""Being told ``#2`` is a document is an answer; being told it is missing is not.
+
+	The reason ``done`` searches documents it can never act on: the refusal has to be able
+	to name what the number *did* find, or the user is left believing they misremembered a
+	number that was correct all along.
+	"""
+
+	run("init")
+	run("add", "Build the thing")
+	_a_document(home, title="How the thing works", body="It works like this.")
+
+	result = run("done", "2", expect=1)
+
+	assert "is a document, not a task" in result.output
+	assert "How the thing works" in result.output
+	assert "subroutine show 2" in result.output
+
+
+def _a_document (home: pathlib.Path, *, title: str, body: str) -> None:
+	"""Write a document into the installation in ``home``.
+
+	Reaching past the CLI for the same reason :func:`_second_workspace` does: there is no
+	``subroutine document`` command yet, and a document arriving through the API or through
+	an agent is the ordinary case rather than a contrived one.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.session
+	import subroutine.domain.bootstrap
+	import subroutine.domain.documents
+	import subroutine.domain.local
+	import subroutine.domain.workspaces
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			principal = subroutine.domain.local.principal(session)
+			workspace = subroutine.domain.workspaces.readable(session, principal)[0]
+			project = subroutine.domain.bootstrap.inbox_for(session, workspace)
+
+			assert project is not None, "a fresh installation has an Inbox"
+
+			subroutine.domain.documents.create(
+				session, project=project, title=title, body=body, actor=principal
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()

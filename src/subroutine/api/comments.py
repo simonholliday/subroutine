@@ -135,6 +135,13 @@ def _attach (
 	Declared once and applied three times, so the three subjects cannot drift into three
 	slightly different comment APIs — which is exactly what happened to the *link*
 	sub-resources before they were unified.
+
+	**Every one of them takes ``workspace_id``**, like every other item-addressed endpoint.
+	They did not until 2026-07-30, which meant a ref could only ever be resolved in whichever
+	workspace ``selection.workspace`` settled on with nothing requested — so an installation
+	with two of them could not comment on an item in the second one at all, and the listing
+	*refused* the parameter outright because it was not declared. Invisible to the transport
+	equivalence tests, which pass ``workspace=None``, and so send nothing.
 	"""
 
 	@group.get(
@@ -149,6 +156,9 @@ def _attach (
 		session: subroutine.api.dependencies.SessionDep,
 		settings: subroutine.api.dependencies.SettingsDep,
 		request: starlette.requests.Request,
+		workspace_id: str | None = fastapi.Query(
+			None, description="Which workspace, by id or slug. Needed when you can reach several."
+		),
 		limit: int | None = fastapi.Query(None, description="How many to return."),
 		cursor: str | None = fastapi.Query(None, description="Continue after a page."),
 		format: str | None = subroutine.api.shaping.FORMAT_QUERY,
@@ -156,7 +166,7 @@ def _attach (
 	) -> typing.Any:
 		"""Return what happened on this item, oldest first."""
 
-		subject = resolve(session, actor, request.path_params[address])
+		subject = resolve(session, actor, request.path_params[address], workspace_id)
 
 		return _page(
 			session,
@@ -183,10 +193,13 @@ def _attach (
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
 		request: starlette.requests.Request,
+		workspace_id: str | None = fastapi.Query(
+			None, description="Which workspace, by id or slug. Needed when you can reach several."
+		),
 	) -> subroutine.views.Comment:
 		"""Record what happened on this item."""
 
-		subject = resolve(session, actor, request.path_params[address])
+		subject = resolve(session, actor, request.path_params[address], workspace_id)
 
 		return _rendered(
 			subroutine.domain.comments.create(
@@ -252,12 +265,13 @@ def _task (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	address: str,
+	workspace_id: str | None = None,
 ) -> typing.Any:
 	"""Resolve a task by id or ref, the way every other task endpoint does."""
 
 	import subroutine.api.tasks as tasks
 
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=None)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return tasks._resolve(session, actor, workspace, address)
 
@@ -266,12 +280,13 @@ def _project (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	address: str,
+	workspace_id: str | None = None,
 ) -> typing.Any:
 	"""Resolve a project by id or key."""
 
 	import subroutine.api.projects as projects
 
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=None)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return projects.resolve(session, actor, workspace, address)
 
@@ -280,12 +295,13 @@ def _document (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	address: str,
+	workspace_id: str | None = None,
 ) -> typing.Any:
 	"""Resolve a document by id or ref."""
 
 	import subroutine.api.documents as documents
 
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=None)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return documents._resolve(session, actor, workspace, address)
 

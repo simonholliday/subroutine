@@ -191,7 +191,7 @@ def test_a_link_reads_the_right_way_round_from_each_end (
 	assert created.json()["label"] == "Blocks"
 	assert created.json()["direction"] == "outgoing"
 
-	from_other_end = world.call("GET", f"/v1/tasks/{blocked['ref']}/links").json()
+	from_other_end = world.call("GET", f"/v1/tasks/{blocked['ref']}/links").json()["items"]
 
 	assert len(from_other_end) == 1
 	assert from_other_end[0]["label"] == "Blocked by"
@@ -211,8 +211,14 @@ def test_a_symmetric_link_reads_the_same_from_both_ends (
 		"POST", f"/v1/tasks/{one['ref']}/links", json={"target": two["ref"], "link_type": "relates_to"}
 	)
 
-	assert world.call("GET", f"/v1/tasks/{one['ref']}/links").json()[0]["label"] == "Relates to"
-	assert world.call("GET", f"/v1/tasks/{two['ref']}/links").json()[0]["label"] == "Relates to"
+	assert (
+		world.call("GET", f"/v1/tasks/{one['ref']}/links").json()["items"][0]["label"]
+		== "Relates to"
+	)
+	assert (
+		world.call("GET", f"/v1/tasks/{two['ref']}/links").json()["items"][0]["label"]
+		== "Relates to"
+	)
 
 
 def test_linking_twice_is_not_an_error (world: test_api_tasks.World) -> None:
@@ -226,7 +232,7 @@ def test_linking_twice_is_not_an_error (world: test_api_tasks.World) -> None:
 	again = world.call("POST", f"/v1/tasks/{one['ref']}/links", json=body)
 
 	assert first.json()["id"] == again.json()["id"]
-	assert len(world.call("GET", f"/v1/tasks/{one['ref']}/links").json()) == 1
+	assert len(world.call("GET", f"/v1/tasks/{one['ref']}/links").json()["items"]) == 1
 
 
 def test_nothing_can_be_linked_to_itself (world: test_api_tasks.World) -> None:
@@ -269,7 +275,7 @@ def test_a_link_can_be_withdrawn (world: test_api_tasks.World) -> None:
 	removed = world.call("DELETE", f"/v1/tasks/{one['ref']}/links/{link['id']}")
 
 	assert removed.status_code == 204
-	assert world.call("GET", f"/v1/tasks/{one['ref']}/links").json() == []
+	assert world.call("GET", f"/v1/tasks/{one['ref']}/links").json()["items"] == []
 	assert world.call("GET", f"/v1/tasks/{two['ref']}").status_code == 200
 
 
@@ -298,7 +304,7 @@ def test_a_link_to_something_invisible_is_not_reported (
 		json={"target": secret["ref"], "link_type": "relates_to"},
 	)
 
-	assert len(world.call("GET", f"/v1/tasks/{public['ref']}/links").json()) == 1
+	assert len(world.call("GET", f"/v1/tasks/{public['ref']}/links").json()["items"]) == 1
 
 	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
 	subroutine.domain.workspaces.add_member(session, world.workspace, outsider, role_key="member")
@@ -309,7 +315,7 @@ def test_a_link_to_something_invisible_is_not_reported (
 
 	nosy = world._replace(secret=issued.value.get_secret_value())
 
-	assert nosy.call("GET", f"/v1/tasks/{public['ref']}/links").json() == []
+	assert nosy.call("GET", f"/v1/tasks/{public['ref']}/links").json()["items"] == []
 
 
 def test_a_specification_can_be_written_and_the_work_derived_from_it (
@@ -354,14 +360,14 @@ def test_a_specification_can_be_written_and_the_work_derived_from_it (
 		derived.append(task["ref"])
 
 	# From the specification: everything that came out of it.
-	from_spec = world.call("GET", f"/v1/documents/{spec['ref']}/links").json()
+	from_spec = world.call("GET", f"/v1/documents/{spec['ref']}/links").json()["items"]
 
 	assert {link["other"]["ref"] for link in from_spec} == set(derived)
 	assert {link["direction"] for link in from_spec} == {"incoming"}
 	assert {link["label"] for link in from_spec} == {"Derived into"}
 
 	# From a task: the specification it came from.
-	from_task = world.call("GET", f"/v1/tasks/{derived[0]}/links").json()
+	from_task = world.call("GET", f"/v1/tasks/{derived[0]}/links").json()["items"]
 
 	assert from_task[0]["other"]["ref"] == spec["ref"]
 	assert from_task[0]["other"]["entity_type"] == "document"

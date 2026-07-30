@@ -1,4 +1,4 @@
-"""``add``, ``today``, ``ls``, ``done``, ``plan``, ``defer``, ``use`` — the personal path.
+"""``add``, ``today``, ``ls``, ``show``, ``done``, ``plan``, ``defer``, ``comment``, ``use``.
 
 These few commands are the entire surface a person needs, and §13.5b says so with a
 stopwatch: a fresh installation to a working to-do list in three commands, a task completed
@@ -41,6 +41,7 @@ import subroutine.credentials
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.dates
+import subroutine.domain.durations
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.errors
@@ -180,14 +181,55 @@ class World:
 
 		return self.address_of(connection, task.workspace_id, task.ref)
 
+	def address_of_located (self, located: "Located") -> str:
+		"""Return the shortest address that resolves to an item already found.
+
+		The shortest, not the absolute one: a refusal listing candidates wants every address
+		spelled out, while a heading over the item somebody just asked for wants the form
+		they typed. Printing ``si/#24`` back at a person with one workspace is the §1.4
+		leak this whole command had to avoid.
+		"""
+
+		return self.address_of(located.connection, located.item.workspace_id, located.ref)
+
+
+#: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
+#: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
+#: about tasks would report that ``#4`` does not exist while it sits in the same listing.
+Item = subroutine.views.Task | subroutine.views.Document
+
+#: The kinds each command is willing to be given. ``done`` acts on work and nothing else;
+#: ``show`` reads whatever the number names. Passed rather than assumed, so that a command
+#: which cannot act on a document *says* so instead of claiming the item is missing.
+TASKS_ONLY = ("task",)
+ANY_ITEM = ("task", "document")
+
 
 @dataclasses.dataclass(frozen=True)
 class Located:
-	"""One task, and which connection and workspace it was found on."""
+	"""One item, and which connection and workspace it was found on."""
 
 	connection: str
 	workspace: str
-	task: subroutine.views.Task
+	item: Item
+
+	@property
+	def ref (self) -> int:
+		"""Return the number this item is addressed by."""
+
+		return self.item.ref
+
+	@property
+	def title (self) -> str:
+		"""Return what to call this item when naming it back to the user."""
+
+		return self.item.title
+
+	@property
+	def entity_type (self) -> str:
+		"""Return which kind of item this is, in the vocabulary the API uses."""
+
+		return "task" if isinstance(self.item, subroutine.views.Task) else "document"
 
 
 def register (
@@ -322,8 +364,14 @@ def register (
 			[workspace.slug for workspace in here.identity.workspaces],
 		)
 
-	def _locate (world: World, given: str) -> Located:
-		"""Resolve an address into one task, or refuse in a way that can be acted on.
+	def _locate (
+		world: World,
+		given: str,
+		*,
+		kinds: tuple[str, ...] = TASKS_ONLY,
+		verb: str = "done",
+	) -> Located:
+		"""Resolve an address into one item, or refuse in a way that can be acted on.
 
 		**A bare number means the current context** (§13.7), which is what makes a number
 		typeable at all: refs are per-workspace, so every low number exists nearly everywhere
@@ -341,26 +389,32 @@ def register (
 		``.first()`` on an unordered query across every readable workspace, so two workspaces
 		each holding a ``#1`` was enough to complete whichever row the database happened to
 		return — the same defect as the positional numbering this replaced.
+
+		``kinds`` is what a *reading* command needs and an acting one does not: ``show`` will
+		take a document, ``done`` will not. Both search the same way, because a number that
+		names a document has to be *found* before it can be turned down — telling somebody
+		``#4`` does not exist, when it is the plan they were just reading, is worse than
+		telling them it is not a task.
 		"""
 
 		address = subroutine.domain.refs.parse_address(given)
 
 		if address is None:
 			stop(
-				f"{given!r} is not a task number.",
-				"Tasks are named by the number 'subroutine ls' prints beside them — "
-				"'subroutine done 42'.",
+				f"{given!r} is not an item number.",
+				"Items are named by the number 'subroutine ls' prints beside them — "
+				f"'subroutine {verb} 42'.",
 			)
 
 		named = _named_place(world, address)
 
 		if named is None:
-			return _unqualified(world, address.ref, given)
+			return _unqualified(world, address.ref, given, kinds=kinds, verb=verb)
 
-		found = named[0].client.task(ref=address.ref, workspace=named[1])
+		found = _found_at(named[0], named[1], address.ref, kinds)
 
 		if found is not None:
-			return Located(connection=named[0].name, workspace=named[1], task=found)
+			return Located(connection=named[0].name, workspace=named[1], item=found)
 
 		# Not in the place the address named. Ask everywhere else before giving up, so the
 		# refusal can say where it *is* — the docstring above promised this and the code did
@@ -369,29 +423,75 @@ def register (
 		elsewhere = (
 			[]
 			if address.workspace is not None or address.connection is not None
-			else [item for item in _everywhere(world, address.ref) if item.workspace != named[1]]
+			else [
+				item
+				for item in _everywhere(world, address.ref, kinds)
+				if item.workspace != named[1]
+			]
 		)
 
 		if not elsewhere:
 			stop(
-				f"There is no task {subroutine.domain.refs.format_ref(address.ref)} in "
-				f"{named[1]}.",
+				f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
+				f"{_in_place(world, named[1])}.",
 				"Run 'subroutine ls' to see what there is.",
 			)
 
 		shown = [_absolute(world, item) for item in elsewhere]
 		width = max(len(text) for text in shown)
 		listed = "\n".join(
-			f"    {text:>{width}}  {item.task.title}"
+			f"    {text:>{width}}  {item.title}"
 			for text, item in zip(shown, elsewhere, strict=True)
 		)
 
 		stop(
-			f"There is no {subroutine.domain.refs.format_ref(address.ref)} in {named[1]}, "
-			f"but there is one here:\n{listed}",
-			f"Say which — 'subroutine done "
+			f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
+			f"{_in_place(world, named[1])}, but there is one here:\n{listed}",
+			f"Say which — 'subroutine {verb} "
 			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
 		)
+
+	def _in_place (world: World, workspace: str) -> str:
+		"""Return " in <workspace>", or nothing when there is only one place it could be.
+
+		§1.4 again, in the place it is easiest to miss: a refusal is written when something has
+		already gone wrong, so it is the *last* output anybody re-reads for stray vocabulary.
+		Somebody with one workspace who typed a number that does not exist was being told
+		"there is no #9 in si" — a workspace they never named, introduced by an error message,
+		about a to-do list. The guard on the four §13.5b commands cannot see this, because a
+		refusal is not in the transcript.
+		"""
+
+		if not world.qualifies_workspace and not world.qualifies_connection:
+			return ""
+
+		return f" in {workspace}"
+
+	def _a_task (world: World, given: str, *, verb: str) -> tuple[Located, subroutine.views.Task]:
+		"""Resolve an address into a task, turning down a document by saying what it is.
+
+		**Documents are searched even though they cannot be acted on**, which looks like extra
+		work and is the whole value: refs are allocated from one counter per workspace, so a
+		command that only asked about tasks answered "there is no #4" about a specification
+		sitting in the same listing. Being told ``#4`` is a document, with its title, is an
+		answer somebody can act on; being told it does not exist is not.
+		"""
+
+		located = _locate(world, given, kinds=ANY_ITEM, verb=verb)
+		found = located.item
+
+		if not isinstance(found, subroutine.views.Task):
+			# The shortest form, not the absolute one: the caller named this item directly,
+			# so echoing back a qualified address they did not type reads as a correction.
+			shown = world.address_of_located(located)
+
+			stop(
+				f"{shown} is a document, not a task — {found.title}",
+				f"'subroutine {verb}' works on tasks. Read this one with 'subroutine show "
+				f"{shown.replace(subroutine.domain.refs.SIGIL, '')}'.",
+			)
+
+		return located, found
 
 	def _named_place (
 		world: World, address: subroutine.domain.refs.Address
@@ -421,14 +521,16 @@ def register (
 
 		return item, wanted
 
-	def _unqualified (world: World, ref: int, given: str) -> Located:
+	def _unqualified (
+		world: World, ref: int, given: str, *, kinds: tuple[str, ...], verb: str
+	) -> Located:
 		"""Resolve a bare number when nothing has chosen a context, or refuse with the choice."""
 
-		candidates = _everywhere(world, ref)
+		candidates = _everywhere(world, ref, kinds)
 
 		if not candidates:
 			stop(
-				f"There is no task {subroutine.domain.refs.format_ref(ref)} here.",
+				f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
 				"Run 'subroutine ls' to see what there is.",
 			)
 
@@ -438,18 +540,40 @@ def register (
 		shown = [_absolute(world, item) for item in candidates]
 		width = max(len(text) for text in shown)
 		listed = "\n".join(
-			f"    {text:>{width}}  {item.task.title}"
+			f"    {text:>{width}}  {item.title}"
 			for text, item in zip(shown, candidates, strict=True)
 		)
 
 		stop(
 			f"{given!r} could mean any of these:\n{listed}",
-			f"Say which — 'subroutine done "
+			f"Say which — 'subroutine {verb} "
 			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}', or "
 			f"'subroutine use {_place_of(world, candidates[0])}' to keep working there.",
 		)
 
-	def _everywhere (world: World, ref: int) -> list[Located]:
+	def _found_at (
+		item: Reached, workspace: str, ref: int, kinds: tuple[str, ...]
+	) -> Item | None:
+		"""Ask one connection what this ref names there, trying each kind in turn.
+
+		Tasks first wherever both are wanted, because that is overwhelmingly what a number on
+		a command line means — and because a ref belongs to exactly one item, so the order
+		decides only which question is asked twice, never which answer is returned.
+		"""
+
+		for kind in kinds:
+			found: Item | None = (
+				item.client.task(ref=ref, workspace=workspace)
+				if kind == "task"
+				else item.client.document(ref=ref, workspace=workspace)
+			)
+
+			if found is not None:
+				return found
+
+		return None
+
+	def _everywhere (world: World, ref: int, kinds: tuple[str, ...]) -> list[Located]:
 		"""Find this ref in every workspace that is reachable.
 
 		A point lookup per workspace. That is what §13.7 means by there being no bulk "all
@@ -465,12 +589,12 @@ def register (
 				# into a refusal about the network. The listing already said which
 				# connections answered.
 				with contextlib.suppress(subroutine.errors.SubroutineError):
-					task = item.client.task(ref=ref, workspace=workspace.slug)
+					here = _found_at(item, workspace.slug, ref, kinds)
 
-					if task is not None:
+					if here is not None:
 						found.append(
 							Located(
-								connection=item.name, workspace=workspace.slug, task=task
+								connection=item.name, workspace=workspace.slug, item=here
 							)
 						)
 
@@ -480,7 +604,7 @@ def register (
 		"""Return a candidate's address, qualified as far as this world needs."""
 
 		return subroutine.domain.refs.format_address(
-			located.task.ref,
+			located.ref,
 			workspace=located.workspace,
 			connection=located.connection if world.qualifies_connection else None,
 		)
@@ -653,6 +777,59 @@ def register (
 			_suggest(console, f"subroutine done {_typeable(world, rows[0][0], rows[0][1])}")
 
 	@app.command()
+	def show (
+		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
+		json_output: bool = typer.Option(False, "--json", help="Print as JSON."),
+	) -> None:
+		"""Read one item — what it is, what it is joined to, and what happened to it.
+
+		Works on a task or on a document, because one counter per workspace serves both and
+		a number on a command line does not say which it is.
+
+		Examples:
+
+		  subroutine show 42
+
+		  subroutine show 42 --json
+		"""
+
+		with opened() as world:
+			located = _locate(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				kinds=ANY_ITEM,
+				verb="show",
+			)
+			client = _matching(world.clients, located.connection)
+
+			# Asked for separately rather than embedded, because both are sub-resources over
+			# HTTP and pretending otherwise here would make the local client the only one that
+			# could answer in a single call — which is exactly the divergence S3-07 removed.
+			links = client.links(
+				ref=located.ref,
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+			remarks = client.comments(
+				ref=located.ref,
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+
+			if json_output:
+				say(json.dumps(_shown_as_json(world, located, links, remarks), indent=2))
+
+				return
+
+			_render_item(world, located, links, remarks, console=console)
+			say("")
+			_suggest(
+				console,
+				f"subroutine comment {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')} "
+				f'"what happened"',
+			)
+
+	@app.command()
 	def done (
 		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 	) -> None:
@@ -664,11 +841,13 @@ def register (
 		"""
 
 		with opened() as world:
-			located = _locate(
-				world, _asked(which, "Which one? (a number like 42 — a shell eats '#42')")
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="done",
 			)
 
-			if located.task.completed_at is not None:
+			if task.completed_at is not None:
 				# Saying so beats reporting success twice. The case this is really about is
 				# an up-arrow repeat, which used to land on whatever had taken that number.
 				say(_acted(world, located, "Already done"))
@@ -677,9 +856,9 @@ def register (
 				return
 
 			client = _require_connection(world, located.connection)
-			finished = client.complete(ref=located.task.ref, workspace=located.workspace)
+			finished = client.complete(ref=task.ref, workspace=located.workspace)
 
-			say(_acted(world, dataclasses.replace(located, task=finished), "Done"))
+			say(_acted(world, dataclasses.replace(located, item=finished), "Done"))
 			_suggest(console, "subroutine today")
 
 	@app.command()
@@ -697,13 +876,15 @@ def register (
 		"""
 
 		with opened() as world:
-			located = _locate(
-				world, _asked(which, "Which one? (a number like 42 — a shell eats '#42')")
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="plan",
 			)
 			client = _require_connection(world, located.connection)
 
 			changed = client.schedule(
-				ref=located.task.ref,
+				ref=task.ref,
 				workspace=located.workspace,
 				planned_for=_day(world, _asked(when, "Which day?")),
 			)
@@ -714,7 +895,7 @@ def register (
 			say(
 				_acted(
 					world,
-					dataclasses.replace(located, task=changed),
+					dataclasses.replace(located, item=changed),
 					f"Planned for {_render_day(changed.planned_for)}",
 				)
 			)
@@ -735,13 +916,15 @@ def register (
 		"""
 
 		with opened() as world:
-			located = _locate(
-				world, _asked(which, "Which one? (a number like 42 — a shell eats '#42')")
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="defer",
 			)
 			client = _require_connection(world, located.connection)
 
 			changed = client.schedule(
-				ref=located.task.ref,
+				ref=task.ref,
 				workspace=located.workspace,
 				start=_day(world, _asked(when, "Hide it until when?")),
 			)
@@ -749,7 +932,7 @@ def register (
 			say(
 				_acted(
 					world,
-					dataclasses.replace(located, task=changed),
+					dataclasses.replace(located, item=changed),
 					# The *task's* zone, like every other instant this program renders.
 					# `start_at` is midnight where the task lives, so re-reading it in a
 					# westward client zone named the day before the one that was asked for.
@@ -757,6 +940,43 @@ def register (
 				)
 			)
 			_suggest(console, "subroutine today")
+
+	@app.command()
+	def comment (
+		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
+		body: str = typer.Argument("", help="What happened."),
+	) -> None:
+		"""Record what happened against an item.
+
+		A comment is what you *did*; a document is what you concluded. If the next session
+		would need to read it, write it down properly instead.
+
+		Examples:
+
+		  subroutine comment 42 "ran the suite, two failures in the date parser"
+		"""
+
+		with opened() as world:
+			located = _locate(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				kinds=ANY_ITEM,
+				verb="comment",
+			)
+			client = _require_connection(world, located.connection)
+
+			client.remark(
+				ref=located.ref,
+				body=_asked(body, "What happened?"),
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+
+			say(_acted(world, located, "Noted on"))
+			_suggest(
+				console,
+				f"subroutine show {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
+			)
 
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
 	# are the full model's vocabulary — a workspace, an instance — and somebody with one
@@ -991,15 +1211,15 @@ def register (
 		"""
 
 		if not world.qualifies_workspace and not world.qualifies_connection:
-			return f"{verb}: {located.task.title}"
+			return f"{verb}: {located.title}"
 
 		absolute = subroutine.domain.refs.format_address(
-			located.task.ref,
+			located.ref,
 			workspace=located.workspace,
 			connection=located.connection if world.qualifies_connection else None,
 		)
 
-		return f"{verb}: {absolute}  {located.task.title}"
+		return f"{verb}: {absolute}  {located.title}"
 
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
@@ -1245,6 +1465,119 @@ def _task_line (
 	return line
 
 
+def _render_item (
+	world: World,
+	located: Located,
+	links: typing.Sequence[subroutine.views.Link],
+	remarks: typing.Sequence[subroutine.views.Comment],
+	*,
+	console: rich.console.Console,
+) -> None:
+	"""Print one item in full: what it is, what it is joined to, what happened to it.
+
+	**A field nobody set is not printed, and neither is a default nobody chose.** That is the
+	rule that lets this command exist at all without breaking §1.4: ``show`` on a personal
+	to-do item prints its number, its title and the day it is planned for, and says nothing
+	about a status, a project or a type — because none of those were asked for and the
+	answers would all be "the default". The same command on an agent's bug prints every one
+	of them, because there each carries a decision somebody made.
+
+	The consequence worth stating: this output *grows* with how much the user has told the
+	system, which is the shape §1.4 asks for and the opposite of a form with empty fields.
+	"""
+
+	shown = world.address_of_located(located)
+	heading = rich.text.Text()
+	heading.append(f"{shown}  ", style=POSITION)
+	heading.append(located.title, style=HEADING)
+	console.print(heading)
+
+	facts = _facts(located)
+
+	if facts:
+		console.print(rich.text.Text(f"  {' · '.join(facts)}", style=DETAIL))
+
+	body = (
+		located.item.description
+		if isinstance(located.item, subroutine.views.Task)
+		else located.item.body
+	)
+
+	if body:
+		console.print("")
+
+		# As written, never as markup: a description is user data, and one containing
+		# ``[bold]`` must print those characters rather than obey them.
+		console.print(rich.text.Text(body))
+
+	if links:
+		console.print("")
+		console.print(rich.text.Text("Links", style=HEADING))
+
+		width = max(len(link.label) for link in links)
+
+		for link in links:
+			line = rich.text.Text()
+			line.append(f"  {link.label:<{width}}  ", style=DETAIL)
+			line.append(
+				f"{subroutine.domain.refs.format_ref(link.other.ref):>4}  ", style=POSITION
+			)
+			line.append(link.other.title)
+			console.print(line)
+
+	if remarks:
+		console.print("")
+		console.print(rich.text.Text("What happened", style=HEADING))
+
+		for remark in remarks:
+			line = rich.text.Text()
+			line.append(f"  {remark.created_at.date().isoformat()}  ", style=DETAIL)
+			line.append(remark.body)
+			console.print(line)
+
+
+def _facts (located: Located) -> list[str]:
+	"""Return the things worth saying about an item beyond its title, and nothing more.
+
+	Each entry earns its place by having been *chosen*. A task of the default type says
+	nothing about its type; one filed in the Inbox says nothing about its project; a status
+	in the ``open`` category is the absence of news and is left out, while a completed one is
+	reported as a date because that is the fact somebody wants.
+	"""
+
+	facts: list[str] = []
+	item = located.item
+
+	if item.type not in ("task", "note"):
+		facts.append(item.type)
+
+	if isinstance(item, subroutine.views.Task):
+		if item.importance is not None or item.urgency is not None:
+			facts.append(f"!{item.importance or '—'}/u{item.urgency or '—'}")
+
+		if item.estimate_minutes is not None:
+			facts.append(subroutine.domain.durations.humanize(item.estimate_minutes))
+
+		if item.due_at is not None:
+			facts.append(f"due {_render_date(item.due_at, item.timezone)}")
+
+		if item.planned_for is not None:
+			facts.append(f"for {_render_day(item.planned_for)}")
+
+		if item.completed_at is not None:
+			facts.append(f"done {_render_date(item.completed_at, item.timezone)}")
+
+		if item.tags:
+			facts.extend(f"#{tag}" for tag in item.tags)
+
+	# The project only when it is one somebody filed this in. The Inbox is where things go
+	# when nobody said, so naming it would be reporting the absence of a decision.
+	if item.project_key and item.project_key.lower() != "inbox":
+		facts.append(item.project_key)
+
+	return facts
+
+
 def _render_day (day: datetime.date | None) -> str:
 	"""Render a calendar date the way a person reads one."""
 
@@ -1302,6 +1635,29 @@ def _as_json (
 		"importance": task.importance,
 		"estimate_minutes": task.estimate_minutes,
 		"tags": list(task.tags),
+	}
+
+
+def _shown_as_json (
+	world: World,
+	located: Located,
+	links: typing.Sequence[subroutine.views.Link],
+	remarks: typing.Sequence[subroutine.views.Comment],
+) -> dict[str, typing.Any]:
+	"""Return one item, its links and its record, as the scripted path sees it.
+
+	The **whole** view model rather than the handful of fields ``_as_json`` selects for a
+	listing, because the reason to ask about one item is to read what a listing left out —
+	and a caller who has already named the item is not paying for a page of them.
+	"""
+
+	return {
+		"address": world.address_of_located(located),
+		"connection": located.connection,
+		"entity_type": located.entity_type,
+		"item": located.item.model_dump(mode="json"),
+		"links": [link.model_dump(mode="json") for link in links],
+		"comments": [remark.model_dump(mode="json") for remark in remarks],
 	}
 
 

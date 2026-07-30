@@ -165,7 +165,9 @@ def test_a_body_field_naming_an_impossible_item_is_refused_not_resolved (
 
 		assert response.status_code == 422, f"{value!r} was accepted: {response.text}"
 
-	assert world.call("GET", f"/v1/tasks/{one['ref']}/links").json() == [], "nothing was linked"
+	assert (
+		world.call("GET", f"/v1/tasks/{one['ref']}/links").json()["items"] == []
+	), "nothing was linked"
 
 
 def test_a_ref_and_a_project_key_cannot_be_confused_in_a_path (world: World) -> None:

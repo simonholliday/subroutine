@@ -42,6 +42,7 @@ import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.agenda
+import subroutine.domain.links
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -215,6 +216,51 @@ class Comment(pydantic.BaseModel):
 		return (
 			self.created_at.date().isoformat(),
 			subroutine.domain.text.truncated(self.body),
+		)
+
+
+class LinkEnd(pydantic.BaseModel):
+	"""What is at the far end of a link, with enough of the row to render it.
+
+	Enough, and no more. A caller looking at an item's links wants to know what it is joined
+	to, not to receive every field of everything it touches — and an end the caller may not
+	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
+	than this model's.
+	"""
+
+	entity_type: str
+	id: uuid.UUID
+	ref: int
+	title: str
+
+
+class Link(pydantic.BaseModel):
+	"""One link, seen from the item that was asked about (SPEC.md §5.7).
+
+	A link is one stored row displayed from both ends, so ``label`` arrives already the right
+	way round: "Blocks" from one end and "Blocked by" from the other, off the same row. A
+	client that had to invert it would be a second place the inverse could be got wrong.
+	"""
+
+	id: uuid.UUID
+	link_type: str
+
+	label: str
+	direction: str
+	other: LinkEnd
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by. A link has no ref of its own."""
+
+		return str(self.id)
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this link as the cells of one compact line."""
+
+		return (
+			self.label,
+			subroutine.domain.refs.format_ref(self.other.ref),
+			subroutine.domain.text.truncated(self.other.title),
 		)
 
 
@@ -561,6 +607,28 @@ def comment (row: subroutine.db.models.activity.Comment) -> Comment:
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		version=row.version,
+	)
+
+
+def link (related: subroutine.domain.links.Related) -> Link:
+	"""Render one link, from the point of view of the item it was asked about.
+
+	Takes the domain's own :class:`~subroutine.domain.links.Related` rather than the stored
+	row, because working out which end is "the other one" and which way round the label reads
+	is the domain's job and is already done by the time this is called.
+	"""
+
+	return Link(
+		id=related.id,
+		link_type=related.link_type,
+		label=related.label,
+		direction=related.direction,
+		other=LinkEnd(
+			entity_type=related.other.entity_type,
+			id=related.other.id,
+			ref=related.other.ref,
+			title=related.other.title,
+		),
 	)
 
 
