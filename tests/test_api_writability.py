@@ -33,11 +33,15 @@ The second direction is checked too: a name recorded here that the view no longe
 failure, so this file cannot quietly describe a model that has moved on.
 """
 
+import typing
+
 import pydantic
 import pytest
+import sqlalchemy
 
 import subroutine.api.documents
 import subroutine.api.tasks
+import subroutine.db.models.work
 import subroutine.views
 
 #: View field -> the request field that writes it, where the two are spelled differently.
@@ -195,3 +199,130 @@ def test_every_known_gap_names_the_item_tracking_it () -> None:
 
 	for field, reason in UNSETTABLE.items():
 		assert "#" in reason, f"{field!r} is recorded as a gap with no item tracking it."
+
+
+#: Columns that are machinery rather than facts about the item. A client cannot act on them
+#: and reporting them would be reporting how this is stored rather than what it holds.
+INTERNAL: dict[str, str] = {
+	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
+	"depth": "Derived from `path`, and maintained with it.",
+	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",
+}
+
+#: Columns that exist ahead of the feature that will use them. **Each names the milestone**,
+#: because a column with no feature and no date is indistinguishable from one that was
+#: forgotten — which is how `spent_minutes` and `urgency` both survived.
+UNBUILT: dict[str, str] = {
+	"is_template": "Recurrence (M7). The template flag has no feature to belong to yet.",
+	"occurrence_at": "Recurrence (M7).",
+	"recurrence_rule": "Recurrence (M7).",
+	"recurrence_text": "Recurrence (M7).",
+	"recurrence_anchor": "Recurrence (M7).",
+	"recurrence_template_id": "Recurrence (M7).",
+	"position": "#28 — manual backlog order is specified and nothing exposes it.",
+}
+
+#: Stored and never reported, and that is a defect rather than a decision. Same rule as
+#: :data:`UNSETTABLE`: every entry names the item tracking it, and deleting the entry is what
+#: closes that item.
+UNREPORTED: dict[str, str] = {
+	"spent_minutes": (
+		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
+	),
+	"created_by": (
+		"#67 — every item records who made it and no response says so. Reachable only "
+		"through the item's history, which is a second call to learn a fact the row holds."
+	),
+	"updated_by": "#67, the same column's other half.",
+	"content_updated_at": (
+		"#67 — reported on a document and not on a task, off the same §6.1 distinction. An "
+		"inconsistency rather than an absence, which is the harder kind to notice."
+	),
+}
+
+
+def _columns (model: type[typing.Any]) -> frozenset[str]:
+	"""Return the column names a mapped model stores."""
+
+	return frozenset(
+		attribute.key for attribute in sqlalchemy.inspect(model).mapper.column_attrs
+	)
+
+
+#: The stored side of the two surfaces above, paired with the view that ought to report it.
+STORED: tuple[tuple[str, type[typing.Any], type[pydantic.BaseModel]], ...] = (
+	("task", subroutine.db.models.work.Task, subroutine.views.Task),
+	("document", subroutine.db.models.work.Document, subroutine.views.Document),
+)
+
+
+@pytest.mark.parametrize(("name", "model", "view"), STORED, ids=[row[0] for row in STORED])
+def test_every_stored_column_is_reported_or_says_why_not (
+	name: str, model: type[typing.Any], view: type[pydantic.BaseModel]
+) -> None:
+	"""The other direction, and the one the first version of this file was blind to.
+
+	The check above compares a *view* against its request models, so it catches "reported and
+	unsettable". A column that never reaches the view is absent from that comparison
+	entirely — so "stored and unreported" walked straight past it, and did: ``spent_minutes``
+	was found by hand hours after the first guard went green, having been specified in §6.4
+	and implemented by nothing since M1.
+
+	Both directions are the same defect. A field the system holds and never mentions is as
+	invisible as one it mentions and cannot set, and neither is wrong at any single site —
+	only the comparison shows it.
+	"""
+
+	excused = set(DERIVED) | set(WRITTEN_AS) | set(INTERNAL) | set(UNBUILT) | set(UNREPORTED)
+	reported = set(view.model_fields)
+
+	# A column may be reported under another name — `status_id` as `status`, `body` as
+	# itself. `WRITTEN_AS` already records those pairings for the other direction.
+	unexplained = sorted(
+		column
+		for column in _columns(model)
+		if column not in reported and column not in excused
+	)
+
+	assert not unexplained, (
+		f"The {name} table stores {unexplained} and no response reports them. Add them to "
+		f"the view, or record them in INTERNAL, UNBUILT or UNREPORTED with a reason."
+	)
+
+
+def test_every_column_excused_here_is_still_a_column () -> None:
+	"""So this file cannot go on excusing something the schema has dropped.
+
+	A stale exemption reads as a considered decision about a column that no longer exists,
+	and silently excuses whatever later takes the name.
+	"""
+
+	stored = _columns(subroutine.db.models.work.Task) | _columns(
+		subroutine.db.models.work.Document
+	)
+
+	for register, label in ((INTERNAL, "INTERNAL"), (UNBUILT, "UNBUILT"), (UNREPORTED, "UNREPORTED")):
+		unknown = sorted(column for column in register if column not in stored)
+
+		assert not unknown, f"{label} names {unknown}, which neither table stores any more."
+
+
+def test_every_unreported_column_names_the_item_tracking_it () -> None:
+	"""``UNREPORTED`` is the only register here describing a defect, so it is the one that rots."""
+
+	for column, reason in UNREPORTED.items():
+		assert "#" in reason, f"{column!r} is recorded as a gap with no item tracking it."
+
+
+def test_a_column_ahead_of_its_feature_names_the_milestone () -> None:
+	"""A column with no feature and no date is indistinguishable from a forgotten one.
+
+	That is not hypothetical: §6.3's ``urgency`` sat as a column with a constraint and no way
+	to set it, and ``spent_minutes`` still does. Naming the milestone is what separates
+	"waiting for M7" from "nobody noticed".
+	"""
+
+	for column, reason in UNBUILT.items():
+		assert any(marker in reason for marker in ("M7", "#")), (
+			f"{column!r} is excused as unbuilt without naming a milestone or an item."
+		)
