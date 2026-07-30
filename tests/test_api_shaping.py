@@ -119,6 +119,57 @@ def test_compact_says_when_a_priority_was_not_assessed (world: test_api_tasks.Wo
 	assert "I4/U-" in next(line for line in lines if "changes endpoint" in line)
 
 
+def test_compact_carries_the_planned_day_and_marks_it (world: test_api_tasks.World) -> None:
+	"""§14.10 showed a deadline and not a plan, so the cheap format could not answer "next".
+
+	An agent reading ``format=compact`` to decide what to do could see that nothing was due
+	and not that something was planned for today — which meant a second call, which is the
+	whole thing the cheap format exists to avoid.
+
+	**The arrow is load-bearing, not decoration.** A column empty in every row is dropped, so
+	a bare second date would sit in a position that moves depending on whether any row on the
+	page has a deadline. Marked, the cell says what it is wherever it lands.
+	"""
+
+	_populate(world)
+	world.call(
+		"POST", "/v1/tasks", json={"title": "Planned for a day", "planned_for": "2026-08-03"}
+	)
+
+	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
+	found = next(line for line in lines if "Planned for a day" in line)
+
+	assert "→2026-08-03" in found
+
+	# And the deadline stays bare, so the two are told apart by the mark rather than by
+	# counting columns.
+	dated = next(line for line in lines if "Fix token prefix collision" in line)
+
+	assert "2026-08-01" in dated
+	assert "→" not in dated
+
+
+def test_the_plan_column_costs_nothing_on_a_page_with_no_plans (
+	world: test_api_tasks.World,
+) -> None:
+	"""The condition on which it was safe to add a column at all.
+
+	Compared against the line this rendered before the plan existed: with nothing planned,
+	every row must be exactly what it was, to the character.
+	"""
+
+	_populate(world)
+
+	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
+
+	assert all("→" not in line for line in lines)
+	assert lines == [
+		"#3  [open]  —      —           Nothing assessed about this one",
+		"#2  [open]  I4/U-  —           Add /v1/changes endpoint",
+		"#1  [open]  I4/U5  2026-08-01  Fix token prefix collision",
+	]
+
+
 def test_ids_returns_the_addresses_alone (world: test_api_tasks.World) -> None:
 	"""The smallest thing that is still useful: what to ask about next."""
 

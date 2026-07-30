@@ -396,6 +396,27 @@ def test_a_ref_is_a_number_in_json_not_a_string (
 	assert listed[0]["ref"] == 1
 
 
+def test_the_scripted_listing_carries_what_the_terminal_shows (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: the human path and the scripted path are one code path and cannot drift.
+
+	They had. ``type`` was added to the terminal listing and not to the JSON, so a script
+	reading the same command could not see what a person could; and ``urgency`` had been
+	absent beside ``importance`` since §6.3 paired them, so a script sorting on the half it
+	was given would rank a 5/1 above a 4/5.
+	"""
+
+	run("init")
+	run("add", "Buy milk !4")
+
+	row = json.loads(run("ls", "--json").output)[0]
+
+	assert row["type"] == "task"
+	assert row["importance"] == 4
+	assert "urgency" in row, "half a priority is worse than none"
+
+
 def test_the_capture_grammar_reaches_the_database (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -743,6 +764,119 @@ def _a_document (home: pathlib.Path, *, title: str, body: str) -> None:
 
 			subroutine.domain.documents.create(
 				session, project=project, title=title, body=body, actor=principal
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+
+def test_a_list_of_one_kind_of_thing_does_not_say_what_kind (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4 on the listing everybody sees: a column that says the same thing says nothing.
+
+	This is the condition that made showing the item type safe at all. A personal to-do list
+	is entirely ordinary tasks, and labelling every line ``task`` would put a word about the
+	model on every row of the one output §13.5b measures.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+	run("add", "Call the dentist")
+
+	listed = run("ls").output
+
+	assert "Buy milk" in listed
+	assert "task" not in listed.lower()
+
+	for word in FORBIDDEN:
+		assert word not in listed.lower(), f"'ls' said {word!r}"
+
+
+def test_a_mixed_list_says_what_kind_each_thing_is (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""Simon's request, and the case it was made for.
+
+	With bugs and features and plain tasks in one backlog, what kind of thing something is
+	is the first thing you want — and the ref and title alone do not say.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	_a_typed_task(home, title="The parser drops a token", type_key="bug")
+
+	listed = run("ls").output
+
+	assert "bug" in listed
+	assert "task" in listed, "once the column is there, every row is labelled"
+
+	# Aligned, so the titles line up rather than stepping in and out with the type.
+	starts = [
+		line.index("The parser") if "The parser" in line else line.index("Ordinary")
+		for line in listed.splitlines()
+		if "The parser" in line or "Ordinary" in line
+	]
+
+	assert len(set(starts)) == 1, f"the title column does not line up:\n{listed}"
+
+
+def test_the_agenda_labels_kinds_by_the_same_rule (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""Measured across the whole agenda, not per bucket.
+
+	"Is this page all one kind of thing?" is a question about the agenda; asking it per
+	bucket would label the bucket that happens to hold a bug and not the one below it.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+
+	assert "task" not in run("today").output.lower()
+
+	_a_typed_task(home, title="The parser drops a token", type_key="bug")
+
+	mixed = run("today").output
+
+	assert "bug" in mixed
+	assert "task" in mixed
+
+
+def _a_typed_task (home: pathlib.Path, *, title: str, type_key: str) -> None:
+	"""Add a task of a given item type to the installation in ``home``.
+
+	Reaching past the CLI because ``subroutine add`` deliberately has no ``--type``: the
+	personal path does not name item types (§1.4), and a task that is a bug arrives from an
+	agent or the API. That is the ordinary case for this feature, not a contrived one.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.session
+	import subroutine.domain.bootstrap
+	import subroutine.domain.local
+	import subroutine.domain.tasks
+	import subroutine.domain.workspaces
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			principal = subroutine.domain.local.principal(session)
+			workspace = subroutine.domain.workspaces.readable(session, principal)[0]
+			project = subroutine.domain.bootstrap.inbox_for(session, workspace)
+
+			assert project is not None, "a fresh installation has an Inbox"
+
+			subroutine.domain.tasks.create(
+				session, project=project, title=title, type_key=type_key, actor=principal
 			)
 			session.commit()
 

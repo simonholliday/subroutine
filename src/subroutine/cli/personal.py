@@ -1333,8 +1333,12 @@ def _render (
 		)
 
 	# One width across every bucket, so the addresses line up down the whole agenda rather
-	# than stepping in and out as the sections change.
-	width = _width(world, [row for group in rows.values() for row in group])
+	# than stepping in and out as the sections change. The type column is measured over the
+	# whole agenda for the same reason, and because "is this page all one kind of thing?" is
+	# a question about the agenda rather than about whichever bucket a row landed in.
+	everything = [row for group in rows.values() for row in group]
+	width = _width(world, everything)
+	kind_width = _kind_width(everything)
 	remaining = sum(
 		answer.value.unscheduled_total - len(answer.value.unscheduled)
 		for answer in gathered.answers
@@ -1359,7 +1363,11 @@ def _render (
 		first = first or group[0]
 
 		for connection, task in group:
-			console.print(_task_line(world, connection, task, late=late, width=width))
+			console.print(
+				_task_line(
+					world, connection, task, late=late, width=width, kind_width=kind_width
+				)
+			)
 
 	if remaining > 0:
 		console.print(rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL))
@@ -1382,9 +1390,14 @@ def _flat (
 	"""Print one list, every row addressed by the shortest form that resolves."""
 
 	width = _width(world, rows)
+	kind_width = _kind_width(rows)
 
 	for connection, task in rows:
-		console.print(_task_line(world, connection, task, late=False, width=width))
+		console.print(
+			_task_line(
+				world, connection, task, late=False, width=width, kind_width=kind_width
+			)
+		)
 
 
 def _grouped (
@@ -1416,6 +1429,28 @@ def _grouped (
 		_flat(world, answer.value, console=console)
 
 
+def _kind_width (rows: typing.Sequence[tuple[str, subroutine.views.Task]]) -> int:
+	"""Return how wide the item-type column must be, or zero when it would say nothing.
+
+	**A column that says the same thing on every row says nothing**, so a page whose rows are
+	all one type does not get one. That is the rule that lets the type be shown at all: a
+	personal to-do list is entirely ordinary tasks, and labelling every line ``task`` would be
+	the §1.4 leak — a word about the model, on every row, answering a question nobody asked.
+	A mixed backlog is the opposite case and the reason this was asked for: with bugs, features
+	and spikes in one list, what kind of thing something is is the first thing you want.
+
+	It is the generalisation of ``shaping.aligned``'s empty-column rule rather than a new idea
+	— that drops a column nothing fills, this drops one everything fills identically.
+	"""
+
+	kinds = {task.type for _connection, task in rows}
+
+	if len(kinds) < 2:
+		return 0
+
+	return max(len(kind) for kind in kinds)
+
+
 def _width (world: World, rows: typing.Sequence[tuple[str, subroutine.views.Task]]) -> int:
 	"""Return how wide the address column needs to be for these rows."""
 
@@ -1440,6 +1475,7 @@ def _task_line (
 	*,
 	late: bool,
 	width: int = 0,
+	kind_width: int = 0,
 ) -> rich.text.Text:
 	"""Return one task line, addressed by a ref that never changes.
 
@@ -1448,6 +1484,10 @@ def _task_line (
 	it, so re-running ``done 1`` after a fresh ``ls`` marked a *different* task done — one
 	up-arrow away, and wrong without saying so.
 
+	``kind_width`` is how much room the item type needs, and **zero means there is nothing
+	worth saying** — see :func:`_kind_width`. It is the caller's measurement rather than this
+	function's because it is a property of the page, not of the row.
+
 	Built with :class:`rich.text.Text` rather than markup, because a title is user data: a
 	task called ``Fix [bold] handling`` must print as written, not as an instruction.
 	"""
@@ -1455,6 +1495,10 @@ def _task_line (
 	line = rich.text.Text()
 	shown = world.address_of_task(connection, task)
 	line.append(f"  {shown:>{max(width, 3)}}  ", style=POSITION)
+
+	if kind_width:
+		line.append(f"{task.type:<{kind_width}}  ", style=DETAIL)
+
 	line.append(task.title)
 
 	detail = _when(task)
@@ -1628,11 +1672,18 @@ def _as_json (
 		"address": world.address_of_task(connection, task),
 		"connection": connection,
 		"title": task.title,
+		# §12.2a wants the scripted path and the human one to be the same code so they cannot
+		# drift, and these two had. `type` because the terminal now shows it and a script
+		# reading the same listing could not see it; `urgency` because §6.3 pairs the two
+		# axes and half a priority is worse than none — a script sorting on `importance`
+		# alone would rank a 5/1 above a 4/5.
+		"type": task.type,
 		"due_at": None if task.due_at is None else task.due_at.isoformat(),
 		"due_is_all_day": task.due_is_all_day,
 		"planned_for": None if task.planned_for is None else task.planned_for.isoformat(),
 		"start_at": None if task.start_at is None else task.start_at.isoformat(),
 		"importance": task.importance,
+		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,
 		"tags": list(task.tags),
 	}

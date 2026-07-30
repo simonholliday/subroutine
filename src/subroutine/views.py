@@ -165,10 +165,19 @@ class Task(pydantic.BaseModel):
 
 		Each view renders its own columns because each knows which of its fields are worth a
 		line, and the alignment across a page is ``shaping.aligned``'s job. The order is the
-		one §14.10 gives: address, status, priority, deadline, title, tags.
+		one §14.10 gives: address, status, priority, deadline, plan, title, tags.
 
-		Tags cost nothing on a page that has none: ``shaping.aligned`` drops a column that is
-		empty in every row, so the common case is the line it was before they existed.
+		Tags and the plan cost nothing on a page that has neither: ``shaping.aligned`` drops
+		a column that is empty in every row, so the common case is the line it was before
+		they existed.
+
+		**The plan is written ``→2026-08-01`` and the deadline is bare, and that asymmetry is
+		the point.** Two adjacent date columns would be told apart only by position, and
+		position is exactly what a dropped column takes away — a page with no plans would
+		shift every later cell one place left, so an agent parsing by index would read a
+		deadline as a plan on some pages and not others. A marked cell says what it is
+		wherever it lands. The deadline stays bare because it is never dropped and because
+		marking it would cost four characters a row on every listing ever made.
 
 		``@assignee`` still appears in §14.10's example and not here. It needs a username
 		rather than an ``assignee_id``, which is a lookup this view does not carry — view
@@ -180,6 +189,7 @@ class Task(pydantic.BaseModel):
 			f"[{self.status}]",
 			_priority_cell(self.importance, self.urgency),
 			"—" if self.due_at is None else self.due_at.date().isoformat(),
+			"" if self.planned_for is None else f"→{self.planned_for.isoformat()}",
 			subroutine.domain.text.truncated(self.title),
 			" ".join(f"#{name}" for name in self.tags),
 		)
