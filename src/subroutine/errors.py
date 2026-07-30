@@ -114,6 +114,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"hierarchy or a chain of blocking links.",
 		),
 		_define(
+			"schema_mismatch",
+			409,
+			"Schema mismatch",
+			"A backup's database schema does not match this installation's (SPEC.md §12.6). A "
+			"backup from an older schema can be migrated forward; one from a *newer* schema "
+			"is refused, because this version cannot interpret data it does not know the "
+			"shape of and a partial read is worse than a clear failure.",
+		),
+		_define(
 			"payload_too_large",
 			413,
 			"Too large",
@@ -305,6 +314,12 @@ class Conflict(SubroutineError):
 	"""The request collides with the current state."""
 
 	CODE = "duplicate_key"
+
+
+class SchemaMismatch(SubroutineError):
+	"""A backup was taken on a schema this installation cannot put back."""
+
+	CODE = "schema_mismatch"
 
 
 class PayloadTooLarge(SubroutineError):

@@ -17,6 +17,7 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 
 import sample_models
+import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
 
@@ -45,6 +46,32 @@ REQUIRE_POSTGRES = os.environ.get("SUBROUTINE_TEST_REQUIRE_POSTGRES", "").strip(
 	"yes",
 	"on",
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_profile () -> typing.Iterator[None]:
+	"""Make every test start on the default instance, whatever ran before it.
+
+	``--profile`` works by *exporting* ``SUBROUTINE_PROFILE`` so that anything the process
+	starts inherits the same instance (SPEC.md §12.5). In one pytest process that means a
+	command-line test can leave the variable set, and the next test would then read and write a
+	different database than the one it built — with a symptom (an empty listing, a missing row)
+	that says nothing at all about the cause.
+
+	Autouse and unconditional, because the tests that need to *notice* a leak are exactly the
+	ones least likely to be looking for it.
+	"""
+
+	before = os.environ.get(subroutine.config.PROFILE_VARIABLE)
+	os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
+
+	yield
+
+	if before is None:
+		os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
+
+	else:
+		os.environ[subroutine.config.PROFILE_VARIABLE] = before
 
 
 def with_database (url: str | sqlalchemy.engine.URL, name: str) -> str:

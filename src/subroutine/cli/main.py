@@ -11,6 +11,7 @@ import contextlib
 import getpass
 import ipaddress
 import pathlib
+import shutil
 import sys
 import tomllib
 import typing
@@ -28,6 +29,7 @@ import subroutine.cli.topics
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.backup
 import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.session
@@ -60,6 +62,14 @@ app.add_typer(database_app, name="db")
 
 token_app = typer.Typer(help="Issue credentials for agents and other machines.", no_args_is_help=True)
 app.add_typer(token_app, name="token")
+
+# **No `create` here, deliberately.** Every writer makes its own parent directories, so
+# `subroutine --profile scratch init` already brings a new instance into being (SPEC.md §12.5).
+# A `profile create` would be a second way to do the same thing, and the two would drift.
+profile_app = typer.Typer(
+	help="Keep separate installations on one machine.", no_args_is_help=True
+)
+app.add_typer(profile_app, name="profile")
 
 #: Soft wrapping leaves line breaking to the terminal. Rich's own wrapper breaks inside a
 #: long path, which makes an unreadable mess of exactly the values a user needs to copy.
@@ -560,6 +570,271 @@ def database_current () -> None:
 	_say(f"Schema is at {current}." if current == head else f"Schema is at {current}; newest is {head}.")
 
 
+def _instance_label () -> str:
+	"""Name the instance a command is about to act on, for output that must be unambiguous.
+
+	Every destructive command says this before doing anything (SPEC.md §12.5). The isolation
+	between instances is invisible, which is what makes it safe to use and what makes it
+	dangerous to trust silently.
+	"""
+
+	active = subroutine.config.profile()
+
+	return "the default instance" if active is None else f"instance '{active}'"
+
+
+def _confirm_destructive (
+	settings: subroutine.config.Settings, action: str, *, yes: bool
+) -> None:
+	"""Name the target, and require agreement before damaging a protected instance.
+
+	Protection is a property of the instance rather than of the command, because the thing
+	worth protecting is a particular database and a flag on the command only protects whoever
+	remembers to type it.
+	"""
+
+	_say(f"{action} {_instance_label()}, at {safe_url(settings.database_url)}.")
+
+	if not settings.protected or yes:
+		return
+
+	if not sys.stdin.isatty():
+		_stop(
+			f"{_instance_label().capitalize()} is marked protected and this is not an "
+			f"interactive terminal.",
+			"Pass --yes if you are certain, or unset 'protected' in its config.toml.",
+		)
+
+	if not typer.confirm("This instance is marked protected. Go on?"):
+		_stop("Nothing was changed.")
+
+
+@database_app.command("backup")
+def database_backup (
+	keep: int = typer.Option(
+		0, "--keep", help="Afterwards, delete all but this many of the newest backups."
+	),
+) -> None:
+	"""Take a datetime-stamped copy of the database.
+
+	The copy records the schema it was taken on, so a restore can tell whether this version
+	is able to read it.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	with _database(settings) as engine:
+		try:
+			written = subroutine.db.backup.take(
+				engine, keep=keep if keep > 0 else None
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	_say(f"Backed up {_instance_label()} to {written.path}")
+	_say(f"{written.size_bytes:,} bytes, schema {written.schema_head}.")
+
+
+@database_app.command("backups")
+def database_backups () -> None:
+	"""List the backups this instance has, newest first."""
+
+	_settings()
+	found = subroutine.db.backup.catalogue()
+
+	if not found:
+		_say(f"No backups of {_instance_label()} yet. Run 'subroutine db backup'.")
+
+		return
+
+	_say(f"Backups of {_instance_label()}, in {subroutine.db.backup.directory()}:")
+
+	for backup in found:
+		when = backup.taken_at.strftime("%Y-%m-%d %H:%M UTC")
+
+		_say(f"  {backup.name}  {when}  {backup.size_bytes:,} bytes  schema {backup.schema_head}")
+
+
+@database_app.command("restore")
+def database_restore (
+	source: str = typer.Argument(..., help="The backup file to put back."),
+	recover: bool = typer.Option(
+		False, "--recover", help="This instance's own data, coming back. Keeps its identity."
+	),
+	as_clone: bool = typer.Option(
+		False, "--as-clone", help="A copy standing up as a separate instance. New identity."
+	),
+	yes: bool = typer.Option(False, "--yes", help="Do not ask, even if protected."),
+	safety_backup: bool = typer.Option(
+		True,
+		"--safety-backup/--no-safety-backup",
+		help="Back up what is about to be replaced.",
+	),
+) -> None:
+	"""Put a backup back, replacing this instance's database.
+
+	Restoring is two different operations and this will not guess which (SPEC.md §12.6a).
+	**--recover** is your own data returning: the instance keeps its identity, because agents
+	and configuration files already refer to it. **--as-clone** is a copy becoming a separate
+	instance: it gets a new identity, because two live instances may not claim the same one.
+	"""
+
+	if recover == as_clone:
+		_stop(
+			"Say which kind of restore this is: --recover for this instance's own data "
+			"coming back, or --as-clone for a copy becoming a separate instance.",
+			"They differ in whether the instance keeps its identity, and guessing wrong is "
+			"not visible until an agent's cached knowledge disagrees with reality.",
+		)
+
+	settings = _settings()
+	path = pathlib.Path(source).expanduser()
+
+	if not path.is_file():
+		candidate = subroutine.db.backup.directory() / source
+
+		if not candidate.is_file():
+			_stop(
+				f"No backup at {path}.",
+				"Run 'subroutine db backups' to see what this instance has.",
+			)
+
+		path = candidate
+
+	# Before anything is destroyed: refuse a backup this version cannot read, so the check
+	# happens while the current database is still intact.
+	try:
+		head = subroutine.db.backup.check_restorable(path)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+	_confirm_destructive(settings, "About to replace the database of", yes=yes)
+
+	if safety_backup and not _database_is_absent(settings):
+		# Suppressed rather than fatal: a restore is often the answer to a database that is
+		# already unwell, and refusing to fix it because the broken thing could not be copied
+		# first would withhold the remedy on account of the symptom.
+		with (
+			_database(settings) as engine,
+			contextlib.suppress(subroutine.errors.SubroutineError),
+		):
+			kept = subroutine.db.backup.take(engine)
+			_say(f"The database being replaced was saved to {kept.path}")
+
+	with _database(settings) as engine:
+		try:
+			subroutine.db.backup.restore(engine, path, as_clone=as_clone)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	_say(f"Restored {path.name} into {_instance_label()}.")
+
+	if as_clone:
+		_say("This is now a separate instance: new identity, and the stored context cleared.")
+
+	newest = subroutine.db.migrate.head_revision()
+
+	if head != newest:
+		_say(f"That backup is on schema {head}; this version is at {newest}.")
+
+		if yes or typer.confirm("Upgrade the restored database now?", default=True):
+			subroutine.db.migrate.upgrade(settings.database_url)
+			_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
+
+
+@profile_app.command("list")
+def profile_list () -> None:
+	"""Show every installation on this machine."""
+
+	names = subroutine.config.profile_names()
+
+	_say("default   (no --profile)")
+
+	for name in names:
+		_say(f"{name}")
+
+	if not names:
+		_say("")
+		_say("Only the default. 'subroutine --profile <name> init' makes another.")
+
+
+@profile_app.command("destroy")
+def profile_destroy (
+	name: str = typer.Argument(..., help="The instance to remove."),
+	confirm: str = typer.Option(
+		"", "--confirm", help="The name again, to show you mean this one."
+	),
+	yes: bool = typer.Option(False, "--yes", help="Do not ask, even if protected."),
+) -> None:
+	"""Delete a separate installation and everything in it.
+
+	The default instance cannot be removed this way: it has no name to pass, which is the
+	point. Disposable instances are meant to be thrown away, and the one holding real work
+	should not be reachable by a command whose whole purpose is deletion.
+	"""
+
+	try:
+		wanted = subroutine.config.check_profile_name(name)
+
+	except ValueError as error:
+		_stop(str(error))
+
+	if wanted not in subroutine.config.profile_names():
+		_stop(
+			f"There is no instance called '{wanted}'.",
+			"Run 'subroutine profile list' to see what exists.",
+		)
+
+	if confirm != wanted:
+		_stop(
+			f"Pass --confirm {wanted} as well, to show which instance you mean.",
+			"Everything in it is deleted, including its backups.",
+		)
+
+	if _profile_is_protected(wanted) and not yes:
+		if not sys.stdin.isatty():
+			_stop(
+				f"Instance '{wanted}' is marked protected and this is not an interactive "
+				f"terminal.",
+				"Pass --yes if you are certain.",
+			)
+
+		if not typer.confirm(f"Instance '{wanted}' is marked protected. Delete it anyway?"):
+			_stop("Nothing was changed.")
+
+	for directory in subroutine.config.profile_directories(wanted):
+		if directory.is_dir():
+			shutil.rmtree(directory)
+			_say(f"Removed {directory}")
+
+	_say(f"Instance '{wanted}' is gone.")
+
+
+def _profile_is_protected (name: str) -> bool:
+	"""Report whether another instance has marked itself protected.
+
+	Reads that instance's own configuration by standing in it briefly, so the answer comes
+	from the same resolution chain every other setting uses rather than a second reader that
+	could disagree with it.
+	"""
+
+	was = subroutine.config.profile()
+
+	try:
+		subroutine.config.use_profile(name)
+
+		return _settings().protected
+
+	finally:
+		subroutine.config.use_profile(was)
+
+
 #: The role a new service account is given in the workspace it is made for. ``contributor``
 #: reads everything and writes tasks and comments, and cannot restructure projects — which is
 #: the right starting authority for an agent, and is narrowable further by the token's own
@@ -912,6 +1187,12 @@ def _default (
 	connection: str = typer.Option(
 		"", "--connection", "-c", help="Which instance this command is about."
 	),
+	profile: str = typer.Option(
+		"",
+		"--profile",
+		help="Act on a separate installation on this machine, by name.",
+		envvar=subroutine.config.PROFILE_VARIABLE,
+	),
 ) -> None:
 	"""Project management for people and agents, in equal measure.
 
@@ -927,6 +1208,17 @@ def _default (
 
 	Run with no arguments, this shows today's agenda.
 	"""
+
+	# **First, before anything reads a path.** A profile decides where the configuration file,
+	# the database, the credentials and the current context all live (SPEC.md §12.5), so it has
+	# to be settled before any of them is looked up. It goes here rather than on each command
+	# because it applies to all of them — which does mean it precedes the subcommand:
+	# `subroutine --profile scratch db backup`, not `subroutine db backup --profile scratch`.
+	try:
+		subroutine.config.use_profile(profile.strip() or None)
+
+	except ValueError as error:
+		raise typer.BadParameter(str(error), param_hint="--profile") from error
 
 	# Before the subcommand, because that is where Typer puts an application-wide option and
 	# because these two change what every command means rather than what one of them does.

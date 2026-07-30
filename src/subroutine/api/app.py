@@ -16,6 +16,7 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 
 import subroutine
+import subroutine.api.admin
 import subroutine.api.agenda
 import subroutine.api.documents
 import subroutine.api.health
@@ -61,6 +62,7 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.projects.router),
 	("", subroutine.api.documents.router),
 	("", subroutine.api.documents.document_links),
+	("", subroutine.api.admin.router),
 )
 
 

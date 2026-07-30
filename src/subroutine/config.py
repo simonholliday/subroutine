@@ -36,20 +36,141 @@ NETWORK_FILESYSTEMS = frozenset(
 )
 
 
+#: The environment variable naming the active instance (SPEC.md §12.5). Read on every path
+#: lookup rather than captured once, so a test or a subprocess can change instance without
+#: reloading the module.
+PROFILE_VARIABLE = "SUBROUTINE_PROFILE"
+
+#: The directory level a profile inserts under each XDG root. A literal rather than part of
+#: the name, so the default instance's paths are untouched and nobody is migrated.
+PROFILES_DIRECTORY = "profiles"
+
+#: A profile name must be a safe single path segment: a letter first, then letters, digits,
+#: hyphens and underscores. Same shape as a workspace short name (SPEC.md §13.7) and for the
+#: same reason — a name that is all digits, or that carries a separator, stops being a name
+#: and becomes a path.
+_PROFILE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+#: Long enough for any sensible name, short enough that the resulting paths stay printable.
+MAX_PROFILE_NAME_LENGTH = 32
+
+
+def _application_directory (variable: str, *fallback: str) -> pathlib.Path:
+	"""Return this application's directory under one XDG root, ignoring any profile.
+
+	The unprofiled form, which is what enumerating and deleting profiles needs: asking a
+	profiled path where the profiles live would nest one inside another.
+	"""
+
+	base = os.environ.get(variable) or pathlib.Path.home().joinpath(*fallback)
+
+	return pathlib.Path(base) / APPLICATION_NAME
+
+
+def check_profile_name (name: str) -> str:
+	"""Return ``name`` if it is a usable profile name, and explain the rule if it is not."""
+
+	cleaned = name.strip()
+
+	if not _PROFILE_NAME.match(cleaned) or len(cleaned) > MAX_PROFILE_NAME_LENGTH:
+		raise ValueError(
+			f"'{name}' is not a usable instance name. Start with a letter, then use "
+			f"letters, digits, hyphens or underscores, up to {MAX_PROFILE_NAME_LENGTH} "
+			f"characters."
+		)
+
+	return cleaned
+
+
+def profile () -> str | None:
+	"""Return the name of the instance this process is acting on, or ``None`` for the default.
+
+	``None`` is not a fallback for a broken value — a name that cannot be used raises, because
+	continuing would silently act on the *default* instance, which is the one holding real
+	work (SPEC.md §12.5).
+	"""
+
+	name = os.environ.get(PROFILE_VARIABLE, "").strip()
+
+	if not name:
+		return None
+
+	return check_profile_name(name)
+
+
+def use_profile (name: str | None) -> None:
+	"""Make every path lookup in this process refer to ``name``, or to the default instance.
+
+	Called once, early, by the ``--profile`` option. Set through the environment rather than a
+	module global so that anything this process starts inherits the same instance.
+	"""
+
+	if name is None:
+		os.environ.pop(PROFILE_VARIABLE, None)
+
+		return
+
+	os.environ[PROFILE_VARIABLE] = check_profile_name(name)
+
+
+def _within_profile (root: pathlib.Path) -> pathlib.Path:
+	"""Return ``root`` itself for the default instance, or its profile subdirectory."""
+
+	name = profile()
+
+	return root if name is None else root / PROFILES_DIRECTORY / name
+
+
+def profile_directories (name: str) -> tuple[pathlib.Path, ...]:
+	"""Return every directory one profile owns, across the three XDG roots.
+
+	The whole of an instance, which is what creating and destroying one has to act on. The
+	tuple is ordered configuration, data, state — deleting the database last means an
+	interrupted removal leaves something recognisable rather than orphaned data.
+	"""
+
+	checked = check_profile_name(name)
+
+	return tuple(
+		root / PROFILES_DIRECTORY / checked
+		for root in (
+			_application_directory("XDG_CONFIG_HOME", ".config"),
+			_application_directory("XDG_STATE_HOME", ".local", "state"),
+			_application_directory("XDG_DATA_HOME", ".local", "share"),
+		)
+	)
+
+
+def profile_names () -> list[str]:
+	"""Return every profile that has a configuration directory, alphabetically.
+
+	Read from the configuration root rather than the data root: a profile is created by
+	``init`` writing a `config.toml`, so that is the directory whose presence means the
+	instance exists at all.
+	"""
+
+	directory = _application_directory("XDG_CONFIG_HOME", ".config") / PROFILES_DIRECTORY
+
+	if not directory.is_dir():
+		return []
+
+	return sorted(
+		entry.name
+		for entry in directory.iterdir()
+		if entry.is_dir() and _PROFILE_NAME.match(entry.name)
+	)
+
+
 def config_home () -> pathlib.Path:
 	"""Return the directory holding the configuration file."""
 
-	base = os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home() / ".config"
-
-	return pathlib.Path(base) / APPLICATION_NAME
+	return _within_profile(_application_directory("XDG_CONFIG_HOME", ".config"))
 
 
 def data_home () -> pathlib.Path:
 	"""Return the directory holding the database and other durable state."""
 
-	base = os.environ.get("XDG_DATA_HOME") or pathlib.Path.home() / ".local" / "share"
-
-	return pathlib.Path(base) / APPLICATION_NAME
+	return _within_profile(_application_directory("XDG_DATA_HOME", ".local", "share"))
 
 
 def state_home () -> pathlib.Path:
@@ -68,9 +189,7 @@ def state_home () -> pathlib.Path:
 	meant.
 	"""
 
-	base = os.environ.get("XDG_STATE_HOME") or pathlib.Path.home() / ".local" / "state"
-
-	return pathlib.Path(base) / APPLICATION_NAME
+	return _within_profile(_application_directory("XDG_STATE_HOME", ".local", "state"))
 
 
 def config_file_path () -> pathlib.Path:
@@ -283,6 +402,13 @@ class Settings(pydantic_settings.BaseSettings):
 
 	host: str = "127.0.0.1"
 	port: int = 8471
+
+	# Marks this instance as one whose data matters (SPEC.md §12.5). A protected instance
+	# refuses `db restore`, `db upgrade` and its own deletion unless the operator confirms or
+	# passes `--yes`. It is a property of the *instance* rather than of the command on
+	# purpose: the thing worth protecting is a particular database, and a flag on the command
+	# only protects whoever remembers to type it.
+	protected: bool = False
 
 	# The https:// address a TLS-terminating proxy serves this instance on. Unset is the
 	# ordinary case — one person on a laptop, listening on loopback. Setting it is what makes
