@@ -36,6 +36,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.links
+import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -55,111 +56,14 @@ router = fastapi.APIRouter(
 #: ``Settings.default_page_size``; the hard ceiling is ``max_page_size``.
 DEFAULT_LIMIT = 50
 
-#: What the three ranking states are worth to an ordering (SPEC.md §6.3). **This decides
-#: how `?order=priority_score` arranges items and deliberately does NOT change what
-#: `priority_score` *is*** — the field a caller reads is still `importance * urgency`, null
-#: unless both are set, exactly as §6.3 defines it. Two different things, and conflating them
-#: would put an ordering concern into a published field.
-#:
-#: An item is in one of three states, and before 2026-07-30 an ordering could only see two:
-#:
-#: * **Ranked** — both axes set. Ordered among themselves by the product, 1 to 25.
-#: * **Part-ranked** — one axis set. Ordered among themselves by whichever it is, 1 to 5.
-#: * **Unranked** — neither. Null, and NULLS LAST in both directions puts it at the end.
-#:
-#: The defect this fixes: part-ranked and unranked both scored null, so "critically
-#: important, urgency not yet judged" sorted *below* "explicitly judged trivial and not
-#: urgent" — the person who said the most about an item was penalised for not finishing the
-#: sentence, and the two states were indistinguishable although only one carries a judgement.
-#:
-#: **The claim being made is that part-ranked sits between ranked and unranked**, because
-#: "assessed and incomplete" carries more information than "not assessed" and less than a
-#: finished assessment. That is a judgement rather than a fact, it is Simon's decision of
-#: 2026-07-30, and it is the thing to revisit if this ever feels wrong. Changing it means
-#: changing these two constants and the two functions below — and *both* of them, which is
-#: what the equivalence test in `tests/test_api_tasks.py` exists to enforce.
-#:
-#: The bands are separated by 100, comfortably more than the 25 a product can reach, so a
-#: band can never be entered from below.
-RANKED_BAND = 200
-PART_RANKED_BAND = 100
-
-
-def _ranking (row: typing.Any) -> int | None:
-	"""Return one task's place in §6.3's three-band ordering, from a loaded row.
-
-	The Python half of the pair. :data:`_RANKING` is the same rule as SQL, and the two must
-	agree exactly: this one names the row a cursor stopped at, that one orders the query, and
-	a disagreement would be a page boundary that skips or repeats rows.
-	"""
-
-	# `row` is a loaded ORM object rather than a typed model, so the two axes arrive as
-	# `Any`; read into locals so the arithmetic below is checked rather than waved through.
-	importance: int | None = row.importance
-	urgency: int | None = row.urgency
-
-	if importance is not None and urgency is not None:
-		return RANKED_BAND + importance * urgency
-
-	if importance is not None:
-		return PART_RANKED_BAND + importance
-
-	if urgency is not None:
-		return PART_RANKED_BAND + urgency
-
-	return None
-
-
-#: The SQL half of the same rule. A ``CASE`` cannot use a plain index, and neither could the
-#: bare ``importance * urgency`` it replaces, so this costs nothing that was not already
-#: being paid.
-_RANKING = sqlalchemy.case(
-	(
-		sqlalchemy.and_(
-			subroutine.db.models.work.Task.importance.is_not(None),
-			subroutine.db.models.work.Task.urgency.is_not(None),
-		),
-		RANKED_BAND
-		+ subroutine.db.models.work.Task.importance * subroutine.db.models.work.Task.urgency,
-	),
-	(
-		subroutine.db.models.work.Task.importance.is_not(None),
-		PART_RANKED_BAND + subroutine.db.models.work.Task.importance,
-	),
-	(
-		subroutine.db.models.work.Task.urgency.is_not(None),
-		PART_RANKED_BAND + subroutine.db.models.work.Task.urgency,
-	),
-	else_=None,
-)
-
-
-#: Fields ``?order=`` accepts, and the columns they mean. Deliberately a short list: every
-#: entry is a promise about an index, and a sort the database cannot serve cheaply is worse
-#: than no sort at all.
-SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
-	"created_at": subroutine.db.models.work.Task.created_at,
-	"updated_at": subroutine.db.models.work.Task.updated_at,
-	"due_at": subroutine.db.models.work.Task.due_at,
-	"planned_for": subroutine.db.models.work.Task.planned_for,
-	"importance": subroutine.db.models.work.Task.importance,
-	"urgency": subroutine.db.models.work.Task.urgency,
-	# §6.3's derived ordering key, banded — see `_ranking` below, which is where the whole
-	# argument lives.
-	#
-	# Declared as a `Derived` rather than a bare expression because a cursor has to carry
-	# this value and there is no attribute to read it from. As a bare expression it ordered
-	# correctly and 500'd the moment a page filled — see `pagination.Derived`.
-	"priority_score": subroutine.api.pagination.Derived(
-		expression=_RANKING,
-		read=_ranking,
-	),
-	"ref": subroutine.db.models.work.Task.ref,
-	"title": subroutine.db.models.work.Task.title,
-}
+#: What ``?order=`` accepts, read from the domain so that both transports offer the same
+#: fields and mean the same thing by them (§6.3a). It lived here until 2026-07-30, which is
+#: why a local listing could not be ordered at all: `clients/local.py` may not import this
+#: module, since it imports FastAPI.
+SORTABLE = subroutine.domain.ordering.TASK_FIELDS
 
 #: Newest first, which is what "what have I got" means for a to-do list.
-DEFAULT_ORDER = ("-created_at",)
+DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_TASK_ORDER
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Task)

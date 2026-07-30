@@ -42,6 +42,7 @@ import subroutine.domain.comments
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.local
+import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -149,8 +150,9 @@ class Client:
 		workspace: str | None = None,
 		limit: int | None = None,
 		include_completed: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Task]:
-		"""List one workspace's tasks, newest first."""
+		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.size(limit, self.settings)
@@ -165,13 +167,18 @@ class Client:
 						workspace_ids=[chosen.id],
 						include_completed=include_completed,
 					)
-					# The same ordering ``GET /v1/tasks`` applies by default, spelled out
-					# rather than approximated: newest first, with the id breaking ties in
-					# the same direction so that equal timestamps stay in one order. NULLS
-					# LAST is stated because the two backends disagree about the default
-					# (SPEC.md §10.3).
+					# Built by the domain from the same vocabulary ``GET /v1/tasks`` uses,
+					# rather than approximated here: two spellings of "newest first" is the
+					# pair that comes to disagree, and this one used to be the *only* one,
+					# which is why a client could not rank at all. NULLS LAST and the
+					# tiebreaker are `ordering.clauses`' job now (SPEC.md §10.3).
 					.order_by(
-						model.created_at.desc().nullslast(), model.id.desc().nullslast()
+						*subroutine.domain.ordering.clauses(
+							order,
+							allowed=subroutine.domain.ordering.TASK_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+							tiebreak=model.id,
+						)
 					)
 					.limit(size)
 				)

@@ -114,8 +114,17 @@ class Client(typing.Protocol):
 		workspace: str | None = None,
 		limit: int | None = None,
 		include_completed: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Task]:
-		"""List one workspace's open tasks, newest first."""
+		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
+
+		``order`` is §8.4's spelling — comma-separated field names, a leading ``-`` to
+		reverse one — and its vocabulary is ``domain.ordering.TASK_FIELDS``, shared with the
+		HTTP endpoint so that both transports accept the same names and refuse the same ones.
+		Until 2026-07-30 there was no ordering here at all, so every listing that went through
+		a client was newest-first: that is why ``subroutine list`` could not rank a backlog
+		while ``GET /v1/tasks?order=`` could.
+		"""
 
 	def task (
 		self, *, ref: int, workspace: str | None = None

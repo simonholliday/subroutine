@@ -695,3 +695,52 @@ def test_both_list_documents_the_same_way (pair: Pair) -> None:
 
 	# The limit is one arbiter for both, the way `tasks` already is.
 	assert len(local.documents(limit=2)) == len(remote.documents(limit=2)) == 2
+
+
+@pytest.mark.parametrize(
+	"order",
+	["-priority_score", "priority_score", "-ref", "title", "-due_at,ref"],
+	ids=["by-rank", "by-rank-ascending", "newest-ref", "alphabetical", "two-keys"],
+)
+def test_both_apply_the_same_ordering (pair: Pair, order: str) -> None:
+	"""``order=`` has to mean the same thing on both sides, or a rank is transport-dependent.
+
+	Added with the parameter itself on 2026-07-30. Until then ``clients/base.py`` took no
+	ordering at all, so every listing that went through a client was newest-first while
+	``GET /v1/tasks?order=`` had offered nine sort fields since S3-06 — the same divergence
+	S3-07 removed for a task's *shape*, quietly recreated for its order.
+
+	``-priority_score`` is here for a second reason: it is banded (§6.3a), and the banding is
+	a rule stated twice. If a transport ever built its own ordering rather than sharing the
+	domain's, this is where it would show.
+	"""
+
+	for index in range(6):
+		# A spread of ranking states, so the three bands and the tiebreak are all exercised
+		# rather than a page that happens to be uniform.
+		suffix = ("!5/5", "!1/1", "!4", "", "!2/3", "")[index]
+		make(pair, f"Task number {index} {suffix}".strip())
+
+	local, remote = pair.both()
+
+	assert [task.ref for task in local.tasks(order=order)] == [
+		task.ref for task in remote.tasks(order=order)
+	]
+
+
+def test_both_refuse_an_ordering_neither_can_serve (pair: Pair) -> None:
+	"""And refuse it the same way, naming the same field.
+
+	A refusal is part of the contract: an agent that sends ``order=priority`` learns the real
+	name from the message, and learning two different things depending on the transport is
+	the failure this whole suite exists to prevent.
+	"""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(order="priority")
+
+		assert raised.value.errors[0].field == "order"
+		assert "priority_score" in (raised.value.errors[0].hint or "")

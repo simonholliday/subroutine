@@ -31,6 +31,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.domain.ordering
 import subroutine.errors
 
 #: Separates the payload from its signature. Not base64url's alphabet, so it can never
@@ -38,31 +39,12 @@ import subroutine.errors
 _SEPARATOR = "."
 
 
-@dataclasses.dataclass(frozen=True)
-class Derived:
-	"""A sort field computed from other columns rather than stored in one of its own.
-
-	**Both halves are required, and that is the whole point of this class.** An ordering
-	needs an expression the database can sort by; a *cursor* needs the same value read back
-	off a loaded row, and a derived field has no attribute for :func:`encode` to look up.
-
-	``priority_score`` was declared as a bare ``importance * urgency`` expression, which
-	orders perfectly and has a ``.key`` of ``None``. So every ``?order=priority_score``
-	request whose result set exceeded one page died in ``encode`` with ``TypeError:
-	attribute name must be string, not 'NoneType'`` — the sort this API recommends to
-	agents, failing precisely when there is enough work to page through. It survived
-	because the only installation using it had fewer items than the default page size, and
-	because the ``SORTABLE`` maps were annotated ``dict[str, typing.Any]``, which told the
-	type checker to look away at exactly the declaration that was wrong.
-	"""
-
-	expression: sqlalchemy.ColumnElement[typing.Any]
-	read: typing.Callable[[typing.Any], typing.Any]
-
-
-#: What a ``SORTABLE`` map may hold: a column, or a computed field that knows how to read
-#: itself back. Annotate those maps with this rather than with ``typing.Any``.
-Sortable = sqlalchemy.orm.InstrumentedAttribute[typing.Any] | Derived
+#: A computed sort field, and the union a sortable map may hold. Both defined in
+#: ``domain.ordering`` because the *vocabulary* of an ordering is a fact about the domain
+#: that every transport shares; what stays here is the part that belongs to HTTP — keyset
+#: cursors, their signing, and the seek predicate.
+Derived = subroutine.domain.ordering.Derived
+Sortable = subroutine.domain.ordering.Sortable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -129,51 +111,19 @@ def parse_order (
 	and a cursor pointing at one of them cannot say which side of it the next page starts.
 	"""
 
-	requested = [part.strip() for part in (expression or "").split(",") if part.strip()]
-	names = requested or list(default)
+	# Parsed by the domain, which is where the vocabulary and the refusals live, so an
+	# ordering means the same thing and is refused the same way whichever transport asked.
 	keys: list[SortKey] = []
 
-	for name in names:
-		descending = name.startswith("-")
-		bare = name[1:] if descending else name
-
-		if bare not in allowed:
-			raise subroutine.errors.ValidationError(
-				f"{bare!r} is not a field this endpoint can sort by.",
-				errors=[
-					subroutine.errors.FieldError(
-						field="order",
-						code="invalid_field_value",
-						message=f"Unknown sort field {bare!r}.",
-						hint=f"Sortable fields are: {', '.join(sorted(allowed))}. Prefix one "
-						f"with '-' to reverse it.",
-					)
-				],
-			)
-
-		if any(key.name == bare for key in keys):
-			raise subroutine.errors.ValidationError(
-				f"{bare!r} appears twice in the ordering.",
-				errors=[
-					subroutine.errors.FieldError(
-						field="order",
-						code="invalid_field_value",
-						message=f"Sort field {bare!r} is repeated.",
-						hint="Each field may appear once; the order they appear in is the "
-						"order they are applied.",
-					)
-				],
-			)
-
+	for bare, descending in subroutine.domain.ordering.requested(
+		expression, allowed=allowed, default=default
+	):
 		chosen = allowed[bare]
 
 		if isinstance(chosen, Derived):
 			keys.append(
 				SortKey(
-					name=bare,
-					column=chosen.expression,
-					descending=descending,
-					read=chosen.read,
+					name=bare, column=chosen.expression, descending=descending, read=chosen.read
 				)
 			)
 

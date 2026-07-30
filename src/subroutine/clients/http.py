@@ -139,8 +139,9 @@ class Client:
 		workspace: str | None = None,
 		limit: int | None = None,
 		include_completed: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Task]:
-		"""List one workspace's tasks, newest first."""
+		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
 		body = self._json(
 			"GET",
@@ -149,6 +150,7 @@ class Client:
 				workspace_id=workspace,
 				limit=limit,
 				include_completed="true" if include_completed else None,
+				order=order,
 			),
 		)
 

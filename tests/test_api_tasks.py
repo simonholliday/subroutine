@@ -20,6 +20,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -1108,7 +1109,7 @@ def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
 	from_sql: dict[uuid.UUID, int | None] = dict(
 		session.execute(
 			sqlalchemy.select(
-				subroutine.db.models.work.Task.id, subroutine.api.tasks._RANKING
+				subroutine.db.models.work.Task.id, subroutine.domain.ordering.RANKING
 			).where(subroutine.db.models.work.Task.deleted_at.is_(None))
 		)
 		.tuples()
@@ -1118,9 +1119,9 @@ def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
 	assert rows, "nothing to compare"
 
 	for row in rows:
-		assert from_sql[row.id] == subroutine.api.tasks._ranking(row), (
+		assert from_sql[row.id] == subroutine.domain.ordering.ranking(row), (
 			f"the two halves disagree for importance={row.importance} urgency={row.urgency}: "
-			f"SQL said {from_sql[row.id]}, Python said {subroutine.api.tasks._ranking(row)}"
+			f"SQL said {from_sql[row.id]}, Python said {subroutine.domain.ordering.ranking(row)}"
 		)
 
 
