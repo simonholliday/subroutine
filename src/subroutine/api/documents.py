@@ -25,6 +25,7 @@ import subroutine.api.projects
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.selection
+import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.api.views
 import subroutine.config
@@ -52,6 +53,9 @@ SORTABLE: dict[str, typing.Any] = {
 }
 
 DEFAULT_ORDER = ("-created_at",)
+
+#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Document)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -155,7 +159,11 @@ def create (
 	return _rendered(session, created)
 
 
-@router.get("", summary="List documents")
+@router.get(
+	"",
+	summary="List documents",
+	response_model=subroutine.api.views.Collection[subroutine.api.views.Document],
+)
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -169,9 +177,14 @@ def listing (
 	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
-) -> subroutine.api.views.Collection[subroutine.api.views.Document]:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""List the documents this caller can see."""
 
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="document"
+	)
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_documents(
 		actor, workspace_ids=[workspace.id]
@@ -229,9 +242,9 @@ def listing (
 
 	vocabulary = subroutine.api.views.Vocabulary.for_documents(session, rows)
 
-	return subroutine.api.views.Collection[subroutine.api.views.Document](
-		items=[subroutine.api.views.document(row, vocabulary) for row in rows],
-		page=subroutine.api.views.Page(
+	return subroutine.api.shaping.response(
+		[subroutine.api.views.document(row, vocabulary) for row in rows],
+		subroutine.api.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -241,21 +254,31 @@ def listing (
 			),
 			total=total,
 		),
+		shape,
 	)
 
 
-@router.get("/{id_or_ref}", summary="Read one document")
+@router.get(
+	"/{id_or_ref}", summary="Read one document", response_model=subroutine.api.views.Document
+)
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Document:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""Return one document, by id or by ref."""
 
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="document"
+	)
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 
-	return _rendered(session, _resolve(session, actor, workspace, id_or_ref))
+	return subroutine.api.shaping.single(
+		_rendered(session, _resolve(session, actor, workspace, id_or_ref)), shape
+	)
 
 
 @router.patch("/{id_or_ref}", summary="Change a document")

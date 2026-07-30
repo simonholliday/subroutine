@@ -46,6 +46,41 @@ FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
 #: does not enforce VARCHAR lengths.
 MAX_TITLE_LENGTH = 512
 
+#: The range §6.3 gives both priority axes, where 5 is highest. There is a CHECK constraint
+#: for each on the table, and until 2026-07-29 that was the *only* thing enforcing them — so
+#: ``{"importance": 6}`` reached PostgreSQL, violated the constraint and came back as a 500
+#: with no field named and nothing a client could act on. Checked here for the reason
+#: ``MAX_TITLE_LENGTH`` is: the message should name the field and the range.
+PRIORITY_RANGE = (1, 5)
+
+
+def _priority (value: int | None, *, field: str) -> int | None:
+	"""Return a priority axis unchanged, or refuse with the range it has to be inside.
+
+	``None`` passes through: §6.3 is explicit that absence means "not assessed" and is
+	distinct from 1, so clearing an axis has to stay expressible.
+	"""
+
+	if value is None:
+		return value
+
+	low, high = PRIORITY_RANGE
+
+	if low <= value <= high:
+		return value
+
+	raise subroutine.errors.ValidationError(
+		f"{value} is not a usable {field}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"{field.title()} runs from {low} to {high}, where {high} is highest.",
+				hint=f"Send a number between {low} and {high}, or null for 'not assessed'.",
+			)
+		],
+	)
+
 
 def _permitted (
 	session: sqlalchemy.orm.Session,
@@ -107,6 +142,7 @@ def create (
 	parent: subroutine.db.models.work.Task | None = None,
 	assignee_id: uuid.UUID | None = None,
 	importance: int | None = None,
+	urgency: int | None = None,
 	due: datetime.datetime | datetime.date | str | None = None,
 	due_is_all_day: bool | None = None,
 	planned_for: datetime.date | str | None = None,
@@ -187,7 +223,8 @@ def create (
 		description=description,
 		status_id=status.id,
 		assignee_id=assignee_id,
-		importance=importance,
+		importance=_priority(importance, field="importance"),
+		urgency=_priority(urgency, field="urgency"),
 		due_at=deadline.instant,
 		due_is_all_day=deadline.is_all_day,
 		planned_for=planned,
@@ -397,6 +434,7 @@ def update (
 	status_key: str = subroutine.domain.patch.UNSET,
 	assignee_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	importance: int | None = subroutine.domain.patch.UNSET,
+	urgency: int | None = subroutine.domain.patch.UNSET,
 	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	due_is_all_day: bool | None = None,
 	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
@@ -436,6 +474,20 @@ def update (
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
 	status: typing.Any = (
 		subroutine.domain.patch.UNSET if status_key is subroutine.domain.patch.UNSET else status_for(session, task.workspace_id, status_key)
+	)
+
+	# Both axes are range-checked *here*, in the pass that may raise, rather than beside the
+	# assignment below. A refusal after a partial assignment would leave the caller holding a
+	# session it may still commit, with half the change in it.
+	cleaned_importance: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if importance is subroutine.domain.patch.UNSET
+		else _priority(importance, field="importance")
+	)
+	cleaned_urgency: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if urgency is subroutine.domain.patch.UNSET
+		else _priority(urgency, field="urgency")
 	)
 
 	zone = _timezone(
@@ -503,7 +555,10 @@ def update (
 		task.assignee_id = assignee_id
 
 	if importance is not subroutine.domain.patch.UNSET:
-		task.importance = importance
+		task.importance = cleaned_importance
+
+	if urgency is not subroutine.domain.patch.UNSET:
+		task.urgency = cleaned_urgency
 
 	if deadline is not subroutine.domain.patch.UNSET:
 		task.due_at = deadline.instant

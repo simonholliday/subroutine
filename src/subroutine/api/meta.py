@@ -35,6 +35,7 @@ import subroutine.api.dependencies
 import subroutine.api.documents
 import subroutine.api.projects
 import subroutine.api.security
+import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.cli.topics
 import subroutine.db.models.vocabulary
@@ -56,12 +57,27 @@ router = fastapi.APIRouter(prefix="/v1", tags=["discovery"])
 #: list makes ``/v1/meta`` exactly the large response §13.1 exists to avoid.
 TAG_LIMIT = 50
 
+#: Query parameters that are not *filters*. Reflection cannot tell the difference by
+#: itself — they are all query parameters — and calling `format` a filter would tell an
+#: agent it narrows a result set when it changes how the same rows are reported.
+NOT_FILTERS = frozenset({"order", "limit", "cursor", "include_total", "format", "fields"})
+
 #: Which listing each entity's filters and sort fields come from. Declared as data so the
 #: reflection below has one place to look, and so adding an entity is one line.
-LISTINGS: tuple[tuple[str, str, dict[str, typing.Any]], ...] = (
-	("task", "/v1/tasks", subroutine.api.tasks.SORTABLE),
-	("document", "/v1/documents", subroutine.api.documents.SORTABLE),
-	("project", "/v1/projects", subroutine.api.projects.SORTABLE),
+LISTINGS: tuple[tuple[str, str, dict[str, typing.Any], frozenset[str]], ...] = (
+	("task", "/v1/tasks", subroutine.api.tasks.SORTABLE, subroutine.api.tasks.SELECTABLE),
+	(
+		"document",
+		"/v1/documents",
+		subroutine.api.documents.SORTABLE,
+		subroutine.api.documents.SELECTABLE,
+	),
+	(
+		"project",
+		"/v1/projects",
+		subroutine.api.projects.SORTABLE,
+		subroutine.api.projects.SELECTABLE,
+	),
 )
 
 
@@ -125,6 +141,13 @@ class Listing(pydantic.BaseModel):
 	path: str
 	filters: list[str]
 	sortable: list[str]
+
+	#: What ``?fields=`` may name, and what ``?format=`` accepts (SPEC.md §14.10). Published
+	#: for the reason ``sortable`` is: an agent that has to discover a field name by being
+	#: refused has paid for the discovery in context, which is the cost shaping exists to
+	#: avoid in the first place.
+	selectable: list[str]
+	formats: list[str]
 
 
 class Grammar(pydantic.BaseModel):
@@ -286,6 +309,14 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"names another item (`target`, `supersedes`, `parent`) takes the same integer, so "
 		"you can send back what you were given without converting it.",
 		"",
+		"**Ask for less.** A full task is 400-600 tokens and most of them are fields you did "
+		"not need. `?fields=ref,title,due_at` returns only those; `?format=compact` returns "
+		"one aligned line per item, about ten times smaller; `?format=ids` returns the "
+		"addresses alone, about two hundred times smaller, which is what you want when you "
+		"are deciding what to look at next. The `items`/`page` envelope is the same in all "
+		"of them, so pagination does not change. `fields` and `format` cannot be combined. "
+		"`GET /v1/meta` lists the selectable fields and formats per entity.",
+		"",
 		"In prose — a title, a description, a comment — a reference is written `#42`, and "
 		"that is what builds the mention index. The sigil belongs to the *text*: do not put "
 		"it in a URL, where it would have to be escaped, and do not expect it in the `ref` "
@@ -446,17 +477,21 @@ def _listings (request: starlette.requests.Request) -> dict[str, Listing]:
 	schema = request.app.openapi()
 	found: dict[str, Listing] = {}
 
-	for entity, path, sortable in LISTINGS:
+	for entity, path, sortable, selectable in LISTINGS:
 		operation = schema.get("paths", {}).get(path, {}).get("get", {})
 		parameters = [
 			parameter["name"]
 			for parameter in operation.get("parameters", [])
 			if parameter.get("in") == "query"
-			and parameter["name"] not in ("order", "limit", "cursor", "include_total")
+			and parameter["name"] not in NOT_FILTERS
 		]
 
 		found[entity] = Listing(
-			path=path, filters=sorted(parameters), sortable=sorted(sortable)
+			path=path,
+			filters=sorted(parameters),
+			sortable=sorted(sortable),
+			selectable=sorted(selectable),
+			formats=list(subroutine.api.shaping.FORMATS),
 		)
 
 	return found

@@ -19,6 +19,7 @@ import subroutine.api.pagination
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.selection
+import subroutine.api.shaping
 import subroutine.api.views
 import subroutine.config
 import subroutine.db.models.identity
@@ -43,6 +44,9 @@ SORTABLE: dict[str, typing.Any] = {
 #: By path, so a listing reads as the tree it is: a parent immediately followed by its
 #: children, rather than a flat list the caller has to reassemble.
 DEFAULT_ORDER = ("path",)
+
+#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Project)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -114,7 +118,11 @@ def create (
 	return _rendered(session, created)
 
 
-@router.get("", summary="List projects")
+@router.get(
+	"",
+	summary="List projects",
+	response_model=subroutine.api.views.Collection[subroutine.api.views.Project],
+)
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -127,8 +135,14 @@ def listing (
 	limit: int | None = fastapi.Query(None, ge=1, description="How many to return."),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
-) -> subroutine.api.views.Collection[subroutine.api.views.Project]:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""List the projects this caller can see."""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="project"
+	)
 
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_projects(
@@ -172,9 +186,9 @@ def listing (
 
 	vocabulary = subroutine.api.views.Vocabulary.for_projects(session, rows)
 
-	return subroutine.api.views.Collection[subroutine.api.views.Project](
-		items=[subroutine.api.views.project(row, vocabulary) for row in rows],
-		page=subroutine.api.views.Page(
+	return subroutine.api.shaping.response(
+		[subroutine.api.views.project(row, vocabulary) for row in rows],
+		subroutine.api.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -184,21 +198,31 @@ def listing (
 			),
 			total=total,
 		),
+		shape,
 	)
 
 
-@router.get("/{id_or_key}", summary="Read one project")
+@router.get(
+	"/{id_or_key}", summary="Read one project", response_model=subroutine.api.views.Project
+)
 def read (
 	id_or_key: str,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Project:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""Return one project, by id or by key."""
 
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="project"
+	)
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 
-	return _rendered(session, resolve(session, actor, workspace, id_or_key))
+	return subroutine.api.shaping.single(
+		_rendered(session, resolve(session, actor, workspace, id_or_key)), shape
+	)
 
 
 @router.patch("/{id_or_key}", summary="Change a project")

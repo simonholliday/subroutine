@@ -21,9 +21,11 @@ import pydantic
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.api.shaping
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.refs
 
 Item = typing.TypeVar("Item")
 
@@ -68,7 +70,14 @@ class Task(pydantic.BaseModel):
 	type_id: uuid.UUID
 
 	assignee_id: uuid.UUID | None
+
+	#: §6.3's two independent axes, 1-5 where 5 is highest, and the product of them.
+	#: Null means *not assessed* and is distinct from 1. ``priority_score`` is derived and
+	#: read-only — null unless both axes are set — and exists so that an agent sorting by
+	#: "most important" has one key rather than a convention it invented.
 	importance: int | None
+	urgency: int | None
+	priority_score: int | None
 
 	due_at: datetime.datetime | None
 	due_is_all_day: bool
@@ -87,6 +96,32 @@ class Task(pydantic.BaseModel):
 
 	#: The concurrency token (SPEC.md §8.9), reported so a caller can send it back.
 	version: int
+
+	def address (self) -> int:
+		"""Return what a caller addresses this by — its ref (SPEC.md §6.2)."""
+
+		return self.ref
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this task as the cells of one compact line (SPEC.md §14.10).
+
+		Each view renders its own columns because each knows which of its fields are worth a
+		line, and the alignment across a page is ``shaping.aligned``'s job. The order is the
+		one §14.10 gives: address, status, priority, deadline, title.
+
+		``@assignee`` and ``#tags`` appear in §14.10's example and not here. Both need data
+		this view does not carry — a username rather than an ``assignee_id``, and tag rows
+		that would be another batched query per page — so they are view *enrichment* rather
+		than shaping, and filed as such rather than half-done.
+		"""
+
+		return (
+			subroutine.domain.refs.format_ref(self.ref),
+			f"[{self.status}]",
+			_priority_cell(self.importance, self.urgency),
+			"—" if self.due_at is None else self.due_at.date().isoformat(),
+			subroutine.api.shaping.truncated(self.title),
+		)
 
 
 class Project(pydantic.BaseModel):
@@ -117,6 +152,21 @@ class Project(pydantic.BaseModel):
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
 	version: int
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — its key, never a ref (SPEC.md §5.2)."""
+
+		return self.key
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this project as the cells of one compact line."""
+
+		return (
+			self.key,
+			f"[{self.status}]",
+			"private" if self.visibility == "private" else "",
+			subroutine.api.shaping.truncated(self.title),
+		)
 
 
 class Document(pydantic.BaseModel):
@@ -152,6 +202,39 @@ class Document(pydantic.BaseModel):
 	updated_at: datetime.datetime
 	content_updated_at: datetime.datetime
 	version: int
+
+	def address (self) -> int:
+		"""Return what a caller addresses this by — its ref, shared with tasks (§6.2)."""
+
+		return self.ref
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this document as the cells of one compact line.
+
+		No deadline and no priority column, for the reason the class docstring gives: a
+		document has neither, and padding the line with two em dashes would spend tokens
+		saying so on every row.
+		"""
+
+		return (
+			subroutine.domain.refs.format_ref(self.ref),
+			f"[{self.status}]",
+			self.type,
+			subroutine.api.shaping.truncated(self.title),
+		)
+
+
+def _priority_cell (importance: int | None, urgency: int | None) -> str:
+	"""Render §6.3's two axes as one cell: ``I4/U5``, or a dash for what was not assessed.
+
+	Absence is distinct from 1 and has to read as absence — an unassessed task showing
+	``I1/U1`` would be a lie a client would sort on.
+	"""
+
+	if importance is None and urgency is None:
+		return "—"
+
+	return f"I{importance or '-'}/U{urgency or '-'}"
 
 
 class Vocabulary:
@@ -244,6 +327,14 @@ def task (
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
 		importance=row.importance,
+		urgency=row.urgency,
+		# Computed here rather than read from the database: §6.3 calls it derived, and a
+		# stored copy would be a second place for the two axes to disagree.
+		priority_score=(
+			None
+			if row.importance is None or row.urgency is None
+			else row.importance * row.urgency
+		),
 		due_at=row.due_at,
 		due_is_all_day=row.due_is_all_day,
 		planned_for=row.planned_for,

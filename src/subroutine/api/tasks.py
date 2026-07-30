@@ -27,6 +27,7 @@ import subroutine.api.pagination
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.selection
+import subroutine.api.shaping
 import subroutine.api.views
 import subroutine.config
 import subroutine.db.models.identity
@@ -56,12 +57,21 @@ SORTABLE: dict[str, typing.Any] = {
 	"due_at": subroutine.db.models.work.Task.due_at,
 	"planned_for": subroutine.db.models.work.Task.planned_for,
 	"importance": subroutine.db.models.work.Task.importance,
+	"urgency": subroutine.db.models.work.Task.urgency,
+	# §6.3's derived ordering key, so an agent has one sensible sort without inventing it.
+	# NULL when either axis is unset, which the NULLS LAST in every ordering then handles.
+	"priority_score": (
+		subroutine.db.models.work.Task.importance * subroutine.db.models.work.Task.urgency
+	),
 	"ref": subroutine.db.models.work.Task.ref,
 	"title": subroutine.db.models.work.Task.title,
 }
 
 #: Newest first, which is what "what have I got" means for a to-do list.
 DEFAULT_ORDER = ("-created_at",)
+
+#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+SELECTABLE = subroutine.api.shaping.selectable(subroutine.api.views.Task)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -84,6 +94,7 @@ class Create(subroutine.api.schemas.RequestModel):
 	status: str | None = None
 	assignee_id: uuid.UUID | None = None
 	importance: int | None = None
+	urgency: int | None = None
 
 	due: str | None = None
 	due_is_all_day: bool | None = None
@@ -106,6 +117,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	status: str | None = None
 	assignee_id: uuid.UUID | None = None
 	importance: int | None = None
+	urgency: int | None = None
 	due: str | None = None
 	due_is_all_day: bool | None = None
 	planned_for: str | None = None
@@ -135,6 +147,7 @@ def create (
 			"description",
 			"assignee_id",
 			"importance",
+			"urgency",
 			"due",
 			"due_is_all_day",
 			"planned_for",
@@ -192,7 +205,15 @@ def create (
 	return _rendered(session, created)
 
 
-@router.get("", summary="List tasks")
+# ``response_model`` rather than a return annotation, because a shaped response is not a
+# ``Collection[Task]`` and returning one would be a lie mypy is right to catch. The model
+# still documents the default in OpenAPI and still validates it; a ``JSONResponse`` from the
+# shaping path is passed through untouched, which is the documented FastAPI behaviour.
+@router.get(
+	"",
+	summary="List tasks",
+	response_model=subroutine.api.views.Collection[subroutine.api.views.Task],
+)
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -216,8 +237,14 @@ def listing (
 	include_total: bool = fastapi.Query(
 		False, description="Count the whole result. Costs a second scan; off by default."
 	),
-) -> subroutine.api.views.Collection[subroutine.api.views.Task]:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""List tasks, narrowed by whatever the query string asks for."""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="task"
+	)
 
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_tasks(
@@ -264,21 +291,31 @@ def listing (
 		limit=limit,
 		cursor=cursor,
 		include_total=include_total,
+		shape=shape,
 	)
 
 
-@router.get("/{id_or_ref}", summary="Read one task")
+@router.get(
+	"/{id_or_ref}", summary="Read one task", response_model=subroutine.api.views.Task
+)
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
-) -> subroutine.api.views.Task:
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
 	"""Return one task, by id or by ref."""
 
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=SELECTABLE, entity="task"
+	)
 	workspace = subroutine.api.selection.workspace(session, actor, requested=workspace_id)
 
-	return _rendered(session, _resolve(session, actor, workspace, id_or_ref))
+	return subroutine.api.shaping.single(
+		_rendered(session, _resolve(session, actor, workspace, id_or_ref)), shape
+	)
 
 
 @router.patch("/{id_or_ref}", summary="Change a task")
@@ -303,6 +340,7 @@ def change (
 			"description",
 			"assignee_id",
 			"importance",
+			"urgency",
 			"due",
 			"planned_for",
 			"start",
@@ -507,8 +545,14 @@ def _page (
 	limit: int | None,
 	cursor: str | None,
 	include_total: bool,
-) -> subroutine.api.views.Collection[subroutine.api.views.Task]:
-	"""Order, paginate and render a task query."""
+	shape: subroutine.api.shaping.Shape,
+) -> typing.Any:
+	"""Order, paginate and render a task query.
+
+	Returns ``Any`` because a shaped response is not a ``Collection[Task]`` — its items are
+	lines, or addresses, or partial objects. The endpoint still *declares* the collection, so
+	the OpenAPI document describes the default that almost every caller receives.
+	"""
 
 	keys = subroutine.api.pagination.parse_order(
 		order,
@@ -540,9 +584,9 @@ def _page (
 
 	vocabulary = subroutine.api.views.Vocabulary.for_tasks(session, rows)
 
-	return subroutine.api.views.Collection[subroutine.api.views.Task](
-		items=[subroutine.api.views.task(row, vocabulary) for row in rows],
-		page=subroutine.api.views.Page(
+	return subroutine.api.shaping.response(
+		[subroutine.api.views.task(row, vocabulary) for row in rows],
+		subroutine.api.views.Page(
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
@@ -552,6 +596,7 @@ def _page (
 			),
 			total=total,
 		),
+		shape,
 	)
 
 
