@@ -177,6 +177,7 @@ def listing (
 	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
+	include: str | None = subroutine.api.query.INCLUDE_QUERY,
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
@@ -244,6 +245,23 @@ def listing (
 
 	vocabulary = subroutine.views.Vocabulary.for_documents(session, rows)
 
+	# Same three queries as the task listing, and the same reason: an include that fanned out
+	# per row would move the caller's N+1 inside the server rather than remove it.
+	links = (
+		[
+			subroutine.views.edge(found)
+			for found in subroutine.domain.links.edges(
+				session,
+				actor,
+				workspace_id=workspace.id,
+				entity_type="document",
+				identifiers=[row.id for row in rows],
+			)
+		]
+		if subroutine.api.query.includes(include, "links", entity="document")
+		else None
+	)
+
 	return subroutine.api.shaping.response(
 		[subroutine.views.document(row, vocabulary) for row in rows],
 		subroutine.views.Page(
@@ -257,6 +275,7 @@ def listing (
 			total=total,
 		),
 		shape,
+		links,
 	)
 
 

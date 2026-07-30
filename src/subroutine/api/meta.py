@@ -412,13 +412,17 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"names another item (`target`, `supersedes`, `parent`) takes the same integer, so "
 		"you can send back what you were given without converting it.",
 		"",
-		"**Ask for less.** A full task is 400-600 tokens and most of them are fields you did "
-		"not need. `?fields=ref,title,due_at` returns only those; `?format=compact` returns "
-		"one aligned line per item, about ten times smaller; `?format=ids` returns the "
-		"addresses alone, about two hundred times smaller, which is what you want when you "
-		"are deciding what to look at next. The `items`/`page` envelope is the same in all "
-		"of them, so pagination does not change. `fields` and `format` cannot be combined. "
-		"`GET /v1/meta` lists the selectable fields and formats per entity.",
+		# The ordering here is the recommendation, and it is deliberate: `fields` first
+		# because it is the only economy that loses nothing. An earlier draft led with
+		# `format=compact` on the strength of its size alone, which was wrong twice over —
+		# it is *larger* than a two-field selection on the same page, and it truncates.
+		"**Ask for less.** A full task is 400-600 tokens, mostly fields you did not need. "
+		"`?fields=ref,title,due_at` returns only those: lossless, ~20x smaller, the one to "
+		"reach for. `?format=ids` gives addresses alone, ~200x smaller, for choosing what to "
+		"look at next. `?format=compact` is a *terminal* rendering — aligned columns, long "
+		"titles cut short; read it, do not parse it. The `items`/`page` envelope is the same "
+		"in all three, so pagination does not change. `fields` and `format` cannot be "
+		"combined. `GET /v1/meta` lists the selectable fields and formats per entity.",
 		"",
 		# "a comment" was removed from this list while comments had no API, per the rule in
 		# this function's docstring — a reader told that references work in comments would
@@ -668,10 +672,29 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"/v1/agenda",
 		None,
 	),
+	# These two used to be one example whose description talked about `format=ids` while the
+	# request it ran was `format=compact`. Executing an example proves it *works*, not that
+	# what is said about it is true — `test_api_examples` now checks that too.
 	(
-		"List one workspace's open tasks, cheaply. `format=ids` is ~200x smaller than full.",
+		"List open tasks cheaply, losing nothing. `fields=` is the economy to reach for: "
+		"~20x smaller than full, and still structured.",
 		"GET",
-		"/v1/tasks?format=compact&limit=5",
+		"/v1/tasks?fields=ref,title,due_at,priority_score&limit=5",
+		None,
+	),
+	(
+		"Decide what to look at next. `format=ids` is ~200x smaller than full — addresses "
+		"alone, then fetch the few you actually want.",
+		"GET",
+		"/v1/tasks?format=ids&limit=5",
+		None,
+	),
+	(
+		"What blocks what, in one request. `include=links` returns the links among the "
+		"page's items beside them, so a dependency graph costs one call rather than one "
+		"per item.",
+		"GET",
+		"/v1/tasks?include=links&fields=ref,title,priority_score&limit=5",
 		None,
 	),
 	(

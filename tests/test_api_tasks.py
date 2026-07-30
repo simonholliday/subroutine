@@ -5,11 +5,13 @@ API gets wrong: telling omitted apart from null on a PATCH, paginating a table t
 being written to, and narrowing a listing to what the caller may actually see.
 """
 
+import itertools
 import typing
 import uuid
 
 import fastapi
 import pytest
+import sqlalchemy.event
 import sqlalchemy.orm
 
 import api_support
@@ -799,3 +801,216 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 
 		assert len(seen) == 5, f"paging by {direction}{field} returned {len(seen)} of 5"
 		assert len(seen) == len(set(seen)), f"paging by {direction}{field} repeated a task"
+
+
+def _linked (world: World, count: int) -> list[int]:
+	"""Create ``count`` tasks in a chain, each blocking the next, and return their refs."""
+
+	refs = [
+		world.call("POST", "/v1/tasks", json={"title": f"Step {index}"}).json()["ref"]
+		for index in range(count)
+	]
+
+	for earlier, later in itertools.pairwise(refs):
+		world.call(
+			"POST",
+			f"/v1/tasks/{earlier}/links",
+			json={"target": later, "target_type": "task", "link_type": "blocks"},
+		)
+
+	return refs
+
+
+def test_a_listing_can_return_the_links_among_its_items (world: World) -> None:
+	"""``?include=links`` answers "what depends on what" without a request per item.
+
+	Assembling this project's own backlog took thirteen requests and 18,759 bytes on
+	2026-07-30 — one listing plus one ``/links`` sub-resource per task — because a link was
+	readable only as a sub-resource of the thing it hung off. That is the wrong shape for an
+	agent: a person reads one item's links while thinking about that item, an agent wants the
+	shape of the whole backlog *before* deciding anything.
+	"""
+
+	refs = _linked(world, 4)
+	body = world.call("GET", "/v1/tasks?include=links&limit=50").json()
+
+	assert len(body["items"]) == 4
+
+	edges = {(edge["source"]["ref"], edge["target"]["ref"]) for edge in body["links"]}
+
+	assert edges == set(itertools.pairwise(refs))
+
+
+def test_a_link_with_both_ends_on_the_page_is_reported_once (world: World) -> None:
+	"""The reason this is an edge list and not a ``links`` field on every item.
+
+	A link is one stored row. Hung off each end it appears twice, in opposite directions,
+	and a caller building a graph has to notice the two are the same fact — on a page of one
+	project's backlog, where ``#12 blocks #13`` has *both* ends present, that is the common
+	case rather than a corner.
+	"""
+
+	refs = _linked(world, 2)
+	body = world.call("GET", "/v1/tasks?include=links&limit=50").json()
+
+	assert {item["ref"] for item in body["items"]} == set(refs), "both ends are on the page"
+	assert len(body["links"]) == 1, "one stored row, reported once"
+
+	edge = body["links"][0]
+
+	assert (edge["source"]["ref"], edge["target"]["ref"]) == (refs[0], refs[1])
+	assert edge["label"] == "Blocks", "the forward title; the inverse is read from the target"
+
+
+def test_a_listing_that_did_not_ask_for_links_carries_no_links_key (world: World) -> None:
+	"""Omitted, not null. A listing that did not ask is byte-for-byte what it was.
+
+	§14.10 exists because response size is a first-order cost for an agent, so a feature that
+	added a key to every response of every listing to say "you did not use me" would be taking
+	with one hand what it gives with the other.
+	"""
+
+	_linked(world, 2)
+
+	assert "links" not in world.call("GET", "/v1/tasks?limit=50").json()
+
+
+def test_links_survive_field_selection (world: World) -> None:
+	"""``?fields=`` selects fields *of an item*, and an edge is not one.
+
+	Asking for two fields and the link graph should give both. Dropping the graph because the
+	caller economised on item fields would be the two economy features cancelling each other
+	out — and the roadmap query wants exactly this combination.
+	"""
+
+	_linked(world, 3)
+	body = world.call("GET", "/v1/tasks?include=links&fields=ref,title&limit=50").json()
+
+	assert len(body["links"]) == 2
+	assert set(body["items"][0]) == {"ref", "title"}
+
+
+def test_an_unknown_include_is_refused_and_says_what_it_accepts (world: World) -> None:
+	"""``?include=backlinks`` is specified in §8.5 and built by nothing.
+
+	Accepting it and returning nothing is precisely the failure ``api/query.py`` exists to
+	prevent: the caller believes they asked for something, and reads an empty result as an
+	answer. It was live for a day when the guide promised it.
+	"""
+
+	response = world.call("GET", "/v1/tasks?include=backlinks")
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "include"
+	assert "links" in body["errors"][0]["hint"]
+
+
+def test_a_link_to_something_the_caller_cannot_see_is_not_reported (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A link is only as visible as *both* the things it joins (SPEC.md §7.3a).
+
+	Sharper here than for the sub-resource. There, one end is the item that was asked about
+	and so is known-visible, and only the far end needs checking. In a listing **neither end
+	is guaranteed to be one of the items asked about** — the page may hold a task whose link
+	points into a private project. Reporting that edge would disclose the existence and the
+	title of something §7.3a hides.
+	"""
+
+	world = _world(session)
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	private = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="SECRET",
+		title="Secret",
+		visibility="private",
+		owner_id=world.user.id,
+	)
+	hidden = subroutine.domain.tasks.create(session, project=private, title="Confidential")
+	session.flush()
+
+	visible = _linked(world, 1)[0]
+
+	world.call(
+		"POST",
+		f"/v1/tasks/{visible}/links",
+		json={"target": hidden.ref, "target_type": "task", "link_type": "relates_to"},
+	)
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+
+	nosy = World(
+		application=world.application,
+		session=session,
+		user=outsider,
+		workspace=world.workspace,
+		secret=issued.value.get_secret_value(),
+	)
+	body = nosy.call("GET", "/v1/tasks?include=links&limit=50").json()
+
+	titles = [end["title"] for edge in body["links"] for end in (edge["source"], edge["target"])]
+
+	assert "Confidential" not in titles
+	assert body["links"] == [], "the only link on this page points into a private project"
+
+
+def test_including_links_costs_the_same_number_of_queries_whatever_the_page_holds (
+	world: World, session: sqlalchemy.orm.Session
+) -> None:
+	"""``?include=links`` must be a bounded number of queries, not one per row.
+
+	This is the property the parameter exists for, and it is the one a reading of the code
+	cannot confirm — an include that fans out per row still returns the right answer, still
+	passes every other test here, and has simply moved the caller's N+1 inside the server
+	where they cannot see it or page around it. The obvious implementation, ``around`` in a
+	loop, is exactly that; and ``around`` itself resolved each far end separately, so it was
+	N+M before this was built on top of it.
+
+	Counted rather than asserted structurally, because the count is the promise. Two pages of
+	very different sizes, same number of statements.
+	"""
+
+	counted: list[str] = []
+
+	def record (_connection: typing.Any, _cursor: typing.Any, statement: str, *_rest: typing.Any) -> None:
+		"""Note every statement the engine is asked to run."""
+
+		counted.append(statement)
+
+	def queries_for (count: int) -> int:
+		"""Return how many statements one listing of ``count`` linked tasks takes."""
+
+		_linked(world, count)
+		counted.clear()
+
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", record)
+
+		try:
+			response = world.call("GET", "/v1/tasks?include=links&limit=50")
+
+			assert response.status_code == 200
+			assert len(response.json()["links"]) >= count - 1
+
+			return len(counted)
+
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", record)
+
+	small = queries_for(2)
+	large = queries_for(12)
+
+	assert large == small, (
+		f"a page of 14 tasks took {large} queries where a page of 2 took {small}: "
+		f"the include is fanning out per row"
+	)

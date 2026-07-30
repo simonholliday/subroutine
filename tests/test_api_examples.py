@@ -11,6 +11,7 @@ query parameter. Executing the examples is the version of that guard which canno
 outsmarted: if the request does not work, the test fails.
 """
 
+import re
 import typing
 
 import pytest
@@ -107,9 +108,14 @@ def test_the_link_example_needs_its_target_type (world: test_api_tasks.World) ->
 
 	assert with_it.status_code == 201
 
-	# And the example in the document is the working form.
+	# And the example in the document is the working form. Selected by method and path
+	# *ending*, not by "links" appearing anywhere in the path — that matched
+	# `/v1/tasks?include=links` the moment it was added, and picked up an example with no
+	# body at all.
 	linked = next(
-		example for example in subroutine.api.meta.EXAMPLES if "links" in example[2]
+		example
+		for example in subroutine.api.meta.EXAMPLES
+		if example[1] == "POST" and example[2].endswith("/links")
 	)
 
 	assert linked[3] is not None
@@ -166,3 +172,33 @@ def test_a_weekday_name_is_capture_shorthand_and_not_a_field_value (
 	guide = world.call("GET", "/v1/docs/agent").text
 
 	assert "(api)" in guide, "the dates topic marks the field-accepted forms"
+
+
+def test_an_example_does_not_claim_a_parameter_it_does_not_use () -> None:
+	"""What an example *says* must match what it *does*.
+
+	Executing an example proves the request works. It proves nothing about the sentence next
+	to it, and that sentence is what a reader acts on — an agent choosing a cheap listing
+	reads the description, not the query string.
+
+	The drift this was written from: one example was described as "``format=ids`` is ~200x
+	smaller than full" and the request it ran was ``?format=compact&limit=5``. Both halves
+	were true statements. They were about different things, the example passed every test,
+	and a reader following it would have got aligned terminal text with the titles cut short
+	while believing they had asked for a list of numbers.
+
+	The check is deliberately narrow — a backticked ``name=value`` in the description must
+	appear in the request. Anything looser would start policing prose, and a test that
+	nags about wording gets weakened until it says nothing.
+	"""
+
+	wrong: list[str] = []
+
+	for description, method, path, _body in subroutine.api.meta.EXAMPLES:
+		claimed = re.findall(r"`([a-z_]+=[^`\s]+)`", description)
+
+		for pair in claimed:
+			if pair not in path:
+				wrong.append(f"{method} {path} is described as using {pair!r}")
+
+	assert not wrong, "an example says one thing and does another: " + "; ".join(wrong)

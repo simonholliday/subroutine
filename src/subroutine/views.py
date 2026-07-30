@@ -62,11 +62,63 @@ class Page(pydantic.BaseModel):
 	total: int | None = None
 
 
+# ``LinkEnd`` and ``Edge`` sit above ``Collection`` because ``Collection.links`` annotates
+# a field with ``Edge``, and a pydantic field annotation is evaluated when the class body
+# runs — not lazily. Defined below, this module imports fine under mypy and raises
+# ``NameError`` on import. Same trap as ``Item`` above ``World`` in ``cli/personal.py``.
+class LinkEnd(pydantic.BaseModel):
+	"""What is at the far end of a link, with enough of the row to render it.
+
+	Enough, and no more. A caller looking at an item's links wants to know what it is joined
+	to, not to receive every field of everything it touches — and an end the caller may not
+	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
+	than this model's.
+	"""
+
+	entity_type: str
+	id: uuid.UUID
+	ref: int
+	title: str
+
+
+class Edge(pydantic.BaseModel):
+	"""A link among a page's items, named by both its ends (SPEC.md §5.7, §8.4).
+
+	The counterpart to :class:`Link`, which is the same row seen from one item. There is no
+	``direction`` here and no inverted label, because a listing has no single vantage point
+	to invert for — and an edge that named only "the other end" would be meaningless when
+	both ends are on the page.
+	"""
+
+	id: uuid.UUID
+	link_type: str
+
+	#: The forward title only — "Blocks", never "Blocked by". A client wanting the inverse
+	#: reads it from the target's side.
+	label: str
+
+	source: LinkEnd
+	target: LinkEnd
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by. A link has no ref of its own."""
+
+		return str(self.id)
+
+
 class Collection(pydantic.BaseModel, typing.Generic[Item]):
 	"""Every list response, in one shape."""
 
 	items: list[Item]
 	page: Page
+
+	# **``?include=links`` adds a `links` sibling and it is deliberately not a field here.**
+	# A pydantic field with a default of ``None`` is *serialised*, so declaring it would put
+	# `"links": null` on every listing of every entity for the benefit of the callers not
+	# using it — §14.10 exists to stop exactly that. So the include path returns a
+	# ``JSONResponse`` instead, which FastAPI passes through untouched, and a listing that did
+	# not ask is byte-for-byte what it was. The shape is ``views.Edge``; the parameter's own
+	# description documents it, since OpenAPI cannot see a key that is not on the model.
 
 
 class Instance(pydantic.BaseModel):
@@ -284,21 +336,6 @@ class Event(pydantic.BaseModel):
 			self.action,
 			self.entity_type,
 		)
-
-
-class LinkEnd(pydantic.BaseModel):
-	"""What is at the far end of a link, with enough of the row to render it.
-
-	Enough, and no more. A caller looking at an item's links wants to know what it is joined
-	to, not to receive every field of everything it touches — and an end the caller may not
-	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
-	than this model's.
-	"""
-
-	entity_type: str
-	id: uuid.UUID
-	ref: int
-	title: str
 
 
 class Link(pydantic.BaseModel):
@@ -700,6 +737,27 @@ def event (row: subroutine.db.models.activity.Event) -> Event:
 		actor_user_id=row.actor_user_id,
 		actor_token_id=row.actor_token_id,
 		created_at=row.created_at,
+	)
+
+
+
+def edge (found: subroutine.domain.links.Edge) -> Edge:
+	"""Render one link as a stored fact rather than as somebody's view of it."""
+
+	return Edge(
+		id=found.id,
+		link_type=found.link_type,
+		label=found.label,
+		source=_end(found.source),
+		target=_end(found.target),
+	)
+
+
+def _end (end: subroutine.domain.links.End) -> LinkEnd:
+	"""Render one end of a link — enough of the row to identify and show it, no more."""
+
+	return LinkEnd(
+		entity_type=end.entity_type, id=end.id, ref=end.ref, title=end.title
 	)
 
 

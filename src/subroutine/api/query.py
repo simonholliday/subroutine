@@ -97,3 +97,60 @@ def _accepted (request: starlette.requests.Request) -> frozenset[str] | None:
 #: each handler, so it runs before the body of the endpoint and cannot be forgotten half-way
 #: down one.
 UnknownQueryDep = fastapi.Depends(refuse_unknown)
+
+
+#: What ``?include=`` may name, per entity. Short on purpose: every entry is a promise that
+#: the extra costs a bounded number of queries, and an include that fans out per row is the
+#: N+1 this parameter exists to remove, moved inside the server where the caller cannot see
+#: it. ``backlinks`` is specified in §8.5 and is **not** here, because nothing implements it —
+#: a name accepted and ignored is exactly the failure this module was written for.
+INCLUDABLE: dict[str, frozenset[str]] = {
+	"task": frozenset({"links"}),
+	"document": frozenset({"links"}),
+}
+
+#: Declared once so both listings describe it identically.
+INCLUDE_QUERY = fastapi.Query(
+	None,
+	description=(
+		"Extras to return beside the items, comma-separated. `links` adds a `links` array "
+		"of the links among this page's items — each one `{id, link_type, label, source, "
+		"target}`, reported once however many of its ends are on the page. Absent unless "
+		"asked for, and unaffected by `fields`."
+	),
+)
+
+
+def includes (requested: str | None, name: str, *, entity: str) -> bool:
+	"""Return whether ``?include=`` asked for one named extra, refusing anything unknown.
+
+	Refused rather than ignored, for the reason in this module's docstring: a caller who
+	writes ``?include=link`` and is told nothing will believe they received a link graph and
+	find an empty one, which is a harder bug to see than a 422.
+	"""
+
+	if not requested:
+		return False
+
+	available = INCLUDABLE.get(entity, frozenset())
+	asked = [part.strip() for part in requested.split(",") if part.strip()]
+
+	for part in asked:
+		if part not in available:
+			raise subroutine.errors.ValidationError(
+				f"{part!r} is not something this endpoint can include.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="include",
+						code="invalid_field_value",
+						message=f"Unknown include {part!r}.",
+						hint=(
+							f"This endpoint includes: {', '.join(sorted(available))}."
+							if available
+							else "This endpoint has nothing to include."
+						),
+					)
+				],
+			)
+
+	return name in asked

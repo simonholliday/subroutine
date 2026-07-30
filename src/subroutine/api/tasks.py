@@ -35,6 +35,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.links
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -280,6 +281,7 @@ def listing (
 	include_total: bool = fastapi.Query(
 		False, description="Count the whole result. Costs a second scan; off by default."
 	),
+	include: str | None = subroutine.api.query.INCLUDE_QUERY,
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
@@ -335,6 +337,9 @@ def listing (
 		cursor=cursor,
 		include_total=include_total,
 		shape=shape,
+		actor=actor,
+		workspace_id=workspace.id,
+		with_links=subroutine.api.query.includes(include, "links", entity="task"),
 	)
 
 
@@ -590,6 +595,9 @@ def _page (
 	cursor: str | None,
 	include_total: bool,
 	shape: subroutine.api.shaping.Shape,
+	actor: subroutine.domain.authentication.Principal,
+	workspace_id: uuid.UUID,
+	with_links: bool = False,
 ) -> typing.Any:
 	"""Order, paginate and render a task query.
 
@@ -630,6 +638,24 @@ def _page (
 
 	vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
 
+	# Three queries for the whole page, not one per row — `links.edges` gathers every end
+	# these links reach before looking any of them up. The point of the parameter is to
+	# remove an N+1 from the caller, so doing one here would be a joke at their expense.
+	links = (
+		[
+			subroutine.views.edge(found)
+			for found in subroutine.domain.links.edges(
+				session,
+				actor,
+				workspace_id=workspace_id,
+				entity_type="task",
+				identifiers=[row.id for row in rows],
+			)
+		]
+		if with_links
+		else None
+	)
+
 	return subroutine.api.shaping.response(
 		[subroutine.views.task(row, vocabulary) for row in rows],
 		subroutine.views.Page(
@@ -643,6 +669,7 @@ def _page (
 			total=total,
 		),
 		shape,
+		links,
 	)
 
 

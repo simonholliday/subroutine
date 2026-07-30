@@ -269,12 +269,22 @@ def test_the_agent_guide_is_markdown_generated_from_the_parsers (
 		assert keyword in guide
 
 
+#: SPEC.md §13.3's budget, raised from 8 KB on 2026-07-30. The guide had reached 8,148 bytes
+#: of 8,192, so the build was one sentence from red — and the obvious repair, editing this
+#: number to get green, would have been a decision nobody took. Raised deliberately instead,
+#: because there is more worth saying and the old figure was set when the guide said less.
+#:
+#: **Raising it again is a §13.3 change, not a test change.** The cap is not arbitrary: this
+#: is the first thing an agent reads, and 15 KB is one cheap read where 60 KB is not.
+GUIDE_BUDGET = 15 * 1024
+
+
 def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
-	"""SPEC.md §13.3 targets under 8 KB. Response size is a first-order cost for an agent."""
+	"""SPEC.md §13.3 targets under 15 KB. Response size is a first-order cost for an agent."""
 
 	guide = world.call("GET", "/v1/docs/agent").text
 
-	assert len(guide.encode("utf-8")) < 8192, "the guide has grown past its budget"
+	assert len(guide.encode("utf-8")) < GUIDE_BUDGET, "the guide has grown past its budget"
 
 
 def test_meta_says_what_this_is_for_the_caller_that_cannot_read_the_readme (

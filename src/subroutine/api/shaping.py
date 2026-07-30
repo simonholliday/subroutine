@@ -219,6 +219,7 @@ def response (
 	items: typing.Sequence[typing.Any],
 	page: typing.Any,
 	shape: Shape,
+	links: typing.Sequence[typing.Any] | None = None,
 ) -> typing.Any:
 	"""Return a collection, shaped, and typed loosely enough for FastAPI to leave it alone.
 
@@ -226,20 +227,29 @@ def response (
 	``items`` holds strings or integers or partial objects, none of which is a ``Task``.
 	Returning the model unchanged on the default path keeps the OpenAPI document honest about
 	the ordinary case, which is what almost every caller sees.
+
+	``links`` is the ``?include=links`` sibling (§8.4) and is **omitted entirely** rather than
+	sent as null when it was not asked for — a listing that did not ask is byte-for-byte what
+	it was. It survives shaping untouched on purpose: ``?fields=`` selects fields *of an item*
+	and an edge is not one, so asking for two fields and the link graph gives you both rather
+	than an empty graph.
 	"""
 
-	if shape.is_default:
+	if shape.is_default and links is None:
 		return {"items": list(items), "page": page}
 
-	return fastapi.responses.JSONResponse(
-		content={
-			"items": [
-				item.model_dump(mode="json") if isinstance(item, pydantic.BaseModel) else item
-				for item in applied(items, shape)
-			],
-			"page": page.model_dump(mode="json"),
-		}
-	)
+	content: dict[str, typing.Any] = {
+		"items": [
+			item.model_dump(mode="json") if isinstance(item, pydantic.BaseModel) else item
+			for item in applied(items, shape)
+		],
+		"page": page.model_dump(mode="json"),
+	}
+
+	if links is not None:
+		content["links"] = [edge.model_dump(mode="json") for edge in links]
+
+	return fastapi.responses.JSONResponse(content=content)
 
 
 def single (item: typing.Any, shape: Shape) -> typing.Any:
