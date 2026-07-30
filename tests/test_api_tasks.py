@@ -1014,3 +1014,150 @@ def test_including_links_costs_the_same_number_of_queries_whatever_the_page_hold
 		f"a page of 14 tasks took {large} queries where a page of 2 took {small}: "
 		f"the include is fanning out per row"
 	)
+
+
+def test_a_part_ranked_task_outranks_a_deliberately_trivial_one (world: World) -> None:
+	"""SPEC.md §6.3's three bands: ranked, then part-ranked, then unranked.
+
+	The defect this fixes, with the numbers that made it obvious. ``priority_score`` is null
+	unless *both* axes are set and every ordering is NULLS LAST, so:
+
+	* "critically important, urgency not yet judged" (``!5``) scored null and sorted **below**
+	  "explicitly judged trivial and not urgent" (``!1/1``, score 1). The person who said the
+	  most about an item was penalised for not finishing the sentence.
+	* that item and one nobody had assessed at all were **indistinguishable**, although only
+	  one of them carries a judgement.
+
+	The claim now being made is that part-ranked sits *between* the other two — assessed and
+	incomplete carries more than not assessed and less than a finished assessment. That is a
+	judgement rather than a fact, and it is written down as one where the bands are declared.
+	"""
+
+	ranked_high = world.call("POST", "/v1/tasks", json={"text": "Rewrite auth !5/5"}).json()
+	ranked_low = world.call("POST", "/v1/tasks", json={"text": "Tidy the README !1/1"}).json()
+	part = world.call("POST", "/v1/tasks", json={"text": "Production is down !5"}).json()
+	unranked = world.call("POST", "/v1/tasks", json={"title": "Someday: learn Rust"}).json()
+
+	order = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?order=-priority_score&limit=50").json()["items"]
+	]
+
+	assert order == [ranked_high["ref"], ranked_low["ref"], part["ref"], unranked["ref"]]
+
+	# And the *field* is untouched: banding is an ordering concern and must not leak into
+	# what §6.3 says `priority_score` means.
+	assert part["priority_score"] is None
+	assert ranked_low["priority_score"] == 1
+
+
+def test_part_ranked_tasks_order_among_themselves_by_the_axis_that_is_set (
+	world: World,
+) -> None:
+	"""Within the middle band, the one thing that was said is what orders them."""
+
+	high = world.call("POST", "/v1/tasks", json={"text": "Louder !5"}).json()["ref"]
+	low = world.call("POST", "/v1/tasks", json={"text": "Quieter !2"}).json()["ref"]
+
+	order = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?order=-priority_score&limit=50").json()["items"]
+	]
+
+	assert order.index(high) < order.index(low)
+
+
+def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
+	world: World, session: sqlalchemy.orm.Session
+) -> None:
+	"""The SQL expression and the Python reader must return the same number, always.
+
+	They are two statements of one rule, which is the pair this codebase has watched
+	disagree before. Here the consequence is specific rather than cosmetic: the expression
+	*orders* the query and the reader names the row a cursor stopped at, so a disagreement is
+	a page boundary that silently skips or repeats rows — the failure keyset pagination
+	exists to prevent, reintroduced underneath it.
+
+	Checked over every combination of the two axes rather than a sample, since there are only
+	thirty-six.
+	"""
+
+	for importance in (None, 1, 3, 5):
+		for urgency in (None, 1, 3, 5):
+			body: dict[str, typing.Any] = {"title": f"i={importance} u={urgency}"}
+
+			if importance is not None:
+				body["importance"] = importance
+
+			if urgency is not None:
+				body["urgency"] = urgency
+
+			world.call("POST", "/v1/tasks", json=body)
+
+	rows = list(
+		session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Task).where(
+				subroutine.db.models.work.Task.deleted_at.is_(None)
+			)
+		)
+	)
+
+	# `.tuples()` before `dict()`, never `dict(session.execute(...))`: a `Result` has a
+	# `.keys()` method, so `dict()` treats it as a mapping and raises. Ruff's C416 suggests
+	# exactly that rewrite, and taking it has broken working code here before.
+	from_sql: dict[uuid.UUID, int | None] = dict(
+		session.execute(
+			sqlalchemy.select(
+				subroutine.db.models.work.Task.id, subroutine.api.tasks._RANKING
+			).where(subroutine.db.models.work.Task.deleted_at.is_(None))
+		)
+		.tuples()
+		.all()
+	)
+
+	assert rows, "nothing to compare"
+
+	for row in rows:
+		assert from_sql[row.id] == subroutine.api.tasks._ranking(row), (
+			f"the two halves disagree for importance={row.importance} urgency={row.urgency}: "
+			f"SQL said {from_sql[row.id]}, Python said {subroutine.api.tasks._ranking(row)}"
+		)
+
+
+def test_a_priority_ordering_still_pages_correctly_across_the_bands (world: World) -> None:
+	"""The bands must not break the cursor — this is the sort a backlog is read in.
+
+	Two things could go wrong and neither would be visible on one page: the seek predicate
+	could lose the row at a band boundary, or the cursor could carry a value the ordering no
+	longer agrees with.
+	"""
+
+	made = []
+
+	for index in range(9):
+		body: dict[str, typing.Any] = {"title": f"Task {index}"}
+
+		if index % 3 == 0:
+			body["importance"], body["urgency"] = 5, (index % 5) + 1
+
+		elif index % 3 == 1:
+			body["importance"] = (index % 5) + 1
+
+		made.append(world.call("POST", "/v1/tasks", json=body).json()["ref"])
+
+	seen: list[int] = []
+	cursor = None
+
+	for _ in range(12):
+		query = "/v1/tasks?limit=2&order=-priority_score" + (f"&cursor={cursor}" if cursor else "")
+		page = world.call("GET", query).json()
+
+		seen.extend(item["ref"] for item in page["items"])
+
+		if not page["page"]["has_more"]:
+			break
+
+		cursor = page["page"]["next_cursor"]
+
+	assert sorted(seen) == sorted(made)
+	assert len(seen) == len(set(seen)), "a task appeared twice across a band boundary"
