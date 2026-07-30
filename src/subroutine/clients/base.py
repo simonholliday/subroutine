@@ -198,6 +198,33 @@ class Client(typing.Protocol):
 		should not be told apart by a plural.
 		"""
 
+	def update (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = UNSET,
+		description: str | None = UNSET,
+		status: str = UNSET,
+		importance: int | None = UNSET,
+		urgency: int | None = UNSET,
+		estimate: int | str | None = UNSET,
+	) -> subroutine.views.Task:
+		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
+
+		Separate from :meth:`complete` and :meth:`schedule`, which were here first and stay:
+		those two are *actions* a person takes on a task and read as such at a command line,
+		where this is the general edit an agent needs to keep a backlog honest.
+
+		Without it a client could create work and finish it and never re-rank it — which is
+		worse than it sounds, because ``priority_score`` is null unless both axes are set and
+		an unranked item sorts below everything, looking judged rather than unassessed
+		(§6.3a). An agent that can only add findings would bury every one of them.
+
+		``estimate`` takes §6.4's grammar, so ``"4h"`` works here exactly as ``~4h`` does in
+		a captured line.
+		"""
+
 	def complete (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:

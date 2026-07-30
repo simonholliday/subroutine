@@ -744,3 +744,48 @@ def test_both_refuse_an_ordering_neither_can_serve (pair: Pair) -> None:
 
 		assert raised.value.errors[0].field == "order"
 		assert "priority_score" in (raised.value.errors[0].hint or "")
+
+
+def test_both_apply_the_same_change (pair: Pair) -> None:
+	"""``update`` has to mean the same thing on both sides, field for field.
+
+	The one that could quietly differ is ``None``. §8.3 makes null the way to *clear* a
+	field, so a transport that built its request by dropping empty values would turn "unset
+	the estimate" into "change nothing" — and answer 200 either way. ``http.py``'s ``_given``
+	does exactly that drop, correctly, for query strings; using it for a PATCH body is the
+	mistake this test exists to catch.
+	"""
+
+	local_task = make(pair, "Local subject ~2h")
+	remote_task = make(pair, "Remote subject ~2h")
+
+	local, remote = pair.both()
+
+	changed_here = local.update(ref=local_task.ref, importance=4, urgency=2, estimate="3h")
+	changed_there = remote.update(ref=remote_task.ref, importance=4, urgency=2, estimate="3h")
+
+	assert (changed_here.importance, changed_here.urgency) == (4, 2)
+	assert changed_here.estimate_minutes == changed_there.estimate_minutes == 180
+
+	cleared_here = local.update(ref=local_task.ref, estimate=None)
+	cleared_there = remote.update(ref=remote_task.ref, estimate=None)
+
+	assert cleared_here.estimate_minutes is None, "null did not clear locally"
+	assert cleared_there.estimate_minutes is None, "null did not clear over the wire"
+
+
+def test_both_refuse_a_priority_neither_can_store (pair: Pair) -> None:
+	"""And name the field, on both transports.
+
+	§6.3's range lived only in a CHECK constraint until 2026-07-30, which made this a 500 on
+	one backend and silence on the other.
+	"""
+
+	task = make(pair, "Subject")
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.update(ref=task.ref, importance=9)
+
+		assert raised.value.errors[0].field == "importance"

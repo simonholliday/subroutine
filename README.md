@@ -3,12 +3,13 @@
 **Project management for people and agents, in equal measure.**
 
 > ⚠️ **Early development.** The specification is settled; the code is being built.
-> **The personal to-do list works, and so does the HTTP API** — quick capture, an agenda,
-> projects, tasks, documents and the links between them, scoped tokens, and a `serve` that
-> refuses an unsafe bind. What is not built yet is most of what makes it interesting for an
-> agent over *weeks* rather than minutes: comments, session handoffs, recorded decisions,
-> verification evidence and claims are specified and not written. The specification and the
-> implementation plan are not published yet.
+> **The personal to-do list works, the HTTP API works, and an agent can reach it over
+> MCP** — quick capture, an agenda, projects, tasks, documents and the links between them,
+> comments, per-item histories, scoped tokens, backups, and a `serve` that refuses an unsafe
+> bind. What is not built yet is most of what makes it interesting for an agent over *weeks*
+> rather than minutes: session handoffs, recorded decisions, verification evidence and claims
+> are specified and not written. The specification and the implementation plan are not
+> published yet.
 
 Every project management tool was built for humans, and has been bolting AI onto the side
 ever since. Subroutine starts from the assumption that both kinds of user are here to
@@ -34,9 +35,10 @@ passing evidence attached to it. Every action is attributed, so you can see what
 while you weren't watching — and an agent's token can be scoped narrower than your own,
 because an agent you can't bound isn't one you can trust.
 
-Of that, what works **now** is attribution, scoped tokens, and documents linked to the tasks
-they came from. The handoff, the recorded decision and the evidence gate are written down in
-full and not yet built; the warning at the top of this file is the honest boundary.
+Of that, what works **now** is attribution, scoped tokens, documents linked to the tasks they
+came from, a comment thread per item and a history of every change to it. The handoff, the
+recorded decision and the evidence gate are written down in full and not yet built; the
+warning at the top of this file is the honest boundary.
 
 Free, open source, self-hosted. SQLite by default with no configuration, PostgreSQL when
 you outgrow it. Your data stays yours.
@@ -90,6 +92,42 @@ front (`public_url`) or an explicit `--insecure`.
 
 Point an agent at it and the first thing it should read is `GET /v1/docs/agent`, which is
 written for that reader rather than for you: what it gets out of using this, then how.
+
+### Giving an agent tools
+
+An agent that can run a shell has everything it needs already. One that cannot — or one you
+would rather not give a shell — can reach the same instance over the **Model Context
+Protocol**:
+
+```console
+$ subroutine mcp
+```
+
+It speaks MCP on stdin and stdout, so a client starts it as a child process. There is no
+port and no listener: if your client is not running it, nothing is serving.
+
+For Claude Code, from inside the project:
+
+```console
+$ claude mcp add subroutine -- subroutine mcp
+```
+
+`subroutine` has to be on the `PATH` the client will use. If you installed into a
+virtualenv that your editor does not activate, give the absolute path instead — for example
+`~/.venvs/subroutine/bin/subroutine`.
+
+Six tools: list, show, add, update, comment, done. Deliberately six and not one per
+endpoint — a tool's schema is context the agent carries for its whole session whether it
+calls it or not, so the whole surface is about 3.4 KB of JSON, roughly 850 tokens, and there
+is a test that fails if it grows. `add` takes one captured line rather than a dozen typed
+fields, because the grammar you already type is smaller than a schema describing it:
+
+```
+subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops")
+```
+
+The server talks to whichever *connection* is current, so pointing an agent at a colleague's
+instance is a matter of `subroutine use`, not of reconfiguring the agent.
 
 And if you keep your own list here and your team's on a company server, both are just
 *connections* — one `subroutine today` shows the dentist and the stand-up together, and each

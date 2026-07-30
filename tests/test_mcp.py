@@ -469,3 +469,65 @@ def test_the_whole_tool_surface_stays_small (
 	size = len(json.dumps(tools))
 
 	assert size < 4096, f"the tool schemas are {size} bytes of every session's context"
+
+
+def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:
+	"""The difference between an agent that can do work and one that can manage it.
+
+	Without this an agent could add findings and never rank them — and an unranked item
+	sorts below everything, looking judged rather than unassessed (§6.3a), so every finding
+	it recorded would be buried by the act of recording it.
+	"""
+
+	ref = _added(bound, "Something to reconsider")
+	text, failed = _called(bound, "subroutine_update", ref=ref, importance=5, urgency=4)
+
+	assert not failed
+	assert "!5/4" in text
+
+	assert "!5/4" in _called(bound, "subroutine_show", ref=ref)[0]
+
+
+def test_an_estimate_takes_the_same_grammar_as_a_captured_line (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``"4h"`` here and ``~4h`` there are one grammar (§6.4), not two spellings to learn."""
+
+	ref = _added(bound, "Size this")
+	text, failed = _called(bound, "subroutine_update", ref=ref, estimate="1h30m")
+
+	assert not failed
+	assert "1h 30m" in text
+
+
+def test_changing_nothing_is_refused_rather_than_reported_as_success (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""An agent that meant to change something and named no field has made a mistake.
+
+	A cheerful "unchanged" would hide it, and the model would carry on believing the backlog
+	says something it does not.
+	"""
+
+	ref = _added(bound, "Untouched")
+	text, failed = _called(bound, "subroutine_update", ref=ref)
+
+	assert failed
+	assert "importance" in text, "the refusal must say what it would have accepted"
+
+
+def test_a_priority_outside_the_range_is_refused_with_the_range (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The service layer's bound, reaching the model as something it can act on.
+
+	§6.3's 1-5 was held only by a CHECK constraint until 2026-07-30, which made ``6`` a 500
+	with no field named. Through a tool that would be worse: an agent reads the failure and
+	has nothing to correct.
+	"""
+
+	ref = _added(bound, "Out of range")
+	text, failed = _called(bound, "subroutine_update", ref=ref, importance=9)
+
+	assert failed
+	assert "importance" in text

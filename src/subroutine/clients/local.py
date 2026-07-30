@@ -371,6 +371,50 @@ class Client:
 				finished, subroutine.views.Vocabulary.for_tasks(session, [finished])
 			)
 
+	def update (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = subroutine.clients.base.UNSET,
+		description: str | None = subroutine.clients.base.UNSET,
+		status: str = subroutine.clients.base.UNSET,
+		importance: int | None = subroutine.clients.base.UNSET,
+		urgency: int | None = subroutine.clients.base.UNSET,
+		estimate: int | str | None = subroutine.clients.base.UNSET,
+	) -> subroutine.views.Task:
+		"""Change a task's own fields, through the same service the API calls."""
+
+		self._refuse_if_read_only()
+
+		# `status` is `status_key` in the service, and the rest are spelled the same. Built by
+		# comparison against UNSET rather than by filtering falsey values, because `None` is a
+		# meaningful value here — it is how §8.3 says "clear this".
+		given: dict[str, typing.Any] = {
+			"title": title,
+			"description": description,
+			"status_key": status,
+			"importance": importance,
+			"urgency": urgency,
+			"estimate": estimate,
+		}
+		changes: dict[str, typing.Any] = {
+			name: value
+			for name, value in given.items()
+			if value is not subroutine.clients.base.UNSET
+		}
+
+		with self._writing() as (session, actor):
+			row = self._require(session, actor, ref, workspace)
+
+			subroutine.domain.tasks.update(
+				session, row, now=subroutine.db.types.utcnow(), actor=actor, **changes
+			)
+
+			return subroutine.views.task(
+				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+			)
+
 	def schedule (
 		self,
 		*,

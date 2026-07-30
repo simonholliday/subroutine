@@ -116,6 +116,30 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _remarked(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_update",
+			title="Change a task",
+			description=(
+				"Change a task's priority, estimate, status or title. Priority is two axes "
+				"1-5: importance is how much it matters, urgency is how soon. Set both — an "
+				"item with only one sorts below everything ranked. Estimate takes '4h' or "
+				"'90m'. Omitted fields are unchanged."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The task's number."},
+					"importance": {"type": "integer", "description": "1-5, 5 highest."},
+					"urgency": {"type": "integer", "description": "1-5, 5 soonest."},
+					"estimate": {"type": "string", "description": "How long, e.g. '4h'."},
+					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
+					"title": {"type": "string", "description": "A new title."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["ref"],
+			},
+			call=lambda arguments: _updated(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
 			title="Finish a task",
 			description="Mark a task complete by its ref number.",
@@ -313,3 +337,38 @@ def structured (payload: typing.Any) -> str:
 	"""Render a payload as compact JSON, for a tool that answers with data rather than prose."""
 
 	return json.dumps(payload, separators=(",", ":"), default=str)
+
+
+def _updated (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Change a task's own fields, and report what it looks like now.
+
+	**Only the fields an agent actually re-decides**, not everything ``PATCH /v1/tasks``
+	accepts. Every property here is schema carried by every session of every agent, including
+	the ones that never call this, so the dates and the assignee stay off it — those are
+	``schedule``'s and a person's respectively.
+
+	Nothing given is a refusal rather than a no-op: an agent that meant to change something
+	and named no field has made a mistake, and a cheerful "unchanged" would hide it.
+	"""
+
+	changes: dict[str, typing.Any] = {}
+
+	for name in ("importance", "urgency", "status", "title"):
+		if name in arguments:
+			changes[name] = arguments[name]
+
+	if "estimate" in arguments:
+		changes["estimate"] = arguments["estimate"]
+
+	if not changes:
+		raise ValueError(
+			"Nothing to change. Pass importance, urgency, estimate, status or title."
+		)
+
+	changed = client.update(
+		ref=_ref(arguments), workspace=_text(arguments, "workspace"), **changes
+	)
+
+	return "Changed " + _line(changed)

@@ -293,6 +293,51 @@ class Client:
 
 		return self._parsed(subroutine.views.Task, body)
 
+	def update (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = subroutine.clients.base.UNSET,
+		description: str | None = subroutine.clients.base.UNSET,
+		status: str = subroutine.clients.base.UNSET,
+		importance: int | None = subroutine.clients.base.UNSET,
+		urgency: int | None = subroutine.clients.base.UNSET,
+		estimate: int | str | None = subroutine.clients.base.UNSET,
+	) -> subroutine.views.Task:
+		"""Change a task's own fields, over the wire.
+
+		The body is built by comparison against ``UNSET`` rather than by dropping empty
+		values, because ``None`` is a meaningful value: §8.3 makes it the way to *clear* a
+		field, so a filter that removed it would turn "unset the estimate" into "change
+		nothing" — silently, and with a 200 to say so. ``_given`` cannot be used here for
+		exactly that reason; it drops nulls, which is right for a query string and wrong for
+		a PATCH body.
+		"""
+
+		self._refuse_if_read_only()
+
+		given = {
+			"title": title,
+			"description": description,
+			"status": status,
+			"importance": importance,
+			"urgency": urgency,
+			"estimate": estimate,
+		}
+		body = self._json(
+			"PATCH",
+			f"/v1/tasks/{ref}",
+			params=_given(workspace_id=workspace),
+			json={
+				name: value
+				for name, value in given.items()
+				if value is not subroutine.clients.base.UNSET
+			},
+		)
+
+		return self._parsed(subroutine.views.Task, body)
+
 	def schedule (
 		self,
 		*,
