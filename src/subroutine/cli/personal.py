@@ -34,6 +34,7 @@ import typer
 import subroutine.clients.base
 import subroutine.clients.http
 import subroutine.clients.local
+import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
 import subroutine.context
@@ -1439,12 +1440,7 @@ def _client (
 ) -> subroutine.clients.base.Client:
 	"""Open whichever kind of client this connection needs."""
 
-	if connection.is_local:
-		return subroutine.clients.local.opened(
-			connection, settings, default_connection=roster.default
-		)
-
-	return subroutine.clients.http.opened(connection, default_connection=roster.default)
+	return subroutine.clients.opening.for_connection(connection, roster, settings)
 
 
 def _workspace_hint (item: Reached) -> str:

@@ -1,0 +1,315 @@
+"""What an agent can actually do here, as five tools.
+
+**Five, not one per endpoint, and that is the whole design.** A tool's schema is context an
+agent carries for its entire session whether it calls the tool or not, so a surface is a
+fixed cost paid up front against a variable benefit. ``#14``'s own note records the
+measurement that makes this concrete: Beads found 10-50k tokens via MCP against 1-2k via a
+CLI. A tool per endpoint would spend the benefit before earning it.
+
+So the arguments lean on grammars that already exist. ``add`` takes one captured line
+(§6.13) rather than ten typed properties, because the grammar is published, tested, and
+already the thing a person types — and one string is a schema an agent reads once and
+remembers. ``list`` takes the same ``order=`` spelling §8.4 uses.
+
+**Nothing here opens a database.** Everything goes through ``subroutine.clients``, which is
+what the CLI uses, so a session against a remote instance behaves exactly as one against the
+local database. Rendering is deliberately terse for the same reason the surface is small:
+these strings are read by a model, and a full task is 400-600 tokens of which most are fields
+nobody asked for.
+"""
+
+import json
+import typing
+
+import subroutine.clients.base
+import subroutine.domain.refs
+import subroutine.mcp.protocol
+import subroutine.views
+
+#: How many rows a listing returns when the caller does not say. Smaller than the API's
+#: fifty: an agent choosing what to do next reads the top of a ranking, and the ones below it
+#: are context spent on rows it will not act on.
+DEFAULT_LIMIT = 20
+
+
+def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.protocol.Tool]:
+	"""Return the tools, bound to one connection."""
+
+	return [
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_list",
+			title="List work",
+			description=(
+				"List open items — tasks and documents — from the backlog. Default order is "
+				"newest first; pass order='-priority_score' for what to work on next, which "
+				"ranks assessed items above half-assessed ones above unranked."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"order": {
+						"type": "string",
+						"description": (
+							"Sort fields, comma-separated, '-' to reverse: "
+							"'-priority_score', '-due_at', 'title'."
+						),
+					},
+					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+			},
+			call=lambda arguments: _listed(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_show",
+			title="Read one item",
+			description=(
+				"Read one task or document in full by its ref number, with its links and the "
+				"record of what has happened to it. A ref may name either kind."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The item's number, e.g. 42."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["ref"],
+			},
+			call=lambda arguments: _shown(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_add",
+			title="Add a task",
+			description=(
+				"Create a task from one line. Dates, tags, priority and estimate are parsed "
+				"out of it: 'Fix the boiler by friday !4/2 ~2h #home +SR'. "
+				"!importance/urgency are 1-5, ~ is a duration, # is a tag, + is a project. "
+				"Anything not recognised stays in the title verbatim."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"text": {"type": "string", "description": "The line to capture."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["text"],
+			},
+			call=lambda arguments: _added(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_comment",
+			title="Record what happened",
+			description=(
+				"Add to an item's record of what happened — what you did, what you found, "
+				"what failed. A '#42' in the body becomes a link on item 42. For a "
+				"conclusion the next session needs, write a document instead."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The item's number."},
+					"body": {"type": "string", "description": "What happened."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["ref", "body"],
+			},
+			call=lambda arguments: _remarked(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_done",
+			title="Finish a task",
+			description="Mark a task complete by its ref number.",
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The task's number."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["ref"],
+			},
+			call=lambda arguments: _completed(client, arguments),
+		),
+	]
+
+
+def _listed (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Return the backlog as one compact line per item.
+
+	Tasks *and* documents, because one counter per workspace serves both (§6.2) — a list
+	holding only tasks tells a reader who has learned that a number names an item that half
+	the numbers do not exist.
+	"""
+
+	workspace = _text(arguments, "workspace")
+	limit = arguments.get("limit") or DEFAULT_LIMIT
+
+	tasks = client.tasks(
+		workspace=workspace, limit=limit, order=_text(arguments, "order")
+	)
+
+	# **`limit` bounds the answer, not each kind.** Asking for five and receiving five tasks
+	# followed by five documents is the caller's budget spent twice, which for an agent is
+	# the whole cost of the call. Tasks first because a ranking is what the limit is usually
+	# for, and documents fill whatever is left.
+	documents = (
+		client.documents(workspace=workspace, limit=limit - len(tasks))
+		if len(tasks) < limit
+		else []
+	)
+	rows = [_line(task) for task in tasks] + [_line(document) for document in documents]
+
+	if not rows:
+		return "Nothing open."
+
+	return "\n".join(rows)
+
+
+def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
+	"""Return one item as a line: address, kind, rank, estimate, title.
+
+	Assembled here rather than reusing ``?format=compact``, which is a *terminal* rendering —
+	aligned columns with long titles cut short. A model reading a truncated title has been
+	given damaged data to save characters it did not need saving.
+	"""
+
+	cells = [subroutine.domain.refs.format_ref(item.ref), item.type]
+
+	if isinstance(item, subroutine.views.Task):
+		if item.importance is not None or item.urgency is not None:
+			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")
+
+		if item.estimate_human is not None:
+			cells.append(item.estimate_human)
+
+		if item.due_at is not None:
+			cells.append(f"due {item.due_at.date().isoformat()}")
+
+	cells.append(item.title)
+
+	return "  ".join(cells)
+
+
+def _shown (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Return one item in full, with its links and its record."""
+
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+	found: subroutine.views.Task | subroutine.views.Document | None = client.task(
+		ref=ref, workspace=workspace
+	)
+	kind = "task"
+
+	if found is None:
+		found = client.document(ref=ref, workspace=workspace)
+		kind = "document"
+
+	if found is None:
+		raise LookupError(f"There is no #{ref} here.")
+
+	parts = [_line(found)]
+	body = (
+		found.description if isinstance(found, subroutine.views.Task) else found.body
+	)
+
+	if body:
+		parts.append("")
+		parts.append(body)
+
+	links = client.links(ref=ref, entity_type=kind, workspace=workspace)
+
+	if links:
+		parts.append("")
+		parts.extend(
+			f"{link.label}  #{link.other.ref}  {link.other.title}" for link in links
+		)
+
+	remarks = client.comments(ref=ref, entity_type=kind, workspace=workspace)
+
+	if remarks:
+		parts.append("")
+		parts.extend(f"[{remark.author_id}] {remark.body}" for remark in remarks)
+
+	return "\n".join(parts)
+
+
+def _added (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Capture one line as a task, and say what was understood.
+
+	Reports what the grammar took, because a caller that cannot see the parse cannot tell a
+	deadline that was read from one that stayed in the title.
+	"""
+
+	captured = client.capture(
+		text=_text(arguments, "text") or "", workspace=_text(arguments, "workspace")
+	)
+
+	return "Added " + _line(captured.task)
+
+
+def _remarked (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Add one entry to an item's record."""
+
+	client.remark(
+		ref=_ref(arguments),
+		body=_text(arguments, "body") or "",
+		workspace=_text(arguments, "workspace"),
+	)
+
+	return f"Recorded on #{_ref(arguments)}."
+
+
+def _completed (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Finish a task."""
+
+	finished = client.complete(ref=_ref(arguments), workspace=_text(arguments, "workspace"))
+
+	return f"Done: {finished.title}"
+
+
+def _ref (arguments: dict[str, typing.Any]) -> int:
+	"""Return the ref an argument names, accepting ``42`` and ``"#42"`` alike.
+
+	A model reads ``#42`` everywhere this system writes an address, so it will send that back
+	sooner or later — and refusing it over a sigil would be refusing the caller its own
+	notation (§6.2).
+	"""
+
+	given = arguments.get("ref")
+
+	if isinstance(given, bool) or given is None:
+		raise ValueError("Which item? Pass 'ref', the number in the listing.")
+
+	found = subroutine.domain.refs.parse_ref(str(given))
+
+	if found is None:
+		# `parse_ref` returns None for anything that cannot *be* a ref — a zero, a leading
+		# zero, a number too large for the column. Refused here with the value in it, rather
+		# than passed on as a lookup that would come back "there is no such item" about
+		# something that was never an item.
+		raise ValueError(f"{given!r} is not an item number.")
+
+	return found
+
+
+def _text (arguments: dict[str, typing.Any], name: str) -> str | None:
+	"""Return one string argument, or ``None`` when it was not given."""
+
+	value = arguments.get(name)
+
+	return value if isinstance(value, str) and value else None
+
+
+def structured (payload: typing.Any) -> str:
+	"""Render a payload as compact JSON, for a tool that answers with data rather than prose."""
+
+	return json.dumps(payload, separators=(",", ":"), default=str)

@@ -352,6 +352,39 @@ def is_loopback (host: str) -> bool:
 
 
 @app.command()
+def mcp (
+	connection: str = typer.Option(
+		"", "--connection", help="Which instance to work in. Defaults to the current one."
+	),
+) -> None:
+	"""Serve this instance to an AI agent over MCP, on stdin and stdout.
+
+	Examples:
+
+	  subroutine mcp
+
+	  subroutine mcp --connection work
+
+	Speaks the Model Context Protocol over stdio, so a client starts this as a child process
+	rather than connecting to a port. There is nothing to expose and no listener: if the
+	client is not running it, nothing is serving.
+
+	**One connection, chosen here.** Unlike ``today``, which merges every configured instance
+	because a person has one day, a tool call writes somewhere — and where it writes has to be
+	a decision you can see rather than one this process takes for you.
+	"""
+
+	# Imported inside the function like `serve`'s uvicorn: an MCP session is a long-lived
+	# child process where an extra import costs nothing, and every other `subroutine`
+	# invocation is a command line where it would.
+	import subroutine.mcp.session
+
+	subroutine.mcp.session.run(
+		sys.stdin, sys.stdout, connection=connection or None, settings=_settings()
+	)
+
+
+@app.command()
 def serve (
 	host: str = typer.Option("", "--host", help="What to listen on. Defaults to 127.0.0.1."),
 	port: int = typer.Option(0, "--port", help="Which port to listen on."),
