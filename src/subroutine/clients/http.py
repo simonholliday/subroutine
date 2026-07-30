@@ -173,6 +173,17 @@ class Client:
 
 		return self._parsed(subroutine.views.Task, self._read(response))
 
+	def documents (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Document]:
+		"""List one workspace's documents, newest first."""
+
+		body = self._json(
+			"GET", "/v1/documents", params=_given(workspace_id=workspace, limit=limit)
+		)
+
+		return self._collected(subroutine.views.Document, body, endpoint="documents")
+
 	def document (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Document | None:

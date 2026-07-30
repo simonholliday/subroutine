@@ -127,6 +127,22 @@ class Client(typing.Protocol):
 		refusal makes one, with the candidates it collected.
 		"""
 
+	def documents (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Document]:
+		"""List one workspace's documents, newest first.
+
+		The counterpart to :meth:`tasks`, and ordered the same way, so a caller showing both
+		in one list can merge them on ``created_at`` without either side having sorted by
+		something the other does not have.
+
+		**Superseded documents are included**, deliberately and for now. ``tasks`` excludes
+		completed work because ``completed_at`` says so without a join; the equivalent for a
+		document is a status *category*, which is a join to the vocabulary table inside the
+		one helper every listing narrows through. Not worth that until something is actually
+		superseded — deleted and archived are already excluded, which is the part that matters.
+		"""
+
 	def document (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Document | None:

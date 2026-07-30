@@ -182,7 +182,7 @@ else has been finished.""",
 		body="""Every command that reads takes --json:
 
   subroutine today --json
-  subroutine ls --json
+  subroutine list --json
   subroutine show 7 --json
   subroutine add "Buy milk" --json
 

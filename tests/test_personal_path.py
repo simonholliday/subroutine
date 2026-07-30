@@ -166,7 +166,7 @@ def test_an_empty_list_says_what_to_do_about_it (
 	run("init")
 
 	assert 'subroutine add "something to do"' in run("today").output
-	assert 'subroutine add "something to do"' in run("ls").output
+	assert 'subroutine add "something to do"' in run("list").output
 
 
 def test_a_bare_number_addresses_a_task_by_its_ref_number (
@@ -244,7 +244,7 @@ def test_a_number_that_matches_nothing_is_refused_with_the_remedy (
 	result = run("done", "9", expect=1)
 
 	assert "no #9" in result.output
-	assert "subroutine ls" in result.output
+	assert "subroutine list" in result.output
 
 	for word in FORBIDDEN:
 		assert word not in result.output.lower(), f"the refusal mentions a {word}"
@@ -882,3 +882,124 @@ def _a_typed_task (home: pathlib.Path, *, title: str, type_key: str) -> None:
 
 	finally:
 		engine.dispose()
+
+
+def test_the_list_says_when_it_did_not_show_everything (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The defect Simon nearly hit by asking whether his list was abbreviated.
+
+	It was not — he had twelve items against a limit of fifty — but the list would have
+	stopped dead at fifty with no count, no marker and nothing to suggest more existed. Refs
+	are how items are addressed, so the list is where a number is found; a silent cut makes
+	"not in the list" stop meaning "not in the system", which is the one inference the whole
+	addressing scheme is built to support.
+	"""
+
+	run("init")
+
+	for number in range(1, 8):
+		run("add", f"Task number {number}")
+
+	listed = run("list", "--limit", "5")
+
+	assert "…and more" in listed.output
+	assert "--limit 10" in listed.output, "the remedy, not just the fact"
+
+
+def test_the_list_is_silent_when_it_did_show_everything (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The boundary, which is where an off-by-one would live.
+
+	Exactly as many items as the limit is *not* truncation, and a list that cried wolf at the
+	boundary would be as useless as one that never cried at all.
+	"""
+
+	run("init")
+
+	for number in range(1, 6):
+		run("add", f"Task number {number}")
+
+	assert "…and more" not in run("list", "--limit", "5").output
+	assert "…and more" not in run("list", "--limit", "6").output
+	assert "…and more" in run("list", "--limit", "4").output
+
+
+def test_the_list_holds_documents_as_well_as_tasks (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""Simon asked why #5-#8 were not in his list. They were documents (SPEC.md §12.2).
+
+	Refs come from one counter per workspace and are shared between tasks and documents, and
+	``show`` already takes either — so a list holding only tasks told a reader who had learned
+	that a number names an item that half the numbers did not exist.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	_a_document(home, title="How the thing works", body="It works like this.")
+
+	listed = run("list").output
+
+	assert "Ordinary work" in listed
+	assert "How the thing works" in listed
+
+	# And the type column tells them apart, which is what makes one list readable.
+	assert "note" in listed
+	assert "task" in listed
+
+
+def test_ls_is_the_same_command_under_a_shorter_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``list`` is the name the help teaches; ``ls`` keeps working (§12.2a).
+
+	A real word teaches itself where ``ls`` only reads as "list" to somebody who already knows
+	Unix — which is not the audience §1.4 is written for. But ``ls`` is in muscle memory and
+	in every note anybody has written, so it stays, hidden rather than removed.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	assert run("ls").output == run("list").output
+
+
+def test_the_help_offers_the_real_word_and_not_the_abbreviation (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A synonym in the help is a second thing to choose between, for no gain."""
+
+	run("init")
+
+	listed = run("--help").output
+
+	assert "list" in listed
+	assert "\n  ls " not in listed, "the abbreviation is hidden, not advertised"
+
+
+def test_a_scripted_row_says_which_kind_of_item_it_is (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""And a document carries the shared fields only, rather than task fields as nulls.
+
+	A ``due_at`` of null on something that cannot have a deadline is a statement that it has
+	none — a different claim, and a false one. ``entity_type`` is on every row so a script
+	never has to test whether a key appeared.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	_a_document(home, title="How the thing works", body="It works like this.")
+
+	rows = {row["title"]: row for row in json.loads(run("list", "--json").output)}
+
+	assert rows["Ordinary work"]["entity_type"] == "task"
+	assert "due_at" in rows["Ordinary work"]
+
+	assert rows["How the thing works"]["entity_type"] == "document"
+	assert "due_at" not in rows["How the thing works"]
+	assert rows["How the thing works"]["ref"] == 2

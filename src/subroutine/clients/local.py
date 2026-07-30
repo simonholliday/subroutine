@@ -196,6 +196,32 @@ class Client:
 				row, subroutine.views.Vocabulary.for_tasks(session, [row])
 			)
 
+	def documents (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Document]:
+		"""List one workspace's documents, newest first."""
+
+		model = subroutine.db.models.work.Document
+		size = subroutine.domain.paging.size(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			rows = list(
+				session.scalars(
+					subroutine.domain.scoping.readable_documents(
+						actor, workspace_ids=[chosen.id]
+					)
+					# Spelled out to match `GET /v1/documents`, including the NULLS LAST the
+					# two backends disagree about (§10.3) — the same reasoning as `tasks`.
+					.order_by(model.created_at.desc().nullslast(), model.id.desc().nullslast())
+					.limit(size)
+				)
+			)
+			vocabulary = subroutine.views.Vocabulary.for_documents(session, rows)
+
+			return [subroutine.views.document(row, vocabulary) for row in rows]
+
 	def document (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Document | None:
@@ -487,7 +513,7 @@ class Client:
 			raise subroutine.errors.NotFound(
 				f"There is no task {subroutine.domain.refs.format_ref(ref)} in "
 				f"{chosen.slug}.",
-				hint="Run 'subroutine ls' to see what there is.",
+				hint="Run 'subroutine list' to see what there is.",
 			)
 
 		return row
@@ -529,7 +555,7 @@ class Client:
 		if row is None:
 			raise subroutine.errors.NotFound(
 				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} here.",
-				hint="Run 'subroutine ls' to see what there is.",
+				hint="Run 'subroutine list' to see what there is.",
 			)
 
 		found: uuid.UUID = row.id

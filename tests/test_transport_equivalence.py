@@ -37,6 +37,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.comments
+import subroutine.domain.documents
 import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.tasks
@@ -661,3 +662,36 @@ def test_both_take_an_explicit_workspace_on_every_new_method (pair: Pair) -> Non
 	assert local.comments(ref=task.ref, workspace=slug) == remote.comments(
 		ref=task.ref, workspace=slug
 	)
+
+
+def test_both_list_documents_the_same_way (pair: Pair) -> None:
+	"""``list`` spans tasks and documents, so a document listing crossed the boundary too.
+
+	Ordered like ``tasks`` on purpose: the CLI merges the two into one list on ``created_at``,
+	and a document listing sorted by something else would interleave differently depending on
+	which transport answered — the divergence §13.7 exists to prevent, in a place nobody would
+	think to look.
+	"""
+
+	local, remote = pair.both()
+	project = subroutine.domain.projects.create(
+		pair.session, workspace_id=pair.workspace.id, key="DOCS", title="Docs"
+	)
+
+	for index in range(4):
+		subroutine.domain.documents.create(
+			pair.session, project=project, title=f"Finding {index}", body="Something."
+		)
+
+	pair.session.flush()
+
+	assert local.documents() == remote.documents()
+	assert [item.title for item in local.documents()] == [
+		"Finding 3",
+		"Finding 2",
+		"Finding 1",
+		"Finding 0",
+	], "newest first, the same order tasks come back in"
+
+	# The limit is one arbiter for both, the way `tasks` already is.
+	assert len(local.documents(limit=2)) == len(remote.documents(limit=2)) == 2

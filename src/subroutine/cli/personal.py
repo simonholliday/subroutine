@@ -63,6 +63,11 @@ GROUP = "bold cyan"
 TROUBLE = "yellow"
 
 
+#: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
+#: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
+#: about tasks would report that ``#4`` does not exist while it sits in the same listing.
+Item = subroutine.views.Task | subroutine.views.Document
+
 @dataclasses.dataclass
 class Selected:
 	"""What the options before the subcommand chose.
@@ -176,10 +181,10 @@ class World:
 
 		return subroutine.domain.refs.format_address(ref, workspace=slug, connection=connection)
 
-	def address_of_task (self, connection: str, task: subroutine.views.Task) -> str:
-		"""Return the shortest address that resolves to this task."""
+	def address_of_item (self, connection: str, item: Item) -> str:
+		"""Return the shortest address that resolves to this item, task or document."""
 
-		return self.address_of(connection, task.workspace_id, task.ref)
+		return self.address_of(connection, item.workspace_id, item.ref)
 
 	def address_of_located (self, located: "Located") -> str:
 		"""Return the shortest address that resolves to an item already found.
@@ -193,16 +198,36 @@ class World:
 		return self.address_of(located.connection, located.item.workspace_id, located.ref)
 
 
-#: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
-#: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
-#: about tasks would report that ``#4`` does not exist while it sits in the same listing.
-Item = subroutine.views.Task | subroutine.views.Document
-
 #: The kinds each command is willing to be given. ``done`` acts on work and nothing else;
 #: ``show`` reads whatever the number names. Passed rather than assumed, so that a command
 #: which cannot act on a document *says* so instead of claiming the item is missing.
 TASKS_ONLY = ("task",)
 ANY_ITEM = ("task", "document")
+
+#: One row of a listing: which connection it came from, and the item itself. A *listing* row
+#: may be either kind — ``list`` spans both, because refs are shared and a reader who has
+#: learned that a number names an item is owed a list where every item appears. The *agenda*
+#: only ever holds tasks, and passes them through the same helpers because a task is an item.
+Row = tuple[str, Item]
+
+
+@dataclasses.dataclass(frozen=True)
+class Listing:
+	"""One connection's rows, and whether there were more it did not return.
+
+	``more`` exists because a truncated list that does not say so is worse than a short one:
+	refs are how items are addressed, so the list is where a number is found, and a silent cut
+	makes absence from the list stop meaning absence from the system.
+
+	**A flag rather than a count, deliberately.** An exact "and 14 more" needs a second full
+	scan per workspace per kind, on every listing, for a number that is only wanted in the
+	uncommon case where the page filled — which is the same trade `?include_total=` makes by
+	defaulting to off (§8.4). Asking for one row past the limit costs nothing and answers the
+	question that actually changes what the reader does: *is this all of them?*
+	"""
+
+	rows: list[Row]
+	more: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -402,7 +427,7 @@ def register (
 		if address is None:
 			stop(
 				f"{given!r} is not an item number.",
-				"Items are named by the number 'subroutine ls' prints beside them — "
+				"Items are named by the number 'subroutine list' prints beside them — "
 				f"'subroutine {verb} 42'.",
 			)
 
@@ -434,7 +459,7 @@ def register (
 			stop(
 				f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
 				f"{_in_place(world, named[1])}.",
-				"Run 'subroutine ls' to see what there is.",
+				"Run 'subroutine list' to see what there is.",
 			)
 
 		shown = [_absolute(world, item) for item in elsewhere]
@@ -531,7 +556,7 @@ def register (
 		if not candidates:
 			stop(
 				f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
-				"Run 'subroutine ls' to see what there is.",
+				"Run 'subroutine list' to see what there is.",
 			)
 
 		if len(candidates) == 1:
@@ -729,25 +754,10 @@ def register (
 
 			_render(world, gathered, say=say, console=console)
 
-	@app.command("ls")
-	def list_tasks (
-		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
-		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
-		merged: bool = typer.Option(
-			False, "--merged", help="One list rather than a group per connection."
-		),
-		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
-		),
+	def _listed (
+		*, limit: int, json_output: bool, merged: bool, strict: bool
 	) -> None:
-		"""List everything still open, newest first.
-
-		Examples:
-
-		  subroutine ls
-
-		  subroutine ls --limit 10
-		"""
+		"""Print the list. Registered twice, under two names, from one body."""
 
 		with opened(strict=strict) as world:
 			gathered = _listing(world, limit=limit, strict=strict)
@@ -755,9 +765,10 @@ def register (
 			_report(world, gathered.failures)
 
 			rows = _merged(gathered)
+			more = any(answer.value.more for answer in gathered.answers)
 
 			if json_output:
-				say(json.dumps([_as_json(world, name, task) for name, task in rows], indent=2))
+				say(json.dumps([_as_json(world, name, item) for name, item in rows], indent=2))
 
 				return
 
@@ -773,8 +784,66 @@ def register (
 			else:
 				_grouped(world, gathered, console=console, say=say)
 
+			if more:
+				# The agenda has always said this about its own remainder; the list said
+				# nothing at all and simply stopped. Phrased as an instruction rather than a
+				# bare "there are more", because the reader's next question is how to see them.
+				console.print(
+					rich.text.Text(
+						f"      …and more. 'subroutine list --limit {limit * 2}' to see further.",
+						style=DETAIL,
+					)
+				)
+
 			say("")
-			_suggest(console, f"subroutine done {_typeable(world, rows[0][0], rows[0][1])}")
+			_suggest(console, f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}")
+
+	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
+	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
+	# who already knows Unix — which is not the audience §1.4 is written for. `ls` keeps
+	# working because it is in muscle memory and in every note anybody has written, and is
+	# hidden rather than removed: a synonym in the help is a second thing to choose between.
+	@app.command("list")
+	def list_items (
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+		merged: bool = typer.Option(
+			False, "--merged", help="One list rather than a group per connection."
+		),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""List everything still open — tasks and documents — newest first.
+
+		Examples:
+
+		  subroutine list
+
+		  subroutine list --limit 10
+		"""
+
+		_listed(limit=limit, json_output=json_output, merged=merged, strict=strict)
+
+	@app.command("ls", hidden=True)
+	def list_tasks (
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+		merged: bool = typer.Option(
+			False, "--merged", help="One list rather than a group per connection."
+		),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""The short name for 'subroutine list'. Both do the same thing.
+
+		Examples:
+
+		  subroutine ls
+		"""
+
+		_listed(limit=limit, json_output=json_output, merged=merged, strict=strict)
 
 	@app.command()
 	def show (
@@ -851,7 +920,7 @@ def register (
 				# Saying so beats reporting success twice. The case this is really about is
 				# an up-arrow repeat, which used to land on whatever had taken that number.
 				say(_acted(world, located, "Already done"))
-				_suggest(console, "subroutine ls")
+				_suggest(console, "subroutine list")
 
 				return
 
@@ -1168,35 +1237,59 @@ def register (
 
 	def _listing (
 		world: World, *, limit: int, strict: bool
-	) -> subroutine.fanout.Gathered[list[tuple[str, subroutine.views.Task]]]:
-		"""List every reachable workspace's tasks, one request per workspace.
+	) -> subroutine.fanout.Gathered[Listing]:
+		"""List every reachable workspace's items, one request per workspace per kind.
 
 		Per workspace rather than per connection because ``GET /v1/tasks`` refuses an
 		ambiguous one (§8.2) — and a local client that quietly spanned them would return
 		different rows depending on where the tasks were, which is the divergence this whole
 		arrangement exists to prevent.
+
+		**Tasks and documents in one list.** Refs come from one counter per workspace and are
+		shared between them (§6.2), and ``show`` already takes either — so a listing that held
+		only tasks was telling a reader who had learned that a number names an item that half
+		the numbers did not exist. Simon asked why ``#5``-``#8`` were missing from his list;
+		they are decision documents, and nothing in the output said so.
+
+		Each kind is fetched at the full limit and the merged result is cut to it, so the cut
+		is made across both rather than allocated between them — twenty documents must not be
+		able to push every task off a page.
 		"""
 
-		def ask (
-			client: subroutine.clients.base.Client,
-		) -> list[tuple[str, subroutine.views.Task]]:
+		def ask (client: subroutine.clients.base.Client) -> Listing:
 			"""Ask one connection for each of its workspaces in turn."""
 
 			item = world.connection(client.connection.name)
-			rows: list[tuple[str, subroutine.views.Task]] = []
+			rows: list[Row] = []
+
+			# One past the limit, of each kind, so that "was anything cut?" is answered by
+			# what came back rather than by a second counting query.
+			asked = limit + 1
 
 			for workspace in () if item is None else item.identity.workspaces:
 				rows.extend(
-					(client.connection.name, task)
-					for task in client.tasks(workspace=workspace.slug, limit=limit)
+					(client.connection.name, found)
+					for found in client.tasks(workspace=workspace.slug, limit=asked)
+				)
+				rows.extend(
+					(client.connection.name, found)
+					for found in client.documents(workspace=workspace.slug, limit=asked)
 				)
 
-			# Re-sorted after the merge, on a field the client can compute for itself
-			# (§13.7). A merged result is a merge of pages, not one ordered page, so the
-			# limit is per workspace and applied again here.
-			rows.sort(key=lambda row: row[1].created_at, reverse=True)
+			# Re-sorted after the merge, on a field every item carries and the client can
+			# compute for itself (§13.7). A merged result is a merge of pages, not one
+			# ordered page, so the limit is per workspace and applied again here.
+			#
+			# `ref` breaks the tie, because a script adding several items in one second gets
+			# a stable order rather than whatever the merge happened to produce.
+			rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
 
-			return rows[:limit]
+			# **What was cut is carried, not discarded.** `rows[:limit]` used to be the end of
+			# it, so a backlog longer than the limit simply stopped — no count, no marker —
+			# and "it is not in the list" quietly stopped meaning "it does not exist", which
+			# is the one inference ref addressing is built to support. The agenda had always
+			# reported its own remainder; this is the same fact, carried the same way.
+			return Listing(rows=rows[:limit], more=len(rows) > limit)
 
 		return subroutine.fanout.gather(world.clients, ask, strict=strict)
 
@@ -1267,14 +1360,20 @@ def _workspace_hint (item: Reached) -> str:
 	return f"Workspaces on {item.name}: {listed}."
 
 
-def _typeable (world: World, connection: str, task: subroutine.views.Task) -> str:
-	"""Return what to type to reach one task — the printed form without its sigil.
+def _deadline (item: Item) -> datetime.datetime | None:
+	"""Return an item's deadline, or ``None`` when it is not the kind of thing that has one."""
+
+	return item.due_at if isinstance(item, subroutine.views.Task) else None
+
+
+def _typeable (world: World, connection: str, item: Item) -> str:
+	"""Return what to type to reach one item — the printed form without its sigil.
 
 	A suggested command has to be one that works, and ``#`` starts a comment in every POSIX
 	shell (SPEC.md §12.2a), so a suggestion carries the bare number or the qualified path.
 	"""
 
-	return world.address_of_task(connection, task).replace(subroutine.domain.refs.SIGIL, "")
+	return world.address_of_item(connection, item).replace(subroutine.domain.refs.SIGIL, "")
 
 
 def _asked (given: str, question: str) -> str:
@@ -1315,7 +1414,7 @@ def _render (
 		("Next 7 days", "upcoming", False),
 		("Unscheduled", "unscheduled", False),
 	)
-	rows: dict[str, list[tuple[str, subroutine.views.Task]]] = {}
+	rows: dict[str, list[Row]] = {}
 
 	for _heading, field, _late in buckets:
 		# **Re-sorted across connections, not concatenated.** Each connection answers already
@@ -1344,7 +1443,7 @@ def _render (
 		for answer in gathered.answers
 	)
 	printed = False
-	first: tuple[str, subroutine.views.Task] | None = None
+	first: Row | None = None
 
 	if not rows.get("overdue") and not rows.get("today"):
 		say("Nothing due today.")
@@ -1364,7 +1463,7 @@ def _render (
 
 		for connection, task in group:
 			console.print(
-				_task_line(
+				_item_line(
 					world, connection, task, late=late, width=width, kind_width=kind_width
 				)
 			)
@@ -1383,7 +1482,7 @@ def _render (
 
 def _flat (
 	world: World,
-	rows: typing.Sequence[tuple[str, subroutine.views.Task]],
+	rows: typing.Sequence[Row],
 	*,
 	console: rich.console.Console,
 ) -> None:
@@ -1394,7 +1493,7 @@ def _flat (
 
 	for connection, task in rows:
 		console.print(
-			_task_line(
+			_item_line(
 				world, connection, task, late=False, width=width, kind_width=kind_width
 			)
 		)
@@ -1402,7 +1501,7 @@ def _flat (
 
 def _grouped (
 	world: World,
-	gathered: subroutine.fanout.Gathered[list[tuple[str, subroutine.views.Task]]],
+	gathered: subroutine.fanout.Gathered[Listing],
 	*,
 	console: rich.console.Console,
 	say: typing.Callable[[str], None],
@@ -1417,7 +1516,7 @@ def _grouped (
 	printed = False
 
 	for answer in gathered.answers:
-		if not answer.value:
+		if not answer.value.rows:
 			continue
 
 		if printed:
@@ -1426,10 +1525,10 @@ def _grouped (
 		console.print(rich.text.Text(answer.connection.label, style=GROUP))
 		printed = True
 
-		_flat(world, answer.value, console=console)
+		_flat(world, answer.value.rows, console=console)
 
 
-def _kind_width (rows: typing.Sequence[tuple[str, subroutine.views.Task]]) -> int:
+def _kind_width (rows: typing.Sequence[Row]) -> int:
 	"""Return how wide the item-type column must be, or zero when it would say nothing.
 
 	**A column that says the same thing on every row says nothing**, so a page whose rows are
@@ -1451,11 +1550,11 @@ def _kind_width (rows: typing.Sequence[tuple[str, subroutine.views.Task]]) -> in
 	return max(len(kind) for kind in kinds)
 
 
-def _width (world: World, rows: typing.Sequence[tuple[str, subroutine.views.Task]]) -> int:
+def _width (world: World, rows: typing.Sequence[Row]) -> int:
 	"""Return how wide the address column needs to be for these rows."""
 
 	return max(
-		(len(world.address_of_task(connection, task)) for connection, task in rows), default=0
+		(len(world.address_of_item(connection, task)) for connection, task in rows), default=0
 	)
 
 
@@ -1468,40 +1567,43 @@ def _suggest (console: rich.console.Console, command: str) -> None:
 	console.print(rich.text.Text(f"  {command}", style=SUGGESTION))
 
 
-def _task_line (
+def _item_line (
 	world: World,
 	connection: str,
-	task: subroutine.views.Task,
+	item: Item,
 	*,
 	late: bool,
 	width: int = 0,
 	kind_width: int = 0,
 ) -> rich.text.Text:
-	"""Return one task line, addressed by a ref that never changes.
+	"""Return one listing line, addressed by a ref that never changes.
 
-	**The identifier shown is the task's own ref.** It used to be the row's position in the
+	**The identifier shown is the item's own ref.** It used to be the row's position in the
 	last listing, and that was a quiet trap: completing something renumbered everything below
-	it, so re-running ``done 1`` after a fresh ``ls`` marked a *different* task done — one
+	it, so re-running ``done 1`` after a fresh listing marked a *different* task done — one
 	up-arrow away, and wrong without saying so.
+
+	Takes a task **or a document**, because refs are shared between them (§6.2) and a listing
+	that showed only one kind told a reader that half the numbers did not exist.
 
 	``kind_width`` is how much room the item type needs, and **zero means there is nothing
 	worth saying** — see :func:`_kind_width`. It is the caller's measurement rather than this
 	function's because it is a property of the page, not of the row.
 
-	Built with :class:`rich.text.Text` rather than markup, because a title is user data: a
-	task called ``Fix [bold] handling`` must print as written, not as an instruction.
+	Built with :class:`rich.text.Text` rather than markup, because a title is user data: an
+	item called ``Fix [bold] handling`` must print as written, not as an instruction.
 	"""
 
 	line = rich.text.Text()
-	shown = world.address_of_task(connection, task)
+	shown = world.address_of_item(connection, item)
 	line.append(f"  {shown:>{max(width, 3)}}  ", style=POSITION)
 
 	if kind_width:
-		line.append(f"{task.type:<{kind_width}}  ", style=DETAIL)
+		line.append(f"{item.type:<{kind_width}}  ", style=DETAIL)
 
-	line.append(task.title)
+	line.append(item.title)
 
-	detail = _when(task)
+	detail = _when(item)
 
 	if detail:
 		line.append(detail, style=LATE if late else DETAIL)
@@ -1628,12 +1730,21 @@ def _render_day (day: datetime.date | None) -> str:
 	return "—" if day is None else day.strftime("%a %-d %b")
 
 
-def _when (task: subroutine.views.Task) -> str:
-	"""Return a short trailing phrase describing a task's dates, or nothing at all.
+def _when (item: Item) -> str:
+	"""Return a short trailing phrase describing an item's dates, or nothing at all.
 
 	Nothing at all is the common case, and it matters: a to-do list that annotates every
 	line with empty fields is one that looks like a database (§1.4).
+
+	**A document has no dates to describe** — no deadline, no day it is planned for — so it
+	is nothing at all, always. That is not a gap to fill later: a specification is not
+	scheduled, and inventing a date column for it would be the database look this avoids.
 	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	task = item
 
 	if task.due_at is not None:
 		return f"  (due {_render_date(task.due_at, task.timezone)})"
@@ -1658,26 +1769,43 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 
 
 def _as_json (
-	world: World, connection: str, task: subroutine.views.Task
+	world: World, connection: str, item: Item
 ) -> dict[str, typing.Any]:
-	"""Return a task as the scripted path sees it.
+	"""Return one listing row as the scripted path sees it.
 
 	Carries the *address* as well as the ref, because a script merging two connections needs
 	the thing it can type back — which is exactly what a bare number stops being once there
-	is more than one place a task could live.
+	is more than one place an item could live.
+
+	**A document carries the shared fields and stops there**, rather than carrying the task
+	fields as nulls. A `due_at` of null on something that cannot have a deadline is a
+	statement that it has none, which is a different and false claim; `entity_type` is how a
+	script tells the two apart, and it is present on every row so the test is never "did the
+	key appear".
 	"""
 
-	return {
-		"ref": task.ref,
-		"address": world.address_of_task(connection, task),
+	shared = {
+		"ref": item.ref,
+		"address": world.address_of_item(connection, item),
 		"connection": connection,
-		"title": task.title,
+		"entity_type": "task" if isinstance(item, subroutine.views.Task) else "document",
+		"title": item.title,
+		"type": item.type,
+		"status": item.status,
+	}
+
+	if not isinstance(item, subroutine.views.Task):
+		return shared
+
+	task = item
+
+	return {
+		**shared,
 		# §12.2a wants the scripted path and the human one to be the same code so they cannot
-		# drift, and these two had. `type` because the terminal now shows it and a script
-		# reading the same listing could not see it; `urgency` because §6.3 pairs the two
-		# axes and half a priority is worse than none — a script sorting on `importance`
-		# alone would rank a 5/1 above a 4/5.
-		"type": task.type,
+		# drift, and these had. `type` because the terminal now shows it and a script reading
+		# the same listing could not see it; `urgency` because §6.3 pairs the two axes and
+		# half a priority is worse than none — a script sorting on `importance` alone would
+		# rank a 5/1 above a 4/5.
 		"due_at": None if task.due_at is None else task.due_at.isoformat(),
 		"due_is_all_day": task.due_is_all_day,
 		"planned_for": None if task.planned_for is None else task.planned_for.isoformat(),
@@ -1774,8 +1902,8 @@ def _worth_showing (
 
 
 def _merged (
-	gathered: subroutine.fanout.Gathered[list[tuple[str, subroutine.views.Task]]],
-) -> list[tuple[str, subroutine.views.Task]]:
+	gathered: subroutine.fanout.Gathered[Listing],
+) -> list[Row]:
 	"""Flatten a listing across connections, newest first.
 
 	§13.7: "sorting is re-applied after the merge". Each connection answers already ordered, so
@@ -1783,15 +1911,15 @@ def _merged (
 	which is not what "newest first" means and is not what the suggested next command assumed.
 	"""
 
-	rows = [row for answer in gathered.answers for row in answer.value]
+	rows = [row for answer in gathered.answers for row in answer.value.rows]
 	rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
 
 	return rows
 
 
 def _in_order (
-	rows: list[tuple[str, subroutine.views.Task]], bucket: str
-) -> list[tuple[str, subroutine.views.Task]]:
+	rows: list[Row], bucket: str
+) -> list[Row]:
 	"""Order one agenda bucket the way that bucket is read.
 
 	The three dated buckets read by date — soonest first, because that is the order the days
@@ -1807,10 +1935,15 @@ def _in_order (
 
 	# NULLs last, explicitly: a task in `today` may be there for `planned_for` and carry no
 	# deadline at all, and it belongs after the ones that do rather than before them.
+	#
+	# `_deadline` rather than `row[1].due_at` because a listing row may now hold a document,
+	# which has no deadline — and an agenda never does. Written as a guard that answers
+	# "no deadline" rather than as a cast, so a document reaching here sorts last instead of
+	# raising in a lambda inside a sort, which is a traceback nobody can place.
 	rows.sort(
 		key=lambda row: (
-			row[1].due_at is None,
-			row[1].due_at or datetime.datetime.max.replace(tzinfo=datetime.UTC),
+			_deadline(row[1]) is None,
+			_deadline(row[1]) or datetime.datetime.max.replace(tzinfo=datetime.UTC),
 			row[1].ref,
 		)
 	)
