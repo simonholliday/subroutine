@@ -35,6 +35,7 @@ import subroutine
 import subroutine.api.dependencies
 import subroutine.api.documents
 import subroutine.api.projects
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.api.tasks
@@ -54,7 +55,11 @@ import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1", tags=["discovery"])
+router = fastapi.APIRouter(
+	prefix="/v1",
+	tags=["discovery"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: How many tags to publish. Ordered by how much they are used, so the cap keeps the ones
 #: a client is most likely to need. Appendix A filed this against M3: embedding the whole
@@ -707,6 +712,14 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"PATCH",
 		"/v1/tasks/1",
 		{"due": None},
+	),
+	(
+		"Read what has happened to one item — newest first, and including a change made a "
+		"moment ago. This is the *history* of one thing; `/v1/changes` (not built yet) will "
+		"be the feed of everything.",
+		"GET",
+		"/v1/tasks/1/events",
+		None,
 	),
 	(
 		"Finish it, without needing to know what this installation calls 'done'.",

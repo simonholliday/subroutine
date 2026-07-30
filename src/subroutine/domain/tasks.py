@@ -728,7 +728,20 @@ def delete (
 
 
 def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
-	"""Return the fields an update may change, for comparison afterwards."""
+	"""Return the fields an update may change, for comparison afterwards.
+
+	**Every field ``update`` can write belongs here, and a missing one is silent.** The
+	comparison decides both what the event says *and whether one is written at all* — an
+	update whose only change is a field this dict forgets produces no event, so §10.7's
+	invariant 9 fails without anything failing. ``urgency`` was missing from 2026-07-29,
+	when §6.3's second priority axis was given a column, a constraint, a sort key and a
+	compact-line cell, and not a line here: setting it bumped ``version`` and left no
+	trace. Found on 2026-07-30 by building the endpoint that reads this table, which is
+	the whole argument for building readers early.
+
+	``tests/test_services.py`` now changes each of these in turn and insists an event
+	names it, so the next field added is caught by a test rather than by a reader.
+	"""
 
 	return {
 		"title": task.title,
@@ -737,6 +750,7 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 		"status_id": task.status_id,
 		"assignee_id": task.assignee_id,
 		"importance": task.importance,
+		"urgency": task.urgency,
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
 		"planned_for": task.planned_for,

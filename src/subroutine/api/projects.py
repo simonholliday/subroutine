@@ -17,6 +17,7 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
@@ -30,7 +31,11 @@ import subroutine.domain.selection
 import subroutine.errors
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1/projects", tags=["projects"])
+router = fastapi.APIRouter(
+	prefix="/v1/projects",
+	tags=["projects"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: What ``?order=`` accepts here. ``key`` is the one people think in.
 SORTABLE: dict[str, typing.Any] = {

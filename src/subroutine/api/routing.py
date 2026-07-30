@@ -22,11 +22,55 @@ import re
 import typing
 
 import fastapi
+import fastapi.routing
 
 #: A router as it is about to be included: the prefix it will be mounted under, and the
 #: router itself. A router's *own* ``prefix=`` is already part of each route's path, but
 #: one passed to ``include_router`` is applied at match time and has to be composed here.
 Mounting = tuple[str, fastapi.APIRouter]
+
+
+class Transactional(fastapi.routing.APIRoute):
+	"""A route that commits its request's transaction **before the response is sent**.
+
+	FastAPI closes a request's dependency exit stack *after* the application has emitted
+	the response. Measured, not assumed: a probe recording the order printed ``handler
+	body`` → ``response left the app`` → ``dependency exit``. So a session committed in a
+	``yield`` dependency — which is where this one lived until 2026-07-30 — commits after
+	the caller already holds its ``200``.
+
+	Two things follow. A client that writes and immediately reads can beat its own commit,
+	which is how this was found: one read of an item's history missed an event the previous
+	request had just written. And, worse, **a commit that failed would fail after the
+	caller had been told it succeeded** — a ``201`` for something that never happened, with
+	no way for the client to notice.
+
+	Committing here closes both. The handler has returned, so the work is done and the
+	response is built; the response has not been sent, so a failure to commit can still be
+	reported as one. A commit that raises is left to propagate deliberately: reporting a
+	``500`` for a transaction that did not land is the whole point, and swallowing it would
+	recreate the defect this class exists to remove.
+	"""
+
+	def get_route_handler (self) -> typing.Callable[..., typing.Any]:
+		"""Wrap the ordinary handler so the transaction lands before the response leaves."""
+
+		original = super().get_route_handler()
+
+		async def handler (request: typing.Any) -> typing.Any:
+			"""Run the endpoint, then commit what it did."""
+
+			response = await original(request)
+			opened = getattr(request.state, "session", None)
+
+			# Not every route asks for a session — the health checks and the docs do not,
+			# and neither should have to pretend to.
+			if opened is not None and opened.in_transaction():
+				opened.commit()
+
+			return response
+
+		return handler
 
 #: One route, reduced to what deciding reachability needs.
 Declaration = tuple[str, frozenset[str]]

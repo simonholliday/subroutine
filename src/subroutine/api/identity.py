@@ -21,13 +21,18 @@ import sqlalchemy.orm
 
 import subroutine
 import subroutine.api.dependencies
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.workspaces
 
-router = fastapi.APIRouter(prefix="/v1", tags=["identity"])
+router = fastapi.APIRouter(
+	prefix="/v1",
+	tags=["identity"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 
 class User(pydantic.BaseModel):

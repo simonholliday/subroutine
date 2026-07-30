@@ -22,10 +22,14 @@ import sqlalchemy.exc
 import starlette.requests
 
 import subroutine
+import subroutine.api.routing
 import subroutine.db.migrate
 import subroutine.errors
 
-router = fastapi.APIRouter(tags=["health"])
+router = fastapi.APIRouter(
+	tags=["health"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 
 @router.get("/healthz", summary="Is this process alive?")

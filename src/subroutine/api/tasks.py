@@ -25,6 +25,7 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
@@ -43,7 +44,11 @@ import subroutine.domain.tasks
 import subroutine.errors
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1/tasks", tags=["tasks"])
+router = fastapi.APIRouter(
+	prefix="/v1/tasks",
+	tags=["tasks"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: How many rows a listing returns when the caller does not say. Mirrors
 #: ``Settings.default_page_size``; the hard ceiling is ``max_page_size``.

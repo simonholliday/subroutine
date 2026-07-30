@@ -18,13 +18,18 @@ import pydantic
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.backup
 import subroutine.domain.authorization
 import subroutine.errors
 import subroutine.permissions
 
-router = fastapi.APIRouter(prefix="/v1/admin", tags=["admin"])
+router = fastapi.APIRouter(
+	prefix="/v1/admin",
+	tags=["admin"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 
 class Backup(pydantic.BaseModel):

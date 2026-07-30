@@ -18,6 +18,7 @@ import sqlalchemy.orm
 
 import subroutine.api.dependencies
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.types
 import subroutine.domain.agenda
@@ -28,7 +29,11 @@ import subroutine.domain.selection
 import subroutine.domain.workspaces
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1", tags=["agenda"])
+router = fastapi.APIRouter(
+	prefix="/v1",
+	tags=["agenda"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 
 @router.get(

@@ -1172,3 +1172,82 @@ def test_a_soft_delete_moves_the_version (
 	session.flush()
 
 	assert row.version == again
+
+
+#: Every field ``tasks.update`` can write, with a value that differs from what a freshly
+#: created task holds. Derived by hand from the signature and kept honest by the test below
+#: — which is the point: the *list* is not the guard, the behaviour is.
+CHANGEABLE: tuple[tuple[str, typing.Any], ...] = (
+	("title", "A different title"),
+	("description", "Something to say"),
+	("status_key", "in_progress"),
+	("importance", 4),
+	("urgency", 5),
+	("due", "2026-09-01"),
+	("planned_for", "2026-09-02"),
+	("start", "2026-08-30"),
+)
+
+
+@pytest.mark.parametrize(("field", "value"), CHANGEABLE, ids=[name for name, _ in CHANGEABLE])
+def test_every_field_an_update_can_change_is_recorded_as_an_event (
+	session: sqlalchemy.orm.Session, field: str, value: typing.Any
+) -> None:
+	"""SPEC.md §10.7 invariant 9: every entity mutation emits at least one event row.
+
+	**`urgency` did not, for a day, and nothing noticed.** It was given a column, a CHECK
+	constraint, a sort key and a cell on the compact line, and was left out of the one
+	hand-written dict that decides what counts as a change (`tasks._snapshot`). That dict
+	decides *whether an event is written at all*, so setting urgency bumped `version`,
+	changed the row, and left no trace in the audit trail — a silent hole in the record of
+	exactly the field a backlog ranking depends on.
+
+	It was found by building `GET /v1/tasks/{ref}/events`, which is the argument for
+	building a reader early: five modules had been writing this table since M1 and nothing
+	had ever read it back, so nothing could see what was missing.
+
+	Written per field rather than as a comparison against a list of names, because a list is
+	the same kind of hand-maintained thing that failed. This changes each field for real and
+	insists the feed says so.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+	task = subroutine.domain.tasks.create(session, project=project, title="Something to do")
+	session.flush()
+
+	before = len(_events(session, workspace.id, "task", task.id))
+
+	subroutine.domain.tasks.update(session, task, **{field: value})
+	session.flush()
+
+	recorded = _events(session, workspace.id, "task", task.id)
+
+	assert len(recorded) == before + 1, f"changing {field!r} wrote no event"
+
+	changes = recorded[-1].changes or {}
+
+	assert changes, f"the event for {field!r} records no changes at all"
+
+
+def test_an_update_that_changes_nothing_still_writes_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half of the same rule, and the reason it cannot be "always write one".
+
+	A feed that reported every *request* rather than every *change* would make every client
+	polling it filter the noise back out. The fix for the missing `urgency` had to keep this
+	true, which is why it was a missing key rather than a missing branch.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+	task = subroutine.domain.tasks.create(session, project=project, title="Something to do")
+	session.flush()
+
+	before = len(_events(session, workspace.id, "task", task.id))
+
+	subroutine.domain.tasks.update(session, task, title="Something to do", urgency=None)
+	session.flush()
+
+	assert len(_events(session, workspace.id, "task", task.id)) == before

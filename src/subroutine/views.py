@@ -229,6 +229,56 @@ class Comment(pydantic.BaseModel):
 		)
 
 
+class Event(pydantic.BaseModel):
+	"""One thing that happened, as the history and the change feed both report it (§5.11).
+
+	**Addressed by ``seq``, not by ``id``.** The sequence number is the primary key, and it
+	is the only field a client can order or resume on; the UUID is carried because every
+	other entity here has one and a client keying a local cache by id should not have to
+	special-case this table.
+
+	``changes`` is whatever the service that recorded it chose to say — ``{"status": {"from":
+	…, "to": …}}`` and similar. Deliberately untyped: the shape belongs to the action, a new
+	action adds its own without a migration or a schema change here, and a client reads it
+	after switching on ``action``.
+
+	**Both actor fields, and both nullable.** A system action has no user and a
+	session-authenticated one has no token; recording which is which is what makes an audit
+	trail worth reading (§5.11). Ids rather than names, per §8.5 — an unrequested relation is
+	an id, and resolving every actor on every page is what the compact format exists to avoid.
+	"""
+
+	seq: int
+	id: uuid.UUID
+
+	entity_type: str
+	entity_id: uuid.UUID
+	workspace_id: uuid.UUID
+
+	action: str
+	changes: dict[str, typing.Any] | None
+
+	actor_user_id: uuid.UUID | None
+	actor_token_id: uuid.UUID | None
+
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — its sequence number."""
+
+		return str(self.seq)
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this event as the cells of one compact line."""
+
+		return (
+			str(self.seq),
+			self.created_at.date().isoformat(),
+			self.action,
+			self.entity_type,
+		)
+
+
 class LinkEnd(pydantic.BaseModel):
 	"""What is at the far end of a link, with enough of the row to render it.
 
@@ -617,6 +667,27 @@ def comment (row: subroutine.db.models.activity.Comment) -> Comment:
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		version=row.version,
+	)
+
+
+def event (row: subroutine.db.models.activity.Event) -> Event:
+	"""Render one event.
+
+	No vocabulary argument: an event's ``action`` is an open string rather than a seeded
+	vocabulary row (§5.11), so there is nothing to batch-load and nothing to resolve.
+	"""
+
+	return Event(
+		seq=row.seq,
+		id=row.id,
+		entity_type=row.entity_type,
+		entity_id=row.entity_id,
+		workspace_id=row.workspace_id,
+		action=row.action,
+		changes=None if row.changes is None else dict(row.changes),
+		actor_user_id=row.actor_user_id,
+		actor_token_id=row.actor_token_id,
+		created_at=row.created_at,
 	)
 
 

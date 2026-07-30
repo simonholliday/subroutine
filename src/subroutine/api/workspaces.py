@@ -24,6 +24,7 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
@@ -34,7 +35,11 @@ import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1/workspaces", tags=["workspaces"])
+router = fastapi.APIRouter(
+	prefix="/v1/workspaces",
+	tags=["workspaces"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: What ``?order=`` accepts. ``slug`` is the one people think in.
 SORTABLE: dict[str, typing.Any] = {

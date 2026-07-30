@@ -21,9 +21,11 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
+import subroutine.api.subjects
 import subroutine.config
 import subroutine.db.models.activity
 import subroutine.domain.authentication
@@ -34,12 +36,28 @@ import subroutine.views
 
 #: One router per subject, so each sits beside the entity it extends and ``routing.check`` can
 #: see that none of them shadows a literal path.
-task_comments = fastapi.APIRouter(prefix="/v1/tasks", tags=["comments"])
-project_comments = fastapi.APIRouter(prefix="/v1/projects", tags=["comments"])
-document_comments = fastapi.APIRouter(prefix="/v1/documents", tags=["comments"])
+task_comments = fastapi.APIRouter(
+	prefix="/v1/tasks",
+	tags=["comments"],
+	route_class=subroutine.api.routing.Transactional,
+)
+project_comments = fastapi.APIRouter(
+	prefix="/v1/projects",
+	tags=["comments"],
+	route_class=subroutine.api.routing.Transactional,
+)
+document_comments = fastapi.APIRouter(
+	prefix="/v1/documents",
+	tags=["comments"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: Editing and deleting address the comment itself.
-router = fastapi.APIRouter(prefix="/v1/comments", tags=["comments"])
+router = fastapi.APIRouter(
+	prefix="/v1/comments",
+	tags=["comments"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Comment)
 
@@ -128,7 +146,6 @@ def _attach (
 	*,
 	entity_type: str,
 	address: str,
-	resolve: typing.Callable[..., typing.Any],
 ) -> None:
 	"""Register the list and create endpoints for one kind of subject.
 
@@ -166,7 +183,13 @@ def _attach (
 	) -> typing.Any:
 		"""Return what happened on this item, oldest first."""
 
-		subject = resolve(session, actor, request.path_params[address], workspace_id)
+		subject = subroutine.api.subjects.resolve(
+			session,
+			actor,
+			entity_type=entity_type,
+			address=request.path_params[address],
+			workspace_id=workspace_id,
+		)
 
 		return _page(
 			session,
@@ -199,7 +222,13 @@ def _attach (
 	) -> subroutine.views.Comment:
 		"""Record what happened on this item."""
 
-		subject = resolve(session, actor, request.path_params[address], workspace_id)
+		subject = subroutine.api.subjects.resolve(
+			session,
+			actor,
+			entity_type=entity_type,
+			address=request.path_params[address],
+			workspace_id=workspace_id,
+		)
 
 		return _rendered(
 			subroutine.domain.comments.create(
@@ -261,51 +290,15 @@ def remove (
 		)
 
 
-def _task (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	address: str,
-	workspace_id: str | None = None,
-) -> typing.Any:
-	"""Resolve a task by id or ref, the way every other task endpoint does."""
-
-	import subroutine.api.tasks as tasks
-
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-
-	return tasks._resolve(session, actor, workspace, address)
-
-
-def _project (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	address: str,
-	workspace_id: str | None = None,
-) -> typing.Any:
-	"""Resolve a project by id or key."""
-
-	import subroutine.api.projects as projects
-
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-
-	return projects.resolve(session, actor, workspace, address)
-
-
-def _document (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	address: str,
-	workspace_id: str | None = None,
-) -> typing.Any:
-	"""Resolve a document by id or ref."""
-
-	import subroutine.api.documents as documents
-
-	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-
-	return documents._resolve(session, actor, workspace, address)
-
-
-_attach(task_comments, entity_type="task", address="id_or_ref", resolve=_task)
-_attach(project_comments, entity_type="project", address="id_or_key", resolve=_project)
-_attach(document_comments, entity_type="document", address="id_or_ref", resolve=_document)
+# One resolver, shared with the history endpoints, because both sub-resources ask the
+# same question first: which item is this, and may this caller see it?
+for _group, _entity in (
+	(task_comments, "task"),
+	(project_comments, "project"),
+	(document_comments, "document"),
+):
+	_attach(
+		_group,
+		entity_type=_entity,
+		address=subroutine.api.subjects.ADDRESS[_entity],
+	)

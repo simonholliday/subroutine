@@ -22,6 +22,7 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
 import subroutine.api.query
+import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
@@ -38,12 +39,24 @@ import subroutine.domain.selection
 import subroutine.errors
 import subroutine.views
 
-router = fastapi.APIRouter(prefix="/v1/documents", tags=["documents"])
+router = fastapi.APIRouter(
+	prefix="/v1/documents",
+	tags=["documents"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 #: Links hang off both entities, so the router carrying them is mounted twice — once under
 #: tasks and once under documents — with the entity type bound at registration.
-task_links = fastapi.APIRouter(prefix="/v1/tasks", tags=["links"])
-document_links = fastapi.APIRouter(prefix="/v1/documents", tags=["links"])
+task_links = fastapi.APIRouter(
+	prefix="/v1/tasks",
+	tags=["links"],
+	route_class=subroutine.api.routing.Transactional,
+)
+document_links = fastapi.APIRouter(
+	prefix="/v1/documents",
+	tags=["links"],
+	route_class=subroutine.api.routing.Transactional,
+)
 
 SORTABLE: dict[str, typing.Any] = {
 	"created_at": subroutine.db.models.work.Document.created_at,

@@ -6,17 +6,28 @@ what the framework actually does, because a matcher we wrote ourselves is only u
 as long as that remains true (SPEC.md §8.1).
 """
 
+import asyncio
+import pathlib
+import typing
 import uuid
 
 import fastapi
+import fastapi.routing
+import httpx
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
 import subroutine.addressing
 import subroutine.api.app
 import subroutine.api.routing
+import subroutine.config
 import subroutine.db.models.identity
+import subroutine.db.models.work
+import subroutine.db.session
+import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -224,3 +235,119 @@ def test_reserved_words_are_matched_case_insensitively () -> None:
 	assert subroutine.addressing.is_reserved_word("SEARCH")
 	assert subroutine.addressing.is_reserved_word(" Next ")
 	assert not subroutine.addressing.is_reserved_word("searches")
+
+
+def test_every_mounted_route_commits_before_it_answers () -> None:
+	"""The instrument on §8.1's transaction boundary, and it exists because of a real defect.
+
+	FastAPI closes a request's dependency exit stack **after** the application has emitted
+	the response. Measured rather than assumed: a probe recording the order printed
+	``handler body`` → ``response left the app`` → ``dependency exit``. So a session
+	committed inside a ``yield`` dependency — which is where this one lived until
+	2026-07-30 — commits after the caller already holds its ``200``.
+
+	Two things follow, and the second is why this is a build-failing check rather than a
+	note. A client that writes and immediately reads can beat its own commit, which is how
+	it was found. And **a commit that failed would fail after the caller had been told it
+	succeeded** — a ``201`` for something that never happened, invisible to any client.
+
+	``routing.Transactional`` commits between the handler returning and the response being
+	sent. A router registered without it would silently go back to the old behaviour on
+	every one of its endpoints, so the check is over what is actually mounted.
+	"""
+
+	loose = [
+		f"{route.methods and sorted(route.methods)} {route.path}"
+		for _prefix, router in subroutine.api.app.ROUTERS
+		for route in router.routes
+		if isinstance(route, fastapi.routing.APIRoute)
+		and not isinstance(route, subroutine.api.routing.Transactional)
+	]
+
+	assert not loose, (
+		"These routes would commit after their response was sent: "
+		+ ", ".join(loose)
+		+ ". Give the router route_class=subroutine.api.routing.Transactional."
+	)
+
+
+def test_a_write_is_committed_before_its_response_is_sent (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The property the route class exists for, tested through the real ASGI stack.
+
+	A middleware sits outside the route and looks at the database on a **separate
+	connection** the moment the handler's response passes it. If the commit happened at
+	dependency teardown — after the response — the row would not be there yet, which is
+	exactly the race that lost an event on 2026-07-30.
+
+	Its own engine on a temporary file rather than the shared test session: the point is
+	what a *second* connection can see, and a fixture that hands both sides one transaction
+	can only ever answer yes.
+	"""
+
+	database = tmp_path / "commit-order.db"
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		subroutine.db.session.create_all(engine)
+
+		factory = subroutine.db.session.create_session_factory(engine)
+
+		with factory() as setting_up:
+			founder = subroutine.domain.bootstrap.initialise(
+				setting_up, username="si", instance_name="Test"
+			)
+			_row, issued = subroutine.domain.authentication.issue_token(
+				setting_up, user=founder.user, title="probe"
+			)
+			secret = issued.value.get_secret_value()
+			setting_up.commit()
+
+		application = subroutine.api.app.create_app(
+			settings=subroutine.config.Settings(dev_mode=True), session_factory=factory
+		)
+		seen: list[int] = []
+
+		@application.middleware("http")
+		async def count_outside (request: typing.Any, call_next: typing.Any) -> typing.Any:
+			"""Count the tasks a *different* connection can see as the response goes past."""
+
+			answer = await call_next(request)
+
+			with factory() as looking:
+				seen.append(
+					looking.scalar(
+						sqlalchemy.select(
+							sqlalchemy.func.count(subroutine.db.models.work.Task.id)
+						)
+					)
+					or 0
+				)
+
+			return answer
+
+		async def drive () -> None:
+			"""Create one task through the real application."""
+
+			transport = httpx.ASGITransport(app=application)
+
+			async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+				answered = await client.post(
+					"/v1/tasks",
+					json={"title": "Committed before you were told"},
+					headers={"Authorization": f"Bearer {secret}"},
+				)
+
+				assert answered.status_code == 201, answered.text
+
+		asyncio.run(drive())
+
+		assert seen, "the middleware never ran"
+		assert seen[-1] == 1, (
+			"the task was not visible to another connection when its 201 went out, so the "
+			"commit is happening after the response again"
+		)
+
+	finally:
+		engine.dispose()

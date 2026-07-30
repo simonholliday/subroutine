@@ -20,6 +20,7 @@ import subroutine.api.admin
 import subroutine.api.agenda
 import subroutine.api.comments
 import subroutine.api.documents
+import subroutine.api.events
 import subroutine.api.health
 import subroutine.api.identity
 import subroutine.api.meta
@@ -70,6 +71,10 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.comments.project_comments),
 	("", subroutine.api.comments.document_comments),
 	("", subroutine.api.comments.router),
+	# The history sub-resources, likewise after the routers they extend.
+	("", subroutine.api.events.task_events),
+	("", subroutine.api.events.project_events),
+	("", subroutine.api.events.document_events),
 	("", subroutine.api.admin.router),
 )
 

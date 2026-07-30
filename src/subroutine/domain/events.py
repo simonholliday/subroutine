@@ -17,6 +17,7 @@ import enum
 import typing
 import uuid
 
+import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
@@ -99,6 +100,51 @@ def changes_between (
 			differences[field] = {"from": jsonable(old_value), "to": jsonable(new_value)}
 
 	return differences
+
+
+def selected (
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	entity_type: str | None = None,
+	entity_id: uuid.UUID | None = None,
+	upper_bound: datetime.datetime | None = None,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+	"""Return the statement both readers of this table are built on (SPEC.md §5.11a).
+
+	**One builder, and the upper bound is a parameter** — that is the whole design, and it is
+	the thing that stops a per-entity history being written as "the feed with a filter".
+	``GET /v1/changes`` will pass a watermark of ``now() - 1s``, because it is *resumable*:
+	``seq`` is allocated at insert and becomes visible at commit, so a reader that advances
+	its cursor past an uncommitted number never sees that event again. A **history** passes
+	nothing, because it is not resumable — ask again and the row is still there — and a
+	history that inherited the watermark would show nothing for a comment written a moment
+	ago, which a person meets in the first minute and reads as a lost write.
+
+	The ordering is the caller's, deliberately: a history runs newest-first and the feed runs
+	forwards, and both are served by an index the schema already carries
+	(``ix_event_workspace_id_entity_type_entity_id_seq`` and ``ix_event_workspace_id_seq``).
+
+	**This narrows by workspace and nothing else, and that is not an oversight.** An event is
+	exactly as visible as the entity it describes, and for a history the caller has *already*
+	resolved that entity through ``readable_tasks``/``_projects``/``_documents`` — resolving
+	it is the permission check, so re-deriving one here would be a second copy of a rule the
+	route has already applied. The feed has no such resolution to lean on and will have to
+	compose those predicates itself; §5.11a says so, and it is why the histories came first.
+	"""
+
+	model = subroutine.db.models.activity.Event
+	statement = sqlalchemy.select(model).where(model.workspace_id.in_(workspace_ids))
+
+	if entity_type is not None:
+		statement = statement.where(model.entity_type == entity_type)
+
+	if entity_id is not None:
+		statement = statement.where(model.entity_id == entity_id)
+
+	if upper_bound is not None:
+		statement = statement.where(model.created_at <= upper_bound)
+
+	return statement
 
 
 def jsonable (value: typing.Any) -> typing.Any:
