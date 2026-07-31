@@ -465,6 +465,7 @@ def update (
 	title: str = subroutine.domain.patch.UNSET,
 	description: str | None = subroutine.domain.patch.UNSET,
 	status_key: str = subroutine.domain.patch.UNSET,
+	type_key: str = subroutine.domain.patch.UNSET,
 	assignee_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	importance: int | None = subroutine.domain.patch.UNSET,
 	urgency: int | None = subroutine.domain.patch.UNSET,
@@ -510,6 +511,18 @@ def update (
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
 	status: typing.Any = (
 		subroutine.domain.patch.UNSET if status_key is subroutine.domain.patch.UNSET else status_for(session, task.workspace_id, status_key)
+	)
+
+	# **What something is becomes clear after it has been looked at** (`#42`). A type was
+	# settable at creation and nowhere else, so a task filed as a task could never become a
+	# bug — and reclassifying is the normal case, not an edge one. The status is deliberately
+	# *not* dragged along with it: a type carries a default status set at creation, and moving
+	# a half-finished bug back to "open" because its type changed would be a second, unasked
+	# change wearing the first one's clothes.
+	item_type: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if type_key is subroutine.domain.patch.UNSET
+		else item_type_for(session, task.workspace_id, type_key)
 	)
 
 	# Both axes are range-checked *here*, in the pass that may raise, rather than beside the
@@ -652,6 +665,10 @@ def update (
 
 	if description is not subroutine.domain.patch.UNSET:
 		task.description = description
+		touches_content = True
+
+	if item_type is not subroutine.domain.patch.UNSET:
+		task.type_id = item_type.id
 		touches_content = True
 
 	if status is not subroutine.domain.patch.UNSET:
@@ -882,6 +899,7 @@ def _snapshot (
 		"tags": subroutine.domain.tags.names_on_task(session, task),
 		"description": task.description,
 		"status_id": task.status_id,
+		"type_id": task.type_id,
 		"assignee_id": task.assignee_id,
 		"importance": task.importance,
 		"urgency": task.urgency,

@@ -323,7 +323,12 @@ class Client:
 		return subroutine.views.Document.model_validate(answered)
 
 	def capture (
-		self, *, text: str, workspace: str | None = None, timezone: str | None = None
+		self,
+		*,
+		text: str,
+		workspace: str | None = None,
+		timezone: str | None = None,
+		type: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text.
 
@@ -345,7 +350,7 @@ class Client:
 		body = self._json(
 			"POST",
 			"/v1/tasks",
-			json=_given(text=text, workspace_id=workspace, timezone=timezone),
+			json=_given(text=text, workspace_id=workspace, timezone=timezone, type=type),
 		)
 
 		# **One parse, two uses.** Both of these are answers about the *line*, not about the
@@ -401,6 +406,7 @@ class Client:
 		title: str = subroutine.clients.base.UNSET,
 		description: str | None = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		type: str = subroutine.clients.base.UNSET,
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
@@ -421,6 +427,7 @@ class Client:
 			"title": title,
 			"description": description,
 			"status": status,
+			"type": type,
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,

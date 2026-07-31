@@ -97,6 +97,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 				"type": "object",
 				"properties": {
 					"text": {"type": "string", "description": "The line to capture."},
+					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
 					"workspace": {"type": "string", "description": "Workspace name or id."},
 				},
 				"required": ["text"],
@@ -163,6 +164,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 					"urgency": {"type": "integer", "description": "1-5, 5 soonest."},
 					"estimate": {"type": "string", "description": "How long, e.g. '4h'."},
 					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
+					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
 					"title": {"type": "string", "description": "A new title."},
 					"workspace": {"type": "string", "description": "Workspace name or id."},
 				},
@@ -331,7 +333,9 @@ def _added (
 	"""
 
 	captured = client.capture(
-		text=_text(arguments, "text") or "", workspace=_text(arguments, "workspace")
+		text=_text(arguments, "text") or "",
+		workspace=_text(arguments, "workspace"),
+		type=_text(arguments, "type"),
 	)
 	answer = "Added " + _line(captured.task)
 
@@ -443,7 +447,7 @@ def _updated (
 
 	changes: dict[str, typing.Any] = {}
 
-	for name in ("importance", "urgency", "status", "title"):
+	for name in ("importance", "urgency", "status", "type", "title"):
 		if name in arguments:
 			changes[name] = arguments[name]
 
@@ -452,7 +456,7 @@ def _updated (
 
 	if not changes:
 		raise ValueError(
-			"Nothing to change. Pass importance, urgency, estimate, status or title."
+			"Nothing to change. Pass importance, urgency, estimate, status, type or title."
 		)
 
 	changed = client.update(

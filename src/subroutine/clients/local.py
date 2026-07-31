@@ -491,7 +491,12 @@ class Client:
 			)
 
 	def capture (
-		self, *, text: str, workspace: str | None = None, timezone: str | None = None
+		self,
+		*,
+		text: str,
+		workspace: str | None = None,
+		timezone: str | None = None,
+		type: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text."""
 
@@ -509,6 +514,12 @@ class Client:
 				session,
 				workspace=chosen,
 				text=text,
+				# **Only when given.** `create_from_text` merges overrides over the parsed
+				# fields and `create` defaults `type_key` to "task", so passing `None` through
+				# would override the default with nothing rather than leave it alone. Typed
+				# `Any` because the signature ends in `**overrides`, which mypy cannot match
+				# against a mapping it has not seen the keys of.
+				**typing.cast(dict[str, typing.Any], {} if type is None else {"type_key": type}),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,
 				actor=actor,
@@ -581,6 +592,7 @@ class Client:
 		title: str = subroutine.clients.base.UNSET,
 		description: str | None = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		type: str = subroutine.clients.base.UNSET,
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
@@ -596,6 +608,7 @@ class Client:
 			"title": title,
 			"description": description,
 			"status_key": status,
+			"type_key": type,
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,

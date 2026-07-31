@@ -286,9 +286,22 @@ class Client(typing.Protocol):
 		"""
 
 	def capture (
-		self, *, text: str, workspace: str | None = None, timezone: str | None = None
+		self,
+		*,
+		text: str,
+		workspace: str | None = None,
+		timezone: str | None = None,
+		type: str | None = None,
 	) -> Captured:
-		"""Create a task from a line of text (§6.13)."""
+		"""Create a task from a line of text (§6.13).
+
+		``type`` is the one field here that the *grammar* cannot carry, and it is passed
+		separately rather than given a sigil: §6.13's sigils are for things a person types
+		mid-sentence, and "this is a bug" is a classification made about the sentence rather
+		than part of it. Filing with the right type matters because the type is a promise
+		about what the title says — a bug's title states what is wrong, everything else states
+		what will be true when it is done — and until `#42` it could not be corrected later.
+		"""
 
 	def remark (
 		self,
@@ -313,6 +326,7 @@ class Client(typing.Protocol):
 		title: str = UNSET,
 		description: str | None = UNSET,
 		status: str = UNSET,
+		type: str = UNSET,
 		importance: int | None = UNSET,
 		urgency: int | None = UNSET,
 		estimate: int | str | None = UNSET,

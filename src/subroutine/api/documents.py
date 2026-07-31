@@ -97,6 +97,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	title: str | None = None
 	body: str | None = None
+	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
 	supersedes: subroutine.api.schemas.Reference | None = None
@@ -330,6 +331,9 @@ def change (
 
 	if "status" in supplied and body.status is not None:
 		changes["status_key"] = body.status
+
+	if "type" in supplied and body.type is not None:
+		changes["type_key"] = body.type
 
 	if "supersedes" in supplied:
 		changes["supersedes"] = (

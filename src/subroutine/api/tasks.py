@@ -122,6 +122,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	title: str | None = None
 	description: str | None = None
 	status: str | None = None
+	type: str | None = None
 	assignee_id: uuid.UUID | None = None
 	importance: int | None = None
 	urgency: int | None = None
@@ -467,10 +468,11 @@ def change (
 		if name in supplied
 	}
 
-	# These three are not patchable-to-null in the service — they qualify another field
+	# These four are not patchable-to-null in the service — they qualify another field
 	# rather than being one — so they are passed only when given.
 	for name, parameter in (
 		("status", "status_key"),
+		("type", "type_key"),
 		("due_is_all_day", "due_is_all_day"),
 		("start_is_all_day", "start_is_all_day"),
 	):

@@ -153,6 +153,7 @@ def update (
 	title: str = subroutine.domain.patch.UNSET,
 	body: str | None = subroutine.domain.patch.UNSET,
 	status_key: str = subroutine.domain.patch.UNSET,
+	type_key: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	supersedes: subroutine.db.models.work.Document | None = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
@@ -185,6 +186,15 @@ def update (
 		subroutine.domain.patch.UNSET
 		if status_key is subroutine.domain.patch.UNSET
 		else status_for(session, document.workspace_id, status_key)
+	)
+
+	# `#42`, and this is the half it was really about: a note becomes a decision once somebody
+	# has read it and agreed, which is exactly when you find out what it was. Written as a
+	# `note` and frozen as one is the commonest way a document ends up mis-filed.
+	item_type: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if type_key is subroutine.domain.patch.UNSET
+		else item_type_for(session, document.workspace_id, type_key)
 	)
 
 	if (
@@ -227,11 +237,19 @@ def update (
 		("body", body),
 		("owner_id", owner_id),
 		("status_id", None if status is subroutine.domain.patch.UNSET else status.id),
+		("type_id", None if item_type is subroutine.domain.patch.UNSET else item_type.id),
 	):
 		if value is subroutine.domain.patch.UNSET:
 			continue
 
+		# **Both of these carry `None` for "not asked", not for "clear it".** Neither is
+		# nullable, so the loop's own `UNSET` test cannot speak for them — a resolved value is
+		# an object and an unasked one is `None`, which is the one shape the loop above reads
+		# as a value worth writing.
 		if field == "status_id" and status is subroutine.domain.patch.UNSET:
+			continue
+
+		if field == "type_id" and item_type is subroutine.domain.patch.UNSET:
 			continue
 
 		existing = getattr(document, field)

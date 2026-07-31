@@ -105,10 +105,6 @@ AT_CREATION: dict[str, str] = {
 #: the item tracking it, and removing the entry is what closes that item.** All four were
 #: found by this test the first time it ran.
 UNSETTABLE: dict[str, str] = {
-	"type": (
-		"#42 - a task created as a `task` cannot become a `bug`. Accepted on create, "
-		"absent from update."
-	),
 	"parent_task_id": (
 		"#44 - a subtask cannot be re-parented, or promoted to a top-level task, after it "
 		"is created."
@@ -194,6 +190,44 @@ def test_every_field_excused_here_is_still_a_field () -> None:
 		unknown = sorted(field for field in register if field not in reported)
 
 		assert not unknown, f"{label} names {unknown}, which no view reports any more."
+
+
+@pytest.mark.parametrize(
+	("name", "view", "create", "update"), SURFACES, ids=[row[0] for row in SURFACES]
+)
+def test_nothing_recorded_as_a_gap_has_quietly_been_closed (
+	name: str,
+	view: type[pydantic.BaseModel],
+	create: type[pydantic.BaseModel],
+	update: type[pydantic.BaseModel],
+) -> None:
+	"""**The direction this file was missing**, found while closing ``#42``.
+
+	The staleness check above asks whether an excused field still *exists*. Nothing asked
+	whether it is still *unsettable* — so putting ``type`` on both update models closed the
+	item and left the entry sitting there, reading as an open defect. An exemption that
+	cannot go stale is one nobody deletes, and a register full of closed gaps is one nobody
+	believes.
+
+	This is the third time today the same lesson has arrived: an allow-list needs a check in
+	the direction that says an entry is no longer needed, not only one that says it still
+	parses.
+	"""
+
+	# **Against the update model alone, not create.** An entry here means the field cannot be
+	# *changed* — `#44` is about re-parenting a task that exists, and `parent_task_id` is
+	# accepted on create, so unioning the two would report it closed while the gap it names is
+	# wide open. The first run of this check did exactly that.
+	closed = sorted(
+		field
+		for field in UNSETTABLE
+		if field in _fields(view) and WRITTEN_AS.get(field, field) in _fields(update)
+	)
+
+	assert not closed, (
+		f"{closed} are recorded in UNSETTABLE and the {name} endpoints now accept them. "
+		f"Delete the entries — that is what closes the items they name."
+	)
 
 
 def test_every_known_gap_names_the_item_tracking_it () -> None:

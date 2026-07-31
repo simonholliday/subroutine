@@ -32,6 +32,7 @@ import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
@@ -503,6 +504,100 @@ def test_both_attribute_a_document_to_whoever_wrote_it (pair: Pair) -> None:
 
 	assert local.create_document(title="Mine").owner_id == pair.user.id
 	assert remote.create_document(title="Also mine").owner_id == pair.user.id
+
+
+def test_both_reclassify_an_item_the_same_way (pair: Pair) -> None:
+	"""``#42``. What something is becomes clear after it has been looked at.
+
+	It was settable at creation and nowhere else, so a task filed as a task could never become
+	a bug — and on the surface an agent uses it could not be set at creation either, so
+	*everything* an agent filed was a task for ever. That is not an edge case: it made the
+	rule "the type is a promise about what the title says" one an agent physically could not
+	follow.
+	"""
+
+	first = make(pair, "A distant date renders as if it were this year")
+	second = make(pair, "Another one")
+
+	local, remote = pair.both()
+
+	assert local.update(ref=first.ref, type="bug").type == "bug"
+	assert remote.update(ref=second.ref, type="bug").type == "bug"
+
+	# And back again, because reclassifying is not a one-way door either.
+	assert local.update(ref=first.ref, type="feature").type == "feature"
+
+
+def test_both_file_with_a_type_in_one_call (pair: Pair) -> None:
+	"""So the type is right when it is filed, rather than one call and one memory later.
+
+	``type`` rides beside the captured line rather than inside it: §6.13's sigils are for
+	things somebody types mid-sentence, and "this is a bug" is a classification *about* the
+	sentence rather than part of it.
+	"""
+
+	local, remote = pair.both()
+
+	assert local.capture(text="Fix the header", type="bug").task.type == "bug"
+	assert remote.capture(text="Fix the footer", type="bug").task.type == "bug"
+
+	# Unset still means the default, so an ordinary capture is unchanged.
+	assert local.capture(text="Buy milk").task.type == "task"
+
+
+def test_reclassifying_leaves_the_status_where_it_was (pair: Pair) -> None:
+	"""**The decision inside `#42`**, and the one worth pinning.
+
+	A type carries a default status set at creation. Dragging the status along with a later
+	type change would move a half-finished bug back to "open" because somebody corrected its
+	classification — a second change, unasked, wearing the first one's clothes.
+	"""
+
+	task = make(pair, "Half done already")
+	local, _remote = pair.both()
+
+	local.update(ref=task.ref, status="in_progress")
+
+	assert local.update(ref=task.ref, type="bug").status == "in_progress"
+
+
+def test_both_refuse_a_type_that_does_not_exist (pair: Pair) -> None:
+	"""And identically, because a vocabulary is a contract and a typo is the common case."""
+
+	task = make(pair, "Something")
+	local, remote = pair.both()
+	refusals = []
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.update(ref=task.ref, type="epic")
+
+		refusals.append(refused.value)
+
+	assert refusals[0].detail == refusals[1].detail
+
+
+def test_a_type_change_is_recorded_as_something_that_happened (pair: Pair) -> None:
+	"""``_snapshot`` decides both what an event says and whether one is written at all.
+
+	A field it forgets is a change that bumps the version and leaves no trace — which is how
+	``urgency`` shipped a column, a constraint, a sort key and a compact-line cell without an
+	event for a day. Adding a writable field means adding it there too.
+	"""
+
+	task = make(pair, "Reclassify me")
+	local, _remote = pair.both()
+
+	local.update(ref=task.ref, type="bug")
+
+	events = pair.session.scalars(
+		sqlalchemy.select(subroutine.db.models.activity.Event).where(
+			subroutine.db.models.activity.Event.entity_id == task.id
+		)
+	).all()
+	changed = [name for event in events for name in (event.changes or {})]
+
+	assert "type_id" in changed, changed
 
 
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
