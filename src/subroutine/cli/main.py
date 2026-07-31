@@ -24,6 +24,7 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 import typer
 
+import subroutine
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
@@ -1240,6 +1241,43 @@ def _default_instance_name () -> str:
 		return "Subroutine"
 
 
+def _report_version (asked: bool) -> None:
+	"""Print what is installed, and stop before anything else runs.
+
+	Two numbers, because two different conversations need them. The **release** is what a bug
+	report is asked for first. The **schema** is what an upgrade is about (SPEC.md §12.4a): the
+	package manager moves the code and this command says which shape of database that code now
+	expects, so a migration can be planned rather than discovered.
+
+	The version is read from the installed distribution rather than written here, because a
+	constant in the source is a second copy of the one in ``pyproject.toml`` and the two would
+	part company at the first release. Running from a source tree with nothing installed says
+	``0.0.0+unknown``, which is true and is not a version anybody will mistake for one.
+
+	**Handled as a parameter callback, which is what lets it answer through a broken profile.**
+	A bad ``--profile`` — or a stale ``SUBROUTINE_PROFILE`` in the environment — refuses every
+	command by design (SPEC.md §12.5), and "what am I running?" is the question somebody asks
+	*while* working that out. Parameters are processed before the callback body, so this runs
+	and exits before :func:`subroutine.config.use_profile` is ever reached; printing from the
+	body instead makes ``subroutine --profile ../evil --version`` exit 2 with a message about
+	the profile, which ``tests/test_smoke.py`` was checked against. ``is_eager`` is not what
+	buys that today — no other option here has a callback to be ordered against — it is what
+	keeps it true if one grows.
+	"""
+
+	if not asked:
+		return
+
+	_say(f"subroutine {subroutine.__version__}")
+	_say(f"schema {subroutine.db.migrate.head_revision() or 'unknown'}")
+
+	# The schema line above is what this build *expects*; `db current` is what the database in
+	# front of you actually has. One without the other cannot answer whether an upgrade is owed.
+	subroutine.cli.personal.suggest("subroutine db current      what your database is at")
+
+	raise typer.Exit()
+
+
 @app.callback()
 def _default (
 	context: typer.Context,
@@ -1254,6 +1292,13 @@ def _default (
 		"--profile",
 		help="Act on a separate installation on this machine, by name.",
 		envvar=subroutine.config.PROFILE_VARIABLE,
+	),
+	version: bool = typer.Option(
+		False,
+		"--version",
+		callback=_report_version,
+		is_eager=True,
+		help="Print the installed version and the schema it expects.",
 	),
 ) -> None:
 	"""Project management for people and agents, in equal measure.
