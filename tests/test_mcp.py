@@ -16,14 +16,17 @@ import typing
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.models.project
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
+import subroutine.domain.documents
 import subroutine.mcp.protocol
 import subroutine.mcp.tools
 
@@ -645,3 +648,41 @@ def test_add_tells_the_agent_what_the_grammar_read (
 
 	assert not failed, plain
 	assert plain.count("\n") == 0, plain
+
+
+def test_listing_ready_work_leaves_documents_out_of_it (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""``#136``. §6.14: a document is not scheduled and nothing blocks one.
+
+	So every document would report as ready — true, and useless. On this instance that is
+	every specification and every decision, which is enough of them to bury the tasks the
+	caller asked about. The listing spans both kinds everywhere else by design (§6.2); this is
+	the one question where that is the wrong answer.
+
+	Written here rather than through the CLI because a document cannot be created from the CLI
+	at all (``#138``) — which is itself the reason this test was worth chasing down.
+	"""
+
+	inbox = session.scalars(
+		sqlalchemy.select(subroutine.db.models.project.Project).where(
+			subroutine.db.models.project.Project.is_inbox
+		)
+	).one()
+
+	subroutine.domain.documents.create(
+		session,
+		project=inbox,
+		title="A conclusion somebody reached",
+		body="Nothing blocks a document and nothing schedules one.",
+	)
+	session.flush()
+
+	_added(bound, "A task somebody could start")
+
+	everything, _failed = _called(bound, "subroutine_list")
+	startable, _failed = _called(bound, "subroutine_list", ready=True)
+
+	assert "A conclusion somebody reached" in everything, everything
+	assert "A conclusion somebody reached" not in startable, startable
+	assert "A task somebody could start" in startable, startable

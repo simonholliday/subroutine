@@ -976,6 +976,7 @@ def register (
 		project: str | None = None,
 		deferred: bool = False,
 		q: str | None = None,
+		ready: bool = False,
 	) -> None:
 		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
@@ -999,6 +1000,7 @@ def register (
 				project=project,
 				deferred=not hiding,
 				q=q,
+				ready=ready,
 			)
 
 			_report(world, gathered.failures)
@@ -1118,6 +1120,11 @@ def register (
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
+		ready: bool = typer.Option(
+			False,
+			"--ready",
+			help="Only what you could start now — nothing unfinished blocks it.",
+		),
 	) -> None:
 		"""List everything still open — tasks and documents — newest first.
 
@@ -1140,6 +1147,7 @@ def register (
 			order=order or None,
 			project=project or None,
 			deferred=deferred,
+			ready=ready,
 		)
 
 	@app.command()
@@ -1201,6 +1209,11 @@ def register (
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
+		ready: bool = typer.Option(
+			False,
+			"--ready",
+			help="Only what you could start now — nothing unfinished blocks it.",
+		),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
 
@@ -1217,6 +1230,7 @@ def register (
 			order=order or None,
 			project=project or None,
 			deferred=deferred,
+			ready=ready,
 		)
 
 	@app.command()
@@ -1733,6 +1747,7 @@ def register (
 		project: str | None = None,
 		deferred: bool = False,
 		q: str | None = None,
+		ready: bool = False,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -1781,8 +1796,16 @@ def register (
 						project=project,
 						deferred="include" if deferred else "exclude",
 						q=q,
+						ready=ready,
 					)
 				)
+
+				# **`--ready` is about work you could start, so a document is not an answer to
+				# it** (`#136`). §6.14 says a document is not scheduled and nothing blocks one,
+				# so including them would mean every specification and decision in the instance
+				# reported as ready — which is true and useless, and would bury the tasks.
+				if ready:
+					continue
 
 				if not deferred:
 					# **A second request, and it buys the difference between narrowing a

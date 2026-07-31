@@ -55,6 +55,13 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 						),
 					},
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"ready": {
+						"type": "boolean",
+						"description": (
+							"Only work that can be started: nothing unfinished blocks it and "
+							"it is not deferred. Does not read an item's own status."
+						),
+					},
 					"workspace": {"type": "string", "description": "Workspace name or id."},
 				},
 			},
@@ -175,17 +182,25 @@ def _listed (
 	given = arguments.get("limit")
 	limit = DEFAULT_LIMIT if given is None else given
 
+	# **The one question this answers that a list of tasks does not** (`#136`, §6.5a). It
+	# reached the HTTP endpoint and nothing else until then, so an agent asked what to work on
+	# could only ever sort a backlog — which is what every other tool offers.
+	ready = bool(arguments.get("ready"))
+
 	tasks = client.tasks(
-		workspace=workspace, limit=limit, order=_text(arguments, "order")
+		workspace=workspace, limit=limit, order=_text(arguments, "order"), ready=ready
 	)
 
 	# **`limit` bounds the answer, not each kind.** Asking for five and receiving five tasks
 	# followed by five documents is the caller's budget spent twice, which for an agent is
 	# the whole cost of the call. Tasks first because a ranking is what the limit is usually
 	# for, and documents fill whatever is left.
+	# **Never documents when `ready` was asked for.** §6.14 says a document is not scheduled
+	# and nothing blocks one, so every specification and decision in the instance would report
+	# as ready — true, useless, and enough of them to bury the tasks the caller asked about.
 	documents = (
 		client.documents(workspace=workspace, limit=limit - len(tasks))
-		if len(tasks) < limit
+		if len(tasks) < limit and not ready
 		else []
 	)
 	rows = [_line(task) for task in tasks] + [_line(document) for document in documents]

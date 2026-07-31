@@ -382,6 +382,82 @@ def test_both_refuse_an_unusable_key_the_same_way (pair: Pair) -> None:
 	assert refusals[0].code == refusals[1].code
 
 
+def _blocks (pair: Pair, blocker: subroutine.views.Task, blocked: subroutine.views.Task) -> None:
+	"""Record that one task cannot start until another is finished."""
+
+	def end (task: subroutine.views.Task) -> subroutine.domain.links.End:
+		"""Describe one side of the link."""
+
+		return subroutine.domain.links.End(
+			entity_type="task",
+			id=task.id,
+			ref=task.ref,
+			title=task.title,
+			project_id=task.project_id,
+		)
+
+	subroutine.domain.links.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		source=end(blocker),
+		target=end(blocked),
+		link_type_key="blocks",
+	)
+	pair.session.flush()
+
+
+def test_both_narrow_to_ready_work_the_same_way (pair: Pair) -> None:
+	"""``#136``. The one question this tool answers that a list of tasks does not (§6.5a).
+
+	It reached ``GET /v1/tasks?ready=true`` and nothing else, so the two transports had never
+	been compared on it — and the local one had no implementation at all to compare.
+	"""
+
+	first = make(pair, "Do this first")
+	second = make(pair, "Then this")
+	free = make(pair, "Unrelated")
+
+	_blocks(pair, first, second)
+
+	local, remote = pair.both()
+	ready = {task.ref for task in local.tasks(ready=True)}
+
+	assert ready == {task.ref for task in remote.tasks(ready=True)}
+	assert second.ref not in ready, "blocked by something unfinished"
+	assert {first.ref, free.ref} <= ready
+
+
+def test_readiness_ignores_a_status_somebody_set_by_hand (pair: Pair) -> None:
+	"""**The property most likely to be quietly changed**, and the one worth pinning (§5.5).
+
+	A ``blocks`` link is a tracked dependency that resolves itself when the other side is
+	finished. A status somebody typed is a declaration about the world, usually about
+	something outside the system, and nothing here can tell when it stops being true. Folding
+	the second into readiness would mean a filter that silently never returns work nobody
+	remembered to un-declare.
+	"""
+
+	declared = make(pair, "Waiting on the supplier")
+
+	local, remote = pair.both()
+	local.update(ref=declared.ref, status="blocked")
+
+	assert declared.ref in {task.ref for task in local.tasks(ready=True)}
+	assert declared.ref in {task.ref for task in remote.tasks(ready=True)}
+
+
+def test_readiness_excludes_work_deferred_to_a_later_date (pair: Pair) -> None:
+	"""The other half of the predicate, and the reason it subsumes ``deferred``."""
+
+	later = make(pair, "Chase it up next week")
+	local, remote = pair.both()
+
+	local.schedule(ref=later.ref, start=datetime.date.today() + datetime.timedelta(days=7))
+
+	assert later.ref not in {task.ref for task in local.tasks(ready=True)}
+	assert later.ref not in {task.ref for task in remote.tasks(ready=True)}
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 

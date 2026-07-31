@@ -162,6 +162,7 @@ class Client:
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
 		parent: int | None = None,
+		ready: bool = False,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -202,6 +203,15 @@ class Client:
 			if q:
 				statement = statement.where(
 					subroutine.domain.search.matching(q, model.title, model.description)
+				)
+
+			# **After the deferral filter, which it subsumes**, and in the same order the
+			# endpoint applies them: `ready` already excludes anything parked, so combining the
+			# two narrows rather than contradicts. One predicate, shared with `GET /v1/tasks`,
+			# because a readiness that meant something different here would be worse than none.
+			if ready:
+				statement = statement.where(
+					subroutine.domain.readiness.ready(model, now=subroutine.db.types.utcnow())
 				)
 
 			if parent is not None:

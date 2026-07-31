@@ -125,6 +125,7 @@ class Client(typing.Protocol):
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
 		parent: int | None = None,
+		ready: bool = False,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -145,6 +146,16 @@ class Client(typing.Protocol):
 		narrowing a list and truncating one in silence.
 
 		``q`` is §9.4's free-text match, over the title **and the description**.
+
+		``ready`` narrows to work that can actually be started: nothing unfinished blocks it and
+		it is not deferred to a future date (§6.5a). It reached the HTTP endpoint and nothing
+		else until `#136`, which made the one question this tool answers that a list of tasks
+		does not — *what can I start?* — the one question neither the CLI nor an agent could ask.
+
+		**It deliberately does not read a task's own status**, so something marked "blocked" by
+		hand is still returned. A `blocks` link is a tracked dependency that resolves itself; a
+		hand-set status is a declaration about the world, and the two are not the same claim
+		(§5.5, and the decision that there is no fifth status category).
 
 		``parent`` narrows to one item's **direct children**, by ref. A parent this caller
 		cannot see is "no such task" rather than an empty list — an empty listing would claim

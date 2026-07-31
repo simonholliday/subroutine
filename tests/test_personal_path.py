@@ -1855,3 +1855,45 @@ def test_an_ordinary_line_is_answered_exactly_as_before (
 	run("init")
 
 	assert run("add", "Buy milk").output.splitlines()[0].strip() == "Added: Buy milk"
+
+
+def test_ready_hides_work_that_cannot_be_started (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#136``. Until this landed, the answer to "what should I work on" was a sorted
+	backlog — which is what every other tool offers.
+
+	Deferred work is the half the CLI could already express, through ``--deferred``; blocked
+	work is the half it could not express at all.
+	"""
+
+	run("init")
+	run("add", "Do this one")
+	run("add", "Chase it up next week")
+	run("defer", "2", "now+7d")
+
+	printed = run("list", "--ready").output
+
+	assert "Do this one" in printed
+	assert "Chase it up next week" not in printed, printed
+
+
+def test_ls_and_list_offer_the_same_flags (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""They share one body, so a flag on one and not the other is a silent divergence.
+
+	``ls`` is the hidden short name for ``list`` and nothing in the help says they differ —
+	somebody who learned ``--ready`` on one has every reason to expect it on the other.
+	"""
+
+	def flags (command: str) -> set[str]:
+		"""Return the long options a command declares."""
+
+		return {
+			word.strip(" │")
+			for word in run(command, "--help").output.split()
+			if word.startswith("--")
+		}
+
+	assert flags("list") == flags("ls")
