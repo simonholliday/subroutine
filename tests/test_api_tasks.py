@@ -1737,3 +1737,160 @@ def test_reporting_a_parent_costs_no_query_per_row (
 		f"a page of 12 children took {large} queries where a page of 2 took {small}: "
 		f"reporting the parent is fanning out per row"
 	)
+
+
+def test_a_task_can_be_moved_between_projects (world: World) -> None:
+	"""`#43`: a task's project was fixed at creation forever.
+
+	Felt directly rather than reasoned about — `#23` filed seven tasks into the Inbox behind
+	seven 201s, and had they stayed misfiled there would have been no way to move them. The
+	capture path was fixed; this is the other half.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	made = world.call("POST", "/v1/tasks", json={"title": "Filed nowhere"}).json()
+
+	assert made["project_key"].upper() == "INBOX"
+
+	moved = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "WEB"}).json()
+
+	assert moved["project_key"] == "WEB"
+	assert moved["version"] > made["version"], "a move is a change and moves the version"
+
+
+def test_moving_a_task_takes_its_parts_with_it (world: World) -> None:
+	"""The invariant runs in both directions, so the subtree is not optional.
+
+	`create` refuses a subtask in a different project from its parent. Moving a parent and
+	leaving its children behind would break that from the other side — and silently, since
+	nothing re-checks it afterwards.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	parent = world.call("POST", "/v1/tasks", json={"title": "The feature"}).json()
+	child = world.call(
+		"POST", "/v1/tasks", json={"title": "A part", "parent_task_id": str(parent["id"])}
+	).json()
+	grandchild = world.call(
+		"POST", "/v1/tasks", json={"title": "A smaller part", "parent_task_id": str(child["id"])}
+	).json()
+
+	world.call("PATCH", f"/v1/tasks/{parent['ref']}", json={"project": "WEB"})
+
+	for ref in (parent["ref"], child["ref"], grandchild["ref"]):
+		found = world.call("GET", f"/v1/tasks/{ref}").json()
+
+		assert found["project_key"] == "WEB", f"#{ref} was left behind"
+
+	# **The parts' versions move too.** A client holding one and sending it back under §8.9
+	# has a stale view of where that task lives, which is what the check exists to catch.
+	assert world.call("GET", f"/v1/tasks/{child['ref']}").json()["version"] > child["version"]
+
+
+def test_a_part_cannot_be_moved_out_of_its_parent (world: World) -> None:
+	"""Refused, and the refusal names what to do instead rather than just saying no."""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	parent = world.call("POST", "/v1/tasks", json={"title": "The feature"}).json()
+	child = world.call(
+		"POST", "/v1/tasks", json={"title": "A part", "parent_task_id": str(parent["id"])}
+	).json()
+
+	response = world.call("PATCH", f"/v1/tasks/{child['ref']}", json={"project": "WEB"})
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "project"
+	assert "parent" in body["errors"][0]["hint"].lower()
+
+	# And nothing moved.
+	assert world.call("GET", f"/v1/tasks/{child['ref']}").json()["project_key"].upper() == "INBOX"
+
+
+def test_an_ordinary_edit_does_not_refile_the_task (world: World) -> None:
+	"""The trap this shape invites, and the one `#23` already sprang once.
+
+	`selection.project` answers `None` with the workspace's Inbox, so passing the body's
+	project through unconditionally would file every ordinary edit into the Inbox — behind a
+	200 this time rather than a 201.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Filed on purpose", "project": "WEB"}
+	).json()
+
+	edited = world.call(
+		"PATCH", f"/v1/tasks/{made['ref']}", json={"title": "Renamed, not refiled"}
+	).json()
+
+	assert edited["project_key"] == "WEB"
+
+
+def test_a_move_is_recorded_as_a_change (world: World) -> None:
+	"""§10.7 invariant 9: a change that writes no event is a change nobody can audit.
+
+	`_snapshot` decides both what an event says *and whether one is written at all*, so a
+	field missing from it is a silent hole — which is exactly how `urgency` went untracked
+	for a day.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	made = world.call("POST", "/v1/tasks", json={"title": "Moves house"}).json()
+
+	world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "WEB"})
+
+	events = world.call("GET", f"/v1/tasks/{made['ref']}/events").json()["items"]
+
+	assert any("project_id" in (event.get("changes") or {}) for event in events)
+
+
+def test_a_move_is_refused_when_the_destination_is_out_of_reach (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**Both ends are checked, and the destination is the one that could leak.**
+
+	A caller who may write where the task is but not where it is going must not be able to
+	move work out of their own reach — nor learn from a half-applied change that the target
+	exists at all. §7.3a hides a private project's contents, so this comes back as "no such
+	project" rather than as a refusal that confirms one.
+	"""
+
+	world = _world(session)
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	private = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="SECRET",
+		title="Secret",
+		visibility="private",
+		owner_id=world.user.id,
+	)
+	session.flush()
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+
+	nosy = World(
+		application=world.application,
+		session=session,
+		user=outsider,
+		workspace=world.workspace,
+		secret=issued.value.get_secret_value(),
+	)
+
+	mine = nosy.call("POST", "/v1/tasks", json={"title": "Mine to edit"}).json()
+	response = nosy.call("PATCH", f"/v1/tasks/{mine['ref']}", json={"project": private.key})
+
+	assert response.status_code == 404, response.text
+
+	# And it stayed where it was.
+	assert nosy.call("GET", f"/v1/tasks/{mine['ref']}").json()["project_key"].upper() == "INBOX"

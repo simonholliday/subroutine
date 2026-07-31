@@ -461,6 +461,7 @@ def update (
 	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start_is_all_day: bool | None = None,
+	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
@@ -558,6 +559,62 @@ def update (
 		timezone=zone,
 	)
 
+	# **The move is validated here and applied below, like every other field**, even though
+	# it writes more than one row. From a caller's side "this is in the wrong project" is a
+	# field being wrong; the subtree following is an *invariant being maintained*, exactly as
+	# `completed_at` follows the status two blocks down. SPEC.md reserves
+	# `POST /v1/tasks/{id}/move` for re-parenting (#44), which genuinely needs a cycle check
+	# and a body of its own.
+	moving = project is not subroutine.domain.patch.UNSET and project.id != task.project_id
+	descendants: list[subroutine.db.models.work.Task] = []
+
+	if moving:
+		if project.workspace_id != task.workspace_id:
+			# #30, and much larger: a cross-workspace move rewrites the ref's tenancy, which
+			# §6.2 spent real care making stable. Refused by name rather than half-done.
+			raise subroutine.errors.ValidationError(
+				"A task cannot be moved to a project in another workspace.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project",
+						code="invalid_field_value",
+						message=f"{project.key!r} is in a different workspace.",
+						hint="Move it to a project in the same workspace, or create it there.",
+					)
+				],
+			)
+
+		# **Both ends, and the new one is checked in the pass that may raise.** A caller who
+		# may write here but not there must not be able to move work out of their reach —
+		# and must not learn from a half-applied change that the target exists.
+		_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
+
+		if task.parent_task_id is not None:
+			# The invariant runs both ways: `create` refuses a subtask in a different project
+			# from its parent, so moving a child alone would break it from the other side.
+			# Naming the parent is what makes this actionable rather than a wall.
+			raise subroutine.errors.ValidationError(
+				"A subtask belongs to the same project as its parent.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project",
+						code="invalid_field_value",
+						message="This task is part of another task, which decides its project.",
+						hint="Move the parent instead — its parts go with it.",
+					)
+				],
+			)
+
+		descendants = list(
+			session.scalars(
+				sqlalchemy.select(subroutine.db.models.work.Task).where(
+					subroutine.domain.hierarchy.subtree(subroutine.db.models.work.Task, task),
+					subroutine.db.models.work.Task.id != task.id,
+					subroutine.db.models.work.Task.deleted_at.is_(None),
+				)
+			)
+		)
+
 	before = _snapshot(task)
 	touches_content = False
 
@@ -580,6 +637,16 @@ def update (
 		task.completed_at = (
 			subroutine.db.types.utcnow() if status.category in FINISHED_CATEGORIES else None
 		)
+
+	if moving:
+		task.project_id = project.id
+
+		# **The parts go with it, because the invariant says they must.** Their own version
+		# is bumped: a client holding one and sending it back under §8.9 has a stale view of
+		# where that task lives, which is exactly what the check exists to catch.
+		for descendant in descendants:
+			descendant.project_id = project.id
+			descendant.version += 1
 
 	if assignee_id is not subroutine.domain.patch.UNSET:
 		task.assignee_id = assignee_id
@@ -771,6 +838,7 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 	return {
 		"title": task.title,
 		"completed_at": task.completed_at,
+		"project_id": task.project_id,
 		"description": task.description,
 		"status_id": task.status_id,
 		"assignee_id": task.assignee_id,

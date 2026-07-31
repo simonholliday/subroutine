@@ -108,10 +108,6 @@ UNSETTABLE: dict[str, str] = {
 		"#42 - a task created as a `task` cannot become a `bug`. Accepted on create, "
 		"absent from update."
 	),
-	"project_id": (
-		"#43 - nothing moves a task between projects. `projects.move` moves a project; "
-		"there is no task equivalent and PATCH has no `project`."
-	),
 	"parent_task_id": (
 		"#44 - a subtask cannot be re-parented, or promoted to a top-level task, after it "
 		"is created."

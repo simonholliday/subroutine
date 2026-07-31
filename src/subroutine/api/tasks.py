@@ -121,6 +121,11 @@ class Update(subroutine.api.schemas.RequestModel):
 	importance: int | None = None
 	urgency: int | None = None
 	estimate: int | str | None = None
+
+	#: Move the task to another project in the same workspace, by key or id (#43). Its parts
+	#: go with it. **Not nullable**, unlike most fields here: every task is in a project, and
+	#: `null` would have to mean the Inbox — a destination somebody should have to name.
+	project: str | None = None
 	due: str | None = None
 	due_is_all_day: bool | None = None
 	planned_for: str | None = None
@@ -459,6 +464,15 @@ def change (
 	):
 		if name in supplied and getattr(body, name) is not None:
 			changes[parameter] = getattr(body, name)
+
+	# Resolved through the domain, so `SR` names one project and an unknown key is refused
+	# the same way whichever transport asked. Only when sent and not null: `selection.project`
+	# answers `None` with the Inbox, so passing it through unconditionally would file every
+	# ordinary edit into the Inbox — the misfiling `#23` produced, with a 200 instead of a 201.
+	if body.project is not None:
+		changes["project"] = subroutine.domain.selection.project(
+			session, actor, workspace, body.project
+		)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
 		updated = subroutine.domain.tasks.update(
