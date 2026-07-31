@@ -171,6 +171,9 @@ def listing (
 	q: str | None = fastapi.Query(
 		None, description="Match this text in the title or the body."
 	),
+	deleted: bool = fastapi.Query(
+		False, description="Show *only* what is in the trash, rather than including it."
+	),
 	order: str | None = fastapi.Query(None, description="Comma-separated sort fields."),
 	limit: int | None = fastapi.Query(
 		None,
@@ -193,10 +196,15 @@ def listing (
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_documents(
-		actor, workspace_ids=[workspace.id]
+		actor, workspace_ids=[workspace.id], include_deleted=deleted
 	)
 
 	model = subroutine.db.models.work.Document
+
+	# Narrowed to what was widened for, as on tasks: `include_deleted` widens and this asks
+	# only for the trash.
+	if deleted:
+		statement = statement.where(model.deleted_at.is_not(None))
 
 	if project is not None:
 		statement = statement.where(
@@ -352,6 +360,34 @@ def change (
 		)
 
 	return _rendered(session, updated)
+
+
+@router.post("/{id_or_ref}/restore", summary="Take a document out of the trash")
+def unremove (
+	request: starlette.requests.Request,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Document:
+	"""Restore a soft-deleted document — the task endpoint's counterpart (SPEC.md §6.9).
+
+	Both, because one ref counter serves both kinds (§6.2): a restore that worked on half the
+	numbers would surprise anybody holding a ref.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	document = _resolve(session, actor, workspace, id_or_ref)
+
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
+		back = subroutine.domain.documents.restore(
+			session,
+			document,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, back)
 
 
 @router.delete("/{id_or_ref}", summary="Move a document to the trash")

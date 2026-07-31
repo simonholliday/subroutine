@@ -349,6 +349,49 @@ def delete (
 	return document
 
 
+def restore (
+	session: sqlalchemy.orm.Session,
+	document: subroutine.db.models.work.Document,
+	*,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Document:
+	"""Take a document back out of the trash — ``tasks.restore``'s counterpart (SPEC.md §6.9).
+
+	Both, because one ref counter serves both kinds (§6.2) and ``show`` takes either, so a
+	restore that worked on half the numbers would be a surprise nobody could predict from the
+	ref they were holding.
+	"""
+
+	_permitted(
+		session,
+		actor,
+		subroutine.permissions.TASK_DELETE,
+		project=session.get(subroutine.db.models.project.Project, document.project_id),
+		workspace_id=document.workspace_id,
+	)
+	subroutine.domain.versions.require(document, expected_version, noun="This document")
+
+	if document.deleted_at is None:
+		return document
+
+	document.deleted_at = None
+	document.version += 1
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=document.workspace_id,
+		entity_type="document",
+		entity_id=document.id,
+		action=subroutine.domain.events.EventAction.RESTORED,
+		actor=actor,
+	)
+	session.flush()
+
+	return document
+
+
 def status_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None
 ) -> subroutine.db.models.vocabulary.Status:

@@ -42,6 +42,10 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/projects"): "create_project",
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
+	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
+	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
+	("POST", "/v1/tasks/{id_or_ref}/restore"): "undiscard",
+	("POST", "/v1/documents/{id_or_ref}/restore"): "undiscard",
 }
 
 #: Mutating routes no client reaches, and why. **A reason, not a shrug** — "not built yet" is
@@ -83,14 +87,6 @@ NOT_REACHED: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/comments/{comment_id}"): (
 		"`#141`, alongside editing one — and the more useful of the pair, since deleting is "
 		"the honest alternative to rewriting somebody's attributed words."
-	),
-	("DELETE", "/v1/tasks/{id_or_ref}"): (
-		"**The one of these that is a wall** — filing something by mistake and having no way "
-		"to take it back, on a personal to-do list. `#140`."
-	),
-	("DELETE", "/v1/documents/{id_or_ref}"): (
-		"`#140`, alongside deleting a task: one counter serves both kinds and `show` takes "
-		"either, so a command that removed only one of them would be a surprise."
 	),
 	("DELETE", "/v1/projects/{id_or_key}"): (
 		"Deleting a project takes its tasks out of the visible world with it. That wants "

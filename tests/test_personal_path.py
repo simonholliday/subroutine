@@ -1949,3 +1949,75 @@ def test_writing_a_document_needs_no_type_or_project (
 	run("init")
 
 	assert "Wrote:" in run("doc", "create", "Just a thought").output
+
+
+def test_something_added_by_mistake_can_be_taken_off_the_list (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#140``, and the wall was on the surface §1.4 exists to protect.
+
+	Adding "Buy mikl" left you with "Buy mikl" for ever. ``done`` was the only way to make it
+	go away, and it is a lie: it says the thing happened.
+	"""
+
+	run("init")
+	run("add", "Buy mikl")
+	run("add", "Call the dentist")
+
+	assert "Deleted: Buy mikl" in run("delete", "1").output
+
+	remaining = run("list").output
+
+	assert "Buy mikl" not in remaining
+	assert "Call the dentist" in remaining
+
+
+def test_the_wrong_thing_deleted_can_be_put_back (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The second commonest mistake after deleting something, and the reason it is soft.
+
+	The suggestion printed by ``delete`` is the command that does it, not a reassurance that it
+	could be done — a claim the reader has to trust against one they can run. It carries the
+	ref because after this the item is out of every listing, so the number on screen is the
+	only way back to it.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	assert "subroutine restore 1" in run("delete", "1").output
+	assert "Restored: Buy milk" in run("restore", "1").output
+	assert "Buy milk" in run("list").output
+
+
+def test_the_trash_is_a_separate_list_rather_than_a_wider_one (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Nothing in a compact row says whether it is deleted, so a mixed list cannot be read."""
+
+	run("init")
+	run("add", "Kept")
+	run("add", "Discarded")
+	run("delete", "2")
+
+	trash = run("list", "--trash").output
+
+	assert "Discarded" in trash
+	assert "Kept" not in trash, trash
+
+
+def test_a_document_can_be_deleted_and_restored_by_the_same_commands (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One counter serves both kinds (§6.2), and nothing about a number says which it is.
+
+	A `delete` that worked on half the refs would be a surprise nobody could predict from the
+	one they were holding.
+	"""
+
+	run("init")
+	run("doc", "create", "Written by mistake")
+
+	assert "Deleted: Written by mistake" in run("delete", "1").output
+	assert "Restored: Written by mistake" in run("restore", "1").output

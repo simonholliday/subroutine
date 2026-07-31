@@ -871,6 +871,66 @@ def delete (
 	return task
 
 
+def restore (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""Take a task back out of the trash (SPEC.md §6.9).
+
+	**The half of soft delete that made it soft**, and it did not exist until `#140`. §6.9 says
+	a deleted item is "restorable for a configurable retention period", ``trash_retention_days``
+	has been a setting since the beginning, and ``EventAction.RESTORED`` has been in the
+	vocabulary just as long — with nothing anywhere setting ``deleted_at`` back to null. So the
+	promise was made in three places and kept in none, and "delete" meant "gone" whatever the
+	documentation said.
+
+	It matters more than an undo usually does, because of what deletion is *for* here: the
+	commonest reason to remove something from a to-do list is that it was added by mistake, and
+	the second commonest is that the wrong one was removed.
+
+	The same permission as deleting, deliberately. Putting something back is the same authority
+	over the same row, and a caller who could restore but not delete could resurrect work
+	somebody with more rights had thrown away.
+
+	Restoring twice is not an error, symmetrically with deleting twice — and neither moves a
+	timestamp that is already where it belongs.
+	"""
+
+	_permitted(
+		session,
+		actor,
+		subroutine.permissions.TASK_DELETE,
+		project=session.get(subroutine.db.models.project.Project, task.project_id),
+		workspace_id=task.workspace_id,
+	)
+	subroutine.domain.versions.require(task, expected_version, noun="This task")
+
+	if task.deleted_at is None:
+		return task
+
+	task.deleted_at = None
+
+	# For `delete`'s reason: a restore is a change, and §8.9's guard compares a number that has
+	# to move or it silently passes for a caller reading stale state.
+	task.version += 1
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=task.workspace_id,
+		entity_type="task",
+		entity_id=task.id,
+		action=subroutine.domain.events.EventAction.RESTORED,
+		actor=actor,
+	)
+	session.flush()
+
+	return task
+
+
 def _snapshot (
 	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
 ) -> dict[str, typing.Any]:

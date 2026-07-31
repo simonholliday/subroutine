@@ -126,6 +126,7 @@ class Client(typing.Protocol):
 		q: str | None = None,
 		parent: int | None = None,
 		ready: bool = False,
+		deleted: bool = False,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -180,6 +181,7 @@ class Client(typing.Protocol):
 		order: str | None = None,
 		project: str | None = None,
 		q: str | None = None,
+		deleted: bool = False,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 
@@ -344,6 +346,33 @@ class Client(typing.Protocol):
 
 		``estimate`` takes §6.4's grammar, so ``"4h"`` works here exactly as ``~4h`` does in
 		a captured line.
+		"""
+
+	def discard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Move an item to the trash (§6.9), returning it as it now is.
+
+		**Named for what it does rather than for the verb underneath.** ``delete`` would promise
+		more than happens: the row stays, ``deleted_at`` is set, and :meth:`undiscard` puts it
+		back. A method called ``delete`` whose sibling is ``undelete`` reads as a contradiction;
+		two words that admit the thing is reversible read as what it is.
+
+		Either kind, because one ref counter serves both (§6.2) and ``show`` already takes
+		either — nothing about a number says which kind it is, so an operation that worked on
+		half of them would surprise whoever was holding one.
+		"""
+
+	def undiscard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Take an item back out of the trash (§6.9).
+
+		**The half that made soft delete soft**, missing until `#140`. §6.9 has promised since
+		the beginning that a deleted item is "restorable for a configurable retention period";
+		``trash_retention_days`` has been a setting for as long; ``EventAction.RESTORED`` has
+		been in the vocabulary. Nothing anywhere set ``deleted_at`` back to null — so three
+		places said the same true-sounding thing about a product where "delete" meant "gone".
 		"""
 
 	def complete (

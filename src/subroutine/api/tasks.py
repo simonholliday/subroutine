@@ -283,6 +283,13 @@ def listing (
 		),
 		examples=["exclude"],
 	),
+	deleted: bool = fastapi.Query(
+		False,
+		description=(
+			"Show *only* what is in the trash, rather than including it. A mixed list would "
+			"be the one place a caller cannot tell a live item from a deleted one."
+		),
+	),
 	ready: bool = fastapi.Query(
 		False,
 		description=(
@@ -319,10 +326,19 @@ def listing (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_tasks(
-		actor, workspace_ids=[workspace.id], include_completed=include_completed
+		actor,
+		workspace_ids=[workspace.id],
+		include_completed=include_completed,
+		include_deleted=deleted,
 	)
 
 	model = subroutine.db.models.work.Task
+
+	# **Only the trash, not the trash as well.** `include_deleted` widens; this narrows to what
+	# was widened for. A mixed list is the one place a caller cannot tell a live item from a
+	# deleted one, since nothing in a compact line says which.
+	if deleted:
+		statement = statement.where(model.deleted_at.is_not(None))
 
 	if project is not None:
 		chosen = subroutine.domain.selection.project(session, actor, workspace, project)
@@ -523,6 +539,42 @@ def complete (
 		)
 
 	return _rendered(session, finished)
+
+
+@router.post("/{id_or_ref}/restore", summary="Take a task out of the trash")
+def unremove (
+	request: starlette.requests.Request,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Task:
+	"""Restore a soft-deleted task (SPEC.md §6.9).
+
+	**The half that made soft delete soft**, and it did not exist until `#140` — §6.9 promised
+	a deleted item was restorable, `trash_retention_days` has always been a setting, and
+	`EventAction.RESTORED` has always been in the vocabulary, with nothing clearing
+	`deleted_at`.
+
+	Registered before the parameterised deletes below it for `routing.check`'s reason, and
+	`POST` rather than `DELETE ?restore=` because it is not a deletion of anything.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	# `_resolve` already sees the trash — "a reference to something in the trash is more useful
+	# than a dangling one", decided long before there was anything to restore it with. Which is
+	# the whole of what this endpoint needed from it.
+	task = _resolve(session, actor, workspace, id_or_ref)
+
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		back = subroutine.domain.tasks.restore(
+			session,
+			task,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, back)
 
 
 @router.delete("/{id_or_ref}", summary="Move a task to the trash")

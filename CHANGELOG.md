@@ -29,6 +29,8 @@ its schema outright with `subroutine init`.
   deadline, both priority axes, the estimate and a tag from the line you already type.
 - Items are addressed by a number allocated once and never reused, so it goes on meaning that
   item after you have finished a dozen others.
+- `subroutine delete` and `subroutine restore`, with `list --trash` to see what is in there.
+  Deleting is soft, so the wrong number costs nothing.
 - `subroutine list --ready` shows only work that can actually be started — nothing unfinished
   blocks it and it is not deferred. It is the question a backlog cannot answer.
 - `subroutine help` explains the concepts — dates, refs, the capture shorthand — where

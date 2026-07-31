@@ -600,6 +600,97 @@ def test_a_type_change_is_recorded_as_something_that_happened (pair: Pair) -> No
 	assert "type_id" in changed, changed
 
 
+def test_both_move_an_item_to_the_trash_and_back (pair: Pair) -> None:
+	"""``#140``. Nothing added by mistake could be removed, on a personal to-do list.
+
+	`done` was the only way to make something go away, and it is a lie: it says the thing
+	happened. And the restore half had been promised in three places — §6.9's "restorable for a
+	configurable retention period", the `trash_retention_days` setting, and
+	`EventAction.RESTORED` — with nothing anywhere clearing `deleted_at`.
+	"""
+
+	mistake = make(pair, "Buy mikl")
+	other = make(pair, "Call the dentist")
+
+	local, remote = pair.both()
+
+	assert local.discard(ref=mistake.ref).deleted_at is not None
+	assert remote.discard(ref=other.ref).deleted_at is not None
+	assert {task.ref for task in local.tasks()} == set()
+
+	assert local.undiscard(ref=mistake.ref).deleted_at is None
+	assert remote.undiscard(ref=other.ref).deleted_at is None
+	assert {task.ref for task in local.tasks()} == {mistake.ref, other.ref}
+
+
+def test_both_list_the_trash_and_only_the_trash (pair: Pair) -> None:
+	"""A mixed list is the one place nothing in a row says which kind of thing it is."""
+
+	gone = make(pair, "Deleted")
+	kept = make(pair, "Kept")
+
+	local, remote = pair.both()
+	local.discard(ref=gone.ref)
+
+	assert [task.ref for task in local.tasks(deleted=True)] == [gone.ref]
+	assert [task.ref for task in remote.tasks(deleted=True)] == [gone.ref]
+	assert [task.ref for task in local.tasks()] == [kept.ref]
+
+
+def test_both_find_a_deleted_item_when_asked_for_it_by_ref (pair: Pair) -> None:
+	"""**A live divergence**, found by building `restore` and watching it fail.
+
+	`api/tasks._resolve` has always included the trash — "a reference to something in the trash
+	is more useful than a dangling one" — and the local client's `_row` did not. So
+	`client.task(ref=…)` answered one question with the task over HTTP and `None` locally.
+	Nothing noticed because nothing had ever looked one up after deleting it: there was no way
+	to delete one.
+	"""
+
+	task = make(pair, "About to go")
+	local, remote = pair.both()
+
+	local.discard(ref=task.ref)
+
+	assert local.task(ref=task.ref) == remote.task(ref=task.ref)
+	assert local.task(ref=task.ref) is not None
+
+
+def test_both_take_a_document_to_the_trash_too (pair: Pair) -> None:
+	"""One counter serves both kinds (§6.2), so an operation on half the numbers is a trap."""
+
+	local, remote = pair.both()
+	written = local.create_document(title="Written by mistake")
+
+	discarded = local.discard(ref=written.ref, entity_type="document")
+
+	assert discarded.deleted_at is not None
+	assert local.undiscard(ref=written.ref, entity_type="document").deleted_at is None
+	assert [one.ref for one in remote.documents()] == [written.ref]
+
+
+def test_discarding_twice_is_not_an_error_and_does_not_move_the_timestamp (
+	pair: Pair,
+) -> None:
+	"""Symmetrically with restoring twice. When something was thrown away is a fact.
+
+	A caller retrying a request it is unsure landed must not change the answer, which is the
+	same reason `complete` is unconditional.
+	"""
+
+	task = make(pair, "Gone")
+	local, _remote = pair.both()
+
+	first = local.discard(ref=task.ref)
+	again = local.discard(ref=task.ref)
+
+	assert first.deleted_at == again.deleted_at
+
+	local.undiscard(ref=task.ref)
+
+	assert local.undiscard(ref=task.ref).deleted_at is None
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 

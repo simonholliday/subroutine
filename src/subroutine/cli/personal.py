@@ -978,6 +978,7 @@ def register (
 		deferred: bool = False,
 		q: str | None = None,
 		ready: bool = False,
+		trash: bool = False,
 	) -> None:
 		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
@@ -1002,6 +1003,7 @@ def register (
 				deferred=not hiding,
 				q=q,
 				ready=ready,
+				trash=trash,
 			)
 
 			_report(world, gathered.failures)
@@ -1126,6 +1128,9 @@ def register (
 			"--ready",
 			help="Only what you could start now — nothing unfinished blocks it.",
 		),
+		trash: bool = typer.Option(
+			False, "--trash", help="Show what you have deleted, instead of the list."
+		),
 	) -> None:
 		"""List everything still open — tasks and documents — newest first.
 
@@ -1149,6 +1154,7 @@ def register (
 			project=project or None,
 			deferred=deferred,
 			ready=ready,
+			trash=trash,
 		)
 
 	@app.command()
@@ -1215,6 +1221,9 @@ def register (
 			"--ready",
 			help="Only what you could start now — nothing unfinished blocks it.",
 		),
+		trash: bool = typer.Option(
+			False, "--trash", help="Show what you have deleted, instead of the list."
+		),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
 
@@ -1232,6 +1241,7 @@ def register (
 			project=project or None,
 			deferred=deferred,
 			ready=ready,
+			trash=trash,
 		)
 
 	@app.command()
@@ -1522,6 +1532,65 @@ def register (
 				)
 			)
 			_suggest(console, f"subroutine show {created.ref}", "read it back")
+
+	@app.command("delete")
+	def discard_item (
+		which: str = typer.Argument("", help="Which one, by its number."),
+	) -> None:
+		"""Take something off the list that should not have been on it.
+
+		Examples:
+
+		  subroutine delete 42
+
+		It goes to the trash rather than vanishing, so it can be put back — the wrong number
+		is the commonest mistake anybody makes here, and the second commonest is making it
+		twice.
+		"""
+
+		with opened() as world:
+			located = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="delete")
+			where = world.writing_to()
+
+			gone = where.client.discard(
+				ref=located.ref,
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+
+			say(_acted(world, dataclasses.replace(located, item=gone), "Deleted"))
+
+			# **The remedy, not a reassurance.** "It can be restored" is a claim the reader has
+			# to trust; the command that does it is one they can run. Printed with the ref
+			# because after this the item is out of every listing, so the number on screen is
+			# the only way back to it.
+			_suggest(console, f"subroutine restore {located.ref}", "put it back")
+
+	@app.command("restore")
+	def undiscard_item (
+		which: str = typer.Argument("", help="Which one, by its number."),
+	) -> None:
+		"""Put something back that was deleted.
+
+		Examples:
+
+		  subroutine restore 42
+
+		  subroutine list --deleted
+		"""
+
+		with opened() as world:
+			located = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="restore")
+			where = world.writing_to()
+
+			back = where.client.undiscard(
+				ref=located.ref,
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+
+			say(_acted(world, dataclasses.replace(located, item=back), "Restored"))
+			_suggest(console, "subroutine today")
 
 	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
 	# about never *requiring* a project in order to keep a to-do list, not about hiding the
@@ -1816,6 +1885,7 @@ def register (
 		deferred: bool = False,
 		q: str | None = None,
 		ready: bool = False,
+		trash: bool = False,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -1865,6 +1935,7 @@ def register (
 						deferred="include" if deferred else "exclude",
 						q=q,
 						ready=ready,
+						deleted=trash,
 					)
 				)
 
@@ -1872,7 +1943,9 @@ def register (
 				# it** (`#136`). §6.14 says a document is not scheduled and nothing blocks one,
 				# so including them would mean every specification and decision in the instance
 				# reported as ready — which is true and useless, and would bury the tasks.
-				if ready:
+				# The trash is a different list, not a wider one: nothing parked is reported
+				# beside it, and a deferral count would be about the live list.
+				if ready or trash:
 					continue
 
 				if not deferred:
@@ -1900,6 +1973,7 @@ def register (
 						order=order if shared else None,
 						project=project,
 						q=q,
+						deleted=trash,
 					)
 				)
 

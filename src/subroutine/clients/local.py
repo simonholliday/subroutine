@@ -164,6 +164,7 @@ class Client:
 		q: str | None = None,
 		parent: int | None = None,
 		ready: bool = False,
+		deleted: bool = False,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -184,8 +185,16 @@ class Client:
 			)
 
 			statement = subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=[chosen.id], include_completed=include_completed
+				actor,
+				workspace_ids=[chosen.id],
+				include_completed=include_completed,
+				include_deleted=deleted,
 			)
+
+			# Narrowed to what was widened for: `include_deleted` widens, this asks only for
+			# the trash. A mixed list is the one place nothing in a row says which it is.
+			if deleted:
+				statement = statement.where(model.deleted_at.is_not(None))
 
 			if narrowed is not None:
 				statement = statement.where(model.project_id == narrowed.id)
@@ -278,6 +287,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		q: str | None = None,
+		deleted: bool = False,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -296,7 +306,10 @@ class Client:
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
-						actor, workspace_ids=[chosen.id]
+						actor, workspace_ids=[chosen.id], include_deleted=deleted
+					)
+					.where(
+						sqlalchemy.true() if not deleted else model.deleted_at.is_not(None)
 					)
 					.where(
 						sqlalchemy.true()
@@ -336,9 +349,15 @@ class Client:
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
+			# Deleted documents resolve, exactly as `api/documents._resolve` has always let
+			# them and as `_row` does for a task: a reference to something in the trash is
+			# more useful than a dangling one, and `restore` cannot reach what it cannot find.
 			row = session.scalars(
 				subroutine.domain.scoping.readable_documents(
-					actor, workspace_ids=[chosen.id], include_archived=True
+					actor,
+					workspace_ids=[chosen.id],
+					include_archived=True,
+					include_deleted=True,
 				).where(model.ref == ref)
 			).one_or_none()
 
@@ -557,6 +576,55 @@ class Client:
 					body=body,
 					actor=actor,
 				)
+			)
+
+	def discard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Move an item to the trash."""
+
+		self._refuse_if_read_only()
+
+		return self._moved(ref, entity_type, workspace, into_the_trash=True)
+
+	def undiscard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Take an item back out of the trash."""
+
+		self._refuse_if_read_only()
+
+		return self._moved(ref, entity_type, workspace, into_the_trash=False)
+
+	def _moved (
+		self, ref: int, entity_type: str, workspace: str | None, *, into_the_trash: bool
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Move one item into or out of the trash. One body, because they differ in one word."""
+
+		with self._writing() as (session, actor):
+			row = self._in_the_trash_too(session, actor, ref, workspace, entity_type)
+
+			if entity_type == "document":
+				service = (
+					subroutine.domain.documents.delete
+					if into_the_trash
+					else subroutine.domain.documents.restore
+				)
+
+				return subroutine.views.document(
+					service(session, row, actor=actor),
+					subroutine.views.Vocabulary.for_documents(session, [row]),
+				)
+
+			acted = (
+				subroutine.domain.tasks.delete
+				if into_the_trash
+				else subroutine.domain.tasks.restore
+			)
+
+			return subroutine.views.task(
+				acted(session, row, actor=actor),
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
 			)
 
 	def complete (
@@ -843,6 +911,49 @@ class Client:
 
 		return row
 
+	def _in_the_trash_too (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		ref: int,
+		workspace: str | None,
+		entity_type: str,
+	) -> typing.Any:
+		"""Return the task or document this ref names, **including one already in the trash**.
+
+		`_row` deliberately excludes deleted tasks, which is right for every other caller and
+		exactly wrong for the two that exist to move an item in and out of it: the one row
+		`undiscard` is for is the one `_row` cannot see. The HTTP side has always resolved
+		through a statement that includes the trash — "a reference to something in the trash is
+		more useful than a dangling one" — so this is the two transports agreeing rather than a
+		local liberty.
+		"""
+
+		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+		documents = entity_type == "document"
+		model: typing.Any = (
+			subroutine.db.models.work.Document if documents else subroutine.db.models.work.Task
+		)
+		statement = (
+			subroutine.domain.scoping.readable_documents(
+				actor, workspace_ids=[chosen.id], include_deleted=True, include_archived=True
+			)
+			if documents
+			else subroutine.domain.scoping.readable_tasks(
+				actor, workspace_ids=[chosen.id], include_deleted=True, include_archived=True
+			)
+		)
+		row = session.scalars(statement.where(model.ref == ref)).one_or_none()
+
+		if row is None:
+			raise subroutine.errors.NotFound(
+				f"There is no {entity_type} {subroutine.domain.refs.format_ref(ref)} in "
+				f"{chosen.slug}.",
+				hint="Run 'subroutine list' to see what there is.",
+			)
+
+		return row
+
 	def _subject (
 		self,
 		session: sqlalchemy.orm.Session,
@@ -898,13 +1009,24 @@ class Client:
 
 		Completed tasks are included on purpose: running ``done 42`` twice should say the
 		thing is already done, not that there is no such task.
+
+		**And deleted ones, which was a live divergence until `#140`.** ``api/tasks._resolve``
+		has always included them — "a reference to something in the trash is more useful than a
+		dangling one" — and this did not, so ``client.task(ref=…)`` answered the same question
+		with the task over HTTP and ``None`` locally. Nothing noticed, because nothing had ever
+		looked one up after deleting it: there was no way to delete one.
+
+		Found by building ``restore`` and watching it fail to find the item it exists for.
 		"""
 
 		model = subroutine.db.models.work.Task
 
 		return session.scalars(
 			subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=[workspace_id], include_archived=True
+				actor,
+				workspace_ids=[workspace_id],
+				include_archived=True,
+				include_deleted=True,
 			).where(model.ref == ref)
 		).one_or_none()
 

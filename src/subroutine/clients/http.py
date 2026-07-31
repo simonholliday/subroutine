@@ -146,6 +146,7 @@ class Client:
 		q: str | None = None,
 		parent: int | None = None,
 		ready: bool = False,
+		deleted: bool = False,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -167,6 +168,7 @@ class Client:
 				),
 				q=q,
 				ready="true" if ready else None,
+				deleted="true" if deleted else None,
 				parent=parent,
 			),
 		)
@@ -200,6 +202,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		q: str | None = None,
+		deleted: bool = False,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -207,7 +210,12 @@ class Client:
 			"GET",
 			"/v1/documents",
 			params=_given(
-				workspace_id=workspace, limit=limit, order=order, project=project, q=q
+				workspace_id=workspace,
+				limit=limit,
+				order=order,
+				project=project,
+				q=q,
+				deleted="true" if deleted else None,
 			),
 		)
 
@@ -384,6 +392,46 @@ class Client:
 		)
 
 		return self._parsed(subroutine.views.Comment, answered)
+
+	def discard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Move an item to the trash."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"DELETE",
+			f"/v1/{_plural(entity_type)}/{ref}",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._as_item(entity_type, body)
+
+	def undiscard (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Take an item back out of the trash."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/{_plural(entity_type)}/{ref}/restore",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._as_item(entity_type, body)
+
+	def _as_item (
+		self, entity_type: str, body: typing.Any
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Parse a response as whichever kind the caller named."""
+
+		if entity_type == "document":
+			return self._parsed(subroutine.views.Document, body)
+
+		return self._parsed(subroutine.views.Task, body)
 
 	def complete (
 		self, *, ref: int, workspace: str | None = None
