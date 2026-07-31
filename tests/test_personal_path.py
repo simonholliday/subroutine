@@ -154,9 +154,36 @@ def test_every_command_suggests_the_next_one (
 	run("init")
 
 	assert "subroutine add" in run("init").output
-	assert "subroutine today" in run("add", "Buy milk").output
-	assert "subroutine done" in run("today").output
-	assert "subroutine today" in run("done", "1").output
+	assert "Tip: subroutine today" in run("add", "Buy milk").output
+	assert "Tip: subroutine done" in run("today").output
+	assert "Tip: subroutine today" in run("done", "1").output
+
+
+def test_a_suggestion_is_marked_as_one_without_relying_on_colour (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#128``, and decision ``#102``: no information exists only in a colour.
+
+	This test is the guard rather than the marker being there, and the distinction matters —
+	the version of ``test_every_command_suggests_the_next_one`` above that only looked for
+	``"subroutine today"`` passed just as happily on the broken output as on the fixed one,
+	which is why the defect survived to be found by somebody reading the README.
+
+	Colour is already gone here: the runner has no terminal, so rich emits none. What is left
+	has to be enough on its own, because that is also what a pipe, a log, a screen reader and a
+	fenced block in Markdown get.
+	"""
+
+	run("init")
+
+	printed = run("add", "Buy milk").output
+
+	assert "\033[" not in printed, "no colour to lean on, which is the point"
+
+	suggestions = [line for line in printed.splitlines() if "subroutine today" in line]
+
+	assert suggestions, printed
+	assert all(line.strip().startswith("Tip:") for line in suggestions), printed
 
 
 def test_an_empty_list_says_what_to_do_about_it (

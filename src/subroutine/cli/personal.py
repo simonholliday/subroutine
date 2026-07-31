@@ -1011,7 +1011,7 @@ def register (
 				say(f"Nothing matches {q!r}.")
 
 				if not deferred:
-					_suggest(console, f'subroutine search "{q}" --deferred')
+					_suggest(console, f'subroutine search "{q}" --deferred', "look in what you have put off too")
 
 				return
 
@@ -1082,7 +1082,11 @@ def register (
 			_say_parked(gathered, console=console, hidden=hiding)
 
 			say("")
-			_suggest(console, f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}")
+			_suggest(
+				console,
+				f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}",
+				"read one of them in full",
+			)
 
 	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
 	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
@@ -1302,7 +1306,7 @@ def register (
 				# Saying so beats reporting success twice. The case this is really about is
 				# an up-arrow repeat, which used to land on whatever had taken that number.
 				say(_acted(world, located, "Already done"))
-				_suggest(console, "subroutine list")
+				_suggest(console, "subroutine list", "everything still open")
 
 				return
 
@@ -1473,7 +1477,7 @@ def register (
 			if not where.strip():
 				say(f"Working in {world.current.describe(qualified=world.qualifies_connection)}.")
 				say("")
-				_suggest(console, "subroutine use --reset")
+				_suggest(console, "subroutine use --reset", "go back to working everywhere")
 
 				return
 
@@ -1964,13 +1968,29 @@ def _width (world: World, rows: typing.Sequence[Row]) -> int:
 	)
 
 
-def _suggest (console: rich.console.Console, command: str) -> None:
+def _suggest (
+	console: rich.console.Console, command: str, about: str | None = None
+) -> None:
 	"""Print the command to try next (SPEC.md §12.2a).
 
 	The single most valuable habit here: the user is never left wondering what exists.
+
+	**``Tip:`` is not decoration, it is the fix for a defect** (`#128`). Until 2026-07-31 this
+	printed the bare command, and the only thing marking it as advice rather than as an answer
+	was ``dim cyan`` — so piped, redirected, read aloud, or quoted inside a fenced block in the
+	README, the distinction was simply gone. Decision `#102` says no information exists only in
+	a colour, and this was the counter-example sitting in the output of every command. Found by
+	Simon reading the README as a stranger would, where the suggestion after ``add`` looks
+	exactly like a second line of what happened.
+
+	``about`` says what the command *gets you*, for the ones whose name does not. It is left off
+	where the command already reads as English — a line explaining that ``subroutine today``
+	shows today is noise, and noise is how a signpost stops being read.
 	"""
 
-	console.print(rich.text.Text(f"  {command}", style=SUGGESTION))
+	line = f"  Tip: {command}" if about is None else f"  Tip: {command} — {about}"
+
+	console.print(rich.text.Text(line, style=SUGGESTION))
 
 
 def _item_line (
@@ -2540,12 +2560,14 @@ def _in_order (
 	return rows
 
 
-def suggest (command: str) -> None:
+def suggest (command: str, about: str | None = None) -> None:
 	"""Print the command to try next, on the shared console (SPEC.md §12.2a).
 
 	The public face of :func:`_suggest`, for callers outside this module that have no console
-	of their own — the bare invocation in ``cli/main`` is the only one. Kept as one function
-	so the styling cannot drift into a second definition.
+	of their own — the bare invocation and ``--version`` in ``cli/main``. Kept as one function
+	so the styling cannot drift into a second definition, which it had begun to: both of those
+	callers used to pad their own explanation into a column, which was a second shape for one
+	thing and lined up with nothing else on the screen.
 	"""
 
-	_suggest(rich.console.Console(), command)
+	_suggest(rich.console.Console(), command, about)

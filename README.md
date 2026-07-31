@@ -72,23 +72,26 @@ $ subroutine init
 
 $ subroutine add "Call the dentist before Sunday"
   Added: Call the dentist  (due Sun 2 Aug)
-  subroutine today
+    Tip: subroutine today
 
 $ subroutine today
   Nothing due today.
   Next 7 days
      #1  Call the dentist  (due Sun 2 Aug)
 
-  subroutine done 1
+    Tip: subroutine done 1
 
 $ subroutine done 1
   Done: Call the dentist
-  subroutine today
+    Tip: subroutine today
 ```
 
 `#1` is the task's own number. It is allocated once and never reused, so it goes on meaning
-that task after you have finished a dozen others — and every command tells you the next one
-to try.
+that task after you have finished a dozen others.
+
+**Every command ends by naming the next one**, so there is nothing to memorise and no manual
+to go and find. The tips are dimmed in a terminal and marked `Tip:` everywhere else — because
+a hint that only a colour distinguishes from an answer is not distinguished at all.
 
 Once there is more on the list than fits on a screen, `subroutine list` will rank it and
 `subroutine search` will find things by their words — in titles, and in whatever you wrote

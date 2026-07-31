@@ -1393,7 +1393,7 @@ def _report_version (asked: bool) -> None:
 
 	# The schema line above is what this build *expects*; `db current` is what the database in
 	# front of you actually has. One without the other cannot answer whether an upgrade is owed.
-	subroutine.cli.personal.suggest("subroutine db current      what your database is at")
+	subroutine.cli.personal.suggest("subroutine db current", "what your database is at")
 
 	raise typer.Exit()
 
@@ -1468,7 +1468,7 @@ def _default (
 	# same output and different questions: bare is somebody arriving, `today` is somebody who
 	# already knows what they want, and a daily habit should not carry a beginner's signpost
 	# forever. `invoked_subcommand` is what tells them apart.
-	subroutine.cli.personal.suggest("subroutine --help          for everything it can do")
+	subroutine.cli.personal.suggest("subroutine --help", "everything it can do")
 
 
 def main () -> None:
