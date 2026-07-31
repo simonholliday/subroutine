@@ -457,22 +457,31 @@ def test_the_whole_tool_surface_stays_small (
 
 	That is the measurement ``SR#14`` was really about, and the one that made its stated
 	rationale wrong: Beads found 10-50k tokens via MCP against 1-2k via a CLI, so a tool per
-	endpoint spends the benefit before earning it. This server answers with five tools whose
-	arguments lean on grammars that already exist.
+	endpoint spends the benefit before earning it. The arguments here lean on grammars that
+	already exist, which is what keeps the schemas small.
 
-	The number here is a budget, not a description. If a tool is worth adding it is worth
-	raising deliberately — and worth noticing that the cost is paid by every session of every
-	agent, including the ones that never call it.
+	**The numbers are a budget, not a description**, and raising one is meant to be an act
+	rather than a shrug. Both were raised once, on 2026-07-31, for ``subroutine_document``
+	(`#138`) — and the case was that ``subroutine_comment`` already told agents "for a
+	conclusion the next session needs, write a document instead" while no tool could. A
+	seventh tool was measured at 764 bytes against 557 of headroom before the cap moved, and
+	the six existing schemas were read for fat first; the two largest are the two with the
+	most arguments, and their descriptions are what stop an agent guessing.
+
+	The slack above the current total is deliberate and small. A cap set exactly at what is
+	there makes every addition a cap change, which is theatre; a generous one stops being a
+	budget. Roughly 4.5 KB is about 1,150 tokens paid by every session of every agent,
+	including the ones that never call any of it.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 6, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 7, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 4096, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 4608, f"the tool schemas are {size} bytes of every session's context"
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:
@@ -686,3 +695,52 @@ def test_listing_ready_work_leaves_documents_out_of_it (
 	assert "A conclusion somebody reached" in everything, everything
 	assert "A conclusion somebody reached" not in startable, startable
 	assert "A task somebody could start" in startable, startable
+
+
+def test_an_agent_can_write_the_document_it_is_told_to_write (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``#138``, and the reason it was the worst of the three gaps.
+
+	``subroutine_comment``'s own description has always said "for a conclusion the next
+	session needs, write a document instead" — an instruction in the agent-facing surface
+	pointing at something that surface could not do. This is the tool that makes the sentence
+	true.
+	"""
+
+	answered, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Why the queue went",
+		body="It added an operational surface nobody wanted.",
+		type="decision",
+	)
+
+	assert not failed, answered
+	assert "Why the queue went" in answered
+
+	ref = int(answered.split()[1].lstrip("#"))
+	read, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, read
+	assert "nobody wanted" in read
+
+
+def test_the_comment_tool_still_points_at_something_that_exists (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The guard on the sentence, not on the tool.
+
+	``subroutine_comment`` tells an agent to write a document instead when it has a
+	conclusion. That instruction was true of the product and false of this adapter for as long
+	as both existed, and nothing could notice — a description is prose, and no test had ever
+	asked whether prose in a schema named something callable.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
+
+	assert "write a document" in tools["subroutine_comment"]["description"].lower()
+	assert "subroutine_document" in tools, (
+		"subroutine_comment tells an agent to write a document; there must be a tool for it"
+	)

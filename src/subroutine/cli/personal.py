@@ -26,6 +26,7 @@ import dataclasses
 import datetime
 import json
 import shlex
+import sys
 import typing
 
 import rich.console
@@ -1454,6 +1455,73 @@ def register (
 				console,
 				f"subroutine show {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
 			)
+
+	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
+	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
+	# documents and `show <ref>` already reads either. A second listing would be a second
+	# answer to a question already answered, and the *first* listing is what taught somebody
+	# that a number names an item.
+	document_app = typer.Typer(
+		help="Write down what you concluded.", no_args_is_help=True
+	)
+	app.add_typer(document_app, name="doc")
+
+	@document_app.command("create")
+	def document_create (
+		title: str = typer.Argument(..., help="What it concludes, in one line."),
+		body: str = typer.Option("", "--body", help="The reasoning. Or pipe it in."),
+		kind: str = typer.Option(
+			"", "--type", help="note, spec, design, decision, finding or dead_end."
+		),
+		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Write a document — a decision, a finding, a design, a dead end.
+
+		Examples:
+
+		  subroutine doc create "Why we dropped the queue" --type decision
+
+		  cat notes.md | subroutine doc create "Review findings" --type finding
+
+		**A comment is what happened; a document is what you concluded.** If the next person to
+		look would need to read it, it is a document.
+		"""
+
+		# **Piped input is the ordinary way to write more than a sentence at a terminal**, and
+		# it is the path an agent takes too. Read only when something is actually piped:
+		# `isatty` false with no pipe would block forever waiting for a keystroke nobody knows
+		# to give, which is the worst possible way for a first attempt to go.
+		written = body.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
+
+		with opened() as world:
+			where = world.writing_to()
+
+			created = where.client.create_document(
+				title=title,
+				body=written or None,
+				type=kind.strip() or None,
+				project=project.strip() or None,
+				workspace=_writing_workspace(world),
+			)
+
+			if json_output:
+				say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			say(
+				_acted(
+					world,
+					Located(
+						connection=where.name,
+						workspace=str(created.workspace_id),
+						item=created,
+					),
+					"Wrote",
+				)
+			)
+			_suggest(console, f"subroutine show {created.ref}", "read it back")
 
 	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
 	# about never *requiring* a project in order to keep a to-do list, not about hiding the

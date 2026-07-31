@@ -299,6 +299,29 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def create_document (
+		self,
+		*,
+		title: str,
+		body: str | None = None,
+		type: str | None = None,
+		project: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Document:
+		"""Write a document."""
+
+		self._refuse_if_read_only()
+
+		answered = self._json(
+			"POST",
+			"/v1/documents",
+			json=_given(
+				title=title, body=body, type=type, project=project, workspace_id=workspace
+			),
+		)
+
+		return subroutine.views.Document.model_validate(answered)
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> subroutine.clients.base.Captured:

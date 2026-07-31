@@ -1897,3 +1897,55 @@ def test_ls_and_list_offer_the_same_flags (
 		}
 
 	assert flags("list") == flags("ls")
+
+
+def test_a_document_can_be_written_from_the_cli (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#138``. §5.10's other half, which had no path outside HTTP.
+
+	Read back through ``show``, because the listing spans both kinds (§6.2) and the whole
+	claim is that a number names an item whichever kind it turns out to be.
+	"""
+
+	run("init")
+	run("doc", "create", "Why we dropped the queue", "--type", "decision", "--body", "Because.")
+
+	shown = run("show", "1").output
+
+	assert "Why we dropped the queue" in shown
+	assert "Because." in shown
+	assert "decision" in shown
+
+
+def test_a_document_body_can_be_piped_in (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Which is how anybody writes more than a sentence at a terminal, and how an agent does.
+
+	``--body`` wins when both are given: an argument somebody typed is more deliberate than a
+	stream they may not have realised was open.
+	"""
+
+	run("init")
+	run("doc", "create", "Review findings", input="Three findings.\nNone found by reading.\n")
+
+	assert "None found by reading." in run("show", "1").output
+
+	# The claim above, asserted rather than described.
+	run("doc", "create", "Typed wins", "--body", "This one.", input="Not this one.\n")
+
+	shown = run("show", "2").output
+
+	assert "This one." in shown
+	assert "Not this one." not in shown
+
+
+def test_writing_a_document_needs_no_type_or_project (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A conclusion arrives before its filing does, so nothing but the title is required."""
+
+	run("init")
+
+	assert "Wrote:" in run("doc", "create", "Just a thought").output

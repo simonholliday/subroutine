@@ -42,6 +42,7 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.comments
+import subroutine.domain.documents
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.local
@@ -454,6 +455,39 @@ class Client:
 
 			return subroutine.views.project(
 				created, subroutine.views.Vocabulary.for_projects(session, [created])
+			)
+
+	def create_document (
+		self,
+		*,
+		title: str,
+		body: str | None = None,
+		type: str | None = None,
+		project: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Document:
+		"""Write a document."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			created = subroutine.domain.documents.create(
+				session,
+				project=subroutine.domain.selection.project(session, actor, chosen, project),
+				title=title,
+				body=body,
+				type_key=type or "note",
+				# The writer owns what they write, as `projects.create` does — and for a
+				# document it is the attribution that makes §5.10's "what you concluded" mean
+				# anything, since a conclusion with no author is a rumour.
+				owner_id=actor.user.id,
+				actor=actor,
+			)
+
+			return subroutine.views.document(
+				created, subroutine.views.Vocabulary.for_documents(session, [created])
 			)
 
 	def capture (

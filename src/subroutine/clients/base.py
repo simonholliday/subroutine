@@ -259,6 +259,32 @@ class Client(typing.Protocol):
 		"something untrue" is not a choice worth exposing; the HTTP API still carries it.
 		"""
 
+	def create_document (
+		self,
+		*,
+		title: str,
+		body: str | None = None,
+		type: str | None = None,
+		project: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Document:
+		"""Write a document — a conclusion the next reader needs (§5.10).
+
+		**The half of the comment/document distinction that could not be reached** until
+		`#138`. `POST /v1/documents` was its only caller, so on a default install — where
+		nothing runs ``serve`` — a document could not be written at all, while the MCP
+		adapter's own ``subroutine_comment`` description told an agent to write one.
+
+		``type`` names one of the seeded document types — ``note``, ``spec``, ``design``,
+		``decision``, ``finding``, ``dead_end`` — and defaults to ``note``. It shadows the
+		builtin inside this signature on purpose: the HTTP field, the CLI flag and the view
+		all call it ``type``, and a fourth name for one thing costs more than the shadow does.
+
+		``project`` is a key, resolved by ``domain.selection.project`` like everywhere else, so
+		an unknown one is refused identically whichever transport asked. Omitted means the
+		workspace's Inbox.
+		"""
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> Captured:

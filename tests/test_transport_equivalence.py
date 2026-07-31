@@ -458,6 +458,53 @@ def test_readiness_excludes_work_deferred_to_a_later_date (pair: Pair) -> None:
 	assert later.ref not in {task.ref for task in remote.tasks(ready=True)}
 
 
+def test_both_write_a_document_the_same_way (pair: Pair) -> None:
+	"""``#138``, and the half of §5.10 that could not be reached outside HTTP.
+
+	A comment is what happened; a document is what you concluded. The second was writable only
+	by ``POST /v1/documents`` — so on a default install, where nothing runs ``serve``, the
+	practice this product is built around was half unavailable, while the MCP adapter's own
+	tool description told agents to follow it.
+	"""
+
+	local, remote = pair.both()
+
+	by_local = local.create_document(title="From here", body="Because.", type="decision")
+	by_remote = remote.create_document(title="From there", body="Because.", type="decision")
+
+	assert by_local.type == by_remote.type == "decision"
+	assert by_local.body == by_remote.body == "Because."
+
+	# Three timestamps, not two: `content_updated_at` moves with the body and so is set at
+	# creation like the other two. Found by comparing every field rather than a chosen few,
+	# which is the point of doing it that way.
+	differs = {"id", "ref", "title", "created_at", "updated_at", "content_updated_at"}
+	as_local = by_local.model_dump()
+	as_remote = by_remote.model_dump()
+
+	assert {name: value for name, value in as_local.items() if name not in differs} == {
+		name: value for name, value in as_remote.items() if name not in differs
+	}
+
+
+def test_both_default_a_document_to_a_note_in_the_inbox (pair: Pair) -> None:
+	"""Nothing but a title is required, because a conclusion arrives before its filing does."""
+
+	local, remote = pair.both()
+
+	assert local.create_document(title="Just a thought").type == "note"
+	assert remote.create_document(title="Another thought").type == "note"
+
+
+def test_both_attribute_a_document_to_whoever_wrote_it (pair: Pair) -> None:
+	"""§5.10's "what you concluded" needs a *you*. A conclusion with no author is a rumour."""
+
+	local, remote = pair.both()
+
+	assert local.create_document(title="Mine").owner_id == pair.user.id
+	assert remote.create_document(title="Also mine").owner_id == pair.user.id
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 

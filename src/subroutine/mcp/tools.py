@@ -123,6 +123,30 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _remarked(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_document",
+			title="Write a document",
+			description=(
+				"Record a conclusion the next session needs — a decision, a finding, a "
+				"design, a dead end. A comment is what happened; a document is what you "
+				"concluded. A '#42' in the body becomes a link on item 42."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"title": {"type": "string", "description": "What it concludes, in one line."},
+					"body": {"type": "string", "description": "The reasoning, in Markdown."},
+					"type": {
+						"type": "string",
+						"description": "note, spec, design, decision, finding or dead_end.",
+					},
+					"project": {"type": "string", "description": "Project key."},
+					"workspace": {"type": "string", "description": "Workspace name or id."},
+				},
+				"required": ["title"],
+			},
+			call=lambda arguments: _wrote(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_update",
 			title="Change a task",
 			description=(
@@ -320,6 +344,28 @@ def _added (
 	left = subroutine.domain.capture.explain(captured.unparsed)
 
 	return answer if left is None else f"{answer}\n{left}"
+
+
+def _wrote (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Write a document and name it back by the ref it was given.
+
+	**The tool this adapter told agents to use and did not have** (`#138`). Until 2026-07-31
+	``subroutine_comment``'s own description said "for a conclusion the next session needs,
+	write a document instead", and there was no way to — a sentence in the agent-facing surface
+	pointing at something that surface could not do.
+	"""
+
+	document = client.create_document(
+		title=_text(arguments, "title") or "",
+		body=_text(arguments, "body"),
+		type=_text(arguments, "type"),
+		project=_text(arguments, "project"),
+		workspace=_text(arguments, "workspace"),
+	)
+
+	return "Wrote " + _line(document)
 
 
 def _remarked (
