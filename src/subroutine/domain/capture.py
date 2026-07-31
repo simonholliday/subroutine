@@ -210,6 +210,53 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	)
 
 
+def summarise (capture: Capture) -> str | None:
+	"""Return the sigils the grammar *did* read, or ``None`` if it read none.
+
+	**The mirror of :func:`explain`, and it lives beside it because it is the same
+	obligation** (`#135`). Saying what was left as written and not saying what was taken
+	leaves the commoner question unanswered: ``subroutine add "Fix the header +WEB"`` filed it
+	correctly and confirmed nothing, so somebody who typed ``+WEB`` got back a title with
+	``+WEB`` missing and no way to tell whether it had been filed there, dropped, or read as
+	part of the sentence. §6.13's rule that a word may only vanish if a field was set is a
+	property of the code; it is not something a person can see.
+
+	**Written back as the tokens they were typed**, not as prose. Three reasons, and the third
+	is the one that decided it: it is exactly what the user wrote, so it needs no vocabulary
+	and no explanation; it is what they would type again; and §13.5b's transcript forbids the
+	words ``project``, ``status`` and ``workspace``, so a sentence naming what ``+WEB`` *means*
+	could not be printed on the path that most needs it.
+
+	Dates are deliberately absent. They are already rendered in human form beside the title —
+	"(due Sun 2 Aug)" is better than echoing "by friday" back, because the useful confirmation
+	there is *which day that turned out to be*.
+	"""
+
+	parts = []
+
+	if capture.project_key is not None:
+		parts.append(f"+{capture.project_key}")
+
+	if capture.importance is not None:
+		# Spelled as the grammar accepts it and as a listing renders it: `!4` for importance
+		# alone, `!4/2` for both. Urgency alone is not expressible either way (§6.3).
+		parts.append(
+			f"!{capture.importance}"
+			if capture.urgency is None
+			else f"!{capture.importance}/{capture.urgency}"
+		)
+
+	if capture.estimate_minutes is not None:
+		parts.append(f"~{subroutine.domain.durations.humanize(capture.estimate_minutes)}")
+
+	if capture.assignee is not None:
+		parts.append(f"@{capture.assignee}")
+
+	parts.extend(f"#{tag}" for tag in capture.tags)
+
+	return " ".join(parts) or None
+
+
 def parse (
 	text: str, *, now: datetime.datetime, timezone: str = subroutine.domain.schedule.DEFAULT_TIMEZONE
 ) -> Capture:

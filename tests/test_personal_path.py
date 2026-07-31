@@ -1823,3 +1823,35 @@ def test_the_project_listing_shows_what_is_inside_what (
 		return next(index for index, line in enumerate(rows) if key in line)
 
 	assert where("OUTER") < where("INNER"), printed
+
+
+def test_add_says_what_it_read_out_of_the_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#135``. It filed the work correctly and confirmed nothing, which is the same as not
+	being sure it did.
+
+	Written back as the sigils that were typed, because that needs no vocabulary — and because
+	§13.5b forbids the words a sentence explaining them would have to use.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+
+	printed = run("add", "Fix the header !4/2 ~2h #ops +WEB").output
+
+	for sigil in ("+WEB", "!4/2", "~2h", "#ops"):
+		assert sigil in printed, f"{sigil} was read and not mentioned:\n{printed}"
+
+
+def test_an_ordinary_line_is_answered_exactly_as_before (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4. Somebody adding "Buy milk" has typed no grammar and is owed no report of it.
+
+	The whole risk in ``#135`` was making every capture noisier to fix the one that was quiet.
+	"""
+
+	run("init")
+
+	assert run("add", "Buy milk").output.splitlines()[0].strip() == "Added: Buy milk"

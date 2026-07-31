@@ -40,6 +40,7 @@ import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.instances
 import subroutine.domain.links
@@ -474,6 +475,7 @@ class Client:
 					row, subroutine.views.Vocabulary.for_tasks(session, [row])
 				),
 				unparsed=captured.unparsed,
+				summary=subroutine.domain.capture.summarise(captured),
 			)
 
 	def remark (

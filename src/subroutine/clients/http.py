@@ -323,11 +323,15 @@ class Client:
 			json=_given(text=text, workspace_id=workspace, timezone=timezone),
 		)
 
+		# **One parse, two uses.** Both of these are answers about the *line*, not about the
+		# task the server made, so they come from the same local `Capture` — and parsing twice
+		# would be two chances to disagree with each other about one sentence.
+		read = subroutine.domain.capture.parse(text, now=subroutine.db.types.utcnow())
+
 		return subroutine.clients.base.Captured(
 			task=self._parsed(subroutine.views.Task, body),
-			unparsed=subroutine.domain.capture.parse(
-				text, now=subroutine.db.types.utcnow()
-			).unparsed,
+			unparsed=read.unparsed,
+			summary=subroutine.domain.capture.summarise(read),
 		)
 
 	def remark (

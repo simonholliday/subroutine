@@ -72,6 +72,11 @@ class Captured:
 	task: subroutine.views.Task
 	unparsed: tuple[str, ...] = ()
 
+	#: The sigils the grammar *did* read, written back as they were typed — `#135`. The
+	#: mirror of ``unparsed`` and carried for the same reason: a caller told only what was
+	#: left as written cannot tell a field that was set from one that was misread.
+	summary: str | None = None
+
 
 class Client(typing.Protocol):
 	"""One connection, ready to be asked things.

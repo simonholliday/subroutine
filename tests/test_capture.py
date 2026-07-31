@@ -10,6 +10,7 @@ would do that are enumerated here — each one measured, and each one having act
 before the sigil rules were tightened.
 """
 
+import dataclasses
 import datetime
 
 import hypothesis
@@ -490,3 +491,93 @@ def test_a_pair_outside_the_range_is_left_in_the_title (text: str) -> None:
 
 	assert captured.urgency is None
 	assert _words(captured.title) == _words(text), "part of the text was eaten"
+
+
+#: How each field of :class:`~subroutine.domain.capture.Capture` reaches the user, and why
+#: (`#135`). ``summarise`` is responsible for the sigils; the dates are rendered in human form
+#: beside the title instead, because "(due Sun 2 Aug)" says more than echoing "by friday" back.
+#: **A new field fails the classification test until it appears here**, which is the point:
+#: the defect this fixes was a field that was read, stored and never mentioned, and one more
+#: of those is added by writing a parser and forgetting there is an answer owed.
+REPORTED_AS = {
+	"project_key": "sigil",
+	"importance": "sigil",
+	"urgency": "sigil",
+	"estimate_minutes": "sigil",
+	"assignee": "sigil",
+	"tags": "sigil",
+	"due": "date, rendered beside the title",
+	"due_is_all_day": "date, rendered beside the title",
+	"planned_for": "date, rendered beside the title",
+	"start": "date, rendered beside the title",
+	"start_is_all_day": "date, rendered beside the title",
+	"title": "is the title",
+	"unparsed": "reported by explain(), which is this function's mirror",
+}
+
+
+def test_every_field_the_grammar_can_set_is_accounted_for () -> None:
+	"""The guard, rather than the summary being right today.
+
+	``+WEB`` was parsed, filed and never mentioned for as long as the sigil existed, and
+	nothing failed — because no test asked whether a parsed field was *reported*. This is that
+	question, asked of the dataclass rather than of a list somebody maintains.
+	"""
+
+	declared = {field.name for field in dataclasses.fields(subroutine.domain.capture.Capture)}
+	missing = declared - set(REPORTED_AS)
+
+	assert not missing, (
+		f"{sorted(missing)} can be set by the grammar and nothing says how it is reported. "
+		f"Add it to summarise(), or record in REPORTED_AS why it reaches the user elsewhere."
+	)
+	assert not set(REPORTED_AS) - declared, "REPORTED_AS names a field that no longer exists"
+
+
+def test_a_line_with_no_sigils_summarises_to_nothing () -> None:
+	"""So an ordinary "Buy milk" is answered exactly as it always was (§1.4)."""
+
+	read = subroutine.domain.capture.parse("Buy milk", now=NOW)
+
+	assert subroutine.domain.capture.summarise(read) is None
+
+
+@pytest.mark.parametrize(
+	("text", "expected"),
+	[
+		("Fix it +WEB", "+WEB"),
+		("Think about it !3", "!3"),
+		("Do it !4/2", "!4/2"),
+		("Write it ~2h", "~2h"),
+		("Write it ~90m", "~1h 30m"),
+		("Ask her @alice", "@alice"),
+		("Tidy up #home #admin", "#home #admin"),
+		("Fix the header !4/2 ~2h #ops +WEB", "+WEB !4/2 ~2h #ops"),
+	],
+)
+def test_each_sigil_is_written_back_as_it_was_typed (text: str, expected: str) -> None:
+	"""Which is what makes the line need no vocabulary — it is the user's own words.
+
+	``~90m`` becoming ``~1h 30m`` is the one that is not literally what was typed, and it is
+	right: the confirmation somebody wants from a duration is what it came to.
+	"""
+
+	read = subroutine.domain.capture.parse(text, now=NOW)
+
+	assert subroutine.domain.capture.summarise(read) == expected
+
+
+def test_the_summary_never_claims_a_field_the_grammar_did_not_set () -> None:
+	"""The direction that would be worse: telling somebody it filed work somewhere it did not.
+
+	Every sigil in the summary has to correspond to a value on the parse it came from, so a
+	summary built from the wrong object — or one that guessed a default — fails here.
+	"""
+
+	read = subroutine.domain.capture.parse("Fix it +WEB ~2h", now=NOW)
+	summary = subroutine.domain.capture.summarise(read) or ""
+
+	assert ("!" in summary) is (read.importance is not None)
+	assert ("@" in summary) is (read.assignee is not None)
+	assert ("#" in summary) is bool(read.tags)
+	assert ("+" in summary) is (read.project_key is not None)

@@ -621,3 +621,27 @@ def test_a_record_is_read_by_when_rather_than_by_a_raw_id (
 	assert not failed
 	assert "what happened here" in text
 	assert "-" * 4 not in text, "a UUID leaked into the record"
+
+
+def test_add_tells_the_agent_what_the_grammar_read (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``#135``, and this is the surface where it matters most.
+
+	An agent is the caller most likely to have written something it believes was understood —
+	the same reason ``#115`` put the *unparsed* sentence here. Being told only what was left as
+	written answers the rarer half: an agent that captured ``+WEB`` and got no confirmation has
+	to spend a second call reading the task back to find out whether it worked.
+	"""
+
+	answered, failed = _called(bound, "subroutine_add", text="Fix it !4/2 ~2h")
+
+	assert not failed, answered
+	assert "!4/2" in answered
+	assert "~2h" in answered
+
+	# And an ordinary line stays a single unadorned sentence, so the common case pays nothing.
+	plain, failed = _called(bound, "subroutine_add", text="Buy milk")
+
+	assert not failed, plain
+	assert plain.count("\n") == 0, plain

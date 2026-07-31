@@ -884,12 +884,20 @@ def register (
 				# have written something it believes was understood.
 				body = _as_json(world, where.name, captured.task)
 				body["unparsed"] = list(captured.unparsed)
+				body["read"] = captured.summary
 
 				say(json.dumps(body, indent=2))
 
 				return
 
-			say(f"Added: {captured.task.title}{_when(captured.task)}")
+			# **What was read, beside what it became** (`#135`). The date is already rendered
+			# in human form by `_when` — "(due Sun 2 Aug)" is a better confirmation than
+			# echoing "by friday" back, because the useful part is which day that turned out
+			# to be. Everything else is written back as the sigil that was typed, which needs
+			# no vocabulary and is what somebody would type again.
+			read = "" if captured.summary is None else f"  {captured.summary}"
+
+			say(f"Added: {captured.task.title}{_when(captured.task)}{read}")
 
 			# The sentence itself is `domain.capture.explain`'s, so this surface and the MCP
 			# adapter cannot come to word §6.13's obligation differently.

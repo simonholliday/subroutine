@@ -295,6 +295,13 @@ def _added (
 		text=_text(arguments, "text") or "", workspace=_text(arguments, "workspace")
 	)
 	answer = "Added " + _line(captured.task)
+
+	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
+	# the caller most likely to have written something it believes was understood, and telling
+	# it only what was *left* answers the rarer question.
+	if captured.summary is not None:
+		answer = f"{answer}  {captured.summary}"
+
 	left = subroutine.domain.capture.explain(captured.unparsed)
 
 	return answer if left is None else f"{answer}\n{left}"

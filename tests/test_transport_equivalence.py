@@ -280,6 +280,27 @@ def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	assert from_local.task.title == from_remote.task.title == "Water the plants every monday"
 
 
+def test_both_report_what_the_grammar_read_the_same_way (pair: Pair) -> None:
+	"""``#135``, and the mirror of the test above.
+
+	The two sides compute this differently and must not be able to differ: the local client
+	has the parse in hand, and the HTTP client re-runs the grammar on the line because
+	``POST /v1/tasks`` returns the task and nothing else (§8.4). One of them describing a
+	capture the other would describe another way is the divergence §13.7 exists to prevent.
+	"""
+
+	local, remote = pair.both()
+	line = "Fix the header !4/2 ~2h #ops"
+
+	assert local.capture(text=line).summary == remote.capture(text=line).summary == (
+		"!4/2 ~2h #ops"
+	)
+
+	# And silence stays silence on both, so an ordinary line is answered as it always was.
+	assert local.capture(text="Buy milk").summary is None
+	assert remote.capture(text="Buy milk").summary is None
+
+
 def test_both_create_a_project_the_same_way (pair: Pair) -> None:
 	"""``#134``. Until this landed there was no local path at all, so there was nothing to
 	compare — a project could be made over HTTP and nowhere else, which on a default install
