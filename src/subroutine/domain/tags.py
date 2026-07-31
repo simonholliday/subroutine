@@ -219,3 +219,55 @@ def names_for_tasks (
 	return {
 		task_id: [name for _key, name in sorted(pairs)] for task_id, pairs in found.items()
 	}
+
+
+def set_on_task (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	tags: typing.Sequence[subroutine.db.models.vocabulary.Tag],
+) -> None:
+	"""Make a task's tags exactly these, adding what is missing and removing what is not.
+
+	**Replaces rather than adds**, which is what §8.3 means by a field on a ``PATCH``: every
+	other field there is assigned, not merged, and a ``tags`` that merged would be the only
+	one a caller could not use to *remove* anything. An empty sequence therefore clears them,
+	which is the same statement as sending ``null`` for a scalar.
+
+	The counterpart is :func:`apply_to_task`, which is additive and is what quick capture
+	wants — ``#health`` in a captured line adds a tag to whatever is already there.
+
+	Rows are added and deleted rather than the set being rebuilt, so a tag a task already
+	carries keeps its join row. Nothing depends on that yet; it will the moment anything
+	records when a tag was applied.
+	"""
+
+	model = subroutine.db.models.work.TaskTag
+	wanted = {tag.id for tag in tags}
+
+	already = set(
+		session.scalars(sqlalchemy.select(model.tag_id).where(model.task_id == task.id))
+	)
+
+	for tag_id in already - wanted:
+		session.execute(
+			sqlalchemy.delete(model).where(model.task_id == task.id, model.tag_id == tag_id)
+		)
+
+	for tag in tags:
+		if tag.id not in already:
+			session.add(model(task_id=task.id, tag_id=tag.id))
+
+	session.flush()
+
+
+def names_on_task (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+) -> list[str]:
+	"""Return a task's tag names, ordered, for comparing one state against another.
+
+	Its own function because an event's before-and-after has to be built the same way twice,
+	and a sorted list of names is what makes "did the tags change" a value comparison rather
+	than a set of join rows nobody can diff.
+	"""
+
+	return [tag.name for tag in for_task(session, task)]

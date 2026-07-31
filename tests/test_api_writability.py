@@ -100,10 +100,6 @@ AT_CREATION: dict[str, str] = {
 #: the item tracking it, and removing the entry is what closes that item.** All four were
 #: found by this test the first time it ran.
 UNSETTABLE: dict[str, str] = {
-	"tags": (
-		"#41 - tags can be applied only by writing `#health` in a captured line, and can "
-		"never be removed. The API has no `tags` field at all."
-	),
 	"type": (
 		"#42 - a task created as a `task` cannot become a `bug`. Accepted on create, "
 		"absent from update."

@@ -1894,3 +1894,105 @@ def test_a_move_is_refused_when_the_destination_is_out_of_reach (
 
 	# And it stayed where it was.
 	assert nosy.call("GET", f"/v1/tasks/{mine['ref']}").json()["project_key"].upper() == "INBOX"
+
+
+def test_tags_can_be_set_on_a_task_built_from_fields (world: World) -> None:
+	"""`#41`: a tag could be applied only by writing `#health` in a captured line.
+
+	So a task created from structured fields could not be tagged at all — the view reported
+	`tags` and no endpoint accepted them, which is the "readable and unsettable" shape the
+	writability guard was built to find.
+	"""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Structured", "tags": ["health", "admin"]}
+	).json()
+
+	assert made["tags"] == ["admin", "health"], "reported alphabetically, as the view promises"
+
+
+def test_a_mistyped_tag_can_be_removed (world: World) -> None:
+	"""The half that was permanent: no route removed a tag, on any transport.
+
+	`tags` **replaces** rather than merges, which is what §8.3 means by a field on a PATCH —
+	every other field there is assigned. A `tags` that merged would be the only one a caller
+	could not use to remove anything.
+	"""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Typo", "tags": ["helth"]}
+	).json()
+
+	fixed = world.call(
+		"PATCH", f"/v1/tasks/{made['ref']}", json={"tags": ["health"]}
+	).json()
+
+	assert fixed["tags"] == ["health"]
+
+	# And an empty list clears them, which is the same statement as null for a scalar.
+	assert world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"tags": []}).json()["tags"] == []
+
+
+def test_omitting_tags_leaves_them_alone (world: World) -> None:
+	"""§8.3's other half, and the one a replace-semantics field makes easy to break."""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Tagged", "tags": ["keep"]}
+	).json()
+	edited = world.call(
+		"PATCH", f"/v1/tasks/{made['ref']}", json={"title": "Renamed"}
+	).json()
+
+	assert edited["tags"] == ["keep"]
+
+
+def test_a_structured_tag_beats_one_in_the_captured_line (world: World) -> None:
+	"""§6.13: anything given explicitly wins over what the text said.
+
+	It holds through `fields.update(overrides)` rather than through a rule of its own. The
+	captured tags used to be applied *after* `create` returned, which put them outside that
+	mechanism — the same shape as `estimate`, whose override was guarded by a condition
+	nothing could satisfy.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"text": "Water the plants #garden", "tags": ["explicit"]},
+	).json()
+
+	assert made["tags"] == ["explicit"]
+
+
+def test_a_tag_of_only_digits_is_still_refused (world: World) -> None:
+	"""§6.2's rule has to hold however a tag arrives, which is why `ensure` is the one door.
+
+	`#3d-printing` is a tag and `#12` is a reference — the test is whether the name is
+	*entirely* digits, not whether it starts with a letter. A structured field is a new way
+	in, and a rule enforced only by the capture parser would not have covered it.
+	"""
+
+	response = world.call("POST", "/v1/tasks", json={"title": "No", "tags": ["404"]})
+
+	assert response.status_code == 422
+
+	# And the neighbouring case that the earlier, wrong wording refused.
+	fine = world.call("POST", "/v1/tasks", json={"title": "Yes", "tags": ["3d-printing"]})
+
+	assert fine.status_code == 201
+
+
+def test_changing_tags_is_recorded_as_a_change (world: World) -> None:
+	"""Tags live in a join table, so `_snapshot` has to *read* them rather than take a column.
+
+	That is why it now takes a session. A field missing from that comparison writes no event
+	at all — §10.7 invariant 9 failing with nothing failing.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Tag me"}).json()
+
+	world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"tags": ["added"]})
+
+	events = world.call("GET", f"/v1/tasks/{made['ref']}/events").json()["items"]
+
+	assert any("tags" in (event.get("changes") or {}) for event in events)

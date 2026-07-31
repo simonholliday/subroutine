@@ -150,6 +150,7 @@ def create (
 	planned_for: datetime.date | str | None = None,
 	start: datetime.datetime | datetime.date | str | None = None,
 	start_is_all_day: bool | None = None,
+	tags: typing.Sequence[str] | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
@@ -249,6 +250,18 @@ def create (
 	session.add(task)
 	session.flush()
 
+	if tags:
+		# Applied after the flush, because the join row needs the task's id. `ensure` is what
+		# holds §6.2's rule that a name of only digits is a reference and not a tag, however
+		# the tag arrived — a captured `#health`, a structured field, or an importer.
+		subroutine.domain.tags.apply_to_task(
+			session,
+			task,
+			subroutine.domain.tags.ensure(
+				session, workspace_id=workspace_id, names=list(tags)
+			),
+		)
+
 	subroutine.domain.mentions.synchronize(
 		session,
 		workspace_id=workspace_id,
@@ -334,6 +347,12 @@ def create_from_text (
 		# rule "structured wins over parsed" was enforced for `estimate` by unreachable code,
 		# and now holds by the same mechanism as everything else: `fields.update(overrides)`.
 		"estimate": captured.estimate_minutes,
+		# **Through `fields`, for exactly the reason above.** These used to be applied after
+		# `create` returned, which meant a structured `tags` could not override a captured
+		# `#health` — the same shape as `estimate`, one step less broken because nothing
+		# guarded it with an unsatisfiable condition. `fields.update(overrides)` is now the
+		# single place §6.13's "structured wins over parsed" is decided.
+		"tags": captured.tags,
 		"assignee_id": (
 			None
 			if captured.assignee is None
@@ -350,12 +369,6 @@ def create_from_text (
 		actor=actor,
 		**fields,
 	)
-
-	tags = subroutine.domain.tags.ensure(
-		session, workspace_id=workspace.id, names=captured.tags
-	)
-	subroutine.domain.tags.apply_to_task(session, task, tags)
-	session.flush()
 
 	return task, captured
 
@@ -462,6 +475,7 @@ def update (
 	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start_is_all_day: bool | None = None,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
+	tags: typing.Sequence[str] = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
@@ -615,7 +629,18 @@ def update (
 			)
 		)
 
-	before = _snapshot(task)
+	# Resolved in the pass that may raise, because `ensure` refuses a name that is really a
+	# reference (§6.2) and creates rows for the rest — a refusal after the first tag was
+	# created would leave a tag nobody asked for.
+	wanted_tags: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if tags is subroutine.domain.patch.UNSET
+		else subroutine.domain.tags.ensure(
+			session, workspace_id=task.workspace_id, names=list(tags)
+		)
+	)
+
+	before = _snapshot(session, task)
 	touches_content = False
 
 	if cleaned_title is not subroutine.domain.patch.UNSET:
@@ -648,6 +673,13 @@ def update (
 			descendant.project_id = project.id
 			descendant.version += 1
 
+	if wanted_tags is not subroutine.domain.patch.UNSET:
+		# **Replaces, so an empty list clears.** Every other field on a PATCH is assigned
+		# rather than merged, and a `tags` that merged would be the only one a caller could
+		# not use to remove anything — which is how a mistyped tag became permanent.
+		subroutine.domain.tags.set_on_task(session, task, wanted_tags)
+		touches_content = True
+
 	if assignee_id is not subroutine.domain.patch.UNSET:
 		task.assignee_id = assignee_id
 
@@ -671,7 +703,7 @@ def update (
 		task.start_at = defer.instant
 		task.start_is_all_day = defer.is_all_day
 
-	changes = subroutine.domain.events.changes_between(before, _snapshot(task))
+	changes = subroutine.domain.events.changes_between(before, _snapshot(session, task))
 
 	if not changes:
 		return task
@@ -819,7 +851,9 @@ def delete (
 	return task
 
 
-def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
+def _snapshot (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+) -> dict[str, typing.Any]:
 	"""Return the fields an update may change, for comparison afterwards.
 
 	**Every field ``update`` can write belongs here, and a missing one is silent.** The
@@ -839,6 +873,10 @@ def _snapshot (task: subroutine.db.models.work.Task) -> dict[str, typing.Any]:
 		"title": task.title,
 		"completed_at": task.completed_at,
 		"project_id": task.project_id,
+		# **Read rather than taken off the row**, which is why this needs a session at all.
+		# Tags live in a join table, so there is no attribute to compare; a sorted list of
+		# names is what makes "did the tags change" a value comparison.
+		"tags": subroutine.domain.tags.names_on_task(session, task),
 		"description": task.description,
 		"status_id": task.status_id,
 		"assignee_id": task.assignee_id,

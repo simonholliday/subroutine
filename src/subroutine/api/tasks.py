@@ -94,6 +94,11 @@ class Create(subroutine.api.schemas.RequestModel):
 	importance: int | None = None
 	urgency: int | None = None
 
+	#: Tag names, without the ``#`` — ``["health", "admin"]``. The same words a captured line
+	#: applies with ``#health``, and refused on the same rule: a name of only digits is a
+	#: reference, not a tag (§6.2).
+	tags: list[str] | None = None
+
 	#: How long the work is expected to take, in §6.4's grammar — ``"4h"``, ``"1h30m"``, or
 	#: a bare number of minutes. The same values ``~4h`` accepts in a captured line.
 	estimate: int | str | None = None
@@ -126,6 +131,11 @@ class Update(subroutine.api.schemas.RequestModel):
 	#: go with it. **Not nullable**, unlike most fields here: every task is in a project, and
 	#: `null` would have to mean the Inbox — a destination somebody should have to name.
 	project: str | None = None
+
+	#: The task's tags, **replacing** whatever it had (§8.3, like every other field here).
+	#: ``[]`` clears them, which is how a mistyped tag is removed; omitting the field leaves
+	#: them alone.
+	tags: list[str] | None = None
 	due: str | None = None
 	due_is_all_day: bool | None = None
 	planned_for: str | None = None
@@ -157,6 +167,7 @@ def create (
 			"importance",
 			"urgency",
 			"estimate",
+			"tags",
 			"due",
 			"due_is_all_day",
 			"planned_for",
@@ -451,6 +462,7 @@ def change (
 			"due",
 			"planned_for",
 			"start",
+			"tags",
 		)
 		if name in supplied
 	}
