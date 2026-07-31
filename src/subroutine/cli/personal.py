@@ -509,9 +509,38 @@ def register (
 			)
 
 			if not reached:
+				# **Say what each connection actually said** (`#127`). Every failure here already
+				# carries a sentence somebody can act on — `clients/local._reported` turns a
+				# SQLAlchemy error into "local could not be read: no such column tasks.ref", with
+				# a hint naming `database_url` — and this discarded all of it for a generic line
+				# plus an instruction to go and check configuration that is perfectly fine. That
+				# is worse than saying nothing, because it names a cause which is not the cause.
+				#
+				# The asymmetry that hid it: `_report` prints every failure beside the results
+				# that *did* arrive, so one connection down out of three read well. It runs after
+				# this context manager has yielded, so the case where everything failed — which
+				# is what "my only connection is broken" looks like — never reached it.
+				reasons = []
+
+				for failure in gathered.failures:
+					reasons.append(failure.describe())
+
+					# Indented under the connection it belongs to, so several broken connections
+					# do not run their remedies together. Only here: beside a partial result a
+					# hint per failure is noise, which is why `describe()` still omits it.
+					if failure.error.hint is not None:
+						reasons.append(f"  {failure.error.hint}")
+
+				# **"Nothing could be read", not "no connection could be reached"**, once there
+				# are reasons to print. A database at the wrong schema *was* reached — it is the
+				# wrong shape — and the old line asserted a cause as confidently as the hint
+				# did. The original wording is still right for the case it was written for,
+				# which is having nothing to ask in the first place.
 				stop(
-					"No connection could be reached.",
-					"Run 'subroutine connections' to see what is configured.",
+					"Nothing could be read." if reasons else "No connection could be reached.",
+					"\n".join(reasons)
+					if reasons
+					else "Run 'subroutine connections' to see what is configured.",
 				)
 
 			try:

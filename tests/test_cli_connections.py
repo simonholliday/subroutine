@@ -341,6 +341,50 @@ def test_an_unreachable_connection_is_named_and_skipped (
 	assert "Pay the gas bill" in result.output, "and the rest of the list still prints"
 
 
+def test_when_nothing_can_be_reached_the_reason_is_still_printed (
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#127``. The commonest failure there is: the only connection is the broken one.
+
+	Every failure already carries a sentence somebody can act on, and this path threw all of
+	them away for "No connection could be reached" plus an instruction to go and check
+	configuration that is perfectly fine — a message naming a cause which is not the cause.
+
+	It hid behind the *partial* case reading well: one connection down out of three is named
+	properly, because that report happens after the point this returns from.
+
+	The break is a dropped table rather than a schema behind the code, deliberately. A stale
+	schema has its own explanation now, and a test that could be satisfied by it would stop
+	covering this the moment that landed.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	database = home / "xdg_data_home" / "subroutine" / "subroutine.db"
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		with engine.begin() as connection:
+			connection.exec_driver_sql("DROP TABLE workspace")
+
+	finally:
+		engine.dispose()
+
+	result = run("today", expect=1)
+
+	assert "workspace" in result.output, f"the reason was not printed:\n{result.output}"
+	assert "to see what is configured" not in result.output, (
+		"the generic hint is for having no connections, not for having a broken one"
+	)
+
+	# **And not "could not be reached"**, which asserts a cause as confidently as the hint did.
+	# This connection was reached; it is unusable. The original wording is still right for the
+	# case it was written for — having nothing to ask in the first place.
+	assert "Nothing could be read." in result.output
+	assert "could not be reached" not in result.output
+
+
 def test_strict_makes_an_unreachable_connection_fatal_and_says_so_plainly (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
