@@ -1086,3 +1086,51 @@ def test_the_type_column_stays_hidden_when_everything_is_one_kind (
 	run("add", "call the dentist")
 
 	assert "task" not in run("list").output
+
+
+def test_a_bare_invocation_says_there_is_more (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""SPEC.md §12.2a's habit, applied to the most likely first thing anybody types.
+
+	Every command here prints the next one to try, and the bare invocation — the one a new
+	user reaches for before they know any commands exist — printed no such line at all. It
+	showed today's agenda and left them with no reason to think there was anything else.
+	"""
+
+	run("init")
+	run("add", "buy milk")
+
+	assert "subroutine --help" in run().output
+
+
+def test_an_explicit_today_carries_no_beginner_signpost (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The same output, a different question, and that is why they are told apart.
+
+	A bare `subroutine` is somebody arriving; `subroutine today` is somebody who already
+	knows what they want. A daily habit should not carry a signpost forever, and the two are
+	distinguishable because Typer reports whether a subcommand was invoked.
+	"""
+
+	run("init")
+	run("add", "buy milk")
+
+	assert "--help" not in run("today").output
+
+
+def test_the_two_helps_point_at_each_other (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``--help`` lists the commands; ``help`` explains the concepts. Neither is the whole of it.
+
+	A user who guessed one had no reason to think the other existed. `help` already pointed
+	at `--help`; the reverse is the epilog on the application, so whichever a beginner lands
+	on names the other.
+	"""
+
+	run("init")
+
+	assert "subroutine help" in run("--help").output
+	assert "--help" in run("help").output

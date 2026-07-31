@@ -52,6 +52,14 @@ app = typer.Typer(
 	# `--help` is still one keystroke away for anyone who wants the wall.
 	invoke_without_command=True,
 	add_completion=False,
+	# **The two helps are different and neither used to say so.** This page lists the
+	# *commands*; `subroutine help` explains the *concepts* a command cannot — how a date is
+	# written, what the capture shorthand does, why a number means what it does. A user who
+	# guessed one had no reason to think the other existed, and `help` already pointed here.
+	epilog=(
+		"Try 'subroutine help' to understand dates, refs and the capture shorthand — "
+		"the ideas behind the commands, rather than the list of them."
+	),
 )
 
 config_app = typer.Typer(help="Inspect and manage configuration.", no_args_is_help=True)
@@ -1265,6 +1273,16 @@ def _default (
 	# The bare invocation (SPEC.md §12.2a). `today` answers the question somebody opening
 	# this tool is actually asking; a help wall answers one nobody asked.
 	_show_today()
+
+	# **And one line saying there is more.** §12.2a's habit is that the user is never left
+	# wondering what exists — every command prints the next one to try — and this, the single
+	# most likely first thing anybody types, had no such line at all.
+	#
+	# On the *bare* invocation only, never on an explicit `subroutine today`. The two are the
+	# same output and different questions: bare is somebody arriving, `today` is somebody who
+	# already knows what they want, and a daily habit should not carry a beginner's signpost
+	# forever. `invoked_subcommand` is what tells them apart.
+	subroutine.cli.personal.suggest("subroutine --help          for everything it can do")
 
 
 def main () -> None:

@@ -259,7 +259,9 @@ def listing (
 		False,
 		description=(
 			"Only tasks that can actually be started: nothing unfinished blocks them and "
-			"they are not deferred to a future date."
+			"they are not deferred to a future date. Does not yet consider a task's own "
+			"status — one marked 'blocked' by hand is still returned, because that is a "
+			"declared block rather than a tracked dependency (see §5.5)."
 		),
 	),
 	order: str | None = fastapi.Query(

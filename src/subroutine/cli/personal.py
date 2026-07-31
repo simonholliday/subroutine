@@ -2034,3 +2034,14 @@ def _in_order (
 	)
 
 	return rows
+
+
+def suggest (command: str) -> None:
+	"""Print the command to try next, on the shared console (SPEC.md §12.2a).
+
+	The public face of :func:`_suggest`, for callers outside this module that have no console
+	of their own — the bare invocation in ``cli/main`` is the only one. Kept as one function
+	so the styling cannot drift into a second definition.
+	"""
+
+	_suggest(rich.console.Console(), command)
