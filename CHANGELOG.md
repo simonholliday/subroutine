@@ -29,6 +29,7 @@ its schema outright with `subroutine init`.
   deadline, both priority axes, the estimate and a tag from the line you already type.
 - Items are addressed by a number allocated once and never reused, so it goes on meaning that
   item after you have finished a dozen others.
+- `subroutine start` and `subroutine stop`, so the list can say what you are in the middle of.
 - `subroutine link 42 blocks 43` and `subroutine unlink`. `--ready` reads those links, so
   this is how that filter learns anything.
 - `subroutine delete` and `subroutine restore`, with `list --trash` to see what is in there.

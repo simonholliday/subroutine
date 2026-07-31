@@ -283,6 +283,7 @@ class Columns:
 
 	address: int = 0
 	kind: int = 0
+	started: int = 0
 	priority: int = 0
 	estimate: int = 0
 	matched: int = 0
@@ -306,9 +307,37 @@ class Columns:
 				(len(world.address_of_item(name, item)) for name, item in rows), default=0
 			),
 			kind=_column(item.type for _name, item in rows),
+			started=_column(_started_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
 		)
+
+
+#: Marks work somebody is in the middle of. **A word, not a symbol**: decision `#102` says no
+#: information exists only in a colour, and the same argument retires a bare glyph — a reader
+#: meeting `▶` has to be told what it means, where a reader meeting `doing` does not.
+#:
+#: Not the word "status", which §13.5b forbids on this path and which nobody needs: `start` and
+#: `stop` are actions that happen to set a field, exactly as `done`, `plan` and `defer` are.
+STARTED_MARK = "doing"
+
+
+def _started_cell (item: Item) -> str:
+	"""Return the marker for work in progress, or nothing (`#75`).
+
+	**A `start` command whose effect is invisible is half a feature.** The status was reachable
+	only over HTTP until now, and adding a way to set it without a way to see it would have
+	moved the gap rather than closed it.
+
+	Empty on every row of an ordinary list, which drops the column entirely — the same rule the
+	kind, priority and parent columns follow, and what keeps a personal to-do list from looking
+	like a database (§1.4, §14.10).
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	return STARTED_MARK if item.status_category == "in_progress" else ""
 
 
 def _priority_cell (item: Item) -> str:
@@ -1316,6 +1345,75 @@ def register (
 				f"subroutine comment {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')} "
 				f'"what happened"',
 			)
+
+	# **Named `start_item`/`stop_item`, not `start`/`stop`.** `stop` is the refusal helper this
+	# whole function is handed, and `def stop` inside it rebinds that name for the entire
+	# enclosing scope — so every refusal in every command registered here would have called the
+	# command instead. `mypy --strict` caught it; nothing at runtime would have, because the
+	# paths that call `stop()` are the ones nobody exercises on a good day.
+	@app.command("start")
+	def start_item (
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+	) -> None:
+		"""Say you have started something.
+
+		Examples:
+
+		  subroutine start 42
+
+		  subroutine stop 42
+
+		A person could finish work and put work off and never say they were doing it — the one
+		state that answers "what am I in the middle of" was reachable only over HTTP (`#75`).
+		"""
+
+		_moved_to(which, "in_progress", verb="start", said="Started")
+
+	@app.command("stop")
+	def stop_item (
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+	) -> None:
+		"""Say you have put something down again, without finishing it.
+
+		Examples:
+
+		  subroutine stop 42
+
+		**A state you can enter and not leave is worse than no state**, which is why this
+		exists beside `start` rather than after somebody has asked for it. Picking something up
+		and putting it down is ordinary; having to finish it to stop showing as busy is not.
+		"""
+
+		_moved_to(which, "open", verb="stop", said="Stopped")
+
+	def _moved_to (which: str, status: str, *, verb: str, said: str) -> None:
+		"""Move a task to a named status, in the shape `done` uses.
+
+		One body for both, because they differ in two words. **Neither says "status"** — §13.5b
+		forbids the vocabulary and does not need it: `done`, `plan` and `defer` are all actions
+		that happen to set a field, and "Started: <title>" is the same shape as "Done: <title>".
+		"""
+
+		with opened() as world:
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb=verb,
+			)
+
+			if task.completed_at is not None:
+				# Nothing else would go wrong, and this is the honest answer: picking up
+				# something already ticked off is nearly always the wrong number.
+				say(_acted(world, located, "Already done"))
+				_suggest(console, "subroutine list", "everything still open")
+
+				return
+
+			client = _require_connection(world, located.connection)
+			moved = client.update(ref=task.ref, status=status, workspace=located.workspace)
+
+			say(_acted(world, dataclasses.replace(located, item=moved), said))
+			_suggest(console, "subroutine today")
 
 	@app.command()
 	def done (
@@ -2393,6 +2491,12 @@ def _item_line (
 
 	if columns.kind:
 		line.append(f"{item.type:<{columns.kind}}  ", style=DETAIL)
+
+	# **First after the address, because it answers a different question from the rest.** The
+	# other cells describe what an item *is*; this one says you are in the middle of it, which
+	# is what somebody scanning for "where was I" is looking for.
+	if columns.started:
+		line.append(f"{_started_cell(item):<{columns.started}}  ", style=DETAIL)
 
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)

@@ -2145,3 +2145,109 @@ def test_a_deadline_more_than_a_year_away_says_which_year (
 	run("add", "Renew the passport by 2027-11-30")
 
 	assert "2027" in run("list").output
+
+
+def test_you_can_say_you_have_started_something_and_put_it_down_again (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#75``. A person could finish work and put work off and never say they were doing it.
+
+	``in_progress`` was a seeded status reachable only over HTTP — so the one state that
+	answers "what am I in the middle of" was the one a person could not set.
+	"""
+
+	run("init")
+	run("add", "Write the report")
+
+	assert "Started: Write the report" in run("start", "1").output
+	assert "Stopped: Write the report" in run("stop", "1").output
+
+
+def test_starting_something_is_visible_in_the_list (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**A `start` whose effect is invisible is half a feature.**
+
+	Adding a way to set the status without a way to see it would have moved the gap rather
+	than closed it.
+	"""
+
+	run("init")
+	run("add", "Write the report")
+	run("add", "Buy milk")
+
+	assert "doing" not in run("list").output
+
+	run("start", "1")
+
+	listed = run("list").output
+
+	assert "doing" in listed
+	assert listed.count("doing") == 1, listed
+
+
+def test_an_ordinary_list_has_no_column_for_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The same earn-its-place rule the kind, priority and parent columns follow (§14.10).
+
+	A to-do list that annotates every line with an empty cell is one that looks like a
+	database, which is the §1.4 leak this whole surface avoids.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	before = run("list").output
+
+	run("start", "1")
+	run("stop", "1")
+
+	assert run("list").output == before
+
+
+def test_starting_and_stopping_say_nothing_about_a_status (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§13.5b, and they do not need the word: these are actions that happen to set a field.
+
+	"Started: <title>" is the same shape as "Done: <title>", which is the point.
+	"""
+
+	run("init")
+	run("add", "Write the report")
+
+	transcript = run("start", "1").output + run("list").output + run("stop", "1").output
+
+	for word in FORBIDDEN:
+		assert word not in transcript.lower(), transcript
+
+
+def test_starting_something_already_finished_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Picking up something already ticked off is nearly always the wrong number."""
+
+	run("init")
+	run("add", "Buy milk")
+	run("done", "1")
+
+	assert "Already done" in run("start", "1").output
+
+
+def test_a_refusal_from_start_still_refuses (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**The guard on a name collision `mypy --strict` caught and nothing else would.**
+
+	`stop` is the refusal helper the whole command module is handed, and `def stop` inside that
+	scope rebinds it — so every refusal in every command would have called the *command*
+	instead. Nothing at runtime would have noticed, because the paths that refuse are the ones
+	nobody exercises on a good day.
+	"""
+
+	run("init")
+
+	refused = run("start", "99", expect=1)
+
+	assert "no #99" in refused.output
