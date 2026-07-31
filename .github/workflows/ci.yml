@@ -83,6 +83,34 @@ jobs:
       - name: Check
         run: python scripts/check_licences.py
 
+  # Checked by the tool that will read them (SPEC.md §21). `tests/test_plugin.py` covers what
+  # the manifests must *say* — that the version matches the package, that every declared option
+  # is substituted somewhere, that the token is held as a secret. Only Claude Code itself can
+  # say whether they conform to its schema, and a manifest that does not is one nobody can
+  # install at all.
+  #
+  # Its own job rather than a step in `checks`, because it needs a Node package the rest of the
+  # build has no use for. Jobs run in parallel, so this costs nothing on the clock and does not
+  # slow the lint feedback everybody actually waits for.
+  plugin:
+    name: Plugin manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate
+        run: |
+          claude plugin validate .
+          claude plugin validate ./plugins/subroutine
+
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

@@ -1,0 +1,38 @@
+{
+  "name": "subroutine",
+  "version": "0.1.0",
+  "description": "Project management for people and agents, in equal measure. Wires this session to a Subroutine instance and carries the working practice for using it well.",
+  "author": {
+    "name": "Simon Holliday",
+    "email": "simon.holliday@protonmail.com"
+  },
+  "homepage": "https://github.com/simonholliday/subroutine",
+  "keywords": [
+    "tasks",
+    "project-management",
+    "todo",
+    "self-hosted",
+    "planning"
+  ],
+  "userConfig": {
+    "command": {
+      "type": "string",
+      "title": "The subroutine command",
+      "description": "Usually just 'subroutine'. Give the full path if you installed it into a virtualenv your editor does not activate — for example /home/you/.venvs/subroutine/bin/subroutine. Not installed yet? Run 'pip install subroutine' and then 'subroutine init' in a terminal, then come back here.",
+      "default": "subroutine"
+    },
+    "connection": {
+      "type": "string",
+      "title": "Which instance (optional)",
+      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty to use the database on this machine, which is what most people want. Connections are set up with 'subroutine' itself, not here.",
+      "default": ""
+    },
+    "token": {
+      "type": "string",
+      "title": "Agent token (optional)",
+      "description": "A token issued for this agent, if you want it to have less access than you do — 'subroutine token create --service-account claude --scope task:read'. Leave empty to let it act as you. Stored in your system keychain, never in a settings file.",
+      "sensitive": true,
+      "default": ""
+    }
+  }
+}

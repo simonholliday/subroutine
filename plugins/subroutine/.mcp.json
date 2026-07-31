@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "subroutine": {
+      "command": "${user_config.command}",
+      "args": ["mcp", "--connection", "${user_config.connection}"],
+      "env": {
+        "SUBROUTINE_TOKEN": "${user_config.token}"
+      }
+    }
+  }
+}
