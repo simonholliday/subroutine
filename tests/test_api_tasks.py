@@ -1343,3 +1343,194 @@ def test_a_parent_the_caller_cannot_see_is_not_found_rather_than_empty (
 	)
 
 	assert nosy.call("GET", f"/v1/tasks?parent={hidden.ref}").status_code == 404
+
+
+def _blocking (world: World, blocker: int, blocked: int) -> None:
+	"""Record that one task must land before another."""
+
+	world.call(
+		"POST",
+		f"/v1/tasks/{blocker}/links",
+		json={"target": blocked, "target_type": "task", "link_type": "blocks"},
+	)
+
+
+def test_ready_excludes_a_task_something_unfinished_is_blocking (world: World) -> None:
+	"""The ordering this project actually follows, made queryable.
+
+	`priority_score` is a scalar and a dependency is a graph; folding one into the other
+	would make the number mean two things and rank badly at both. So readiness is a filter
+	and the ordering is unchanged — which is why a blocked item still *has* a rank, it just
+	is not offered as startable.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Built on it"}).json()["ref"]
+	_blocking(world, first, second)
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert first in listed
+	assert second not in listed
+
+
+def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> None:
+	"""The half that matters more: readiness has to *change*, not merely be computed once."""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Built on it"}).json()["ref"]
+	_blocking(world, first, second)
+
+	world.call("POST", f"/v1/tasks/{first}/complete", json={})
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert second in listed, "the blocker is done and the task is still held back"
+
+
+def test_ready_excludes_a_task_deferred_to_the_future (world: World) -> None:
+	"""SPEC.md §6.5's third reason to skip something, which is a clock rather than a graph.
+
+	"Don't show me the renewal form until March" and "this is blocked on the migration" are
+	different facts and the same answer to "can I start it?", which is why one filter covers
+	both. A caller that needs to tell them apart reads `start_at` and the blockers, which are
+	on the item already.
+	"""
+
+	now = world.call("POST", "/v1/tasks", json={"title": "Startable"}).json()["ref"]
+	later = world.call(
+		"POST", "/v1/tasks", json={"title": "Not yet", "start": "2099-01-01"}
+	).json()["ref"]
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert now in listed
+	assert later not in listed
+
+
+def test_a_defer_that_has_passed_does_not_hold_a_task_back (world: World) -> None:
+	"""The boundary, which is where an off-by-one in the comparison would live."""
+
+	past = world.call(
+		"POST", "/v1/tasks", json={"title": "Was deferred", "start": "2020-01-01"}
+	).json()["ref"]
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert past in listed
+
+
+def test_a_document_does_not_block_a_task (world: World) -> None:
+	"""Only a task can block, and this is why.
+
+	A document has no state that could ever finish, so a `blocks` link from a specification
+	would hold every task derived from it back forever — and this project's own backlog links
+	its work to document #4 exactly that way. Restricted to tasks in the predicate rather
+	than left to whoever creates links to be careful.
+	"""
+
+	spec = world.call("POST", "/v1/documents", json={"title": "The plan"}).json()
+	task = world.call("POST", "/v1/tasks", json={"title": "Derived work"}).json()["ref"]
+
+	world.call(
+		"POST",
+		f"/v1/documents/{spec['ref']}/links",
+		json={"target": task, "target_type": "task", "link_type": "blocks"},
+	)
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert task in listed, "a document with no state held a task back"
+
+
+def test_a_withdrawn_block_stops_blocking (world: World) -> None:
+	"""Links are soft-deleted, so the predicate has to exclude the withdrawn ones itself."""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Built on it"}).json()["ref"]
+	_blocking(world, first, second)
+
+	link = world.call("GET", f"/v1/tasks/{second}/links").json()["items"][0]
+	world.call("DELETE", f"/v1/tasks/{second}/links/{link['id']}")
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert second in listed
+
+
+def test_a_blocker_the_caller_cannot_see_still_blocks (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**Readiness is a fact about the work, not about the viewer**, and this is the trade.
+
+	A task in a private project can block one the caller can see. Counting only the blockers
+	they can see would report the item as startable when it is not — the caller picks it up,
+	and finds out the hard way.
+
+	What this discloses is bounded and deliberate: the item is absent from `ready=true` while
+	present in the ordinary listing, so a determined reader learns that *something* unseen
+	holds it back, and never what. §7.3a protects the existence of the private item, which
+	this does not reveal. Recorded in `tests/test_scoping.py` as the reason
+	`domain/readiness.py` reaches tasks without narrowing.
+	"""
+
+	world = _world(session)
+
+	private = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="SECRET",
+		title="Secret",
+		visibility="private",
+		owner_id=world.user.id,
+	)
+	hidden = subroutine.domain.tasks.create(session, project=private, title="Confidential")
+	session.flush()
+
+	visible = world.call("POST", "/v1/tasks", json={"title": "Waiting on something"}).json()
+
+	world.call(
+		"POST",
+		f"/v1/tasks/{hidden.ref}/links",
+		json={"target": visible["ref"], "target_type": "task", "link_type": "blocks"},
+	)
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+
+	nosy = World(
+		application=world.application,
+		session=session,
+		user=outsider,
+		workspace=world.workspace,
+		secret=issued.value.get_secret_value(),
+	)
+
+	assert visible["ref"] in [
+		item["ref"] for item in nosy.call("GET", "/v1/tasks?limit=50").json()["items"]
+	], "the task itself is visible"
+
+	assert visible["ref"] not in [
+		item["ref"] for item in nosy.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	], "an unseen blocker did not hold it back"
+
+	# And nothing about the blocker leaked on the way.
+	assert nosy.call("GET", f"/v1/tasks/{hidden.ref}").status_code == 404

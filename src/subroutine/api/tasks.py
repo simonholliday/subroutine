@@ -40,6 +40,7 @@ import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
+import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -254,6 +255,13 @@ def listing (
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
 	include_completed: bool = fastapi.Query(False, description="Include finished tasks."),
+	ready: bool = fastapi.Query(
+		False,
+		description=(
+			"Only tasks that can actually be started: nothing unfinished blocks them and "
+			"they are not deferred to a future date."
+		),
+	),
 	order: str | None = fastapi.Query(
 		None, description="Comma-separated sort fields, '-' for descending: '-importance,due_at'."
 	),
@@ -326,6 +334,11 @@ def listing (
 					hint="Pass parent=<ref> as well, or drop subtree.",
 				)
 			],
+		)
+
+	if ready:
+		statement = statement.where(
+			subroutine.domain.readiness.ready(model, now=subroutine.db.types.utcnow())
 		)
 
 	if assignee_id is not None:
