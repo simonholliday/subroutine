@@ -173,7 +173,32 @@ $ subroutine today
     work/acme/#12  Fix the deploy script
 ```
 
+## Running it for a team
+
+The shape is deliberately ordinary — a Python process on loopback, your own TLS proxy in
+front, systemd keeping it alive, PostgreSQL underneath once more than one person is writing.
+Nothing to cluster, no message broker.
+
+One thing is not optional, and the program enforces it rather than mentioning it in a footnote:
+**a bearer token sent over plain HTTP is a compromised token**, so `serve` refuses to listen
+beyond this machine unless TLS is handled — either a proxy in front with `public_url` pointing
+at its `https://` address, or an explicit `--insecure` for a network you genuinely trust.
+
+**[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
+unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,
+backups on a separate volume, and what upgrading actually involves. Every command on that page
+has been run, including the refusals.
+
+If you modify Subroutine and serve it to other people, the AGPL entitles them to your changes —
+which is what `source_url` in `GET /v1/meta` is for. Internal use and unmodified copies trigger
+nothing.
+
 ## Documentation
+
+- **[docs/hosting.md](docs/hosting.md)** — running it as a service, end to end.
+- **[docs/errors.md](docs/errors.md)** — every error code the API can return. Generated from
+  the registry, so it cannot drift from the code.
+- **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
 
 The full specification — data model, API, permissions and agent design — is written but
 not yet published. It lands here once the API has settled enough to be worth reading.
