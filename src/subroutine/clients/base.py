@@ -211,6 +211,38 @@ class Client(typing.Protocol):
 		beginning; a task list is read newest-first because the newest is the one you act on.
 		"""
 
+	def projects (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Project]:
+		"""List the projects this credential can see, parents before children.
+
+		Ordered by materialised path rather than by name, so a child follows its parent and
+		the tree can be printed without the caller reassembling it (§8.4).
+		"""
+
+	def create_project (
+		self,
+		*,
+		key: str,
+		title: str,
+		description: str | None = None,
+		parent: str | None = None,
+		visibility: str = "public",
+		workspace: str | None = None,
+	) -> subroutine.views.Project:
+		"""Create a project.
+
+		Named plainly rather than in one word. :meth:`capture` and :meth:`remark` are single
+		verbs because :meth:`tasks` and :meth:`comments` were already taken and a reader and a
+		writer must not be told apart by a plural — there is no such collision here, and
+		without one the name that says what it does wins over the pattern.
+
+		**No ``template``.** §6.12's templates seed ``project.settings`` at creation and never
+		act again, and the one anybody would reach for from a code repository currently writes
+		a promise nothing keeps (`#133`). A parameter offering a choice between "nothing" and
+		"something untrue" is not a choice worth exposing; the HTTP API still carries it.
+		"""
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> Captured:

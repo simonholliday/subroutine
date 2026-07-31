@@ -34,6 +34,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.credentials
 import subroutine.db.migrate
+import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.session
 import subroutine.db.types
@@ -45,6 +46,7 @@ import subroutine.domain.links
 import subroutine.domain.local
 import subroutine.domain.ordering
 import subroutine.domain.paging
+import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -371,6 +373,77 @@ class Client:
 			).all()
 
 			return [subroutine.views.comment(row) for row in rows]
+
+	def projects (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Project]:
+		"""List the projects this credential can see, parents before children."""
+
+		size = subroutine.domain.paging.size(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			# `readable_projects` and not a hand-written query: it applies the workspace scope,
+			# the privacy inheritance of §7.3a and the token's own `project_scope` together,
+			# and narrowing by hand is what left `subroutine ls` listing private projects to
+			# non-members in shipped code.
+			rows = list(
+				session.scalars(
+					subroutine.domain.scoping.readable_projects(
+						actor, workspace_ids=[chosen.id]
+					)
+					.order_by(subroutine.db.models.project.Project.path)
+					.limit(size)
+				)
+			)
+
+			vocabulary = subroutine.views.Vocabulary.for_projects(session, rows)
+
+			return [subroutine.views.project(row, vocabulary) for row in rows]
+
+	def create_project (
+		self,
+		*,
+		key: str,
+		title: str,
+		description: str | None = None,
+		parent: str | None = None,
+		visibility: str = "public",
+		workspace: str | None = None,
+	) -> subroutine.views.Project:
+		"""Create a project."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			above = (
+				None
+				if parent is None
+				else subroutine.domain.selection.project(session, actor, chosen, parent)
+			)
+
+			created = subroutine.domain.projects.create(
+				session,
+				workspace_id=chosen.id,
+				key=key,
+				title=title,
+				description=description,
+				parent=above,
+				visibility=visibility,
+				# **The creator owns what they create**, which is also what makes a private
+				# project visible to them: §7.3a grants sight only to holders of a
+				# `project_member` row, and `projects.create` writes one for the owner.
+				# Omitting this is how private projects came to be invisible to the people
+				# who made them.
+				owner_id=actor.user.id,
+				actor=actor,
+			)
+
+			return subroutine.views.project(
+				created, subroutine.views.Vocabulary.for_projects(session, [created])
+			)
 
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None

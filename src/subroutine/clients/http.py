@@ -251,6 +251,52 @@ class Client:
 
 		return self._collected(subroutine.views.Comment, body, endpoint="comments")
 
+	def projects (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> list[subroutine.views.Project]:
+		"""List the projects this credential can see, parents before children."""
+
+		body = self._json(
+			"GET", "/v1/projects", params=_given(workspace_id=workspace, limit=limit)
+		)
+
+		return self._collected(subroutine.views.Project, body, endpoint="projects")
+
+	def create_project (
+		self,
+		*,
+		key: str,
+		title: str,
+		description: str | None = None,
+		parent: str | None = None,
+		visibility: str = "public",
+		workspace: str | None = None,
+	) -> subroutine.views.Project:
+		"""Create a project."""
+
+		self._refuse_if_read_only()
+
+		# **`visibility` is passed rather than left to the server's default**, unlike the
+		# nullable fields around it. `_given` drops a `None`, and a default is a decision made
+		# in two places the moment one of them changes — the whole reason both transports go
+		# through one protocol.
+		body = self._json(
+			"POST",
+			"/v1/projects",
+			json={
+				**_given(
+					key=key,
+					title=title,
+					description=description,
+					parent=parent,
+					workspace_id=workspace,
+				),
+				"visibility": visibility,
+			},
+		)
+
+		return subroutine.views.Project.model_validate(body)
+
 	def capture (
 		self, *, text: str, workspace: str | None = None, timezone: str | None = None
 	) -> subroutine.clients.base.Captured:

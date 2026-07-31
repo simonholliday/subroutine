@@ -1433,6 +1433,101 @@ def register (
 				f"subroutine show {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
 			)
 
+	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
+	# about never *requiring* a project in order to keep a to-do list, not about hiding the
+	# noun — `subroutine list --project SR` already names it, and until 2026-07-31 there was
+	# no way to make one outside the HTTP API, so on a default install the only project
+	# anybody would ever have was the Inbox (`#134`). A hidden command would have left that
+	# wall standing with the door merely painted over.
+	project_app = typer.Typer(
+		help="Group work into projects.", no_args_is_help=True
+	)
+	app.add_typer(project_app, name="project")
+
+	@project_app.command("create")
+	def project_create (
+		key: str = typer.Argument(..., help="Its permanent short name, like WEB."),
+		title: str = typer.Argument(..., help="What it is called."),
+		description: str = typer.Option("", "--description", help="What it is for."),
+		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
+		private: bool = typer.Option(
+			False, "--private", help="Only its members can see it."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Make a project to file work under.
+
+		Examples:
+
+		  subroutine project create WEB "Website redesign"
+
+		  subroutine project create API "Public API" --parent WEB
+
+		**The key is yours to choose and cannot be changed afterwards.** It becomes part of
+		how every item in the project is addressed, and those strings end up in commit
+		messages and other people's notes. A to Z and 0 to 9, starting with a letter, up to
+		sixteen characters.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			created = where.client.create_project(
+				key=key,
+				title=title,
+				description=description.strip() or None,
+				parent=parent.strip() or None,
+				visibility="private" if private else "public",
+				workspace=_writing_workspace(world),
+			)
+
+			if json_output:
+				say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			say(f"Created {created.key} — {created.title}")
+
+			# **The next command is the one that uses it**, not another one about projects.
+			# A project nobody files anything into is an empty gesture, and `+KEY` is the part
+			# of the capture grammar somebody who has just made one has no reason to know.
+			_suggest(console, f'subroutine add "something to do +{created.key}"')
+
+	@project_app.command("list")
+	def project_list (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show the projects you can see, with what is inside what.
+
+		Examples:
+
+		  subroutine project list
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+			found = where.client.projects(workspace=_writing_workspace(world))
+
+			if json_output:
+				say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
+
+				return
+
+			if not found:
+				say("No projects here yet.")
+				_suggest(console, 'subroutine project create WEB "Website redesign"')
+
+				return
+
+			# Indented by depth, which is why the listing is ordered by path rather than by
+			# name: a child follows its parent, so the shape can be printed in one pass.
+			width = max(len(one.key) + one.depth * 2 for one in found)
+
+			for one in found:
+				shown = f"{'  ' * one.depth}{one.key}".ljust(width)
+
+				say(f"{shown}  {one.title}")
+
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
 	# are the full model's vocabulary — a workspace, an instance — and somebody with one
 	# database and one workspace has no use for either. Both stay fully documented, fully

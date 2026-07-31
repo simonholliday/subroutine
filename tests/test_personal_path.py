@@ -1756,3 +1756,70 @@ def test_show_on_a_plain_task_still_says_nothing_about_hierarchy (
 
 	assert "part of" not in shown
 	assert "Parts" not in shown
+
+
+def test_a_default_install_can_make_a_project_and_file_into_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#134``, and the reason it blocked the first release.
+
+	Until 2026-07-31 ``domain.projects.create`` had two callers: ``bootstrap``, which makes
+	the Inbox during ``init``, and the HTTP router. **On a default install neither is
+	reachable** — nothing runs ``serve`` unless somebody asks it to — so the only project
+	anybody would ever have was the Inbox, and ``+KEY`` in a captured line could only ever
+	refuse.
+
+	This runs the whole path a person actually takes, on a temporary home with nothing else
+	set up: make one, put something in it, and read it back out.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website redesign")
+	run("add", "Fix the header +WEB")
+
+	assert "Fix the header" in run("list", "--project", "WEB").output
+
+
+def test_a_project_key_is_refused_rather_than_repaired (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""It is permanent and it becomes part of every address, so a guess is not good enough.
+
+	Case is the exception and is not a repair: ``web`` and ``WEB`` are the same key rather
+	than one being fixed into the other, which is why the second of these collides.
+	"""
+
+	run("init")
+
+	assert "not a usable key" in run("project", "create", "2FA", "Digits", expect=1).output
+
+	run("project", "create", "WEB", "Website")
+
+	assert "already in use" in run("project", "create", "web", "Again", expect=1).output
+
+
+def test_the_project_listing_shows_what_is_inside_what (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Ordered by path so a child follows its parent, and indented so that is visible.
+
+	The indentation is the only thing carrying the shape — decision ``#102`` forbids a colour
+	being the sole bearer of anything, and a tree drawn in a colour would be exactly that.
+	"""
+
+	run("init")
+	run("project", "create", "OUTER", "Outer thing")
+	run("project", "create", "INNER", "Inner thing", "--parent", "OUTER")
+
+	printed = run("project", "list").output
+	rows = [line for line in printed.splitlines() if line.strip()]
+
+	assert any(line.startswith("OUTER") for line in rows)
+	assert any(line.startswith("  INNER") for line in rows), printed
+
+	def where (key: str) -> int:
+		"""Return which row a project is on."""
+
+		return next(index for index, line in enumerate(rows) if key in line)
+
+	assert where("OUTER") < where("INNER"), printed

@@ -280,6 +280,87 @@ def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	assert from_local.task.title == from_remote.task.title == "Water the plants every monday"
 
 
+def test_both_create_a_project_the_same_way (pair: Pair) -> None:
+	"""``#134``. Until this landed there was no local path at all, so there was nothing to
+	compare — a project could be made over HTTP and nowhere else, which on a default install
+	means nowhere, because nothing runs ``serve`` unless somebody asks it to."""
+
+	local, remote = pair.both()
+
+	by_local = local.create_project(key="ALPHA", title="From the local client")
+	by_remote = remote.create_project(key="BETA", title="From the HTTP client")
+
+	assert by_local.key == "ALPHA"
+	assert by_remote.key == "BETA"
+
+	# Every field that is not the two they were told to differ in. A create is where a default
+	# most easily comes to be decided in two places — `visibility` is passed explicitly by the
+	# HTTP client for exactly that reason.
+	differs = {"id", "key", "title", "created_at", "updated_at"}
+	as_local = by_local.model_dump()
+	as_remote = by_remote.model_dump()
+
+	assert {name: value for name, value in as_local.items() if name not in differs} == {
+		name: value for name, value in as_remote.items() if name not in differs
+	}
+
+
+def test_both_list_the_same_projects_parents_before_children (pair: Pair) -> None:
+	"""Ordered by path, so the tree prints in one pass without the caller reassembling it."""
+
+	local, remote = pair.both()
+
+	above = local.create_project(key="OUTER", title="Outer")
+	local.create_project(key="INNER", title="Inner", parent=above.key)
+
+	from_local = [(one.key, one.depth) for one in local.projects()]
+	from_remote = [(one.key, one.depth) for one in remote.projects()]
+
+	assert from_local == from_remote
+	assert from_local.index(("OUTER", 0)) < from_local.index(("INNER", 1))
+
+
+def test_both_make_the_creator_the_owner_so_a_private_project_stays_visible (
+	pair: Pair,
+) -> None:
+	"""§7.3a grants sight of a private project only to holders of a ``project_member`` row.
+
+	``projects.create`` writes one for the owner, so **omitting the owner is how a private
+	project becomes invisible to the person who made it** — which is a thing that shipped
+	once already. The CLI has no way to name somebody else, so the only way to get this wrong
+	is to leave it out.
+	"""
+
+	local, remote = pair.both()
+
+	by_local = local.create_project(key="HUSH", title="Quiet", visibility="private")
+	by_remote = remote.create_project(key="SHH", title="Quieter", visibility="private")
+
+	assert by_local.owner_id == by_remote.owner_id == pair.user.id
+	assert {one.key for one in local.projects()} >= {"HUSH", "SHH"}
+	assert {one.key for one in remote.projects()} >= {"HUSH", "SHH"}
+
+
+def test_both_refuse_an_unusable_key_the_same_way (pair: Pair) -> None:
+	"""A key is permanent and becomes part of every address, so it is refused, never fixed up.
+
+	The refusal has to be the same sentence on both transports: a person meeting it through
+	the CLI and an agent meeting it over HTTP are being told about the same rule.
+	"""
+
+	local, remote = pair.both()
+	refusals = []
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.create_project(key="2FA", title="Starts with a digit")
+
+		refusals.append(refused.value)
+
+	assert refusals[0].detail == refusals[1].detail
+	assert refusals[0].code == refusals[1].code
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 
