@@ -424,6 +424,12 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 	assert subroutine.domain.authorization.is_visible(session, principal, project)
 
 
+#: Settings a template may write, because each only *describes* how a project is meant to be
+#: used. Nothing reads them yet and that is not the test — the test is that none of them can
+#: change what the program refuses. See the note in the template test below.
+DESCRIBES = frozenset({"visible_status_keys"})
+
+
 def test_a_project_template_writes_settings_and_nothing_else (
 	session: sqlalchemy.orm.Session,
 ) -> None:
@@ -435,9 +441,25 @@ def test_a_project_template_writes_settings_and_nothing_else (
 	software = _project(session, workspace, template="software")
 
 	assert personal.settings["visible_status_keys"] == ["open", "done"]
-	assert personal.settings["require_verification_to_complete"] is False
-	assert software.settings["require_verification_to_complete"] is True
 	assert "in_progress" in software.settings["visible_status_keys"]
+
+	# **A template may describe; it may not gate** (`#133`). Neither key here is read by
+	# anything yet, and that is fine for one of them and was not for the other: a *descriptive*
+	# setting is a statement about how this project is meant to be used, and the worst a
+	# premature one can do is be ignored. A *gating* one changes what the program refuses, so
+	# writing it before the gate exists stores a claim the program does not keep — and turns
+	# building the feature into a behaviour change on every project ever made from that
+	# template, arriving with a release about something else.
+	#
+	# `require_verification_to_complete: True` was the second kind and is gone. This list is
+	# what makes adding a third a decision rather than a habit.
+	for template, written in subroutine.domain.projects.TEMPLATES.items():
+		for name in written:
+			assert name in DESCRIBES, (
+				f"the {template!r} template writes {name!r}. If it only describes how the "
+				f"project is meant to be used, add it to DESCRIBES; if it changes what the "
+				f"program refuses, it belongs with the feature that enforces it, not here."
+			)
 
 	# Both projects live in one workspace with one set of statuses, which is the whole
 	# reason a template writes settings rather than seeding rows.

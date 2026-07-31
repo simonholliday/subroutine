@@ -44,11 +44,23 @@ KEY_PATTERN = re.compile(r"[A-Z][A-Z0-9]{0,15}")
 #: What a template writes into ``project.settings``, and nothing else (SPEC.md §6.12).
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
 #: project stays reconfigurable and no template is a cage.
+#:
+#: **A template may only write a setting something reads** (`#133`). Until 2026-07-31 the
+#: software one wrote ``require_verification_to_complete: True`` and nothing anywhere read it,
+#: which is two defects rather than one. It was a claim stored in the data — a caller reading
+#: `project.settings` was told completion is gated, and it is not — and it was a behaviour
+#: change waiting to fire, because building verification would have made every project ever
+#: created from that template start refusing completions, arriving with a release about
+#: something else and looking exactly like a regression. Nobody chose that; a template did,
+#: possibly months earlier.
+#:
+#: The rule generalises past the instance: **a setting for an unbuilt feature belongs with the
+#: feature.** The other unbuilt things here — `db export --format json`, calendar feeds,
+#: recurrence — are parsed and *honestly refused*; a stored value cannot refuse, so it should
+#: not be stored. `config.Settings` keeps the instance-level default, which is `False` and so
+#: claims nothing, and is where the setting will land when there is something to switch on.
 TEMPLATES: dict[str, dict[str, typing.Any]] = {
-	"personal": {
-		"visible_status_keys": ["open", "done"],
-		"require_verification_to_complete": False,
-	},
+	"personal": {"visible_status_keys": ["open", "done"]},
 	"software": {
 		"visible_status_keys": [
 			"open",
@@ -57,13 +69,9 @@ TEMPLATES: dict[str, dict[str, typing.Any]] = {
 			"needs_input",
 			"done",
 			"cancelled",
-		],
-		"require_verification_to_complete": True,
+		]
 	},
-	"blank": {
-		"visible_status_keys": ["open", "done"],
-		"require_verification_to_complete": False,
-	},
+	"blank": {"visible_status_keys": ["open", "done"]},
 }
 
 
