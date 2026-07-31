@@ -33,6 +33,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -789,3 +790,94 @@ def test_both_refuse_a_priority_neither_can_store (pair: Pair) -> None:
 			client.update(ref=task.ref, importance=9)
 
 		assert raised.value.errors[0].field == "importance"
+
+
+def test_both_search_the_same_text_the_same_way (pair: Pair) -> None:
+	"""``q=`` reads title *and* description (§9.4), and must read both on both sides.
+
+	Added to the clients on 2026-07-31 with no equivalence test, which is how three
+	parameters came to sit outside this contract at once (`#116`). The description half is the
+	part worth pinning: it is what `#81` fixed, and it is the half a title-only implementation
+	would still pass a naive test on.
+	"""
+
+	make(pair, "Plain heading")
+	described = pair.local.tasks(limit=50)[0]
+	row = pair.session.get(subroutine.db.models.work.Task, described.id)
+
+	assert row is not None
+
+	subroutine.domain.tasks.update(
+		pair.session, row, description="The keyset cursor is decoded wrongly."
+	)
+	pair.session.flush()
+	make(pair, "Unrelated heading")
+
+	local, remote = pair.both()
+	found = sorted(task.ref for task in local.tasks(q="cursor", limit=50))
+
+	assert found == [described.ref], "the probe matched nothing, so it proves nothing"
+	assert found == sorted(task.ref for task in remote.tasks(q="cursor", limit=50))
+
+
+@pytest.mark.parametrize("choice", ["include", "exclude", "only"])
+def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
+	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.
+
+	`subroutine list` shows the ``exclude`` set and reports the size of the ``only`` set, so a
+	transport that disagreed about either would put a count beside a list that was about
+	different rows — with nothing in the output saying so.
+	"""
+
+	make(pair, "Startable now")
+	make(pair, "Parked from 2099-01-01")
+
+	local, remote = pair.both()
+	found = sorted(task.ref for task in local.tasks(deferred=choice, limit=50))
+
+	assert found == sorted(task.ref for task in remote.tasks(deferred=choice, limit=50))
+	assert len(found) == (2 if choice == "include" else 1), "the defer did not take"
+
+
+def test_both_refuse_a_deferral_neither_understands (pair: Pair) -> None:
+	"""And name the same field, so a caller learns the real values whichever it asked."""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(deferred="banana", limit=50)
+
+		assert raised.value.errors[0].field == "deferred"
+		assert "exclude" in (raised.value.errors[0].message or "")
+
+
+def test_both_find_the_same_children (pair: Pair) -> None:
+	"""``parent=`` narrows to one item's direct children, on both sides."""
+
+	parent = make(pair, "The whole feature")
+	project = pair.session.get(subroutine.db.models.project.Project, parent.project_id)
+	row = pair.session.get(subroutine.db.models.work.Task, parent.id)
+
+	assert project is not None and row is not None
+
+	child = subroutine.domain.tasks.create(
+		pair.session, project=project, title="A part", parent=row
+	)
+	pair.session.flush()
+
+	local, remote = pair.both()
+	found = [task.ref for task in local.tasks(parent=parent.ref, limit=50)]
+
+	assert found == [child.ref]
+	assert found == [task.ref for task in remote.tasks(parent=parent.ref, limit=50)]
+
+
+def test_both_refuse_a_parent_that_names_nothing (pair: Pair) -> None:
+	"""**Not found, not an empty list**, and the same one either way.
+
+	An empty listing would say the subtree is empty, which is a different and false claim —
+	and one that confirms the ref exists to somebody probing for it (§7.3a).
+	"""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.NotFound):
+			client.tasks(parent=9999, limit=50)
