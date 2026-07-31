@@ -26,7 +26,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Full history and tags, because the release check compares this commit's migration
+      # head against the one at the most recent tag. A shallow clone has neither, and the
+      # check would find no previous tag and cheerfully pass every time.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -44,6 +49,13 @@ jobs:
 
       - name: Mypy
         run: mypy src tests scripts
+
+      # A release that moves the schema has to say so in CHANGELOG.md, so that somebody can
+      # *plan* the database upgrade rather than meet one halfway through installing
+      # something (SPEC.md §12.4a). Derived from the migration directory rather than from
+      # anybody remembering at release time, which is when nobody does.
+      - name: Release notes
+        run: python scripts/check_release_notes.py
 
   # Subroutine is AGPL and is also offered commercially, and both rest on being able to
   # grant rights in the whole of what ships. A copyleft dependency takes that away, and it

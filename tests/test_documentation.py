@@ -23,6 +23,7 @@ import subroutine.cli.main
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
 README = ROOT / "README.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 		assert line.strip() in page, f"docs/hosting.md no longer quotes: {line.strip()!r}"
 
 
-@pytest.mark.parametrize("page", [HOSTING, README], ids=lambda path: path.name)
+@pytest.mark.parametrize("page", [HOSTING, README, CHANGELOG], ids=lambda path: path.name)
 def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> None:
 	"""A relative link in published documentation is a promise about the repository.
 

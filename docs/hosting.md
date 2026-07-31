@@ -437,10 +437,12 @@ while it is firing, because they are what you reach for once it does.
 `curl localhost:8471/readyz` makes the same comparison for the served path and has always done
 so. `subroutine --version` prints the release and the schema this build wants.
 
-> **One piece of this is specified and not yet built:** release notes that say whether a
-> migration is needed, derived from whether the schema head moved between two tags rather than
-> from somebody remembering. Until then, `subroutine upgrade` on a copy of production is the
-> way to find out in advance.
+**Whether a release needs a migration at all is on the release itself.** Each entry in
+[CHANGELOG.md](../CHANGELOG.md) that moves the schema carries a notice saying so, with the
+revisions it moves between — and CI refuses a release that moves the schema without one, by
+comparing the migration history against the previous tag rather than by trusting anybody to
+remember. So the question "will this upgrade need downtime?" is answered before you download
+anything, which is the whole point.
 
 ## The AGPL obligation, which is a product requirement here
 

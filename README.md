@@ -196,6 +196,9 @@ nothing.
 ## Documentation
 
 - **[docs/hosting.md](docs/hosting.md)** — running it as a service, end to end.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed, and which releases need a database
+  migration. That last part is checked rather than remembered: CI refuses a release that moves
+  the schema without saying so, so you can plan the upgrade instead of discovering it.
 - **[docs/errors.md](docs/errors.md)** — every error code the API can return. Generated from
   the registry, so it cannot drift from the code.
 - **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
