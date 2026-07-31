@@ -22,6 +22,7 @@ import json
 import typing
 
 import subroutine.clients.base
+import subroutine.domain.capture
 import subroutine.domain.refs
 import subroutine.mcp.protocol
 import subroutine.views
@@ -263,17 +264,28 @@ def _shown (
 def _added (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
-	"""Capture one line as a task, and say what was understood.
+	"""Capture one line as a task, and say what was understood — **and what was not**.
 
 	Reports what the grammar took, because a caller that cannot see the parse cannot tell a
 	deadline that was read from one that stayed in the title.
+
+	**And what it declined to read**, which §6.13 rule 1 requires and this dropped until
+	`#115`. An agent writing "Water the plants every monday" was told "Added #1 task Water the
+	plants every monday" and had no way to learn that the recurrence was not set up — so the
+	one caller most likely to believe it had been was the one not told. The CLI had said so on
+	both its paths for exactly that reason.
+
+	Not `isError`: the task was created and the answer is a success. The line is added only
+	when there is something to say, so an ordinary capture costs nothing.
 	"""
 
 	captured = client.capture(
 		text=_text(arguments, "text") or "", workspace=_text(arguments, "workspace")
 	)
+	answer = "Added " + _line(captured.task)
+	left = subroutine.domain.capture.explain(captured.unparsed)
 
-	return "Added " + _line(captured.task)
+	return answer if left is None else f"{answer}\n{left}"
 
 
 def _remarked (

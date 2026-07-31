@@ -42,6 +42,7 @@ import subroutine.context
 import subroutine.credentials
 import subroutine.db.types
 import subroutine.domain.agenda
+import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.ordering
@@ -861,14 +862,12 @@ def register (
 
 			say(f"Added: {captured.task.title}{_when(captured.task)}")
 
-			if captured.unparsed:
-				console.print(
-					rich.text.Text(
-						f"  Left as written: {', '.join(captured.unparsed)}"
-						" — recurring tasks are not supported yet.",
-						style=DETAIL,
-					)
-				)
+			# The sentence itself is `domain.capture.explain`'s, so this surface and the MCP
+			# adapter cannot come to word §6.13's obligation differently.
+			left = subroutine.domain.capture.explain(captured.unparsed)
+
+			if left is not None:
+				console.print(rich.text.Text(f"  {left}", style=DETAIL))
 
 			_suggest(console, "subroutine today")
 

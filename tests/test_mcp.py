@@ -23,6 +23,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.domain.bootstrap
+import subroutine.domain.capture
 import subroutine.mcp.protocol
 import subroutine.mcp.tools
 
@@ -531,3 +532,56 @@ def test_a_priority_outside_the_range_is_refused_with_the_range (
 
 	assert failed
 	assert "importance" in text
+
+
+def test_the_adapter_says_what_the_grammar_declined_to_read (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#115`: §6.13 rule 1 requires the caller be told, and this surface told nobody.
+
+	The CLI had said so on both its human and its scripted path, with a note explaining that
+	the agent is the caller most likely to have written something it believes was understood.
+	The MCP adapter — the surface where every caller is an agent — said nothing at all, so a
+	model writing "every monday" was told only that a task had been added.
+
+	Not `isError`: the task *was* created, and reporting a success as a failure would be the
+	opposite mistake.
+	"""
+
+	text, failed = _called(bound, "subroutine_add", text="Water the plants every monday")
+
+	assert not failed, "the task was created, so this is a success"
+	assert "every monday" in text
+	assert "not supported yet" in text
+
+
+def test_an_ordinary_capture_carries_no_extra_line (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Context economy: a caption for the empty case would be paid on every capture."""
+
+	text, failed = _called(bound, "subroutine_add", text="Fix the boiler by friday")
+
+	assert not failed
+	assert "\n" not in text
+
+
+def test_both_surfaces_word_it_the_same_way () -> None:
+	"""One sentence, in `domain.capture.explain`, because there are three callers.
+
+	The CLI's human path, its `--json` path and this adapter all owe §6.13's obligation, and
+	three copies of a sentence is three chances to word an obligation differently — which is
+	the shape this codebase keeps finding.
+	"""
+
+	assert subroutine.domain.capture.explain(()) is None
+
+	only = subroutine.domain.capture.explain(("every monday",))
+
+	assert only is not None
+	assert "every monday" in only
+
+	several = subroutine.domain.capture.explain(("every monday", "every 3rd"))
+
+	assert several is not None
+	assert "every monday, every 3rd" in several

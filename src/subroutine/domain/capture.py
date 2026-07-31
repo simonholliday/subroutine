@@ -183,6 +183,33 @@ class Capture:
 	unparsed: tuple[str, ...] = ()
 
 
+def explain (unparsed: typing.Sequence[str]) -> str | None:
+	"""Return the sentence telling a caller what the grammar declined to read, or ``None``.
+
+	**§6.13 rule 1 is an obligation on every surface, so the sentence lives here.** Text that
+	looks like grammar and is not implemented stays in the title verbatim *and the caller is
+	told* — otherwise somebody who wrote "every monday" cannot tell whether it was understood,
+	ignored, or silently dropped, and the whole point of leaving the words in place is lost.
+
+	One definition because there are three callers and were nearly three sentences: the CLI's
+	human path, its ``--json`` path, and the MCP adapter — which had none at all until `#115`,
+	and is the surface where it matters most. The CLI's own note says why: an agent is the
+	caller most likely to have written something it believes was understood.
+
+	The reason names recurrence because recurrence is the only thing reserved today (``_EVERY``
+	is the sole producer of ``unparsed``). When a second reservation arrives, this is the one
+	place that has to learn a second reason.
+	"""
+
+	if not unparsed:
+		return None
+
+	return (
+		f"Left as written: {', '.join(unparsed)}"
+		" — recurring tasks are not supported yet."
+	)
+
+
 def parse (
 	text: str, *, now: datetime.datetime, timezone: str = subroutine.domain.schedule.DEFAULT_TIMEZONE
 ) -> Capture:
