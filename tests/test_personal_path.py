@@ -1134,3 +1134,54 @@ def test_the_two_helps_point_at_each_other (
 
 	assert "subroutine help" in run("--help").output
 	assert "--help" in run("help").output
+
+
+def test_a_deferred_task_says_so_wherever_it_appears (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A defer hides a task from the agenda, and every other surface has to explain that.
+
+	Before `#72` it explained it nowhere. `today` hid the task — correctly, §6.5 — `ls`
+	printed it with no mark at all, and `show` printed the number and the title and nothing
+	else, because `_facts` rendered every date field except this one. So a task could vanish
+	from the agenda for four months with no way to find out why from the CLI, and the
+	conclusion available to the user was that the agenda was broken.
+
+	The word is `from`, which is one of §6.13's own `DEFER_WORDS` — the phrase reads back as
+	something typeable rather than as a label invented for the listing.
+	"""
+
+	run("init")
+	run("add", "Renew the passport from 2026-12-01 due 2026-12-15")
+
+	# Hidden from the agenda, which is the behaviour being explained rather than a defect.
+	assert "Renew the passport" not in run("today").output
+
+	listed = run("ls").output
+
+	assert "from Tue 1 Dec" in listed
+
+	# **The deadline survives alongside it.** "Not until December, and wanted by the
+	# fifteenth" is two facts, and a phrase that could carry only one used to drop this one.
+	assert "due Tue 15 Dec" in listed
+
+	assert "from Tue 1 Dec" in run("show", "1").output
+
+
+def test_a_defer_that_has_come_round_is_reported_only_where_it_is_asked_about (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The two surfaces answer different questions, so they disagree about a passed defer.
+
+	A listing row has one short phrase to spend and it is spent explaining an absence; once
+	the instant has passed the task is startable and the defer explains nothing. ``show`` is
+	asked "what has been decided about this", and a decision somebody made does not stop
+	being one because its date arrived — erasing it would make "why was this not on my list
+	in June" permanently unanswerable.
+	"""
+
+	run("init")
+	run("add", "Chase the invoice from 2020-01-05")
+
+	assert "from Sun 5 Jan" not in run("ls").output
+	assert "from Sun 5 Jan" in run("show", "1").output

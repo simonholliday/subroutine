@@ -1789,6 +1789,13 @@ def _facts (located: Located) -> list[str]:
 		if item.estimate_minutes is not None:
 			facts.append(subroutine.domain.durations.humanize(item.estimate_minutes))
 
+		# **Reported whether or not it has passed**, unlike `_when` below. A defer somebody
+		# set is a decision they made, and one that has since come round is still the answer
+		# to "why was this not on my list in June" — where a field that erased itself on
+		# arrival would leave that question permanently unanswerable.
+		if item.start_at is not None:
+			facts.append(f"from {_render_date(item.start_at, item.timezone)}")
+
 		if item.due_at is not None:
 			facts.append(f"due {_render_date(item.due_at, item.timezone)}")
 
@@ -1831,6 +1838,22 @@ def _when (item: Item) -> str:
 
 	task = item
 
+	# **A defer leads, and says so with the word that sets it.** `from` is one of §6.13's
+	# own `DEFER_WORDS`, so the phrase reads back as something typeable rather than as a
+	# label invented for the listing — the same self-describing rule as `!4/2`.
+	#
+	# It leads because it is the one fact the rest of the CLI cannot supply: `today` hides a
+	# deferred task by design, so without this the item is simply absent for months and the
+	# agenda looks broken. A deadline still prints alongside it, because "not until December,
+	# and wanted by the fifteenth" is two facts and dropping either misinforms.
+	if _deferred(task):
+		deferred = f"from {_render_date(task.start_at, task.timezone)}"
+
+		if task.due_at is not None:
+			return f"  ({deferred}, due {_render_date(task.due_at, task.timezone)})"
+
+		return f"  ({deferred})"
+
 	if task.due_at is not None:
 		return f"  (due {_render_date(task.due_at, task.timezone)})"
 
@@ -1838,6 +1861,22 @@ def _when (item: Item) -> str:
 		return f"  (for {_render_day(task.planned_for)})"
 
 	return ""
+
+
+def _deferred (task: subroutine.views.Task) -> bool:
+	"""Return whether this task's start has not come round yet.
+
+	**Only while it is still hiding something**, which is why this is not simply
+	``start_at is not None``. A listing row has one short phrase to spend, and once the
+	instant has passed the defer explains nothing: the task is startable and behaves like any
+	other. ``show`` reports it either way, because there the question being asked is "what has
+	been decided about this", not "why is this not in front of me".
+	"""
+
+	if task.start_at is None:
+		return False
+
+	return task.start_at > datetime.datetime.now(datetime.UTC)
 
 
 def _render_date (instant: datetime.datetime | None, timezone: str | None) -> str:
