@@ -117,10 +117,11 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"schema_mismatch",
 			409,
 			"Schema mismatch",
-			"A backup's database schema does not match this installation's (SPEC.md §12.6). A "
-			"backup from an older schema can be migrated forward; one from a *newer* schema "
-			"is refused, because this version cannot interpret data it does not know the "
-			"shape of and a partial read is worse than a clear failure.",
+			"A database schema does not match the one this build expects — either a backup "
+			"being put back (SPEC.md §12.6) or the live database itself (§12.4a). An older "
+			"schema can be migrated forward, and the refusal says so; a *newer* one cannot, "
+			"because this version cannot interpret data it does not know the shape of and a "
+			"partial read is worse than a clear failure.",
 		),
 		_define(
 			"payload_too_large",

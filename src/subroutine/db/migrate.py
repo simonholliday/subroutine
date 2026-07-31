@@ -16,6 +16,7 @@ import alembic.config
 import alembic.migration
 import alembic.runtime.migration
 import alembic.script
+import alembic.util.exc
 import sqlalchemy
 import sqlalchemy.engine
 
@@ -95,6 +96,30 @@ def is_up_to_date (engine: sqlalchemy.engine.Engine) -> bool:
 	"""Report whether a database has every available migration applied."""
 
 	return current_revision(engine) == head_revision()
+
+
+def knows_revision (revision: str) -> bool:
+	"""Report whether this build has ever heard of a migration.
+
+	The question behind it is *which direction* a mismatch goes, and that decides which of two
+	opposite remedies to offer. A revision this build knows about is one it can migrate
+	*forward* from, so the answer is ``subroutine upgrade``. One it has never seen was written
+	by a later release — or by a fork — and no amount of migrating here will produce it, so the
+	answer is to update the software instead. Telling somebody to upgrade a database that is
+	already ahead of the code would be a confident instruction to do nothing.
+	"""
+
+	config = build_config("sqlite://")
+	script = alembic.script.ScriptDirectory.from_config(config)
+
+	try:
+		return script.get_revision(revision) is not None
+
+	except alembic.util.exc.CommandError:
+		# What Alembic raises for a revision that is not in the directory. Caught rather than
+		# allowed out: "can't locate revision identified by …" is a sentence about Alembic,
+		# and the caller is about to write one about what to do next.
+		return False
 
 
 def schema_differences (engine: sqlalchemy.engine.Engine) -> list[typing.Any]:

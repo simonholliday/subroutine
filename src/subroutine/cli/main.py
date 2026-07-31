@@ -633,6 +633,126 @@ def database_current () -> None:
 	_say(f"Schema is at {current}." if current == head else f"Schema is at {current}; newest is {head}.")
 
 
+def _schema_now (settings: subroutine.config.Settings) -> str:
+	"""Report which migration the database is at, for a message written after a failure.
+
+	Never raises. It is called on the way out of a failed upgrade, and a second failure while
+	trying to describe the first one would replace the sentence somebody needs with a traceback
+	about our own reporting.
+	"""
+
+	try:
+		with _database(settings) as engine:
+			return subroutine.db.migrate.current_revision(engine) or "no schema at all"
+
+	except Exception:
+		return "a revision that could not be read"
+
+
+@app.command("upgrade")
+def upgrade (
+	yes: bool = typer.Option(False, "--yes", help="Do not ask, even if protected."),
+) -> None:
+	"""Bring the database up to the schema this version needs, backing it up first.
+
+	Examples:
+
+	  subroutine upgrade
+
+	This does not install anything, and will not try to. Update Subroutine itself with
+	whatever you installed it with — pip, pipx, uv, your package manager, a new container —
+	and then run this to bring the database along.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	_refuse_unusable_storage(settings)
+
+	with _database(settings) as engine:
+		current = subroutine.db.migrate.current_revision(engine)
+
+	expected = subroutine.db.migrate.head_revision()
+
+	# **Both numbers, before anything happens and whatever the answer turns out to be.** They
+	# are step 1 of decision `#97`, and they are what the whole conversation is about: one
+	# says what the software wants and the other what it has got.
+	_say(f"This version expects schema {expected}.")
+	_say(
+		f"The database is at {current}."
+		if current is not None
+		else "The database has no schema recorded."
+	)
+
+	if current == expected:
+		_say("Nothing to do.")
+
+		return
+
+	if current is None:
+		_stop(
+			"There is no Subroutine schema in that database.",
+			"Run 'subroutine init' to set it up.",
+		)
+
+	if not subroutine.db.migrate.knows_revision(current):
+		# **Ahead, not behind, and there is no way back.** Migrating cannot produce a revision
+		# this build has never seen, so "run the upgrade" would be a confident instruction to
+		# do nothing. `db restore` refuses a newer backup for the same reason (§12.6).
+		_stop(
+			f"That database is newer than this software: it is at {current}, which this "
+			f"version has never heard of.",
+			"Update Subroutine rather than the database — there is no downgrade. Whatever "
+			"installed it is what upgrades it.",
+		)
+
+	_confirm_destructive(settings, "About to upgrade the database of", yes=yes)
+
+	# **Back up before touching anything, always.** `take` verifies the copy where it landed
+	# rather than where it was aimed (§12.6b) — size, and the schema head read back out — so
+	# "backed up" here means a file somebody could actually restore, not a write that returned.
+	with _database(settings) as engine:
+		try:
+			written = subroutine.db.backup.take(engine, settings)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	_say(f"Backed up to {written.path} ({written.size_bytes:,} bytes).")
+
+	try:
+		subroutine.db.migrate.upgrade(settings.database_url)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		# **Say where it stopped, never "the database is unchanged".** Alembic runs each
+		# migration in its own transaction, so a failure part-way along a chain of three leaves
+		# the first two applied and committed — and an upgrade spanning several releases is
+		# exactly when this fires. Read the revision back and report it; the one thing that is
+		# certainly true is where the backup is.
+		_stop(
+			f"The upgrade failed: {getattr(error, 'orig', None) or error}",
+			f"It stopped at {_schema_now(settings)}. What was there before the upgrade is at "
+			f"{written.path} — 'subroutine db restore {written.path} --recover' puts it back.",
+		)
+
+	# **Read it back rather than assuming.** A migration that reports success and leaves the
+	# schema somewhere unexpected is exactly the state somebody needs to be told about, and
+	# `alembic upgrade head` is not the only thing that could have written here.
+	with _database(settings) as engine:
+		landed = subroutine.db.migrate.current_revision(engine)
+
+	if landed != expected:
+		_stop(
+			f"The upgrade ran but the database is at {landed}, not {expected}.",
+			f"'subroutine db restore {written.path} --recover' puts back what was there "
+			f"before.",
+		)
+
+	_say(f"Upgraded from {current} to {landed}.")
+
+
 def _instance_label () -> str:
 	"""Name the instance a command is about to act on, for output that must be unambiguous.
 

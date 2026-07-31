@@ -33,6 +33,7 @@ import subroutine.clients.base
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.migrate
 import subroutine.db.models.work
 import subroutine.db.session
 import subroutine.db.types
@@ -83,6 +84,7 @@ class Client:
 		self._sessions = session_factory or sqlalchemy.orm.sessionmaker(
 			bind=self._engine, expire_on_commit=False
 		)
+		self._schema_checked = False
 
 	# --- The protocol ------------------------------------------------------------------
 
@@ -565,6 +567,8 @@ class Client:
 		"""Yield a session and who is acting, for a read."""
 
 		with self._sessions() as session, self._reported():
+			self._require_a_schema_this_build_understands(session)
+
 			yield session, self._principal(session)
 
 	@contextlib.contextmanager
@@ -585,6 +589,8 @@ class Client:
 		"""
 
 		with self._sessions() as session, self._reported():
+			self._require_a_schema_this_build_understands(session)
+
 			try:
 				yield session, self._principal(session)
 
@@ -594,6 +600,61 @@ class Client:
 				raise
 
 			session.commit()
+
+	def _require_a_schema_this_build_understands (self, session: sqlalchemy.orm.Session) -> None:
+		"""Refuse to read a database whose shape this build does not match (SPEC.md §12.4a).
+
+		**The gap decision `#97` names.** ``/readyz`` has always made this comparison and
+		refuses to serve on a mismatch, naming the remedy; the CLI made it nowhere. Running any
+		command against a database one migration behind gave ``no such column:
+		workspace.next_ref_number`` — a sentence about our internals, arriving at the one moment
+		somebody has least patience for one. Whether the *last* release needed a migration is
+		not something a person is expected to remember, so the program has to say.
+
+		**Which direction it goes decides the remedy**, which is why this is not one message.
+		Behind is migrable and says so; ahead was written by a later release and cannot be
+		reached from here, so the answer is to update the software. An empty database is neither
+		and gets ``init``.
+
+		Checked once per client, on the first session rather than in ``__init__``: constructing
+		a connection must not touch the database, or a broken local instance would refuse the
+		fan-out before a perfectly good remote one had been asked.
+
+		Here rather than in the CLI because this is the only thing that opens the local database
+		for a task or a project (§13.7), and the administrative commands must keep working when
+		it fails — ``db backup``, ``db restore`` and ``upgrade`` itself are what somebody reaches
+		for once this fires, and a check that blocked them would be a lock with the key inside.
+		"""
+
+		if self._schema_checked:
+			return
+
+		self._schema_checked = True
+
+		current = subroutine.db.migrate.revision_on(session.connection())
+		expected = subroutine.db.migrate.head_revision()
+
+		if current == expected:
+			return
+
+		if current is None:
+			raise subroutine.errors.SchemaMismatch(
+				"This database has no Subroutine schema in it.",
+				hint="Run 'subroutine init' to set it up.",
+			)
+
+		if subroutine.db.migrate.knows_revision(current):
+			raise subroutine.errors.SchemaMismatch(
+				f"This database is at schema {current}, and this build expects {expected}.",
+				hint="Run 'subroutine upgrade' — it backs up first, then migrates.",
+			)
+
+		raise subroutine.errors.SchemaMismatch(
+			f"This database is at schema {current}, which this build has never heard of. It "
+			f"expects {expected}.",
+			hint="That database was written by a newer version. Update the software rather "
+			"than the database — there is no downgrade.",
+		)
 
 	@contextlib.contextmanager
 	def _reported (self) -> typing.Iterator[None]:

@@ -1,11 +1,12 @@
 # Running Subroutine as a service
 
 **Every `subroutine` command on this page has been run, and every quoted output is what it
-actually printed** — including the refusals, which are worth meeting on a page rather than at
-two in the morning. A test fails the build if the two quoted refusals stop matching what the
-program says. The `useradd`, `systemctl`, nginx and Caddy fragments are ordinary
-system administration and are not exercised by anything here; treat them as a starting point
-for however your machines are already set up.
+actually printed** — with only paths and hostnames moved to the deployment described here.
+That includes the refusals, which are worth meeting on a page rather than at two in the
+morning, and a test fails the build if the two quoted bind refusals stop matching what the
+program says. The `useradd`, `systemctl`, nginx and Caddy fragments are ordinary system
+administration, are not exercised by anything here, and are a starting point for however your
+machines are already set up.
 
 The shape is deliberately ordinary: a Python process listening on loopback, your own TLS proxy
 in front of it, systemd keeping it alive, PostgreSQL underneath once more than one person is
@@ -375,36 +376,71 @@ protected = true
 ## Upgrading
 
 The package manager moves the code. Subroutine moves the database. In that order, and it will
-not try to do the first for you — a tool that installs software over itself is one you cannot
-reason about, and your package manager is better at it.
+not try to do the first for you — a tool that installs software over itself fights whatever
+installed it, cannot do it safely while running, and is worse at it than your package manager.
 
 ```console
 # systemctl stop subroutine
 # /opt/subroutine/bin/pip install --upgrade subroutine
-# sudo -u subroutine … /opt/subroutine/bin/subroutine db backup
-# sudo -u subroutine … /opt/subroutine/bin/subroutine db upgrade
+# sudo -u subroutine … /opt/subroutine/bin/subroutine upgrade
 # systemctl start subroutine
 ```
 
-`db upgrade` is safe to run when there is nothing to do — it says where the schema is and
-stops:
+`subroutine upgrade` is the whole of the second step, and its value is the ordering rather than
+any one part of it: report both versions, back up and verify the copy where it landed, migrate,
+then read the schema back rather than assuming.
 
 ```console
-$ subroutine db upgrade
-  Schema is at 0c8f7a7027e6.
+$ subroutine upgrade
+  This version expects schema 0c8f7a7027e6.
+  The database is at 233f898a2bee.
+  About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
+  Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
+  Upgraded from 233f898a2bee to 0c8f7a7027e6.
 ```
 
-Check afterwards with `curl localhost:8471/readyz`, which compares the database's schema
-against the one the running build expects and says so plainly when they differ.
-`subroutine --version` prints the release and the schema this build wants; `subroutine db
-current` prints what the database actually has. Those are the two numbers the whole
-conversation is about.
+It is safe to run when there is nothing to do — it prints both numbers and stops, which is also
+the cheapest way to ask the question:
 
-> **Two pieces of this are specified and not yet built.** A single `subroutine upgrade` that
-> takes the backup, migrates and re-checks in one ordered step; and release notes that say
-> whether a migration is needed, derived from whether the schema head moved between two tags
-> rather than from somebody remembering. Until both exist, run the sequence above and compare
-> the two numbers yourself.
+```console
+$ subroutine upgrade
+  This version expects schema 0c8f7a7027e6.
+  The database is at 0c8f7a7027e6.
+  Nothing to do.
+```
+
+Add `--yes` when the instance is marked `protected` and there is no terminal to answer the
+prompt — a timer or a deploy script. On a **protected** instance without it, the command says
+what it was about to touch and stops.
+
+If the migration fails, the message says where it stopped and where the backup is, with the
+`db restore … --recover` command spelled out. It does not claim the database is unchanged:
+Alembic runs each migration in its own transaction, so an upgrade spanning three releases can
+leave the first two applied, and that is exactly the case where somebody needs the truth.
+
+**You should not usually meet the check, but here is what it looks like.** Run anything against
+a database this build does not match and it is refused, with the direction of the mismatch
+deciding the remedy:
+
+```console
+$ subroutine today
+  Nothing could be read.
+  Local: This database is at schema 233f898a2bee, and this build expects 0c8f7a7027e6.
+    Run 'subroutine upgrade' — it backs up first, then migrates.
+```
+
+A database *newer* than the software is refused the other way — update the software, because
+there is no downgrade. **The administrative commands are deliberately outside the check**:
+`db current`, `db backup`, `db backups`, `db restore` and `upgrade` itself all keep working
+while it is firing, because they are what you reach for once it does.
+
+`curl localhost:8471/readyz` makes the same comparison for the served path and has always done
+so. `subroutine --version` prints the release and the schema this build wants.
+
+> **One piece of this is specified and not yet built:** release notes that say whether a
+> migration is needed, derived from whether the schema head moved between two tags rather than
+> from somebody remembering. Until then, `subroutine upgrade` on a copy of production is the
+> way to find out in advance.
 
 ## The AGPL obligation, which is a product requirement here
 
