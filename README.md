@@ -4,9 +4,9 @@
 
 > ⚠️ **Early development.** The specification is settled; the code is being built.
 > **The personal to-do list works, the HTTP API works, and an agent can reach it over
-> MCP** — quick capture, an agenda, projects, tasks, documents and the links between them,
-> comments, per-item histories, scoped tokens, backups, and a `serve` that refuses an unsafe
-> bind. What is not built yet is most of what makes it interesting for an agent over *weeks*
+> MCP** — quick capture, an agenda, ranking, search, projects, tasks, documents and the links
+> between them, comments, per-item histories, scoped tokens, backups, and a `serve` that
+> refuses an unsafe bind. What is not built yet is most of what makes it interesting for an agent over *weeks*
 > rather than minutes: session handoffs, recorded decisions, verification evidence and claims
 > are specified and not written. The specification and the implementation plan are not
 > published yet.
@@ -23,7 +23,8 @@ of agents working in parallel. Same model underneath, different defaults on top 
 shopping list never has to look like a Jira ticket.
 
 It also means either can work alone. Take away every agent and you still have a genuinely
-good personal to-do list: three commands from install to ticking something off. Take away
+good personal to-do list: three commands from install to a working list, and a fourth
+to tick something off. Take away
 every human and you have a substrate agents can plan, claim and verify work in. Neither is
 a degraded mode of the other.
 
@@ -44,6 +45,24 @@ Free, open source, self-hosted. SQLite by default with no configuration, Postgre
 you outgrow it. Your data stays yours.
 
 ---
+
+## Install
+
+```console
+$ pip install subroutine
+```
+
+Python 3.11+, and that is the whole list. No database to create, no configuration file to
+write, no server to start — SQLite is the default and it is made on first use. PostgreSQL
+when you outgrow it:
+
+```console
+$ pip install "subroutine[postgres]"
+```
+
+> **Not published yet.** The package lands on PyPI with the first public release; until then
+> this is the command that will work, not one that does. The rest of this page is verified
+> against a clean install from source.
 
 ## The shape of it
 
@@ -93,6 +112,8 @@ $ subroutine token create --service-account claude
   sr_d78d5d93_hU5ak4GqR_E2GyX2lC0Zq8Mz5JA1kbm-byrlb5hXEfY
 
   That is the only time it is shown. Store it now.
+  Give it to a client as SUBROUTINE_TOKEN, or add it to
+  ~/.config/subroutine/credentials.toml.
 
 $ subroutine serve
   Serving on http://127.0.0.1:8471 — the agent guide is at /v1/docs/agent.
@@ -130,7 +151,7 @@ virtualenv that your editor does not activate, give the absolute path instead �
 
 Six tools: list, show, add, update, comment, done. Deliberately six and not one per
 endpoint — a tool's schema is context the agent carries for its whole session whether it
-calls it or not, so the whole surface is about 3.4 KB of JSON, roughly 850 tokens, and there
+calls it or not, so the whole surface is 3,206 bytes of JSON — about 800 tokens — and there
 is a test that fails if it grows. `add` takes one captured line rather than a dozen typed
 fields, because the grammar you already type is smaller than a schema describing it:
 
