@@ -22,12 +22,15 @@ its schema outright with `subroutine init`.
 
 ### A personal to-do list
 
-- `subroutine init`, `add`, `today`, `done`, `plan`, `defer`, `list`, `search`, `show` and
-  `comment`. Three commands from install to a working list, and a fourth to tick something off.
+- `subroutine init`, `add`, `today`, `done`, `plan`, `defer`, `list`, `search`, `show`,
+  `comment`, `project create`, `project list` and `doc create`. Three commands from install to
+  a working list, and a fourth to tick something off.
 - Quick capture: `subroutine add "Fix the deploy script by friday !4/2 ~2h #ops"` sets the
   deadline, both priority axes, the estimate and a tag from the line you already type.
 - Items are addressed by a number allocated once and never reused, so it goes on meaning that
   item after you have finished a dozen others.
+- `subroutine list --ready` shows only work that can actually be started — nothing unfinished
+  blocks it and it is not deferred. It is the question a backlog cannot answer.
 - `subroutine help` explains the concepts — dates, refs, the capture shorthand — where
   `subroutine --help` lists the commands.
 
@@ -37,7 +40,9 @@ its schema outright with `subroutine init`.
   CLI uses. `GET /v1/docs/agent` is the guide an agent should read first.
 - Scoped bearer tokens: an agent's credential can be narrower than the person who issued it,
   and may never be wider. Service accounts, per-workspace pins, and per-permission scopes.
-- `subroutine mcp` serves the same instance over the Model Context Protocol, in six tools.
+- `subroutine mcp` serves the same instance over the Model Context Protocol, in seven tools.
+- **A Claude Code plugin**, which wires those tools up and carries a skill describing the
+  practice — including how to adopt Subroutine in a project that does not use it yet.
 - Attribution on everything, a comment thread per item, and a history of every change.
 
 ### Running it

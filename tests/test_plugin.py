@@ -12,10 +12,19 @@ is found by a stranger.
 
 import json
 import pathlib
+import re
 import tomllib
 import typing
 
 import pytest
+import sqlalchemy.orm
+
+import api_support
+import subroutine.cli.main
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
+import subroutine.mcp.tools
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
@@ -133,3 +142,112 @@ def test_an_optional_value_left_empty_is_safe (option: str) -> None:
 		"a field with a default is never empty, so calling it required states something untrue"
 	)
 	assert "default" in declared
+
+
+SKILL = ROOT / "plugins" / "subroutine" / "skills" / "subroutine" / "SKILL.md"
+
+#: Every ``subroutine_x(`` the skill writes, and every ``subroutine x`` shell command it shows.
+#: Both are promises to an agent that something exists.
+#:
+#: **Anywhere in the line, not only at the start of one.** The first version of this anchored
+#: with ``^`` and so checked ``subroutine init`` in a fenced block while missing ``subroutine
+#: defer 42`` in a sentence — half a guard, and the half that misses is the prose, which is
+#: where a stale command is likeliest to survive.
+_TOOL = re.compile(r"\b(subroutine_[a-z_]+)\s*\(")
+_COMMAND = re.compile(r"\bsubroutine ([a-z][a-z-]*(?: [a-z][a-z-]*)?)")
+
+#: What follows the word ``subroutine`` without naming a command: ordinary prose, and the
+#: second word of a two-word phrase whose first word is the command. Listed rather than
+#: guessed at, so that adding one is a decision.
+_NOT_A_COMMAND = frozenset({"is", "now", "and", "the", "in", "on", "a", "it", "tools"})
+
+
+def _skill () -> str:
+	"""Return the skill's text."""
+
+	return SKILL.read_text(encoding="utf-8")
+
+
+def test_the_skill_declares_a_name_and_a_trigger () -> None:
+	"""The description is half the value and is the part that is always in context.
+
+	It is what makes an agent reach for Subroutine unprompted rather than waiting to be told,
+	and a tool surface nobody invokes is context paid for and wasted.
+	"""
+
+	front = _skill().split("---")[1]
+
+	assert "name: subroutine" in front
+	assert "description:" in front
+
+	described = front.split("description:", 1)[1]
+
+	for trigger in ("what to work on", "log", "adopt"):
+		assert trigger in described.lower(), f"the description does not fire on {trigger!r}"
+
+
+def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
+	"""SPEC.md §21.4, and it has to be here because it cannot be anywhere else.
+
+	Measured rather than assumed: a failing MCP server reports ``✘ Failed to connect`` and
+	nothing more — a launcher script written to explain itself is not surfaced either. A skill
+	is a file, so it loads whether or not the server started, which makes it the only place
+	the explanation can be read once something has gone wrong.
+	"""
+
+	text = _skill()
+
+	assert "pip install subroutine" in text
+	assert "subroutine init" in text
+	assert "/plugin configure" in text, "the virtualenv case is the likely one, not the rare one"
+
+
+def test_every_tool_the_skill_names_exists (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""**The guard that would have caught three separate walls in one run.**
+
+	``#134``, ``#136`` and ``#138`` were each a capability the HTTP API had and the surfaces a
+	person or an agent touches did not, and each was found by hand, by writing a sentence and
+	discovering it could not be true. Documentation that names a tool is a promise, and prose
+	is exactly what nothing checks.
+	"""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, database_url=f"sqlite:///{tmp_path}/x.db"),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		available = {tool.name for tool in subroutine.mcp.tools.catalogue(client)}
+
+	named = set(_TOOL.findall(_skill()))
+
+	assert named, "the skill names no tools at all — has this test stopped reaching them?"
+	assert named <= available, f"the skill promises {sorted(named - available)}, which do not exist"
+
+
+def test_every_command_the_skill_shows_exists () -> None:
+	"""The same promise in the other vocabulary, and the one the adoption procedure rests on.
+
+	``subroutine project create`` was in SPEC's command map as *(not built)* while a procedure
+	elsewhere depended on it. A page that shows a command somebody cannot run is worse than
+	one that omits it: they will type it before they doubt it.
+	"""
+
+	# `name` is None when the decorator did not override it, and Typer then uses the function
+	# name — so the callback is the fallback, and a command with neither is not a command.
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
+	shown = {
+		phrase.split()[0]
+		for phrase in _COMMAND.findall(_skill())
+		if phrase.split()[0] not in _NOT_A_COMMAND
+	}
+
+	assert len(shown) >= 3, f"only found {sorted(shown)} — has this test stopped reaching them?"
+	assert shown <= registered, f"the skill shows {sorted(shown - registered)}, which do not exist"

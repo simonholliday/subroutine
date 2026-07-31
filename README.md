@@ -142,20 +142,40 @@ $ subroutine mcp
 It speaks MCP on stdin and stdout, so a client starts it as a child process. There is no
 port and no listener: if your client is not running it, nothing is serving.
 
-For Claude Code, from inside the project:
+**For Claude Code there is a plugin**, which is the easier half of this and the recommended
+one — it wires up the tools *and* carries the working practice for using them well:
+
+```console
+$ claude plugin marketplace add simonholliday/subroutine
+$ claude plugin install subroutine@subroutine
+```
+
+It asks once for the path to the `subroutine` command — give the absolute path if you
+installed into a virtualenv your editor does not activate — and optionally for a connection
+and a token, which are only needed for somebody else's instance. The token is kept in your
+system keychain, never in a settings file.
+
+Without the plugin, or for another MCP client:
 
 ```console
 $ claude mcp add subroutine -- subroutine mcp
 ```
 
-`subroutine` has to be on the `PATH` the client will use. If you installed into a
-virtualenv that your editor does not activate, give the absolute path instead — for example
-`~/.venvs/subroutine/bin/subroutine`.
+Seven tools: list, show, add, update, comment, done, document. Deliberately seven and not one
+per endpoint — a tool's schema is context the agent carries for its whole session whether it
+calls it or not, so the whole surface is about 4.3 KB of JSON, roughly 1,100 tokens, and there
+is a test that fails if it grows past a budget somebody has to raise on purpose.
 
-Six tools: list, show, add, update, comment, done. Deliberately six and not one per
-endpoint — a tool's schema is context the agent carries for its whole session whether it
-calls it or not, so the whole surface is 3,206 bytes of JSON — about 800 tokens — and there
-is a test that fails if it grows. `add` takes one captured line rather than a dozen typed
+### What the plugin adds beyond the tools
+
+A **skill**: the practice, rather than the API. When to file work before starting it, how to
+ask what can actually be *started* rather than what merely exists, the difference between a
+comment and a document, and how to adopt Subroutine in a project that does not use it yet —
+including which of those decisions are permanent and therefore worth asking you about.
+
+It costs about 130 tokens of every session and loads the rest only when it is relevant.
+Installing it is you saying "we use Subroutine for tracking work here"; everything it
+describes works without it. `add` takes one captured line rather than a dozen typed
 fields, because the grammar you already type is smaller than a schema describing it:
 
 ```
