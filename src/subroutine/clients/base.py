@@ -118,6 +118,7 @@ class Client(typing.Protocol):
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		q: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -136,6 +137,8 @@ class Client(typing.Protocol):
 		caller that says nothing sees what it always saw. ``only`` exists so that a listing
 		hiding deferred work can *say how much* it is hiding, which is the difference between
 		narrowing a list and truncating one in silence.
+
+		``q`` is §9.4's free-text match, over the title **and the description**.
 		"""
 
 	def task (
@@ -155,6 +158,7 @@ class Client(typing.Protocol):
 		limit: int | None = None,
 		order: str | None = None,
 		project: str | None = None,
+		q: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 

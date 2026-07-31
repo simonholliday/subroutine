@@ -48,6 +48,7 @@ import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.scoping
+import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.workspaces
@@ -154,6 +155,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		q: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -190,6 +192,11 @@ class Client:
 
 			if parked is not None:
 				statement = statement.where(parked)
+
+			if q:
+				statement = statement.where(
+					subroutine.domain.search.matching(q, model.title, model.description)
+				)
 
 			rows = list(
 				session.scalars(
@@ -235,6 +242,7 @@ class Client:
 		limit: int | None = None,
 		order: str | None = None,
 		project: str | None = None,
+		q: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -259,6 +267,11 @@ class Client:
 						sqlalchemy.true()
 						if narrowed is None
 						else model.project_id == narrowed.id
+					)
+					.where(
+						sqlalchemy.true()
+						if not q
+						else subroutine.domain.search.matching(q, model.title, model.body)
 					)
 					# Built by the domain from the vocabulary `GET /v1/documents` uses,
 					# rather than spelled out here — the ordering, its NULLS LAST (§10.3) and

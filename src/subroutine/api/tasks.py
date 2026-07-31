@@ -43,6 +43,7 @@ import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.errors
@@ -251,7 +252,9 @@ def listing (
 	subtree: bool = fastapi.Query(
 		False, description="With parent: include the whole subtree, not only direct children."
 	),
-	q: str | None = fastapi.Query(None, description="Match this text in the title."),
+	q: str | None = fastapi.Query(
+		None, description="Match this text in the title or the description."
+	),
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
 	include_completed: bool = fastapi.Query(False, description="Include finished tasks."),
@@ -365,10 +368,12 @@ def listing (
 		statement = statement.where(model.assignee_id == assignee_id)
 
 	if q:
-		# `ilike` rather than `like`: SQLite's LIKE is case-insensitive for ASCII and
-		# PostgreSQL's is not, so an unqualified LIKE is a filter that behaves differently
-		# depending on where it runs (SPEC.md §10.3).
-		statement = statement.where(model.title.ilike(f"%{_escaped(q)}%", escape="\\"))
+		# **Title and description, which is what §9.4 always said.** It was the title alone
+		# until 2026-07-31 — a search that returns plausible rows and silently drops the ones
+		# nobody knew to look for.
+		statement = statement.where(
+			subroutine.domain.search.matching(q, model.title, model.description)
+		)
 
 	if due_before is not None:
 		statement = statement.where(model.due_at < due_before)
@@ -675,13 +680,3 @@ def _rendered (
 	return subroutine.views.task(
 		row, subroutine.views.Vocabulary.for_tasks(session, [row])
 	)
-
-
-def _escaped (value: str) -> str:
-	"""Escape a caller's text for use inside a LIKE pattern.
-
-	Without this, a search for ``50%`` matches everything and a search for ``a_b`` matches
-	``axb`` — surprising, and on a large table an accidental full scan.
-	"""
-
-	return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

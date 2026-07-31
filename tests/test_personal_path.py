@@ -1468,3 +1468,135 @@ def test_the_scripted_listing_is_never_narrowed_by_a_presentation_rule (
 	parked = next(row for row in rows if row["title"] == "Renew the passport")
 
 	assert parked["start_at"] is not None
+
+
+def _describe (ref: int, description: str) -> None:
+	"""Put a description on a task, reaching past the CLI because nothing there can.
+
+	Not contrived — it is the ordinary state of any task an agent created, and `#81` exists
+	because that is where this project's own reasoning lives. What it exposes is a real gap:
+	`add` takes no description, `subroutine edit` is §12.2b and unbuilt, and a task's
+	description is settable over HTTP and from no command at all.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.work
+	import subroutine.db.session
+	import subroutine.domain.local
+	import subroutine.domain.scoping
+	import subroutine.domain.tasks
+	import subroutine.domain.workspaces
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			principal = subroutine.domain.local.principal(session)
+			found = session.scalars(
+				subroutine.domain.scoping.readable_tasks(
+					principal,
+					workspace_ids=[
+						workspace.id
+						for workspace in subroutine.domain.workspaces.readable(session, principal)
+					],
+				).where(subroutine.db.models.work.Task.ref == ref)
+			).one()
+			subroutine.domain.tasks.update(
+				session, found, description=description, actor=principal
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+
+def test_search_finds_a_word_that_is_only_in_the_description (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#81`: the command, and the reason it is worth having.
+
+	This project's own reasoning lives in descriptions and document bodies, so searching its
+	backlog for a term it discusses at length returned nothing at all. A search that reads
+	only titles gets tried once and not again.
+	"""
+
+	run("init")
+	run("add", "Plain heading")
+	run("add", "Something unrelated")
+
+	# The word appears in neither title, which is what makes this a test of the new half.
+	_describe(1, "The keyset cursor is decoded wrongly here.")
+
+	found = run("search", "cursor").output
+
+	assert "Plain heading" in found
+	assert "Something unrelated" not in found
+
+
+def test_search_spans_tasks_and_documents (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One counter names either (§6.2), so a search finding only half would lie about the rest.
+
+	The same reasoning as `subroutine list` spanning both, and the same body implements it.
+	"""
+
+	run("init")
+	run("add", "A task about migrations")
+
+	found = run("search", "migrations").output
+
+	assert "A task about migrations" in found
+
+
+def test_a_search_that_matches_nothing_does_not_claim_the_list_is_empty (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The list is not empty; this search found nothing in it.
+
+	Saying the first about the second is how somebody concludes their data is gone. The
+	remedy offered widens rather than narrows, because a search that missed is usually one
+	that was too narrow.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	missed = run("search", "aardvark").output
+
+	assert "Nothing matches" in missed
+	assert "Nothing on your list" not in missed
+	assert 'subroutine add "something to do"' not in missed
+
+
+def test_a_search_row_says_where_the_word_was_found (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A hit whose reason is invisible reads as a bug rather than as an answer.
+
+	And the column obeys the same rule as every other one: it appears when the rows disagree
+	and vanishes when they do not, so a search whose hits are all in the title looks exactly
+	like a listing (§12.2a).
+	"""
+
+	run("init")
+	run("add", "Cursor handling")
+	run("add", "Unrelated heading")
+	_describe(2, "This one only mentions the cursor down here.")
+
+	# The rows disagree about where the word is, so the column earns its place and both are
+	# labelled — a blank beside a hit would read as missing data rather than as ordinary.
+	mixed = run("search", "cursor").output
+
+	assert "title" in mixed
+	assert "description" in mixed
+
+	# And with one row there is nothing to disagree with, so it is dropped again.
+	uniform = run("search", "Cursor handling").output
+
+	assert "Cursor handling" in uniform
+	assert "title" not in uniform

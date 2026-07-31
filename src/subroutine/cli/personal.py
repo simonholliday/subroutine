@@ -25,6 +25,7 @@ import contextlib
 import dataclasses
 import datetime
 import json
+import shlex
 import typing
 
 import rich.console
@@ -282,12 +283,21 @@ class Columns:
 	kind: int = 0
 	priority: int = 0
 	estimate: int = 0
+	matched: int = 0
+
+	#: What was searched for, so a row can say where it was found. ``None`` on any listing
+	#: that was not a search, which is what drops the column entirely.
+	term: str | None = None
 
 	@classmethod
-	def measured (cls, world: World, rows: typing.Sequence[Row]) -> "Columns":
+	def measured (
+		cls, world: World, rows: typing.Sequence[Row], *, term: str | None = None
+	) -> "Columns":
 		"""Return the widths this page needs."""
 
 		return cls(
+			term=term,
+			matched=_column(_match_cell(item, term) for _name, item in rows),
 			address=max(
 				(len(world.address_of_item(name, item)) for name, item in rows), default=0
 			),
@@ -319,6 +329,38 @@ def _priority_cell (item: Item) -> str:
 		return ""
 
 	return f"!{item.importance or '?'}/{item.urgency or '?'}"
+
+
+def _match_cell (item: Item, term: str | None) -> str:
+	"""Return where a search term was found, or nothing when no search was made.
+
+	**A hit whose reason is invisible reads as a bug.** Searching this project for
+	"pagination" returns document `#4`, whose title says "Subroutine MVP plan and delivery
+	record" — with nothing to say why, the honest reading of that row is that the search is
+	broken. Naming the field is the smallest thing that turns it back into an answer.
+
+	The title wins when both match, because it is the part already on the row: saying
+	`description` beside a title that visibly contains the word would send the reader looking
+	for a second occurrence.
+
+	Case-folded here to match the ``ilike`` that selected the row. The two can still disagree
+	on non-ASCII — Python's ``casefold`` is more thorough than either database's ``LOWER`` —
+	and the cost of that is a blank cell on a row that did match, which is why this returns
+	empty rather than guessing.
+	"""
+
+	if not term:
+		return ""
+
+	wanted = term.casefold()
+
+	if wanted in item.title.casefold():
+		return "title"
+
+	if isinstance(item, subroutine.views.Task):
+		return "description" if (item.description or "").casefold().find(wanted) >= 0 else ""
+
+	return "body" if (item.body or "").casefold().find(wanted) >= 0 else ""
 
 
 def _estimate_cell (item: Item) -> str:
@@ -867,8 +909,9 @@ def register (
 		order: str | None = None,
 		project: str | None = None,
 		deferred: bool = False,
+		q: str | None = None,
 	) -> None:
-		"""Print the list. Registered twice, under two names, from one body."""
+		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
 		# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
 		# is a decision about a list somebody *reads*, which is what §6.5's "default views"
@@ -889,6 +932,7 @@ def register (
 				order=order,
 				project=project,
 				deferred=not hiding,
+				q=q,
 			)
 
 			_report(world, gathered.failures)
@@ -898,6 +942,18 @@ def register (
 
 			if json_output:
 				say(json.dumps([_as_json(world, name, item) for name, item in rows], indent=2))
+
+				return
+
+			if not rows and q:
+				# **Not "nothing on your list".** The list is not empty; this search found
+				# nothing in it, and saying the first about the second is how somebody
+				# concludes their data is gone. The remedy named is the widening one,
+				# because a search that missed is usually a search that was too narrow.
+				say(f"Nothing matches {q!r}.")
+
+				if not deferred:
+					_suggest(console, f'subroutine search "{q}" --deferred')
 
 				return
 
@@ -933,10 +989,10 @@ def register (
 				return
 
 			if merged or not world.qualifies_connection:
-				_flat(world, rows, console=console)
+				_flat(world, rows, console=console, term=q)
 
 			else:
-				_grouped(world, gathered, console=console, say=say)
+				_grouped(world, gathered, console=console, say=say, term=q)
 
 			if more:
 				# The agenda has always said this about its own remainder; the list said
@@ -946,7 +1002,11 @@ def register (
 				# **It repeats the narrowing it was given.** A suggestion that dropped
 				# `--project` or `--order` would widen the list while claiming to extend it,
 				# and the reader would blame the flag rather than the advice.
-				repeated = f"subroutine list --limit {limit * 2}"
+				repeated = (
+					f"subroutine search {shlex.quote(q)} --limit {limit * 2}"
+					if q
+					else f"subroutine list --limit {limit * 2}"
+				)
 
 				if order:
 					repeated += f" --order {order}"
@@ -1010,6 +1070,48 @@ def register (
 			order=order or None,
 			project=project or None,
 			deferred=deferred,
+		)
+
+	@app.command()
+	def search (
+		terms: str = typer.Argument("", help="What to look for."),
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
+		merged: bool = typer.Option(
+			False, "--merged", help="One list rather than a group per connection."
+		),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+		order: str = typer.Option(
+			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
+		),
+		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		deferred: bool = typer.Option(
+			False, "--deferred", help="Include things you have put off until a later date."
+		),
+	) -> None:
+		"""Find things by their words — in the title, and in what you wrote about them.
+
+		Searches tasks and documents together, like 'subroutine list', because one number
+		names either and a search that found only half of them would be lying about the rest.
+
+		Examples:
+
+		  subroutine search "dentist"
+
+		  subroutine search "pagination" --project SR
+		"""
+
+		_listed(
+			limit=limit,
+			json_output=json_output,
+			merged=merged,
+			strict=strict,
+			order=order or None,
+			project=project or None,
+			deferred=deferred,
+			q=_asked(terms, "What are you looking for?"),
 		)
 
 	@app.command("ls", hidden=True)
@@ -1445,6 +1547,7 @@ def register (
 		order: str | None = None,
 		project: str | None = None,
 		deferred: bool = False,
+		q: str | None = None,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -1492,6 +1595,7 @@ def register (
 						order=order,
 						project=project,
 						deferred="include" if deferred else "exclude",
+						q=q,
 					)
 				)
 
@@ -1509,6 +1613,7 @@ def register (
 							limit=asked,
 							project=project,
 							deferred="only",
+							q=q,
 						)
 					)
 				rows.extend(
@@ -1518,6 +1623,7 @@ def register (
 						limit=asked,
 						order=order if shared else None,
 						project=project,
+						q=q,
 					)
 				)
 
@@ -1724,6 +1830,7 @@ def _flat (
 	*,
 	console: rich.console.Console,
 	columns: Columns | None = None,
+	term: str | None = None,
 ) -> None:
 	"""Print one list, every row addressed by the shortest form that resolves.
 
@@ -1732,7 +1839,7 @@ def _flat (
 	than stepping in and out as each heading changes what is below it.
 	"""
 
-	measured = Columns.measured(world, rows) if columns is None else columns
+	measured = Columns.measured(world, rows, term=term) if columns is None else columns
 
 	for connection, task in rows:
 		console.print(_item_line(world, connection, task, late=False, columns=measured))
@@ -1744,6 +1851,7 @@ def _grouped (
 	*,
 	console: rich.console.Console,
 	say: typing.Callable[[str], None],
+	term: str | None = None,
 ) -> None:
 	"""Print a group per connection, which is what a flat listing has instead of structure.
 
@@ -1754,7 +1862,7 @@ def _grouped (
 
 	printed = False
 	columns = Columns.measured(
-		world, [row for answer in gathered.answers for row in answer.value.rows]
+		world, [row for answer in gathered.answers for row in answer.value.rows], term=term
 	)
 
 	for answer in gathered.answers:
@@ -1827,6 +1935,9 @@ def _item_line (
 
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)
+
+	if columns.matched:
+		line.append(f"{_match_cell(item, columns.term):<{columns.matched}}  ", style=DETAIL)
 
 	if columns.estimate:
 		# Right-aligned: durations are read by magnitude and `30m` under `2d` compares at a

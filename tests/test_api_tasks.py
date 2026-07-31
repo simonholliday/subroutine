@@ -1602,3 +1602,59 @@ def test_an_unknown_deferred_value_is_refused_by_name (world: World) -> None:
 
 	assert body["errors"][0]["field"] == "deferred"
 	assert "include" in body["errors"][0]["message"]
+
+
+def test_search_reads_the_description_as_well_as_the_title (world: World) -> None:
+	"""§9.4 says ``q`` searches title *and* description. It searched the title alone.
+
+	Not a widening: the specification said this from the start, the endpoint's own OpenAPI
+	description said "Match this text in the title", and so the published contract documented
+	the defect rather than the intent. Invisible because a search that drops rows returns
+	*plausible* rows — the ones it loses are the ones nobody knew to look for.
+	"""
+
+	titled = world.call("POST", "/v1/tasks", json={"title": "Fix the pagination cursor"}).json()
+	described = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Unrelated heading", "description": "The pagination is wrong here."},
+	).json()
+	neither = world.call("POST", "/v1/tasks", json={"title": "Something else"}).json()
+
+	found = {
+		item["ref"] for item in world.call("GET", "/v1/tasks?q=pagination&limit=50").json()["items"]
+	}
+
+	assert titled["ref"] in found
+	assert described["ref"] in found
+	assert neither["ref"] not in found
+
+
+def test_a_search_term_cannot_smuggle_in_a_like_wildcard (world: World) -> None:
+	"""``%`` and ``_`` are escaped, on every column rather than only on the first.
+
+	The escaping moved to ``domain.search`` when the description was added, and a helper
+	applied to one of two columns is the shape this project keeps finding. Without it a search
+	for ``50%`` matches everything — and on a large table it is an accidental full scan.
+	"""
+
+	literal = world.call("POST", "/v1/tasks", json={"title": "Cut it by 50% this year"}).json()
+	other = world.call("POST", "/v1/tasks", json={"title": "No numbers at all"}).json()
+
+	found = {
+		item["ref"] for item in world.call("GET", "/v1/tasks?q=50%25&limit=50").json()["items"]
+	}
+
+	assert literal["ref"] in found
+	assert other["ref"] not in found, "'%' was treated as a wildcard"
+
+	# The same, in the column that was added rather than the one that always worked.
+	described = world.call(
+		"POST", "/v1/tasks", json={"title": "Plain", "description": "Down 50% on last year"}
+	).json()
+	again = {
+		item["ref"] for item in world.call("GET", "/v1/tasks?q=50%25&limit=50").json()["items"]
+	}
+
+	assert described["ref"] in again
+	assert other["ref"] not in again

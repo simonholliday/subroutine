@@ -36,6 +36,7 @@ import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.errors
 import subroutine.views
@@ -166,7 +167,9 @@ def listing (
 	project: str | None = fastapi.Query(None, description="Restrict to one project."),
 	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
-	q: str | None = fastapi.Query(None, description="Match this text in the title."),
+	q: str | None = fastapi.Query(
+		None, description="Match this text in the title or the body."
+	),
 	order: str | None = fastapi.Query(None, description="Comma-separated sort fields."),
 	limit: int | None = fastapi.Query(
 		None,
@@ -213,8 +216,11 @@ def listing (
 		)
 
 	if q:
+		# Title and body, the document's counterpart to a task's description (§9.4). This is
+		# where this project's own reasoning lives: `#4` is a specification, and searching for
+		# a term it discusses at length found nothing at all.
 		statement = statement.where(
-			model.title.ilike(f"%{subroutine.api.tasks._escaped(q)}%", escape="\\")
+			subroutine.domain.search.matching(q, model.title, model.body)
 		)
 
 	keys = subroutine.api.pagination.parse_order(

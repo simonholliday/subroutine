@@ -143,6 +143,7 @@ class Client:
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		q: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -162,6 +163,7 @@ class Client:
 					if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
 					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 				),
+				q=q,
 			),
 		)
 
@@ -193,6 +195,7 @@ class Client:
 		limit: int | None = None,
 		order: str | None = None,
 		project: str | None = None,
+		q: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -200,7 +203,7 @@ class Client:
 			"GET",
 			"/v1/documents",
 			params=_given(
-				workspace_id=workspace, limit=limit, order=order, project=project
+				workspace_id=workspace, limit=limit, order=order, project=project, q=q
 			),
 		)
 

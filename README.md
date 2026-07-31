@@ -71,6 +71,18 @@ $ subroutine done 1
 that task after you have finished a dozen others — and every command tells you the next one
 to try.
 
+Once there is more on the list than fits on a screen, `subroutine list` will rank it and
+`subroutine search` will find things by their words — in titles, and in whatever you wrote
+about them:
+
+```console
+$ subroutine list --order -priority_score
+$ subroutine search "dentist"
+```
+
+Anything you have put off until a later date is held back from the list, and the list says
+how much it is holding back. `--deferred` includes it.
+
 No server, no token, no configuration. When you want an agent involved, or a second
 person, the same install grows an HTTP API:
 
