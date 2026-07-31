@@ -32,6 +32,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.documents
 import subroutine.domain.links
+import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.refs
 import subroutine.domain.scoping
@@ -58,14 +59,14 @@ document_links = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
-SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
-	"created_at": subroutine.db.models.work.Document.created_at,
-	"updated_at": subroutine.db.models.work.Document.updated_at,
-	"title": subroutine.db.models.work.Document.title,
-	"ref": subroutine.db.models.work.Document.ref,
-}
+#: Declared in the domain, like a task's, so that ``GET /v1/documents?order=`` and a local
+#: client sorting the same rows accept the same names and refuse the same ones. Kept here
+#: under the name the router already uses rather than reached through in twelve places.
+SORTABLE: dict[str, subroutine.api.pagination.Sortable] = (
+	subroutine.domain.ordering.DOCUMENT_FIELDS
+)
 
-DEFAULT_ORDER = ("-created_at",)
+DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Document)
@@ -131,7 +132,7 @@ def create (
 
 	created = subroutine.domain.documents.create(
 		session,
-		project=subroutine.api.tasks._project(session, actor, workspace, body.project),
+		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
 		title=body.title,
 		body=body.body,
 		type_key=body.type or "note",
@@ -196,7 +197,7 @@ def listing (
 	if project is not None:
 		statement = statement.where(
 			model.project_id
-			== subroutine.api.tasks._project(session, actor, workspace, project).id
+			== subroutine.domain.selection.project(session, actor, workspace, project).id
 		)
 
 	if type is not None:

@@ -43,6 +43,7 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.dates
 import subroutine.domain.durations
+import subroutine.domain.ordering
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.errors
@@ -854,16 +855,24 @@ def register (
 			_render(world, gathered, say=say, console=console)
 
 	def _listed (
-		*, limit: int, json_output: bool, merged: bool, strict: bool
+		*,
+		limit: int,
+		json_output: bool,
+		merged: bool,
+		strict: bool,
+		order: str | None = None,
+		project: str | None = None,
 	) -> None:
 		"""Print the list. Registered twice, under two names, from one body."""
 
 		with opened(strict=strict) as world:
-			gathered = _listing(world, limit=limit, strict=strict)
+			gathered = _listing(
+				world, limit=limit, strict=strict, order=order, project=project
+			)
 
 			_report(world, gathered.failures)
 
-			rows = _merged(gathered)
+			rows = _merged(gathered, order=_ordering(order)[1])
 			more = any(answer.value.more for answer in gathered.answers)
 
 			if json_output:
@@ -872,6 +881,20 @@ def register (
 				return
 
 			if not rows:
+				# **"Nothing on your list" is a claim, and it is false when something refused
+				# to answer.** The failure has already been named on stderr; following it with
+				# a cheerful empty list says the opposite — that the question was put and the
+				# answer was none — and then suggests adding a task, which is wrong advice
+				# about a question that was never answered.
+				#
+				# `--project` is what made this ordinary rather than rare: before it, an empty
+				# listing with a failure meant a server was down, and now it means a typo'd
+				# key, which reads exactly like a project that happens to be empty.
+				if gathered.failures or world.unreachable:
+					say("Nothing to show — some of what you asked for could not be read.")
+
+					return
+
 				say("Nothing on your list.")
 				_suggest(console, 'subroutine add "something to do"')
 
@@ -887,11 +910,20 @@ def register (
 				# The agenda has always said this about its own remainder; the list said
 				# nothing at all and simply stopped. Phrased as an instruction rather than a
 				# bare "there are more", because the reader's next question is how to see them.
+				#
+				# **It repeats the narrowing it was given.** A suggestion that dropped
+				# `--project` or `--order` would widen the list while claiming to extend it,
+				# and the reader would blame the flag rather than the advice.
+				repeated = f"subroutine list --limit {limit * 2}"
+
+				if order:
+					repeated += f" --order {order}"
+
+				if project:
+					repeated += f" --project {project}"
+
 				console.print(
-					rich.text.Text(
-						f"      …and more. 'subroutine list --limit {limit * 2}' to see further.",
-						style=DETAIL,
-					)
+					rich.text.Text(f"      …and more. '{repeated}' to see further.", style=DETAIL)
 				)
 
 			say("")
@@ -912,6 +944,10 @@ def register (
 		strict: bool = typer.Option(
 			False, "--strict", help="Stop if any connection cannot be reached."
 		),
+		order: str = typer.Option(
+			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
+		),
+		project: str = typer.Option("", "--project", help="Only this project, by key."),
 	) -> None:
 		"""List everything still open — tasks and documents — newest first.
 
@@ -920,9 +956,20 @@ def register (
 		  subroutine list
 
 		  subroutine list --limit 10
+
+		  subroutine list --order -priority_score
+
+		  subroutine list --project SR --order due_at
 		"""
 
-		_listed(limit=limit, json_output=json_output, merged=merged, strict=strict)
+		_listed(
+			limit=limit,
+			json_output=json_output,
+			merged=merged,
+			strict=strict,
+			order=order or None,
+			project=project or None,
+		)
 
 	@app.command("ls", hidden=True)
 	def list_tasks (
@@ -934,6 +981,10 @@ def register (
 		strict: bool = typer.Option(
 			False, "--strict", help="Stop if any connection cannot be reached."
 		),
+		order: str = typer.Option(
+			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
+		),
+		project: str = typer.Option("", "--project", help="Only this project, by key."),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
 
@@ -942,7 +993,14 @@ def register (
 		  subroutine ls
 		"""
 
-		_listed(limit=limit, json_output=json_output, merged=merged, strict=strict)
+		_listed(
+			limit=limit,
+			json_output=json_output,
+			merged=merged,
+			strict=strict,
+			order=order or None,
+			project=project or None,
+		)
 
 	@app.command()
 	def show (
@@ -1335,7 +1393,12 @@ def register (
 			warn(failure.describe())
 
 	def _listing (
-		world: World, *, limit: int, strict: bool
+		world: World,
+		*,
+		limit: int,
+		strict: bool,
+		order: str | None = None,
+		project: str | None = None,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -1353,7 +1416,14 @@ def register (
 		Each kind is fetched at the full limit and the merged result is cut to it, so the cut
 		is made across both rather than allocated between them — twenty documents must not be
 		able to push every task off a page.
+
+		**``order`` is parsed once, here, against the task vocabulary**, which is the richer of
+		the two: a person ranking a backlog wants ``-priority_score``, and a document has no
+		priority to be ranked by. A name outside it is refused before a single request goes
+		out, so an unknown sort field costs one message rather than one per workspace.
 		"""
+
+		shared, merging = _ordering(order)
 
 		def ask (client: subroutine.clients.base.Client) -> Listing:
 			"""Ask one connection for each of its workspaces in turn."""
@@ -1368,20 +1438,28 @@ def register (
 			for workspace in () if item is None else item.identity.workspaces:
 				rows.extend(
 					(client.connection.name, found)
-					for found in client.tasks(workspace=workspace.slug, limit=asked)
+					for found in client.tasks(
+						workspace=workspace.slug, limit=asked, order=order, project=project
+					)
 				)
 				rows.extend(
 					(client.connection.name, found)
-					for found in client.documents(workspace=workspace.slug, limit=asked)
+					for found in client.documents(
+						workspace=workspace.slug,
+						limit=asked,
+						order=order if shared else None,
+						project=project,
+					)
 				)
 
-			# Re-sorted after the merge, on a field every item carries and the client can
-			# compute for itself (§13.7). A merged result is a merge of pages, not one
-			# ordered page, so the limit is per workspace and applied again here.
-			#
-			# `ref` breaks the tie, because a script adding several items in one second gets
-			# a stable order rather than whatever the merge happened to produce.
-			rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
+			# Re-sorted after the merge, because a merged result is a merge of pages and not
+			# one ordered page — the limit is per workspace and has to be applied again here.
+			# The domain owns the comparison so that the merged order matches the order each
+			# page arrived in, NULLS LAST included (§10.3): a document sorts last in a list
+			# ranked by priority, which is the same answer §6.3a gives an unranked task.
+			rows = subroutine.domain.ordering.merged(
+				rows, key=lambda row: row[1], order=merging
+			)
 
 			# **What was cut is carried, not discarded.** `rows[:limit]` used to be the end of
 			# it, so a backlog longer than the limit simply stopped — no count, no marker —
@@ -2025,20 +2103,61 @@ def _worth_showing (
 		return True
 
 
+def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:
+	"""Return whether documents can be asked in this order, and how to compare merged rows.
+
+	**One place decides both**, because they are two consequences of the same answer and
+	every merge in this module has to reach the same one. ``--order`` is parsed against the
+	*task* vocabulary, which is the richer of the two: a person ranking a backlog wants
+	``-priority_score``, and a document has no priority to be ranked by (§6.14).
+
+	The first half of the answer is whether a document listing can be asked for the same
+	order. When it cannot, documents come back in their default order and the merge settles
+	where they land — asking for a page in one order and re-sorting it in another returns the
+	*wrong rows* rather than merely the wrong order.
+
+	The second is the comparison, with ``ref`` appended following the last key's direction,
+	exactly as :func:`subroutine.domain.ordering.clauses` makes a query's tiebreaker follow
+	it. An unknown field is refused here, before a single request goes out.
+	"""
+
+	wanted = subroutine.domain.ordering.requested(
+		order,
+		allowed=subroutine.domain.ordering.TASK_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+	)
+
+	shared = all(
+		name in subroutine.domain.ordering.DOCUMENT_FIELDS for name, _descending in wanted
+	)
+	trailing = wanted[-1][1] if wanted else True
+
+	return shared, (*wanted, ("ref", trailing))
+
+
 def _merged (
 	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	order: tuple[tuple[str, bool], ...],
 ) -> list[Row]:
-	"""Flatten a listing across connections, newest first.
+	"""Flatten a listing across connections, in the order the caller asked for.
 
 	§13.7: "sorting is re-applied after the merge". Each connection answers already ordered, so
 	concatenating them produced one sorted run per connection rather than one ordered list —
 	which is not what "newest first" means and is not what the suggested next command assumed.
+
+	**``order`` is passed in rather than assumed here, and that is what ``#71`` actually cost.**
+	This function sorted by ``created_at`` unconditionally — a second copy of the merge rule,
+	one level above the one in ``_listing`` — so giving the clients an ordering fixed *which*
+	rows came back and then threw away the order they came in. The listing looked plausible in
+	both directions: the right items, arranged by date, with nothing to say the sort had been
+	discarded. Two copies of "how is a merged listing sorted" is one too many, and this is now
+	the only one that decides.
 	"""
 
 	rows = [row for answer in gathered.answers for row in answer.value.rows]
-	rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
 
-	return rows
+	return subroutine.domain.ordering.merged(rows, key=lambda row: row[1], order=order)
 
 
 def _in_order (

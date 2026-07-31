@@ -140,6 +140,7 @@ class Client:
 		limit: int | None = None,
 		include_completed: bool = False,
 		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -151,6 +152,7 @@ class Client:
 				limit=limit,
 				include_completed="true" if include_completed else None,
 				order=order,
+				project=project,
 			),
 		)
 
@@ -176,12 +178,21 @@ class Client:
 		return self._parsed(subroutine.views.Task, self._read(response))
 
 	def documents (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Document]:
-		"""List one workspace's documents, newest first."""
+		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
 		body = self._json(
-			"GET", "/v1/documents", params=_given(workspace_id=workspace, limit=limit)
+			"GET",
+			"/v1/documents",
+			params=_given(
+				workspace_id=workspace, limit=limit, order=order, project=project
+			),
 		)
 
 		return self._collected(subroutine.views.Document, body, endpoint="documents")

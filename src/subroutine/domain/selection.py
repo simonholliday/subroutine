@@ -1,4 +1,4 @@
-"""Which workspace a request is about (SPEC.md §8.2).
+"""Which workspace — and which project — a request is about (SPEC.md §8.2, §5.2).
 
 Resolution order: what the caller asked for, then the workspace their token is pinned to,
 then their only one. **Ambiguity is a refusal, never a guess** — with two workspaces and
@@ -21,7 +21,11 @@ import uuid
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
+import subroutine.domain.projects
+import subroutine.domain.scoping
 import subroutine.domain.workspaces
 import subroutine.errors
 
@@ -126,3 +130,69 @@ def _alternatives (
 	listed = ", ".join(f"{candidate.slug} ({candidate.id})" for candidate in reachable)
 
 	return f"Workspaces you can reach: {listed}."
+
+
+def project (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	wanted: str | None,
+) -> typing.Any:
+	"""Find a project by key or id, defaulting to the workspace's Inbox.
+
+	The Inbox default is what makes ``POST /v1/tasks {"title": "…"}`` work without the caller
+	knowing that projects exist — §1.4's rule, applied to the API rather than only to the CLI.
+
+	**Here rather than in the router**, for the reason :mod:`subroutine.views` is: both
+	transports have to resolve ``SR`` to the same project and refuse an unknown key the same
+	way. It lived in ``api/tasks.py``, which the local client may not import, so
+	``subroutine list --project`` had no way to reach it and would have grown a second
+	resolver — which is the divergence S3-07 removed for the task shape, and ``domain/links``
+	for the link view.
+
+	Narrowed by :func:`subroutine.domain.scoping.readable_projects`, so a private project
+	somebody is not a member of is *not found* rather than forbidden, and a token's project
+	scope narrows this exactly as it narrows a listing.
+	"""
+
+	if wanted is None:
+		inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
+
+		if inbox is None:
+			raise subroutine.errors.InternalError(
+				"This workspace has no Inbox to file a task in.",
+				hint="It was interrupted part-way through setup; run 'subroutine init' again.",
+			)
+
+		return inbox
+
+	model = subroutine.db.models.project.Project
+	statement = subroutine.domain.scoping.readable_projects(
+		actor, workspace_ids=[workspace.id], include_archived=True
+	)
+
+	# A key and an id are told apart by whether the text parses as one, rather than by a
+	# flag: §5.2 makes a key start with a letter, so the two spaces cannot overlap.
+	try:
+		found = session.scalars(statement.where(model.id == uuid.UUID(wanted.strip()))).first()
+
+	except ValueError:
+		found = session.scalars(
+			statement.where(model.key == subroutine.domain.projects.normalize_key(wanted))
+		).first()
+
+	if found is None:
+		raise subroutine.errors.NotFound(
+			f"There is no project {wanted!r} here.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="not_found",
+					message=f"No project in {workspace.slug} answers to {wanted!r}.",
+					hint="Use a project key like 'SR' or a project id. GET /v1/projects lists "
+					"what you can see.",
+				)
+			],
+		)
+
+	return found

@@ -1185,3 +1185,120 @@ def test_a_defer_that_has_come_round_is_reported_only_where_it_is_asked_about (
 
 	assert "from Sun 5 Jan" not in run("ls").output
 	assert "from Sun 5 Jan" in run("show", "1").output
+
+
+def test_the_listing_ranks_a_backlog_when_asked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#71`: the client layer could order a listing and the command could not expose it.
+
+	The ordering has to survive **two** merges — one per connection inside `_listing`, and one
+	across connections in `_merged` — and the second was a separate copy of the rule that
+	sorted by `created_at` unconditionally. With that copy in place this test still gets the
+	right *items*, because the ordering reaches the query and decides which page comes back;
+	it gets them in creation order. That is why the assertion is on the arrangement rather
+	than on membership.
+	"""
+
+	run("init")
+	run("add", "Low stakes !1/1")
+	run("add", "Everything is on fire !5/5")
+	run("add", "Moderately pressing !3/3")
+
+	listed = run("list", "--order", "-priority_score").output
+	ranked = [line for line in listed.splitlines() if "!" in line]
+
+	assert "Everything is on fire" in ranked[0]
+	assert "Moderately pressing" in ranked[1]
+	assert "Low stakes" in ranked[2]
+
+
+def test_an_unranked_item_sorts_last_however_the_ranking_runs (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""NULLS LAST in both directions (§10.3), which is also what puts a document last.
+
+	A document has no priority to be ranked by (§6.14), so a list ranked by one has to put it
+	somewhere; last is the same answer §6.3a gives an unranked task, which is why the merge
+	needs no separate rule for documents. An unranked *task* is the observable half of that.
+	"""
+
+	run("init")
+	run("add", "Nobody judged this one")
+	run("add", "Judged and urgent !5/5")
+
+	for direction in ("-priority_score", "priority_score"):
+		rows = [
+			line
+			for line in run("list", "--order", direction).output.splitlines()
+			if "Nobody judged" in line or "Judged and urgent" in line
+		]
+
+		assert "Nobody judged" in rows[-1], direction
+
+
+def test_the_listing_narrows_to_one_project (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`--project`, resolved by the same domain function the endpoint uses.
+
+	It lived in `api/tasks.py` as a private helper, which the local client may not import, so
+	a CLI flag would have had to grow a second resolver — the divergence S3-07 removed for the
+	task shape and `domain/links` for the link view.
+	"""
+
+	run("init")
+	run("add", "Filed nowhere in particular")
+
+	# The Inbox is a real project and is what an unfiled task is in, so it is the one key
+	# guaranteed to exist without this test having to create a project first.
+	narrowed = run("list", "--project", "INBOX").output
+
+	assert "Filed nowhere in particular" in narrowed
+
+	# **An unknown key is a failed connection, not a failed command**, because with several
+	# connections a project may legitimately exist on one and not another. So it is named on
+	# stderr and the command carries on — `--strict` is how a script says it would rather
+	# stop, and that is the fan-out's contract rather than anything this flag invented.
+	missing = run("list", "--project", "NOSUCH")
+
+	assert "NOSUCH" in missing.output
+
+	# And what it must *not* say is that the list is empty. That reads as "the project exists
+	# and has nothing in it", which is the one wrong conclusion available.
+	assert "Nothing on your list" not in missing.output
+
+	assert run("list", "--project", "NOSUCH", "--strict", expect=1)
+
+
+def test_a_truncated_listing_suggests_a_command_that_keeps_the_narrowing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A suggestion that dropped the flags would widen the list while claiming to extend it.
+
+	The reader would then blame the flag rather than the advice, which is the worse of the two
+	failures — a wrong suggestion that looks like a broken feature.
+	"""
+
+	run("init")
+
+	for index in range(4):
+		run("add", f"Thing {index} !2/2")
+
+	suggested = run("list", "--limit", "2", "--order", "-priority_score").output
+
+	assert "…and more" in suggested
+	assert "--order -priority_score" in suggested
+
+
+def test_an_unknown_sort_field_is_refused_before_anything_is_asked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One refusal, not one per workspace — the ordering is parsed before the fan-out."""
+
+	run("init")
+	run("add", "Something")
+
+	refused = run("list", "--order", "banana", expect=1)
+
+	assert refused.output.count("banana") <= 2

@@ -151,6 +151,7 @@ class Client:
 		limit: int | None = None,
 		include_completed: bool = False,
 		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -160,12 +161,26 @@ class Client:
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
+			# Resolved through the domain, so an unknown key is refused here exactly as
+			# `GET /v1/tasks?project=` refuses it — and a private project somebody is not a
+			# member of is not found rather than forbidden.
+			narrowed = (
+				None
+				if project is None
+				else subroutine.domain.selection.project(session, actor, chosen, project)
+			)
+
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_tasks(
 						actor,
 						workspace_ids=[chosen.id],
 						include_completed=include_completed,
+					)
+					.where(
+						sqlalchemy.true()
+						if narrowed is None
+						else model.project_id == narrowed.id
 					)
 					# Built by the domain from the same vocabulary ``GET /v1/tasks`` uses,
 					# rather than approximated here: two spellings of "newest first" is the
@@ -204,9 +219,14 @@ class Client:
 			)
 
 	def documents (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Document]:
-		"""List one workspace's documents, newest first."""
+		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
 		model = subroutine.db.models.work.Document
 		size = subroutine.domain.paging.size(limit, self.settings)
@@ -214,14 +234,33 @@ class Client:
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
+			narrowed = (
+				None
+				if project is None
+				else subroutine.domain.selection.project(session, actor, chosen, project)
+			)
+
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
 						actor, workspace_ids=[chosen.id]
 					)
-					# Spelled out to match `GET /v1/documents`, including the NULLS LAST the
-					# two backends disagree about (§10.3) — the same reasoning as `tasks`.
-					.order_by(model.created_at.desc().nullslast(), model.id.desc().nullslast())
+					.where(
+						sqlalchemy.true()
+						if narrowed is None
+						else model.project_id == narrowed.id
+					)
+					# Built by the domain from the vocabulary `GET /v1/documents` uses,
+					# rather than spelled out here — the ordering, its NULLS LAST (§10.3) and
+					# its tiebreaker are one rule and used to be two copies of it.
+					.order_by(
+						*subroutine.domain.ordering.clauses(
+							order,
+							allowed=subroutine.domain.ordering.DOCUMENT_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER,
+							tiebreak=model.id,
+						)
+					)
 					.limit(size)
 				)
 			)

@@ -139,6 +139,95 @@ TASK_FIELDS: dict[str, Sortable] = {
 #: Newest first, which is what "what have I got" means for a to-do list.
 DEFAULT_TASK_ORDER = ("-created_at",)
 
+#: What ``?order=`` accepts on a document listing. Shorter than a task's because most of that
+#: vocabulary is about scheduling and §6.14 says a document is not scheduled — there is no
+#: deadline to sort by and no priority to rank.
+DOCUMENT_FIELDS: dict[str, Sortable] = {
+	"created_at": subroutine.db.models.work.Document.created_at,
+	"updated_at": subroutine.db.models.work.Document.updated_at,
+	"title": subroutine.db.models.work.Document.title,
+	"ref": subroutine.db.models.work.Document.ref,
+}
+
+#: The same default, for the same reason.
+DEFAULT_DOCUMENT_ORDER = ("-created_at",)
+
+#: How to read each sortable field off a **rendered view**, for a caller sorting rows it has
+#: already been given rather than a query it is about to run. ``subroutine list`` is that
+#: caller: it merges a page per workspace per kind and has to re-sort the result, so the
+#: ordering the user asked for has to survive a comparison made in Python.
+#:
+#: **``priority_score`` reads through :func:`ranking`, not off the view's field of that name.**
+#: They are deliberately different things — the view reports ``importance * urgency`` (§6.3),
+#: while an *ordering* by that name applies §6.3a's three bands. Sorting a merged list by the
+#: view's field would put a part-ranked item back below an unranked one, which is the exact
+#: defect the bands were added to fix, reintroduced one layer up and only in the merged case.
+#:
+#: A name absent here is one no client can sort a merged page by; ``tests/test_ordering.py``
+#: fails if :data:`TASK_FIELDS` ever grows one, because a sort field the CLI silently ignores
+#: is worse than one it refuses.
+VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+	"created_at": lambda item: item.created_at,
+	"updated_at": lambda item: item.updated_at,
+	"due_at": lambda item: getattr(item, "due_at", None),
+	"planned_for": lambda item: getattr(item, "planned_for", None),
+	"importance": lambda item: getattr(item, "importance", None),
+	"urgency": lambda item: getattr(item, "urgency", None),
+	"priority_score": lambda item: ranking(item) if hasattr(item, "importance") else None,
+	"ref": lambda item: item.ref,
+	"title": lambda item: item.title,
+}
+
+#: Stands in for a null while sorting, so that two rows tied at "no value" compare as equal
+#: rather than raising. It is never ordered *against* a real value: the null flag is the first
+#: element of every sort key and separates the two groups before this is reached.
+_ABSENT = 0
+
+
+def merged (
+	rows: typing.Sequence[typing.Any],
+	*,
+	key: typing.Callable[[typing.Any], typing.Any],
+	order: tuple[tuple[str, bool], ...],
+) -> list[typing.Any]:
+	"""Sort rows that arrived as several pages into the one order the caller asked for.
+
+	**NULLS LAST in both directions**, matching what every query here does (SPEC.md §10.3) —
+	so a document, which has no deadline and no priority, sorts last in a list ranked by
+	either rather than first. That is the same answer the database gives and the same answer
+	§6.3a gives an unranked task, which is why it needs no separate rule.
+
+	Applied one field at a time from the last to the first, relying on Python's sort being
+	stable. That is what lets each field carry its own direction: a single composite key
+	cannot express "newest first, then title ascending" without inverting values by type.
+	"""
+
+	found = list(rows)
+
+	for name, descending in reversed(order):
+		read = VIEW_READERS[name]
+
+		def sorted_by (
+			row: typing.Any,
+			read: typing.Callable[[typing.Any], typing.Any] = read,
+			descending: bool = descending,
+		) -> tuple[int, typing.Any]:
+			"""Return one row's key for this field, with nulls at the end either way."""
+
+			value = read(key(row))
+
+			# Reversing puts the larger first, so a null has to be the *smaller* of the two
+			# groups when descending in order to come out last. Both spellings say "nulls
+			# last"; the flag is what makes the direction irrelevant to that promise.
+			if value is None:
+				return (0 if descending else 1, _ABSENT)
+
+			return (1 if descending else 0, value)
+
+		found.sort(key=sorted_by, reverse=descending)
+
+	return found
+
 
 def requested (
 	expression: str | None,

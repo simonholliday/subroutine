@@ -173,7 +173,7 @@ def create (
 		structured["parent"] = _resolve(session, actor, workspace, str(body.parent_task_id))
 
 	if body.text is not None:
-		# **Only when it was sent.** `_project` defaults to the Inbox, so passing its result
+		# **Only when it was sent.** `selection.project` defaults to the Inbox, so passing its result
 		# unconditionally would override a `+KEY` in the captured line with the Inbox — turning
 		# one silent misfiling into another. `project` was missing from the structured fields
 		# above, so `POST /v1/tasks {"text": …, "project": "SR"}` was accepted, returned 201, and
@@ -184,7 +184,7 @@ def create (
 			text=body.text,
 			timezone=body.timezone,
 			project=(
-				_project(session, actor, workspace, body.project)
+				subroutine.domain.selection.project(session, actor, workspace, body.project)
 				if body.project is not None
 				else None
 			),
@@ -209,7 +209,7 @@ def create (
 
 	created = subroutine.domain.tasks.create(
 		session,
-		project=_project(session, actor, workspace, body.project),
+		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
 		timezone=body.timezone,
 		actor=actor,
 		**structured,
@@ -297,9 +297,8 @@ def listing (
 	model = subroutine.db.models.work.Task
 
 	if project is not None:
-		statement = statement.where(
-			model.project_id == _project(session, actor, workspace, project).id
-		)
+		chosen = subroutine.domain.selection.project(session, actor, workspace, project)
+		statement = statement.where(model.project_id == chosen.id)
 
 	if status is not None:
 		statement = statement.where(
@@ -554,60 +553,6 @@ def _resolve (
 					message=f"No task in {workspace.slug} answers to {id_or_ref!r}.",
 					hint="Use a ref like '42' or a task id. GET /v1/tasks lists what you "
 					"can see.",
-				)
-			],
-		)
-
-	return found
-
-
-def _project (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	workspace: subroutine.db.models.identity.Workspace,
-	wanted: str | None,
-) -> typing.Any:
-	"""Find a project by key or id, defaulting to the workspace's Inbox.
-
-	The Inbox default is what makes ``POST /v1/tasks {"title": "…"}`` work without the
-	caller knowing that projects exist — §1.4's rule, applied to the API rather than only
-	to the CLI.
-	"""
-
-	if wanted is None:
-		inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
-
-		if inbox is None:
-			raise subroutine.errors.InternalError(
-				"This workspace has no Inbox to file a task in.",
-				hint="It was interrupted part-way through setup; run 'subroutine init' again.",
-			)
-
-		return inbox
-
-	model = subroutine.db.models.project.Project
-	statement = subroutine.domain.scoping.readable_projects(
-		actor, workspace_ids=[workspace.id], include_archived=True
-	)
-
-	try:
-		found = session.scalars(statement.where(model.id == uuid.UUID(wanted.strip()))).first()
-
-	except ValueError:
-		found = session.scalars(
-			statement.where(model.key == subroutine.domain.projects.normalize_key(wanted))
-		).first()
-
-	if found is None:
-		raise subroutine.errors.NotFound(
-			f"There is no project {wanted!r} here.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="project",
-					code="not_found",
-					message=f"No project in {workspace.slug} answers to {wanted!r}.",
-					hint="Use a project key like 'SR' or a project id. GET /v1/projects lists "
-					"what you can see.",
 				)
 			],
 		)

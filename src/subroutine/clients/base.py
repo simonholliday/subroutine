@@ -115,6 +115,7 @@ class Client(typing.Protocol):
 		limit: int | None = None,
 		include_completed: bool = False,
 		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -124,6 +125,10 @@ class Client(typing.Protocol):
 		Until 2026-07-30 there was no ordering here at all, so every listing that went through
 		a client was newest-first: that is why ``subroutine list`` could not rank a backlog
 		while ``GET /v1/tasks?order=`` could.
+
+		``project`` is a key or an id, resolved by ``domain.selection.project`` — the same
+		function the endpoint uses, so ``SR`` means one project and an unknown key is refused
+		with one message whichever transport asked.
 		"""
 
 	def task (
@@ -137,13 +142,25 @@ class Client(typing.Protocol):
 		"""
 
 	def documents (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		order: str | None = None,
+		project: str | None = None,
 	) -> list[subroutine.views.Document]:
-		"""List one workspace's documents, newest first.
+		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 
-		The counterpart to :meth:`tasks`, and ordered the same way, so a caller showing both
-		in one list can merge them on ``created_at`` without either side having sorted by
-		something the other does not have.
+		The counterpart to :meth:`tasks`, and ordered the same way by default, so a caller
+		showing both in one list can merge them on ``created_at`` without either side having
+		sorted by something the other does not have.
+
+		**Its vocabulary is the shorter one** — ``domain.ordering.DOCUMENT_FIELDS``, which has
+		no deadline and no priority in it, because §6.14 says a document is not scheduled. A
+		caller merging both kinds under a task-only ordering leaves this argument alone and
+		sorts the merged result itself; what it must *not* do is ask for a page in one order
+		and then sort it in another, which returns the wrong rows rather than the wrong order
+		— the newest documents, cut to a limit, presented as the oldest by ref.
 
 		**Superseded documents are included**, deliberately and for now. ``tasks`` excludes
 		completed work because ``completed_at`` says so without a join; the equivalent for a
