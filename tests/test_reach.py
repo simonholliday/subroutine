@@ -46,6 +46,10 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
 	("POST", "/v1/tasks/{id_or_ref}/restore"): "undiscard",
 	("POST", "/v1/documents/{id_or_ref}/restore"): "undiscard",
+	("POST", "/v1/tasks/{id_or_ref}/links"): "link",
+	("DELETE", "/v1/tasks/{id_or_ref}/links/{link_id}"): "unlink",
+	("POST", "/v1/documents/{id_or_ref}/links"): "link",
+	("DELETE", "/v1/documents/{id_or_ref}/links/{link_id}"): "unlink",
 }
 
 #: Mutating routes no client reaches, and why. **A reason, not a shrug** — "not built yet" is
@@ -91,23 +95,6 @@ NOT_REACHED: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/projects/{id_or_key}"): (
 		"Deleting a project takes its tasks out of the visible world with it. That wants "
 		"confirmation and a considered message rather than the same one-liner. `#141`."
-	),
-	("POST", "/v1/tasks/{id_or_ref}/links"): (
-		"Joining two items — blocks, relates_to, derives_from. Reading them is reached "
-		"(`links`) and `show` renders them; writing one is not. `#141`, and it is the highest "
-		"of these, because `blocks` is what readiness reads."
-	),
-	("DELETE", "/v1/tasks/{id_or_ref}/links/{link_id}"): (
-		"`#141`, alongside making one. A link somebody added by mistake blocks work that is "
-		"not blocked, which readiness then hides — so this follows the writer closely."
-	),
-	("POST", "/v1/documents/{id_or_ref}/links"): (
-		"`#141`, alongside the task links, and the same shape — `derives_from` is how a "
-		"decision document and the work it produced find each other later."
-	),
-	("DELETE", "/v1/documents/{id_or_ref}/links/{link_id}"): (
-		"`#141`, likewise, and for the reason the task version gives: an unwanted link is "
-		"worse than a missing one, because it silently narrows what looks startable."
 	),
 }
 

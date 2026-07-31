@@ -248,6 +248,42 @@ class Client:
 
 		return self._collected(subroutine.views.Link, body, endpoint="links")
 
+	def link (
+		self,
+		*,
+		ref: int,
+		link_type: str,
+		target: int,
+		entity_type: str = "task",
+		target_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Link:
+		"""Join two items."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/{_plural(entity_type)}/{ref}/links",
+			params=_given(workspace_id=workspace),
+			json={"target": target, "link_type": link_type, "target_type": target_type},
+		)
+
+		return self._parsed(subroutine.views.Link, body)
+
+	def unlink (
+		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
+	) -> None:
+		"""Withdraw a link."""
+
+		self._refuse_if_read_only()
+
+		self._json(
+			"DELETE",
+			f"/v1/{_plural(entity_type)}/{ref}/links/{link_id}",
+			params=_given(workspace_id=workspace),
+		)
+
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:
@@ -650,6 +686,14 @@ class Client:
 		"""Return one response's object, or raise the failure it describes."""
 
 		if response.is_success:
+			# **204 is a success with nothing to read**, and until `#141` nothing here had ever
+			# met one: every endpoint a client called returned its entity. Withdrawing a link
+			# is the first that does not, and without this the client would have reported a
+			# successful delete as "answered 204 with something that is not a JSON object" —
+			# a message about a proxy, on the one path where nothing was wrong.
+			if response.status_code == 204 or not response.content:
+				return {}
+
 			body = _parsed(response)
 
 			if body is None:

@@ -2021,3 +2021,68 @@ def test_a_document_can_be_deleted_and_restored_by_the_same_commands (
 
 	assert "Deleted: Written by mistake" in run("delete", "1").output
 	assert "Restored: Written by mistake" in run("restore", "1").output
+
+
+def test_saying_one_thing_blocks_another_changes_what_is_ready (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#141``'s highest, and the loop it completes.
+
+	``--ready`` reads ``blocks`` links, and nothing outside raw HTTP could make one — so the
+	filter shipped in the morning with no way for anybody using the CLI to put anything into
+	it.
+	"""
+
+	run("init")
+	run("add", "Design the schema")
+	run("add", "Build the endpoint")
+
+	run("link", "1", "blocks", "2")
+
+	assert "Build the endpoint" not in run("list", "--ready").output
+
+	run("done", "1")
+
+	assert "Build the endpoint" in run("list", "--ready").output
+
+
+def test_a_link_is_withdrawn_by_naming_the_two_items (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A link's id is a UUID that appears in no listing a person reads.
+
+	Requiring one would make this a command only a script could run, and ``show`` prints the
+	two refs — which is what somebody actually has in front of them.
+	"""
+
+	run("init")
+	run("add", "Blocker")
+	run("add", "Blocked")
+	run("link", "1", "blocks", "2")
+
+	assert "Unlinked: Blocked" in run("unlink", "1", "2").output
+	assert "Build" not in run("show", "1").output
+	assert "Blocked" in run("list", "--ready").output
+
+
+def test_a_link_that_is_not_there_is_refused_without_naming_a_workspace (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4, in the place it is easiest to miss.
+
+	A refusal is written when something has already gone wrong, so it is the last output
+	anybody re-reads for stray vocabulary — and the four-command transcript cannot see it. The
+	first version of this said "personal/#1 is not joined to personal/#2" at somebody with one
+	workspace.
+	"""
+
+	run("init")
+	run("add", "One")
+	run("add", "Two")
+
+	refused = run("unlink", "1", "2", expect=1).output
+
+	assert "not joined" in refused
+
+	for word in FORBIDDEN:
+		assert word not in refused.lower(), refused

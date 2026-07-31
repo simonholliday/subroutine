@@ -691,6 +691,85 @@ def test_discarding_twice_is_not_an_error_and_does_not_move_the_timestamp (
 	assert local.undiscard(ref=task.ref).deleted_at is None
 
 
+def test_both_join_two_items_the_same_way (pair: Pair) -> None:
+	"""``#141``'s highest, because ``blocks`` is what readiness reads (§6.5a).
+
+	Until this landed an agent could ask what was startable and could not say what blocked
+	what — the filter existed and nothing but raw HTTP could put anything into it.
+	"""
+
+	first = make(pair, "Design the schema")
+	second = make(pair, "Build the endpoint")
+	third = make(pair, "Unrelated")
+
+	local, remote = pair.both()
+	made = local.link(ref=first.ref, link_type="blocks", target=second.ref)
+
+	assert made.other.ref == second.ref
+	assert made.direction == "outgoing"
+
+	# The whole point: the link is what `ready` reads, on both transports.
+	assert {task.ref for task in local.tasks(ready=True)} == {first.ref, third.ref}
+	assert {task.ref for task in remote.tasks(ready=True)} == {first.ref, third.ref}
+
+
+def test_both_withdraw_a_link_the_same_way (pair: Pair) -> None:
+	"""It follows ``link`` closely rather than waiting for somebody to ask.
+
+	A link added by mistake blocks work that is not blocked, and readiness then hides it — so
+	an unwanted link is worse than a missing one, because it narrows what looks startable and
+	says nothing about having done so.
+	"""
+
+	first = make(pair, "Blocker")
+	second = make(pair, "Blocked")
+
+	local, remote = pair.both()
+	made = local.link(ref=first.ref, link_type="blocks", target=second.ref)
+
+	assert second.ref not in {task.ref for task in local.tasks(ready=True)}
+
+	remote.unlink(ref=first.ref, link_id=str(made.id))
+
+	assert second.ref in {task.ref for task in local.tasks(ready=True)}
+	assert local.links(ref=first.ref) == remote.links(ref=first.ref) == []
+
+
+def test_both_refuse_a_link_type_nobody_seeded (pair: Pair) -> None:
+	"""And name the ones that exist, because a vocabulary is only usable if it is listed."""
+
+	first = make(pair, "One")
+	second = make(pair, "Two")
+
+	local, remote = pair.both()
+	refusals = []
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.link(ref=first.ref, link_type="supersedes", target=second.ref)
+
+		refusals.append(refused.value)
+
+	assert refusals[0].detail == refusals[1].detail
+	assert "blocks" in str(refusals[0].errors[0].hint)
+
+
+def test_linking_twice_is_not_an_error (pair: Pair) -> None:
+	"""Idempotent by (source, target, type), like the service beneath it.
+
+	A client retrying a request it is unsure landed should not find out by being refused.
+	"""
+
+	first = make(pair, "One")
+	second = make(pair, "Two")
+
+	local, _remote = pair.both()
+
+	assert local.link(ref=first.ref, link_type="blocks", target=second.ref).id == (
+		local.link(ref=first.ref, link_type="blocks", target=second.ref).id
+	)
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 

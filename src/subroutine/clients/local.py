@@ -388,6 +388,107 @@ class Client:
 				)
 			]
 
+	def link (
+		self,
+		*,
+		ref: int,
+		link_type: str,
+		target: int,
+		entity_type: str = "task",
+		target_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Link:
+		"""Join two items."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			near = self._end(session, actor, chosen, entity_type, ref)
+			far = self._end(session, actor, chosen, target_type, target)
+
+			created = subroutine.domain.links.create(
+				session,
+				workspace_id=chosen.id,
+				source=near,
+				target=far,
+				link_type_key=link_type,
+				actor=actor,
+			)
+
+			# **Read back through `around`, exactly as the endpoint does.** Which end is "the
+			# other one" and which way the label reads are the domain's job, and `views.link`
+			# takes a `Related` rather than the stored row for that reason. Rendering the row
+			# here would be a second answer to a question already answered.
+			for related in subroutine.domain.links.around(
+				session, actor, workspace_id=chosen.id, entity_type=entity_type, identifier=near.id
+			):
+				if related.id == created.id:
+					return subroutine.views.link(related)
+
+			raise subroutine.errors.InternalError(
+				"The link was created but cannot be read back."
+			)
+
+	def unlink (
+		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
+	) -> None:
+		"""Withdraw a link."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			model = subroutine.db.models.work.Link
+			found = session.scalars(
+				sqlalchemy.select(model).where(
+					model.id == uuid.UUID(link_id),
+					model.workspace_id == chosen.id,
+					model.deleted_at.is_(None),
+					# **Both ends, because a link is withdrawn from either side.** Narrowed to
+					# the item named rather than to any link with that id, so a caller cannot
+					# withdraw a link between two things it never mentioned.
+					sqlalchemy.or_(
+						sqlalchemy.and_(
+							model.source_type == entity_type, model.source_id == subject
+						),
+						sqlalchemy.and_(
+							model.target_type == entity_type, model.target_id == subject
+						),
+					),
+				)
+			).first()
+
+			if found is None:
+				raise subroutine.errors.NotFound(
+					"There is no such link on that item.",
+					hint="Run 'subroutine show <ref>' to see what it is joined to.",
+				)
+
+			subroutine.domain.links.remove(session, found, actor=actor)
+
+	def _end (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		workspace: typing.Any,
+		entity_type: str,
+		ref: int,
+	) -> subroutine.domain.links.End:
+		"""Describe one side of a link, resolving the ref the way the endpoint does."""
+
+		row = self._in_the_trash_too(session, actor, ref, workspace.slug, entity_type)
+
+		return subroutine.domain.links.End(
+			entity_type=entity_type,
+			id=row.id,
+			ref=row.ref,
+			title=row.title,
+			project_id=row.project_id,
+		)
+
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:

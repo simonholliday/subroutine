@@ -220,6 +220,40 @@ class Client(typing.Protocol):
 	) -> list[subroutine.views.Link]:
 		"""Return every link touching one item, labelled from that item's point of view."""
 
+	def link (
+		self,
+		*,
+		ref: int,
+		link_type: str,
+		target: int,
+		entity_type: str = "task",
+		target_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Link:
+		"""Join two items — ``blocks``, ``relates_to``, ``duplicates``, ``derives_from``,
+		``documents`` (§5.7).
+
+		**The highest of `#141`'s unreached writers by some distance**, because a ``blocks``
+		link is what readiness reads (§6.5a). Until this landed an agent could ask what was
+		startable and could not say what blocked what — so the filter existed and nothing but
+		raw HTTP could put anything into it.
+
+		Idempotent by (source, target, type), like the service beneath it: asking twice is not
+		an error, because a client retrying a request it is unsure landed should not find out
+		by being refused.
+		"""
+
+	def unlink (
+		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
+	) -> None:
+		"""Withdraw a link.
+
+		Follows :meth:`link` closely rather than waiting for somebody to ask: a link added by
+		mistake blocks work that is not blocked, and readiness then hides it — so an unwanted
+		link is worse than a missing one, because it narrows what looks startable and says
+		nothing about having done so.
+		"""
+
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:
