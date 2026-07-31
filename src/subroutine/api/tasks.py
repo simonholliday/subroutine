@@ -255,6 +255,14 @@ def listing (
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
 	include_completed: bool = fastapi.Query(False, description="Include finished tasks."),
+	deferred: str = fastapi.Query(
+		subroutine.domain.readiness.DEFAULT_DEFERRAL,
+		description=(
+			"How to treat work deferred to a future date: 'include' (the default, and "
+			"unchanged), 'exclude' to hide it, or 'only' to see just what is parked."
+		),
+		examples=["exclude"],
+	),
 	ready: bool = fastapi.Query(
 		False,
 		description=(
@@ -336,6 +344,17 @@ def listing (
 				)
 			],
 		)
+
+	# Applied before `ready`, which subsumes it — the two may be combined and the narrower
+	# wins, rather than one silently overriding the other.
+	narrowing = subroutine.domain.readiness.deferred(
+		model,
+		now=subroutine.db.types.utcnow(),
+		choice=subroutine.domain.readiness.refuse_unknown_deferral(deferred),
+	)
+
+	if narrowing is not None:
+		statement = statement.where(narrowing)
 
 	if ready:
 		statement = statement.where(

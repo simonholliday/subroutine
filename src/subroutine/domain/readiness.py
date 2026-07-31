@@ -26,6 +26,7 @@ import sqlalchemy
 
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.errors
 
 
 def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
@@ -76,6 +77,66 @@ def undeferred (
 	"""
 
 	return sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now)
+
+
+#: What a caller may say about deferred work, and the default. **Three values rather than a
+#: boolean**, which is a departure from §8.4's ``include_completed`` family and is worth the
+#: departure: ``only`` is what lets a listing *report* what it is hiding without a second
+#: notion of counting, and "what have I got parked?" is a question somebody asks directly.
+#:
+#: ``include`` is the default, so **no existing caller sees a change** — Simon's decision of
+#: 2026-07-31. §6.5's "default views hide it entirely" is read as being about views a person
+#: reads, which is what a view is; an API listing is not one, and ``?ready=true`` already
+#: answers the API's version of the question explicitly and opt-in. Changing a published
+#: default would break clients in order to say something they can already ask for.
+DEFERRAL = ("include", "exclude", "only")
+
+DEFAULT_DEFERRAL = "include"
+
+
+def deferred (
+	model: type[typing.Any], *, now: datetime.datetime, choice: str
+) -> sqlalchemy.ColumnElement[bool] | None:
+	"""Return the predicate for one of :data:`DEFERRAL`, or ``None`` to narrow nothing.
+
+	``None`` rather than a tautology, so a caller can tell "no narrowing was asked for" from
+	"narrow by something that happens to match everything" — the same distinction §8.3 makes
+	between an omitted field and a null one.
+	"""
+
+	if choice == "exclude":
+		return undeferred(model, now=now)
+
+	if choice == "only":
+		return ~undeferred(model, now=now)
+
+	return None
+
+
+def refuse_unknown_deferral (choice: str) -> str:
+	"""Return the choice, or refuse with the ones that would have worked.
+
+	Shared by both transports so that a bad value is refused identically whether it arrived as
+	``?deferred=`` or as a CLI flag, and named as the same field.
+	"""
+
+	chosen = choice.strip().lower()
+
+	if chosen not in DEFERRAL:
+		raise subroutine.errors.ValidationError(
+			f"{choice!r} is not a way to treat deferred work.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="deferred",
+					code="invalid_field_value",
+					message=f"The choices are: {', '.join(DEFERRAL)}.",
+					hint="'include' is the default and needs no parameter at all; 'exclude' "
+					"hides work whose start date has not arrived; 'only' shows just that work.",
+				)
+			],
+		)
+
+	return chosen
 
 
 def ready (

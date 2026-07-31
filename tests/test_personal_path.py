@@ -1158,7 +1158,14 @@ def test_a_deferred_task_says_so_wherever_it_appears (
 	# Hidden from the agenda, which is the behaviour being explained rather than a defect.
 	assert "Renew the passport" not in run("today").output
 
-	listed = run("ls").output
+	# **And hidden from the plain listing too, since `#73`.** The marker's job moved with it:
+	# it no longer announces a deferral in a list somebody did not ask for, it labels the row
+	# once they have. The two changes are one story — hide it by default, and make it legible
+	# wherever it does appear — and a marker with no surface left would have been the sign
+	# that `#73` had gone too far.
+	assert "Renew the passport" not in run("ls").output
+
+	listed = run("ls", "--deferred").output
 
 	assert "from Tue 1 Dec" in listed
 
@@ -1184,6 +1191,9 @@ def test_a_defer_that_has_come_round_is_reported_only_where_it_is_asked_about (
 	run("init")
 	run("add", "Chase the invoice from 2020-01-05")
 
+	# Still in the listing: `#73` hides work whose start has *not* arrived, and this one's
+	# has. The row is shown, and shown without the marker.
+	assert "Chase the invoice" in run("ls").output
 	assert "from Sun 5 Jan" not in run("ls").output
 	assert "from Sun 5 Jan" in run("show", "1").output
 
@@ -1381,3 +1391,80 @@ def test_several_field_errors_are_still_named_individually (
 	assert "importance:" in printed
 	assert "urgency:" in printed
 	assert "Use 1 to 5." in printed
+
+
+def test_the_listing_holds_back_deferred_work_and_says_how_much (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#73`: §6.5's "default views hide it entirely" was true of one view out of three.
+
+	`domain/agenda.py` implemented it; `subroutine list` showed work nobody could start yet.
+	The fix is not just the hiding — **a hidden row is never silent**. A list that quietly
+	omits things stops supporting the inference refs exist for, that "not in the list" means
+	"not in the system", which is the failure `#33` was about.
+	"""
+
+	run("init")
+	run("add", "Do this now")
+	run("add", "Renew the passport from 2099-12-01")
+
+	listed = run("list").output
+
+	assert "Do this now" in listed
+	assert "Renew the passport" not in listed
+	assert "1 thing put off until later" in listed
+
+	widened = run("list", "--deferred").output
+
+	assert "Renew the passport" in widened
+
+	# And when it is shown, it is labelled — `#72`'s marker is what makes the widened list
+	# readable rather than just longer.
+	assert "from" in widened
+
+
+def test_a_list_that_is_entirely_parked_does_not_read_as_empty (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The case somebody hits after deferring the last thing they were avoiding.
+
+	"Nothing on your list" would be false and the advice that follows it — add something —
+	would be about a list they already have. It is also not "nothing to do today", which is
+	the agenda's sentence: `list` is not the agenda.
+	"""
+
+	run("init")
+	run("add", "Later problem from 2099-01-01")
+
+	listed = run("list").output
+
+	assert "Nothing on your list" not in listed
+	assert "Nothing you can start yet" in listed
+	assert "1 thing put off until later" in listed
+	assert 'subroutine add "something to do"' not in listed
+
+
+def test_the_scripted_listing_is_never_narrowed_by_a_presentation_rule (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`--json` keeps every open row, and that asymmetry is the point rather than an oversight.
+
+	Hiding parked work is a decision about a list somebody *reads* — which is what §6.5's
+	"default views" means, and the whole basis for leaving the API default alone. A script
+	asking for open work must not silently lose rows, and every row already carries
+	`start_at`, so it can make the same choice for itself.
+	"""
+
+	run("init")
+	run("add", "Do this now")
+	run("add", "Renew the passport from 2099-12-01")
+
+	rows = json.loads(run("list", "--json").output)
+	titles = {row["title"] for row in rows}
+
+	assert titles == {"Do this now", "Renew the passport"}
+
+	# And the row carries what a script needs to apply the rule itself.
+	parked = next(row for row in rows if row["title"] == "Renew the passport")
+
+	assert parked["start_at"] is not None

@@ -29,6 +29,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.db.types
 import subroutine.domain.capture
+import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.views
 
@@ -141,6 +142,7 @@ class Client:
 		include_completed: bool = False,
 		order: str | None = None,
 		project: str | None = None,
+		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -153,6 +155,13 @@ class Client:
 				include_completed="true" if include_completed else None,
 				order=order,
 				project=project,
+				# Refused here as well as at the far end, so a typo costs no round trip and
+				# is named the same way whether or not a server was reachable.
+				deferred=(
+					None
+					if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
+					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+				),
 			),
 		)
 

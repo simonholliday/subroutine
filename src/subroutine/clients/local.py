@@ -44,6 +44,7 @@ import subroutine.domain.links
 import subroutine.domain.local
 import subroutine.domain.ordering
 import subroutine.domain.paging
+import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.scoping
@@ -152,11 +153,13 @@ class Client:
 		include_completed: bool = False,
 		order: str | None = None,
 		project: str | None = None,
+		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.size(limit, self.settings)
+		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -170,32 +173,39 @@ class Client:
 				else subroutine.domain.selection.project(session, actor, chosen, project)
 			)
 
+			statement = subroutine.domain.scoping.readable_tasks(
+				actor, workspace_ids=[chosen.id], include_completed=include_completed
+			)
+
+			if narrowed is not None:
+				statement = statement.where(model.project_id == narrowed.id)
+
+			# **Built in steps rather than one chained expression, and `is not None` rather
+			# than `or`.** A SQLAlchemy element raises on truth-testing, so `predicate or
+			# true()` is not a shorter spelling of this — it is a `TypeError` at the one
+			# moment a caller asked for narrowing.
+			parked = subroutine.domain.readiness.deferred(
+				model, now=subroutine.db.types.utcnow(), choice=choice
+			)
+
+			if parked is not None:
+				statement = statement.where(parked)
+
 			rows = list(
 				session.scalars(
-					subroutine.domain.scoping.readable_tasks(
-						actor,
-						workspace_ids=[chosen.id],
-						include_completed=include_completed,
-					)
-					.where(
-						sqlalchemy.true()
-						if narrowed is None
-						else model.project_id == narrowed.id
-					)
 					# Built by the domain from the same vocabulary ``GET /v1/tasks`` uses,
 					# rather than approximated here: two spellings of "newest first" is the
 					# pair that comes to disagree, and this one used to be the *only* one,
 					# which is why a client could not rank at all. NULLS LAST and the
 					# tiebreaker are `ordering.clauses`' job now (SPEC.md §10.3).
-					.order_by(
+					statement.order_by(
 						*subroutine.domain.ordering.clauses(
 							order,
 							allowed=subroutine.domain.ordering.TASK_FIELDS,
 							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
 							tiebreak=model.id,
 						)
-					)
-					.limit(size)
+					).limit(size)
 				)
 			)
 			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)

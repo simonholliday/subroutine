@@ -231,6 +231,10 @@ class Listing:
 	rows: list[Row]
 	more: bool = False
 
+	#: How many open tasks were held back because their start date has not arrived. Carried
+	#: rather than recomputed, because it is per connection and the report is not.
+	parked: int = 0
+
 
 # These live above every function that annotates with them. A module-level annotation is
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
@@ -862,12 +866,29 @@ def register (
 		strict: bool,
 		order: str | None = None,
 		project: str | None = None,
+		deferred: bool = False,
 	) -> None:
 		"""Print the list. Registered twice, under two names, from one body."""
 
+		# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
+		# is a decision about a list somebody *reads*, which is what §6.5's "default views"
+		# means and the whole basis for leaving the API default alone. `--json` is the other
+		# half of that: a script asking for open work must not silently lose rows, and every
+		# row already carries `start_at`, so it can make the same choice for itself.
+		#
+		# So the two outputs differ, deliberately, and only in this. It is the one place
+		# §12.2a's "the human path and the scripted path are the same code" gives way — the
+		# code is the same, the presentation rule is not applied.
+		hiding = not deferred and not json_output
+
 		with opened(strict=strict) as world:
 			gathered = _listing(
-				world, limit=limit, strict=strict, order=order, project=project
+				world,
+				limit=limit,
+				strict=strict,
+				order=order,
+				project=project,
+				deferred=not hiding,
 			)
 
 			_report(world, gathered.failures)
@@ -892,6 +913,17 @@ def register (
 				# key, which reads exactly like a project that happens to be empty.
 				if gathered.failures or world.unreachable:
 					say("Nothing to show — some of what you asked for could not be read.")
+
+					return
+
+				# And it is equally false when everything on the list is simply parked, which
+				# is the case a person hits after deferring the last thing they were avoiding.
+				# Telling them to add something would be advice about a list they have.
+				if hiding and any(answer.value.parked for answer in gathered.answers):
+					# Not "nothing to do today" — that is the agenda's sentence, and `list` is
+					# not the agenda. What is true is that everything open starts later.
+					say("Nothing you can start yet.")
+					_say_parked(gathered, console=console, hidden=True)
 
 					return
 
@@ -922,9 +954,14 @@ def register (
 				if project:
 					repeated += f" --project {project}"
 
+				if deferred:
+					repeated += " --deferred"
+
 				console.print(
 					rich.text.Text(f"      …and more. '{repeated}' to see further.", style=DETAIL)
 				)
+
+			_say_parked(gathered, console=console, hidden=hiding)
 
 			say("")
 			_suggest(console, f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}")
@@ -948,6 +985,9 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		deferred: bool = typer.Option(
+			False, "--deferred", help="Include things you have put off until a later date."
+		),
 	) -> None:
 		"""List everything still open — tasks and documents — newest first.
 
@@ -969,6 +1009,7 @@ def register (
 			strict=strict,
 			order=order or None,
 			project=project or None,
+			deferred=deferred,
 		)
 
 	@app.command("ls", hidden=True)
@@ -985,6 +1026,9 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		deferred: bool = typer.Option(
+			False, "--deferred", help="Include things you have put off until a later date."
+		),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
 
@@ -1000,6 +1044,7 @@ def register (
 			strict=strict,
 			order=order or None,
 			project=project or None,
+			deferred=deferred,
 		)
 
 	@app.command()
@@ -1399,6 +1444,7 @@ def register (
 		strict: bool,
 		order: str | None = None,
 		project: str | None = None,
+		deferred: bool = False,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -1435,13 +1481,36 @@ def register (
 			# what came back rather than by a second counting query.
 			asked = limit + 1
 
+			parked = 0
+
 			for workspace in () if item is None else item.identity.workspaces:
 				rows.extend(
 					(client.connection.name, found)
 					for found in client.tasks(
-						workspace=workspace.slug, limit=asked, order=order, project=project
+						workspace=workspace.slug,
+						limit=asked,
+						order=order,
+						project=project,
+						deferred="include" if deferred else "exclude",
 					)
 				)
+
+				if not deferred:
+					# **A second request, and it buys the difference between narrowing a
+					# list and truncating one in silence** — the failure `#33` was about.
+					# Counted rather than flagged, unlike `…and more`: that declines a count
+					# because it would mean a second full scan of the *whole* result, where
+					# this set is the parked work alone and is small by construction. Asked
+					# at `asked` so a pathological backlog cannot make the count the
+					# expensive part; the report says `N+` if it fills.
+					parked += len(
+						client.tasks(
+							workspace=workspace.slug,
+							limit=asked,
+							project=project,
+							deferred="only",
+						)
+					)
 				rows.extend(
 					(client.connection.name, found)
 					for found in client.documents(
@@ -1466,7 +1535,7 @@ def register (
 			# and "it is not in the list" quietly stopped meaning "it does not exist", which
 			# is the one inference ref addressing is built to support. The agenda had always
 			# reported its own remainder; this is the same fact, carried the same way.
-			return Listing(rows=rows[:limit], more=len(rows) > limit)
+			return Listing(rows=rows[:limit], more=len(rows) > limit, parked=parked)
 
 		return subroutine.fanout.gather(world.clients, ask, strict=strict)
 
@@ -2101,6 +2170,48 @@ def _worth_showing (
 
 	except Exception:
 		return True
+
+
+def _say_parked (
+	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	console: rich.console.Console,
+	hidden: bool,
+) -> None:
+	"""Say how much was held back for a later date, and how to see it.
+
+	**A hidden row is never silent.** §6.5 says a deferred task is not actionable and default
+	views hide it, and until now the only view that did was the agenda — so `list` showed work
+	nobody could start, and `today` hid it with no explanation anywhere (`#72`, `#73`). Doing
+	the hiding without saying so would swap one of those failures for the worse one: a list
+	that quietly omits things stops supporting the inference refs exist for, that *not in the
+	list* means *not in the system*.
+
+	A count rather than `…and more`'s flag, and the difference is affordable. That flag exists
+	because an exact remainder needs a second scan of the whole result; this set is the parked
+	work alone, which is small by construction — somebody defers a handful of things, not a
+	backlog. It is still asked at the page limit, so `N+` is what a pathological case reads as.
+	"""
+
+	if not hidden:
+		return
+
+	total = sum(answer.value.parked for answer in gathered.answers)
+
+	if not total:
+		return
+
+	# "put off" rather than "deferred": §13.5b forbids the vocabulary of the full model on
+	# this path, and while "deferred" is not on its list, `defer` is the command and the plain
+	# phrase is what somebody who has not met it would recognise.
+	things = "thing" if total == 1 else "things"
+	console.print(
+		rich.text.Text(
+			f"      {total} {things} put off until later. 'subroutine list --deferred' to "
+			f"include them.",
+			style=DETAIL,
+		)
+	)
 
 
 def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:

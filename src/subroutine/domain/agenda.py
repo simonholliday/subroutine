@@ -33,6 +33,7 @@ import sqlalchemy.orm
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.dates
+import subroutine.domain.readiness
 import subroutine.domain.schedule
 import subroutine.domain.scoping
 
@@ -190,7 +191,7 @@ def _visible (
 
 	return subroutine.domain.scoping.readable_tasks(
 		principal, workspace_ids=workspace_ids, include_completed=False
-	).where(sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now))
+	).where(subroutine.domain.readiness.undeferred(model, now=now))
 
 
 def _run (

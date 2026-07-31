@@ -1534,3 +1534,71 @@ def test_a_blocker_the_caller_cannot_see_still_blocks (
 
 	# And nothing about the blocker leaked on the way.
 	assert nosy.call("GET", f"/v1/tasks/{hidden.ref}").status_code == 404
+
+
+def test_the_listing_default_still_shows_deferred_work (world: World) -> None:
+	"""The compatibility guarantee, pinned so that changing it has to be deliberate.
+
+	`#73` made `subroutine list` hide deferred work, because §6.5 says a default *view* hides
+	it and a person reading a list cannot act on something that starts in March. Simon's
+	decision of 2026-07-31 was that an API listing is not one of those views: `?ready=true`
+	already answers the question explicitly and opt-in, and changing a published default would
+	break every existing client in order to say something they can already ask for.
+
+	So this asserts an absence of change, which is the kind of test that only earns its place
+	when somebody has been tempted — and the temptation here was to make one rule apply
+	everywhere for tidiness.
+	"""
+
+	later = world.call(
+		"POST", "/v1/tasks", json={"title": "Not yet", "start": "2099-01-01"}
+	).json()["ref"]
+
+	listed = [item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]]
+
+	assert later in listed
+
+
+def test_deferred_exclude_and_only_partition_the_listing (world: World) -> None:
+	"""The two narrowings are complements, which is what makes the count reportable.
+
+	`subroutine list` shows the `exclude` set and reports the size of the `only` set. If they
+	overlapped or left a gap, the number beside the list would be about a different set of
+	rows than the list — and nothing in the output would say so.
+	"""
+
+	startable = world.call("POST", "/v1/tasks", json={"title": "Startable"}).json()["ref"]
+	parked = world.call(
+		"POST", "/v1/tasks", json={"title": "Parked", "start": "2099-01-01"}
+	).json()["ref"]
+
+	def refs (query: str) -> set[int]:
+		"""Return the refs one listing reports."""
+
+		return {
+			item["ref"] for item in world.call("GET", f"/v1/tasks?limit=50&{query}").json()["items"]
+		}
+
+	everything = refs("")
+	shown = refs("deferred=exclude")
+	held = refs("deferred=only")
+
+	assert startable in shown and parked not in shown
+	assert parked in held and startable not in held
+
+	# Complements: no overlap, and nothing falls between them.
+	assert not (shown & held)
+	assert shown | held == everything
+
+
+def test_an_unknown_deferred_value_is_refused_by_name (world: World) -> None:
+	"""Named as the field the caller sent, with the values that would have worked."""
+
+	response = world.call("GET", "/v1/tasks?deferred=banana")
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "deferred"
+	assert "include" in body["errors"][0]["message"]

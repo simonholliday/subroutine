@@ -26,6 +26,7 @@ import typing
 
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.views
 
@@ -116,6 +117,7 @@ class Client(typing.Protocol):
 		include_completed: bool = False,
 		order: str | None = None,
 		project: str | None = None,
+		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -129,6 +131,11 @@ class Client(typing.Protocol):
 		``project`` is a key or an id, resolved by ``domain.selection.project`` — the same
 		function the endpoint uses, so ``SR`` means one project and an unknown key is refused
 		with one message whichever transport asked.
+
+		``deferred`` is one of ``domain.readiness.DEFERRAL`` and defaults to ``include``, so a
+		caller that says nothing sees what it always saw. ``only`` exists so that a listing
+		hiding deferred work can *say how much* it is hiding, which is the difference between
+		narrowing a list and truncating one in silence.
 		"""
 
 	def task (
