@@ -1,6 +1,6 @@
-"""What an agent can actually do here, as five tools.
+"""What an agent can actually do here, as six tools.
 
-**Five, not one per endpoint, and that is the whole design.** A tool's schema is context an
+**Six, not one per endpoint, and that is the whole design.** A tool's schema is context an
 agent carries for its entire session whether it calls the tool or not, so a surface is a
 fixed cost paid up front against a variable benefit. ``#14``'s own note records the
 measurement that makes this concrete: Beads found 10-50k tokens via MCP against 1-2k via a
@@ -18,7 +18,6 @@ these strings are read by a model, and a full task is 400-600 tokens of which mo
 nobody asked for.
 """
 
-import json
 import typing
 
 import subroutine.clients.base
@@ -168,7 +167,13 @@ def _listed (
 	"""
 
 	workspace = _text(arguments, "workspace")
-	limit = arguments.get("limit") or DEFAULT_LIMIT
+
+	# `or DEFAULT_LIMIT` read an explicit `limit: 0` as "unset" and returned twenty. Zero is
+	# a strange thing to ask for and a stranger thing to answer with twenty, so it is passed
+	# through to `domain.paging.size`, which is the one arbiter of what a page may be and
+	# refuses it by name.
+	given = arguments.get("limit")
+	limit = DEFAULT_LIMIT if given is None else given
 
 	tasks = client.tasks(
 		workspace=workspace, limit=limit, order=_text(arguments, "order")
@@ -256,7 +261,14 @@ def _shown (
 
 	if remarks:
 		parts.append("")
-		parts.extend(f"[{remark.author_id}] {remark.body}" for remark in remarks)
+		# **The date, not the author's UUID.** A raw id is thirty-six characters a model
+		# cannot resolve without another call, on every comment, in the module whose whole
+		# argument is that context is a fixed cost. When an item's record is read, *when*
+		# something happened is the part that orders it; *who* is one id lookup away and is
+		# usually the reader.
+		parts.extend(
+			f"{remark.created_at.date().isoformat()}  {remark.body}" for remark in remarks
+		)
 
 	return "\n".join(parts)
 
@@ -293,13 +305,15 @@ def _remarked (
 ) -> str:
 	"""Add one entry to an item's record."""
 
+	ref = _ref(arguments)
+
 	client.remark(
-		ref=_ref(arguments),
+		ref=ref,
 		body=_text(arguments, "body") or "",
 		workspace=_text(arguments, "workspace"),
 	)
 
-	return f"Recorded on #{_ref(arguments)}."
+	return f"Recorded on #{ref}."
 
 
 def _completed (
@@ -343,12 +357,6 @@ def _text (arguments: dict[str, typing.Any], name: str) -> str | None:
 	value = arguments.get(name)
 
 	return value if isinstance(value, str) and value else None
-
-
-def structured (payload: typing.Any) -> str:
-	"""Render a payload as compact JSON, for a tool that answers with data rather than prose."""
-
-	return json.dumps(payload, separators=(",", ":"), default=str)
 
 
 def _updated (

@@ -99,6 +99,12 @@ class Server:
 			# A notification. `notifications/initialized` is the one this server expects;
 			# anything else is ignored rather than refused, because there is nowhere to send
 			# a refusal and a client is entitled to tell us things we do not act on.
+			#
+			# **This reads an absent `id` and an explicit `"id": null` as the same thing**,
+			# which is worth stating because the code does not show it. MCP says a request id
+			# MUST NOT be null, so a null one is malformed either way and silence is a
+			# defensible answer to it. Note `id: 0` is *not* caught here — `is None` rather
+			# than a falsy test, deliberately, since zero is a legal id.
 			return None
 
 		if not isinstance(method, str):

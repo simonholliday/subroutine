@@ -585,3 +585,39 @@ def test_both_surfaces_word_it_the_same_way () -> None:
 
 	assert several is not None
 	assert "every monday, every 3rd" in several
+
+
+def test_a_page_of_nothing_is_refused_rather_than_answered_with_twenty (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`limit: 0` read as "unset" through `or DEFAULT_LIMIT`, and answered with twenty rows.
+
+	Zero is a strange thing to ask for and a stranger thing to answer with a page. It now
+	reaches `domain.paging.size`, the one arbiter of what a page may be, and is refused by
+	name — the same refusal every other transport gives, rather than a second opinion.
+	"""
+
+	text, failed = _called(bound, "subroutine_list", limit=0)
+
+	assert failed
+	assert "0" in text
+
+
+def test_a_record_is_read_by_when_rather_than_by_a_raw_id (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""A UUID per comment is thirty-six characters a model cannot resolve without another call.
+
+	In the module whose entire design argument is that context is a fixed cost, that is the
+	wrong thirty-six characters: reading an item's record, *when* something happened is what
+	orders it, and *who* is usually the reader.
+	"""
+
+	ref = _added(bound, "Something to discuss")
+	_called(bound, "subroutine_comment", ref=ref, body="what happened here")
+
+	text, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed
+	assert "what happened here" in text
+	assert "-" * 4 not in text, "a UUID leaked into the record"
