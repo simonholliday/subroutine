@@ -1996,3 +1996,41 @@ def test_changing_tags_is_recorded_as_a_change (world: World) -> None:
 	events = world.call("GET", f"/v1/tasks/{made['ref']}/events").json()["items"]
 
 	assert any("tags" in (event.get("changes") or {}) for event in events)
+
+
+def test_clearing_a_title_is_refused_rather_than_crashing (world: World) -> None:
+	"""§8.3 says null clears — and a title is the field that cannot be cleared.
+
+	It was a **500 on tasks, documents and projects alike**, from `_clean_title(None)` calling
+	`.strip()` on it, and it survived two reviews. The fix is at `domain.text.require`, the one
+	choke point every required string in the system passes through, so the CLI and the MCP
+	adapter are covered by the same change.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Keep me"}).json()
+	response = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"title": None})
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "title"
+
+	# And the task is untouched — a refused update must leave the row exactly as it was.
+	assert world.call("GET", f"/v1/tasks/{made['ref']}").json()["title"] == "Keep me"
+
+
+def test_a_null_clears_the_tags (world: World) -> None:
+	"""The other answer to the same question, because tags *can* be cleared.
+
+	`{"tags": null}` reached `list(None)` and 500ed — shipped hours before the review that
+	found it. Null and `[]` now mean the same thing here, which is what §8.3's null means for
+	every other clearable field.
+	"""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Tagged", "tags": ["one", "two"]}
+	).json()
+
+	assert made["tags"] == ["one", "two"]
+	assert world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"tags": None}).json()["tags"] == []

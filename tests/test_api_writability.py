@@ -34,14 +34,19 @@ failure, so this file cannot quietly describe a model that has moved on.
 """
 
 import typing
+import uuid
 
 import pydantic
 import pytest
 import sqlalchemy
+import sqlalchemy.orm
 
+import api_support
 import subroutine.api.documents
 import subroutine.api.tasks
 import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.views
 
 #: View field -> the request field that writes it, where the two are spelled differently.
@@ -319,3 +324,136 @@ def test_a_column_ahead_of_its_feature_names_the_milestone () -> None:
 		assert any(marker in reason for marker in ("M7", "#")), (
 			f"{column!r} is excused as unbuilt without naming a milestone or an item."
 		)
+
+
+#: Nullable fields whose null is *deliberately* refused rather than accepted, and why. A 422
+#: is a fine answer — the sweep below only forbids a **5xx**. An entry here says the refusal
+#: was designed rather than discovered.
+REFUSES_NULL: dict[str, str] = {
+	"title": (
+		"A title cannot be cleared — an item with no title is one nobody can find again, so "
+		"both create and update hold it to the same standard (domain.text.require)."
+	),
+	"key": "A project key is its address (§5.2) and is fixed after creation.",
+	"slug": "A workspace's short name is the middle of every 'work/acme/#42' (§13.7).",
+	"status": "A project always has a status; clearing one has no meaning.",
+}
+
+
+def _nullable (model: type[pydantic.BaseModel]) -> list[str]:
+	"""Return the fields this request model declares as accepting ``None``.
+
+	Read off the annotation rather than listed by hand, so a field added to a request model
+	is swept without anybody remembering to add it here — which is the same mechanism the two
+	directions above use, and the reason they keep working.
+	"""
+
+	found = []
+
+	for name, field in model.model_fields.items():
+		annotation = field.annotation
+
+		if annotation is None or type(None) in typing.get_args(annotation):
+			found.append(name)
+
+	return found
+
+
+@pytest.fixture
+def live (session: sqlalchemy.orm.Session) -> typing.Any:
+	"""An installation reachable over HTTP, sharing the test's transaction.
+
+	Built here rather than borrowed from ``test_api_tasks``: importing one test module from
+	another gives mypy the same file under two module names, since ``tests/`` has no
+	``__init__.py``. Eleven files now define a fixture of this shape, which is an argument for
+	moving it into ``api_support`` — its own change, not this one.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Writability"
+	)
+	session.flush()
+
+	application = api_support.build_app(api_support.factory_for(session))
+	secret = issued.value.get_secret_value()
+
+	class Live:
+		"""Just enough of a client to PATCH one field at a time."""
+
+		def call (self, method: str, path: str, **kwargs: typing.Any) -> typing.Any:
+			"""Make an authenticated request."""
+
+			return api_support.call(
+				application, method, path, headers={"authorization": f"Bearer {secret}"}, **kwargs
+			)
+
+	return Live()
+
+
+def test_a_null_on_any_nullable_field_is_never_a_server_error (live: typing.Any) -> None:
+	"""**The third direction, and the one that was missing.**
+
+	The two directions above ask whether a field can be *set* and whether it is *reported*.
+	Neither asks what happens when a caller sends the null §8.3 tells them to send — and on
+	2026-07-31 that turned out to be a **500 on tasks, documents and projects alike** for
+	``{"title": null}``, plus a second on ``{"tags": null}`` shipped an hour earlier.
+
+	Both were the same shape: a request model declares ``str | None`` in order to express
+	"omitted", the router passes whatever arrived straight through, and the service was never
+	written to expect ``None``. Nothing was wrong at any single site, which is why two reviews
+	and both existing directions missed it.
+
+	A 422 is a perfectly good answer and is what an unclearable field should give. What this
+	forbids is a traceback, which is never an answer.
+	"""
+
+	made = {
+		"/v1/tasks": live.call("POST", "/v1/tasks", json={"title": "Sweep me"}).json(),
+		"/v1/documents": live.call("POST", "/v1/documents", json={"title": "Sweep me"}).json(),
+	}
+	targets: list[tuple[str, type[pydantic.BaseModel]]] = [
+		(f"/v1/tasks/{made['/v1/tasks']['ref']}", subroutine.api.tasks.Update),
+		(f"/v1/documents/{made['/v1/documents']['ref']}", subroutine.api.documents.Update),
+	]
+
+	crashed: list[str] = []
+
+	for path, model in targets:
+		for name in _nullable(model):
+			response = live.call("PATCH", path, json={name: None})
+
+			if response.status_code >= 500:
+				crashed.append(f"{path} {{{name!r}: null}} -> {response.status_code}")
+
+	assert not crashed, (
+		"a null on a field the request model declares nullable produced a server error:\n"
+		+ "\n".join(crashed)
+		+ "\n§8.3 says null clears. Accept it, or refuse it with a 422 and record the field "
+		"in REFUSES_NULL with the reason."
+	)
+
+
+def test_every_field_recorded_as_refusing_null_still_exists (live: typing.Any) -> None:
+	"""The second half, as everywhere else here: an excuse for a field nobody has is debt.
+
+	Without this, `REFUSES_NULL` becomes a list of names that used to matter — which is the
+	failure the *reported and unsettable* direction already guards against, and the reason
+	deleting an entry is what closes an item.
+	"""
+
+	declared = set()
+
+	for model in (
+		subroutine.api.tasks.Update,
+		subroutine.api.tasks.Create,
+		subroutine.api.documents.Update,
+		subroutine.api.documents.Create,
+	):
+		declared |= set(model.model_fields)
+
+	unknown = sorted(set(REFUSES_NULL) - declared - {"key", "slug"})
+
+	assert not unknown, f"REFUSES_NULL names fields no request model has: {unknown}"

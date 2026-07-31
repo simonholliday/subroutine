@@ -46,10 +46,23 @@ def fit (
 	)
 
 
-def require (value: str, *, field: str, label: str | None = None) -> str:
-	"""Return ``value`` stripped, or refuse it for being empty."""
+def require (value: str | None, *, field: str, label: str | None = None) -> str:
+	"""Return ``value`` stripped, or refuse it for being empty.
 
-	cleaned = value.strip()
+	**``None`` is refused exactly as ``""`` is**, and that is the fix for one defect with
+	nine call sites. §8.3 says an omitted field is unchanged and a null one clears, so a
+	caller following the convention sends ``{"title": null}`` — and every request model
+	declares `title: str | None = None` in order to express "omitted", so the null arrives
+	here as ``None`` and ``None.strip()`` raised. That was a **500 on tasks, documents and
+	projects alike**, on the commonest field there is, and it survived two reviews.
+
+	Refusing here rather than at each router is what makes the answer the same everywhere:
+	a title that cannot be cleared is a missing title, and "A title is required." naming the
+	field is already the right sentence. Every required string in this system passes through
+	this function, so the CLI and the MCP adapter are covered by the same change.
+	"""
+
+	cleaned = (value or "").strip()
 
 	if cleaned:
 		return cleaned

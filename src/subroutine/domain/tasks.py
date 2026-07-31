@@ -475,7 +475,7 @@ def update (
 	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start_is_all_day: bool | None = None,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
-	tags: typing.Sequence[str] = subroutine.domain.patch.UNSET,
+	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
@@ -632,11 +632,14 @@ def update (
 	# Resolved in the pass that may raise, because `ensure` refuses a name that is really a
 	# reference (§6.2) and creates rows for the rest — a refusal after the first tag was
 	# created would leave a tag nobody asked for.
+	# **`None` clears, exactly as `[]` does.** §8.3's null means "clear this", and tags are
+	# clearable — unlike a title, which is why the two nulls get different answers. Sending
+	# `null` used to reach `list(None)` and 500.
 	wanted_tags: typing.Any = (
 		subroutine.domain.patch.UNSET
 		if tags is subroutine.domain.patch.UNSET
 		else subroutine.domain.tags.ensure(
-			session, workspace_id=task.workspace_id, names=list(tags)
+			session, workspace_id=task.workspace_id, names=list(tags or ())
 		)
 	)
 
