@@ -86,6 +86,32 @@ subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops +WEB")
 `#ops` a tag, `+WEB` the project. Whatever it read is echoed back, so check that line — it is
 the only confirmation that `+WEB` was understood rather than left in the title.
 
+**The type is a promise about what the title says.** Get these two agreeing or a listing
+stops being scannable — the type is the column somebody reads to know whether a line describes
+a fault or a plan.
+
+| Type | The title says |
+| --- | --- |
+| `bug` | what is wrong — *"A date more than a year away renders as if it were this year"* |
+| `feature`, `task`, `chore` | what will be true when it is done — *"Highlight the search term where it matched"* |
+| `spike` | the question — *"Settle whether search should read comments"* |
+| `decision`, `finding`, `spec` | the conclusion — *"Blocked is tracked; waiting is a defer with a reason"* |
+
+The failure to avoid is a problem statement filed as a feature: *"Nothing measures what the API
+can do and the clients cannot"* reads as a defect and claims to be a plan. Two other reasons
+beyond scannability, and the second is the one that decided it here:
+
+- Your motivation is not lost by an outcome-shaped title, because it belongs in the
+  description — which is one field away and is where somebody looks next.
+- **A problem-shaped title rots.** "The guide's 8 KB budget is exhausted" was true and is not;
+  the budget is 15 KB. It is on a finished item, so nobody will ever re-read it. A title
+  stating a *condition* becomes false when the condition changes, silently and permanently. A
+  title stating an *outcome* cannot.
+
+If you find out later that something is not what you filed it as, say so — `type` is settable
+on both `subroutine_add` and `subroutine_update`. What something is often becomes clear only
+after it has been looked at, so reclassifying is normal rather than an admission.
+
 **Comment as you go, especially when something fails.** A comment is what happened.
 
 ```
