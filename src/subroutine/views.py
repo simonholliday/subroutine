@@ -165,6 +165,16 @@ class Task(pydantic.BaseModel):
 	project_key: str
 	parent_task_id: uuid.UUID | None
 
+	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
+	#: a client given only `parent_task_id` has to fetch the parent before it can print
+	#: anything at all — and on a listing that is one call per row. Both are batch-loaded with
+	#: the status and project names, and both are null when the item has no parent.
+	#:
+	#: Denormalised like `project_key` and `status`, and for the same reason: a response that
+	#: forces a second call to be readable is the failure review dimension 4 names.
+	parent_ref: int | None = None
+	parent_title: str | None = None
+
 	#: The vocabulary, resolved. ``status`` is the key an installation may have renamed;
 	#: ``status_category`` is the fixed set a client can branch on (SPEC.md §5.5).
 	status: str
@@ -590,6 +600,7 @@ class Vocabulary:
 		type_ids: typing.Iterable[uuid.UUID] = (),
 		project_ids: typing.Iterable[uuid.UUID] = (),
 		task_ids: typing.Iterable[uuid.UUID] = (),
+		parent_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -604,6 +615,14 @@ class Vocabulary:
 		)
 		self.tags = subroutine.domain.tags.names_for_tasks(session, task_ids)
 
+		# **One query for every parent on the page, not one per row.** A ref is how an item
+		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
+		# to resolve a UUID before it can print anything — which is the second call review
+		# dimension 4 exists to prevent, multiplied by the page.
+		self.parents = _by_id(
+			session, subroutine.db.models.work.Task, parent_ids, ("ref", "title")
+		)
+
 	@classmethod
 	def for_tasks (
 		cls, session: sqlalchemy.orm.Session, tasks: typing.Sequence[subroutine.db.models.work.Task]
@@ -616,6 +635,7 @@ class Vocabulary:
 			type_ids={task.type_id for task in tasks},
 			project_ids={task.project_id for task in tasks},
 			task_ids={task.id for task in tasks},
+			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id},
 		)
 
 	@classmethod
@@ -660,6 +680,8 @@ def task (
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
 		parent_task_id=row.parent_task_id,
+		parent_ref=_parent_field(vocabulary, row.parent_task_id, "ref"),
+		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),
 		status_id=row.status_id,
@@ -900,6 +922,22 @@ def workspace_ref (row: subroutine.db.models.identity.Workspace) -> WorkspaceRef
 	"""Render one workspace as a client addresses it."""
 
 	return WorkspaceRef(id=row.id, slug=row.slug, title=row.title)
+
+
+def _parent_field (
+	vocabulary: Vocabulary, parent_id: uuid.UUID | None, field: str
+) -> typing.Any:
+	"""Return one field of an item's parent, or ``None`` when it has none.
+
+	**A missing entry is ``None`` rather than an error**, deliberately. The parent may be
+	outside what this caller can see — §7.3a hides a private project's contents — and the
+	right answer there is "no parent reported", not a refusal that confirms one exists.
+	"""
+
+	if parent_id is None:
+		return None
+
+	return vocabulary.parents.get(parent_id, {}).get(field)
 
 
 def _by_id (

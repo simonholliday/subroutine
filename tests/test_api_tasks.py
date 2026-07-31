@@ -1658,3 +1658,82 @@ def test_a_search_term_cannot_smuggle_in_a_like_wildcard (world: World) -> None:
 
 	assert described["ref"] in again
 	assert other["ref"] not in again
+
+
+def test_a_task_reports_its_parent_by_ref_and_title (world: World) -> None:
+	"""A ref is how an item is addressed (§6.2), so reporting only a UUID forces a second call.
+
+	That is the failure review dimension 4 names — "responses embed enough context to avoid a
+	second call" — multiplied by the page, since a listing would need one lookup per row.
+	Both fields are batch-loaded with the status and project names.
+	"""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "The whole feature"}).json()
+	child = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "One part", "parent_task_id": str(parent["id"])},
+	).json()
+
+	assert child["parent_ref"] == parent["ref"]
+	assert child["parent_title"] == "The whole feature"
+
+	# And a top-level task reports neither, rather than reporting something empty.
+	assert parent["parent_ref"] is None
+	assert parent["parent_title"] is None
+
+
+def test_reporting_a_parent_costs_no_query_per_row (
+	world: World, session: sqlalchemy.orm.Session
+) -> None:
+	"""The guard that matters: a page of children must not fan out into a lookup each.
+
+	`#39` was spent removing exactly this shape from the link listing, and the obvious
+	implementation of `parent_title` reintroduces it — correctly, invisibly, and only under
+	load. Counted rather than asserted structurally, because the count is the promise.
+	"""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Parent"}).json()
+	counted: list[str] = []
+
+	def record (
+		_connection: typing.Any, _cursor: typing.Any, statement: str, *_rest: typing.Any
+	) -> None:
+		"""Note every statement the engine is asked to run."""
+
+		counted.append(statement)
+
+	def queries_for (children: int) -> int:
+		"""Return how many statements one page of ``children`` children takes."""
+
+		while (
+			len(world.call("GET", f"/v1/tasks?parent={parent['ref']}&limit=50").json()["items"])
+			< children
+		):
+			world.call(
+				"POST",
+				"/v1/tasks",
+				json={"title": "A part", "parent_task_id": str(parent["id"])},
+			)
+
+		counted.clear()
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", record)
+
+		try:
+			body = world.call("GET", f"/v1/tasks?parent={parent['ref']}&limit=50").json()
+
+			assert len(body["items"]) == children
+			assert all(item["parent_title"] == "Parent" for item in body["items"])
+
+			return len(counted)
+
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", record)
+
+	small = queries_for(2)
+	large = queries_for(12)
+
+	assert large == small, (
+		f"a page of 12 children took {large} queries where a page of 2 took {small}: "
+		f"reporting the parent is fanning out per row"
+	)

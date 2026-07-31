@@ -156,6 +156,7 @@ class Client:
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
+		parent: int | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -197,6 +198,24 @@ class Client:
 				statement = statement.where(
 					subroutine.domain.search.matching(q, model.title, model.description)
 				)
+
+			if parent is not None:
+				# Resolved through the same scoped statement the listing uses, so a parent
+				# this caller cannot see is absent rather than forbidden — and the children
+				# of something invisible are not disclosed by an empty list either.
+				above = session.scalars(
+					subroutine.domain.scoping.readable_tasks(
+						actor, workspace_ids=[chosen.id], include_completed=True
+					).where(model.ref == parent)
+				).first()
+
+				if above is None:
+					raise subroutine.errors.NotFound(
+						f"There is no #{parent} here.",
+						hint="Run 'subroutine list' to see what there is.",
+					)
+
+				statement = statement.where(model.parent_task_id == above.id)
 
 			rows = list(
 				session.scalars(

@@ -119,6 +119,7 @@ class Client(typing.Protocol):
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
+		parent: int | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -139,6 +140,10 @@ class Client(typing.Protocol):
 		narrowing a list and truncating one in silence.
 
 		``q`` is §9.4's free-text match, over the title **and the description**.
+
+		``parent`` narrows to one item's **direct children**, by ref. A parent this caller
+		cannot see is "no such task" rather than an empty list — an empty listing would claim
+		the subtree is empty, which is a different and false claim (§7.3a).
 		"""
 
 	def task (

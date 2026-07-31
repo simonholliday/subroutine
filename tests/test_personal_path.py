@@ -1600,3 +1600,132 @@ def test_a_search_row_says_where_the_word_was_found (
 
 	assert "Cursor handling" in uniform
 	assert "title" not in uniform
+
+
+def _parented (child_ref: int, parent_ref: int) -> None:
+	"""Make one task the child of another, reaching past the CLI because nothing there can.
+
+	`#44`: `parent_task_id` is accepted at creation and never afterwards, so an item cannot
+	join a subtree it was not born into. That is the gap these two items are the *reading*
+	half of — the structure is real and was invisible.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.work
+	import subroutine.db.session
+	import subroutine.domain.local
+	import subroutine.domain.scoping
+	import subroutine.domain.workspaces
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			principal = subroutine.domain.local.principal(session)
+			statement = subroutine.domain.scoping.readable_tasks(
+				principal,
+				workspace_ids=[
+					workspace.id
+					for workspace in subroutine.domain.workspaces.readable(session, principal)
+				],
+			)
+			rows = {
+				row.ref: row
+				for row in session.scalars(statement)
+				if row.ref in (child_ref, parent_ref)
+			}
+			rows[child_ref].parent_task_id = rows[parent_ref].id
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+
+def test_a_listing_says_which_items_have_a_parent (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#63`: a subtree printed exactly like every other row, so it read as unrelated items.
+
+	**A column, not indentation**, and that is the design rather than a shortcut. A listing is
+	ordered by recency or by priority, so a child is rarely adjacent to its parent — drawing
+	a tree connector under an unrelated row states a relationship that is not there. A ref is
+	true wherever the row lands.
+	"""
+
+	run("init")
+	run("add", "The whole feature")
+	run("add", "One part of it")
+	_parented(2, 1)
+
+	listed = run("list").output
+
+	assert "^1" in listed
+
+
+def test_a_list_with_no_subtree_never_mentions_parents (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4 falling out of the layout rule again, third application of `#26`'s `_column`.
+
+	A personal to-do list has no subtasks, so every row's cell is empty, so the column does
+	not earn its place and is not drawn. Nobody keeping a shopping list meets the word.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+	run("add", "Call the dentist")
+
+	assert "^" not in run("list").output
+
+
+def test_show_names_both_directions_of_the_relationship (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#62`'s remaining half: the parent by title, and the children with a rollup.
+
+	The rollup counts *completed* children too — a parent reporting two of its four parts
+	because the other two are finished would misreport the thing somebody opened it to see.
+	`#84` decided the rollup is reported and completion stays an act, and this is where it is
+	read.
+	"""
+
+	run("init")
+	run("add", "The whole feature")
+	run("add", "First part")
+	run("add", "Second part")
+	_parented(2, 1)
+	_parented(3, 1)
+
+	parent = run("show", "1").output
+
+	assert "Parts" in parent
+	assert "0 of 2 done" in parent
+	assert "First part" in parent and "Second part" in parent
+
+	child = run("show", "2").output
+
+	assert "part of" in child
+	assert "The whole feature" in child, "the parent is named by its title, not only its ref"
+
+	# A finished part still counts and is still listed.
+	run("done", "2")
+
+	assert "1 of 2 done" in run("show", "1").output
+
+
+def test_show_on_a_plain_task_still_says_nothing_about_hierarchy (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The rule that lets `show` exist at all: a field nobody set is not printed."""
+
+	run("init")
+	run("add", "Buy milk")
+
+	shown = run("show", "1").output
+
+	assert "part of" not in shown
+	assert "Parts" not in shown

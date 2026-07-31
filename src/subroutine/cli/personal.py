@@ -284,6 +284,7 @@ class Columns:
 	priority: int = 0
 	estimate: int = 0
 	matched: int = 0
+	parent: int = 0
 
 	#: What was searched for, so a row can say where it was found. ``None`` on any listing
 	#: that was not a search, which is what drops the column entirely.
@@ -298,6 +299,7 @@ class Columns:
 		return cls(
 			term=term,
 			matched=_column(_match_cell(item, term) for _name, item in rows),
+			parent=_column(_parent_cell(item) for _name, item in rows),
 			address=max(
 				(len(world.address_of_item(name, item)) for name, item in rows), default=0
 			),
@@ -329,6 +331,34 @@ def _priority_cell (item: Item) -> str:
 		return ""
 
 	return f"!{item.importance or '?'}/{item.urgency or '?'}"
+
+
+#: Marks a parent's ref on a listing row. **`^` because everything else is taken** — `#` is
+#: a ref, `!` is priority, `~` an estimate, `+` a project and `@` an assignee, all claimed by
+#: §6.13's capture grammar. It reads as "up", which is the relationship.
+PARENT_SIGIL = "^"
+
+
+def _parent_cell (item: Item) -> str:
+	"""Return the parent's ref as ``^57``, or nothing when the item is top-level.
+
+	**A column rather than indentation, and that is the whole design** (`#63`). A listing is
+	ordered by recency or by priority, so a child is rarely next to its parent — drawing
+	``└─`` under an unrelated row states a relationship that is not there. A ref is true
+	wherever the row lands.
+
+	It costs nothing: `parent_ref` is on the view, batch-loaded with the status and project
+	names, so this is a field read rather than a query per row.
+
+	**Not marking a parent as having children**, deliberately. That needs a count per row, and
+	that is the N+1 `#39` was spent removing. A child pointing up is enough to see the
+	structure and is cheaper than every parent pointing down.
+	"""
+
+	if not isinstance(item, subroutine.views.Task) or item.parent_ref is None:
+		return ""
+
+	return f"{PARENT_SIGIL}{item.parent_ref}"
 
 
 def _match_cell (item: Item, term: str | None) -> str:
@@ -1189,12 +1219,32 @@ def register (
 				workspace=located.workspace,
 			)
 
+			# **Completed children included**, unlike every listing here. A parent showing two
+			# of its four children because the other two are finished would misreport the
+			# thing somebody opened it to see. `#84` says report the rollup and leave
+			# completion an act; this is where the rollup is read.
+			children = (
+				client.tasks(
+					parent=located.ref,
+					workspace=located.workspace,
+					limit=MAX_CHILDREN,
+					include_completed=True,
+					order="ref",
+				)
+				if located.entity_type == "task"
+				else []
+			)
+
 			if json_output:
-				say(json.dumps(_shown_as_json(world, located, links, remarks), indent=2))
+				say(
+					json.dumps(
+						_shown_as_json(world, located, links, remarks, children), indent=2
+					)
+				)
 
 				return
 
-			_render_item(world, located, links, remarks, console=console)
+			_render_item(world, located, links, remarks, children, console=console)
 			say("")
 			_suggest(
 				console,
@@ -1936,6 +1986,9 @@ def _item_line (
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)
 
+	if columns.parent:
+		line.append(f"{_parent_cell(item):<{columns.parent}}  ", style=DETAIL)
+
 	if columns.matched:
 		line.append(f"{_match_cell(item, columns.term):<{columns.matched}}  ", style=DETAIL)
 
@@ -1954,11 +2007,17 @@ def _item_line (
 	return line
 
 
+#: How many children `show` will list. A depth ceiling exists but nothing bounds breadth, and
+#: an item with four hundred children should print a number rather than four hundred lines.
+MAX_CHILDREN = 50
+
+
 def _render_item (
 	world: World,
 	located: Located,
 	links: typing.Sequence[subroutine.views.Link],
 	remarks: typing.Sequence[subroutine.views.Comment],
+	children: typing.Sequence[subroutine.views.Task] = (),
 	*,
 	console: rich.console.Console,
 ) -> None:
@@ -1986,6 +2045,21 @@ def _render_item (
 	if facts:
 		console.print(rich.text.Text(f"  {' · '.join(facts)}", style=DETAIL))
 
+	# **The other direction, and it needs its own line rather than a fact.** `^57` in the
+	# facts row would be true and unreadable — the reason to name a parent is to say what
+	# this is part *of*, which is a title. The heading mirrors `Parts` below, so the two
+	# directions of one relationship read as one relationship.
+	item = located.item
+
+	if isinstance(item, subroutine.views.Task) and item.parent_ref is not None:
+		belongs = rich.text.Text()
+		belongs.append("  part of ", style=DETAIL)
+		belongs.append(
+			f"{subroutine.domain.refs.format_ref(item.parent_ref)}  ", style=POSITION
+		)
+		belongs.append(item.parent_title or "", style=DETAIL)
+		console.print(belongs)
+
 	body = (
 		located.item.description
 		if isinstance(located.item, subroutine.views.Task)
@@ -1998,6 +2072,26 @@ def _render_item (
 		# As written, never as markup: a description is user data, and one containing
 		# ``[bold]`` must print those characters rather than obey them.
 		console.print(rich.text.Text(body))
+
+	if children:
+		done = sum(1 for child in children if child.completed_at is not None)
+
+		console.print("")
+		console.print(
+			rich.text.Text(f"Parts  ({done} of {len(children)} done)", style=HEADING)
+		)
+
+		for child in children:
+			row = rich.text.Text()
+			row.append(
+				f"  {subroutine.domain.refs.format_ref(child.ref):>5}  ", style=POSITION
+			)
+
+			# A finished child is dimmed rather than removed or ticked: the rollup above
+			# already carries the count, and what this line is for is seeing what the parts
+			# *are*.
+			row.append(child.title, style=DETAIL if child.completed_at else "")
+			console.print(row)
 
 	if links:
 		console.print("")
@@ -2204,6 +2298,7 @@ def _shown_as_json (
 	located: Located,
 	links: typing.Sequence[subroutine.views.Link],
 	remarks: typing.Sequence[subroutine.views.Comment],
+	children: typing.Sequence[subroutine.views.Task] = (),
 ) -> dict[str, typing.Any]:
 	"""Return one item, its links and its record, as the scripted path sees it.
 
@@ -2219,6 +2314,7 @@ def _shown_as_json (
 		"item": located.item.model_dump(mode="json"),
 		"links": [link.model_dump(mode="json") for link in links],
 		"comments": [remark.model_dump(mode="json") for remark in remarks],
+		"children": [child.model_dump(mode="json") for child in children],
 	}
 
 

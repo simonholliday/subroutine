@@ -144,6 +144,7 @@ class Client:
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
+		parent: int | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -164,6 +165,7 @@ class Client:
 					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 				),
 				q=q,
+				parent=parent,
 			),
 		)
 
