@@ -10,6 +10,7 @@ most likely to break are the ones only the wiring exercises: the config file, th
 directory, the local-mode principal, and the numbering that makes ``done 1`` work.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -19,6 +20,7 @@ import pytest
 import typer.testing
 
 import subroutine.cli.main
+import subroutine.cli.personal
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
@@ -2086,3 +2088,60 @@ def test_a_link_that_is_not_there_is_refused_without_naming_a_workspace (
 
 	for word in FORBIDDEN:
 		assert word not in refused.lower(), refused
+
+
+@pytest.mark.parametrize(
+	("day", "expected"),
+	[
+		# Inside the window: the year earns nothing and is not printed.
+		(datetime.date(2026, 8, 2), "Sun 2 Aug"),
+		(datetime.date(2026, 12, 15), "Tue 15 Dec"),
+		(datetime.date(2027, 5, 20), "Thu 20 May"),
+		# A week overdue is still ordinary, and a year on it would be noise.
+		(datetime.date(2026, 7, 24), "Fri 24 Jul"),
+		# Outside it, in both directions.
+		(datetime.date(2027, 11, 30), "Tue 30 Nov 2027"),
+		(datetime.date(2020, 1, 5), "Sun 5 Jan 2020"),
+		(datetime.date(2026, 6, 1), "Mon 1 Jun 2026"),
+	],
+)
+def test_a_year_is_printed_only_when_a_bare_date_would_be_ambiguous (
+	day: datetime.date, expected: str
+) -> None:
+	"""``#78``. ``%a %-d %b`` and never a year meant 2027 printed exactly as this November.
+
+	``today`` is injected rather than taken from the clock, because the alternative is a test
+	that passes for ten months of the year — written in July, failing in June, about a rule
+	that had not changed.
+	"""
+
+	rendered = subroutine.cli.personal._dated(day, today=datetime.date(2026, 7, 31))
+
+	assert rendered == expected
+
+
+def test_the_window_is_narrower_than_a_year_so_a_bare_date_names_one_day () -> None:
+	"""**The argument, not the constants.**
+
+	Inside a window shorter than 365 days a rendering like "Tue 30 Nov" can only name one
+	date; outside it, it names at least two. Widening it past a year would not be a friendlier
+	default, it would be an ambiguous one — so this is what a later tidy-up has to preserve.
+	"""
+
+	span = (
+		subroutine.cli.personal._A_BARE_DATE_READS_BACK
+		+ subroutine.cli.personal._A_BARE_DATE_READS_FORWARD
+	)
+
+	assert span < datetime.timedelta(days=365), span
+
+
+def test_a_deadline_more_than_a_year_away_says_which_year (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""End to end, because the renderer is reached through four different callers."""
+
+	run("init")
+	run("add", "Renew the passport by 2027-11-30")
+
+	assert "2027" in run("list").output

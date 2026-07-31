@@ -2579,10 +2579,47 @@ def _facts (located: Located) -> list[str]:
 	return facts
 
 
+#: How far either side of today a bare date can be read without a year. **The two together are
+#: deliberately narrower than a year** (331 days), and that is the whole argument: inside a
+#: window shorter than 365 days a rendering like "Tue 30 Nov" can only name one date, and
+#: outside it, it names at least two. A wider window would not be a friendlier default, it
+#: would be an ambiguous one.
+#:
+#: A month back covers ordinary overdue work without putting a year on something three days
+#: late. Ten months forward covers everything anybody schedules routinely.
+_A_BARE_DATE_READS_BACK = datetime.timedelta(days=31)
+_A_BARE_DATE_READS_FORWARD = datetime.timedelta(days=300)
+
+
+def _dated (day: datetime.date, *, today: datetime.date | None = None) -> str:
+	"""Render a calendar date, with a year only when a bare one would be ambiguous (`#78`).
+
+	``%a %-d %b`` and never a year meant a deadline in 2027 printed exactly as one this
+	November — "due Tue 30 Nov" either way, with nothing in the line to tell them apart. Found
+	while writing an exact assertion for a 2020 date and being unable to.
+
+	The year **earns its place** rather than always appearing, which is the same rule the
+	compact line's columns follow: a to-do list where every date carries a year it does not
+	need is one that looks like a database (§1.4). An ordinary list is unchanged by this.
+
+	``today`` is injectable because the alternative is a test that passes for ten months of the
+	year, and this is precisely the kind of thing that would be written in July and start
+	failing in June.
+	"""
+
+	now = today if today is not None else datetime.date.today()
+	bare = day.strftime("%a %-d %b")
+
+	if now - _A_BARE_DATE_READS_BACK <= day <= now + _A_BARE_DATE_READS_FORWARD:
+		return bare
+
+	return f"{bare} {day.year}"
+
+
 def _render_day (day: datetime.date | None) -> str:
 	"""Render a calendar date the way a person reads one."""
 
-	return "—" if day is None else day.strftime("%a %-d %b")
+	return "—" if day is None else _dated(day)
 
 
 def _when (item: Item) -> str:
@@ -2652,7 +2689,9 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 		subroutine.domain.dates.zone(timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE)
 	)
 
-	return local.strftime("%a %-d %b")
+	# Through the same function as a calendar date, so an instant and a day cannot come to
+	# disagree about when a year is worth printing — one rule, one place.
+	return _dated(local.date())
 
 
 def _as_json (
