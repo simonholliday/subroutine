@@ -98,8 +98,18 @@ def _say (message: str) -> None:
 def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 	"""Report a failure the way the API would, and stop.
 
-	The same detail and the same hint the HTTP layer will return, so a problem looks the
-	same whichever way you meet it.
+	The same detail, the same hint **and the same per-field hints** the HTTP layer returns, so
+	a problem looks the same whichever way you meet it.
+
+	The last of those was missing until `#79`. A `FieldError` carries a hint naming the valid
+	alternatives, and this printed only its message — so `subroutine list --order banana` said
+	the field was unknown and never said which ones are not, which is the half a reader can
+	act on. It survived because most field hints repeat their message, and the two that differ
+	are exactly the two worth having.
+
+	Nothing is printed twice. A field's message is skipped when it merely restates the detail,
+	and a field's hint when it restates the overall hint or its own message — a refusal that
+	says one thing three ways is read as noise, and then so is the next one.
 	"""
 
 	_err.print(error.detail, markup=False, highlight=False)
@@ -108,13 +118,24 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 		_err.print(error.hint, markup=False, highlight=False)
 
 	for field in error.errors:
-		# A single field error whose message *is* the detail says nothing new. Printing it
-		# twice reads as a stutter — `subroutine add "#tag !3"` said "A title is required."
-		# and then "  title: A title is required."
-		if len(error.errors) == 1 and field.message == error.detail:
+		# A single field error whose message is already the detail — or already the hint —
+		# says nothing new. `subroutine add "#tag !3"` said "A title is required." and then
+		# "  title: A title is required."; a bad date printed a 200-character remedy and then
+		# repeated it verbatim under `when:`, adding one word for the second copy.
+		#
+		# **Only when it is the only one.** With several fields, naming each is the whole
+		# value of the list, however much any one of them repeats.
+		said = len(error.errors) == 1 and field.message in (error.detail, error.hint)
+
+		if not said:
+			_err.print(f"  {field.field}: {field.message}", markup=False, highlight=False)
+
+		if field.hint is None or field.hint in (error.hint, field.message):
 			continue
 
-		_err.print(f"  {field.field}: {field.message}", markup=False, highlight=False)
+		# Indented under the field it belongs to when that was printed, so a refusal naming
+		# several fields does not run their remedies together.
+		_err.print(f"{'  ' if said else '    '}{field.hint}", markup=False, highlight=False)
 
 	raise typer.Exit(code=1)
 

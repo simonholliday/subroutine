@@ -254,7 +254,10 @@ def requested (
 
 		if bare not in allowed:
 			raise subroutine.errors.ValidationError(
-				f"{bare!r} is not a field this endpoint can sort by.",
+				# "this listing" rather than "this endpoint": the same refusal is read by
+				# somebody who typed `subroutine list --order`, and they have no endpoint. A
+				# message shared by two transports has to be true of both.
+				f"{bare!r} is not a field this listing can sort by.",
 				errors=[
 					subroutine.errors.FieldError(
 						field="order",

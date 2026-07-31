@@ -22,6 +22,7 @@ import subroutine.cli.main
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
+import subroutine.errors
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
 #: these, and meeting one means the personal path has started leaking the full model.
@@ -1302,3 +1303,81 @@ def test_an_unknown_sort_field_is_refused_before_anything_is_asked (
 	refused = run("list", "--order", "banana", expect=1)
 
 	assert refused.output.count("banana") <= 2
+
+
+def test_a_refusal_says_what_the_valid_alternatives_are (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#79`: the CLI printed a field error's message and dropped its hint.
+
+	The hint is the half a reader can act on — "Unknown sort field 'banana'" tells them
+	nothing they did not just type. It survived because most field hints repeat their
+	message, so the cases that differ are exactly the cases worth having, and it fails
+	CLAUDE.md's fourth review dimension on the surface a person actually reads.
+	"""
+
+	run("init")
+	run("add", "Something")
+
+	refused = run("list", "--order", "banana", expect=1)
+
+	assert "Sortable fields are" in refused.output
+	assert "priority_score" in refused.output
+
+	# And it is true of a CLI, which has no endpoints in it.
+	assert "endpoint" not in refused.output
+
+
+def test_a_refusal_does_not_say_one_thing_three_ways (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A lone field error that restates the detail, or the hint, is not printed again.
+
+	A bad date used to print a 200-character remedy and then repeat it verbatim under
+	``when:``, adding one word for the second copy. A refusal read as noise is one whose
+	successor is read as noise too.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	refused = run("plan", "1", "next monday", expect=1)
+
+	assert "is not a date this understands" in refused.output
+	assert refused.output.count("Write a date as") == 1
+
+
+def test_several_field_errors_are_still_named_individually (
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""The de-duplication applies to a lone field only, and that limit is the point.
+
+	With several fields, naming each is the whole value of the list — however much any one
+	of them repeats the detail, the reader needs to know which argument it is about.
+	"""
+
+	error = subroutine.errors.ValidationError(
+		"Two things are wrong.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="importance",
+				code="invalid_field_value",
+				message="Two things are wrong.",
+				hint="Use 1 to 5.",
+			),
+			subroutine.errors.FieldError(
+				field="urgency", code="invalid_field_value", message="Two things are wrong."
+			),
+		],
+	)
+
+	with pytest.raises(typer.Exit):
+		subroutine.cli.main._fail(error)
+
+	# `_err` resolves `sys.stderr` on each write rather than at construction, so the capture
+	# fixture sees it without the module having to be reloaded.
+	printed = capsys.readouterr().err
+
+	assert "importance:" in printed
+	assert "urgency:" in printed
+	assert "Use 1 to 5." in printed
