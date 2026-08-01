@@ -522,6 +522,7 @@ class Client:
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
+		project: str = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
 
@@ -543,6 +544,7 @@ class Client:
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,
+			"project": project,
 		}
 		body = self._json(
 			"PATCH",

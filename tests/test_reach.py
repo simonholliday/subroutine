@@ -46,6 +46,12 @@ import subroutine.cli.main
 import subroutine.clients.base
 import subroutine.mcp.tools
 
+#: The repository root, resolved from this file rather than from the working directory.
+#: `conftest`'s `_no_inherited_directory` moves every test somewhere with no `.subroutine`
+#: above it (§13.7a), which is right — and it turned three checks here from "reads the source"
+#: into "reads nothing and passes", because they were relative to wherever pytest was started.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
 #: The verbs that change something. A reader that no client can reach is a missing feature; a
 #: *writer* that no client can reach is a capability the product has and does not offer.
 MUTATING = frozenset({"POST", "PATCH", "PUT", "DELETE"})
@@ -303,7 +309,7 @@ def _called_in (package: str) -> set[str]:
 	names = _protocol()
 	found = set()
 
-	for path in sorted(pathlib.Path("src/subroutine", package).rglob("*.py")):
+	for path in sorted((ROOT / "src" / "subroutine" / package).rglob("*.py")):
 		tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 		for node in ast.walk(tree):
@@ -467,7 +473,7 @@ def test_the_cli_and_mcp_agree_about_what_a_ref_names () -> None:
 	hundred lines apart — the shape a per-method check cannot see, so it is asserted directly.
 	"""
 
-	source = pathlib.Path("src/subroutine/mcp/tools.py").read_text(encoding="utf-8")
+	source = (ROOT / "src" / "subroutine" / "mcp" / "tools.py").read_text(encoding="utf-8")
 
 	assert source.count("_item(client") >= 2, (
 		"the MCP tools that take a ref must resolve it the same way; `_item` is that way, and "
@@ -484,7 +490,7 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	adding a fifth is a decision rather than a drift, and `#149` lowers it.
 	"""
 
-	skill = pathlib.Path("plugins/subroutine/skills/subroutine/SKILL.md").read_text(
+	skill = (ROOT / "plugins" / "subroutine" / "skills" / "subroutine" / "SKILL.md").read_text(
 		encoding="utf-8"
 	)
 	commands = {

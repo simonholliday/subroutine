@@ -614,7 +614,36 @@ def register (
 		current: subroutine.context.Current,
 		reached: typing.Sequence[Reached],
 	) -> subroutine.context.Current:
-		"""Answer steps 4 and 5 of §13.7's order, now that the connections have been asked."""
+		"""Answer steps 4 and 5 of §13.7's order, now that the connections have been asked.
+
+		**And drop a marker that names somewhere this connection has never heard of** — the
+		one thing a marker must not do is break the program (`#166`). It is advisory context
+		written by a machine into a directory, so a checkout marked for one instance must not
+		stop every command working against another; `--profile` puts a second instance one
+		flag away, and the suite itself proved the point by failing 154 tests the first time
+		this repository carried its own marker.
+
+		Anything a person typed *now* still refuses, loudly. The difference is who said it and
+		when.
+		"""
+
+		if (
+			current.workspace is not None
+			and current.workspace_source == subroutine.context.FROM_DIRECTORY
+		):
+			here = next((item for item in reached if item.name == current.connection), None)
+			known = (
+				{space.slug for space in here.identity.workspaces} if here is not None else set()
+			)
+
+			if here is not None and current.workspace not in known:
+				warn(
+					f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
+					f"{current.connection}. Ignoring it."
+				)
+				current = dataclasses.replace(
+					current, workspace=None, workspace_source=subroutine.context.FROM_NOTHING
+				)
 
 		if current.workspace is not None:
 			return current
@@ -1596,6 +1625,7 @@ def register (
 		),
 		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
+		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -1637,6 +1667,13 @@ def register (
 
 		if status:
 			changes["status"] = status
+
+		# **Moving between projects, which `update` could not do until `#169`.** The endpoint
+		# has taken it since `#43`; I added this command without it, and the sequence a new
+		# user actually performs — accumulate tasks, notice a theme, make a project, file them
+		# — dead-ended at the last step.
+		if project:
+			changes["project"] = project.strip().upper()
 
 		# **A refusal rather than a cheerful no-op**, matching the MCP tool: somebody who ran
 		# this and named no field meant to change something, and "unchanged" would hide the
@@ -2168,6 +2205,36 @@ def register (
 			for row in where.client.projects(workspace=_writing_workspace(world))
 		)
 
+
+	def _default_project (world: World, text: str) -> str | None:
+		"""Return the project a captured line should go to when it does not say (§13.7a).
+
+		``None`` whenever the answer is "wherever it went before" — no marker, no project in the
+		marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
+		and must beat a file they may not know is there.
+		"""
+
+		if world.marker is None or world.marker.project is None:
+			return None
+
+		if subroutine.domain.capture.names_a_project(text):
+			return None
+
+		# **Checked, and ignored rather than refused when it is not there** (`#166`). Same rule as
+		# the workspace half above: a marker is advisory context written by a machine, so a
+		# checkout marked for one instance must not stop `add` working against another. One extra
+		# query, only when a marker names a project, and only on the path that would otherwise
+		# fail — which is cheaper than the refusal it replaces.
+		if not _is_a_project(world, world.marker.project.upper()):
+			warn(
+				f"{FILE_NAME} here names project {world.marker.project!r}, which is not on "
+				f"{world.current.connection}. Ignoring it."
+			)
+
+			return None
+
+		return world.marker.project
+
 	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:
 		"""List the instances this reaches, and where each one's token came from.
@@ -2686,23 +2753,6 @@ def _suggest (
 	console.print(rich.text.Text(line, style=SUGGESTION))
 
 
-def _default_project (world: World, text: str) -> str | None:
-	"""Return the project a captured line should go to when it does not say (§13.7a).
-
-	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
-	marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
-	and must beat a file they may not know is there.
-	"""
-
-	if world.marker is None or world.marker.project is None:
-		return None
-
-	if subroutine.domain.capture.names_a_project(text):
-		return None
-
-	return world.marker.project
-
-
 def _because (
 	client: subroutine.clients.base.Client, located: Located, reason: str, *, what: str
 ) -> None:
@@ -2970,6 +3020,16 @@ def _facts (located: Located) -> list[str]:
 
 	if item.type not in ("task", "note"):
 		facts.append(item.type)
+
+	# **A status somebody chose, and silence about the one everything starts in** (`#168`,
+	# Simon 2026-08-01). This printed nothing at all, so `update 5 --status blocked` answered
+	# "Changed" and then no surface in the product would ever mention it again — a clean-room
+	# tester assumed it had not saved. `status_is_default` is what lets this say `blocked`
+	# without saying `open` on every shopping-list item, which §1.4 would not survive.
+	# Not when it is finished: the `done <date>` fact below says that better, and a document
+	# has no `completed_at` to ask about — the category is the question both kinds answer.
+	if not item.status_is_default and item.status_category != "done":
+		facts.append(item.status)
 
 	if isinstance(item, subroutine.views.Task):
 		# **`_priority_cell`, not a second literal.** This printed `!4/u3` where the listing

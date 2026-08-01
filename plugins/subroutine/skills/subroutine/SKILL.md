@@ -151,9 +151,13 @@ document for anything you decided, and mark done what is done. `subroutine_done(
 
 - **A number means one item, for ever.** `#42` is allocated once and never reused, and it names
   a task *or* a document. Never address anything by its position in a list.
-- **Blocked is a link, not a status.** If work depends on other work, say so with
-  `subroutine_link(ref=42, type="blocks", other=43)` rather than by setting a status — a link
-  resolves itself when the other side finishes, and it is what `ready` reads.
+- **Blocked is a link, not a status.** Say it with a link rather than by setting a status — a
+  link resolves itself when the other side finishes, and it is what `ready` reads.
+
+  **`ref` is the blocker.** `subroutine_link(ref=42, type="blocks", other=43)` means *42 blocks
+  43*, so 43 is the one that disappears from `ready`. Read it as the sentence it spells: "42
+  blocks 43". If what you have in mind is "this work depends on that work", the thing it depends
+  *on* goes in `ref`.
 - **Waiting on something outside the system is a deferral with a reason**:
   `subroutine_update(ref=42, defer="now+7d")` and a comment saying what you are waiting for.
   The link above resolves itself; an external wait does not, so it needs the reason in prose

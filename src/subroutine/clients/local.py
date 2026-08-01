@@ -819,6 +819,7 @@ class Client:
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
+		project: str = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
 
@@ -844,6 +845,20 @@ class Client:
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)
+
+			# **Resolved here, because the service takes a row and the caller has a key.**
+			# The endpoint does the same with `selection.project`. This is the second time
+			# today a key was handed straight through and raised `AttributeError` on `.id`;
+			# the first was `capture` (`#159`). The shape to watch: every service argument
+			# naming another entity is a *row*, so the route and this client each have to
+			# resolve it, and this client is where it gets forgotten.
+			if project is not subroutine.clients.base.UNSET:
+				changes["project"] = subroutine.domain.selection.project(
+					session,
+					actor,
+					subroutine.domain.selection.workspace(session, actor, requested=workspace),
+					project,
+				)
 
 			subroutine.domain.tasks.update(
 				session, row, now=subroutine.db.types.utcnow(), actor=actor, **changes

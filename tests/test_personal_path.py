@@ -2671,3 +2671,41 @@ def test_project_without_here_is_refused_rather_than_ignored (
 	refused = run("use", "--project", "WEB", expect=1)
 
 	assert "--here" in refused.output
+
+
+def test_a_marker_naming_an_unknown_workspace_is_ignored_not_fatal (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#166`. The one thing a marker must not do is break the program.
+
+	It is advisory context written by a machine into a directory, so a checkout marked for one
+	instance must not stop every command working against another — and `--profile` puts a
+	second instance one flag away. This was found by *this suite*: the day the project's own
+	repository started carrying a marker, 154 tests failed at once.
+
+	It also contradicted the property §13.7a claims for the feature — "losing it costs a
+	question, never a different outcome". Having one cost a hard failure.
+	"""
+
+	run("init")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	subroutine.directory.write(checkout, workspace="somewhere-else", project="NOPE")
+
+	monkeypatch.chdir(checkout)
+
+	# Still works, and says why it is not doing what the file asked.
+	listed = run("list")
+
+	assert listed.exit_code == 0
+	assert "somewhere-else" in listed.output
+	assert "Ignoring it" in listed.output
+
+	# And the commands that resolve an item — which is where it used to refuse outright.
+	added = run("add", "Still possible")
+
+	assert added.exit_code == 0
+	assert run("show", "1").exit_code == 0

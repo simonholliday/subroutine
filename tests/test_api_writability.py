@@ -69,6 +69,12 @@ DERIVED: dict[str, str] = {
 	"project_key": "The key of project_id, resolved for display.",
 	"status_category": "The fixed category of the status (§5.5); an installation names statuses, not categories.",
 	"status_id": "The id of the status named by `status`.",
+	"status_is_default": (
+		"Whether `status` is the one items start in — a property of the workspace's "
+		"vocabulary, not of this item. Reported so a surface can tell a status somebody "
+		"chose from the absence of a choice (`#168`), which is what let `subroutine show` "
+		"print `blocked` while staying quiet about `open`."
+	),
 	"type_id": "The id of the type named by `type`.",
 	"priority_score": "importance x urgency (§6.3). Derived, and null unless both are set.",
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",

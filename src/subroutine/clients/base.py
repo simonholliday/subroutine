@@ -390,6 +390,7 @@ class Client(typing.Protocol):
 		importance: int | None = UNSET,
 		urgency: int | None = UNSET,
 		estimate: int | str | None = UNSET,
+		project: str = UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
 

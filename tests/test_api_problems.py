@@ -61,7 +61,10 @@ def test_a_service_failure_arrives_as_it_described_itself (application: fastapi.
 	assert body["code"] == "not_found"
 	assert body["detail"] == "There is no task SR-9999."
 	assert body["hint"].startswith("Run 'subroutine ls'")
-	assert body["type"].endswith("/not-found")
+	# The registry's own answer, not a literal: `#163` moved these from a domain the project
+	# does not own to the repository, and a hardcoded shape here would have to be edited again
+	# the day a product domain replaces it.
+	assert body["type"] == subroutine.errors.definition("not_found").type_uri
 
 
 def test_an_unknown_field_is_refused_and_the_real_ones_are_listed (

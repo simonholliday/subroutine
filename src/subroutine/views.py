@@ -180,6 +180,12 @@ class Task(pydantic.BaseModel):
 	status: str
 	status_category: str
 	status_id: uuid.UUID
+
+	#: Whether this is the status every item starts in, so a surface can tell a decision
+	#: somebody made from the absence of one. `#168`: without it `subroutine show` had no way
+	#: to print `blocked` while staying quiet about `open`, so it printed neither — and a
+	#: status somebody set was stored and then invisible everywhere.
+	status_is_default: bool = False
 	type: str
 	type_id: uuid.UUID
 
@@ -465,6 +471,8 @@ class Project(pydantic.BaseModel):
 	status: str
 	status_category: str
 	status_id: uuid.UUID
+	#: Whether this is the status it starts in — see :class:`Task`, same reason (`#168`).
+	status_is_default: bool = False
 
 	settings: dict[str, typing.Any]
 
@@ -511,6 +519,8 @@ class Document(pydantic.BaseModel):
 	status: str
 	status_category: str
 	status_id: uuid.UUID
+	#: Whether this is the status it starts in — see :class:`Task`, same reason (`#168`).
+	status_is_default: bool = False
 	type: str
 	type_id: uuid.UUID
 
@@ -613,7 +623,10 @@ class Vocabulary:
 		"""Load the vocabulary rows these ids refer to."""
 
 		self.statuses = _by_id(
-			session, subroutine.db.models.vocabulary.Status, status_ids, ("key", "category")
+			session,
+			subroutine.db.models.vocabulary.Status,
+			status_ids,
+			("key", "category", "is_default"),
 		)
 		self.types = _by_id(
 			session, subroutine.db.models.vocabulary.ItemType, type_ids, ("key",)
@@ -692,6 +705,7 @@ def task (
 		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),
+		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
@@ -748,6 +762,7 @@ def document (
 		parent_id=row.parent_id,
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),
+		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
@@ -889,6 +904,7 @@ def project (
 		owner_id=row.owner_id,
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),
+		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		settings=dict(row.settings),
 		archived_at=row.archived_at,

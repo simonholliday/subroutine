@@ -21,10 +21,20 @@ import contextlib
 import dataclasses
 import typing
 
-#: Base for the ``type`` URI of a problem document. One URI per code, so it resolves to
-#: the registry entry describing it. RFC 9457 does not require this to be dereferenceable;
-#: it is far more useful if it is.
-ERROR_TYPE_BASE = "https://subroutine.dev/errors"
+#: Base for the ``type`` URI of a problem document. One URI per code, so it resolves to the
+#: registry entry describing it. RFC 9457 does not require this to be dereferenceable; it is
+#: far more useful if it is, and this one is.
+#:
+#: **The repository, not a product domain** (Simon, 2026-08-01, `#163`). It was
+#: ``https://subroutine.dev/errors`` until then — a domain the project does not own, serving a
+#: placeholder page from 2022, with ``/errors`` returning 404. So every problem document from
+#: every self-hosted instance pointed its readers at a third party who could serve them
+#: anything. This resolves today, is owned, and is where the registry actually lives; a
+#: product domain can replace it later, which is a major version because §8.8 makes these a
+#: public contract.
+ERROR_TYPE_BASE = (
+	"https://github.com/simonholliday/subroutine/blob/main/docs/errors.md"
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -40,7 +50,9 @@ class ErrorDefinition:
 	def type_uri (self) -> str:
 		"""Return the ``type`` URI identifying this kind of problem."""
 
-		return f"{ERROR_TYPE_BASE}/{self.code.replace('_', '-')}"
+		# A fragment rather than a path segment, because the registry is one page. GitHub's
+		# slugger keeps underscores, so a heading of the bare code anchors to the bare code.
+		return f"{ERROR_TYPE_BASE}#{self.code}"
 
 
 def _define (code: str, status: int, title: str, description: str) -> ErrorDefinition:
@@ -543,7 +555,8 @@ def registry_markdown () -> str:
 		"covered by semantic versioning: branch on them freely. Adding a code is a minor",
 		"version; renaming or removing one is a major version.",
 		"",
-		"The `type` URI of a problem document is this page's entry for that code.",
+		"The `type` URI of a problem document links to this page's entry for that code, so",
+		"following one lands on the section describing it.",
 		"",
 		"<!-- Generated from subroutine/errors.py. Do not edit by hand. -->",
 		"",
@@ -556,5 +569,22 @@ def registry_markdown () -> str:
 		meaning = " ".join(entry.description.split())
 
 		lines.append(f"| `{entry.code}` | {entry.status} | {entry.title} | {meaning} |")
+
+	# **A section per code as well as the row**, because the table has no anchors and the
+	# `type` URI has to land on the entry rather than on the top of the page. The table is
+	# what somebody scans; these are what a link resolves to.
+	for code in sorted(REGISTRY):
+		entry = REGISTRY[code]
+
+		lines.extend(
+			[
+				"",
+				f"## {entry.code}",
+				"",
+				f"**{entry.title}** — HTTP {entry.status}.",
+				"",
+				" ".join(entry.description.split()),
+			]
+		)
 
 	return "\n".join(lines) + "\n"

@@ -31,11 +31,23 @@ def test_every_code_is_a_usable_contract_value () -> None:
 
 
 def test_the_type_uri_identifies_one_code () -> None:
-	"""One URI per code, so it can resolve to the entry describing it."""
+	"""One URI per code, so it can resolve to the entry describing it.
+
+	**And it resolves to somewhere we own** (`#163`, Simon 2026-08-01). It was
+	`https://subroutine.dev/errors/...` until then — a domain the project does not hold,
+	serving a 2022 placeholder, with `/errors` returning 404 — so every problem document from
+	every self-hosted instance pointed its readers at a third party. Pinned to the registry's
+	real home, and the fragment is asserted because `docs/errors.md` grows a heading per code
+	for exactly this.
+	"""
 
 	entry = subroutine.errors.definition("invalid_field_value")
 
-	assert entry.type_uri == "https://subroutine.dev/errors/invalid-field-value"
+	assert entry.type_uri == (
+		"https://github.com/simonholliday/subroutine/blob/main/docs/errors.md"
+		"#invalid_field_value"
+	)
+	assert "subroutine.dev" not in entry.type_uri, "a domain the project does not own"
 
 	uris = {entry.type_uri for entry in subroutine.errors.REGISTRY.values()}
 
@@ -107,7 +119,8 @@ def test_a_problem_document_has_the_rfc_9457_shape () -> None:
 		error, instance="/v1/tasks", request_id="01J8X"
 	)
 
-	assert document["type"] == "https://subroutine.dev/errors/invalid-status"
+	assert document["type"] == subroutine.errors.definition("invalid_status").type_uri
+	assert document["type"].startswith("https://github.com/")
 	assert document["title"] == "Invalid status"
 	assert document["status"] == 422
 	assert document["code"] == "invalid_status"

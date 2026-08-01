@@ -11,6 +11,7 @@ import pytest
 
 import subroutine.context
 import subroutine.directory
+from test_personal_path import run  # noqa: F401
 
 
 def _write (directory: pathlib.Path, body: str) -> pathlib.Path:

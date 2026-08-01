@@ -79,6 +79,27 @@ def _no_inherited_installation (
 
 
 @pytest.fixture(autouse=True)
+def _no_inherited_directory (
+	tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Run every test somewhere with no `.subroutine` marker above it (§13.7a).
+
+	**Found by doing it, like its sibling above.** The suite ran from the project root, and the
+	day this repository started carrying its own marker — naming a workspace that exists on the
+	developer's instance and on none of the temporary ones — **154 tests failed at once**. The
+	bug that caused it was real and is `#166`; this is the reason the suite had no opinion about
+	it either way.
+
+	A test whose result depends on the directory pytest was started in is a test that passes on
+	one machine and fails on another, and the failure says nothing about the cause. `tmp_path`
+	rather than the working tree, for the reason every other path here is: this share cannot
+	give SQLite a lock.
+	"""
+
+	monkeypatch.chdir(tmp_path_factory.mktemp("elsewhere"))
+
+
+@pytest.fixture(autouse=True)
 def _no_inherited_profile () -> typing.Iterator[None]:
 	"""Make every test start on the default instance, whatever ran before it.
 
