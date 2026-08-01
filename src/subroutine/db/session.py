@@ -21,23 +21,36 @@ import subroutine.errors
 def _apply_sqlite_pragmas (connection: typing.Any, _record: typing.Any) -> None:
 	"""Configure a freshly opened SQLite connection for safe concurrent use."""
 
-	cursor = connection.cursor()
-
 	try:
-		# Without this, every foreign key in the schema is decorative.
-		cursor.execute("PRAGMA foreign_keys=ON")
+		cursor = connection.cursor()
 
-		# Write-ahead logging lets readers carry on while a write is in progress.
-		cursor.execute("PRAGMA journal_mode=WAL")
+		try:
+			# Without this, every foreign key in the schema is decorative.
+			cursor.execute("PRAGMA foreign_keys=ON")
 
-		# Safe under WAL, and markedly faster than the default.
-		cursor.execute("PRAGMA synchronous=NORMAL")
+			# Write-ahead logging lets readers carry on while a write is in progress.
+			cursor.execute("PRAGMA journal_mode=WAL")
 
-		# Wait for a contended lock rather than failing the request outright.
-		cursor.execute("PRAGMA busy_timeout=5000")
+			# Safe under WAL, and markedly faster than the default.
+			cursor.execute("PRAGMA synchronous=NORMAL")
 
-	finally:
-		cursor.close()
+			# Wait for a contended lock rather than failing the request outright.
+			cursor.execute("PRAGMA busy_timeout=5000")
+
+		finally:
+			cursor.close()
+
+	# **A damaged database fails here, and nothing else can close what it leaves open**
+	# (`#228`). SQLite opens lazily, so the file's header is not read until
+	# ``journal_mode=WAL`` touches it — and at that moment the driver's connection exists
+	# while the pool has not yet recorded it, so ``engine.dispose()`` never sees it. Every
+	# attempt to open a corrupt database therefore held a file handle until the process
+	# ended; `db restore --recover` is the command most likely to meet one, and it opens the
+	# database twice. Python 3.13 is the first to say so out loud, as a ResourceWarning at
+	# collection, which is how this was found at all.
+	except Exception:
+		connection.close()
+		raise
 
 
 #: The two backends this is built and tested on (SPEC.md §10.3). Every test runs against both,

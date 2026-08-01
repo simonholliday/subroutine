@@ -12,6 +12,7 @@ database is where every other test in the suite lives.
 import datetime
 import os
 import pathlib
+import sqlite3
 import subprocess
 import sys
 import typing
@@ -1063,6 +1064,36 @@ def test_an_unsupported_backend_is_named_rather_than_missing_a_driver (
 	assert "not a database Subroutine can use" in refused.output
 	assert "sqlite" in refused.output and "postgresql" in refused.output
 	assert "MySQLdb" not in refused.output
+
+
+def test_a_failed_pragma_closes_the_connection_it_was_handed (tmp_path: pathlib.Path) -> None:
+	"""`#228`. The one moment nothing else can clean up after a connection.
+
+	SQLite opens lazily, so a damaged file is accepted by ``connect`` and only rejected when
+	``journal_mode=WAL`` reads its header — at which point the driver's connection exists and
+	the pool has not recorded it, so ``engine.dispose()`` will never see it. Every attempt to
+	open a corrupt database leaked a file handle until the process ended, and
+	``db restore --recover`` — the command most likely to meet one — opens the database twice.
+
+	**Asserted on the listener rather than through an engine, deliberately.** Reaching it the
+	public way means provoking the leak and then waiting for the garbage collector to notice,
+	which is what made this invisible on every Python before 3.13: the warning is real on
+	3.11 and 3.12 too and simply never fires. A test that has to collect garbage to reach its
+	subject is a test that reports the interpreter's mood.
+	"""
+
+	corrupt = tmp_path / "corrupt.db"
+	corrupt.write_bytes(b"this is definitely not a database" * 40)
+
+	connection = sqlite3.connect(corrupt)
+
+	with pytest.raises(sqlite3.DatabaseError):
+		subroutine.db.session._apply_sqlite_pragmas(connection, None)
+
+	# Closed, not merely unusable. `sqlite3` refuses a closed connection by name, which is
+	# what tells this apart from the connection simply being broken.
+	with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+		connection.execute("SELECT 1")
 
 
 def test_a_setting_nobody_reads_is_said_out_loud (
