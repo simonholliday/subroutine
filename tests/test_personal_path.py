@@ -500,6 +500,131 @@ def test_plan_and_defer_move_a_task_between_days (
 	assert "Buy milk" not in run("today").output
 
 
+def test_a_priority_can_be_changed_from_the_cli (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#147`, and the asymmetry it closes.
+
+	Changing a title, a priority, an estimate or a type was the one capability MCP had and
+	the CLI did not — so an agent could rank a backlog and the person whose backlog it is
+	could not. `#146` measured all thirty-six and this was the only cell that way round.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	assert "Changed" in run("update", "1", "--importance", "4", "--urgency", "3").output
+
+	shown = run("show", "1").output
+
+	assert "!4/3" in shown
+
+	run("update", "1", "--estimate", "2h", "--type", "bug", "--title", "Fix the tokeniser")
+
+	shown = run("show", "1").output
+
+	assert "Fix the tokeniser" in shown
+	assert "bug" in shown
+	assert "2h" in shown
+
+
+def test_update_leaves_alone_what_it_was_not_asked_about (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§8.3's semantics, which are the whole of what `PATCH` means, reaching the CLI intact.
+
+	A shell has one way to say nothing, so a default of `""` would make "leave it alone" and
+	"clear it" the same input — and clearing unreachable. `UNGIVEN` is what keeps them apart.
+	"""
+
+	run("init")
+	run("add", "Fix the parser ~2h !4/3")
+
+	run("update", "1", "--type", "bug")
+
+	shown = run("show", "1").output
+
+	assert "2h" in shown, "an estimate nobody mentioned was cleared"
+	assert "!4/3" in shown, "a priority nobody mentioned was cleared"
+
+	# And the other half: named with nothing in it *is* a clearance.
+	run("update", "1", "--estimate", "")
+
+	assert "2h" not in run("show", "1").output
+
+
+def test_update_with_no_field_named_refuses_rather_than_doing_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Matching the MCP tool, which decided this first.
+
+	Somebody who ran this and named no field meant to change something. A cheerful
+	"unchanged" hides the mistake at the one moment it could still be corrected.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	refused = run("update", "1", expect=1)
+
+	assert "Nothing to change" in refused.output
+	assert "--importance" in refused.output
+
+
+def test_update_turns_a_document_down_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2c: one counter serves both kinds, so a ref may be a document.
+
+	"There is no task #2" about something printed in the listing a moment ago is the answer
+	that sent somebody looking for a missing item. Naming it is the answer they can act on.
+	"""
+
+	run("init")
+	run("doc", "create", "Why the queue went", "--body", "Nobody wanted it.")
+
+	refused = run("update", "1", "--importance", "4", expect=1)
+
+	assert "document" in refused.output.lower()
+	assert "Why the queue went" in refused.output
+
+
+def test_a_priority_reads_back_the_way_it_is_written (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#151`, as a round trip rather than as two strings agreeing.
+
+	`show` printed `!4/u3` where the listing printed `!4/3`, and only the listing's spelling
+	is one §6.13 accepts — so retyping what the product had just displayed put it in the
+	title verbatim with no priority set. Asserting the round trip states the requirement;
+	asserting a literal would only pin today's spelling.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+	run("update", "1", "--importance", "4", "--urgency", "3")
+
+	# A second, differently ranked, so the listing keeps its priority column — §14.10 drops
+	# one that says the same thing on every row, and one row always does.
+	run("add", "Something else !1/1")
+
+	shown = [word for word in run("show", "1").output.split() if word.startswith("!")]
+
+	assert shown, "show printed no priority at all"
+
+	# The listing spells it the same way...
+	assert shown[0] in run("list").output
+
+	# ...and the capture grammar takes it back, which is what "self-describing" has to mean.
+	run("add", f"Another one {shown[0]}")
+
+	written = run("show", "3").output
+
+	assert "Another one" in written
+	assert shown[0] in written, "the priority did not survive the round trip"
+	assert shown[0] not in written.split("\n")[0], "the token stayed in the title"
+
+
 def test_a_defer_can_say_what_it_is_waiting_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -209,6 +209,14 @@ class World:
 TASKS_ONLY = ("task",)
 ANY_ITEM = ("task", "document")
 
+#: What ``update`` treats as "you did not name this field", for the two it can *clear*.
+#: §8.3's distinction between omitted and null is the whole of `PATCH`'s semantics, and a
+#: shell has only one way to say nothing — so `--description ""` has to mean "clear it" and
+#: leaving the flag off has to mean "leave it alone". A default of `""` would collapse the two
+#: and make clearing unreachable; these are values nobody can type by accident.
+UNGIVEN = "\x00not given"
+UNGIVEN_NUMBER = -1
+
 #: One row of a listing: which connection it came from, and the item itself. A *listing* row
 #: may be either kind — ``list`` spans both, because refs are shared and a reader who has
 #: learned that a number names an item is owed a list where every item appears. The *agenda*
@@ -1533,6 +1541,98 @@ def register (
 			_suggest(console, "subroutine today")
 
 	@app.command()
+	def update (
+		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		title: str = typer.Option("", "--title", help="What it is called."),
+		description: str = typer.Option(
+			UNGIVEN, "--description", help="What it is about. Pass '' to clear it."
+		),
+		importance: int = typer.Option(
+			UNGIVEN_NUMBER, "--importance", help="How much it matters, 1-5."
+		),
+		urgency: int = typer.Option(UNGIVEN_NUMBER, "--urgency", help="How soon, 1-5."),
+		estimate: str = typer.Option(
+			UNGIVEN, "--estimate", help="How long, like '2h' or '90m'. Pass '' to clear it."
+		),
+		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
+		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
+		because: str = typer.Option("", "--because", help="Why, recorded against it."),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Change what a task says about itself.
+
+		Everything you do not name is left alone.
+
+		Examples:
+
+		  subroutine update 42 --importance 4 --urgency 3
+
+		  subroutine update 42 --estimate 2h --type bug
+
+		  subroutine update 42 --title "Fix the parser, not the tokeniser"
+		"""
+
+		changes: dict[str, typing.Any] = {}
+
+		# Written out rather than looped, because each of these decides *not given* differently
+		# and a loop would hide that: a title cannot be blank, a description and an estimate can
+		# be cleared by passing nothing, and a number has no empty string to be given.
+		if title:
+			changes["title"] = title
+
+		if description is not UNGIVEN:
+			changes["description"] = description or None
+
+		if estimate is not UNGIVEN:
+			changes["estimate"] = estimate or None
+
+		if importance != UNGIVEN_NUMBER:
+			changes["importance"] = importance
+
+		if urgency != UNGIVEN_NUMBER:
+			changes["urgency"] = urgency
+
+		if kind:
+			changes["type"] = kind
+
+		if status:
+			changes["status"] = status
+
+		# **A refusal rather than a cheerful no-op**, matching the MCP tool: somebody who ran
+		# this and named no field meant to change something, and "unchanged" would hide the
+		# mistake at exactly the moment it could still be corrected.
+		if not changes:
+			stop(
+				"Nothing to change.",
+				"Name a field: --title, --description, --importance, --urgency, "
+				"--estimate, --type or --status.",
+			)
+
+		with opened() as world:
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="update",
+			)
+			client = _require_connection(world, located.connection)
+			changed = client.update(ref=task.ref, workspace=located.workspace, **changes)
+			now = dataclasses.replace(located, item=changed)
+
+			_because(client, located, because, what="Changed")
+
+			if json_output:
+				say(json.dumps(_as_json(world, now.connection, now.item), indent=2))
+
+				return
+
+			say(_acted(world, now, "Changed"))
+			_suggest(
+				console,
+				f"subroutine show "
+				f"{world.address_of_located(now).replace(subroutine.domain.refs.SIGIL, '')}",
+			)
+
+	@app.command()
 	def comment (
 		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
 		body: str = typer.Argument("", help="What happened."),
@@ -2690,8 +2790,13 @@ def _facts (located: Located) -> list[str]:
 		facts.append(item.type)
 
 	if isinstance(item, subroutine.views.Task):
-		if item.importance is not None or item.urgency is not None:
-			facts.append(f"!{item.importance or '—'}/u{item.urgency or '—'}")
+		# **`_priority_cell`, not a second literal.** This printed `!4/u3` where the listing
+		# printed `!4/3`, and only the listing's spelling is one §6.13 accepts — so a reader
+		# who retyped what `show` had just shown them got it verbatim in the title with no
+		# priority set (`#151`). Two strings that agree is what these were doing until one of
+		# them was edited.
+		if _priority_cell(item):
+			facts.append(_priority_cell(item))
 
 		if item.estimate_minutes is not None:
 			facts.append(subroutine.domain.durations.humanize(item.estimate_minutes))
