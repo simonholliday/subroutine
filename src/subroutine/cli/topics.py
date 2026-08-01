@@ -52,7 +52,7 @@ def _dates_body () -> str:
 	# contributes its longest spelling and the abbreviations get one line of their own.
 	longest: dict[int, str] = {}
 
-	for name, number in subroutine.domain.capture.WEEKDAYS.items():
+	for name, number in subroutine.domain.dates.WEEKDAYS.items():
 		if len(name) > len(longest.get(number, "")):
 			longest[number] = name
 

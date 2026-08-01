@@ -47,17 +47,6 @@ DEFER_WORDS = ("from", "defer")
 #: of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
-#: Weekday names and their common abbreviations, mapped to Python's Monday-is-zero.
-WEEKDAYS: dict[str, int] = {
-	"monday": 0, "mon": 0,
-	"tuesday": 1, "tue": 1, "tues": 1,
-	"wednesday": 2, "wed": 2,
-	"thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
-	"friday": 4, "fri": 4,
-	"saturday": 5, "sat": 5,
-	"sunday": 6, "sun": 6,
-}
-
 #: The largest and smallest an importance may be (SPEC.md §6.3).
 IMPORTANCE_RANGE = (1, 5)
 
@@ -66,7 +55,9 @@ IMPORTANCE_RANGE = (1, 5)
 #: publishing a smaller one, so `/v1/meta` omits the row and the text stays in the title.
 _EVERY = re.compile(r"\bevery\s+\S+", re.IGNORECASE)
 
-_WEEKDAY_ALTERNATION = "|".join(sorted(WEEKDAYS, key=len, reverse=True))
+_WEEKDAY_ALTERNATION = "|".join(
+	sorted(subroutine.domain.dates.WEEKDAYS, key=len, reverse=True)
+)
 _KEYWORD_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.KEYWORDS, key=len, reverse=True)
 )
@@ -479,14 +470,10 @@ def _read_phrase (
 	written = phrase.strip()
 	lowered = written.lower()
 
-	if lowered.startswith("next"):
-		name = lowered.split(maxsplit=1)[1]
+	named = subroutine.domain.dates.day_named(written, today=today)
 
-		# "next Friday" is the Friday of the following week, not this week's.
-		return _weekday(name, today=today) + datetime.timedelta(days=7), True
-
-	if lowered in WEEKDAYS:
-		return _weekday(lowered, today=today), True
+	if named is not None:
+		return named, True
 
 	if lowered in _WHOLE_DAY_KEYWORDS:
 		return subroutine.domain.schedule.local_date(
@@ -496,18 +483,6 @@ def _read_phrase (
 	# Everything else — a §9.3 expression or an ISO value — is handed to `schedule`, which
 	# already knows how to read both and how to infer all-day from the form.
 	return written, None
-
-
-def _weekday (name: str, *, today: datetime.date) -> datetime.date:
-	"""Return the soonest date with this weekday name, counting today.
-
-	"by Friday" said on a Friday means today, which is what somebody means by it. The other
-	reading — always the next one — makes a task due today impossible to express.
-	"""
-
-	ahead = (WEEKDAYS[name] - today.weekday()) % 7
-
-	return today + datetime.timedelta(days=ahead)
 
 
 def _as_date (

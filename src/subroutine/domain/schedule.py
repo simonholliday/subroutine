@@ -164,6 +164,66 @@ def interpret_day (
 	return resolved.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
 
 
+#: What a *typed* day may look like, in the order somebody would reach for them. Published
+#: through every human surface's refusal, so the weekday that `#167` was about is the first
+#: thing named rather than absent.
+WRITTEN_DAY_HINT = (
+	"Try a weekday like 'friday' or 'next friday', 'today', 'tomorrow', a date like "
+	"2026-08-01, or an expression like 'today+2w'."
+)
+
+
+def interpret_written_day (
+	value: str,
+	*,
+	timezone: str,
+	now: datetime.datetime,
+	field: str = "planned_for",
+) -> datetime.date | None:
+	"""Read a day somebody *typed*, which includes a weekday name (`#167`).
+
+	**The vocabulary a human surface takes, in one place.** ``interpret_day`` is §9.3's
+	expression grammar and serves programs, which have a calendar and should send a date;
+	this is what a person writes into ``subroutine plan``, and what an agent reading a
+	conversation has in front of it when somebody says "next tuesday".
+
+	The two were the same function until `#167`, which is how ``plan 1 friday`` came to be
+	promised by five surfaces and refused by the parser while ``add "Something by friday"``
+	worked. Having them as two named functions is what stops that recurring: a caller now
+	says which grammar it means.
+
+	**The refusal is here too, and that is the point of the function.** ``interpret_day``
+	raises §9.3's keyword inventory — ``start_of_month``, ``end_of_week`` — which is what a
+	program may send and reads like the HTTP grammar leaking into a surface that takes more
+	than it, with no mention of the weekday that would have worked. Saying it once here is
+	what keeps a person and an agent from being given two explanations of one refusal.
+	"""
+
+	named = subroutine.domain.dates.day_named(
+		value, today=local_date(now, timezone)
+	)
+
+	if named is not None:
+		return named
+
+	try:
+		return interpret_day(value, timezone=timezone, now=now, field=field)
+
+	except subroutine.errors.SubroutineError:
+		raise subroutine.errors.ValidationError(
+			f"{value!r} is not a day this understands.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"{value!r} is not a day this understands.",
+					hint=WRITTEN_DAY_HINT,
+				)
+			],
+			hint=WRITTEN_DAY_HINT,
+		) from None
+
+
 def check_order (
 	*,
 	start_at: datetime.datetime | None,

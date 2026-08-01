@@ -2339,9 +2339,17 @@ def register (
 		return item.client
 
 	def _day (world: World, written: str) -> datetime.date:
-		"""Read a day the user named, in their timezone."""
+		"""Read a day the user named, in their timezone.
 
-		resolved = subroutine.domain.schedule.interpret_day(
+		**A weekday name is resolved here rather than by the expression grammar** (`#167`).
+		``plan 1 friday`` is promised by ``explain dates``, by ``plan --help`` twice, by
+		``defer --help`` twice and by this function's own refusal — and it did not work, while
+		``add "Something by friday"`` did. Weekdays are what a person types; §9.3's expressions
+		serve programs, which have a calendar and should send a date. The two vocabularies meet
+		in ``dates.day_named``, so there is one answer to what "friday" means.
+		"""
+
+		resolved = subroutine.domain.schedule.interpret_written_day(
 			written,
 			timezone=world.settings.default_timezone,
 			now=subroutine.db.types.utcnow(),
@@ -2351,7 +2359,7 @@ def register (
 		if resolved is None:
 			raise subroutine.errors.ValidationError(
 				f"{written!r} is not a day this understands.",
-				hint="Try 'today', 'tomorrow', a weekday name, or a date like 2026-08-01.",
+				hint=subroutine.domain.schedule.WRITTEN_DAY_HINT,
 			)
 
 		return resolved

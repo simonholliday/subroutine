@@ -223,7 +223,7 @@ def test_ordinary_words_always_survive_intact (words: list[str]) -> None:
 	"""
 
 	vocabulary = (
-		set(subroutine.domain.capture.WEEKDAYS)
+		set(subroutine.domain.dates.WEEKDAYS)
 		| set(subroutine.domain.dates.KEYWORDS)
 		| set(subroutine.domain.capture.BARE_PLANNED_WORDS)
 		| set(subroutine.domain.capture.DEADLINE_WORDS)

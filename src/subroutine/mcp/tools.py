@@ -583,18 +583,18 @@ def _ref (arguments: dict[str, typing.Any]) -> int:
 def _day (given: typing.Any, *, field: str) -> datetime.date | None:
 	"""Read a day an agent named, or ``None`` to clear it.
 
-	**The same grammar a person types** (§6.13, `domain.schedule.interpret_day`) — 'today',
-	'friday', '2026-09-01' — rather than a stricter machine format. An agent working from a
-	conversation has "next tuesday" in front of it, and a surface that made it convert
+	**The same grammar a person types** (§6.13, `domain.schedule.interpret_written_day`) —
+	'today', 'friday', '2026-09-01' — rather than a stricter machine format. An agent working
+	from a conversation has "next tuesday" in front of it, and a surface that made it convert
 	would be asking it to reimplement a parser this product publishes.
+
+	That sentence was here, in these words, while ``interpret_day`` refused every weekday in
+	it (`#167`). It is the same defect the CLI had and it needed the same fix, because the
+	argument above is about the *reader*, not about the transport: an agent quoting a
+	conversation and a person at a prompt are typing the same words.
 
 	An empty string clears, which is how §8.3's null reaches a schema whose property is a
 	string. Omitting the argument is what leaves the day alone.
-
-	**The refusal is the domain's, not one written here.** ``interpret_day`` raises on
-	anything it cannot read, so an agent and a person are told the same thing in the same
-	words — and a second message here would be a place for the two to drift. The first
-	version of this function carried one, and it was unreachable.
 	"""
 
 	if not isinstance(given, str):
@@ -603,7 +603,10 @@ def _day (given: typing.Any, *, field: str) -> datetime.date | None:
 	if not given.strip():
 		return None
 
-	return subroutine.domain.schedule.interpret_day(
+	# **The refusal is the domain's, not one written here** — `interpret_written_day` names
+	# the whole typed vocabulary, weekdays first, so an agent and a person are told the same
+	# thing in the same words. A second message here would be a place for the two to drift.
+	return subroutine.domain.schedule.interpret_written_day(
 		given,
 		# **The client's own zone, which for a stdio adapter is the machine the agent runs
 		# on.** An agent saying "friday" means the Friday it is looking at, and resolving that

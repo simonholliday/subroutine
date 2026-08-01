@@ -769,6 +769,51 @@ def test_json_output_carries_enough_to_act_on (
 	assert document["timezone"] == "Europe/London"
 
 
+def test_a_weekday_names_a_day_wherever_a_day_is_named (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#167`. Five published surfaces promised this and it did not work.
+
+	``explain dates`` — one of exactly two places the README sends a beginner — carries
+	``subroutine plan 1 friday`` as its worked example. ``plan --help`` and ``defer --help``
+	each say it twice, and the refusal's own hint said "a weekday name". Meanwhile the capture
+	grammar took the same word, so ``add "Something by friday"`` worked and ``plan 1 friday``
+	did not: one product with two answers to what "friday" means.
+
+	A clean-room tester named this as the single place a real user would have got stuck,
+	because it is the first thing you try after the agenda.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	assert "Planned for" in run("plan", "1", "friday").output
+	assert "Planned for" in run("plan", "1", "next friday").output
+	assert "Hidden until" in run("defer", "1", "monday").output
+
+	# Abbreviations too — they are in the same table `explain dates` prints.
+	assert "Planned for" in run("plan", "1", "fri").output
+
+
+def test_a_day_that_is_not_a_day_is_refused_in_this_commands_vocabulary (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half of `#167`: the refusal named the wrong grammar.
+
+	``interpret_day`` raises §9.3's keyword inventory — ``start_of_month``, ``end_of_week`` —
+	which is what a *program* may send. A person who typed a word into ``plan`` was handed the
+	HTTP vocabulary and no mention of the weekday that would have worked.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	refused = run("plan", "1", "bananas", expect=1)
+
+	assert "friday" in refused.output
+	assert "start_of_month" not in refused.output
+
+
 def test_a_bad_date_is_refused_with_what_would_have_worked (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -1645,15 +1690,18 @@ def test_a_refusal_does_not_say_one_thing_three_ways (
 	A bad date used to print a 200-character remedy and then repeat it verbatim under
 	``when:``, adding one word for the second copy. A refusal read as noise is one whose
 	successor is read as noise too.
+
+	The subject is a capture line with no title, rather than the bad date this was written
+	from: ``plan 1 "next monday"`` **works** as of `#167`, and reaching for a still-broken
+	weekday to keep this test would be keeping a defect to keep a guard.
 	"""
 
 	run("init")
-	run("add", "Buy milk")
 
-	refused = run("plan", "1", "next monday", expect=1)
+	refused = run("add", "!3 #tag", expect=1)
 
-	assert "is not a date this understands" in refused.output
-	assert refused.output.count("Write a date as") == 1
+	assert refused.output.count("A title is required.") == 1
+	assert "title:" not in refused.output
 
 
 def test_several_field_errors_are_still_named_individually (

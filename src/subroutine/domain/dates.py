@@ -59,10 +59,63 @@ UNITS: tuple[str, ...] = ("m", "h", "d", "w", "M", "y")
 _ELAPSED = frozenset({"m", "h"})
 _CALENDAR = frozenset({"d", "w", "M", "y"})
 
+#: Weekday names and their abbreviations, mapped to ``datetime.date.weekday()`` numbers.
+#:
+#: **Not part of `resolve`, and that is a decision rather than an omission** (`#167`). This is
+#: the vocabulary of somebody *typing* — a capture line, or a day named on the command line —
+#: where "friday" is what a person writes and the tool is expected to work out which one. The
+#: expression grammar above serves programs, which have a calendar and should send a date;
+#: `subroutine explain dates` states the split in those terms, so it is published rather than
+#: incidental.
+#:
+#: It lives here, beside the grammar it is deliberately not part of, so that there is one
+#: definition of what "friday" means. There were two readings of that in the product for a
+#: while: capture resolved it and the CLI's own `plan` refused it.
+WEEKDAYS: dict[str, int] = {
+	"monday": 0, "mon": 0,
+	"tuesday": 1, "tue": 1, "tues": 1,
+	"wednesday": 2, "wed": 2,
+	"thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
+	"friday": 4, "fri": 4,
+	"saturday": 5, "sat": 5,
+	"sunday": 6, "sun": 6,
+}
+
 _TERM = re.compile(r"([+-])(\d+)([a-zA-Z]+)")
 
 _VALID_KEYWORDS = ", ".join(f"`{keyword}`" for keyword in KEYWORDS)
 _VALID_UNITS = "`m` minutes, `h` hours, `d` days, `w` weeks, `M` months, `y` years"
+
+
+def day_named (written: str, *, today: datetime.date) -> datetime.date | None:
+	"""Return the day a weekday name means, or ``None`` if it is not one.
+
+	A bare ``friday`` is the soonest Friday **counting today**, because "by Friday" said on a
+	Friday means today — the other reading makes a task due today impossible to say. ``next
+	friday`` is the Friday of the following week, which is what the words mean to a person and
+	is the one place these two differ.
+	"""
+
+	lowered = written.strip().lower()
+
+	if lowered.startswith("next "):
+		name = lowered[len("next "):].strip()
+
+		if name not in WEEKDAYS:
+			return None
+
+		return _soonest(name, today=today) + datetime.timedelta(days=7)
+
+	if lowered not in WEEKDAYS:
+		return None
+
+	return _soonest(lowered, today=today)
+
+
+def _soonest (name: str, *, today: datetime.date) -> datetime.date:
+	"""Return the soonest date with this weekday name, counting today."""
+
+	return today + datetime.timedelta(days=(WEEKDAYS[name] - today.weekday()) % 7)
 
 
 def resolve (
