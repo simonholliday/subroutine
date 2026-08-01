@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased — 0.1.0
+## 0.1.0 — 2026-08-01
 
 The first public release. Everything here is new, so this section says what exists rather than
 what changed.
