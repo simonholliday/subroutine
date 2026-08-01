@@ -1082,6 +1082,55 @@ def test_moving_a_project_moves_every_etag_it_changed (
 		)
 
 
+def test_a_subtask_carried_into_another_project_says_so_in_its_own_history (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#200`. The parts moved, their ETags moved, and their histories said nothing.
+
+	§10.7's invariant 9 is that every mutation emits an event. Moving a parent rewrote
+	``project_id`` on every descendant and bumped each version with no event anywhere, so a
+	client holding a subtask's ETag met a 409 whose cause was not in that subtask's history —
+	which read ``created`` and nothing else.
+
+	The event goes on the **child**, not as a count on the parent's. A number on another item's
+	event is not an answer to "what happened to this one", and the history somebody opens is
+	the one belonging to the thing they were looking at.
+	"""
+
+	workspace = _workspace(session)
+	home = _project(session, workspace, key="HOME")
+	elsewhere = _project(session, workspace, key="SR")
+
+	parent = subroutine.domain.tasks.create(session, project=home, title="Carries them")
+	child = subroutine.domain.tasks.create(
+		session, project=home, title="Carried", parent=parent
+	)
+	grandchild = subroutine.domain.tasks.create(
+		session, project=home, title="Also carried", parent=child
+	)
+
+	before = {carried.id: carried.version for carried in (child, grandchild)}
+
+	subroutine.domain.tasks.update(session, parent, project=elsewhere)
+
+	for carried in (child, grandchild):
+		assert carried.project_id == elsewhere.id
+
+		# The version moving is what makes the silence a defect rather than an omission: a
+		# caller is refused on the strength of a change nothing accounts for.
+		assert carried.version > before[carried.id]
+
+		events = _events(session, workspace.id, "task", carried.id)
+		actions = [event.action for event in events]
+
+		assert actions == ["created", "moved"], f"{carried.title} has no account of the move"
+
+		changes = events[-1].changes or {}
+
+		assert changes["project_id"]["to"] == str(elsewhere.id)
+		assert changes["moved_with"]["to"] == parent.ref, "and which move carried it"
+
+
 def test_a_project_key_can_never_look_like_a_ref (
 	session: sqlalchemy.orm.Session,
 ) -> None:
