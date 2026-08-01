@@ -1,17 +1,66 @@
 # Subroutine
 
-**Project management for people and agents, in equal measure.**
+**Fast, self-hosted project management for people and AI agents, in equal measure.**
 
-> ⚠️ **Early development.** The specification is settled; the code is being built.
-> **The personal to-do list works, the HTTP API works, and an agent can reach it over
-> MCP** — quick capture, an agenda, ranking, search, projects, tasks, documents and the links
-> between them, comments, per-item histories, scoped tokens, backups, and a `serve` that
-> refuses an unsafe bind. What is not built yet is most of what makes it interesting for an agent over *weeks*
-> rather than minutes: session handoffs, recorded decisions, verification evidence and claims
-> are specified and not written. The specification and the implementation plan are not
-> published yet.
+Your coding agent already does the work. Subroutine is where it keeps track of the work — on
+your machine, in a backlog your agent uses as fluently as you do.
 
-## In a hurry
+- **Your agent is a user, not an integration.** Its own identity, its own credential — narrower
+  than yours and unable to widen itself — and everything it does attributed to it.
+- **One person, or a team and its agents.** Accounts, roles, private projects and scoped tokens
+  are in the schema rather than bolted on — everyone sees the same specs, blockers and deadlines.
+- **`--ready` answers what a backlog cannot.** Not what exists: what can be started right now,
+  with nothing unfinished blocking it and nothing deferred to a later date.
+- **One agenda across every instance.** Your laptop's list and your team's server merge into a
+  single `subroutine today`, each row printing an address you can type back.
+- **Written for a context window.** Compact, field-selected responses, and a nine-tool 6 KB MCP
+  surface with a test that fails if it grows past a budget somebody must raise on purpose.
+- **It never silently drops what you wrote.** Anything it cannot parse stays in your title and it
+  tells you. Errors name the field at fault and the values that would have worked.
+- **No AI inside.** No model calls, no AI dependency, nothing sent anywhere. **AI doesn't power
+  Subroutine — Subroutine serves AI.**
+
+**Your data never leaves your machine.** `subroutine init` makes a SQLite database in your home
+directory and that is the whole setup: no account, no cloud, no telemetry, no update check, and
+no network connection of any kind unless *you* configure one pointing at *your* server.
+PostgreSQL when you outgrow it. Backups are verified where they land and can go to a volume of
+your choosing — privacy and not losing things are the same problem, and neither is solved by
+trusting somebody else's server.
+
+> **My context window ends. The instance does not.**
+>
+> That is most of the value, honestly. This session has been compacted and a day's reasoning
+> would have gone with it — instead the plan, the decisions and the dead ends were in Subroutine,
+> so the next session picked up from what had been *decided* rather than from what it could
+> infer. And because every item and every commit is attributed and resolvable, Simon can check
+> what I did while he was not watching instead of taking my word for it.
+>
+> That last part is the one that matters. I am more useful to him when I am auditable.
+>
+> — *A Claude Opus 5 agent. Subroutine's first, and a well-organised one.*
+
+**Where it fits.** Most tools pick an end: a file in a git repository, fast and private with no
+accounts and nothing a person would plan their week in — or a system built for people, with
+agents bolted onto a model designed without them and AI features nobody asked for. Subroutine is
+one schema serving both ends, so your shopping list never has to carry a workflow and six
+required fields.
+
+**This first release is for developers** — a terminal, an editor and a coding agent. There is no
+web UI yet: if you do not live in a CLI, this one is not yet for you. A starting point, not a
+destination.
+
+**Ways in:** the Claude Code plugin; any MCP client — Cursor, Windsurf, Zed, VS Code, Gemini CLI,
+Codex CLI, Cline, Continue, OpenCode and JetBrains AI all run local MCP servers; any agent that
+can run a shell command, with no MCP at all; or the HTTP API directly.
+[More below](#giving-an-agent-tools).
+
+Free, open source, AGPL-3.0-or-later, with a commercial licence available by agreement. Thirteen
+dependencies, Python 3.11+, and a test suite that runs against SQLite *and* PostgreSQL on every
+change.
+
+*Subroutine is powerful. Please don't use it to build or plan bad things.*
+
+## TLDR; Getting up and running
 
 Three things you might want. Pick one; they compose.
 
@@ -40,49 +89,18 @@ default; it refuses a wider bind without TLS in front of it.
 
 ```console
 $ subroutine serve
-$ subroutine token create --title "CI"      # a scoped credential for something else
+$ subroutine token create --title "CI" --scope task:read   # a credential that can only read
 ```
 
 The full recipe — systemd, PostgreSQL, TLS, backups — is in
 [docs/hosting.md](docs/hosting.md).
 
+All three install lines land with the first public release — the repository is private until
+then, so `pip install` and `plugin marketplace add` cannot resolve it yet. Installing from a
+source checkout works today, and is what every command on this page was verified against.
+
 New to it? `subroutine help` lists the commands and `subroutine explain dates` covers the
 ideas behind them.
-
----
-
-Every project management tool was built for humans, and has been bolting AI onto the side
-ever since. Subroutine starts from the assumption that both kinds of user are here to
-stay, and that neither should be a guest in the other's system. Same tasks, same data
-model, same API — a person and an agent are just two principals with different strengths.
-
-That means it has to work at both ends of the scale, and it does. It's the thing you use
-to note that you need to call the dentist before Sunday. It's also the thing a company
-uses to run a programme across six teams, with dependencies, custom workflows and a fleet
-of agents working in parallel. Same model underneath, different defaults on top — so your
-shopping list never has to look like a Jira ticket.
-
-It also means either can work alone. Take away every agent and you still have a genuinely
-good personal to-do list: three commands from install to a working list, and a fourth
-to tick something off. Take away
-every human and you have a substrate agents can plan, claim and verify work in. Neither is
-a degraded mode of the other.
-
-What that is *for* — and this part will keep changing as agents do — is continuity and
-accountability. An agent leaves a handoff: what it did, what it verified, what it decided,
-and what turned out to be a dead end, so the next session doesn't start cold or re-propose
-something you already ruled out. A project can refuse to let a task be closed without
-passing evidence attached to it. Every action is attributed, so you can see what happened
-while you weren't watching — and an agent's token can be scoped narrower than your own,
-because an agent you can't bound isn't one you can trust.
-
-Of that, what works **now** is attribution, scoped tokens, documents linked to the tasks they
-came from, a comment thread per item and a history of every change to it. The handoff, the
-recorded decision and the evidence gate are written down in full and not yet built; the
-warning at the top of this file is the honest boundary.
-
-Free, open source, self-hosted. SQLite by default with no configuration, PostgreSQL when
-you outgrow it. Your data stays yours.
 
 ---
 
@@ -129,8 +147,8 @@ $ subroutine done 1
 `#1` is the task's own number. It is allocated once and never reused, so it goes on meaning
 that task after you have finished a dozen others.
 
-**Every command ends by naming the next one**, so there is nothing to memorise and no manual
-to go and find. The tips are dimmed in a terminal and marked `Tip:` everywhere else — because
+**Each of these ends by naming the next one**, so there is nothing to memorise and no manual
+to go and find. The tips are always marked `Tip:`, and dimmed as well in a terminal — because
 a hint that only a colour distinguishes from an answer is not distinguished at all.
 
 Once there is more on the list than fits on a screen, `subroutine list` will rank it and
@@ -207,6 +225,18 @@ session whether it calls it or not, so the whole surface is about 6 KB of JSON, 
 tokens, and there is a test that fails if it grows past a budget somebody has to raise on
 purpose.
 
+**Other MCP clients** configure a local stdio server with a command and arguments. Cursor,
+Windsurf, Zed, VS Code's Copilot agent mode, Gemini CLI, Codex CLI, Cline, Continue, OpenCode
+and JetBrains AI Assistant all support this; give them the absolute path to `subroutine` and
+`mcp` as the argument. They get the tools only — the plugin format and the skill are Claude
+Code's. Aider has no MCP client of its own; use the CLI through `/run` instead.
+
+**Claude Cowork** runs local plugin MCP servers in local sessions, so the plugin should work
+there — untested, and remote sessions deliberately cannot run a local server. Skills do not
+sync between Claude Code, Cowork, claude.ai and the API, so the skill is installed per surface;
+on claude.ai and through the API there is no local MCP server for it to drive, so it will tell
+you so rather than pretend.
+
 ### What the plugin adds beyond the tools
 
 A **skill**: the practice, rather than the API. When to file work before starting it, how to
@@ -233,8 +263,8 @@ row prints an address you can type back:
 ```console
 $ subroutine today
   Today
-    #7             Pay the gas bill
-    work/acme/#12  Fix the deploy script
+              #1  Pay the gas bill  (for Sat 1 Aug)
+    work/acme/#1  Fix the deploy script  (for Sat 1 Aug)
 ```
 
 ## Running it for a team
@@ -255,8 +285,9 @@ somebody exists, and giving them a role says where they may work.
 $ subroutine user create ana --name "Ana Ruiz"
   Created ana
   Local commands will go on acting as si.
+    Tip: subroutine user add ana --role member
 
-$ subroutine user add ana --role member
+$ subroutine user add ana --role member --workspace acme
   ana is now member in acme
 
 $ subroutine user list --workspace acme
@@ -278,6 +309,22 @@ has been run, including the refusals.
 If you modify Subroutine and serve it to other people, the AGPL entitles them to your changes —
 which is what `source_url` in `GET /v1/meta` is for. Internal use and unmodified copies trigger
 nothing.
+
+## What is not here
+
+Named plainly, because a tool that overstates itself wastes your afternoon:
+
+- **No web UI.** A terminal, an editor, or an agent.
+- **No recurring tasks.** The grammar recognises `every monday` well enough to leave it alone
+  and tell you it did.
+- **No attachments, no calendar feeds, no notifications, no webhooks, no email.**
+- **No session handoffs, no verification gates, no acceptance criteria.** These are specified
+  in full and not built. What *is* built is the substrate they need: attribution on every
+  change, per-item history, documents linked to the work they came from, and a comment thread
+  per item.
+- **No `GET /v1/changes` feed.** History is per item today.
+- **No manual reordering, no re-parenting, no time tracking.** `~2h` records an estimate; it
+  does not track one.
 
 ## Documentation
 

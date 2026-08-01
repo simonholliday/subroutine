@@ -41,7 +41,7 @@ its schema outright with `subroutine init`.
 
 ### An HTTP API, and agents as first-class users
 
-- The full REST API under `/v1`, with the same data model and the same permission checks the
+- The HTTP API under `/v1`, with the same data model and the same permission checks the
   CLI uses. `GET /v1/docs/agent` is the guide an agent should read first.
 - Scoped bearer tokens: an agent's credential can be narrower than the person who issued it,
   and may never be wider. Per-workspace pins and per-permission scopes.
@@ -66,6 +66,11 @@ its schema outright with `subroutine init`.
 
 ### Known limits
 
-Session handoffs, recorded decisions, verification evidence and claims are specified and not
-built. `GET /v1/changes`, attachments, recurrence, calendar feeds and `db export --format json`
-are parsed, honestly refused, and not implemented.
+Session handoffs, verification evidence and claims are specified and not built — as are
+attachments, calendar feeds, recurring tasks, a `GET /v1/changes` feed, and manual reordering.
+There is no web UI.
+
+Two of those are *refused out loud* rather than merely absent, which is worth telling apart:
+the capture grammar recognises `every monday` well enough to leave it in your title and say it
+did nothing with it, and a calendar credential presented to the API is turned down by name.
+The rest are simply not there yet.
