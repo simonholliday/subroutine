@@ -1418,12 +1418,15 @@ def register (
 	@app.command()
 	def done (
 		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
 		"""Tick something off.
 
 		Examples:
 
 		  subroutine done 42
+
+		  subroutine done 42 --because "superseded by #99"
 		"""
 
 		with opened() as world:
@@ -1444,6 +1447,8 @@ def register (
 			client = _require_connection(world, located.connection)
 			finished = client.complete(ref=task.ref, workspace=located.workspace)
 
+			_because(client, located, because, what="Done")
+
 			say(_acted(world, dataclasses.replace(located, item=finished), "Done"))
 			_suggest(console, "subroutine today")
 
@@ -1451,6 +1456,7 @@ def register (
 	def plan (
 		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
+		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
 		"""Say which day you will do something.
 
@@ -1458,7 +1464,7 @@ def register (
 
 		  subroutine plan 1 tomorrow
 
-		  subroutine plan 42 friday
+		  subroutine plan 42 friday --because "the review is on monday"
 		"""
 
 		with opened() as world:
@@ -1478,19 +1484,20 @@ def register (
 			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
 			# right in a list and wrong in the confirmation of a command whose whole job was
 			# to set the other field — the user said "tomorrow" and was shown Friday.
-			say(
-				_acted(
-					world,
-					dataclasses.replace(located, item=changed),
-					f"Planned for {_render_day(changed.planned_for)}",
-				)
-			)
+			planned = f"Planned for {_render_day(changed.planned_for)}"
+
+			_because(client, located, because, what=planned)
+
+			say(_acted(world, dataclasses.replace(located, item=changed), planned))
 			_suggest(console, "subroutine today")
 
 	@app.command()
 	def defer (
 		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
 		when: str = typer.Argument("", help="A day to hide it until."),
+		because: str = typer.Option(
+			"", "--because", help="What you are waiting for, recorded against it."
+		),
 	) -> None:
 		"""Hide something until later.
 
@@ -1498,7 +1505,7 @@ def register (
 
 		  subroutine defer 1 monday
 
-		  subroutine defer 42 2026-09-01
+		  subroutine defer 42 2026-09-01 --because "waiting on the provider's reply"
 		"""
 
 		with opened() as world:
@@ -1515,16 +1522,14 @@ def register (
 				start=_day(world, _asked(when, "Hide it until when?")),
 			)
 
-			say(
-				_acted(
-					world,
-					dataclasses.replace(located, item=changed),
-					# The *task's* zone, like every other instant this program renders.
-					# `start_at` is midnight where the task lives, so re-reading it in a
-					# westward client zone named the day before the one that was asked for.
-					f"Hidden until {_render_date(changed.start_at, changed.timezone)}",
-				)
-			)
+			# The *task's* zone, like every other instant this program renders. `start_at` is
+			# midnight where the task lives, so re-reading it in a westward client zone named
+			# the day before the one that was asked for.
+			hidden = f"Hidden until {_render_date(changed.start_at, changed.timezone)}"
+
+			_because(client, located, because, what=hidden)
+
+			say(_acted(world, dataclasses.replace(located, item=changed), hidden))
 			_suggest(console, "subroutine today")
 
 	@app.command()
@@ -2452,6 +2457,41 @@ def _suggest (
 	line = f"  Tip: {command}" if about is None else f"  Tip: {command} — {about}"
 
 	console.print(rich.text.Text(line, style=SUGGESTION))
+
+
+def _because (
+	client: subroutine.clients.base.Client, located: Located, reason: str, *, what: str
+) -> None:
+	"""Record why an act was taken, as a comment on the item it was taken against.
+
+	**A comment rather than a field** (decision `#96`, item `#99`). A field would be
+	overwritten by the next defer, and each wait has its own reason; a comment is a sequence,
+	which is what a record of what happened is.
+
+	`#99` also argued that a ``#42`` in the reason becomes a backlink for free. It becomes an
+	indexed *mention*, which is not the same claim: nothing reads that table yet, so "waiting
+	on #42" links nothing anybody can see until `#144`. The sequence argument above carries
+	this on its own, which is why it is stated first.
+
+	**The comment carries the act as well as the reason**, so it reads as a sentence about
+	what happened rather than as a fragment nobody can place — "Hidden until Mon 3 Aug —
+	waiting on the provider's reply". The event beside it records the field that moved; this
+	records the part no field holds.
+
+	Written **after** the act, so a reason that cannot be recorded never claims a defer that
+	did not happen. Nothing is written when nobody gave a reason: an empty record entry would
+	timestamp a claim that something was said.
+	"""
+
+	if not reason.strip():
+		return
+
+	client.remark(
+		ref=located.ref,
+		body=f"{what} — {reason.strip()}",
+		entity_type=located.entity_type,
+		workspace=located.workspace,
+	)
 
 
 def _item_line (

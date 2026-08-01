@@ -500,6 +500,89 @@ def test_plan_and_defer_move_a_task_between_days (
 	assert "Buy milk" not in run("today").output
 
 
+def test_a_defer_can_say_what_it_is_waiting_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#99`, from decision `#96`: waiting is a defer with a reason.
+
+	The reason is the thing a status could not carry, and `defer` is where it is
+	load-bearing — it is the verb that *hides* the item, so without one the backlog holds
+	something invisible that nobody can account for.
+	"""
+
+	run("init")
+	run("add", "Chase the invoice")
+
+	hidden = run("defer", "1", "2026-12-01", "--because", "waiting on the provider's reply")
+
+	assert "Hidden until" in hidden.output
+
+	shown = run("show", "1")
+
+	# The act and the reason in one sentence, so the record reads without the event beside it.
+	assert "Hidden until" in shown.output
+	assert "waiting on the provider's reply" in shown.output
+
+
+def test_a_reason_given_to_plan_or_done_is_recorded_too (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One flag on all three verbs, because a user who learns it on one will try the others.
+
+	`#99` argued the reason matters most on `defer` and that the same argument reaches
+	`plan` and `done`. Refusing it on two of the three would be a distinction only the
+	implementation can see.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+	run("add", "Write the release notes")
+
+	run("plan", "1", "tomorrow", "--because", "the review is on monday")
+	run("done", "2", "--because", "superseded by the changelog")
+
+	assert "the review is on monday" in run("show", "1").output
+	assert "superseded by the changelog" in run("show", "2").output
+
+
+def test_an_act_without_a_reason_records_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Silence is not a reason, and an empty entry would timestamp a claim nobody made."""
+
+	run("init")
+	run("add", "Buy milk")
+	run("defer", "1", "2026-12-01")
+
+	assert "Hidden until" not in run("show", "1").output
+
+
+def test_each_reason_is_kept_rather_than_replacing_the_last (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The argument for a comment over a field, made falsifiable.
+
+	A wait can happen repeatedly and each one has its own reason. A field would hold the
+	newest and silently lose the account of why the thing has been sitting there since May —
+	which is the question somebody is actually asking when they finally look.
+
+	Written after `#99` claimed a second benefit — a `#42` in the reason becoming a visible
+	backlink — that turns out to be indexed and unread until `#144`. This is the half that
+	does hold, so it is the half with a test.
+	"""
+
+	run("init")
+	run("add", "Chase the invoice")
+
+	run("defer", "1", "2026-09-01", "--because", "waiting on the provider")
+	run("defer", "1", "2026-12-01", "--because", "they asked for a purchase order")
+
+	shown = run("show", "1")
+
+	assert "waiting on the provider" in shown.output
+	assert "they asked for a purchase order" in shown.output
+
+
 def test_json_output_carries_enough_to_act_on (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
