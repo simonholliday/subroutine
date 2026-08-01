@@ -94,8 +94,9 @@ fully-qualified names: `sqlalchemy.select`, not `select`. The exceptions are
 `from __future__ import annotations` and imports inside `if typing.TYPE_CHECKING:`.
 
 Note the consequence: `import a.b.c` binds only `a`, so Ruff's unused-import check cannot
-see a stale `import subroutine.x.y`. Import hygiene is manual — when you stop using a
-module, remove its import by hand.
+see a stale `import subroutine.x.y`, and in the other direction `a.b.c.thing` resolves
+through somebody else's import. `tests/test_imports.py` checks both directions, so the
+suite will tell you — but it is worth knowing why a linter never will.
 
 **Function definitions take a space before the parenthesis, calls do not.** `def foo (x)`
 and `foo(x)`. It marks a definition apart from a call at a glance.
