@@ -249,5 +249,11 @@ def test_every_command_the_skill_shows_exists () -> None:
 		if phrase.split()[0] not in _NOT_A_COMMAND
 	}
 
-	assert len(shown) >= 3, f"only found {sorted(shown)} — has this test stopped reaching them?"
+	# **One is enough, and it used to be three.** The floor exists so that a broken regex
+	# reads as a failure rather than as a clean run over nothing — not to assert the skill
+	# keeps naming commands. `#149` took it from four commands to one by giving MCP the
+	# tools it had been telling agents to shell out for, and a floor of three would have made
+	# closing that gap fail this test. `install` is the one that can never go: it is how
+	# somebody gets a `subroutine` to run at all.
+	assert shown, "found no commands at all in the skill — has this test stopped reaching them?"
 	assert shown <= registered, f"the skill shows {sorted(shown - registered)}, which do not exist"

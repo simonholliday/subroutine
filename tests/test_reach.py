@@ -244,37 +244,6 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"Resource lifetime, not a capability §13.7 could deny anybody — the server closes "
 		"its client when the process ends, which is what a stdio adapter's lifetime is.",
 	),
-	"agenda": (
-		"tracked",
-		"`today` is the question this product is built around and there is no tool for it. "
-		"`#149`.",
-	),
-	"schedule": (
-		"tracked",
-		"Planning a day and deferring. Decision `#96` says an external wait *is* a defer "
-		"with a reason and `#99` built `--because` for it, so a decision taken on "
-		"2026-07-31 is unreachable from the surface it was written for. `#149`.",
-	),
-	"link": (
-		"tracked",
-		"`subroutine_list(ready=true)` filters on exactly the links an agent cannot create: "
-		"it can ask what is startable and cannot say what blocks what. `#149`.",
-	),
-	"unlink": (
-		"tracked",
-		"Withdrawing a link, which ships with making one — an unwanted link is worse than a "
-		"missing one, because it narrows what looks startable. `#149`.",
-	),
-	"create_project": (
-		"tracked",
-		"SPEC §21.5's adoption procedure is the agent's first act on a new repository, and "
-		"the skill has to tell it to shell out to `subroutine project create`. `#149`.",
-	),
-	"projects": (
-		"tracked",
-		"Reading the tree, which adoption needs before it can choose a parent. The skill "
-		"shells out to `subroutine project list`. `#149`.",
-	),
 	"discard": (
 		"budget",
 		"Deleting. §6.9 makes it soft and `#140` gave a person `subroutine delete`, but an "

@@ -31,9 +31,9 @@ If the user has just installed Subroutine, or says "we use Subroutine now", set 
 before doing anything else. **Ask only what cannot be undone; state the rest and proceed.** A
 setup interview is how a tool loses the person who just installed it.
 
-1. **Look before creating.** `subroutine project list`. If something already covers this
-   repository, use it. A duplicate project is invisible until somebody files into the one
-   nobody reads.
+1. **Look before creating.** `subroutine_project` with no arguments. If something already
+   covers this repository, use it. A duplicate project is invisible until somebody files into
+   the one nobody reads.
 
 2. **Propose a key and confirm it — this is the one question always worth asking.** A project
    key cannot be changed afterwards and becomes part of how every item is addressed. Derive it
@@ -41,7 +41,7 @@ setup interview is how a tool loses the person who just installed it.
    letter, at most sixteen characters. Say what you propose and let them correct it.
 
    ```
-   subroutine project create WEB "Website redesign"
+   subroutine_project(key="WEB", title="Website redesign")
    ```
 
 3. **Do not ask which workspace unless there is more than one.** A fresh install has exactly
@@ -139,11 +139,13 @@ document for anything you decided, and mark done what is done. `subroutine_done(
 
 - **A number means one item, for ever.** `#42` is allocated once and never reused, and it names
   a task *or* a document. Never address anything by its position in a list.
-- **Blocked is a link, not a status.** If work depends on other work, say so with a link rather
-  than by setting a status — a link resolves itself when the other side finishes, and it is
-  what `ready` reads.
-- **Waiting on something outside the system is a deferral with a reason**: `subroutine defer 42
-  now+7d` and a comment saying what you are waiting for.
+- **Blocked is a link, not a status.** If work depends on other work, say so with
+  `subroutine_link(ref=42, type="blocks", other=43)` rather than by setting a status — a link
+  resolves itself when the other side finishes, and it is what `ready` reads.
+- **Waiting on something outside the system is a deferral with a reason**:
+  `subroutine_update(ref=42, defer="now+7d")` and a comment saying what you are waiting for.
+  The link above resolves itself; an external wait does not, so it needs the reason in prose
+  and a date to look again.
 - **Do not close somebody else's work** without being asked, and do not edit their comments —
   a comment is attributed prose. Add your own.
 

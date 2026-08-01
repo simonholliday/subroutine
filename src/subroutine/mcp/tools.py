@@ -1,6 +1,6 @@
-"""What an agent can actually do here, as six tools.
+"""What an agent can actually do here, as nine tools.
 
-**Six, not one per endpoint, and that is the whole design.** A tool's schema is context an
+**Nine, not one per endpoint, and that is the whole design.** A tool's schema is context an
 agent carries for its entire session whether it calls the tool or not, so a surface is a
 fixed cost paid up front against a variable benefit. ``#14``'s own note records the
 measurement that makes this concrete: Beads found 10-50k tokens via MCP against 1-2k via a
@@ -18,11 +18,14 @@ these strings are read by a model, and a full task is 400-600 tokens of which mo
 nobody asked for.
 """
 
+import datetime
 import typing
 
 import subroutine.clients.base
+import subroutine.db.types
 import subroutine.domain.capture
 import subroutine.domain.refs
+import subroutine.domain.schedule
 import subroutine.mcp.protocol
 import subroutine.views
 
@@ -30,6 +33,16 @@ import subroutine.views
 #: fifty: an agent choosing what to do next reads the top of a ranking, and the ones below it
 #: are context spent on rows it will not act on.
 DEFAULT_LIMIT = 20
+
+#: Named once because it appears on every tool and nine copies of a sentence drift.
+#:
+#: **It saves no budget, and it would be easy to believe it does.** The dict is shared by
+#: reference in this file and serialised in full for each tool, so the wire cost is exactly
+#: what nine literals cost — 434 bytes, a tenth of the surface, spent saying the same thing
+#: nine times. The only construction that would actually cut it is ``$defs`` plus ``$ref``,
+#: and that is not worth betting a client's parser on: one that does not resolve a reference
+#: shows a property with no description at all, which is worse than a repeated one.
+WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
 
 def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.protocol.Tool]:
@@ -62,7 +75,12 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 							"it is not deferred. Does not read an item's own status."
 						),
 					},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"today": {
+						"type": "boolean",
+						"description": "The agenda: overdue, due today, and planned next.",
+					},
+					"q": {"type": "string", "description": "Find by words, in titles and bodies."},
+					"workspace": WORKSPACE,
 				},
 			},
 			call=lambda arguments: _listed(client, arguments),
@@ -78,7 +96,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 				"type": "object",
 				"properties": {
 					"ref": {"type": "integer", "description": "The item's number, e.g. 42."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
 			},
@@ -98,7 +116,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 				"properties": {
 					"text": {"type": "string", "description": "The line to capture."},
 					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"workspace": WORKSPACE,
 				},
 				"required": ["text"],
 			},
@@ -117,7 +135,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 				"properties": {
 					"ref": {"type": "integer", "description": "The item's number."},
 					"body": {"type": "string", "description": "What happened."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"workspace": WORKSPACE,
 				},
 				"required": ["ref", "body"],
 			},
@@ -141,7 +159,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 						"description": "note, spec, design, decision, finding or dead_end.",
 					},
 					"project": {"type": "string", "description": "Project key."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"workspace": WORKSPACE,
 				},
 				"required": ["title"],
 			},
@@ -151,10 +169,9 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			name="subroutine_update",
 			title="Change a task",
 			description=(
-				"Change a task's priority, estimate, status or title. Priority is two axes "
-				"1-5: importance is how much it matters, urgency is how soon. Set both — an "
-				"item with only one sorts below everything ranked. Estimate takes '4h' or "
-				"'90m'. Omitted fields are unchanged."
+				"Change a task: priority, estimate, status, title, or the day it is planned "
+				"for or hidden until. Set both priority axes — one alone sorts below "
+				"everything ranked. Omitted fields are unchanged."
 			),
 			schema={
 				"type": "object",
@@ -166,11 +183,57 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
 					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
 					"title": {"type": "string", "description": "A new title."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
+					"defer": {
+						"type": "string",
+						"description": "Hide it until this day, e.g. while waiting. Or '' .",
+					},
+					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
 			},
 			call=lambda arguments: _updated(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_link",
+			title="Join two items",
+			description=(
+				"Say how two items are related: blocks, relates_to, duplicates, derives_from. "
+				"'blocks' is what readiness reads — a task with an unfinished blocker is not "
+				"listed as ready. Pass remove=true to withdraw the link instead."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The item's number."},
+					"type": {"type": "string", "description": "blocks, relates_to, duplicates."},
+					"other": {"type": "integer", "description": "The other item's number."},
+					"remove": {"type": "boolean", "description": "Withdraw it instead."},
+					"workspace": WORKSPACE,
+				},
+				"required": ["ref", "other"],
+			},
+			call=lambda arguments: _linked(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_project",
+			title="Projects",
+			description=(
+				"List the projects, or make one by passing a key and a title. A key is "
+				"permanent and starts with a letter, like WEB. Work is filed under a project "
+				"with '+KEY' in a captured line."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"key": {"type": "string", "description": "Its permanent short name."},
+					"title": {"type": "string", "description": "What it is called."},
+					"parent": {"type": "string", "description": "Put it inside this project."},
+					"private": {"type": "boolean", "description": "Only members can see it."},
+					"workspace": WORKSPACE,
+				},
+			},
+			call=lambda arguments: _projected(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
@@ -180,7 +243,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 				"type": "object",
 				"properties": {
 					"ref": {"type": "integer", "description": "The task's number."},
-					"workspace": {"type": "string", "description": "Workspace name or id."},
+					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
 			},
@@ -212,9 +275,36 @@ def _listed (
 	# reached the HTTP endpoint and nothing else until then, so an agent asked what to work on
 	# could only ever sort a backlog — which is what every other tool offers.
 	ready = bool(arguments.get("ready"))
+	query = _text(arguments, "q")
+
+	# **The agenda is a different question, so it is a different call and the same renderer.**
+	# `today` asks what is on now — overdue, due, planned, in progress — which no ordering of
+	# a backlog produces, because "overdue" is a comparison against the clock rather than a
+	# sort key. Returned flat: the buckets are a *terminal* structure, and a model reading
+	# four headings for what is usually four rows is paying for the headings.
+	if arguments.get("today"):
+		agenda = client.agenda(workspace=workspace)
+
+		# **Three buckets, not four: `unscheduled` is deliberately left out.** It is the
+		# terminal's filler — "your day is empty, here is some backlog" — capped at twenty,
+		# and none of it is *on today*. Concatenating it answered "what is on today" with the
+		# whole backlog, which was measured against the real instance rather than reasoned
+		# about. An agent whose day is empty should ask `ready=true`, which is the better
+		# question and already a cheaper one.
+		rows = [
+			_line(task)
+			for bucket in (agenda.overdue, agenda.today, agenda.upcoming)
+			for task in bucket
+		]
+
+		return "\n".join(rows) if rows else "Nothing on today."
 
 	tasks = client.tasks(
-		workspace=workspace, limit=limit, order=_text(arguments, "order"), ready=ready
+		workspace=workspace,
+		limit=limit,
+		order=_text(arguments, "order"),
+		ready=ready,
+		q=query,
 	)
 
 	# **`limit` bounds the answer, not each kind.** Asking for five and receiving five tasks
@@ -225,7 +315,7 @@ def _listed (
 	# and nothing blocks one, so every specification and decision in the instance would report
 	# as ready — true, useless, and enough of them to bury the tasks the caller asked about.
 	documents = (
-		client.documents(workspace=workspace, limit=limit - len(tasks))
+		client.documents(workspace=workspace, limit=limit - len(tasks), q=query)
 		if len(tasks) < limit and not ready
 		else []
 	)
@@ -443,6 +533,130 @@ def _ref (arguments: dict[str, typing.Any]) -> int:
 	return found
 
 
+def _day (given: typing.Any, *, field: str) -> datetime.date | None:
+	"""Read a day an agent named, or ``None`` to clear it.
+
+	**The same grammar a person types** (§6.13, `domain.schedule.interpret_day`) — 'today',
+	'friday', '2026-09-01' — rather than a stricter machine format. An agent working from a
+	conversation has "next tuesday" in front of it, and a surface that made it convert
+	would be asking it to reimplement a parser this product publishes.
+
+	An empty string clears, which is how §8.3's null reaches a schema whose property is a
+	string. Omitting the argument is what leaves the day alone.
+
+	**The refusal is the domain's, not one written here.** ``interpret_day`` raises on
+	anything it cannot read, so an agent and a person are told the same thing in the same
+	words — and a second message here would be a place for the two to drift. The first
+	version of this function carried one, and it was unreachable.
+	"""
+
+	if not isinstance(given, str):
+		raise ValueError(f"{field!r} is a day, written like 'friday' or '2026-09-01'.")
+
+	if not given.strip():
+		return None
+
+	return subroutine.domain.schedule.interpret_day(
+		given,
+		# **The client's own zone, which for a stdio adapter is the machine the agent runs
+		# on.** An agent saying "friday" means the Friday it is looking at, and resolving that
+		# in UTC turns it into Thursday for anybody west of Greenwich after four in the
+		# afternoon — the same westward-drift bug `defer` already met once.
+		timezone=str(subroutine.db.types.utcnow().astimezone().tzinfo),
+		now=subroutine.db.types.utcnow(),
+		field=field,
+	)
+
+
+def _linked (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Join two items, or withdraw the join.
+
+	**Named by the two refs, never by the link's id**, exactly as the CLI is: an id is a UUID
+	that appears in nothing a caller has read, so requiring one would make withdrawing a link
+	reachable only by something that had just created it.
+
+	One tool for both directions rather than two, because `#141` established that withdrawing
+	ships with making — an unwanted link narrows what looks startable and says nothing about
+	having done so — and a second tool would spend a name and a schema on the same pair of
+	numbers.
+	"""
+
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+	other = arguments.get("other")
+
+	if not isinstance(other, int) or isinstance(other, bool):
+		raise ValueError("Which other item? Pass 'other', the number in the listing.")
+
+	_, kind = _item(client, ref, workspace)
+
+	if not arguments.get("remove"):
+		link_type = _text(arguments, "type") or "blocks"
+		made = client.link(
+			ref=ref,
+			link_type=link_type,
+			target=other,
+			entity_type=kind,
+			workspace=workspace,
+		)
+
+		return f"{made.label} #{made.other.ref}  {made.other.title}"
+
+	joins = [
+		one
+		for one in client.links(ref=ref, entity_type=kind, workspace=workspace)
+		if one.other.ref == other
+	]
+
+	if not joins:
+		raise LookupError(f"#{ref} is not joined to #{other}.")
+
+	for join in joins:
+		client.unlink(ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace)
+
+	return f"Withdrew the link between #{ref} and #{other}."
+
+
+def _projected (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""List the projects, or make one.
+
+	**One tool doing both**, which is a budget decision rather than an elegance: SPEC §21.5's
+	adoption asks what exists and then adds to it, so the two questions arrive together and a
+	second name would be schema spent on the seam between them. Creating is what a key and a
+	title mean; asking for neither is asking what is there.
+	"""
+
+	workspace = _text(arguments, "workspace")
+	key = _text(arguments, "key")
+
+	if key is None:
+		rows = client.projects(workspace=workspace)
+
+		if not rows:
+			return "No projects."
+
+		return "\n".join(f"{row.key}  {row.title}" for row in rows)
+
+	title = _text(arguments, "title")
+
+	if title is None:
+		raise ValueError("A project needs a title as well as a key.")
+
+	made = client.create_project(
+		key=key,
+		title=title,
+		parent=_text(arguments, "parent"),
+		visibility="private" if arguments.get("private") else "public",
+		workspace=workspace,
+	)
+
+	return f"Made {made.key}  {made.title}"
+
+
 def _text (arguments: dict[str, typing.Any], name: str) -> str | None:
 	"""Return one string argument, or ``None`` when it was not given."""
 
@@ -474,13 +688,43 @@ def _updated (
 	if "estimate" in arguments:
 		changes["estimate"] = arguments["estimate"]
 
-	if not changes:
+	days = {
+		field: _day(arguments[field], field=field)
+		for field in ("plan", "defer")
+		if field in arguments
+	}
+
+	if not changes and not days:
 		raise ValueError(
-			"Nothing to change. Pass importance, urgency, estimate, status, type or title."
+			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
+			"plan or defer."
 		)
 
-	changed = client.update(
-		ref=_ref(arguments), workspace=_text(arguments, "workspace"), **changes
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+
+	# **Two calls, because they are two endpoints** — `PATCH /v1/tasks` and the scheduling
+	# verbs §12.2's `plan` and `defer` reach. Folding them into one client method here would
+	# be this surface inventing a shape the others do not have, which is the divergence
+	# `#146` measured rather than a fix for it.
+	changed = (
+		client.update(ref=ref, workspace=workspace, **changes)
+		if changes
+		else client.task(ref=ref, workspace=workspace)
 	)
+
+	if days:
+		changed = client.schedule(
+			ref=ref,
+			workspace=workspace,
+			**{
+				name: days[field]
+				for field, name in (("plan", "planned_for"), ("defer", "start"))
+				if field in days
+			},
+		)
+
+	if changed is None:
+		raise LookupError(f"There is no #{ref} here.")
 
 	return "Changed " + _line(changed)

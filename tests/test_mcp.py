@@ -450,6 +450,167 @@ def test_a_task_can_be_finished (bound: subroutine.mcp.protocol.Server) -> None:
 	assert "Ship it" not in _called(bound, "subroutine_list")[0]
 
 
+def test_an_agent_can_find_something_by_its_words (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#149`. ``client.tasks`` took ``q`` and the tool did not, so an agent could only list.
+
+	Invisible to `#148`'s guard by construction: both surfaces call ``tasks``, and reach
+	there is per method. This is the argument-level half that has to be asserted directly.
+	"""
+
+	_added(bound, "Fix the date parser")
+	_added(bound, "Paint the shed")
+
+	found, failed = _called(bound, "subroutine_list", q="parser")
+
+	assert not failed, found
+	assert "Fix the date parser" in found
+	assert "Paint the shed" not in found
+
+
+def test_an_agent_can_say_what_blocks_what (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#149`, and the contradiction that made it more than thinness.
+
+	``subroutine_list(ready=true)`` has always filtered on ``blocks`` links — so the tool
+	offered a question whose answer depended on something the same surface could not say.
+	"""
+
+	first = _added(bound, "Build the endpoint")
+	second = _added(bound, "Write the client")
+
+	made, failed = _called(
+		bound, "subroutine_link", ref=first, type="blocks", other=second, workspace=None
+	)
+
+	assert not failed, made
+
+	ready = _called(bound, "subroutine_list", ready=True)[0]
+
+	assert "Build the endpoint" in ready
+	assert "Write the client" not in ready, "a blocked task is not ready"
+
+	# And withdrawing it, which ships with making it — an unwanted link narrows what looks
+	# startable and says nothing about having done so.
+	withdrawn, failed = _called(
+		bound, "subroutine_link", ref=first, other=second, remove=True
+	)
+
+	assert not failed, withdrawn
+	assert "Write the client" in _called(bound, "subroutine_list", ready=True)[0]
+
+
+def test_an_agent_can_defer_with_the_grammar_a_person_types (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#149`. Decision `#96` says an external wait *is* a defer, written on 2026-07-31 for a
+	surface that could not set one until 2026-08-01.
+
+	The day is read by ``domain.schedule.interpret_day`` — the same grammar `subroutine defer`
+	takes — because an agent working from a conversation has "next tuesday" in front of it,
+	and making it convert would be asking it to reimplement a parser this product publishes.
+	"""
+
+	ref = _added(bound, "Chase the invoice")
+	answered, failed = _called(bound, "subroutine_update", ref=ref, defer="2026-12-01")
+
+	assert not failed, answered
+
+	# Deferred is hidden from what can be started, which is what makes the reason worth having.
+	assert "Chase the invoice" not in _called(bound, "subroutine_list", ready=True)[0]
+
+	brought_back, failed = _called(bound, "subroutine_update", ref=ref, defer="")
+
+	assert not failed, brought_back
+	assert "Chase the invoice" in _called(bound, "subroutine_list", ready=True)[0]
+
+
+def test_a_day_that_is_not_a_day_is_refused_by_name (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""An agent gets the same answer a person does, rather than a traceback or a silent no-op.
+
+	The silent case is the one worth pinning: a defer that quietly did nothing would leave
+	the agent believing an item was hidden and the person seeing it in their list. The words
+	are the domain's, so the two surfaces cannot drift into two explanations of one refusal.
+	"""
+
+	ref = _added(bound, "Chase the invoice")
+	answered, failed = _called(bound, "subroutine_update", ref=ref, plan="next quarter")
+
+	assert failed
+	assert "next quarter" in answered
+	assert "understands" in answered
+
+
+def test_an_agent_can_ask_what_is_on_today (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#149`. ``today`` is the question this product is built around and MCP had no tool.
+
+	An argument on ``subroutine_list`` rather than a tool of its own, and flat rather than in
+	the four buckets: the buckets are a *terminal* structure, and a model reading four
+	headings for what is usually four rows is paying for the headings.
+	"""
+
+	ref = _added(bound, "Ring the dentist")
+
+	_added(bound, "Rewrite the importer one day")
+
+	_called(bound, "subroutine_update", ref=ref, plan="today")
+
+	on_today, failed = _called(bound, "subroutine_list", today=True)
+
+	assert not failed, on_today
+	assert "Ring the dentist" in on_today
+
+	# **The agenda's fourth bucket is left out, and this is what says so.** `unscheduled` is
+	# the terminal's filler — "your day is empty, here is some backlog", capped at twenty —
+	# and none of it is on today. Including it answered the question with the whole backlog,
+	# which is what running this against the real instance showed before anybody read it.
+	assert "Rewrite the importer" not in on_today
+
+
+def test_an_agent_can_make_and_list_a_project (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#149`, and the last of the skill's shell-outs.
+
+	SPEC §21.5's adoption asks what exists and then adds to it, which is why one tool does
+	both: the two questions arrive together and a second name would be schema spent on the
+	seam between them.
+	"""
+
+	made, failed = _called(
+		bound, "subroutine_project", key="WEB", title="Website redesign"
+	)
+
+	assert not failed, made
+	assert "WEB" in made
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert "Website redesign" in listed
+
+
+def test_a_project_named_without_a_title_is_refused (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""One tool doing two jobs has to say which one it thought it was being asked for.
+
+	A key with no title is a create that cannot finish, not a list — answering with the
+	listing would be the tool quietly doing something else.
+	"""
+
+	answered, failed = _called(bound, "subroutine_project", key="WEB")
+
+	assert failed
+	assert "title" in answered
+
+
 def test_the_whole_tool_surface_stays_small (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -461,27 +622,49 @@ def test_the_whole_tool_surface_stays_small (
 	already exist, which is what keeps the schemas small.
 
 	**The numbers are a budget, not a description**, and raising one is meant to be an act
-	rather than a shrug. Both were raised once, on 2026-07-31, for ``subroutine_document``
-	(`#138`) — and the case was that ``subroutine_comment`` already told agents "for a
-	conclusion the next session needs, write a document instead" while no tool could. A
-	seventh tool was measured at 764 bytes against 557 of headroom before the cap moved, and
-	the six existing schemas were read for fat first; the two largest are the two with the
-	most arguments, and their descriptions are what stop an agent guessing.
+	rather than a shrug. Raised twice:
 
-	The slack above the current total is deliberate and small. A cap set exactly at what is
-	there makes every addition a cap change, which is theatre; a generous one stops being a
-	budget. Roughly 4.5 KB is about 1,150 tokens paid by every session of every agent,
-	including the ones that never call any of it.
+	- **2026-07-31, 6 tools / 4,096 -> 7 / 4,608**, for ``subroutine_document`` (`#138`).
+	  ``subroutine_comment`` already told agents "for a conclusion the next session needs,
+	  write a document instead" while no tool could. Measured at 764 bytes against 557 of
+	  headroom before the cap moved.
+	- **2026-08-01, 7 / 4,608 -> 9 / 6,144**, for `#149`, and the case is worth keeping
+	  because it is the first time the budget was weighed against a *measured* alternative
+	  rather than against a preference.
+
+	  `#146` measured all three surfaces: an agent could not search, could not defer, could
+	  not say what blocks what, could not ask what was on today, and could not make or list a
+	  project. Four of those are not thinness, they are contradictions — ``subroutine_list``
+	  offers ``ready=true``, which filters on exactly the links the agent could not create,
+	  and decision `#96` says an external wait *is* a defer the agent could not set.
+
+	  **The alternative was not free, which is what settles it.** The skill was already
+	  telling agents to shell out to the CLI for three of these, so the cost was being paid
+	  in Bash calls and in skill text every session — and paid by the agent least able to
+	  recover when the shell-out failed. 4,428 -> 6,111 bytes is roughly 1,100 -> 1,530
+	  tokens: about 430 more per session, against five capabilities and a workaround the
+	  skill no longer has to teach.
+
+	  **Fat was read for first, and there was less than expected.** ``update``'s description
+	  lost 90 bytes of priority teaching that belongs in the skill. The ``workspace``
+	  property, nine identical copies costing 434 bytes, was named once in the source — which
+	  stops it drifting and **saves nothing on the wire**, because the dict is serialised in
+	  full each time. Only ``$defs`` would cut it, and a client that does not resolve a
+	  reference would show a property with no description at all.
+
+	The slack above the current total is deliberate and small — 33 bytes, which is less than
+	one property. A cap set exactly at what is there makes every addition a cap change, which
+	is theatre; a generous one stops being a budget.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 7, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 9, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 4608, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 6144, f"the tool schemas are {size} bytes of every session's context"
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:
