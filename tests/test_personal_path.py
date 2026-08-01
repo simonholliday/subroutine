@@ -2872,3 +2872,38 @@ def test_a_checkout_still_finds_its_project_after_a_rename (
 	assert "still says 'ST'" in added.output
 
 	assert "After the rename" in run("list", "--project", "SR").output
+
+
+def test_a_type_can_be_given_when_an_item_is_captured (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#178`, found by tripping over it while filing `#176`.
+
+	`POST /v1/tasks` and `subroutine_add` have accepted a type since they were written; the
+	CLI did not, so a person filed everything as a task and corrected it with a second command
+	— which is the asymmetry §13.7 and decision `#146` exist to prevent.
+
+	A flag rather than a sigil, for the reason `client.capture` already gives: §6.13's sigils
+	are for what somebody types mid-sentence, and "this is a bug" is a classification about the
+	sentence rather than part of it.
+	"""
+
+	run("init")
+	run("add", "Dates render as if this year", "--type", "bug")
+
+	assert "bug" in run("show", "1").output
+
+	# The capture line is untouched by this — the type is not a word in the title.
+	assert "Dates render as if this year" in run("list").output
+
+
+def test_a_type_that_does_not_exist_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The refusal is the domain's, so a person and an agent are told the same thing."""
+
+	run("init")
+
+	refused = run("add", "Something", "--type", "banana", expect=1)
+
+	assert "banana" in refused.output

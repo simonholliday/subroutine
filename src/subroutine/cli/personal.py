@@ -986,6 +986,9 @@ def register (
 	@app.command()
 	def add (
 		words: list[str] = typer.Argument(None, help="What you need to do."),
+		kind: str = typer.Option(
+			"", "--type", help="task, bug, feature, chore, spike. Defaults to task."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Add something to your list.
@@ -995,6 +998,8 @@ def register (
 		  subroutine add "Call the dentist before Sunday"
 
 		  subroutine add "Write the report by friday !3 ~2h #work"
+
+		  subroutine add "Dates render as if this year" --type bug
 		"""
 
 		text = " ".join(words or [])
@@ -1009,8 +1014,16 @@ def register (
 		with opened() as world:
 			where = world.writing_to()
 			filed = _default_project(world, text)
+			# **A flag rather than a sigil** (`#178`). §6.13's sigils are for things somebody
+			# types mid-sentence; "this is a bug" is a classification *about* the sentence
+			# rather than part of it — which is the argument `client.capture` already makes for
+			# taking it separately. HTTP and MCP have accepted it since they were written, and
+			# only the CLI made a person file everything as a task and correct it afterwards.
 			captured = where.client.capture(
-				text=text, workspace=_writing_workspace(world), project=filed
+				text=text,
+				workspace=_writing_workspace(world),
+				project=filed,
+				type=kind.strip() or None,
 			)
 
 			if json_output:
