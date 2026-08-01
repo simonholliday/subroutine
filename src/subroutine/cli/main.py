@@ -403,9 +403,9 @@ def mcp (
 	rather than connecting to a port. There is nothing to expose and no listener: if the
 	client is not running it, nothing is serving.
 
-	**One connection, chosen here.** Unlike ``today``, which merges every configured instance
-	because a person has one day, a tool call writes somewhere — and where it writes has to be
-	a decision you can see rather than one this process takes for you.
+	One connection, chosen here. Unlike 'today', which merges every configured instance
+	because a person has one day, a tool call writes somewhere — and where it writes has to
+	be a decision you can see rather than one this process takes for you.
 	"""
 
 	# Imported inside the function like `serve`'s uvicorn: an MCP session is a long-lived
@@ -421,7 +421,15 @@ def mcp (
 @app.command()
 def serve (
 	host: str = typer.Option("", "--host", help="What to listen on. Defaults to 127.0.0.1."),
-	port: int = typer.Option(0, "--port", help="Which port to listen on."),
+	# `0` means "whatever is configured", and printing it as the default said the program
+	# listens on port zero (`#170`). `--host` has always described its default in words for
+	# the same reason; this is the same treatment on the option beside it.
+	port: int = typer.Option(
+		0,
+		"--port",
+		show_default=False,
+		help="Which port to listen on. Defaults to the one in 'subroutine config show'.",
+	),
 	insecure: bool = typer.Option(
 		False,
 		"--insecure",
@@ -437,10 +445,10 @@ def serve (
 
 	  subroutine serve --host 0.0.0.0 --insecure
 
-	There is no setting that turns the API on or off, deliberately (SPEC.md §12.4): if this
-	process is not running there is no socket, and a configuration key that made ``serve``
-	refuse to start would be a confusing way of saying "do not run it". The control that
-	actually controls anything is the bind address, and its default is loopback.
+	There is no setting that turns the API on or off, deliberately: if this process is not
+	running there is no socket, and a configuration key that made 'serve' refuse to start
+	would be a confusing way of saying "do not run it". The control that actually controls
+	anything is the bind address, and its default is loopback.
 	"""
 
 	settings = _settings()
@@ -533,11 +541,11 @@ def _refuse_public_bind (
 def help_command (context: typer.Context) -> None:
 	"""Show what this can do — the same as 'subroutine --help'.
 
-	**The same answer, deliberately** (`#154`, Simon 2026-08-01). This used to explain
-	*concepts* while ``--help`` listed *commands*, so one question had two answers and the
-	reader had to learn which was which before learning either. ``help`` is what everybody
-	types first, so it answers the commonest question; the concepts moved to ``explain``,
-	whose name says what it is for in a way ``help <topic>`` never did.
+	The same answer, deliberately. This used to explain concepts while '--help' listed
+	commands, so one question had two answers and the reader had to learn which was which
+	before learning either. 'help' is what everybody types first, so it answers the
+	commonest question; the concepts moved to 'explain', whose name says what it is for in
+	a way 'help <topic>' never did.
 	"""
 
 	parent = context.parent
@@ -640,8 +648,8 @@ def database_copy (
 
 	  subroutine db copy --to postgresql+psycopg:///subroutine
 
-	**A copy, and the original is untouched.** Nothing here writes to or deletes the current
-	database: when the new one looks right, point `database_url` at it. Until then you have
+	A copy, and the original is untouched. Nothing here writes to or deletes the current
+	database: when the new one looks right, point 'database_url' at it. Until then you have
 	two, which is the reassurance somebody changing engines on a Tuesday evening actually
 	wants.
 
@@ -874,8 +882,18 @@ def _confirm_destructive (
 
 @database_app.command("backup")
 def database_backup (
+	# `0` means "prune nothing", and printing it as the default put `[default: 0]` directly
+	# beneath "delete all but this many of the newest backups" — which reads as *delete every
+	# backup you have*, on the one command somebody runs because they are worried about losing
+	# data (`#170`). The guard found this; the clean-room review did not.
 	keep: int = typer.Option(
-		0, "--keep", help="Afterwards, delete all but this many of the newest backups."
+		0,
+		"--keep",
+		show_default=False,
+		help=(
+			"Afterwards, delete all but this many of the newest backups. "
+			"Nothing is deleted unless you ask."
+		),
 	),
 ) -> None:
 	"""Take a datetime-stamped copy of the database.
@@ -953,14 +971,14 @@ def database_restore (
 ) -> None:
 	"""Put a backup back, replacing this instance's database.
 
-	Restoring is two different operations and this will not guess which (SPEC.md §12.6a).
-	**--recover** is your own data returning: the instance keeps its identity, because agents
-	and configuration files already refer to it. **--as-clone** is a copy becoming a separate
-	instance: it gets a new identity, because two live instances may not claim the same one.
+	Restoring is two different operations and this will not guess which. --recover is your
+	own data returning: the instance keeps its identity, because agents and configuration
+	files already refer to it. --as-clone is a copy becoming a separate instance: it gets a
+	new identity, because two live instances may not claim the same one.
 
-	**Stop the service first.** Restoring underneath a running one does not reach it: it goes
-	on writing to the file that was replaced, and its next checkpoint can corrupt the restored
-	one. This refuses when it can see another connection, and ``--force`` overrides that.
+	Stop the service first. Restoring underneath a running one does not reach it: it goes on
+	writing to the file that was replaced, and its next checkpoint can corrupt the restored
+	one. This refuses when it can see another connection, and --force overrides that.
 	"""
 
 	if recover == as_clone:
@@ -1154,18 +1172,18 @@ def token_create (
 
 	  subroutine token create --title "Acme, this month" --expires now+30d
 
-	**``--expires`` names a whole day and the credential works through the end of it**, the
-	same reading §6.5 gives a deadline. A token that stopped at midnight *starting* the day
-	somebody named is the kind of surprise that arrives at the worst moment.
+	'--expires' names a whole day and the credential works through the end of it, the same
+	reading a deadline gets. A token that stopped at midnight starting the day somebody
+	named is the kind of surprise that arrives at the worst moment.
 
-	**The secret is readable exactly once**, here. Nothing recovers it afterwards, including
-	this program: what is stored is a hash (SPEC.md §7.4). It is never passed as an argument
-	to anything, because that would put it in ``ps`` output and shell history.
+	The secret is readable exactly once, here. Nothing recovers it afterwards, including
+	this program: what is stored is a hash. It is never passed as an argument to anything,
+	because that would put it in 'ps' output and shell history.
 
-	``--store`` is opt-in rather than the default, and that is a deliberate choice. Writing a
-	narrow token into ``credentials.toml`` under the local connection would silently narrow
-	*your own* CLI to whatever the agent was given — a token that quietly takes authority away
-	is worse than one you have to paste somewhere.
+	'--store' is opt-in rather than the default, and that is a deliberate choice. Writing a
+	narrow token into credentials.toml under the local connection would silently narrow your
+	own CLI to whatever the agent was given — a token that quietly takes authority away is
+	worse than one you have to paste somewhere.
 	"""
 
 	settings = _settings()
@@ -1273,8 +1291,8 @@ def token_list () -> None:
 
 	  subroutine token list
 
-	**Prefixes, never secrets.** Only a hash is stored (§7.4), so there is nothing here to
-	leak — and the prefix is what ``token revoke`` takes, which is the point of printing it.
+	Prefixes, never secrets. Only a hash is stored, so there is nothing here to leak — and
+	the prefix is what 'token revoke' takes, which is the point of printing it.
 	"""
 
 	settings = _settings()
@@ -1339,9 +1357,9 @@ def token_revoke (
 
 	  subroutine token revoke sr_a1b2c3d4
 
-	**Immediate.** `revoked_at` is read on every request rather than cached, so there is no
-	session to wait out — which is what makes this the answer when a token has leaked or a
-	piece of work has ended.
+	Immediate. A revoked credential is checked on every request rather than cached, so there
+	is no session to wait out — which is what makes this the answer when a token has leaked
+	or a piece of work has ended.
 	"""
 
 	settings = _settings()

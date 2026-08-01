@@ -15,7 +15,8 @@
 
 Three things you might want. Pick one; they compose.
 
-**A to-do list on your own machine.** Nothing to configure — SQLite is made on first use.
+**A to-do list on your own machine.** Nothing to configure — `subroutine init` makes the
+SQLite database and everything in it.
 
 ```console
 $ pip install subroutine
@@ -92,8 +93,8 @@ $ pip install subroutine
 ```
 
 Python 3.11+, and that is the whole list. No database to create, no configuration file to
-write, no server to start — SQLite is the default and it is made on first use. PostgreSQL
-when you outgrow it:
+write, no server to start — SQLite is the default, and `subroutine init` makes it.
+PostgreSQL when you outgrow it:
 
 ```console
 $ pip install "subroutine[postgres]"

@@ -36,8 +36,8 @@ its schema outright with `subroutine init`.
   Deleting is soft, so the wrong number costs nothing.
 - `subroutine list --ready` shows only work that can actually be started — nothing unfinished
   blocks it and it is not deferred. It is the question a backlog cannot answer.
-- `subroutine help` explains the concepts — dates, refs, the capture shorthand — where
-  `subroutine --help` lists the commands.
+- `subroutine help` and `subroutine --help` do the same thing: they list the commands.
+  `subroutine explain` covers the ideas behind them — dates, refs, the capture shorthand.
 
 ### An HTTP API, and agents as first-class users
 

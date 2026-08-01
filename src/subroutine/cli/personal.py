@@ -1338,7 +1338,7 @@ def register (
 
 	@app.command()
 	def show (
-		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="An item number, as shown by 'subroutine list'."),
 		history: bool = typer.Option(False, "--history", help="Every change, newest first."),
 		json_output: bool = typer.Option(False, "--json", help="Print as JSON."),
 	) -> None:
@@ -1430,7 +1430,7 @@ def register (
 	# paths that call `stop()` are the ones nobody exercises on a good day.
 	@app.command("start")
 	def start_item (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 	) -> None:
 		"""Say you have started something.
 
@@ -1440,15 +1440,15 @@ def register (
 
 		  subroutine stop 42
 
-		A person could finish work and put work off and never say they were doing it — the one
-		state that answers "what am I in the middle of" was reachable only over HTTP (`#75`).
+		A person could finish work and put work off and never say they were doing it. The one
+		state that answers "what am I in the middle of" was reachable only over the API.
 		"""
 
 		_moved_to(which, "in_progress", verb="start", said="Started")
 
 	@app.command("stop")
 	def stop_item (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 	) -> None:
 		"""Say you have put something down again, without finishing it.
 
@@ -1456,9 +1456,9 @@ def register (
 
 		  subroutine stop 42
 
-		**A state you can enter and not leave is worse than no state**, which is why this
-		exists beside `start` rather than after somebody has asked for it. Picking something up
-		and putting it down is ordinary; having to finish it to stop showing as busy is not.
+		A state you can enter and not leave is worse than no state, which is why this exists
+		beside 'start' rather than after somebody has asked for it. Picking something up and
+		putting it down is ordinary; having to finish it to stop showing as busy is not.
 		"""
 
 		_moved_to(which, "open", verb="stop", said="Stopped")
@@ -1494,7 +1494,7 @@ def register (
 
 	@app.command()
 	def done (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
 		"""Tick something off.
@@ -1531,7 +1531,7 @@ def register (
 
 	@app.command()
 	def plan (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
@@ -1570,7 +1570,7 @@ def register (
 
 	@app.command()
 	def defer (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day to hide it until."),
 		because: str = typer.Option(
 			"", "--because", help="What you are waiting for, recorded against it."
@@ -1611,17 +1611,34 @@ def register (
 
 	@app.command()
 	def update (
-		which: str = typer.Argument("", help="A task number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		title: str = typer.Option("", "--title", help="What it is called."),
+		# **`show_default=False` on every sentinel-defaulted option** (`#170`). Typer prints a
+		# default it was not asked to hide, so `--importance` advertised `[default: -1]` beside
+		# the words "1-5" — which invites `--importance -1` and answers "Nothing to change." —
+		# and the string sentinels printed their own escape character as `[default:  not
+		# given]`. A sentinel exists so that "not given" and "given this" can be told apart;
+		# publishing it makes it look like a value somebody may pass.
 		description: str = typer.Option(
-			UNGIVEN, "--description", help="What it is about. Pass '' to clear it."
+			UNGIVEN,
+			"--description",
+			show_default=False,
+			help="What it is about. Pass '' to clear it.",
 		),
 		importance: int = typer.Option(
-			UNGIVEN_NUMBER, "--importance", help="How much it matters, 1-5."
+			UNGIVEN_NUMBER,
+			"--importance",
+			show_default=False,
+			help="How much it matters, 1-5.",
 		),
-		urgency: int = typer.Option(UNGIVEN_NUMBER, "--urgency", help="How soon, 1-5."),
+		urgency: int = typer.Option(
+			UNGIVEN_NUMBER, "--urgency", show_default=False, help="How soon, 1-5."
+		),
 		estimate: str = typer.Option(
-			UNGIVEN, "--estimate", help="How long, like '2h' or '90m'. Pass '' to clear it."
+			UNGIVEN,
+			"--estimate",
+			show_default=False,
+			help="How long, like '2h' or '90m'. Pass '' to clear it.",
 		),
 		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
@@ -1711,7 +1728,7 @@ def register (
 
 	@app.command()
 	def comment (
-		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
+		which: str = typer.Argument("", help="An item number, as shown by 'subroutine list'."),
 		body: str = typer.Argument("", help="What happened."),
 	) -> None:
 		"""Record what happened against an item.
@@ -1774,7 +1791,7 @@ def register (
 
 		  cat notes.md | subroutine doc create "Review findings" --type finding
 
-		**A comment is what happened; a document is what you concluded.** If the next person to
+		A comment is what happened; a document is what you concluded. If the next person to
 		look would need to read it, it is a document.
 		"""
 
@@ -1827,7 +1844,7 @@ def register (
 
 		  subroutine link 42 relates-to 12
 
-		**`blocks` is the one that changes what you see**: `subroutine list --ready` leaves out
+		'blocks' is the one that changes what you see: 'subroutine list --ready' leaves out
 		anything blocked by unfinished work, so this is how that filter learns anything.
 		"""
 
@@ -1863,9 +1880,9 @@ def register (
 
 		  subroutine unlink 42 43
 
-		**Worth having beside `link` rather than later.** A link added by mistake blocks work
-		that is not blocked, and `--ready` then hides it — so an unwanted link is worse than a
-		missing one, because it narrows what looks startable and says nothing about doing so.
+		Worth having beside 'link' rather than later. A link added by mistake blocks work that
+		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
+		one, because it narrows what looks startable and says nothing about doing so.
 		"""
 
 		with opened() as world:
@@ -1997,7 +2014,7 @@ def register (
 
 		  subroutine project create API "Public API" --parent WEB
 
-		**The key is yours to choose and cannot be changed afterwards.** It becomes part of
+		The key is yours to choose and cannot be changed afterwards. It becomes part of
 		how every item in the project is addressed, and those strings end up in commit
 		messages and other people's notes. A to Z and 0 to 9, starting with a letter, up to
 		sixteen characters.
@@ -2097,10 +2114,10 @@ def register (
 
 		  subroutine use --reset
 
-		**``--here`` writes a ``.subroutine`` file in the current directory** and is what a
-		checkout of a repository wants (§13.7a): it answers "which project is this work" for
-		everything started from here, including an agent, which cannot be asked. Without it
-		the choice is machine-wide, which cannot be right for two repositories at once.
+		'--here' writes a .subroutine file in the current directory, and is what a checkout of
+		a repository wants: it answers "which project is this work" for everything started
+		from here, including an agent, which cannot be asked. Without it the choice is
+		machine-wide, which cannot be right for two repositories at once.
 		"""
 
 		if reset:
