@@ -2,12 +2,22 @@ name: Release
 
 # Publishing is the one act here that cannot be undone: PyPI refuses a version it has already
 # seen, even after a deletion, so a broken 0.1.0 is not fixed but abandoned. Everything in this
-# file exists to spend that single attempt well — the suite runs, the metadata is checked, the
-# tag is made to agree with the version, and TestPyPI goes first.
+# file exists to spend that single attempt well — the suite runs, the metadata is checked, and
+# the tag is made to agree with the version.
+#
+# **A failed upload spends nothing; only a successful upload of a bad artefact does.** That is
+# why TestPyPI is a rehearsal somebody asks for rather than a gate on the way through. What it
+# proves is the OIDC handshake, and if that is misconfigured the real upload simply fails and is
+# retried; what it does not prove is the artefact, which `twine check` and a clean install from
+# the built wheel already cover. Registering a publisher there is a separate account and a
+# separate act, so a release must not wait on one.
+#
+# Hence: a **tag** publishes to PyPI, a **manual** run rehearses on TestPyPI, and neither can do
+# the other's job by accident.
 #
 # No stored credential anywhere. Both uploads authenticate by OIDC against a trusted publisher
-# configured on PyPI (SPEC.md §2.2), which is why each publishing job asks for `id-token: write`
-# and nothing else does.
+# (SPEC.md §2.2), which is why each publishing job asks for `id-token: write` and nothing else
+# does.
 
 on:
   push:
@@ -111,10 +121,13 @@ jobs:
           name: dist
           path: dist/
 
-  # The rehearsal. Same artefacts, same mechanism, a registry where a mistake costs nothing.
+  # The rehearsal: same artefacts, same mechanism, a registry where a mistake costs nothing —
+  # run when somebody asks for it. Skipped entirely on a tag, so a release is never held up for
+  # the want of a publisher registered on a different site.
   testpypi:
     name: TestPyPI
     needs: build
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     environment:
@@ -134,11 +147,14 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
 
-  # Guarded by the `pypi` environment, so a required reviewer on it makes this a decision
+  # `push` can only mean a tag here, since that is this workflow's only push trigger — so the
+  # condition says "a release, not a rehearsal" rather than restating the trigger. Guarded by
+  # the `pypi` environment as well, so a required reviewer on it makes the upload a decision
   # somebody takes rather than a consequence of pushing a tag.
   pypi:
     name: PyPI
-    needs: testpypi
+    needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     environment:
