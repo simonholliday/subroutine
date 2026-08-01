@@ -12,6 +12,8 @@ notification gets no answer at all, and a tool that fails is a successful respon
 
 import io
 import json
+import os
+import pathlib
 import typing
 import uuid
 
@@ -24,6 +26,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.db.models.project
+import subroutine.directory
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
@@ -1037,3 +1040,37 @@ def test_the_comment_tool_still_points_at_something_that_exists (
 	assert "subroutine_document" in tools, (
 		"subroutine_comment tells an agent to write a document; there must be a tool for it"
 	)
+
+
+def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""`#232`. The failure was reachable by installing the plugin and cloning a team's repo.
+
+	Committing ``.subroutine`` is what the file is *for* once more than one person shares an
+	instance (`#159`, `#177`) — so a colleague clones the repository, runs ``subroutine init``
+	to get an instance of their own, and the marker then names a project that is not on it.
+	Until this, ``subroutine_add`` passed the marker's key to the server unresolved and every
+	call came back "There is no project 'ELSEWHERE' here" with nothing filed, while the CLI
+	beside it warned and carried on. `#166` had settled that a marker is advisory; only one
+	surface had implemented it.
+
+	Reads were never affected — ``list``, ``show`` and ``project`` all answered from the same
+	directory — which is what made it a write-path bug rather than an unusable server, and is
+	why nobody met it before the package was published.
+	"""
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		'project = "ELSEWHERE"\n', encoding="utf-8"
+	)
+	os.chdir(tmp_path)
+
+	text, failed = _called(bound, "subroutine_add", text="Filed anyway")
+
+	assert not failed, text
+	assert "Added" in text
+
+	# And it says so, for the reason this function says everything else out loud: the agent is
+	# holding a repository whose file claims one thing and an instance that says another.
+	assert "ELSEWHERE" in text
+	assert "Ignoring it" in text

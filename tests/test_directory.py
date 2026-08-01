@@ -6,6 +6,8 @@ many.
 """
 
 import pathlib
+import typing
+import uuid
 
 import pytest
 
@@ -188,3 +190,58 @@ def test_a_marker_written_before_ids_existed_still_works (tmp_path: pathlib.Path
 	assert found is not None
 	assert found.project == "SR"
 	assert found.project_id is None
+
+
+class _Row(typing.NamedTuple):
+	"""The two fields `resolve` reads, standing in for a project as a client reports it."""
+
+	id: uuid.UUID
+	key: str
+
+
+def test_a_marker_follows_a_renamed_project_by_id (tmp_path: pathlib.Path) -> None:
+	"""`#177`, and `#232` is why it is asserted here rather than only in the CLI.
+
+	The id is the half that survives a rename, so a marker written before one must go on
+	naming the same project under its new key. `subroutine_add` never did this at all — it
+	passed the marker's key to the server unresolved — and the CLI's copy of the matching was
+	the only one, which is what moved it into `directory`.
+	"""
+
+	moved = uuid.uuid4()
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="OLD", project_id=str(moved)
+	)
+
+	assert subroutine.directory.resolve(marker, [_Row(moved, "NEW")]) == "NEW"
+
+
+def test_a_marker_written_before_ids_still_resolves_by_key (tmp_path: pathlib.Path) -> None:
+	"""Every marker written before `#177` carries a key and no id, including this repository's.
+
+	Case-insensitively, because a key is stored uppercase and a person editing this file by
+	hand will not always type it that way.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="web"
+	)
+
+	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) == "WEB"
+
+
+def test_a_marker_naming_nothing_here_resolves_to_nothing (tmp_path: pathlib.Path) -> None:
+	"""`#166`: ``None`` is an answer, and the caller's job is to carry on having heard it.
+
+	Both halves stale — a key that is not here and an id that is not either — because a
+	marker for somebody else's instance is exactly the case this has to survive, and it is
+	the case committing the file into a shared repository produces.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME,
+		project="ELSEWHERE",
+		project_id=str(uuid.uuid4()),
+	)
+
+	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) is None

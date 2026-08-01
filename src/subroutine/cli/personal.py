@@ -2606,26 +2606,16 @@ def register (
 	def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
 		"""Return the current key of the project a marker names, or ``None`` if there is none.
 
-		By id where the marker carries one, because that is the half that survives a rename;
-		by key otherwise, which is every marker written before `#177` — including the one in
-		this repository. A marker that predates the change must go on working, or the upgrade
-		is the outage.
+		The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
+		server — this half is only the fetching, because that is the part that needs a world
+		to fetch through. It was one function here until `#232` found the other surface had no
+		equivalent at all.
 		"""
 
 		where = world.writing_to()
 		found = where.client.projects(workspace=_writing_workspace(world))
 
-		if marker.project_id is not None:
-			for row in found:
-				if str(row.id) == marker.project_id:
-					return row.key
-
-		if marker.project is not None:
-			for row in found:
-				if row.key.upper() == marker.project.upper():
-					return row.key
-
-		return None
+		return subroutine.directory.resolve(marker, found)
 
 	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:

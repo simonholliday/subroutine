@@ -472,26 +472,48 @@ def _added (
 	# need it restarted — which is the one thing an agent cannot do to itself.
 	marker = subroutine.directory.find()
 	line = _text(arguments, "text") or ""
-	filed = (
-		marker.project
-		if marker is not None
-		and marker.project is not None
+	workspace = _text(arguments, "workspace")
+
+	consulted = (
+		marker is not None
+		and (marker.project is not None or marker.project_id is not None)
 		and not subroutine.domain.capture.names_a_project(line)
+	)
+
+	# **Resolved against this instance, never passed through** (`#232`). The marker's key went
+	# straight to the server until 0.1.0, so a checkout marked for somebody else's instance —
+	# which is what committing this file is *for* — refused every `subroutine_add` with "there
+	# is no project 'SR' here", while the CLI beside it filed the task and said it had ignored
+	# the marker. `#166` settled that the marker is advisory; only one surface implemented it.
+	# Resolving also buys `#177`: a renamed project is followed by id, which this never did.
+	filed = (
+		subroutine.directory.resolve(marker, client.projects(workspace=workspace))
+		if consulted and marker is not None
 		else None
 	)
 
 	captured = client.capture(
 		text=line,
-		workspace=_text(arguments, "workspace"),
+		workspace=workspace,
 		type=_text(arguments, "type"),
 		project=filed,
 	)
 	answer = "Added " + _line(captured.task)
 
 	# Said out loud for the same reason the CLI says it: nobody typed it, and an agent that
-	# cannot see where its work went cannot tell a person either.
+	# cannot see where its work went cannot tell a person either. That argument applies just
+	# as much when the marker was *not* used — more so, because the agent is then holding a
+	# repository whose file says one thing and an instance that says another.
 	if filed is not None:
 		answer = f"{answer}\n  in {filed}, from {subroutine.directory.FILE_NAME}"
+
+	elif consulted and marker is not None:
+		shown = marker.project or marker.project_id
+
+		answer = (
+			f"{answer}\n  {subroutine.directory.FILE_NAME} here names {shown!r}, which is not "
+			f"on this instance. Ignoring it."
+		)
 
 	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
 	# the caller most likely to have written something it believes was understood, and telling

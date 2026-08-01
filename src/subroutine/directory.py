@@ -81,6 +81,47 @@ class Marker(typing.NamedTuple):
 		return f"{named or 'nothing'}, from {self.path}"
 
 
+class Named(typing.Protocol):
+	"""The two fields a marker is resolved against, on whatever a client hands back."""
+
+	@property
+	def id (self) -> typing.Any:
+		"""The project's permanent identifier."""
+
+	@property
+	def key (self) -> str:
+		"""The project's current key."""
+
+
+def resolve (marker: Marker, projects: typing.Iterable[Named]) -> str | None:
+	"""Return the current key of the project a marker names, or ``None`` if there is none.
+
+	By id where the marker carries one, because that is the half that survives a rename
+	(`#177`); by key otherwise, which is every marker written before that change — including
+	the one in this repository. A marker that predates it must go on working, or the upgrade
+	is the outage.
+
+	**Returning ``None`` is an answer, not a failure** (`#166`). A marker is advisory context
+	written by a machine, so a checkout marked for one instance must not stop work being filed
+	against another — the caller reports that it was ignored and carries on. This lives here,
+	client-free and taking rows rather than fetching them, because both surfaces need the same
+	answer and the CLI had the only copy: `subroutine_add` passed the marker's key straight to
+	the server and refused whenever it did not exist there (`#228`'s neighbour, `#232`).
+	"""
+
+	if marker.project_id is not None:
+		for row in projects:
+			if str(row.id) == marker.project_id:
+				return row.key
+
+	if marker.project is not None:
+		for row in projects:
+			if row.key.upper() == marker.project.upper():
+				return row.key
+
+	return None
+
+
 def find (start: pathlib.Path | None = None) -> Marker | None:
 	"""Return the nearest marker at or above ``start``, or ``None``.
 
