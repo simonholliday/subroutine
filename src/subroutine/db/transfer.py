@@ -28,7 +28,6 @@ import dataclasses
 
 import sqlalchemy
 import sqlalchemy.engine
-import sqlalchemy.orm
 
 import subroutine.db.base
 import subroutine.db.migrate

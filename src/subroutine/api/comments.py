@@ -31,7 +31,6 @@ import subroutine.db.models.activity
 import subroutine.domain.authentication
 import subroutine.domain.comments
 import subroutine.domain.paging
-import subroutine.domain.selection
 import subroutine.views
 
 #: One router per subject, so each sits beside the entity it extends and ``routing.check`` can

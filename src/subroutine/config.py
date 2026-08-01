@@ -23,6 +23,7 @@ import tomllib
 import typing
 
 import pydantic
+import pydantic.fields
 import pydantic_settings
 
 APPLICATION_NAME = "subroutine"

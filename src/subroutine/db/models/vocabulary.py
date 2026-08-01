@@ -13,7 +13,6 @@ import sqlalchemy.orm
 
 import subroutine.db.base
 import subroutine.db.mixins
-import subroutine.db.types
 
 
 class Status(

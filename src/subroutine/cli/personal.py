@@ -35,8 +35,6 @@ import rich.text
 import typer
 
 import subroutine.clients.base
-import subroutine.clients.http
-import subroutine.clients.local
 import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections

@@ -39,7 +39,6 @@ import subroutine.api.shaping
 import subroutine.api.subjects
 import subroutine.config
 import subroutine.db.models.activity
-import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.paging
 import subroutine.views

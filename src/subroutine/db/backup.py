@@ -31,7 +31,6 @@ import alembic.script
 import sqlalchemy
 import sqlalchemy.engine
 import sqlalchemy.exc
-import sqlalchemy.orm
 
 import subroutine.config
 import subroutine.db.migrate

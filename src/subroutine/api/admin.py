@@ -22,7 +22,6 @@ import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.backup
 import subroutine.domain.authorization
-import subroutine.errors
 import subroutine.permissions
 
 router = fastapi.APIRouter(

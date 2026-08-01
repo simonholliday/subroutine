@@ -11,7 +11,6 @@ import sqlalchemy.orm
 import starlette.requests
 
 import subroutine.config
-import subroutine.db.session
 
 
 def settings (request: starlette.requests.Request) -> subroutine.config.Settings:

@@ -37,6 +37,7 @@ import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.session
 import subroutine.db.transfer
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local

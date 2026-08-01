@@ -27,7 +27,6 @@ import typing
 import uuid
 
 import sqlalchemy
-import sqlalchemy.orm
 
 import subroutine.db.models.project
 import subroutine.db.models.work

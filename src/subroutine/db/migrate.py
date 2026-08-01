@@ -14,7 +14,6 @@ import alembic.autogenerate
 import alembic.command
 import alembic.config
 import alembic.migration
-import alembic.runtime.migration
 import alembic.script
 import alembic.util.exc
 import sqlalchemy

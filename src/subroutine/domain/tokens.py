@@ -18,7 +18,6 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
-import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.errors

@@ -17,7 +17,6 @@ import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
 import subroutine.context
-import subroutine.errors
 import subroutine.mcp.protocol
 import subroutine.mcp.tools
 

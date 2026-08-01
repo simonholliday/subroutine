@@ -23,6 +23,7 @@ import datetime
 import typing
 
 import sqlalchemy
+import sqlalchemy.orm
 
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
