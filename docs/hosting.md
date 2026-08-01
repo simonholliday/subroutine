@@ -330,13 +330,17 @@ why `user create` tells you the next command rather than stopping at "Created".
 is one of her own, and it is readable exactly once:
 
 ```console
-$ subroutine token create --service-account ana --title "Ana's laptop"
+$ subroutine token create --username ana --title "Ana's laptop"
 ```
 
-`--service-account` is the flag for it, and its name has not caught up with what it does: given
-a name that already exists it issues for that account and creates nothing, so it works for a
-person as well as for an agent. Ana stays an ordinary account. Everything else about the
-credential — scopes, a workspace pin, an expiry — is the same either way.
+`--username` is for somebody who already has an account; `--service-account` is for a machine
+identity and creates one if there is none. They are separate flags because they are separate
+decisions — naming a person under `--service-account` is refused rather than quietly handing
+out their credential. Everything else — scopes, a workspace pin, an expiry — is the same for
+either.
+
+A credential is never issued for an account that could not use it: a deactivated account is
+refused here rather than given a token that fails the first time it is presented.
 
 **Roles belong to a workspace.** `member` in one is not `member` in another; each workspace is
 seeded with its own, and `subroutine user list --workspace <slug>` says who holds which.

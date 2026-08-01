@@ -44,7 +44,10 @@ its schema outright with `subroutine init`.
 - The full REST API under `/v1`, with the same data model and the same permission checks the
   CLI uses. `GET /v1/docs/agent` is the guide an agent should read first.
 - Scoped bearer tokens: an agent's credential can be narrower than the person who issued it,
-  and may never be wider. Service accounts, per-workspace pins, and per-permission scopes.
+  and may never be wider. Per-workspace pins and per-permission scopes.
+- `subroutine token create --username ana` issues for a person, `--service-account claude` for
+  a machine identity, creating it as it goes. Two flags because they are two decisions, and
+  neither will issue a credential for an account that could not use it.
 - `subroutine mcp` serves the same instance over the Model Context Protocol, in nine tools —
   including `link` and `project`, so an agent can say what blocks what and file its own work.
 - **A Claude Code plugin**, which wires those tools up and carries a skill describing the

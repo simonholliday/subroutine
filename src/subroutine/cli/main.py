@@ -1191,6 +1191,11 @@ SERVICE_ACCOUNT_ROLE = "contributor"
 @token_app.command("create")
 def token_create (
 	title: str = typer.Option("", "--title", help="What this credential is for."),
+	username: str = typer.Option(
+		"",
+		"--username",
+		help="Issue for somebody who already has an account, by the name 'user list' shows.",
+	),
 	service_account: str = typer.Option(
 		"",
 		"--service-account",
@@ -1215,9 +1220,19 @@ def token_create (
 
 	  subroutine token create --title "My laptop"
 
+	  subroutine token create --username ana --title "Ana's laptop"
+
 	  subroutine token create --service-account claude --scope task:read --scope task:write
 
 	  subroutine token create --title "Acme, this month" --expires now+30d
+
+	Named on its own it is yours. '--username' issues for somebody who already has an
+	account; '--service-account' issues for a machine identity and creates one if there is
+	none. They are separate flags because they are separate decisions: naming a person under
+	'--service-account' is refused rather than quietly handing out their credential.
+
+	Neither will issue for an account that could not use it. A deactivated account is turned
+	down here, rather than given a token that fails the first time it is presented.
 
 	'--expires' names a whole day and the credential works through the end of it, the same
 	reading a deadline gets. A token that stopped at midnight starting the day somebody
@@ -1253,7 +1268,9 @@ def token_create (
 		with factory() as session:
 			try:
 				operator = _operator(session, settings)
-				owner, created = _token_owner(session, operator, service_account, workspace)
+				owner, created = _token_owner(
+					session, operator, username, service_account, workspace
+				)
 				pinned = _pinned_workspace(session, owner, workspace)
 				_row, issued = subroutine.domain.authentication.issue_token(
 					session,
@@ -1618,34 +1635,76 @@ def _operator (
 def _token_owner (
 	session: sqlalchemy.orm.Session,
 	operator: subroutine.domain.authentication.Principal,
+	username: str,
 	service_account: str,
 	workspace: str,
 ) -> tuple[subroutine.db.models.identity.User, bool]:
-	"""Return whose token this is, making a service account if one was named.
+	"""Return whose token this is, and whether an account had to be made for it.
 
-	Returns ``(user, created)``. Running the same command twice reuses the account rather than
-	refusing: issuing a second token for one agent is an ordinary thing to want, and "that
-	name is taken" would be a strange thing to say about the account you asked for.
+	**Two flags, because these are two decisions** (`#207`). ``--username`` says *who*;
+	``--service-account`` says who *and* that a machine identity may be created for the name.
+	One word answering both is what this was, and it got each of them wrong at an edge: a
+	``--service-account`` naming a person issued that person's credential and said nothing,
+	under a flag whose stated subject is machines, and either spelling would mint a token for a
+	deactivated account — accepted here and refused the first time anybody used it.
+
+	Returns ``(user, created)``. Naming an existing service account twice reuses it rather than
+	refusing: issuing a second token for one agent is an ordinary thing to want, and "that name
+	is taken" would be a strange thing to say about the account you asked for.
 	"""
 
-	name = service_account.strip()
+	wanted = username.strip()
+	machine = service_account.strip()
 
-	if not name:
+	if wanted and machine:
+		_stop(
+			"Say either --username or --service-account, not both.",
+			"--username issues for an account that already exists; --service-account issues "
+			"for a machine identity and creates one if there is none.",
+		)
+
+	if not wanted and not machine:
 		return operator.user, False
 
-	normalized = subroutine.domain.users.normalize(name)
-	model = subroutine.db.models.identity.User
-	existing = session.scalars(
-		sqlalchemy.select(model).where(
-			model.username_normalized == normalized, model.deleted_at.is_(None)
-		)
-	).one_or_none()
+	existing = _live_account(session, wanted or machine)
+
+	if wanted:
+		if existing is None:
+			# **"Absent" and "deactivated" get different sentences**, because they have
+			# different remedies and the wrong one wastes somebody's time in a way they cannot
+			# see: telling the holder of a deactivated account to create it sends them at a
+			# name that is already taken.
+			if _any_account(session, wanted) is not None:
+				_stop(
+					f"{wanted!r} is deactivated, so a credential issued for it would be "
+					f"refused the first time it was used.",
+					"Reactivate the account first, or issue the credential for somebody else.",
+				)
+
+			_stop(
+				f"There is no account called {wanted!r} here.",
+				f"Run 'subroutine user list' to see who there is, or 'subroutine user create "
+				f"{wanted}' to add them. To create a machine identity instead, use "
+				f"--service-account.",
+			)
+
+		return existing, False
 
 	if existing is not None:
+		# **A person is not a machine identity, and this used to hand out their credential.**
+		# Refused rather than reused: the flag says what it is for, somebody typing it meant
+		# it, and issuing a human's authority under it is a thing they would not have chosen.
+		if not existing.is_service_account:
+			_stop(
+				f"{existing.username!r} is a person's account, not a machine identity.",
+				f"Use '--username {existing.username}' to issue a credential for them, or "
+				f"choose another name for the service account.",
+			)
+
 		return existing, False
 
 	account = subroutine.domain.users.create(
-		session, username=name, is_service_account=True, actor=operator
+		session, username=machine, is_service_account=True, actor=operator
 	)
 	home = _pinned_workspace(session, account, workspace) or _sole_workspace(session)
 
@@ -1656,6 +1715,49 @@ def _token_owner (
 	)
 
 	return account, True
+
+
+def _live_account (
+	session: sqlalchemy.orm.Session, username: str
+) -> subroutine.db.models.identity.User | None:
+	"""Return the account of that name that a credential could actually be used with.
+
+	**Inactive is as good as absent here** (`#207`). ``authenticate`` refuses a token whose
+	owner is not active, so issuing one for a deactivated account produces a credential that is
+	dead on arrival — accepted, printed, stored, and then refused the first time somebody tries
+	it, with a message about the account rather than about the command that made it. The same
+	filter every other way of becoming a principal uses (``domain.local._named``).
+	"""
+
+	model = subroutine.db.models.identity.User
+
+	return session.scalars(
+		sqlalchemy.select(model).where(
+			model.username_normalized == subroutine.domain.users.normalize(username),
+			model.deleted_at.is_(None),
+			model.is_active.is_(True),
+		)
+	).one_or_none()
+
+
+def _any_account (
+	session: sqlalchemy.orm.Session, username: str
+) -> subroutine.db.models.identity.User | None:
+	"""Return the account of that name whether or not it is active, for wording a refusal.
+
+	Only ever asked *after* :func:`_live_account` has said no, and only to tell "there is no
+	such person" from "there is, and they have been switched off" — which are the same failure
+	and different remedies.
+	"""
+
+	model = subroutine.db.models.identity.User
+
+	return session.scalars(
+		sqlalchemy.select(model).where(
+			model.username_normalized == subroutine.domain.users.normalize(username),
+			model.deleted_at.is_(None),
+		)
+	).one_or_none()
 
 
 def _pinned_workspace (

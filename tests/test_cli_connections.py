@@ -699,6 +699,95 @@ def test_a_token_is_never_issued_against_an_unusable_credentials_file (
 	assert _tokens_in(home) == 0, "a credential was minted and stranded"
 
 
+def test_a_credential_for_a_person_and_one_for_a_machine_are_different_commands (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#207`. One flag answered two questions and got each of them wrong at an edge.
+
+	``--service-account`` meant both "who is this for" and "make a machine identity if there
+	is none", so naming a *person* issued that person's credential and said nothing — under a
+	flag whose stated subject is machines. `#196` had no honest command to document because of
+	it: both published pages told the operator to type ``--username``, which did not exist.
+
+	Two flags, each answering one question and each true of what it does.
+	"""
+
+	run("init")
+	run("user", "create", "ana", "--name", "Ana Ruiz")
+	run("user", "add", "ana", "--role", "member")
+
+	issued = run("token", "create", "--username", "ana", "--title", "Ana's laptop").output
+
+	assert re.search(r"sr_[0-9a-f]{8}_", issued), "the documented command issues a credential"
+	assert "service account" not in issued.lower(), "and does not report making one"
+
+	# Ana is still a person. The flag that would have said otherwise now refuses.
+	refused = run("token", "create", "--service-account", "ana", expect=1).output
+
+	assert "not a machine identity" in refused
+	assert "--username ana" in refused, "and names the flag that does what they meant"
+
+	# The machine half is untouched: it still creates, and still reuses on a second call.
+	created = run("token", "create", "--service-account", "claude").output
+
+	assert "Created service account claude" in created
+
+	again = run("token", "create", "--service-account", "claude").output
+
+	assert "Created service account" not in again, "a second token for one agent is ordinary"
+
+
+def test_a_credential_is_never_issued_for_an_account_that_could_not_use_it (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#207`, the other half. It minted tokens that were dead on arrival.
+
+	``authenticate`` refuses a token whose owner is inactive, so issuing one for a deactivated
+	account produced a credential that was accepted, printed, possibly stored — and then
+	refused the first time anybody used it, with a message about the account rather than about
+	the command that made it.
+
+	Absent and deactivated get different sentences, because they have different remedies and
+	the wrong one sends somebody at a name that is already taken.
+	"""
+
+	run("init")
+	run("user", "create", "ana", "--name", "Ana Ruiz")
+	run("user", "add", "ana", "--role", "member")
+
+	_deactivate(home, "ana")
+
+	stopped = run("token", "create", "--username", "ana", expect=1).output
+
+	assert "deactivated" in stopped
+	assert "Reactivate" in stopped
+	assert not re.search(r"sr_[0-9a-f]{8}_", stopped), "and nothing was issued"
+	assert _tokens_in(home) == 0
+
+	missing = run("token", "create", "--username", "bob", expect=1).output
+
+	assert "no account called 'bob'" in missing
+	assert "user create bob" in missing, "which is the remedy for this one and not the other"
+
+
+def _deactivate (home: pathlib.Path, username: str) -> None:
+	"""Switch an account off, the way an administrator eventually will."""
+
+	engine = sqlalchemy.create_engine(
+		f"sqlite:///{home / 'xdg_data_home' / 'subroutine' / 'subroutine.db'}"
+	)
+
+	try:
+		with engine.begin() as connection:
+			connection.execute(
+				sqlalchemy.text("update user set is_active = 0 where username = :name"),
+				{"name": username},
+			)
+
+	finally:
+		engine.dispose()
+
+
 def test_an_administrative_refusal_names_the_file_the_bad_credential_is_in (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

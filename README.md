@@ -265,10 +265,10 @@ $ subroutine user list --workspace acme
 ```
 
 There is no password: Subroutine authenticates with tokens, so what Ana needs next is
-`subroutine token create --service-account ana` — the flag issues for any account that already
-exists, so it works for a person as well as for an agent. Roles belong to a workspace, so
-`member` in one is not `member` in another, and the last account able to administer a workspace
-cannot be removed from it.
+`subroutine token create --username ana`. That is for a person; `--service-account` is for an
+agent and creates the identity as it goes. Roles belong to a workspace, so `member` in one is
+not `member` in another, and the last account able to administer a workspace cannot be removed
+from it.
 
 **[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
 unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,
