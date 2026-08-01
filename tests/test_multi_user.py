@@ -162,9 +162,13 @@ def test_the_last_administrator_cannot_be_removed (
 	so it cannot be repaired from inside.
 	"""
 
-	run("init", "--workspace", "Acme")
+	# `--username`, because without it `init` names the account after whoever is running the
+	# suite (`getpass.getuser()`). This test used to ask for `si` back, which is the developer's
+	# login — so everywhere else it refused with "there is no account called 'si'", passing
+	# expect=1 for a reason that has nothing to do with administrators (`#227`).
+	run("init", "--workspace", "Acme", "--username", "owner")
 
-	refused = run("user", "remove", "si", expect=1)
+	refused = run("user", "remove", "owner", expect=1)
 
 	assert "administer" in refused.output
 
