@@ -251,15 +251,282 @@ def head_in (path: pathlib.Path) -> str:
 	whether data gets misread.
 	"""
 
-	if path.suffix == SQLITE_SUFFIX:
+	# Through `engine_in` so the refusal for an unrecognised name exists once. The two
+	# questions really are the same one: which tool wrote this file decides both which engine
+	# can read it back and how its schema version is found inside it.
+	if engine_in(path) == "SQLite":
 		return _head_in_sqlite(path)
 
-	if path.suffix == POSTGRESQL_SUFFIX:
-		return _head_in_dump(path)
+	return _head_in_dump(path)
 
-	raise subroutine.errors.BadRequest(
-		f"'{path.name}' is not a Subroutine backup: expected a name ending in "
-		f"{SQLITE_SUFFIX} or {POSTGRESQL_SUFFIX}."
+
+#: What each suffix says a backup was taken from, in the words an operator would use rather
+#: than the dialect names. Read from the *name* because that is what the writer chose it for:
+#: `.db` is a SQLite database and `.sql` is a script only ``psql`` can read, and the two are
+#: not interchangeable in either direction.
+ENGINE_OF_SUFFIX = {SQLITE_SUFFIX: "SQLite", POSTGRESQL_SUFFIX: "PostgreSQL"}
+
+
+def engine_in (path: pathlib.Path) -> str:
+	"""Return which engine a backup was taken from — ``SQLite`` or ``PostgreSQL``."""
+
+	found = ENGINE_OF_SUFFIX.get(path.suffix)
+
+	if found is None:
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' is not a Subroutine backup: expected a name ending in "
+			f"{SQLITE_SUFFIX} or {POSTGRESQL_SUFFIX}."
+		)
+
+	return found
+
+
+def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
+	"""Refuse a backup taken from the other engine, before anything is destroyed (`#172`).
+
+	**The whole defect was one of order.** Restoring into PostgreSQL drops and recreates
+	``public`` and *then* hands the file to ``psql``, so a SQLite backup chosen by mistake took
+	the instance with it and reported a raw encoding error — ``invalid byte sequence for
+	encoding "UTF8"`` — that never says "SQLite", never says "wrong file", and leaves an empty
+	database behind. The one thing an operator needed to know was knowable before a single row
+	was dropped.
+
+	``docs/hosting.md`` already stated the rule, which is the shape worth noticing: the
+	document knew and the program did not, so the only thing standing between a correct
+	instance and an empty one was whether somebody had read the right paragraph.
+
+	Asked of the **engine**, never of ``settings`` — see ``_is_sqlite``.
+	"""
+
+	held = engine_in(source)
+	ours = "SQLite" if _is_sqlite(engine) else "PostgreSQL"
+
+	if held == ours:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"'{source.name}' is a {held} backup and this instance runs on {ours}.",
+		hint=(
+			f"Backups are taken with the tools of one engine and cannot be read by the other, "
+			f"so this one cannot be restored here — nothing has been changed. A {ours} backup "
+			f"of this instance ends in "
+			f"{SQLITE_SUFFIX if ours == 'SQLite' else POSTGRESQL_SUFFIX}; "
+			f"'subroutine db backups' lists them with their engine. To move an instance "
+			f"between engines, use 'subroutine db copy'."
+		),
+	)
+
+
+def in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
+	"""Return what else is holding this database, or ``None`` if nothing is (`#171`).
+
+	**Restoring underneath a running service destroys the instance and reports success.** The
+	serving process keeps its descriptors on the file that was just replaced — ``subroutine.db
+	(deleted)`` in ``/proc``, with its ``-wal`` and ``-shm`` beside it — so every write it
+	accepts is lost, every read is stale, and its next WAL checkpoint lands on top of the
+	restored file and corrupts it. The API answers 200 throughout, including ``/readyz``, which
+	is the endpoint an operator would use to check that the restore worked.
+
+	§12.4's argument is that recovery works under pressure, and this is the command run under
+	pressure. A sentence in a document is not enough: ``docs/hosting.md`` says "stop the
+	service first" for ``db copy``, which is the *safer* of the two.
+
+	**Asked of the database itself rather than of the process table.** SQLite answers by
+	refusing an exclusive lock — an idle pooled connection in another process is enough, which
+	is exactly the case a live server presents — and PostgreSQL answers from
+	``pg_stat_activity``. Both are the real question; scanning ``/proc`` would be a Linux-only
+	guess at it.
+	"""
+
+	# Our own pool would otherwise answer for somebody else. This is called before anything is
+	# read or written, so there is nothing in flight to lose.
+	engine.dispose()
+
+	if _is_sqlite(engine):
+		return _sqlite_in_use_by(engine)
+
+	return _postgresql_in_use_by(engine)
+
+
+def _sqlite_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
+	"""Report whether another process holds the SQLite database open."""
+
+	database = engine.url.database
+
+	if database is None or database == ":memory:" or not pathlib.Path(database).exists():
+		return None
+
+	path = pathlib.Path(database)
+
+	# **Descriptors first, because they are the only signal damage cannot corrupt.** They also
+	# answer the worst case directly: a process still holding the file a previous restore
+	# unlinked appears here as `(deleted)`, which is the state `#171` leaves behind.
+	holders = _holders_in_proc(path)
+
+	if holders:
+		return f"process {', '.join(str(pid) for pid in holders)} has the database file open"
+
+	# **And the lock probe only on a database that can be read at all.** A damaged one with a
+	# stale write-ahead log reports "database is locked" while trying to recover a log it
+	# cannot read — with nothing else running. Reading that as "somebody is using it" refuses
+	# the rescue on the strength of the damage, which is `#173` reintroduced by `#171`'s fix.
+	# Measured: a failed safety copy leaves exactly that pair of files behind, so the two
+	# defects meet on the ordinary path rather than in some corner.
+	if not _sqlite_readable(path):
+		return None
+
+	try:
+		connection = sqlite3.connect(database, timeout=0)
+
+	except sqlite3.Error:
+		return None
+
+	if connection is not None:
+		try:
+			# An exclusive lock needs sole access to the shared-memory index, which another
+			# connection holds simply by existing. Verified against an *idle* connection,
+			# because a pooled one between requests takes no lock of its own and would
+			# otherwise pass — ``db/session.py`` puts every connection into WAL, so any
+			# process of ours holding this database has produced the index this looks for.
+			connection.execute("PRAGMA locking_mode=EXCLUSIVE")
+			connection.execute("BEGIN IMMEDIATE")
+			connection.execute("COMMIT")
+
+		except sqlite3.Error as error:
+			return f"another process has the database open ({error})"
+
+		finally:
+			connection.close()
+
+	return None
+
+
+def _sqlite_readable (path: pathlib.Path) -> bool:
+	"""Report whether this file can be opened and read as a database at all.
+
+	The question the lock probe needs answered first, because "locked" and "damaged" arrive as
+	the same sentence and mean opposite things: one is a reason to refuse a restore and the
+	other is the reason to run one.
+
+	Opened read-write rather than read-only, deliberately — reading a database with a
+	write-ahead log beside it may need to recover that log, which a read-only connection
+	cannot do, and a healthy database would then be reported unreadable.
+	"""
+
+	if not path.exists():
+		return False
+
+	try:
+		connection = sqlite3.connect(path, timeout=0)
+
+	except sqlite3.Error:
+		return False
+
+	try:
+		connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+
+	except sqlite3.Error:
+		return False
+
+	finally:
+		connection.close()
+
+	return True
+
+
+def _holders_in_proc (path: pathlib.Path) -> list[int]:
+	"""Return the pids holding this file open, where ``/proc`` can say.
+
+	**Best effort, and openly so.** It answers on Linux, which is what this is deployed on and
+	what ``docs/hosting.md`` describes; elsewhere it returns nothing and the lock probe is the
+	whole answer. A process owned by another user is unreadable and so invisible, which is why
+	this is a second signal rather than the only one — a check that quietly saw nothing would
+	be worse than no check, because it would be believed.
+	"""
+
+	root = pathlib.Path("/proc")
+
+	if not root.is_dir():
+		return []
+
+	try:
+		wanted = str(path.resolve())
+
+	except OSError:
+		return []
+
+	# The unlinked form is the state `#171` leaves behind: the serving process goes on writing
+	# to a file that no longer has a name, which is why the corruption is invisible until its
+	# next checkpoint.
+	names = {wanted, f"{wanted} (deleted)"}
+	found = []
+
+	for entry in root.iterdir():
+		if not entry.name.isdigit() or int(entry.name) == os.getpid():
+			continue
+
+		try:
+			descriptors = list((entry / "fd").iterdir())
+
+		except OSError:
+			# Another user's process, or one that exited while this was walking. Both are
+			# ordinary here and neither is an answer.
+			continue
+
+		for descriptor in descriptors:
+			try:
+				link = os.readlink(descriptor)
+
+			except OSError:
+				continue
+
+			if link in names:
+				found.append(int(entry.name))
+
+				break
+
+	return sorted(found)
+
+
+def _postgresql_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
+	"""Report how many other sessions are connected to the PostgreSQL database."""
+
+	try:
+		with engine.connect() as connection:
+			others = connection.execute(
+				sqlalchemy.text(
+					"SELECT count(*) FROM pg_stat_activity "
+					"WHERE datname = current_database() AND pid <> pg_backend_pid()"
+				)
+			).scalar_one()
+
+	except sqlalchemy.exc.SQLAlchemyError:
+		# Same reasoning as the SQLite side: a database that cannot be reached is not one
+		# somebody else is using, and refusing here would block the rescue.
+		return None
+
+	if not others:
+		return None
+
+	return f"{others} other connection{'' if others == 1 else 's'} to the database"
+
+
+def check_unused (engine: sqlalchemy.engine.Engine) -> None:
+	"""Refuse to restore over a database something else is using (`#171`)."""
+
+	holder = in_use_by(engine)
+
+	if holder is None:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"Something else is using this database: {holder}.",
+		hint=(
+			"Restoring underneath a running service does not reach it — it keeps writing to "
+			"the file that was replaced, and its next checkpoint can corrupt the restored "
+			"one. Stop the service first ('systemctl stop subroutine', or however it is run), "
+			"then restore. Use --force only if you are certain nothing is connected."
+		),
 	)
 
 
@@ -333,7 +600,19 @@ def take (
 	causing the loss it exists to prevent.
 	"""
 
-	head = subroutine.db.migrate.current_revision(engine)
+	try:
+		head = subroutine.db.migrate.current_revision(engine)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		# Translated for the reason `_take_sqlite` gives, and for one more that cost a rescue
+		# (`#173`). This is the *first* thing `take` does, so a damaged database fails here
+		# rather than in the copy — and a raw driver error escaping at this point walks past
+		# every caller that guards itself against a `SubroutineError`, which is exactly what
+		# aborted a `db restore --recover` on the only database that needed one.
+		raise subroutine.errors.BadRequest(
+			f"This database could not be read in order to back it up: "
+			f"{getattr(error, 'orig', None) or error}"
+		) from error
 
 	if head is None:
 		raise subroutine.errors.BadRequest(
@@ -597,6 +876,7 @@ def restore (
 	source: pathlib.Path,
 	*,
 	as_clone: bool,
+	force: bool = False,
 ) -> str:
 	"""Put a backup back, and return the schema head that was restored.
 
@@ -608,6 +888,14 @@ def restore (
 	Both are done here rather than by the caller so that neither can be forgotten at one of
 	two call sites.
 	"""
+
+	# Every check before anything is touched, and in this order: a file from the other engine
+	# is refused as such rather than as a file with no schema version in it (`#172`), and a
+	# database somebody else is using is refused before either (`#171`).
+	if not force:
+		check_unused(engine)
+
+	check_engine(engine, source)
 
 	head = check_restorable(source)
 

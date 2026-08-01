@@ -59,18 +59,24 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 	runner = typer.testing.CliRunner()
 
-	def invoke (*arguments: str, expect: int = 0) -> typer.testing.Result:
+	def invoke (
+		*arguments: str, expect: int = 0, answers: str | None = None
+	) -> typer.testing.Result:
 		"""Run one command and check how it ended.
 
 		The profile variable is cleared first, so each call behaves like a fresh shell.
 		``--profile`` deliberately *exports* itself so that anything the process starts
 		inherits the same instance (§12.5) — which in one process makes the choice stick to
 		the next invocation, and a test that shared it would be testing the runner.
+
+		``answers`` is what a person would type at a prompt, which is the only way to exercise
+		a command's *declining* path — and a destructive command's refusal is as much of its
+		behaviour as the act.
 		"""
 
 		os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
 
-		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=answers)
 
 		assert result.exit_code == expect, (
 			f"'subroutine {' '.join(arguments)}' exited {result.exit_code}\n"
@@ -235,6 +241,106 @@ def test_a_protected_instance_refuses_a_restore_without_agreement (
 
 	# And it goes ahead when told to out loud.
 	run("db", "restore", name, "--recover", "--yes")
+
+
+def _damage (path: pathlib.Path) -> None:
+	"""Scramble a SQLite database's schema page, leaving the header intact.
+
+	How a crash or a bad disk actually leaves a file: the magic still says "SQLite", so it
+	opens, and it fails on the first real read. Truncating it instead would be caught earlier
+	by something else and would not reach the code these tests are about.
+	"""
+
+	with path.open("r+b") as handle:
+		handle.seek(100)
+		handle.write(b"\x00\xff" * 1998)
+
+
+def test_a_rescue_restore_completes_when_the_damaged_database_cannot_be_copied (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#173`, and the worst defect the clean-room review found in this command.
+
+	The safety copy is taken *first*, it reads the database being replaced, and its failure
+	used to abort the restore — so ``db restore --recover`` failed on exactly the damaged
+	database it exists for. §12.4's argument is that recovery works when nothing else does;
+	a safety net that blocks the rescue is not a safety net.
+
+	The escape hatch existed — ``--no-safety-backup`` — and was named in no document and in no
+	message, so the operator meeting this at 2 a.m. had no way to find it.
+	"""
+
+	run("init", "--workspace", "Real")
+	run("add", "Worth recovering")
+
+	name = _backup_name(run("db", "backup").output)
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	_damage(database)
+
+	restored = run("db", "restore", name, "--recover", "--yes")
+
+	assert "Restored" in restored.output
+	assert "Worth recovering" in run("list").output
+
+
+def test_a_safety_copy_that_fails_is_said_out_loud (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""The other half, and the one nothing would ever have reported.
+
+	The first fix for `#173` suppressed the failure, so a restore that saved nothing printed
+	exactly what one that saved everything printed. The operator was told it worked and found
+	out there was no way back only on the day they wanted one — which is later than any other
+	moment they could have been told.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	name = _backup_name(run("db", "backup").output)
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	_damage(database)
+
+	restored = run("db", "restore", name, "--recover", "--yes")
+
+	assert "could not be backed up" in restored.output
+	assert "no way back" in restored.output
+
+	# And the healthy case still says where the copy went, so the sentence above is a
+	# difference the operator can act on rather than one that is always printed.
+	healthy = run("db", "restore", name, "--recover", "--yes")
+
+	assert "was saved to" in healthy.output
+	assert "could not be backed up" not in healthy.output
+
+
+def test_declining_after_a_failed_safety_copy_restores_nothing (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""It is the operator's call, which means "no" has to be a real answer.
+
+	Going ahead regardless would be the old bug with better prose: only they know whether the
+	state about to be overwritten was worth anything, and the refusal names what to do instead.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	name = _backup_name(run("db", "backup").output)
+	database = _settings().sqlite_path
+
+	assert database is not None
+
+	_damage(database)
+
+	refused = run("db", "restore", name, "--recover", expect=1, answers="n\n")
+
+	assert "Nothing restored" in refused.output
+	assert "--no-safety-backup" in refused.output
 
 
 def _backup_name (output: str) -> str:
@@ -484,6 +590,139 @@ def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 
 	assert restored is not None
 	assert restored != identity
+
+
+def test_a_backup_from_the_other_engine_is_refused_before_anything_is_dropped (
+	own_database: str,
+) -> None:
+	"""`#172`. The defect was one of order, and the cost was the whole instance.
+
+	Restoring into PostgreSQL drops and recreates ``public`` and *then* hands the file to
+	``psql``, so a SQLite backup picked by mistake destroyed the database and reported an
+	encoding error that never said "SQLite" or "wrong file". It was recoverable only because
+	the safety copy happened to have run.
+
+	Runs on both backends because the mistake is symmetrical, and asserts the *data* survived
+	rather than only that an error was raised — an error raised after the drop is the bug.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	# **A backup that reads as perfectly valid**, which is what makes this dangerous. Copying
+	# the bytes under the other suffix would be caught by `head_in` anyway and would prove
+	# nothing: the reported failure is a *real* backup of the other engine, whose schema head
+	# is readable, that passes every check there was and is then handed to the wrong loader.
+	foreign = _a_real_backup_of_the_other_engine(written.path)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			subroutine.db.backup.restore(engine, foreign, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert "runs on" in str(refused.value)
+
+	# The point of the item: still there, and still itself.
+	assert _instance_id(own_database) == identity
+
+
+def test_a_restore_is_refused_while_something_else_holds_the_database (
+	own_database: str,
+) -> None:
+	"""`#171`. It reported success and left the instance permanently corrupt.
+
+	The serving process keeps its descriptors on the file that was replaced, so every write it
+	accepts is lost and its next checkpoint lands on top of the restored database. The API
+	answered 200 throughout — including ``/readyz``, the endpoint an operator would use to
+	check that the restore had worked.
+
+	One holder, both backends, because the question is the same one asked two ways: SQLite
+	answers by refusing an exclusive lock, PostgreSQL out of ``pg_stat_activity``.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	holder = subroutine.db.session.create_engine(own_database)
+
+	try:
+		# Idle, exactly as a serving process is between requests — which is what makes this
+		# hard to see and is why an idle connection was the case it was verified against.
+		with holder.connect():
+			engine = subroutine.db.session.create_engine(own_database)
+
+			try:
+				with pytest.raises(subroutine.errors.SubroutineError) as refused:
+					subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+			finally:
+				engine.dispose()
+
+			assert "using this database" in str(refused.value)
+
+			# And --force is a real way through, for the operator who knows better.
+			engine = subroutine.db.session.create_engine(own_database)
+
+			try:
+				subroutine.db.backup.restore(
+					engine, written.path, as_clone=False, force=True
+				)
+
+			finally:
+				engine.dispose()
+
+	finally:
+		holder.dispose()
+
+	assert _instance_id(own_database) == identity
+
+
+def _a_real_backup_of_the_other_engine (beside: pathlib.Path) -> pathlib.Path:
+	"""Build a backup of whichever engine ``beside`` is *not*, and return where it went.
+
+	Real on both sides, because a synthetic file proves the wrong thing. A SQLite backup is a
+	migrated database, so it is built by migrating one; a PostgreSQL dump is a script, and the
+	only part any of this reads is the ``alembic_version`` block, so that is written out in
+	``pg_dump``'s own plain form rather than by standing up a server for one table.
+	"""
+
+	head = subroutine.db.migrate.head_revision()
+
+	if beside.suffix == subroutine.db.backup.SQLITE_SUFFIX:
+		dump = beside.with_suffix(subroutine.db.backup.POSTGRESQL_SUFFIX)
+		dump.write_text(
+			"--\n-- PostgreSQL database dump\n--\n\n"
+			"COPY public.alembic_version (version_num) FROM stdin;\n"
+			f"{head}\n\\.\n",
+			encoding="utf-8",
+		)
+
+		return dump
+
+	database = beside.with_suffix(subroutine.db.backup.SQLITE_SUFFIX)
+	subroutine.db.migrate.upgrade(f"sqlite:///{database}")
+
+	return database
 
 
 def _seed_instance (url: str) -> str:

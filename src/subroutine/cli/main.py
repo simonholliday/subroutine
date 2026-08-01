@@ -916,10 +916,20 @@ def database_backups () -> None:
 
 	_say(f"Backups of {_instance_label()}, in {subroutine.db.backup.directory(settings)}:")
 
+	# **The engine is shown only when the list holds more than one of them** — §12.2a's rule
+	# that a column saying the same thing on every row says nothing. It earns its place here
+	# exactly when it matters: a directory holding both kinds is where somebody picks the
+	# wrong row, which was `#172`. When they are all the same, no wrong row exists to pick.
+	engines = {subroutine.db.backup.engine_in(backup.path) for backup in found}
+
 	for backup in found:
 		when = backup.taken_at.strftime("%Y-%m-%d %H:%M UTC")
+		kind = f"  {subroutine.db.backup.engine_in(backup.path)}" if len(engines) > 1 else ""
 
-		_say(f"  {backup.name}  {when}  {backup.size_bytes:,} bytes  schema {backup.schema_head}")
+		_say(
+			f"  {backup.name}  {when}  {backup.size_bytes:,} bytes  "
+			f"schema {backup.schema_head}{kind}"
+		)
 
 
 @database_app.command("restore")
@@ -935,7 +945,10 @@ def database_restore (
 	safety_backup: bool = typer.Option(
 		True,
 		"--safety-backup/--no-safety-backup",
-		help="Back up what is about to be replaced.",
+		help="Back up what is about to be replaced. Failing to is reported, never fatal.",
+	),
+	force: bool = typer.Option(
+		False, "--force", help="Restore even though something else is using the database."
 	),
 ) -> None:
 	"""Put a backup back, replacing this instance's database.
@@ -944,6 +957,10 @@ def database_restore (
 	**--recover** is your own data returning: the instance keeps its identity, because agents
 	and configuration files already refer to it. **--as-clone** is a copy becoming a separate
 	instance: it gets a new identity, because two live instances may not claim the same one.
+
+	**Stop the service first.** Restoring underneath a running one does not reach it: it goes
+	on writing to the file that was replaced, and its next checkpoint can corrupt the restored
+	one. This refuses when it can see another connection, and ``--force`` overrides that.
 	"""
 
 	if recover == as_clone:
@@ -968,9 +985,18 @@ def database_restore (
 
 		path = candidate
 
-	# Before anything is destroyed: refuse a backup this version cannot read, so the check
-	# happens while the current database is still intact.
+	# Before anything is destroyed, and before the operator is asked to agree to anything:
+	# refuse a database something else is using (`#171`), a backup taken from the other engine
+	# (`#172`), and one this version cannot read. All three are knowable while the current
+	# database is still intact, and being asked to confirm a destructive act that is then
+	# refused teaches an operator to stop reading the question.
 	try:
+		with _database(settings) as engine:
+			if not force:
+				subroutine.db.backup.check_unused(engine)
+
+			subroutine.db.backup.check_engine(engine, path)
+
 		head = subroutine.db.backup.check_restorable(path)
 
 	except subroutine.errors.SubroutineError as error:
@@ -979,19 +1005,11 @@ def database_restore (
 	_confirm_destructive(settings, "About to replace the database of", yes=yes)
 
 	if safety_backup and not _database_is_absent(settings):
-		# Suppressed rather than fatal: a restore is often the answer to a database that is
-		# already unwell, and refusing to fix it because the broken thing could not be copied
-		# first would withhold the remedy on account of the symptom.
-		with (
-			_database(settings) as engine,
-			contextlib.suppress(subroutine.errors.SubroutineError),
-		):
-			kept = subroutine.db.backup.take(engine, settings)
-			_say(f"The database being replaced was saved to {kept.path}")
+		_safety_copy(settings, yes=yes)
 
 	with _database(settings) as engine:
 		try:
-			subroutine.db.backup.restore(engine, path, as_clone=as_clone)
+			subroutine.db.backup.restore(engine, path, as_clone=as_clone, force=force)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
@@ -1558,6 +1576,56 @@ def _sole_workspace (
 		"one it works in.",
 		f"Pass --workspace, one of: {', '.join(item.slug for item in found)}.",
 	)
+
+
+def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
+	"""Save what a restore is about to replace, and let the operator decide if that cannot be done.
+
+	**Best effort, and never fatal on its own** (`#173`). A restore is most often the answer to a
+	database that is already unwell, so this is the copy in the whole program most likely to
+	fail — and aborting the rescue because the broken thing could not be copied first withholds
+	the remedy on account of the symptom. §12.4's argument is that recovery works under
+	pressure; a safety net that blocks the rescue is not a safety net.
+
+	**And never silent, which is the half that was missing.** The previous form suppressed the
+	failure and printed nothing, so a restore that saved nothing looked exactly like one that
+	had: the operator was told it succeeded, and discovered they had no way back only on the day
+	they wanted one.
+
+	So the failure is reported, and then it is *their* call, because only they know whether the
+	state about to be overwritten was worth anything.
+	"""
+
+	try:
+		engine = subroutine.db.session.create_engine(settings.database_url)
+
+		try:
+			kept = subroutine.db.backup.take(engine, settings)
+
+		finally:
+			engine.dispose()
+
+	# Broad on purpose. Every failure here has the same answer — say so, then ask — and
+	# narrowing it means the one storage error nobody predicted aborts the restore all over
+	# again. `_database` cannot be reused for this: it turns a database error into `_stop`,
+	# which is precisely the behaviour being fixed.
+	except Exception as error:
+		_warn(f"The database being replaced could not be backed up: {error}")
+		_warn(
+			"That usually means it is already damaged, which is a reason to go on rather than "
+			"to stop — but it does mean there is no way back to the state it is in now."
+		)
+
+		if not (yes or typer.confirm("Restore anyway?", default=True)):
+			_stop(
+				"Nothing restored. The database is as it was.",
+				"To keep a way back, copy the database file somewhere by hand first. To skip "
+				"this copy every time, add --no-safety-backup.",
+			)
+
+		return
+
+	_say(f"The database being replaced was saved to {kept.path}")
 
 
 def _database_is_absent (settings: subroutine.config.Settings) -> bool:

@@ -400,6 +400,26 @@ Neither is a safe default. A recovery keeps the instance's identity, which is wh
 their caches on; a clone mints a new one, so that two live instances never claim to be the
 same. Getting it wrong is invisible in both directions, so you are asked.
 
+**Stop the service before you restore.** A running one keeps its file handles on the database
+that was just replaced: it goes on writing to something with no name any more, its reads are
+stale, and its next checkpoint can land on top of the restored file and corrupt it — while the
+API answers normally throughout, `/readyz` included. Subroutine refuses when it can see another
+connection, and `--force` overrides that for the case where it cannot:
+
+```console
+$ sudo systemctl stop subroutine
+$ subroutine db restore <file> --recover
+$ sudo systemctl start subroutine
+```
+
+Two more things this will not do to you. **A backup from the other engine is refused before
+anything is dropped** — a `.db` is a SQLite database and a `.sql` is a PostgreSQL script, they
+cannot be read by each other's tools, and `subroutine db backups` names the engine when a
+directory holds both. To move an instance between engines, use `subroutine db copy`, not a
+backup. And **the safety copy taken before a restore is never allowed to block the restore**:
+if the database being replaced is too damaged to copy — which is the usual reason to be
+restoring at all — you are told so plainly and asked whether to go on, rather than refused.
+
 Mark a production instance as one worth protecting, and destructive commands will require
 agreement before touching it:
 
