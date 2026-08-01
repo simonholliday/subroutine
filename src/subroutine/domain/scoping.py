@@ -45,6 +45,20 @@ def within_project_scope (
 	single-project form: restricting an agent to a project and then refusing it the
 	sub-projects underneath makes the restriction useless below one level. This is the
 	same rule as a predicate, so a listing can apply it to rows it has not loaded.
+
+	**``None`` and ``[]`` are different things and neither is a guess** (`#201`). ``None`` is
+	the sentinel and narrows nothing; an empty *list* is a restriction that admits no project,
+	which is what its counterpart in ``authorization`` has always said. This built
+	``sqlalchemy.or_()`` with no clauses for it — an empty ``BooleanClauseList``, which
+	renders as nothing at all, so the ``WHERE`` lost the restriction entirely and the listing
+	returned every project. Two copies of one rule disagreeing on one edge, in opposite
+	directions, with the query side failing **open**.
+
+	Unreachable today: ``_canonical_project_scope`` refuses an empty list at issue time and is
+	the only writer. That is what makes this a tripwire rather than a live defect — a restore
+	of hand-edited data, an importer, or an endpoint that learns to write ``project_scope``
+	would all land on it, and a security control that fails open is not one to leave resting
+	on a validator two modules away.
 	"""
 
 	allowed = principal.project_scope
@@ -52,6 +66,9 @@ def within_project_scope (
 	# The sentinel: no list means no restriction, never "no projects" (SPEC.md §7.3).
 	if allowed is None:
 		return sqlalchemy.true()
+
+	if not allowed:
+		return sqlalchemy.false()
 
 	project = subroutine.db.models.project.Project
 

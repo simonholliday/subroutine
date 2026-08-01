@@ -19,6 +19,7 @@ import subroutine.db.models.project
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.tasks
@@ -291,6 +292,45 @@ def test_a_null_project_scope_narrows_nothing (
 		"Acquire the rival company",
 		"Ordinary work",
 	]
+
+
+def test_an_empty_project_scope_admits_nothing_rather_than_everything (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#201`. The other sentinel, in the direction that failed open — and it did.
+
+	``None`` narrows nothing; ``[]`` is a restriction naming no project, which is what
+	``authorization._within_project_scope`` has always returned ``False`` for. The predicate
+	built ``sqlalchemy.or_()`` with no clauses, which renders as nothing, so the ``WHERE``
+	lost the restriction and the listing returned every project — the two copies of one rule
+	disagreeing on one edge, in opposite directions.
+
+	**Set on the token row rather than issued**, because ``issue_token`` refuses an empty list
+	and should go on refusing it. That refusal is what makes this unreachable today and is
+	exactly why the test has to reach around it: a guard resting on a validator two modules
+	away is one that stops holding the moment anything else writes the column.
+	"""
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="scoped", project_scope=[str(world.public.id)]
+	)
+	token.project_scope = []
+	session.flush()
+
+	starved = subroutine.domain.authentication.Principal(user=world.owner, token=token)
+
+	# **The predicate itself, not only the rows.** Under `filterwarnings = ["error"]` the
+	# unfixed code raises on `or_()` before a single row is read, so a row assertion alone
+	# would fail for the wrong reason — and would go on "passing" the day SQLAlchemy stops
+	# warning about it, when the empty clause list would once again render as nothing at all
+	# and quietly take the restriction out of the `WHERE`. That is the shape this guard has to
+	# be written from: the property, not the symptom.
+	assert str(subroutine.domain.scoping.within_project_scope(starved)) == "false"
+
+	assert _titles(session, starved, world.workspace) == []
+
+	# And the two copies agree about it, which is the part that was wrong.
+	assert not subroutine.domain.authorization._within_project_scope(starved, world.public)
 
 
 def test_the_agenda_honours_a_project_scoped_token (
