@@ -699,6 +699,35 @@ def test_a_token_is_never_issued_against_an_unusable_credentials_file (
 	assert _tokens_in(home) == 0, "a credential was minted and stranded"
 
 
+def test_an_administrative_refusal_names_the_file_the_bad_credential_is_in (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#199`. `#175`'s fix reached the item commands and not the ones beside them.
+
+	`domain.local.principal` takes a `token_source` so a refusal can name where the credential
+	came from; `clients/local.py` passed it and `cli/main._operator` — which serves `token
+	create`, `token list` and `token revoke` — did not. So an unusable token in
+	`credentials.toml` produced "the token supplied could not be used" and a remedy that goes in
+	a circle: issuing another does not remove the one in the file refusing every command.
+
+	Asserted **against the ordinary command as well**, because the defect was invisible from
+	either side alone — each message reads perfectly well until they are put side by side, and
+	the pair is what says the two paths agree.
+	"""
+
+	run("init")
+
+	stored = home / "xdg_config_home" / "subroutine" / "credentials.toml"
+	stored.parent.mkdir(parents=True, exist_ok=True)
+	stored.write_text('[local]\ntoken = "sr_deadbeef_nonsense"\n', encoding="utf-8")
+
+	for command in (("list",), ("token", "list")):
+		output = run(*command, expect=1).output
+
+		assert "credentials.toml" in output, f"'{' '.join(command)}' does not say where it read it"
+		assert "Remove it from" in output, f"'{' '.join(command)}' does not say what to do"
+
+
 def _tokens_in (home: pathlib.Path) -> int:
 	"""Count the credentials in the installation under this temporary home."""
 

@@ -1587,6 +1587,13 @@ def _operator (
 
 	The token is resolved the way every other connection's is (§12.3a), so `SUBROUTINE_TOKEN`,
 	`token_env`, `token_command` and `credentials.toml` all behave here as they do elsewhere.
+
+	**And the refusal says which of those it came from** (`#199`). `#175` gave `local.principal`
+	a `token_source` for exactly that, `clients/local.py` passes it, and this call site did not —
+	so an unusable credential in `credentials.toml` told an operator "the token supplied could
+	not be used" and offered to issue another, which does not remove the one in the file that is
+	refusing every command. It is the ordinary command beside this one that named the file, and
+	§12.4 makes these the commands that have to work when the ordinary ones do not.
 	"""
 
 	roster = subroutine.connections.roster(settings)
@@ -1601,7 +1608,10 @@ def _operator (
 	)
 
 	return subroutine.domain.local.principal(
-		session, token=resolved.token, local_user=settings.local_user
+		session,
+		token=resolved.token,
+		local_user=settings.local_user,
+		token_source=resolved.source,
 	)
 
 
