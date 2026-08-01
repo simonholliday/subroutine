@@ -42,18 +42,25 @@ setup interview is how a tool loses the person who just installed it.
    covers this repository, use it. A duplicate project is invisible until somebody files into
    the one nobody reads.
 
-2. **Propose a key and confirm it — this is the one question always worth asking.** A project
-   key cannot be changed afterwards and becomes part of how every item is addressed. Derive it
-   from the repository directory name: uppercase, letters and digits only, starting with a
-   letter, at most sixteen characters. Say what you propose and let them correct it.
+2. **Propose a key and say what it is.** Derive it from the repository directory name:
+   uppercase, letters and digits only, starting with a letter, at most sixteen characters.
+   State it and proceed — a key can be renamed later, and a checkout marked with step 6
+   follows the rename, so this is not a decision to stop over.
 
    ```
    subroutine_project(key="WEB", title="Website redesign")
    ```
 
+   What a rename *does* cost is addresses somebody has already written down — a `+WEB` in a
+   note, a URL, the key in another checkout's marker. The old key then stops working, loudly.
+   So it is worth a sentence if they seem to be choosing a name they will regret, and it is
+   not worth a question. Renaming is the person's to do, not yours: it is a command that
+   counts what will break and asks first.
+
 3. **Do not ask which workspace unless there is more than one.** A fresh install has exactly
-   one. If there are several, ask — and say why: items are numbered per workspace, and a
-   project cannot be moved between them.
+   one. If there are several, ask — and say why: **this is the one thing here that cannot be
+   undone.** Items are numbered per workspace and a project cannot be moved between them, so
+   the wrong workspace means starting again rather than renaming.
 
 4. **Propose a parent, do not ask for one.** Placement in the project tree can be changed
    later, so state where it is going and put it there. Ask only when more than one existing
@@ -78,7 +85,7 @@ setup interview is how a tool loses the person who just installed it.
 7. **Do not import an existing to-do list unless asked.** Filing thirty items out of a
    `TODO.md` is a large write that is tedious to undo and that nobody requested.
 
-7. **Write the pointer into the project's agent file** — `CLAUDE.md`, `AGENTS.md`, whichever it
+8. **Write the pointer into the project's agent file** — `CLAUDE.md`, `AGENTS.md`, whichever it
    already uses. One line naming the project key is enough. Without it the next session does
    not know adoption happened, and adopts again.
 
