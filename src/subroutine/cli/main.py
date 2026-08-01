@@ -8,6 +8,7 @@ whoever does want it.
 """
 
 import contextlib
+import datetime
 import getpass
 import ipaddress
 import pathlib
@@ -25,6 +26,7 @@ import sqlalchemy.orm
 import typer
 
 import subroutine
+import subroutine.auth
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
@@ -37,6 +39,8 @@ import subroutine.db.session
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local
+import subroutine.domain.schedule
+import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -1054,6 +1058,9 @@ def token_create (
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow the token to these permissions. Repeatable."
 	),
+	expires: str = typer.Option(
+		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
+	),
 	store: str = typer.Option(
 		"", "--store", help="Also write it to credentials.toml under this connection name."
 	),
@@ -1065,6 +1072,12 @@ def token_create (
 	  subroutine token create --title "My laptop"
 
 	  subroutine token create --service-account claude --scope task:read --scope task:write
+
+	  subroutine token create --title "Acme, this month" --expires now+30d
+
+	**``--expires`` names a whole day and the credential works through the end of it**, the
+	same reading §6.5 gives a deadline. A token that stopped at midnight *starting* the day
+	somebody named is the kind of surprise that arrives at the worst moment.
 
 	**The secret is readable exactly once**, here. Nothing recovers it afterwards, including
 	this program: what is stored is a hash (SPEC.md §7.4). It is never passed as an argument
@@ -1104,6 +1117,7 @@ def token_create (
 					title=title.strip() or f"{owner.username}'s token",
 					workspace_id=None if pinned is None else pinned.id,
 					scopes=[item.strip() for item in (scope or []) if item.strip()],
+					expires_at=_expiry(expires, settings),
 					created_by=operator.user.id,
 					# The actor, so a credential cannot mint a wider one. Omitting this was
 					# the privilege escalation: `task:read` could issue itself no-restriction.
@@ -1141,6 +1155,196 @@ def token_create (
 			f"Give it to a client as {subroutine.credentials.DEFAULT_VARIABLE}, or add it to "
 			f"{subroutine.credentials.credentials_file_path()}."
 		)
+
+
+def _expiry (
+	written: str, settings: subroutine.config.Settings
+) -> datetime.datetime | None:
+	"""Read ``--expires`` as the last instant of the day it names, or ``None``.
+
+	The same grammar every other date in this program takes, resolved in the instance's own
+	zone — a credential belongs to the installation rather than to whoever happens to be
+	typing, and §6.5's chain has nothing narrower to offer here: an administrative command
+	has no task and no workspace to inherit from.
+	"""
+
+	if not written.strip():
+		return None
+
+	try:
+		moment = subroutine.domain.schedule.interpret(
+			written.strip(),
+			boundary=subroutine.domain.schedule.Boundary.END,
+			timezone=settings.default_timezone,
+			now=subroutine.db.types.utcnow(),
+			field="expires",
+		)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+	return moment.instant
+
+
+@token_app.command("list")
+def token_list () -> None:
+	"""Show the credentials this instance has issued.
+
+	Examples:
+
+	  subroutine token list
+
+	**Prefixes, never secrets.** Only a hash is stored (§7.4), so there is nothing here to
+	leak — and the prefix is what ``token revoke`` takes, which is the point of printing it.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	with _database(settings) as engine:
+		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+		with factory() as session:
+			try:
+				operator = _operator(session, settings)
+				rows = subroutine.domain.tokens.issued_tokens(session, actor=operator)
+
+			except subroutine.errors.SubroutineError as error:
+				_fail(error)
+
+			listed = [(row, session.get(subroutine.db.models.identity.User, row.user_id))
+				for row in rows]
+
+	if not listed:
+		_say("No credentials have been issued.")
+		_say("  subroutine token create --title \"My laptop\"")
+
+		return
+
+	width = max(len(row.token_prefix) for row, _owner in listed)
+
+	for row, owner in listed:
+		who = "someone since deleted" if owner is None else owner.username
+		_say(f"  {row.token_prefix.ljust(width)}  {who}  {row.title}  {_credential_state(row)}")
+
+
+def _credential_state (token: subroutine.db.models.identity.ApiToken) -> str:
+	"""Say whether a credential still works, and until when.
+
+	**Reported rather than left to be worked out from two nullable columns.** A listing whose
+	reader has to compare `expires_at` against the clock is one where somebody eventually
+	reads a dead credential as live, on the day they are checking whether it is.
+	"""
+
+	if token.revoked_at is not None:
+		return f"revoked {token.revoked_at.date().isoformat()}"
+
+	if token.expires_at is None:
+		return "no expiry"
+
+	if token.expires_at <= subroutine.db.types.utcnow():
+		return f"expired {token.expires_at.date().isoformat()}"
+
+	return f"until {token.expires_at.date().isoformat()}"
+
+
+@token_app.command("revoke")
+def token_revoke (
+	prefix: str = typer.Argument("", help="The credential's prefix, as 'token list' shows."),
+) -> None:
+	"""Stop a credential working, now.
+
+	Examples:
+
+	  subroutine token revoke sr_a1b2c3d4
+
+	**Immediate.** `revoked_at` is read on every request rather than cached, so there is no
+	session to wait out — which is what makes this the answer when a token has leaked or a
+	piece of work has ended.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	named = _named_prefix(prefix)
+
+	with _database(settings) as engine:
+		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+		with factory() as session:
+			model = subroutine.db.models.identity.ApiToken
+			found = session.scalars(
+				sqlalchemy.select(model).where(model.token_prefix == named)
+			).first()
+
+			if found is None:
+				_stop(
+					f"There is no credential with the prefix {named!r}.",
+					"Run 'subroutine token list' to see them.",
+				)
+
+			already = found.revoked_at is not None
+
+			try:
+				operator = _operator(session, settings)
+				subroutine.domain.tokens.revoke(session, found, actor=operator)
+
+			except subroutine.errors.SubroutineError as error:
+				session.rollback()
+				_fail(error)
+
+			session.commit()
+
+			# Read inside the session and after the commit: `revoke_token` leaves an existing
+			# instant alone, so on the second call this is when it *actually* stopped rather
+			# than now — which is the fact somebody re-running this wants.
+			stopped = found.revoked_at.date().isoformat() if found.revoked_at else "?"
+
+	if already:
+		_say(f"{named} was already revoked, on {stopped}.")
+
+		return
+
+	_say(f"Revoked {named}. It stops working immediately.")
+
+
+def _named_prefix (given: str) -> str:
+	"""Read the prefix out of whatever the caller pasted, or refuse.
+
+	A token is written ``sr_<prefix>_<secret>`` and only the prefix is stored, so ``token
+	list`` prints eight hex characters while the thing somebody kept is the whole string.
+	Both spellings of the *prefix* are taken — with the scheme and without — for the same
+	reason a ref accepts ``42`` and ``#42``: the notation the program printed should be one
+	it reads back.
+
+	**A whole token is refused rather than accepted**, and that is the point of this
+	function. It would work — the prefix is right there in it — and it would put a live
+	credential into shell history and into ``ps`` output for every process on the machine,
+	which is the one thing §7.4 never lets a secret do.
+	"""
+
+	named = given.strip()
+
+	if not named:
+		_stop("Which credential?", "Run 'subroutine token list' to see their prefixes.")
+
+	parts = named.split("_")
+
+	if len(parts) > 2:
+		_stop(
+			"That is a whole token, not a prefix.",
+			f"Pass only the prefix — '{parts[1]}' here — so the secret stays out of your "
+			f"shell history. 'subroutine token list' prints them.",
+		)
+
+	if len(parts) == 2 and parts[0] == subroutine.auth.TOKEN_SCHEME:
+		named = parts[1]
+
+	return named
 
 
 def _refuse_unusable_credentials_file (name: str) -> None:

@@ -11,6 +11,7 @@ they are the same command surface.
 """
 
 import contextlib
+import datetime
 import json
 import os
 import pathlib
@@ -718,3 +719,129 @@ def _tokens_in (home: pathlib.Path) -> int:
 
 	finally:
 		engine.dispose()
+
+
+def test_a_credential_can_be_listed_and_revoked (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#156`. `revoked_at` was read on every request since M1 and nothing could set it.
+
+	So an instance could issue credentials and never take one back — survivable for a single
+	user on their own machine, and the whole safety model for the case Simon described: a
+	month's freelancing on somebody else's instance, where access has to end.
+	"""
+
+	run("init")
+
+	issued = run("token", "create", "--title", "Acme")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+	prefix = secret.split("_")[1]
+
+	listed = run("token", "list")
+
+	assert prefix in listed.output
+	assert "Acme" in listed.output
+	assert "no expiry" in listed.output
+
+	# It works, and then it does not — immediately, because the column is read on every
+	# request rather than cached at issue.
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+
+	assert run("add", "while it works").exit_code == 0
+
+	monkeypatch.delenv("SUBROUTINE_TOKEN")
+	run("token", "revoke", prefix)
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+	refused = run("add", "after it is revoked", expect=1)
+
+	assert "not accepted" in refused.output
+
+
+def test_revoking_twice_reports_when_it_actually_stopped (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The second caller wants the credential dead, which it is.
+
+	Rewriting the instant would lose when it stopped — which is the fact somebody re-running
+	this under pressure is trying to establish.
+	"""
+
+	run("init")
+
+	issued = run("token", "create", "--title", "Acme")
+	prefix = next(word for word in issued.output.split() if word.startswith("sr_")).split("_")[1]
+
+	run("token", "revoke", prefix)
+	again = run("token", "revoke", prefix)
+
+	assert "already revoked" in again.output
+
+
+def test_a_token_can_be_given_an_expiry_and_stops_working_after_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#156`: `expires_at` was settable by `issue_token` and by no command.
+
+	Enforced at `authentication.py`'s expiry check, which has also been there since M1 — so
+	this is the other half of the same gap, and the one that ends access without anybody
+	having to remember on the day.
+	"""
+
+	run("init")
+
+	dead = run("token", "create", "--title", "last month", "--expires", "2020-01-01")
+	stale = next(word for word in dead.output.split() if word.startswith("sr_"))
+
+	assert "expired" in run("token", "list").output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", stale)
+
+	assert "not accepted" in run("add", "too late", expect=1).output
+
+
+def test_an_expiry_names_a_whole_day_and_the_token_lives_through_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""§6.5's reading of a deadline, applied to a credential.
+
+	A token that stopped at the midnight *starting* the day somebody named would be a
+	surprise arriving at the worst possible moment — most of a day earlier than they meant.
+	"""
+
+	run("init")
+
+	today = datetime.date.today().isoformat()
+	issued = run("token", "create", "--title", "through today", "--expires", today)
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	assert f"until {today}" in run("token", "list").output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+
+	assert run("add", "still valid on the named day").exit_code == 0
+
+
+def test_a_whole_token_is_refused_where_a_prefix_belongs (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""It would work, which is exactly why it must not.
+
+	The prefix is right there in the string, so accepting it costs nothing to implement and
+	puts a live credential into shell history and into `ps` output for every process on the
+	machine — the one thing §7.4 never lets a secret do.
+	"""
+
+	run("init")
+
+	issued = run("token", "create", "--title", "Acme")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	refused = run("token", "revoke", secret, expect=1)
+
+	assert "whole token" in refused.output
+	assert secret.split("_")[1] in refused.output, "it says which part to use instead"
+
+	# And the forgiving half: the scheme-prefixed spelling of the *prefix* is taken, because
+	# a ref accepts `42` and `#42` for the same reason.
+	assert "Revoked" in run("token", "revoke", "_".join(secret.split("_")[:2])).output
