@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import typing
+import zoneinfo
 
 import httpx
 import pytest
@@ -29,6 +30,13 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.credentials
+
+#: The zone every instance in this file is created in, named once because a test that asks
+#: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
+#: not UTC: a zone that is offset from the runner's is what makes a whole-day expiry mean
+#: something to assert.
+INSTANCE_ZONE = "Europe/London"
+
 
 #: How long to wait for a freshly started server before giving up on it.
 STARTUP_TIMEOUT_SECONDS = 20.0
@@ -47,7 +55,7 @@ def home (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Pa
 		if name.startswith(("SUBROUTINE_TOKEN", "SUBROUTINE_WORKSPACE", "SUBROUTINE_CONNECTION")):
 			monkeypatch.delenv(name, raising=False)
 
-	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", "Europe/London")
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", INSTANCE_ZONE)
 
 	return root
 
@@ -121,7 +129,7 @@ def served (tmp_path: pathlib.Path) -> typing.Iterator[Remote]:
 		"XDG_CONFIG_HOME": str(root / "config"),
 		"XDG_DATA_HOME": str(root / "data"),
 		"XDG_STATE_HOME": str(root / "state"),
-		"SUBROUTINE_DEFAULT_TIMEZONE": "Europe/London",
+		"SUBROUTINE_DEFAULT_TIMEZONE": INSTANCE_ZONE,
 	}
 
 	for name in list(environment):
@@ -929,7 +937,11 @@ def test_an_expiry_names_a_whole_day_and_the_token_lives_through_it (
 
 	run("init")
 
-	today = datetime.date.today().isoformat()
+	# **The instance's today, not the machine's** (`#233`). The runner is UTC and the instance
+	# is an hour ahead of it, so between 23:00 and midnight `date.today()` names a day that
+	# ended here an hour ago — and the token issued "through today" is already expired when the
+	# listing is read. One hour a night, every night the offset is not zero.
+	today = datetime.datetime.now(zoneinfo.ZoneInfo(INSTANCE_ZONE)).date().isoformat()
 	issued = run("token", "create", "--title", "through today", "--expires", today)
 	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
 
