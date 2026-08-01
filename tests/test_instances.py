@@ -12,6 +12,8 @@ database is where every other test in the suite lives.
 import datetime
 import os
 import pathlib
+import subprocess
+import sys
 import typing
 import uuid
 
@@ -702,6 +704,99 @@ def test_a_restore_is_refused_while_something_else_holds_the_database (
 	assert _instance_id(own_database) == identity
 
 
+def test_a_restore_is_not_undone_by_the_log_it_replaced (tmp_path: pathlib.Path) -> None:
+	"""`#194`. The restore reported success and the database held what it had before.
+
+	SQLite replays a ``-wal`` it finds beside a database when that database is opened, and
+	nothing removed the one belonging to the file a restore had just replaced. So the backup's
+	content was discarded on the next read and the pre-restore state came back — `#171`'s
+	signature exactly, on the command §12.4 says has to work under pressure.
+
+	**The path is the ordinary recovery, not a corner.** The operator loses the database file
+	and reaches for ``db restore --recover``; the sidecars are still there because nothing
+	deleted them. Written this way rather than with a live holder because the two steps that
+	happen to save the ordinary path — the safety copy, and ``_sqlite_readable`` inside
+	``check_unused`` — both need the main file to exist. With it gone neither runs, which is
+	what makes this reachable and what made it invisible.
+
+	SQLite only: PostgreSQL has no such file, and ``restore`` refuses a backup from the other
+	engine long before any of this.
+	"""
+
+	url = f"sqlite:///{tmp_path / 'own.db'}"
+	database = tmp_path / "own.db"
+
+	subroutine.db.migrate.upgrade(url)
+	_seed_instance(url)
+
+	# The two states have to differ in something the assertion can *see*. The identity survives
+	# a replay — the log carries back the same row — so the name is what tells them apart, and
+	# asserting on the id would be a test that passes either way. It did, on the first attempt.
+	backed_up = _instance_name(url)
+
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	# A writer that dies without closing, which is what leaves a log behind at all. Its work is
+	# committed and uncheckpointed, so the log is valid and SQLite will happily replay it.
+	_a_writer_that_never_closed(database)
+
+	assert database.with_name("own.db-wal").exists(), "the reproduction needs a log to survive"
+
+	# The loss the command answers. Deleting the database and not its sidecars is the state a
+	# person is in when they run this.
+	database.unlink()
+
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	# The assertion the item is about: reading it back gives the backup, not what the log said.
+	assert _instance_name(url) == backed_up
+
+	for suffix in subroutine.db.backup.SQLITE_SIDECARS:
+		assert not database.with_name(f"own.db{suffix}").exists()
+
+
+def _a_writer_that_never_closed (database: pathlib.Path) -> None:
+	"""Commit a change to a SQLite database and abandon the process, leaving its log behind.
+
+	In a subprocess because that is the only way to get the state honestly: a connection closed
+	by any means checkpoints its log away, and writing the file by hand would prove that a
+	hand-written file is ignored rather than that a real one is replayed.
+	"""
+
+	code = (
+		"import os, sqlite3, sys\n"
+		"connection = sqlite3.connect(sys.argv[1])\n"
+		"connection.execute('PRAGMA journal_mode=WAL')\n"
+		"connection.execute(\"UPDATE instance SET name = 'from the abandoned log'\")\n"
+		"connection.commit()\n"
+		"os._exit(0)\n"
+	)
+	process = subprocess.Popen(
+		[sys.executable, "-c", code, str(database)],
+		stdout=subprocess.PIPE,
+		stderr=subprocess.PIPE,
+		text=True,
+	)
+
+	# `communicate` rather than `wait`: a pipe left open trips the ResourceWarning this suite
+	# turns into an error, and the traceback then points at the wrong place entirely.
+	_output, complaint = process.communicate(timeout=60)
+
+	assert process.returncode == 0, complaint
+
+
 def _a_real_backup_of_the_other_engine (beside: pathlib.Path) -> pathlib.Path:
 	"""Build a backup of whichever engine ``beside`` is *not*, and return where it went.
 
@@ -749,6 +844,21 @@ def _seed_instance (url: str) -> str:
 
 	finally:
 		engine.dispose()
+
+
+def _instance_name (url: str) -> str | None:
+	"""Return this database's instance name, which is what a replayed log would change."""
+
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		with engine.connect() as connection:
+			rows = connection.exec_driver_sql("SELECT name FROM instance").fetchall()
+
+	finally:
+		engine.dispose()
+
+	return str(rows[0][0]) if rows else None
 
 
 def _forget_the_instance_row (url: str) -> None:

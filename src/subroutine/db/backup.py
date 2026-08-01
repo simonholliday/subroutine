@@ -920,10 +920,15 @@ def restore (
 	return head
 
 
+#: What SQLite keeps beside a database in WAL mode. Both belong to the file they are named
+#: after and neither survives it — see :func:`_restore_sqlite`.
+SQLITE_SIDECARS = ("-wal", "-shm")
+
+
 def _restore_sqlite (
 	engine: sqlalchemy.engine.Engine, source: pathlib.Path
 ) -> None:
-	"""Replace the SQLite database file with the backup."""
+	"""Replace the SQLite database file with the backup, and take its sidecars with it."""
 
 	database = engine.url.database
 	target = pathlib.Path(database) if database else None
@@ -942,6 +947,45 @@ def _restore_sqlite (
 
 	shutil.copy2(source, staged)
 	os.replace(staged, target)
+
+	_discard_the_replaced_log(target)
+
+
+def _discard_the_replaced_log (target: pathlib.Path) -> None:
+	"""Remove the write-ahead log the restored database has just displaced (`#194`).
+
+	**A ``-wal`` left beside the restored file undoes the restore.** SQLite replays it on the
+	next open, so the backup's content is discarded and the state that was just replaced comes
+	back — after the command has printed that it succeeded. That is `#171`'s signature exactly:
+	restore reports success, database is not restored. Reproduced through the CLI, on the
+	ordinary recovery path where the database file has been lost and its sidecars have not.
+
+	It went unnoticed because the ordinary path is saved by accident: the safety copy and
+	``_sqlite_readable`` both open and cleanly close the database, and each of those checkpoints
+	the log away. Nothing chose that, nothing wrote it down, and it is absent with
+	``--no-safety-backup``, after a safety copy the operator overrode, and on a database too
+	damaged to open.
+
+	**After the replace, never before.** The log belongs to the database being replaced, so
+	deleting it ahead of a copy that then failed would throw away the very state the operator is
+	still standing on.
+
+	**And a failure here is raised**, unlike the permission-tightening elsewhere in this module.
+	A sidecar left behind is not a lesser version of the job — it is the whole defect.
+	"""
+
+	for suffix in SQLITE_SIDECARS:
+		beside = target.with_name(target.name + suffix)
+
+		try:
+			beside.unlink(missing_ok=True)
+
+		except OSError as error:
+			raise subroutine.errors.ServiceUnavailable(
+				f"The database was restored, but {beside.name} could not be removed: {error}. "
+				f"Delete it before anything opens this database — SQLite would replay it over "
+				f"the restored file and put back what was just replaced."
+			) from error
 
 
 def _restore_postgresql (
