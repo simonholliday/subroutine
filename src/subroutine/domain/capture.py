@@ -50,10 +50,28 @@ BARE_PLANNED_WORDS = ("today", "tomorrow")
 #: The largest and smallest an importance may be (SPEC.md §6.3).
 IMPORTANCE_RANGE = (1, 5)
 
+#: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
+#: task to "example.com" and leaves "Email bob about it" as the title — data lost, exactly
+#: what rule 1 forbids. Measured, not theorised: it was the first thing tried.
+_STARTS_A_WORD = r"(?<![^\s])"
+
 #: Recurrence is M7. Until the RRULE parser exists this is recognised only well enough to
 #: be *left alone* — publishing a grammar the installation does not implement is worse than
 #: publishing a smaller one, so `/v1/meta` omits the row and the text stays in the title.
-_EVERY = re.compile(r"\bevery\s+\S+", re.IGNORECASE)
+#:
+#: **It has to match the whole phrase, because the phrase is quoted back** (`#206`). This was
+#: ``every\s+\S+``, so "Water plants every 2 days" reserved ``every 2`` and the preview said
+#: *"Left as written: every 2"* — a sentence about what somebody typed that misquotes them, on
+#: the one surface whose job is confirming their words survived. The title was always right;
+#: the report of it was not.
+#:
+#: The count and ``other`` are the two things that come between ``every`` and its unit, so
+#: they are what the pattern has to reach past. It stays deliberately loose about the unit
+#: itself — "every fortnight" is reserved and reported exactly like "every monday", because
+#: the point here is to *decline* a phrase rather than to understand one.
+_EVERY = re.compile(
+	rf"{_STARTS_A_WORD}every\s+(?:other\s+)?(?:\d+\s+)?\S+", re.IGNORECASE
+)
 
 _WEEKDAY_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.WEEKDAYS, key=len, reverse=True)
@@ -78,11 +96,6 @@ _DATED = re.compile(
 	rf"\s+(?P<phrase>{_PHRASE})\b",
 	re.IGNORECASE,
 )
-
-#: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
-#: task to "example.com" and leaves "Email bob about it" as the title — data lost, exactly
-#: what rule 1 forbids. Measured, not theorised: it was the first thing tried.
-_STARTS_A_WORD = r"(?<![^\s])"
 
 #: A bare planning word, anchored to the end of the line and required to be a whole word.
 #:

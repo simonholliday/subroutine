@@ -138,6 +138,39 @@ def test_recurrence_is_recognised_only_well_enough_to_be_left_alone () -> None:
 	assert captured.unparsed == ("every monday",)
 
 
+def test_the_preview_quotes_the_recurrence_a_person_actually_wrote () -> None:
+	"""`#206`. It quoted a fragment, on the one surface whose job is confirming their words.
+
+	``every\\s+\\S+`` stopped at the first token, so "Water plants every 2 days" reported
+	*"Left as written: every 2"* — a sentence about what somebody typed that misquotes them.
+	The title was always right; the report of it was not, which is the half §6.13 rule 1
+	cannot check for itself because the words are all still there.
+
+	A count and ``other`` are the two things that come between ``every`` and its unit. Beyond
+	that it stays loose: the point is to *decline* a phrase, not to understand one, so
+	"every fortnight" is quoted as faithfully as "every monday".
+	"""
+
+	for line, phrase in (
+		("Water plants every 2 days", "every 2 days"),
+		("Bins out every other tuesday", "every other tuesday"),
+		("Review the budget every fortnight", "every fortnight"),
+		("Standup every monday", "every monday"),
+	):
+		captured = _parse(line)
+
+		assert captured.title == line, "rule 1: the words are untouched either way"
+		assert captured.unparsed == (phrase,), f"{line!r} was quoted back as {captured.unparsed}"
+
+		explained = subroutine.domain.capture.explain(captured.unparsed)
+
+		assert explained is not None
+		assert phrase in explained
+
+	# And a word that merely starts with "every" is not a recurrence at all.
+	assert _parse("Ask everyone about it").unparsed == ()
+
+
 def test_a_recurring_phrase_does_not_swallow_a_real_date () -> None:
 	"""Reserving the recurrence span must not cost the deadline beside it."""
 
