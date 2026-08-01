@@ -23,6 +23,7 @@ import typing
 
 import subroutine.clients.base
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -466,12 +467,31 @@ def _added (
 	when there is something to say, so an ordinary capture costs nothing.
 	"""
 
+	# **Looked for on every call rather than at startup** (§13.7a, `#159`). A stdio server
+	# outlives the moment it was launched, and a repository adopted mid-session should not
+	# need it restarted — which is the one thing an agent cannot do to itself.
+	marker = subroutine.directory.find()
+	line = _text(arguments, "text") or ""
+	filed = (
+		marker.project
+		if marker is not None
+		and marker.project is not None
+		and not subroutine.domain.capture.names_a_project(line)
+		else None
+	)
+
 	captured = client.capture(
-		text=_text(arguments, "text") or "",
+		text=line,
 		workspace=_text(arguments, "workspace"),
 		type=_text(arguments, "type"),
+		project=filed,
 	)
 	answer = "Added " + _line(captured.task)
+
+	# Said out loud for the same reason the CLI says it: nobody typed it, and an agent that
+	# cannot see where its work went cannot tell a person either.
+	if filed is not None:
+		answer = f"{answer}\n  in {filed}, from {subroutine.directory.FILE_NAME}"
 
 	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
 	# the caller most likely to have written something it believes was understood, and telling

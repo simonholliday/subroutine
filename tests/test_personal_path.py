@@ -21,6 +21,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
@@ -2520,3 +2521,153 @@ def test_a_refusal_from_start_still_refuses (
 	refused = run("start", "99", expect=1)
 
 	assert "no #99" in refused.output
+
+
+def test_new_work_goes_to_the_project_this_directory_names (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#159`, and the reason "it just works" was not yet true.
+
+	§21.5's adoption procedure creates a project per repository, so an instance that has been
+	adopted a few times has many — and until this existed the agent guessed which one from the
+	directory name. A guess that is usually right is the worst kind: it misfiles rarely enough
+	that nobody is watching.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+
+	checkout = tmp_path / "checkout" / "src" / "nav"
+	checkout.mkdir(parents=True)
+
+	monkeypatch.chdir(checkout.parent.parent)
+	run("use", "--here", "--project", "WEB")
+
+	# From three directories down, exactly as somebody running a command mid-edit would be.
+	monkeypatch.chdir(checkout)
+
+	added = run("add", "Fix the nav")
+
+	assert "in WEB" in added.output, "a default nobody typed must be said out loud"
+	assert "WEB" in run("show", "1").output
+
+
+def test_a_project_in_the_line_beats_the_one_in_the_file (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Somebody being explicit about this item beats a file they may not know is there.
+
+	This is the half that keeps the marker from being a trap. A default that could not be
+	overridden on the spot would make every `add` in a checkout a decision about the checkout.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+	run("project", "create", "OPS", "Operations")
+
+	monkeypatch.chdir(tmp_path)
+	run("use", "--here", "--project", "WEB")
+
+	added = run("add", "Rotate the certificates +OPS")
+	shown = run("show", "1").output
+
+	assert "OPS" in shown
+	assert "WEB" not in shown
+
+	# **And it does not claim the marker filed it**, which is a separate guard from the one
+	# above: the client enforces the rule and the surface reports it, so a message that said
+	# "in WEB" over a task in OPS would be true of nothing and caught by neither.
+	assert "in WEB" not in added.output
+
+
+def test_work_outside_the_checkout_is_unaffected (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The property that makes this safe to have: losing it changes nothing already recorded.
+
+	A personal to-do list must not start filing the dentist into a work project because the
+	terminal happened to be in a repository — and §1.4 would be broken outright if it did.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+
+	inside = tmp_path / "checkout"
+	outside = tmp_path / "elsewhere"
+	inside.mkdir()
+	outside.mkdir()
+
+	monkeypatch.chdir(inside)
+	run("use", "--here", "--project", "WEB")
+
+	monkeypatch.chdir(outside)
+
+	added = run("add", "Call the dentist")
+
+	assert "in WEB" not in added.output
+	assert "WEB" not in run("show", "1").output
+
+
+def test_a_marker_naming_a_project_that_does_not_exist_is_refused_when_written (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Checked here, because the alternative is failing on the *next* capture.
+
+	The person who would then have to work out why is not the one who typed this, and the
+	message they would get would be about a task rather than about a file.
+	"""
+
+	run("init")
+
+	monkeypatch.chdir(tmp_path)
+
+	refused = run("use", "--here", "--project", "NOPE", expect=1)
+
+	assert "no project" in refused.output.lower()
+	assert not (tmp_path / subroutine.directory.FILE_NAME).exists(), (
+		"nothing may be written when the thing it names does not exist"
+	)
+
+
+def test_use_reports_the_marker_when_asked_where_it_is (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`subroutine use` is what somebody runs when asking "why is my work going there".
+
+	Reporting the marker only where it acts would answer that question everywhere except
+	where it is asked.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+
+	monkeypatch.chdir(tmp_path)
+	run("use", "--here", "--project", "WEB")
+
+	assert "WEB" in run("use").output
+
+
+def test_project_without_here_is_refused_rather_than_ignored (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A project belongs to a directory, not to the whole machine.
+
+	Silently ignoring the flag would leave somebody believing they had set a default, and
+	they would find out from a task filed in the wrong place a week later.
+	"""
+
+	run("init")
+
+	refused = run("use", "--project", "WEB", expect=1)
+
+	assert "--here" in refused.output

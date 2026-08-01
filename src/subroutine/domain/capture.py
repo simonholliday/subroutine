@@ -152,6 +152,18 @@ _PROJECT = re.compile(
 	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*)[,.;:!?)\]]*(?=\s|$)"
 )
 
+def names_a_project (text: str) -> bool:
+	"""Whether a captured line says which project it belongs to, with ``+KEY``.
+
+	**Here rather than in the callers**, and both clients need it: a default project from a
+	`.subroutine` marker (§13.7a) must not override a `+KEY` somebody typed, and the two
+	transports would otherwise each hold a copy of the grammar's own rule. This *is* the rule
+	— it asks the same pattern the parser uses.
+	"""
+
+	return _PROJECT.search(text) is not None
+
+
 #: Whole-day phrases. Anything else names an instant, so it is not all-day.
 _WHOLE_DAY_KEYWORDS = frozenset({"today", "tomorrow", "yesterday"})
 

@@ -1,0 +1,5 @@
+# Which Subroutine project the work in this directory belongs to.
+# Written by 'subroutine use --here'. Safe to delete: without it, new items go
+# wherever they went before, and nothing already recorded changes.
+workspace = "si"
+project = "SR"

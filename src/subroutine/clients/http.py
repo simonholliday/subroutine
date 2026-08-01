@@ -391,6 +391,7 @@ class Client:
 		workspace: str | None = None,
 		timezone: str | None = None,
 		type: str | None = None,
+		project: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text.
 
@@ -412,7 +413,16 @@ class Client:
 		body = self._json(
 			"POST",
 			"/v1/tasks",
-			json=_given(text=text, workspace_id=workspace, timezone=timezone, type=type),
+			json=_given(
+				text=text,
+				workspace_id=workspace,
+				timezone=timezone,
+				type=type,
+				# **Only when the line did not say.** A `+KEY` in the text is somebody being
+				# explicit about this item and must beat a default that came from a file three
+				# directories up, which they may not have known was there.
+				project=None if subroutine.domain.capture.names_a_project(text) else project,
+			),
 		)
 
 		# **One parse, two uses.** Both of these are answers about the *line*, not about the

@@ -56,7 +56,19 @@ setup interview is how a tool loses the person who just installed it.
    account. Use `--private` if they want it; the creator keeps access either way, and it can be
    changed later.
 
-6. **Do not import an existing to-do list unless asked.** Filing thirty items out of a
+6. **Record which project this checkout is, so later sessions do not have to guess.** This is
+   the step that makes everything after it reliable — without it, a session starting in this
+   directory has no way to tell which of the instance's projects the work belongs to.
+
+   ```
+   subroutine use --here --project WEB
+   ```
+
+   That writes a small `.subroutine` file at the repository root. Say that you have written it
+   and that it is safe to commit — it names a project, not a credential. From then on, work
+   added anywhere under this directory goes to that project unless a line says `+OTHER`.
+
+7. **Do not import an existing to-do list unless asked.** Filing thirty items out of a
    `TODO.md` is a large write that is tedious to undo and that nobody requested.
 
 7. **Write the pointer into the project's agent file** — `CLAUDE.md`, `AGENTS.md`, whichever it

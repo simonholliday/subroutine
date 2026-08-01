@@ -16,11 +16,15 @@ Resolution order, extending the server's own (``requested → pinned → sole �
 1. ``--connection`` / ``--workspace`` on the command
 2. ``SUBROUTINE_CONNECTION`` / ``SUBROUTINE_WORKSPACE`` in the environment, so a shell or a
    terminal pane can pin itself
-3. the stored context, set by ``subroutine use``
-4. the connection's sole workspace, when its credential reaches exactly one
-5. otherwise **refuse, naming the candidates**
+3. a ``.subroutine`` marker at or above the working directory (§13.7a, ``subroutine.directory``)
+4. the stored context, set by ``subroutine use``
+5. the connection's sole workspace, when its credential reaches exactly one
+6. otherwise **refuse, naming the candidates**
 
-Steps 1 to 3 are answered here. Steps 4 and 5 need a connection to have been asked what it
+Steps 1 to 4 are answered here. **Step 3 is above the stored context and below the
+environment**, which is the only ordering that works: a marker describes *this checkout* and so
+must beat a machine-global `use`, while a flag or an exported variable is somebody saying
+something now and must beat a file they may have forgotten about. Steps 4 and 5 need a connection to have been asked what it
 reaches, so they belong to whoever holds a client.
 
 **``use`` changes what a bare number means. It never changes what you can see.** That is the
@@ -45,6 +49,7 @@ import typing
 
 import subroutine.config
 import subroutine.connections
+import subroutine.directory
 import subroutine.domain.workspaces
 import subroutine.errors
 
@@ -60,6 +65,7 @@ WORKSPACE_VARIABLE = "SUBROUTINE_WORKSPACE"
 #: the standing footgun in comparable tooling is not having a profile but not knowing whether
 #: it came from a flag, the environment or a file.
 FROM_FLAG = "the command line"
+FROM_DIRECTORY = "the .subroutine file here"
 FROM_STORED = "'subroutine use'"
 FROM_DEFAULT = "the default connection"
 FROM_SOLE = "the only one there is"
@@ -117,6 +123,7 @@ def resolve (
 	*,
 	connection: str | None = None,
 	workspace: str | None = None,
+	marker: subroutine.directory.Marker | None = None,
 ) -> Current:
 	"""Answer steps 1 to 3 of §13.7's resolution order.
 
@@ -134,6 +141,7 @@ def resolve (
 	chosen, source = _first(
 		(connection, FROM_FLAG),
 		(os.environ.get(CONNECTION_VARIABLE), CONNECTION_VARIABLE),
+		(None if marker is None else marker.connection, FROM_DIRECTORY),
 		(stored.get("connection"), FROM_STORED),
 	)
 
@@ -150,6 +158,15 @@ def resolve (
 	wanted, workspace_source = _first(
 		(workspace, FROM_FLAG),
 		(os.environ.get(WORKSPACE_VARIABLE), WORKSPACE_VARIABLE),
+		# Only when the marker also chose the connection, or did not name one — the same rule
+		# the stored context follows below, and for the same reason: a workspace slug means
+		# nothing on an instance that has never heard of it.
+		(
+			None
+			if marker is None or (marker.connection or chosen) != chosen
+			else marker.workspace,
+			FROM_DIRECTORY,
+		),
 		# The stored workspace only applies to the connection it was stored *with*. Carrying
 		# it across would say `acme` on an instance that has never heard of it.
 		(stored.get("workspace") if stored.get("connection") == chosen else None, FROM_STORED),

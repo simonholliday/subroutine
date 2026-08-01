@@ -655,6 +655,7 @@ class Client:
 		workspace: str | None = None,
 		timezone: str | None = None,
 		type: str | None = None,
+		project: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text."""
 
@@ -678,6 +679,21 @@ class Client:
 				# `Any` because the signature ends in `**overrides`, which mypy cannot match
 				# against a mapping it has not seen the keys of.
 				**typing.cast(dict[str, typing.Any], {} if type is None else {"type_key": type}),
+				# **A named parameter and not an override**, because `create_from_text` derives
+				# a project of its own and an override of that name collides with the argument
+				# — which is a `TypeError` rather than anything useful, and is exactly what the
+				# first version of this did. Resolved here, the same way the endpoint resolves
+				# it, so both transports refuse an unknown key identically.
+				#
+				# **Only when the line did not say**: a `+KEY` in the text is somebody being
+				# explicit about this item and must beat a default from a file three
+				# directories up that they may not know is there.
+				project=(
+					subroutine.domain.selection.project(session, actor, chosen, project)
+					if project is not None
+					and not subroutine.domain.capture.names_a_project(text)
+					else None
+				),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,
 				actor=actor,

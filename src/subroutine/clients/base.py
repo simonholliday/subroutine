@@ -348,8 +348,12 @@ class Client(typing.Protocol):
 		workspace: str | None = None,
 		timezone: str | None = None,
 		type: str | None = None,
+		project: str | None = None,
 	) -> Captured:
 		"""Create a task from a line of text (§6.13).
+
+		``project`` is where it goes when the *line* does not say — a `+KEY` in the text wins,
+		because that is somebody being explicit about this one item (§13.7a, `#159`).
 
 		``type`` is the one field here that the *grammar* cannot carry, and it is passed
 		separately rather than given a sigil: §6.13's sigils are for things a person types

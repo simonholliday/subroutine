@@ -25,6 +25,7 @@ import contextlib
 import dataclasses
 import datetime
 import json
+import pathlib
 import shlex
 import sys
 import typing
@@ -42,6 +43,7 @@ import subroutine.connections
 import subroutine.context
 import subroutine.credentials
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
@@ -117,6 +119,12 @@ class World:
 	reached: tuple[Reached, ...]
 	unreachable: tuple[subroutine.fanout.Failure, ...]
 	settings: subroutine.config.Settings
+
+	#: The `.subroutine` marker found at or above the working directory, if any (§13.7a).
+	#: Carried on the world rather than read where it is needed, so one walk answers every
+	#: command and two commands in one process cannot disagree about which directory they are
+	#: in.
+	marker: subroutine.directory.Marker | None = None
 
 	@property
 	def clients (self) -> list[subroutine.clients.base.Client]:
@@ -208,6 +216,9 @@ class World:
 #: which cannot act on a document *says* so instead of claiming the item is missing.
 TASKS_ONLY = ("task",)
 ANY_ITEM = ("task", "document")
+
+#: Named here so the message a person reads and the file they will look for agree.
+FILE_NAME = subroutine.directory.FILE_NAME
 
 #: What ``update`` treats as "you did not name this field", for the two it can *clear*.
 #: §8.3's distinction between omitted and null is the whole of `PATCH`'s semantics, and a
@@ -508,8 +519,12 @@ def register (
 
 		try:
 			roster = subroutine.connections.roster(resolved)
+			marker = subroutine.directory.find()
 			current = subroutine.context.resolve(
-				roster, connection=selected.connection, workspace=selected.workspace
+				roster,
+				connection=selected.connection,
+				workspace=selected.workspace,
+				marker=marker,
 			)
 
 		except subroutine.errors.SubroutineError as error:
@@ -588,6 +603,7 @@ def register (
 					reached=reached,
 					unreachable=gathered.failures,
 					settings=resolved,
+					marker=marker,
 				)
 
 			except subroutine.errors.SubroutineError as error:
@@ -913,7 +929,10 @@ def register (
 
 		with opened() as world:
 			where = world.writing_to()
-			captured = where.client.capture(text=text, workspace=_writing_workspace(world))
+			filed = _default_project(world, text)
+			captured = where.client.capture(
+				text=text, workspace=_writing_workspace(world), project=filed
+			)
 
 			if json_output:
 				# `unparsed` is carried on the scripted path too. §6.13 requires the caller to
@@ -936,6 +955,13 @@ def register (
 			read = "" if captured.summary is None else f"  {captured.summary}"
 
 			say(f"Added: {captured.task.title}{_when(captured.task)}{read}")
+
+			# **Said out loud, every time, because nobody typed it** (§13.7a, `#159`). A file
+			# three directories up that silently redirects where work is filed is the footgun
+			# `context.py` calls the standing one in comparable tooling — not having a setting,
+			# but not knowing where it came from. One line is the whole cost of not having it.
+			if filed is not None:
+				console.print(rich.text.Text(f"  in {filed}, from {FILE_NAME}", style=DETAIL))
 
 			# The sentence itself is `domain.capture.explain`'s, so this surface and the MCP
 			# adapter cannot come to word §6.13's obligation differently.
@@ -2007,6 +2033,12 @@ def register (
 	@app.command(hidden=not _worth_showing(settings))
 	def use (
 		where: str = typer.Argument("", help="A workspace, or 'connection/workspace'."),
+		here: bool = typer.Option(
+			False, "--here", help="Write it into this directory instead, for this checkout."
+		),
+		project: str = typer.Option(
+			"", "--project", help="With --here: file new work under this project, by key."
+		),
 		reset: bool = typer.Option(
 			False, "--reset", help="Go back to the configured default."
 		),
@@ -2024,7 +2056,14 @@ def register (
 
 		  subroutine use work/acme
 
+		  subroutine use --here --project SR
+
 		  subroutine use --reset
+
+		**``--here`` writes a ``.subroutine`` file in the current directory** and is what a
+		checkout of a repository wants (§13.7a): it answers "which project is this work" for
+		everything started from here, including an agent, which cannot be asked. Without it
+		the choice is machine-wide, which cannot be right for two repositories at once.
 		"""
 
 		if reset:
@@ -2040,8 +2079,26 @@ def register (
 			return
 
 		with opened() as world:
+			if here:
+				_use_here(world, where, project)
+
+				return
+
+			if project.strip():
+				stop(
+					"--project only means something with --here.",
+					"A project belongs to a directory, not to the whole machine: "
+					"'subroutine use --here --project SR'.",
+				)
+
 			if not where.strip():
 				say(f"Working in {world.current.describe(qualified=world.qualifies_connection)}.")
+
+				# The marker is reported here rather than only where it acts, because this is
+				# the command somebody runs when they are asking "why is my work going there".
+				if world.marker is not None:
+					say(f"This directory says {world.marker.describe()}.")
+
 				say("")
 				_suggest(console, "subroutine use --reset", "go back to working everywhere")
 
@@ -2054,6 +2111,62 @@ def register (
 			say(f"Now working in {shown}.")
 			say("")
 			_suggest(console, "subroutine today")
+
+	def _use_here (world: World, where: str, project: str) -> None:
+		"""Write a marker into the current directory, and say what it will do.
+
+		The connection and workspace come from the *current context* unless the caller named
+		them, so ``subroutine use --here --project SR`` records where they already are rather
+		than making them type it again — which is the whole difference between adopting a
+		repository in one command and adopting it in an interview.
+		"""
+
+		connection, workspace = (
+			_chosen(world, where)
+			if where.strip()
+			else (world.current.connection, world.current.workspace)
+		)
+		key = project.strip().upper() or None
+
+		if key is not None and not _is_a_project(world, key):
+			stop(
+				f"There is no project {key!r} here.",
+				"Run 'subroutine project list' to see them, or "
+				f"'subroutine project create {key} \"A title\"' to make it.",
+			)
+
+		written = subroutine.directory.write(
+			pathlib.Path.cwd(),
+			connection=connection if world.qualifies_connection else None,
+			workspace=workspace,
+			project=key,
+		)
+
+		say(f"Wrote {written}.")
+
+		if key is None:
+			say("New work here goes to the Inbox. Add --project to file it somewhere.")
+
+			return
+
+		say(f"New work started in this directory goes to {key}, unless a line says otherwise.")
+		say("")
+		_suggest(console, "subroutine add \"something to do\"")
+
+	def _is_a_project (world: World, key: str) -> bool:
+		"""Whether this key names a project the writing connection can see.
+
+		Checked before the file is written, because a marker naming a project that does not
+		exist fails on the *next* capture rather than here — and the person who would have to
+		work out why is not the one who typed this.
+		"""
+
+		where = world.writing_to()
+
+		return any(
+			row.key.upper() == key
+			for row in where.client.projects(workspace=_writing_workspace(world))
+		)
 
 	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:
@@ -2571,6 +2684,23 @@ def _suggest (
 	line = f"  Tip: {command}" if about is None else f"  Tip: {command} — {about}"
 
 	console.print(rich.text.Text(line, style=SUGGESTION))
+
+
+def _default_project (world: World, text: str) -> str | None:
+	"""Return the project a captured line should go to when it does not say (§13.7a).
+
+	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
+	marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
+	and must beat a file they may not know is there.
+	"""
+
+	if world.marker is None or world.marker.project is None:
+		return None
+
+	if subroutine.domain.capture.names_a_project(text):
+		return None
+
+	return world.marker.project
 
 
 def _because (
