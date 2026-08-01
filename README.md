@@ -51,10 +51,11 @@ $ subroutine serve
 $ subroutine token create --title "CI" --scope task:read   # a credential that can only read
 ```
 
-All three install lines land with the first public release — the repository is private until
-then. Installing from a source checkout works today, and is what every command here was verified
-against. The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help`
-lists the commands and `subroutine explain dates` covers the ideas behind them.
+**`pip install subroutine` lands with the PyPI release, shortly.** Until then, install from
+here — `pip install git+https://github.com/simonholliday/subroutine` — which is what every
+command on this page was verified against. The full hosting recipe is in
+[docs/hosting.md](docs/hosting.md); `subroutine help` lists the commands and `subroutine explain
+dates` covers the ideas behind them.
 
 > **My context window ends. The instance does not.**
 >
