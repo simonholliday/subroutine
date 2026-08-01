@@ -726,6 +726,62 @@ def test_an_agent_can_write_the_document_it_is_told_to_write (
 	assert "nobody wanted" in read
 
 
+def test_an_agent_can_comment_on_the_document_it_just_wrote (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``#145``, one layer down from ``#138`` and the same shape.
+
+	``subroutine_comment`` passed no ``entity_type``, so it always meant "task" and answered
+	"there is no task #4 here" about a document sitting in the listing. The tool beside it
+	tells an agent to write documents and ``subroutine_show`` reads a document's record back —
+	so the surface taught that documents take comments and then refused to write one.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="Why the queue went", body="Nobody wanted it."
+	)
+
+	assert not failed, written
+
+	ref = int(written.split()[1].lstrip("#"))
+	answered, failed = _called(
+		bound, "subroutine_comment", ref=ref, body="Reread it; the argument still holds."
+	)
+
+	assert not failed, answered
+
+	read, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, read
+	assert "the argument still holds" in read
+
+
+def test_a_ref_means_the_same_thing_to_every_tool_that_takes_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The drift that produced ``#145``, guarded rather than fixed twice.
+
+	One counter per workspace serves both kinds (§6.2), so a ref alone does not say which it
+	is. ``show`` asked; ``comment`` assumed. They sat three hundred lines apart and nothing
+	compared them, which is how a tool can be right about documents and the one beside it
+	wrong about the same number.
+	"""
+
+	written, failed = _called(bound, "subroutine_document", title="A conclusion")
+
+	assert not failed, written
+
+	ref = int(written.split()[1].lstrip("#"))
+
+	for tool, arguments in (
+		("subroutine_show", {}),
+		("subroutine_comment", {"body": "Something happened."}),
+	):
+		_, failed = _called(bound, tool, ref=ref, **arguments)
+
+		assert not failed, f"{tool} does not accept a document's ref"
+
+
 def test_the_comment_tool_still_points_at_something_that_exists (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

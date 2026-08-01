@@ -262,6 +262,33 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 	return "  ".join(cells)
 
 
+def _item (
+	client: subroutine.clients.base.Client, ref: int, workspace: str | None
+) -> tuple[subroutine.views.Task | subroutine.views.Document, str]:
+	"""Return the item a ref names, and which kind it turned out to be.
+
+	One counter per workspace serves tasks and documents (§6.2), so a ref alone does not say
+	which it is and every tool taking one has to ask. Shared rather than repeated because the
+	two callers had drifted: ``show`` resolved both kinds and ``comment`` assumed a task, so
+	an agent could read a document's record and not add to it — while the tool beside them
+	told it to write documents in the first place (`#145`).
+	"""
+
+	found: subroutine.views.Task | subroutine.views.Document | None = client.task(
+		ref=ref, workspace=workspace
+	)
+
+	if found is not None:
+		return found, "task"
+
+	document = client.document(ref=ref, workspace=workspace)
+
+	if document is None:
+		raise LookupError(f"There is no #{ref} here.")
+
+	return document, "document"
+
+
 def _shown (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -269,17 +296,7 @@ def _shown (
 
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
-	found: subroutine.views.Task | subroutine.views.Document | None = client.task(
-		ref=ref, workspace=workspace
-	)
-	kind = "task"
-
-	if found is None:
-		found = client.document(ref=ref, workspace=workspace)
-		kind = "document"
-
-	if found is None:
-		raise LookupError(f"There is no #{ref} here.")
+	found, kind = _item(client, ref, workspace)
 
 	parts = [_line(found)]
 	body = (
@@ -375,14 +392,17 @@ def _wrote (
 def _remarked (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
-	"""Add one entry to an item's record."""
+	"""Add one entry to an item's record, whether it is a task or a document."""
 
 	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+	_, kind = _item(client, ref, workspace)
 
 	client.remark(
 		ref=ref,
 		body=_text(arguments, "body") or "",
-		workspace=_text(arguments, "workspace"),
+		entity_type=kind,
+		workspace=workspace,
 	)
 
 	return f"Recorded on #{ref}."
