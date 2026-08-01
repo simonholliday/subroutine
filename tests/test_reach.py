@@ -106,6 +106,8 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/documents/{id_or_ref}/links"): "links",
 	("GET", "/v1/projects"): "projects",
 	("GET", "/v1/projects/{id_or_key}/comments"): "comments",
+	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
+	("GET", "/v1/documents/{id_or_ref}/events"): "history",
 	("GET", "/v1/me"): "identity",
 }
 
@@ -156,21 +158,10 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"One project on its own. `project list` prints the tree and `show` reads items; "
 		"nothing yet asks for a single project's own record. `#141`.",
 	),
-	("GET", "/v1/tasks/{id_or_ref}/events"): (
-		"tracked",
-		"An item's history, unreadable outside HTTP — `#150`, and the second edge of this "
-		"guard proving itself the moment it was looked at. `#52` shipped to put comments "
-		"into that history on a morning when nothing outside HTTP could display it.",
-	),
-	("GET", "/v1/documents/{id_or_ref}/events"): (
-		"tracked",
-		"The same history on a document, and the same argument — `#150` takes all three "
-		"together because they are one renderer.",
-	),
 	("GET", "/v1/projects/{id_or_key}/events"): (
 		"tracked",
-		"The same history on a project. `#150`, and the last of the three; a project has "
-		"no `show` of its own yet either.",
+		"A project's history. `#150` gave tasks and documents theirs, which is where `show` "
+		"reaches; a project has no `show` of its own to grow a section on — `#141`.",
 	),
 	("GET", "/v1/workspaces"): (
 		"tracked",

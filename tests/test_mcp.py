@@ -611,6 +611,33 @@ def test_a_project_named_without_a_title_is_refused (
 	assert "title" in answered
 
 
+def test_an_agent_can_read_what_has_happened_to_an_item (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#150`, on the surface where the cost of always printing it would be highest.
+
+	An argument rather than a tool, and off by default: a history is unbounded where a comment
+	list is bounded by what somebody typed, and most items have one event saying they exist.
+	"""
+
+	ref = _added(bound, "Fix the parser")
+
+	_called(bound, "subroutine_update", ref=ref, importance=4)
+	_called(bound, "subroutine_comment", ref=ref, body="ran the suite")
+
+	plain, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, plain
+	assert "changed importance" not in plain
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref, history=True)
+
+	assert not failed, shown
+	assert "created" in shown
+	assert "changed importance" in shown
+	assert "commented" in shown
+
+
 def test_the_whole_tool_surface_stays_small (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

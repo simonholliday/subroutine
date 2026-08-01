@@ -89,13 +89,14 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			name="subroutine_show",
 			title="Read one item",
 			description=(
-				"Read one task or document in full by its ref number, with its links and the "
-				"record of what has happened to it. A ref may name either kind."
+				"Read one task or document in full, with its links and its record. A ref may "
+				"name either kind."
 			),
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The item's number, e.g. 42."},
+					"ref": {"type": "integer", "description": "The item's number."},
+					"history": {"type": "boolean", "description": "Every change, newest first."},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -186,7 +187,7 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
 					"defer": {
 						"type": "string",
-						"description": "Hide it until this day, e.g. while waiting. Or '' .",
+						"description": "Hide it until this day. '' to unhide.",
 					},
 					"workspace": WORKSPACE,
 				},
@@ -352,6 +353,25 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 	return "  ".join(cells)
 
 
+def _happened (event: subroutine.views.Event) -> str:
+	"""Return one event as a phrase, in the same words the CLI uses.
+
+	Behind an argument rather than always: a history is unbounded where a comment list is
+	bounded by what somebody typed, and most items have one event saying they were created.
+	Spending that on every ``show`` is the cost §14 exists to weigh.
+	"""
+
+	if event.subject_type is not None:
+		return {"created": "commented", "updated": "edited a comment"}.get(
+			event.action, f"{event.action} a comment"
+		)
+
+	if event.action != "updated" or not event.changes:
+		return event.action
+
+	return "changed " + ", ".join(sorted(event.changes))
+
+
 def _item (
 	client: subroutine.clients.base.Client, ref: int, workspace: str | None
 ) -> tuple[subroutine.views.Task | subroutine.views.Document, str]:
@@ -403,6 +423,13 @@ def _shown (
 		parts.append("")
 		parts.extend(
 			f"{link.label}  #{link.other.ref}  {link.other.title}" for link in links
+		)
+
+	if arguments.get("history"):
+		parts.append("")
+		parts.extend(
+			f"{event.created_at.date().isoformat()}  {_happened(event)}"
+			for event in client.history(ref=ref, entity_type=kind, workspace=workspace)
 		)
 
 	remarks = client.comments(ref=ref, entity_type=kind, workspace=workspace)

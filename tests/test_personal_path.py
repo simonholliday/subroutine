@@ -625,6 +625,51 @@ def test_a_priority_reads_back_the_way_it_is_written (
 	assert shown[0] not in written.split("\n")[0], "the token stayed in the title"
 
 
+def test_show_can_print_what_has_happened_to_an_item (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#150`. `GET /v1/tasks/{ref}/events` reached no client, so neither surface could read it.
+
+	Found by `#148`'s second edge on its first run — and `#52` had spent a morning putting
+	comments *into* that history while nothing outside HTTP could display the result.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+	run("update", "1", "--importance", "4")
+	run("comment", "1", "ran the suite")
+
+	plain = run("show", "1").output
+
+	# **Behind a flag.** Most items have one event saying they were created, and printing that
+	# on every `show` is a section whose answer is almost always "nothing has happened" — §1.4's
+	# rule about a default nobody chose, applied to a whole heading.
+	assert "History" not in plain
+
+	shown = run("show", "1", "--history").output
+
+	assert "History" in shown
+	assert "created" in shown
+	assert "changed importance" in shown
+	assert "commented" in shown, "a comment must reach the history — that is what #52 built"
+
+
+def test_the_history_is_in_the_json_whether_or_not_it_was_asked_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A key that appears only with a flag makes a script test for the key rather than read it.
+
+	"Absent" and "nothing has happened" would then be the same shape for two different facts,
+	which is the `due_at: null` mistake `_as_json` already avoids for documents.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	assert json.loads(run("show", "1", "--json").output)["history"] == []
+	assert json.loads(run("show", "1", "--history", "--json").output)["history"]
+
+
 def test_a_defer_can_say_what_it_is_waiting_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

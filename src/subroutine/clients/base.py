@@ -263,6 +263,26 @@ class Client(typing.Protocol):
 		beginning; a task list is read newest-first because the newest is the one you act on.
 		"""
 
+	def history (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has happened to one item, newest first (§5.11a).
+
+		**Not the same question as :meth:`comments`, which is why both exist.** A comment is
+		what somebody wrote; an event is what the system recorded — a status change, a
+		re-ranking, a deletion — and since ``#52`` an event also names a comment that was made,
+		so the history is the one place both halves of "what happened here" appear together.
+
+		Newest first, unlike a comment thread: a record is read from the beginning, and a
+		history is read from the end, because the last thing to happen is the one you are
+		asking about.
+		"""
+
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> list[subroutine.views.Project]:

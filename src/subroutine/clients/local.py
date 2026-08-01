@@ -34,6 +34,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.credentials
 import subroutine.db.migrate
+import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.session
@@ -43,6 +44,7 @@ import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.documents
+import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.local
@@ -505,6 +507,42 @@ class Client:
 			).all()
 
 			return [subroutine.views.comment(row) for row in rows]
+
+	def history (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has happened to one item, newest first.
+
+		**No upper bound**, which is the one thing this shares with the route rather than with
+		the feed: `seq` becomes visible at commit, so a watermark would mean commenting on an
+		item and immediately reading its history shows nothing (§5.11a).
+		"""
+
+		size = subroutine.domain.paging.size(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			# Resolving the subject **is** the permission check, exactly as it is on the route:
+			# it goes through the entity's own narrowed statement, so one the caller may not
+			# see is absent rather than forbidden, and everything hanging off it is then safe.
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			statement = subroutine.domain.events.selected(
+				workspace_ids=[chosen.id], entity_type=entity_type, entity_id=subject
+			)
+			rows = session.scalars(
+				statement.order_by(
+					subroutine.db.models.activity.Event.seq.desc()
+				).limit(size)
+			).all()
+
+			return [subroutine.views.event(row) for row in rows]
 
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None

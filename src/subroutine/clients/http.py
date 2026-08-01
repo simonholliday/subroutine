@@ -297,6 +297,24 @@ class Client:
 
 		return self._collected(subroutine.views.Comment, body, endpoint="comments")
 
+	def history (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has happened to one item, newest first."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/events",
+			params=_given(workspace_id=workspace, limit=limit),
+		)
+
+		return self._collected(subroutine.views.Event, body, endpoint="events")
+
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> list[subroutine.views.Project]:

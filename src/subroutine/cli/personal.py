@@ -1284,6 +1284,7 @@ def register (
 	@app.command()
 	def show (
 		which: str = typer.Argument("", help="An item number, as shown by 'ls'."),
+		history: bool = typer.Option(False, "--history", help="Every change, newest first."),
 		json_output: bool = typer.Option(False, "--json", help="Print as JSON."),
 	) -> None:
 		"""Read one item — what it is, what it is joined to, and what happened to it.
@@ -1296,6 +1297,8 @@ def register (
 		  subroutine show 42
 
 		  subroutine show 42 --json
+
+		  subroutine show 42 --history
 		"""
 
 		with opened() as world:
@@ -1337,16 +1340,27 @@ def register (
 				else []
 			)
 
+			events = (
+				client.history(
+					ref=located.ref,
+					entity_type=located.entity_type,
+					workspace=located.workspace,
+				)
+				if history
+				else []
+			)
+
 			if json_output:
 				say(
 					json.dumps(
-						_shown_as_json(world, located, links, remarks, children), indent=2
+						_shown_as_json(world, located, links, remarks, children, events),
+						indent=2,
 					)
 				)
 
 				return
 
-			_render_item(world, located, links, remarks, children, console=console)
+			_render_item(world, located, links, remarks, children, events, console=console)
 			say("")
 			_suggest(
 				console,
@@ -2673,6 +2687,7 @@ def _render_item (
 	links: typing.Sequence[subroutine.views.Link],
 	remarks: typing.Sequence[subroutine.views.Comment],
 	children: typing.Sequence[subroutine.views.Task] = (),
+	events: typing.Sequence[subroutine.views.Event] = (),
 	*,
 	console: rich.console.Console,
 ) -> None:
@@ -2772,6 +2787,43 @@ def _render_item (
 			line.append(f"  {remark.created_at.date().isoformat()}  ", style=DETAIL)
 			line.append(remark.body)
 			console.print(line)
+
+	# **Last, behind a flag, and newest first.** A comment is what somebody wrote and belongs
+	# in the reading order of the item; a history is what the system recorded, it is unbounded,
+	# and most of the time the answer is "it was created and nothing else has happened" — which
+	# is §1.4's rule about a default nobody chose, applied to a whole section. `--history` is
+	# what somebody asks for when the question is "why does this say that".
+	if events:
+		console.print("")
+		console.print(rich.text.Text("History", style=HEADING))
+
+		for event in events:
+			line = rich.text.Text()
+			line.append(f"  {event.created_at.date().isoformat()}  ", style=DETAIL)
+			line.append(_event_line(event))
+			console.print(line)
+
+
+def _event_line (event: subroutine.views.Event) -> str:
+	"""Return one event as a sentence somebody can read.
+
+	**The subject, not the entity, decides how it reads.** Since `#52` a comment's event names
+	the comment and carries the commented-on item as its subject, so "created comment" is the
+	shape a history sees — and "commented" is what a person means by it.
+	"""
+
+	if event.subject_type is not None:
+		return {"created": "commented", "updated": "edited a comment"}.get(
+			event.action, f"{event.action} a comment"
+		)
+
+	if event.action != "updated" or not event.changes:
+		return event.action
+
+	# **The field names, not the values.** A history is a list of what moved; the values are in
+	# the item itself, one line above, and a `from`/`to` pair per field would make the commonest
+	# entry the longest one.
+	return "changed " + ", ".join(sorted(event.changes))
 
 
 def _facts (located: Located) -> list[str]:
@@ -2998,6 +3050,7 @@ def _shown_as_json (
 	links: typing.Sequence[subroutine.views.Link],
 	remarks: typing.Sequence[subroutine.views.Comment],
 	children: typing.Sequence[subroutine.views.Task] = (),
+	events: typing.Sequence[subroutine.views.Event] = (),
 ) -> dict[str, typing.Any]:
 	"""Return one item, its links and its record, as the scripted path sees it.
 
@@ -3014,6 +3067,10 @@ def _shown_as_json (
 		"links": [link.model_dump(mode="json") for link in links],
 		"comments": [remark.model_dump(mode="json") for remark in remarks],
 		"children": [child.model_dump(mode="json") for child in children],
+		# **Always present, empty when it was not asked for.** A key that appears only with
+		# `--history` makes a script test for the key rather than read it, and "absent" and
+		# "nothing happened" would then be the same shape for two different facts.
+		"history": [event.model_dump(mode="json") for event in events],
 	}
 
 
