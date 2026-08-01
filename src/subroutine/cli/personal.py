@@ -3344,8 +3344,23 @@ def _render_item (
 			console.print(row)
 
 	if links:
+		# **The rollup `#84` specified and nothing built** (`#210`). A milestone is modelled as
+		# an item whose blockers are its contents, "presented GitHub-style as N of M" — and
+		# every link printed identically, so `show 85` reported forty-eight *finished* blockers
+		# as forty-eight outstanding ones. The item somebody opens to ask whether a release is
+		# ready said the opposite of the truth about it.
+		#
+		# Counted over the blockers alone. A `relates to` has nothing to be N of.
+		blockers = [
+			link
+			for link in links
+			if link.link_type == "blocks" and link.direction == "incoming"
+		]
+		done = sum(1 for link in blockers if link.other.is_complete)
+		rollup = f"  ({done} of {len(blockers)} blockers done)" if blockers else ""
+
 		console.print("")
-		console.print(rich.text.Text("Links", style=HEADING))
+		console.print(rich.text.Text(f"Links{rollup}", style=HEADING))
 
 		width = max(len(link.label) for link in links)
 
@@ -3355,7 +3370,11 @@ def _render_item (
 			line.append(
 				f"{subroutine.domain.refs.format_ref(link.other.ref):>4}  ", style=POSITION
 			)
-			line.append(link.other.title)
+
+			# Dimmed rather than removed or ticked, exactly as a finished part is above: the
+			# rollup carries the count, and what this line is for is seeing what the thing at
+			# the other end *is*. Removing it would hide the contents of a finished milestone.
+			line.append(link.other.title, style=DETAIL if link.other.is_complete else "")
 			console.print(line)
 
 	if remarks:

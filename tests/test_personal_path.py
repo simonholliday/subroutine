@@ -2419,6 +2419,75 @@ def test_a_link_is_withdrawn_by_naming_the_two_items (
 	assert "Blocked" in run("list", "--ready").output
 
 
+def test_show_counts_the_blockers_that_are_done (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#210`, found by Simon reading ``subroutine show 85``.
+
+	`#84` models a milestone as an item whose blockers are its contents, "presented
+	GitHub-style as N of M" — and the count was never built. Every link printed identically,
+	so an item with forty-eight *finished* blockers reported forty-eight outstanding ones: the
+	thing somebody opens to ask whether a release is ready said the opposite of the truth.
+
+	**Readiness was never wrong**, which is why nothing else caught it. ``--ready`` joins the
+	blocker's ``completed_at`` and always had this right; the graph was correct and only the
+	rendering was not. So this asserts the *rendering*, and asserts the two agree.
+	"""
+
+	run("init")
+	run("add", "The milestone")
+	run("add", "First part")
+	run("add", "Second part")
+	run("link", "2", "blocks", "1")
+	run("link", "3", "blocks", "1")
+
+	assert "Links  (0 of 2 blockers done)" in run("show", "1").output
+	assert "The milestone" not in run("list", "--ready").output, "and it is not startable"
+
+	run("done", "2")
+
+	assert "Links  (1 of 2 blockers done)" in run("show", "1").output
+
+	run("done", "3")
+
+	shown = run("show", "1").output
+
+	assert "Links  (2 of 2 blockers done)" in shown
+
+	# **Still listed, not removed.** The contents of a finished milestone are what it was, and
+	# a reader opening it wants to see them — the count is what says they are behind you.
+	assert "First part" in shown
+	assert "Second part" in shown
+
+	assert "The milestone" in run("list", "--ready").output, "the two now agree"
+
+
+def test_show_counts_only_blockers_and_not_every_link (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A `relates to` has nothing to be N of, and counting it would make the number a lie."""
+
+	run("init")
+	run("add", "The milestone")
+	run("add", "A part")
+	run("add", "Something similar")
+	run("link", "2", "blocks", "1")
+	run("link", "1", "relates-to", "3")
+
+	shown = run("show", "1").output
+
+	assert "Links  (0 of 1 blockers done)" in shown
+	assert "Something similar" in shown, "the related item is still listed, just not counted"
+
+	# **The other end of the same link gets no count at all.** #2 blocks #1, so from #2's own
+	# side that link is something it holds up, not one of its contents — and a heading reading
+	# "0 of 1" there would be counting the wrong item's work.
+	from_the_blocker = run("show", "2").output
+
+	assert "blockers done" not in from_the_blocker
+	assert "Blocks" in from_the_blocker
+
+
 def test_a_link_that_is_not_there_is_refused_without_naming_a_workspace (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

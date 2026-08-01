@@ -81,6 +81,14 @@ class LinkEnd(pydantic.BaseModel):
 	ref: int
 	title: str
 
+	#: Whether the thing at this end is finished (`#210`). A link is how `#84` models a
+	#: milestone — an item whose blockers are its contents — so a client rendering "N of M"
+	#: needs this and would otherwise have to fetch every end to count them.
+	#:
+	#: **Only a task can be finished.** A document has no state that could, so one is reported
+	#: as incomplete rather than judged by a status it does not have.
+	is_complete: bool = False
+
 
 class Edge(pydantic.BaseModel):
 	"""A link among a page's items, named by both its ends (SPEC.md §5.7, §8.4).
@@ -986,7 +994,11 @@ def _end (end: subroutine.domain.links.End) -> LinkEnd:
 	"""Render one end of a link — enough of the row to identify and show it, no more."""
 
 	return LinkEnd(
-		entity_type=end.entity_type, id=end.id, ref=end.ref, title=end.title
+		entity_type=end.entity_type,
+		id=end.id,
+		ref=end.ref,
+		title=end.title,
+		is_complete=end.is_complete,
 	)
 
 
@@ -1003,12 +1015,7 @@ def link (related: subroutine.domain.links.Related) -> Link:
 		link_type=related.link_type,
 		label=related.label,
 		direction=related.direction,
-		other=LinkEnd(
-			entity_type=related.other.entity_type,
-			id=related.other.id,
-			ref=related.other.ref,
-			title=related.other.title,
-		),
+		other=_end(related.other),
 	)
 
 

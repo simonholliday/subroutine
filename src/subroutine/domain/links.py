@@ -51,6 +51,17 @@ class End:
 	title: str
 	project_id: uuid.UUID
 
+	#: Whether the thing at this end is finished (`#210`). Carried because a link is how
+	#: `#84` models a milestone — "an item whose blockers are its contents" — and a list of
+	#: contents that cannot say which are done is a list nobody can read a milestone off. Every
+	#: end used to arrive without it, so ``subroutine show 85`` reported forty-eight completed
+	#: blockers as forty-eight outstanding ones.
+	#:
+	#: **Only a task can be finished.** ``readiness.unblocked`` says so and this agrees: a
+	#: document has no state that could finish, so an end that is one is never complete rather
+	#: than being judged by a status it does not have.
+	is_complete: bool = False
+
 
 @dataclasses.dataclass(frozen=True)
 class Related:
@@ -410,6 +421,10 @@ def _ends (
 			ref=row.ref,
 			title=row.title,
 			project_id=row.project_id,
+			# Read off `completed_at`, not off the status vocabulary: invariant 5 makes that
+			# column non-null exactly when the category is done or cancelled, so it answers
+			# the same question without joining a table an installation may rename rows in.
+			is_complete=entity_type == "task" and row.completed_at is not None,
 		)
 		for row in session.scalars(
 			_visible(principal, workspace_id=workspace_id, entity_type=entity_type).where(
