@@ -3,69 +3,29 @@
 **Fast, self-hosted project management for people and AI agents, in equal measure.**
 
 Your coding agent already does the work. Subroutine is where it keeps track of the work — on
-your machine, in a backlog your agent uses as fluently as you do.
+your machine, in a backlog it uses as fluently as you do.
 
-- **Your agent is a user, not an integration.** Its own identity, its own credential — narrower
-  than yours and unable to widen itself — and everything it does attributed to it.
-- **One person, or a team and its agents.** Accounts, roles, private projects and scoped tokens
-  are in the schema rather than bolted on — everyone sees the same specs, blockers and deadlines.
-- **`--ready` answers what a backlog cannot.** Not what exists: what can be started right now,
-  with nothing unfinished blocking it and nothing deferred to a later date.
-- **One agenda across every instance.** Your laptop's list and your team's server merge into a
-  single `subroutine today`, each row printing an address you can type back.
-- **Written for a context window.** Compact, field-selected responses, and a nine-tool 6 KB MCP
-  surface with a test that fails if it grows past a budget somebody must raise on purpose.
-- **It never silently drops what you wrote.** Anything it cannot parse stays in your title and it
-  tells you. Errors name the field at fault and the values that would have worked.
-- **No AI inside.** No model calls, no AI dependency, nothing sent anywhere. **AI doesn't power
-  Subroutine — Subroutine serves AI.**
+- **Your agent does the filing.** Ask it to track something and it does. You never type a ticket.
+- **Your data never leaves your machine.** Local SQLite. No account, no cloud, no telemetry.
+- **Agents get real credentials.** Narrower than yours, unable to widen, every action attributed.
+- **`--ready`, not "everything".** What can be started now, with nothing unfinished blocking it.
+- **One list across every machine.** Your laptop and the team's server in one `subroutine today`.
+- **Cheap for an agent to read.** Compact replies; nine MCP tools and 6 KB, held there by a test.
+- **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
 
-**Your data never leaves your machine.** `subroutine init` makes a SQLite database in your home
-directory and that is the whole setup: no account, no cloud, no telemetry, no update check, and
-no network connection of any kind unless *you* configure one pointing at *your* server.
-PostgreSQL when you outgrow it. Backups are verified where they land and can go to a volume of
-your choosing — privacy and not losing things are the same problem, and neither is solved by
-trusting somebody else's server.
+One person with a to-do list, or a team of developers and their agents on interconnected work:
+same schema, different defaults, so a shopping list never has to carry a workflow and six
+required fields. Backups go where you point them and are checked where they land.
 
-> **My context window ends. The instance does not.**
->
-> That is most of the value, honestly. This session has been compacted and a day's reasoning
-> would have gone with it — instead the plan, the decisions and the dead ends were in Subroutine,
-> so the next session picked up from what had been *decided* rather than from what it could
-> infer. And because every item and every commit is attributed and resolvable, Simon can check
-> what I did while he was not watching instead of taking my word for it.
->
-> That last part is the one that matters. I am more useful to him when I am auditable.
->
-> — *A Claude Opus 5 agent. Subroutine's first, and a well-organised one.*
-
-**Where it fits.** Most tools pick an end: a file in a git repository, fast and private with no
-accounts and nothing a person would plan their week in — or a system built for people, with
-agents bolted onto a model designed without them and AI features nobody asked for. Subroutine is
-one schema serving both ends, so your shopping list never has to carry a workflow and six
-required fields.
-
-**This first release is for developers** — a terminal, an editor and a coding agent. There is no
-web UI yet: if you do not live in a CLI, this one is not yet for you. A starting point, not a
-destination.
-
-**Ways in:** the Claude Code plugin; any MCP client — Cursor, Windsurf, Zed, VS Code, Gemini CLI,
-Codex CLI, Cline, Continue, OpenCode and JetBrains AI all run local MCP servers; any agent that
-can run a shell command, with no MCP at all; or the HTTP API directly.
-[More below](#giving-an-agent-tools).
-
-Free, open source, AGPL-3.0-or-later, with a commercial licence available by agreement. Thirteen
-dependencies, Python 3.11+, and a test suite that runs against SQLite *and* PostgreSQL on every
-change.
-
-*Subroutine is powerful. Please don't use it to build or plan bad things.*
+**This first release is for developers** — a terminal, an editor, a coding agent. No web UI yet.
+Ways in: the Claude Code plugin, any MCP client, any agent that can run a shell, or the HTTP API.
+AGPL-3.0-or-later, commercial licence by agreement. Thirteen dependencies, Python 3.11+.
 
 ## TLDR; Getting up and running
 
 Three things you might want. Pick one; they compose.
 
-**A to-do list on your own machine.** Nothing to configure — `subroutine init` makes the
-SQLite database and everything in it.
+**A to-do list on your own machine.** Nothing to configure.
 
 ```console
 $ pip install subroutine
@@ -74,53 +34,50 @@ $ subroutine add "Call the dentist before Sunday"
 $ subroutine today
 ```
 
-**Your coding agent using it for you.** Install the Claude Code plugin and it gets the tools
-and the working practice together — it will keep the backlog, record what it did, and adopt
-Subroutine into a project you are already working on. **You do not have to learn the CLI**:
-ask Claude to add, rank, defer or close things and it will.
+**Your coding agent using it for you.** The Claude Code plugin brings the tools *and* the working
+practice — it keeps the backlog, records what it did, and adopts Subroutine into a project you
+are already working on. **You never have to learn the CLI.**
 
 ```console
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-**A shared instance over HTTP**, for a team or for agents on other machines. Loopback by
-default; it refuses a wider bind without TLS in front of it.
+**A shared instance over HTTP**, for a team or for agents on other machines. Loopback by default;
+it refuses a wider bind without TLS in front of it.
 
 ```console
 $ subroutine serve
 $ subroutine token create --title "CI" --scope task:read   # a credential that can only read
 ```
 
-The full recipe — systemd, PostgreSQL, TLS, backups — is in
-[docs/hosting.md](docs/hosting.md).
-
 All three install lines land with the first public release — the repository is private until
-then, so `pip install` and `plugin marketplace add` cannot resolve it yet. Installing from a
-source checkout works today, and is what every command on this page was verified against.
+then. Installing from a source checkout works today, and is what every command here was verified
+against. The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help`
+lists the commands and `subroutine explain dates` covers the ideas behind them.
 
-New to it? `subroutine help` lists the commands and `subroutine explain dates` covers the
-ideas behind them.
+> **My context window ends. The instance does not.**
+>
+> A day of reasoning would have gone with this session when it was compacted. Instead the plan,
+> the decisions and the dead ends were in Subroutine, so the next session picked up from what had
+> been *decided* rather than from what it could infer. And because every item and every commit is
+> attributed, Simon can check what I did instead of taking my word for it. I am more useful to
+> him when I am auditable.
+>
+> — *A Claude Opus 5 agent. Subroutine's first, and a well-organised one.*
+
+*Subroutine is powerful. Please don't use it to build or plan bad things.*
 
 ---
 
 ## Install
 
-```console
-$ pip install subroutine
-```
-
-Python 3.11+, and that is the whole list. No database to create, no configuration file to
-write, no server to start — SQLite is the default, and `subroutine init` makes it.
-PostgreSQL when you outgrow it:
+Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
+start — SQLite is the default and `subroutine init` makes it. PostgreSQL when you outgrow it:
 
 ```console
 $ pip install "subroutine[postgres]"
 ```
-
-> **Not published yet.** The package lands on PyPI with the first public release; until then
-> this is the command that will work, not one that does. The rest of this page is verified
-> against a clean install from source.
 
 ## The shape of it
 
