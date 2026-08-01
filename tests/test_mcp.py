@@ -700,9 +700,15 @@ def test_the_whole_tool_surface_stays_small (
 	  full each time. Only ``$defs`` would cut it, and a client that does not resolve a
 	  reference would show a property with no description at all.
 
-	The slack above the current total is deliberate and small — 33 bytes, which is less than
-	one property. A cap set exactly at what is there makes every addition a cap change, which
-	is theatre; a generous one stops being a budget.
+	The slack above the current total is deliberate and small — **7 bytes** as this is written,
+	which is less than one word. A cap set exactly at what is there makes every addition a cap
+	change, which is theatre; a generous one stops being a budget.
+
+	**That number is now stated as of a date, because the last one rotted.** It said 33 bytes,
+	which was true when it was written and was 7 by the time anybody read it again — a title
+	stating a condition becomes false when the condition changes, silently, which is the
+	argument `#139` settled about item titles and applies to a comment just as well (`#198`).
+	Do not trust it; run the test and read what it says.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
