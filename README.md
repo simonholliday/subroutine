@@ -51,11 +51,8 @@ $ subroutine serve
 $ subroutine token create --title "CI" --scope task:read   # a credential that can only read
 ```
 
-**`pip install subroutine` lands with the PyPI release, shortly.** Until then, install from
-here — `pip install git+https://github.com/simonholliday/subroutine` — which is what every
-command on this page was verified against. The full hosting recipe is in
-[docs/hosting.md](docs/hosting.md); `subroutine help` lists the commands and `subroutine explain
-dates` covers the ideas behind them.
+The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help` lists the
+commands and `subroutine explain dates` covers the ideas behind them.
 
 > **My context window ends. The instance does not.**
 >
