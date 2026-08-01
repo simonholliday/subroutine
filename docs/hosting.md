@@ -112,11 +112,45 @@ small team that is not writing concurrently. Switch when any of these is true:
   rather than corrupting the file quietly.
 - You want your existing backup, replication and point-in-time recovery to cover it.
 
-Create the database and role however you normally would, then name it in `config.toml`:
+Create the database and role however you normally would. If this is a **new** installation,
+name it in `config.toml` and you are done:
 
 ```toml
 database_url = "postgresql+psycopg:///subroutine"
 ```
+
+**If you already have data in SQLite, copy it across first.** Do not just change the URL — that
+gives you an empty database and leaves everything you have in a file nothing is reading. A
+backup will not do it either: backups are per-engine, so a SQLite one cannot be restored into
+PostgreSQL.
+
+```console
+$ subroutine db copy --to postgresql+psycopg:///subroutine
+  Copying sqlite:////var/lib/subroutine/subroutine.db
+       to postgresql+psycopg:///subroutine
+
+  event: 776
+  task: 137
+  link: 102
+  ...
+
+  Copied 1,619 rows, and read them back to check.
+
+  Nothing has changed here yet. To start using the copy, set in config.toml:
+    database_url = "postgresql+psycopg:///subroutine"
+```
+
+**It is a copy and the original is untouched**, so nothing is at risk while you check. The
+target must be empty; it is migrated to the right schema for you, and every table is read back
+and counted before the command reports success. Stop the service first, so nothing writes to
+the old database after the copy is taken.
+
+When the new one looks right, set `database_url`, restart, and confirm with `subroutine db
+current`. Keep the SQLite file until you are sure — deleting it is the only irreversible step
+in the whole move, and nothing here does it for you.
+
+It works in the other direction too, which is what you want for a laptop copy of a served
+instance, or for going back.
 
 The driver is `psycopg` (version 3), which is what the `[postgres]` extra installs. Confirm
 before starting the service:

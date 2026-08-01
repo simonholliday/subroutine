@@ -36,6 +36,7 @@ import subroutine.db.backup
 import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.session
+import subroutine.db.transfer
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local
@@ -627,6 +628,66 @@ def database_upgrade () -> None:
 		)
 
 	_say(f"Schema is at {subroutine.db.migrate.head_revision()}.")
+
+
+@database_app.command("copy")
+def database_copy (
+	to: str = typer.Option(..., "--to", help="The database URL to copy into."),
+) -> None:
+	"""Copy this instance's data into another database — SQLite to PostgreSQL, or back.
+
+	Examples:
+
+	  subroutine db copy --to postgresql+psycopg:///subroutine
+
+	**A copy, and the original is untouched.** Nothing here writes to or deletes the current
+	database: when the new one looks right, point `database_url` at it. Until then you have
+	two, which is the reassurance somebody changing engines on a Tuesday evening actually
+	wants.
+
+	The target must be empty. Merging two instances is not this command, and doing it by
+	accident would leave neither of them right.
+	"""
+
+	settings = _settings()
+
+	if _database_is_absent(settings):
+		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+
+	unusable = subroutine.db.transfer.unusable_target(to)
+
+	if unusable is not None:
+		_stop(
+			unusable,
+			"A URL looks like 'postgresql+psycopg:///subroutine' or "
+			"'sqlite:////var/lib/subroutine/subroutine.db'.",
+		)
+
+	_say(f"Copying {safe_url(settings.database_url)}")
+	_say(f"     to {safe_url(to)}")
+
+	try:
+		copied = subroutine.db.transfer.copy_into(settings.database_url, to)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+	except sqlalchemy.exc.SQLAlchemyError as error:
+		_stop(
+			f"Could not copy into {safe_url(to)}: {getattr(error, 'orig', None) or error}",
+			"The database this instance uses is untouched. Nothing has been lost.",
+		)
+
+	_say("")
+
+	for line in subroutine.db.transfer.summarise(copied):
+		_say(line)
+
+	_say("")
+	_say(f"Copied {copied.rows:,} rows, and read them back to check.")
+	_say("")
+	_say("Nothing has changed here yet. To start using the copy, set in config.toml:")
+	_say(f'  database_url = "{to}"')
 
 
 @database_app.command("current")
