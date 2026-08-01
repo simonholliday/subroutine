@@ -18,10 +18,41 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.schedule
 import subroutine.errors
 import subroutine.permissions
+
+
+def expires_on (
+	written: str | None, *, timezone: str, now: datetime.datetime | None = None
+) -> datetime.datetime | None:
+	"""Read an expiry somebody wrote, as the last instant of the day it names.
+
+	``None`` for nothing written, which is a credential that does not expire.
+
+	**A whole day, and the credential works through the end of it** — the same reading a
+	deadline gets (§6.5). A token that stopped at midnight starting the day somebody named is
+	the kind of surprise that arrives at the worst moment.
+
+	Here rather than in either transport, because both take one and the grammar has to be the
+	same grammar: ``2026-09-01`` and ``now+30d`` mean what they mean whether they arrived on a
+	command line or in a request body. The CLI had the only copy until `#208` gave the API an
+	expiry to parse.
+	"""
+
+	if written is None or not written.strip():
+		return None
+
+	return subroutine.domain.schedule.interpret(
+		written.strip(),
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=timezone,
+		now=now or subroutine.db.types.utcnow(),
+		field="expires_at",
+	).instant
 
 
 def issued_tokens (

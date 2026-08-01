@@ -17,6 +17,7 @@ import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.errors
 import subroutine.permissions
 
 
@@ -231,19 +232,24 @@ def test_last_used_is_recorded_but_not_on_every_request (
 def test_an_unknown_scope_is_refused_with_the_valid_ones_listed (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A typo becomes an error, not a silently inert restriction."""
+	"""A typo becomes an error, not a silently inert restriction.
+
+	**`ValidationError`, not `ValueError`** (`#209`). This asserted the latter, which is what
+	let the refusal exist for months while reaching nobody: a `ValueError` out of a service is
+	a 500 over HTTP and a traceback on the CLI, and both surfaces can send a mistyped scope.
+	The test pinned that the refusal *happened*, never that anyone could read it.
+	"""
 
 	user = _make_user(session)
 
-	with pytest.raises(ValueError) as error:
+	with pytest.raises(subroutine.errors.ValidationError) as error:
 		subroutine.domain.authentication.issue_token(
 			session, user=user, title="Broken", scopes=["task:reed"]
 		)
 
-	message = str(error.value)
-
-	assert "task:reed" in message
-	assert subroutine.permissions.TASK_READ in message
+	assert error.value.errors[0].field == "scopes"
+	assert "task:reed" in error.value.errors[0].message
+	assert subroutine.permissions.TASK_READ in (error.value.errors[0].hint or "")
 
 
 def test_a_scoped_token_reports_its_narrowing (session: sqlalchemy.orm.Session) -> None:
@@ -322,12 +328,13 @@ def test_a_malformed_project_scope_is_refused (session: sqlalchemy.orm.Session) 
 
 	user = _make_user(session)
 
-	with pytest.raises(ValueError) as error:
+	with pytest.raises(subroutine.errors.ValidationError) as error:
 		subroutine.domain.authentication.issue_token(
 			session, user=user, title="Broken", project_scope=["SR", "not-a-uuid"]
 		)
 
-	assert "SR" in str(error.value)
+	assert error.value.errors[0].field == "project_scope"
+	assert "SR" in error.value.detail, "and it quotes what was actually sent"
 
 
 def test_an_empty_project_scope_is_refused_rather_than_guessed (
@@ -337,9 +344,10 @@ def test_an_empty_project_scope_is_refused_rather_than_guessed (
 
 	user = _make_user(session)
 
-	with pytest.raises(ValueError) as error:
+	with pytest.raises(subroutine.errors.ValidationError) as error:
 		subroutine.domain.authentication.issue_token(
 			session, user=user, title="Ambiguous", project_scope=[]
 		)
 
-	assert "ambiguous" in str(error.value).lower()
+	assert "ambiguous" in error.value.detail.lower()
+	assert error.value.errors[0].field == "project_scope"

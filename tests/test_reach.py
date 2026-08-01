@@ -64,8 +64,11 @@ READING = frozenset({"GET"})
 #: preference**, which is the whole difference between an exemption and a shrug.
 #:
 #: - ``budget`` — the MCP schema is context every agent carries whether or not it calls the
-#:   tool. 7 tools / 4,608 bytes, held by ``tests/test_mcp.py``. An entry weighs the addition
-#:   against what the tool buys.
+#:   tool. Held by ``tests/test_mcp.py``, which is where the current figure is; it is not
+#:   repeated here, because the copy that was ("7 tools / 4,608 bytes") was two tools and a
+#:   third of the size out of date by the time `#198` found the same number stale in the
+#:   README, the CHANGELOG and one other comment. An entry weighs the addition against what
+#:   the tool buys.
 #: - ``disclosure`` — §1.4. The capability exists and is deliberately not on a beginner's
 #:   first screen, or is deliberately not one line.
 #: - ``administrative`` — §12.4's recovery property: it must work when the service will not
@@ -135,6 +138,26 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"administrative",
 		"The catalogue beside the backup itself, and `subroutine db backups` reads it "
 		"without a running service, which is the whole of §12.4.",
+	),
+	("POST", "/v1/tokens"): (
+		"administrative",
+		"`#208`. The capability reaches the CLI and HTTP; what it does not reach is the "
+		"*client protocol*, which is what this file measures. `subroutine token create` opens "
+		"the database directly, as §12.4 requires of the administrative commands — the first "
+		"credential on an instance has to be mintable before there is a credential to "
+		"authenticate a client with, so routing it through one would be a bootstrap that "
+		"cannot complete. Same shape as `/v1/admin/backups`.",
+	),
+	("GET", "/v1/tokens"): (
+		"administrative",
+		"The inventory beside the issuing, and `subroutine token list` reads it without a "
+		"running service, which is the whole of §12.4.",
+	),
+	("DELETE", "/v1/tokens/{id_or_prefix}"): (
+		"administrative",
+		"Revoking, and the one of the three that most has to work when the service is the "
+		"thing that has gone wrong (§12.4): `subroutine token revoke` is the answer to a leak, "
+		"and a client method for it would need the credential you are trying to burn.",
 	),
 	("GET", "/healthz"): (
 		"protocol",

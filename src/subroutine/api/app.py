@@ -29,6 +29,7 @@ import subroutine.api.problems
 import subroutine.api.projects
 import subroutine.api.routing
 import subroutine.api.tasks
+import subroutine.api.tokens
 import subroutine.api.users
 import subroutine.api.workspaces
 import subroutine.config
@@ -58,6 +59,7 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.identity.router),
 	("", subroutine.api.workspaces.router),
 	("", subroutine.api.users.router),
+	("", subroutine.api.tokens.router),
 	("", subroutine.api.meta.router),
 	("", subroutine.api.agenda.router),
 	("", subroutine.api.tasks.router),

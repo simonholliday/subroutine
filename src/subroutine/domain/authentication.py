@@ -164,8 +164,21 @@ def issue_token (
 	if unknown:
 		valid = ", ".join(sorted(subroutine.permissions.ALL))
 
-		raise ValueError(
-			f"Unknown permission(s) in scopes: {', '.join(unknown)}. Valid permissions are: {valid}."
+		# **A refusal, not a programming error** (`#209`). This was a `ValueError`, which is
+		# neither of the two things a caller can be given: over HTTP it became a 500 with a
+		# request id and nothing to act on, and on the CLI a Rich traceback. Both surfaces can
+		# send this — a `--scope` typo is the obvious way — and CLAUDE.md's rule is that
+		# anything a client can send is checked where the message can name the field.
+		raise subroutine.errors.ValidationError(
+			f"Unknown permission(s) in scopes: {', '.join(sorted(unknown))}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="scopes",
+					code="invalid_field_value",
+					message=f"Not a permission this instance has: {', '.join(sorted(unknown))}.",
+					hint=f"Valid permissions are: {valid}.",
+				)
+			],
 		)
 
 	project_scope = None if project_scope is None else _canonical_project_scope(project_scope)
@@ -353,9 +366,20 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 	"""
 
 	if not project_scope:
-		raise ValueError(
-			"project_scope must name at least one project, or be None for no restriction. "
-			"An empty list is ambiguous: it could mean either."
+		# Reported the way every other bad field is (`#209`). It used to be a `ValueError`,
+		# which reaches an HTTP caller as a 500 and a person as a traceback — for a mistake
+		# either of them can make in one keystroke.
+		raise subroutine.errors.ValidationError(
+			"An empty project_scope is ambiguous: it could mean every project or none.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project_scope",
+					code="invalid_field_value",
+					message="An empty list says nothing about which projects are meant.",
+					hint="Name at least one project id, or leave project_scope out entirely "
+					"for a credential that is not restricted by project.",
+				)
+			],
 		)
 
 	canonical: list[str] = []
@@ -365,8 +389,17 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 			canonical.append(str(uuid.UUID(str(entry))))
 
 		except (ValueError, AttributeError, TypeError):
-			raise ValueError(
-				f"project_scope entries must be project ids; {entry!r} is not one."
+			raise subroutine.errors.ValidationError(
+				f"{entry!r} is not a project id.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project_scope",
+						code="invalid_field_value",
+						message=f"project_scope holds project ids; {entry!r} is not one.",
+						hint="A project's id is the `id` field of GET /v1/projects — a UUID, "
+						"not its key.",
+					)
+				],
 			) from None
 
 	return canonical

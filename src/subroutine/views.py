@@ -41,6 +41,7 @@ import subroutine.db.models.project
 import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.durations
 import subroutine.domain.links
@@ -494,6 +495,81 @@ class User(pydantic.BaseModel):
 			"" if self.is_active else "inactive",
 			self.display_name or "",
 		)
+
+
+class Token(pydantic.BaseModel):
+	"""A credential as it can safely be described — item ``#208``.
+
+	**Everything but the secret, and nothing from which it could be rebuilt.** Only a
+	``sha256`` of the secret is stored (§7.4), so there is nothing here to leak; ``prefix`` is
+	the public half a token is looked up by and is what revoking takes.
+
+	``usable`` is stated rather than left to be worked out from two nullable columns, for the
+	reason ``token list`` states it: a reader who has to compare ``expires_at`` against the
+	clock is one who eventually reads a dead credential as live, on the day they are checking
+	whether it is.
+	"""
+
+	id: uuid.UUID
+	title: str
+	prefix: str
+
+	#: Whose authority this carries. A caller may be looking at credentials they issued *for*
+	#: somebody else, so the name is here rather than only the id.
+	user_id: uuid.UUID
+	username: str
+
+	#: Empty means **no narrowing**, not "no permissions" (SPEC.md §7.3).
+	scopes: list[str]
+
+	#: Null means every project, for the same reason.
+	project_scope: list[str] | None
+
+	#: Set when the credential may only be used in one workspace.
+	workspace_id: uuid.UUID | None
+
+	#: Whether this credential restricts its owner at all. Spelled out so that reading
+	#: ``scopes: []`` the wrong way round is not the only thing between a caller and a wrong
+	#: conclusion about what a leaked token could do.
+	narrows: bool
+
+	#: Whether it would be accepted right now. False for revoked and for expired alike: the
+	#: question somebody is asking at this moment is whether it still works.
+	usable: bool
+
+	created_at: datetime.datetime
+	expires_at: datetime.datetime | None
+	last_used_at: datetime.datetime | None
+	revoked_at: datetime.datetime | None
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — the prefix, as revoking takes it."""
+
+		return self.prefix
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this credential as the cells of one compact line."""
+
+		return (
+			self.prefix,
+			self.username,
+			self.title,
+			"" if self.usable else "not usable",
+			"everything its owner can do" if not self.scopes else ", ".join(self.scopes),
+		)
+
+
+class IssuedToken(Token):
+	"""A credential at the one moment its secret exists in readable form.
+
+	Returned by ``POST /v1/tokens`` and by nothing else, ever. Nothing recovers the secret
+	afterwards, including this program — which is why it is a separate type rather than an
+	optional field on :class:`Token`: a field that is usually absent is one somebody eventually
+	expects to find.
+	"""
+
+	#: Show it once and let it go.
+	token: str
 
 
 class Member(pydantic.BaseModel):
@@ -1031,6 +1107,47 @@ def user (row: subroutine.db.models.identity.User) -> User:
 		timezone=row.timezone,
 		created_at=row.created_at,
 	)
+
+
+def token (
+	row: subroutine.db.models.identity.ApiToken,
+	*,
+	owner: subroutine.db.models.identity.User | None,
+	now: datetime.datetime | None = None,
+	secret: str | None = None,
+) -> Token:
+	"""Render one credential, with its secret only when it has just been minted.
+
+	``owner`` may be ``None`` — a credential outlives the account it was issued for by exactly
+	as long as it takes somebody to revoke it, and a listing that raised on one of those would
+	hide the rest.
+	"""
+
+	moment = now or subroutine.db.types.utcnow()
+	fields = {
+		"id": row.id,
+		"title": row.title,
+		"prefix": row.token_prefix,
+		"user_id": row.user_id,
+		"username": "someone since deleted" if owner is None else owner.username,
+		"scopes": list(row.scopes),
+		"project_scope": None if row.project_scope is None else list(row.project_scope),
+		"workspace_id": row.workspace_id,
+		"narrows": bool(row.scopes)
+		or row.project_scope is not None
+		or row.workspace_id is not None,
+		"usable": row.revoked_at is None
+		and (row.expires_at is None or row.expires_at > moment),
+		"created_at": row.created_at,
+		"expires_at": row.expires_at,
+		"last_used_at": row.last_used_at,
+		"revoked_at": row.revoked_at,
+	}
+
+	if secret is None:
+		return Token(**fields)
+
+	return IssuedToken(**fields, token=secret)
 
 
 def member (
