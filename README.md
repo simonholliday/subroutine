@@ -201,10 +201,11 @@ Without the plugin, or for another MCP client:
 $ claude mcp add subroutine -- subroutine mcp
 ```
 
-Seven tools: list, show, add, update, comment, done, document. Deliberately seven and not one
-per endpoint — a tool's schema is context the agent carries for its whole session whether it
-calls it or not, so the whole surface is about 4.3 KB of JSON, roughly 1,100 tokens, and there
-is a test that fails if it grows past a budget somebody has to raise on purpose.
+Nine tools: list, show, add, update, comment, done, document, link and project. Deliberately
+nine and not one per endpoint — a tool's schema is context the agent carries for its whole
+session whether it calls it or not, so the whole surface is about 6 KB of JSON, roughly 1,500
+tokens, and there is a test that fails if it grows past a budget somebody has to raise on
+purpose.
 
 ### What the plugin adds beyond the tools
 
@@ -264,9 +265,10 @@ $ subroutine user list --workspace acme
 ```
 
 There is no password: Subroutine authenticates with tokens, so what Ana needs next is
-`subroutine token create --username ana`. Roles belong to a workspace, so `member` in one is
-not `member` in another, and the last account able to administer a workspace cannot be removed
-from it.
+`subroutine token create --service-account ana` — the flag issues for any account that already
+exists, so it works for a person as well as for an agent. Roles belong to a workspace, so
+`member` in one is not `member` in another, and the last account able to administer a workspace
+cannot be removed from it.
 
 **[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
 unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,

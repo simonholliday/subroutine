@@ -327,8 +327,16 @@ A new account belongs to no workspace and can see nothing until it is given a ro
 why `user create` tells you the next command rather than stopping at "Created".
 
 **There is no password.** Subroutine authenticates with bearer tokens, so what Ana needs next
-is one of her own — `subroutine token create --username ana --title "Ana's laptop"` — and it is
-readable exactly once.
+is one of her own, and it is readable exactly once:
+
+```console
+$ subroutine token create --service-account ana --title "Ana's laptop"
+```
+
+`--service-account` is the flag for it, and its name has not caught up with what it does: given
+a name that already exists it issues for that account and creates nothing, so it works for a
+person as well as for an agent. Ana stays an ordinary account. Everything else about the
+credential — scopes, a workspace pin, an expiry — is the same either way.
 
 **Roles belong to a workspace.** `member` in one is not `member` in another; each workspace is
 seeded with its own, and `subroutine user list --workspace <slug>` says who holds which.
