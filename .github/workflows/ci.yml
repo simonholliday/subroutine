@@ -181,7 +181,7 @@ jobs:
       - name: subroutine init
         run: |
           set -euo pipefail
-          output="$(subroutine init)"
+          output="$(subroutine init 2>&1)"
           echo "$output"
           expected='Ready. Try: subroutine add "something to do"'
           if [ "$output" != "$expected" ]; then
@@ -204,9 +204,13 @@ jobs:
       - name: The personal test
         run: |
           set -euo pipefail
-          subroutine add "Call the dentist before Sunday" | tee /tmp/add.txt
-          subroutine today | tee /tmp/today.txt
-          subroutine done 1 | tee /tmp/done.txt
+          # `2>&1` on every one of them, because a warning is as visible to the person as
+          # an answer is. Capturing stdout alone is what let a checkout marker greet a
+          # stranger with the words *workspace* and *project* while this job reported
+          # success (`SR#219`, `SR#222`).
+          subroutine add "Call the dentist before Sunday" 2>&1 | tee /tmp/add.txt
+          subroutine today 2>&1 | tee /tmp/today.txt
+          subroutine done 1 2>&1 | tee /tmp/done.txt
           grep -q 'Added: Call the dentist' /tmp/add.txt
           grep -q 'Call the dentist' /tmp/today.txt
           grep -q 'Done: Call the dentist' /tmp/done.txt

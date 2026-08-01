@@ -46,3 +46,8 @@ COMPETITIVE-ANALYSIS.md
 SPEC.md
 MVP-PLAN.md
 reviews
+
+# Committing this is right for a team sharing one instance, and wrong here: a clone of
+# *Subroutine itself* goes to strangers who share nothing, and the marker would name a
+# workspace and a project that exist on no machine but ours (`SR#219`).
+.subroutine
