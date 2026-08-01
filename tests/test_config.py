@@ -1,5 +1,6 @@
 """Tests for path resolution, settings precedence and the SQLite storage probe."""
 
+import os
 import pathlib
 import tomllib
 
@@ -205,6 +206,44 @@ def test_the_config_file_is_private_however_it_was_made (
 	subroutine.config.store_setting("secret_key", "private")
 
 	assert path.stat().st_mode & 0o077 == 0, "the file must not be group- or world-readable"
+
+
+def test_the_config_file_is_never_briefly_readable_on_the_way_to_being_private (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#205`. It was written at the umask and tightened a statement later.
+
+	On a fresh install the signing key therefore existed group- and world-readable for the
+	window in between — on a shared machine, readable by every other account for exactly as
+	long as it took the next line to run.
+
+	**Asserted by taking the chmod away**, because the test beside this one cannot see the
+	defect: write-then-chmod and open-with-a-mode both end at ``0600``, so a mode checked
+	afterwards is the same either way. What distinguishes them is whether the mode depends on
+	the second step at all — so this removes the second step and asks again. That is also what
+	makes the guard honest about `keep_private`, which suppresses its own failures and would
+	otherwise look like the same protection.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+	monkeypatch.setattr(pathlib.Path, "chmod", lambda self, mode: None)
+
+	# A umask that would let the file be created 0644 if the mode were not on the open.
+	previous = os.umask(0o022)
+
+	try:
+		subroutine.config.store_setting("secret_key", "private")
+
+	finally:
+		os.umask(previous)
+
+	path = subroutine.config.config_file_path()
+
+	assert path.read_text(encoding="utf-8").count("private") == 1, "and it still wrote it"
+	assert path.stat().st_mode & 0o077 == 0, (
+		"the file was created at the umask and only tightened afterwards, so the key was "
+		"readable by other accounts for that window"
+	)
 
 
 def test_a_blanked_key_is_regenerated_without_corrupting_the_file (

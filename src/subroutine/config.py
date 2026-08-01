@@ -664,16 +664,31 @@ def _toml_string (value: str) -> str:
 def _write_private (path: pathlib.Path, text: str) -> None:
 	"""Write the configuration file, keeping it readable only by its owner.
 
-	The permissions are reasserted on every write, not only on creation: the signing key
-	can be added to a file the user made earlier to set a port or a database URL, and that
-	file will have been created with their default umask.
+	**Created owner-only rather than created and then tightened** (`#205`). This wrote the file
+	and chmodded it afterwards, so on a fresh install the signing key existed at whatever the
+	umask happened to be for the window in between — on a shared machine, readable by every
+	other account for exactly as long as it took the next statement to run. The mode belongs on
+	the ``open``, where there is no window at all.
+
+	``keep_private`` on the database has the same shape and no choice, because SQLite and
+	Alembic create that file. Here it was avoidable.
+
+	The permissions are reasserted on every write, not only on creation: the signing key can be
+	added to a file the user made earlier to set a port or a database URL, and that file will
+	have been created with their default umask.
 	"""
 
-	path.write_text(text, encoding="utf-8")
+	# Some filesystems — the CIFS share this project is developed on among them — do not carry
+	# POSIX modes, and `O_CREAT`'s mode argument is simply ignored there. Refusing to write the
+	# config over that would be worse than writing it without the tightened permissions, which
+	# is why the chmod below is suppressed rather than required.
+	descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 
-	# Some filesystems — the CIFS share this project is developed on among them — do not
-	# carry POSIX modes. Refusing to write the config over that would be worse than
-	# writing it without the tightened permissions.
+	with open(descriptor, "w", encoding="utf-8") as handle:
+		handle.write(text)
+
+	# The mode above applies only when this call *created* the file. An existing one keeps
+	# whatever it had, so it is still tightened here.
 	with contextlib.suppress(OSError):
 		path.chmod(0o600)
 
