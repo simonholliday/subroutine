@@ -1038,12 +1038,32 @@ class Client:
 
 		Reported as ``service_unavailable`` for the same reason the HTTP client does: the
 		request was fine and the thing behind it is not answering.
+
+		**An instance that was never created is told apart from one that cannot be reached**
+		(`#165`). Those have opposite remedies and the generic message named the wrong one: an
+		agent meeting a freshly installed plugin got "unable to open database file" and advice
+		to check ``database_url``, when the answer is ``subroutine init``. It is very likely the
+		first thing anybody sees, and it dead-ended.
+
+		The check has to be here rather than one layer in. ``_require_a_schema_this_build_
+		understands`` already says "run init" for a database with no schema — and it never runs
+		on a database that does not open, which is what a new installation has.
 		"""
 
 		try:
 			yield
 
 		except sqlalchemy.exc.SQLAlchemyError as error:
+			if self.settings.has_no_instance_yet():
+				# The connection's label is already printed in front of this, so naming it again
+				# would read "Local: local has no…". The generic message below does exactly
+				# that and is left alone: it carries the driver's own words, which are worth
+				# more than the tidiness.
+				raise subroutine.errors.ServiceUnavailable(
+					"no Subroutine instance has been set up here yet.",
+					hint="Run 'subroutine init' to create one. It takes no arguments.",
+				) from None
+
 			raise subroutine.errors.ServiceUnavailable(
 				f"{self.connection.name} could not be read: "
 				f"{getattr(error, 'orig', None) or error}",

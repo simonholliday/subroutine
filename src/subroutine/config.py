@@ -481,6 +481,23 @@ class Settings(pydantic_settings.BaseSettings):
 
 		return pathlib.Path(remainder) if remainder else None
 
+	def has_no_instance_yet (self) -> bool:
+		"""Report whether nothing has been set up here at all (`#165`).
+
+		**Only answerable for SQLite, and that is the honest half.** A missing file is a fact on
+		disk. A PostgreSQL database that cannot be reached might be absent, asleep or behind a
+		firewall, and guessing which produces confident bad advice — telling somebody to run
+		``init`` over a server that is merely restarting would be worse than saying nothing.
+
+		The distinction it buys is the one an agent could not make: "unable to open database
+		file", on a path under ``$XDG_DATA_HOME`` that does not exist, is not a reachability
+		problem. It is an instance nobody has created, and the remedy is one command.
+		"""
+
+		path = self.sqlite_path
+
+		return path is not None and not path.exists()
+
 	def require_secret_key (self) -> str:
 		"""Return the signing key, refusing to run without one outside development.
 

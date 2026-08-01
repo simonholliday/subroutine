@@ -17,10 +17,17 @@ pip install subroutine
 subroutine init
 ```
 
-If it is installed but the tools still fail, it is almost certainly on a path Claude Code
-cannot see — a virtualenv, usually. `/plugin configure subroutine` takes the full path to the
-`subroutine` command. Do not work around it by writing to a file instead; a tracker nobody can
-reach is worse than an honest failure.
+**If the tools are there but every call fails, read what the failure says — it names the
+remedy.** This is the ordinary case on a fresh install and it is not the one above: the MCP
+server starts perfectly well against an instance nobody has created yet, so the tools appear
+and then refuse. `no Subroutine instance has been set up here yet.` means the user needs to run
+`subroutine init` once; a schema message means `subroutine upgrade`. Pass the failure on
+verbatim rather than diagnosing it — the sentence is written for them.
+
+If it is installed but the tools still fail with nothing useful, it is almost certainly on a
+path Claude Code cannot see — a virtualenv, usually. `/plugin configure subroutine` takes the
+full path to the `subroutine` command. Do not work around it by writing to a file instead; a
+tracker nobody can reach is worse than an honest failure.
 
 `GET /v1/docs/agent` on any served instance is the reference for the HTTP API. This page is
 about *when* to reach for it and what good practice looks like — it does not repeat the API.

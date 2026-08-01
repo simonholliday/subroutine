@@ -21,6 +21,8 @@ import dataclasses
 import json
 import typing
 
+import subroutine.errors
+
 #: The specification revision these shapes were taken from. Sent back verbatim when the
 #: client asks for it, and used as the fallback when it asks for something else — the
 #: specification says a server that does not support the requested version answers with one
@@ -178,7 +180,7 @@ class Server:
 			# Deliberately broad. A tool that raises anything at all must still produce a
 			# readable answer: an exception escaping here would take the whole session down
 			# over one bad argument, and the model would learn nothing from the silence.
-			return _result(identifier, _content(str(failure) or repr(failure), failed=True))
+			return _result(identifier, _content(_explained(failure), failed=True))
 
 
 def _result (identifier: typing.Any, payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -191,6 +193,39 @@ def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typi
 	"""Wrap a protocol-level refusal."""
 
 	return {"jsonrpc": "2.0", "id": identifier, "error": {"code": code, "message": message}}
+
+
+def _explained (failure: BaseException) -> str:
+	"""Render a refusal with its remedy attached, not only its complaint.
+
+	**The hint is the half an agent needs most, and it was being dropped** (`#165`). ``str()``
+	on a :class:`~subroutine.errors.SubroutineError` is its ``detail`` alone, so "no Subroutine
+	instance has been set up here yet." reached the model without the one sentence that says
+	what to do about it. A person can run ``--help``; a model gets one answer and either
+	guesses from it or gives up.
+
+	This is the same assembly ``cli.main._fail`` does, including its rule against saying one
+	thing three ways: a field message that merely restates the detail, or a field hint that
+	restates the overall hint, is left out. A refusal read as noise makes the next one noise
+	too, and that costs more on a surface where every line is context the model carries.
+	"""
+
+	if not isinstance(failure, subroutine.errors.SubroutineError):
+		return str(failure) or repr(failure)
+
+	lines = [failure.detail]
+
+	if failure.hint is not None:
+		lines.append(failure.hint)
+
+	for field in failure.errors:
+		if field.message not in (failure.detail, failure.hint):
+			lines.append(f"{field.field}: {field.message}")
+
+		if field.hint is not None and field.hint not in (failure.hint, field.message):
+			lines.append(field.hint)
+
+	return "\n".join(lines)
 
 
 def _content (text: str, *, failed: bool = False) -> dict[str, typing.Any]:

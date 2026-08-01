@@ -1631,14 +1631,12 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 def _database_is_absent (settings: subroutine.config.Settings) -> bool:
 	"""Report whether the configured SQLite file has not been created yet.
 
-	Only answerable for SQLite: a missing file is a fact on disk, whereas a PostgreSQL
-	database that cannot be reached might be absent, asleep or behind a firewall, and
-	guessing which would produce confident bad advice.
+	One definition, shared with the local client, which needs the same question answered to
+	tell "never set up" from "cannot be reached" (`#165`). They had two readings of it for a
+	day and only the administrative half was right.
 	"""
 
-	path = settings.sqlite_path
-
-	return path is not None and not path.exists()
+	return settings.has_no_instance_yet()
 
 
 def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:

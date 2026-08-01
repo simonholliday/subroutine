@@ -322,6 +322,27 @@ def _added (server: subroutine.mcp.protocol.Server, text: str) -> int:
 	return int(answered.split()[1].lstrip("#"))
 
 
+def test_a_refusal_reaches_the_agent_with_its_remedy_attached (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#165`. The hint was being dropped, on every refusal this surface makes.
+
+	``str()`` on a ``SubroutineError`` is its detail alone, so a model got the complaint and
+	never the sentence saying what to do about it. A person can run ``--help`` and try again;
+	a model gets one answer and either guesses from it or gives up — which is the difference
+	between a tracker an agent recovers from and one it abandons.
+	"""
+
+	ref = _added(bound, "Chase the invoice")
+	answered, failed = _called(bound, "subroutine_update", ref=ref, plan="next quarter")
+
+	assert failed
+
+	# What is wrong, and then what to do about it. One line means the remedy was lost again.
+	assert "next quarter" in answered
+	assert "friday" in answered, answered
+
+
 def _called (
 	server: subroutine.mcp.protocol.Server, name: str, **arguments: typing.Any
 ) -> tuple[str, bool]:

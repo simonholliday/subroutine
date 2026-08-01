@@ -87,6 +87,35 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 	return invoke
 
 
+@pytest.mark.parametrize(
+	"command",
+	[("list",), ("today",), ("add", "Buy milk"), ("show", "1")],
+	ids=["list", "today", "add", "show"],
+)
+def test_an_instance_nobody_created_says_so_and_names_the_one_command (
+	run: typing.Callable[..., typer.testing.Result], command: tuple[str, ...]
+) -> None:
+	"""`#165`. Very likely the first thing anybody sees, and it used to dead-end.
+
+	The plugin installs cleanly and the MCP server starts fine against an instance that does
+	not exist, so the tools *are* available and every call fails with ``unable to open database
+	file`` and advice to check ``database_url`` — a reachability remedy for a problem that is
+	not one. The answer is ``subroutine init``, and nothing said so: the correct instruction
+	existed only in ``marketplace.json`` and ``plugin.json``, neither of which anybody reads.
+
+	Every command, not one, because there is no reason to think the person's first word will
+	be the one we tested.
+	"""
+
+	refused = run(*command, expect=1)
+
+	assert "no Subroutine instance has been set up here yet" in refused.output
+	assert "subroutine init" in refused.output
+
+	# And the wrong remedy is gone rather than merely joined by the right one.
+	assert "database_url" not in refused.output
+
+
 def test_the_four_command_personal_test (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
