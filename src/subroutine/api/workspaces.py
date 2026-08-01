@@ -31,6 +31,7 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.paging
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -54,6 +55,9 @@ DEFAULT_ORDER = ("slug",)
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Workspace)
+
+#: The same, for the membership sub-resource below.
+MEMBER_FIELDS = subroutine.api.shaping.selectable(subroutine.views.Member)
 
 
 class Create(subroutine.api.schemas.RequestModel):
@@ -281,3 +285,114 @@ def change (
 		)
 
 	return subroutine.views.workspace(updated)
+
+
+# --------------------------------------------------------------------------------------
+# Membership — SPEC.md §7.3a, item `#174`
+# --------------------------------------------------------------------------------------
+
+
+class Join(subroutine.api.schemas.RequestModel):
+	"""What ``POST /v1/workspaces/{id_or_slug}/members`` accepts."""
+
+	#: By username rather than by id, because the caller has just read a directory of names and
+	#: a UUID in a request body is something to go and look up first.
+	username: str
+
+	#: Which of the workspace's seeded roles they get. Named rather than defaulted: what
+	#: somebody may do in a workspace is exactly the decision being taken here, and a default
+	#: would be this function choosing it on the operator's behalf and not saying so.
+	role: str
+
+
+@router.get(
+	"/{id_or_slug}/members",
+	summary="Who belongs to this workspace",
+	dependencies=[subroutine.api.query.UnknownQueryDep],
+	response_model=subroutine.views.Collection[subroutine.views.Member],
+)
+def members (
+	id_or_slug: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List this workspace's members and their roles.
+
+	Needs ``workspace:read``: knowing who you are working alongside is part of working
+	somewhere, and it is the question anybody about to add or remove somebody asks first.
+
+	Enveloped and unpaginated, like a task's links (§8.4) and for the same reason — a
+	workspace's membership is bounded by how many people somebody put in it.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format, fields=fields, available=MEMBER_FIELDS, entity="member"
+	)
+	found = resolve(session, actor, id_or_slug)
+	rows = subroutine.domain.workspaces.members(session, found, actor=actor)
+
+	return subroutine.api.shaping.response(
+		[
+			subroutine.views.member(row, account=account, role=role, within=found)
+			for row, account, role in rows
+		],
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)
+
+
+@router.post(
+	"/{id_or_slug}/members", status_code=201, summary="Add somebody to this workspace"
+)
+def join (
+	id_or_slug: str,
+	body: Join,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.Member:
+	"""Give somebody a role in this workspace.
+
+	Needs ``workspace:admin`` rather than ``workspace:write``: deciding who belongs somewhere is
+	not the same act as doing work there, and a member who can add members can grant themselves
+	anything the roles allow. That check did not exist at all until `#188`, which was found on
+	the morning this endpoint was written — the service took an actor, attributed the event to
+	it, and never asked it anything.
+	"""
+
+	found = resolve(session, actor, id_or_slug)
+	account = subroutine.domain.users.by_username(session, body.username)
+	membership = subroutine.domain.workspaces.add_member(
+		session, found, account, role_key=body.role, actor=actor
+	)
+	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
+
+	return subroutine.views.member(membership, account=account, role=role, within=found)
+
+
+@router.delete(
+	"/{id_or_slug}/members/{username}",
+	status_code=204,
+	summary="Take somebody out of this workspace",
+)
+def leave (
+	id_or_slug: str,
+	username: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> None:
+	"""Remove somebody's membership of this workspace.
+
+	**Here rather than later**, for the reason `#140` gives about anything that can be added:
+	somebody joined by mistake can see private projects they should not, and a membership that
+	can only be granted is one whose mistakes are permanent.
+
+	The last account able to administer the workspace cannot be removed — a workspace nobody can
+	administer has thrown away the remedy for every later mistake, including that one.
+	"""
+
+	found = resolve(session, actor, id_or_slug)
+	account = subroutine.domain.users.by_username(session, username)
+
+	subroutine.domain.workspaces.remove_member(session, found, account, actor=actor)

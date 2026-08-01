@@ -290,6 +290,45 @@ def _column (values: typing.Iterable[str]) -> int:
 	return max(len(value) for value in distinct)
 
 
+def _tabulated (rows: typing.Sequence[typing.Sequence[str]]) -> list[str]:
+	"""Lay rows out as aligned columns, dropping any that say the same thing throughout.
+
+	``shaping.aligned`` does this for the API's compact format, and importing it here would
+	pull ``fastapi`` into the start-up of every command — the cost `serve` goes out of its way
+	to avoid. So this is `_column`'s rule applied to a plain table, which is the part that
+	matters: on a one-person instance ``user list`` prints a name and nothing else, because
+	"person", "not an admin" and "active" on the only row are three ways of saying nothing.
+	"""
+
+	if not rows:
+		return []
+
+	# **The first column is never dropped, and a single row keeps whatever it filled in.**
+	# `_column` asks whether a column *varies*, which on a one-row page is false of every
+	# column including the name — so the unguarded rule printed a blank line where the answer
+	# was one person. Found by running it on a fresh instance, which is the commonest case
+	# there is.
+	total = max(len(row) for row in rows)
+	widths = [
+		len(rows[0][index]) if len(rows) == 1 else _column(row[index] for row in rows)
+		for index in range(total)
+	]
+	widths[0] = max(len(row[0]) for row in rows)
+
+	lines = []
+
+	for row in rows:
+		cells = [
+			value.ljust(widths[index])
+			for index, value in enumerate(row)
+			if widths[index]
+		]
+
+		lines.append("  ".join(cells).rstrip())
+
+	return lines
+
+
 @dataclasses.dataclass(frozen=True)
 class Columns:
 	"""How much room each cell needs on this page. Zero means the column is not shown.
@@ -2089,6 +2128,216 @@ def register (
 				shown = f"{'  ' * one.depth}{one.key}".ljust(width)
 
 				say(f"{shown}  {one.title}")
+
+	# **Membership lives under `user`, and there is deliberately no `workspace` group**
+	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
+	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a
+	# word anybody can read and ignore. The workspace is still where a membership *lives*;
+	# it is named by `--workspace` when there is more than one, and inferred otherwise.
+	user_app = typer.Typer(
+		help="Add the people and agents this instance is for.", no_args_is_help=True
+	)
+	app.add_typer(user_app, name="user")
+
+	@user_app.command("create")
+	def user_create (
+		username: str = typer.Argument(..., help="What they will be called here."),
+		display_name: str = typer.Option("", "--name", help="Their full name."),
+		email: str = typer.Option("", "--email", help="Their email address."),
+		agent: bool = typer.Option(
+			False, "--agent", help="A machine identity rather than a person."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Add somebody to this instance.
+
+		Examples:
+
+		  subroutine user create ana --name "Ana Ruiz"
+
+		  subroutine user create ana --name "Ana Ruiz" --email ana@example.com
+
+		A new account belongs to no workspace yet, and until it does there is nothing it can
+		see. 'subroutine user add' is the second half, and this command says so when it is
+		done rather than leaving somebody with an account that appears not to work.
+
+		There is no password. Subroutine authenticates with tokens, so what a new person needs
+		next is one of those.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			# Read *before* creating, because the question is how many accounts there were —
+			# see `_keep_the_operators_own_list` for why that is the one that matters.
+			before = where.client.users() if where.client.connection.is_local else []
+
+			created = where.client.create_user(
+				username=username,
+				display_name=display_name.strip() or None,
+				email=email.strip() or None,
+				is_service_account=agent,
+			)
+
+			settled = _keep_the_operators_own_list(world, before)
+
+			if json_output:
+				say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			say(f"Created {created.username}")
+
+			if settled is not None:
+				say(f"Local commands will go on acting as {settled}.")
+
+			# **The next command is the one that makes the account useful.** An account with
+			# no membership can see nothing at all, so stopping at "Created" would leave
+			# somebody with a person who appears to be broken.
+			_suggest(console, f"subroutine user add {created.username} --role member")
+
+	def _keep_the_operators_own_list (
+		world: World, before: typing.Sequence[subroutine.views.User]
+	) -> str | None:
+		"""Pin local commands to the existing account, and return who that was.
+
+		**Adding a colleague must not cost you your own to-do list.** Local mode picks an
+		account by there being exactly one (§12.1a); the moment a second exists it refuses,
+		correctly, with "there is more than one account, so there is no way to tell whose
+		to-do list to show". So on an instance somebody actually uses, `user create` broke
+		`subroutine add` for them — the same shape as service accounts counting towards that
+		total until 2026-07-30, and the same answer: setting somebody up must not take
+		something away.
+
+		Only when there was exactly **one** account and nothing has already chosen. Two
+		accounts already means the operator has settled this, and overwriting their choice
+		would be a worse version of the problem being fixed.
+
+		Returns ``None`` when nothing needed doing, which is every case after the first.
+		"""
+
+		people = [account for account in before if not account.is_service_account]
+
+		if len(people) != 1 or world.settings.local_user:
+			return None
+
+		subroutine.config.store_setting("local_user", people[0].username)
+
+		return people[0].username
+
+	@user_app.command("list")
+	def user_list (
+		workspace: str = typer.Option(
+			"", "--workspace", help="Show who belongs to this workspace, and their roles."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show who is on this instance.
+
+		Examples:
+
+		  subroutine user list
+
+		  subroutine user list --workspace acme
+
+		Without --workspace this is every account, oldest first — the first one is whoever ran
+		'subroutine init'. With it, only that workspace's members, and what each may do there.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			if workspace.strip():
+				members = where.client.members(workspace=workspace.strip())
+				rows = [member.columns() for member in members]
+				payload = [member.model_dump(mode="json") for member in members]
+
+			else:
+				accounts = where.client.users()
+				rows = [account.columns() for account in accounts]
+				payload = [account.model_dump(mode="json") for account in accounts]
+
+			if json_output:
+				say(json.dumps(payload, indent=2))
+
+				return
+
+			if not rows:
+				say("Nobody here yet.")
+				_suggest(console, "subroutine user create ana")
+
+				return
+
+			for line in _tabulated(rows):
+				say(line)
+
+	@user_app.command("add")
+	def user_add (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		role: str = typer.Option(
+			"", "--role", help="What they may do there — 'member', 'admin', 'viewer'."
+		),
+		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+	) -> None:
+		"""Let somebody work in a workspace.
+
+		Examples:
+
+		  subroutine user add ana --role member
+
+		  subroutine user add ana --role admin --workspace acme
+
+		The role is named rather than assumed. What somebody may do is the decision being
+		taken here, and a default would be this command taking it quietly on your behalf.
+		"""
+
+		# Through `fail` rather than raised: every other refusal in this module goes that way,
+		# and a bare raise here leaves the command's own guard — `opened()` — behind, so the
+		# message arrives as an exception rather than as a sentence.
+		if not role.strip():
+			fail(
+				subroutine.errors.ValidationError(
+					"Say what they may do there, with --role.",
+					hint=(
+						"'member' to work in it, 'admin' to also manage it, 'viewer' to only "
+						"read. A role belongs to a workspace, so these are that workspace's."
+					),
+				)
+			)
+
+		with opened() as world:
+			where = world.writing_to()
+			joined = where.client.add_member(
+				username=username,
+				role=role.strip(),
+				workspace=workspace.strip() or _writing_workspace(world),
+			)
+
+			say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
+
+	@user_app.command("remove")
+	def user_remove (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+	) -> None:
+		"""Take somebody out of a workspace.
+
+		Examples:
+
+		  subroutine user remove ana
+
+		This removes their membership, not their account: what they wrote stays, and stays
+		attributed to them. The last person able to administer a workspace cannot be removed
+		from it, because a workspace nobody can administer cannot be repaired from inside.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+			chosen = workspace.strip() or _writing_workspace(world)
+
+			where.client.remove_member(username=username, workspace=chosen)
+
+			say(f"{username} is no longer a member of {chosen}")
 
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
 	# are the full model's vocabulary — a workspace, an instance — and somebody with one

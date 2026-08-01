@@ -315,6 +315,53 @@ class Client(typing.Protocol):
 		"something untrue" is not a choice worth exposing; the HTTP API still carries it.
 		"""
 
+	def users (self) -> list[subroutine.views.User]:
+		"""List the accounts on this instance, oldest first — item ``#174``.
+
+		**On the protocol rather than left to the CLI's administrative half**, unlike ``db`` and
+		``token``. Those open the database directly because §12.4's recovery property needs them
+		to work when the service will not start; adding a colleague has nothing to do with
+		recovery, so claiming that exemption would be a shrug wearing its clothes. Going through
+		a connection is also what makes ``--connection work`` administer the company instance
+		from a laptop, which is the case a page called "Running it for a team" is about.
+		"""
+
+	def create_user (
+		self,
+		*,
+		username: str,
+		display_name: str | None = None,
+		email: str | None = None,
+		timezone: str | None = None,
+		is_service_account: bool = False,
+	) -> subroutine.views.User:
+		"""Add a person, or a machine identity, to this instance.
+
+		Needs ``instance:user_create``, which no role carries (§7.1). The new account belongs to
+		no workspace: that is a separate act with a separate permission, because deciding
+		somebody exists and deciding where they may work are different decisions.
+		"""
+
+	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
+		"""List who belongs to one workspace, and with what role."""
+
+	def add_member (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Give somebody a role in a workspace.
+
+		``role`` is named rather than defaulted. What somebody may do in a workspace is exactly
+		the decision being taken, and a default would be this method taking it quietly.
+		"""
+
+	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
+		"""Take somebody out of a workspace.
+
+		Here rather than later, for the reason `#140` gives about anything that can be added: a
+		membership that can only be granted is one whose mistakes are permanent, and this one's
+		mistake is somebody seeing a private project.
+		"""
+
 	def create_document (
 		self,
 		*,

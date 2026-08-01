@@ -27,6 +27,7 @@ Rails application, you have already done this.
 - [TLS, and why `serve` refuses without it](#tls-and-why-serve-refuses-without-it)
 - [The systemd unit](#the-systemd-unit)
 - [A reverse proxy](#a-reverse-proxy)
+- [Adding the people](#adding-the-people)
 - [Giving an agent a token](#giving-an-agent-a-token)
 - [Backups](#backups)
 - [Upgrading](#upgrading)
@@ -301,6 +302,48 @@ tasks.example.com {
 
 Whichever you use, set `public_url` to match. It is published at `GET /v1/meta`, so an agent
 handed a token can find out where it is talking to without being told separately.
+
+## Adding the people
+
+An instance starts with one account — whoever ran `init`, who is its administrator. Everybody
+else is two commands, and they are two on purpose: creating an account says somebody exists,
+and giving them a role says where they may work. Those are different decisions and often
+different people.
+
+```console
+$ subroutine user create ana --name "Ana Ruiz" --email ana@example.com
+  Created ana
+  Local commands will go on acting as si.
+
+$ subroutine user add ana --role member --workspace acme
+  ana is now member in acme
+
+$ subroutine user list --workspace acme
+  si   owner
+  ana  member  Ana Ruiz
+```
+
+A new account belongs to no workspace and can see nothing until it is given a role, which is
+why `user create` tells you the next command rather than stopping at "Created".
+
+**There is no password.** Subroutine authenticates with bearer tokens, so what Ana needs next
+is one of her own — `subroutine token create --username ana --title "Ana's laptop"` — and it is
+readable exactly once.
+
+**Roles belong to a workspace.** `member` in one is not `member` in another; each workspace is
+seeded with its own, and `subroutine user list --workspace <slug>` says who holds which.
+Deciding membership needs `workspace:admin`, which is a different thing from being able to work
+there.
+
+Somebody added by mistake can be removed with `subroutine user remove`. That takes away the
+membership and not the account: what they wrote stays, and stays attributed to them. The last
+account able to administer a workspace **cannot** be removed from it — a workspace nobody can
+administer has thrown away the remedy for every later mistake, including that one, and it
+cannot be repaired from inside.
+
+On a single-person instance, adding the second account would leave the CLI unable to tell whose
+to-do list to show. It does not: `user create` pins `local_user` to the account that was already
+there and says so. Setting somebody up should not take something away from you.
 
 ## Giving an agent a token
 

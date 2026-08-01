@@ -58,6 +58,7 @@ import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -619,6 +620,92 @@ class Client:
 
 			return subroutine.views.project(
 				created, subroutine.views.Vocabulary.for_projects(session, [created])
+			)
+
+	def users (self) -> list[subroutine.views.User]:
+		"""List the accounts on this instance."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.user(row)
+				for row in subroutine.domain.users.listed(session, actor=actor)
+			]
+
+	def create_user (
+		self,
+		*,
+		username: str,
+		display_name: str | None = None,
+		email: str | None = None,
+		timezone: str | None = None,
+		is_service_account: bool = False,
+	) -> subroutine.views.User:
+		"""Add a person, or a machine identity, to this instance."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			created = subroutine.domain.users.create(
+				session,
+				username=username,
+				display_name=display_name,
+				email=email,
+				timezone=timezone,
+				is_service_account=is_service_account,
+				actor=actor,
+			)
+
+			return subroutine.views.user(created)
+
+	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
+		"""List who belongs to one workspace."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+
+			return [
+				subroutine.views.member(row, account=account, role=role, within=chosen)
+				for row, account, role in subroutine.domain.workspaces.members(
+					session, chosen, actor=actor
+				)
+			]
+
+	def add_member (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Give somebody a role in a workspace."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			account = subroutine.domain.users.by_username(session, username)
+			membership = subroutine.domain.workspaces.add_member(
+				session, chosen, account, role_key=role, actor=actor
+			)
+			held = subroutine.domain.workspaces.find_role(session, chosen.id, role)
+
+			return subroutine.views.member(
+				membership, account=account, role=held, within=chosen
+			)
+
+	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
+		"""Take somebody out of a workspace."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			account = subroutine.domain.users.by_username(session, username)
+
+			subroutine.domain.workspaces.remove_member(
+				session, chosen, account, actor=actor
 			)
 
 	def create_document (

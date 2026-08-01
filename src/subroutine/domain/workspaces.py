@@ -301,7 +301,26 @@ def add_member (
 	role_key: str,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.WorkspaceMember:
-	"""Give a user a role in a workspace."""
+	"""Give a user a role in a workspace.
+
+	**Requires ``workspace:admin``, and did not check anything at all until `#188`.** It took an
+	actor, recorded an event attributed to it, and performed no check — while `CLAUDE.md`'s list
+	of the services that check permissions named this one explicitly. It was not exploitable
+	only because nothing reached it: no endpoint, no command. `#174` is what changes that, which
+	is why this is being fixed in the same sitting rather than after.
+
+	``workspace:admin`` rather than ``workspace:write``, because deciding who belongs in a
+	workspace is not the same act as doing work in one — and a member who can add members can
+	grant themselves anything the roles allow.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_ADMIN,
+			workspace_id=workspace.id,
+		)
 
 	role = find_role(session, workspace.id, role_key)
 
@@ -322,6 +341,143 @@ def add_member (
 	)
 
 	return membership
+
+
+#: One membership with the three rows it joins, already loaded. Returned instead of the bare
+#: join row so that rendering a listing is not `#39`'s N+1 with a different name on it.
+Membership = tuple[
+	subroutine.db.models.identity.WorkspaceMember,
+	subroutine.db.models.identity.User,
+	subroutine.db.models.identity.Role,
+]
+
+
+def members (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> list[Membership]:
+	"""Return who belongs to this workspace and with what role — item ``#174``.
+
+	Requires ``workspace:read``: knowing who you are working alongside is part of working in a
+	workspace, and it is the question anybody about to add or remove somebody has to ask first.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_READ,
+			workspace_id=workspace.id,
+		)
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	account = subroutine.db.models.identity.User
+	role = subroutine.db.models.identity.Role
+
+	rows = session.execute(
+		sqlalchemy.select(member, account, role)
+		.join(account, account.id == member.user_id)
+		.join(role, role.id == member.role_id)
+		.where(member.workspace_id == workspace.id, account.deleted_at.is_(None))
+		.order_by(account.created_at, account.username)
+	).all()
+
+	return [(found, holder, held) for found, holder, held in rows]
+
+
+def remove_member (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	user: subroutine.db.models.identity.User,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> None:
+	"""Take somebody out of a workspace — item ``#174``.
+
+	**Worth having beside ``add_member`` rather than later**, for the reason `#140` gives about
+	anything that can be added: somebody added by mistake sees a private project they should
+	not, and a membership that can only be granted is one whose mistakes are permanent.
+
+	**The last administrator cannot be removed.** A workspace nobody can administer is one where
+	the remedy for every later mistake — including this one — has been thrown away, and it
+	cannot be undone from inside. Refused with the count, so the operator can see what they are
+	being told rather than only that they were told something.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_ADMIN,
+			workspace_id=workspace.id,
+		)
+
+	model = subroutine.db.models.identity.WorkspaceMember
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.workspace_id == workspace.id, model.user_id == user.id
+		)
+	).first()
+
+	if found is None:
+		raise subroutine.errors.NotFound(
+			f"{user.username} is not a member of {workspace.slug}.",
+			hint=f"Run 'subroutine workspace members {workspace.slug}' to see who is.",
+		)
+
+	_refuse_removing_the_last_administrator(session, workspace, found)
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=workspace.id,
+		entity_type="workspace_member",
+		entity_id=found.id,
+		action=subroutine.domain.events.EventAction.DELETED,
+		changes={"user_id": {"from": user.id, "to": None}},
+		actor=actor,
+	)
+
+	session.delete(found)
+	session.flush()
+
+
+def _refuse_removing_the_last_administrator (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	going: subroutine.db.models.identity.WorkspaceMember,
+) -> None:
+	"""Refuse a removal that would leave a workspace with nobody able to administer it."""
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+
+	# One query for every membership's permissions, not one per membership. The obvious
+	# version of this asks the database once per row and is `#39`'s N+1 on the path of a
+	# command somebody runs while tidying up a team.
+	rows = session.execute(
+		sqlalchemy.select(member.id, role.permissions)
+		.join(role, role.id == member.role_id)
+		.where(member.workspace_id == workspace.id)
+	).all()
+
+	administrators = {
+		found
+		for found, permissions in rows
+		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
+	}
+
+	if going.id not in administrators or administrators - {going.id}:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{workspace.slug} would be left with nobody who can administer it.",
+		hint=(
+			"Give somebody else an administrator's role there first. A workspace with no "
+			"administrator cannot be repaired from inside it."
+		),
+	)
 
 
 def readable (

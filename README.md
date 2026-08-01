@@ -247,6 +247,27 @@ One thing is not optional, and the program enforces it rather than mentioning it
 beyond this machine unless TLS is handled — either a proxy in front with `public_url` pointing
 at its `https://` address, or an explicit `--insecure` for a network you genuinely trust.
 
+Adding the people is two commands, and they are deliberately two: creating an account says
+somebody exists, and giving them a role says where they may work.
+
+```console
+$ subroutine user create ana --name "Ana Ruiz"
+  Created ana
+  Local commands will go on acting as si.
+
+$ subroutine user add ana --role member
+  ana is now member in acme
+
+$ subroutine user list --workspace acme
+  si   owner
+  ana  member  Ana Ruiz
+```
+
+There is no password: Subroutine authenticates with tokens, so what Ana needs next is
+`subroutine token create --username ana`. Roles belong to a workspace, so `member` in one is
+not `member` in another, and the last account able to administer a workspace cannot be removed
+from it.
+
 **[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
 unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,
 backups on a separate volume, and what upgrading actually involves. Every command on that page

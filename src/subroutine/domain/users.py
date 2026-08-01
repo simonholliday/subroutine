@@ -110,6 +110,62 @@ def create (
 	return user
 
 
+def listed (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+	limit: int = 200,
+) -> list[subroutine.db.models.identity.User]:
+	"""Return the live accounts on this instance, oldest first — item ``#174``.
+
+	**Readable by anyone who is authenticated, and that is a decision.** Adding a colleague to a
+	workspace means naming them, and a name you cannot look up is one you have to be told out of
+	band — which for the commonest case, "who is on this instance", turns a one-line command into
+	a conversation. Decision ``#161`` is what makes it safe to say: identifiers are unique and
+	public, content is neither, and this view carries no email address and no content at all.
+
+	Oldest first, because the first account is the one ``init`` made and the operator reading
+	this is usually looking for the ones that came after it.
+	"""
+
+	model = subroutine.db.models.identity.User
+
+	return list(
+		session.scalars(
+			sqlalchemy.select(model)
+			.where(model.deleted_at.is_(None))
+			.order_by(model.created_at, model.username)
+			.limit(limit)
+		)
+	)
+
+
+def by_username (
+	session: sqlalchemy.orm.Session, username: str
+) -> subroutine.db.models.identity.User:
+	"""Return the live account with this username, or refuse by name.
+
+	Case-insensitive through the normalised column, because a username is an address somebody
+	types and ``Simon`` and ``simon`` being two accounts would be a trap rather than a feature —
+	which is what the unique index on that column already says.
+	"""
+
+	model = subroutine.db.models.identity.User
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.username_normalized == normalize(username), model.deleted_at.is_(None)
+		)
+	).first()
+
+	if found is None:
+		raise subroutine.errors.NotFound(
+			f"There is no account called {username!r} here.",
+			hint="Run 'subroutine user list' to see who there is.",
+		)
+
+	return found
+
+
 def set_password (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,

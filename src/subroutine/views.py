@@ -451,6 +451,80 @@ class Workspace(pydantic.BaseModel):
 		)
 
 
+class User(pydantic.BaseModel):
+	"""An account as the API reports it — item ``#174``.
+
+	**No email address, deliberately.** Everything here is an *identifier* or a fact about what
+	the account can do, both of which somebody adding a colleague to a workspace needs. An email
+	is personal data, it is needed for none of that, and a directory that hands one to every
+	authenticated caller is a directory that leaks by default rather than on purpose. Decision
+	``#161``'s line is the one being followed: identifiers are unique and public, content is
+	neither.
+
+	``is_service_account`` is reported because it changes what a name *means*. A list mixing
+	people and agents with nothing to tell them apart is one where somebody eventually adds the
+	robot to the stand-up.
+	"""
+
+	id: uuid.UUID
+	username: str
+	display_name: str | None
+	is_service_account: bool
+	is_superuser: bool
+	is_active: bool
+
+	#: Null means "not stated", so the workspace's zone and then the instance's show through
+	#: (§12.3). It is not a missing value to be helpfully defaulted.
+	timezone: str | None
+
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — the username."""
+
+		return self.username
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this account as the cells of one compact line."""
+
+		return (
+			self.username,
+			"agent" if self.is_service_account else "person",
+			"admin" if self.is_superuser else "",
+			"" if self.is_active else "inactive",
+			self.display_name or "",
+		)
+
+
+class Member(pydantic.BaseModel):
+	"""One person's role in one workspace — item ``#174``.
+
+	The join is reported as a thing in its own right rather than as a field on either side,
+	because that is what it is: §7.3a grants sight of a private project to holders of a
+	``project_member`` row, and membership of a workspace is the same shape one level up.
+	"""
+
+	user: User
+	role: str
+	workspace: WorkspaceRef
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — the member's username."""
+
+		return self.user.username
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this membership as the cells of one compact line."""
+
+		return (
+			self.user.username,
+			self.role,
+			"agent" if self.user.is_service_account else "person",
+			self.user.display_name or "",
+		)
+
+
 class Project(pydantic.BaseModel):
 	"""A project as the API reports it."""
 
@@ -942,6 +1016,42 @@ def instance (row: subroutine.db.models.system.Instance) -> Instance:
 	"""Render this installation's identity."""
 
 	return Instance(id=row.id, name=row.name, timezone=row.timezone)
+
+
+def user (row: subroutine.db.models.identity.User) -> User:
+	"""Render one account, without its email address or its password hash."""
+
+	return User(
+		id=row.id,
+		username=row.username,
+		display_name=row.display_name,
+		is_service_account=row.is_service_account,
+		is_superuser=row.is_superuser,
+		is_active=row.is_active,
+		timezone=row.timezone,
+		created_at=row.created_at,
+	)
+
+
+def member (
+	row: subroutine.db.models.identity.WorkspaceMember,
+	*,
+	account: subroutine.db.models.identity.User,
+	role: subroutine.db.models.identity.Role,
+	within: subroutine.db.models.identity.Workspace,
+) -> Member:
+	"""Render one membership, with the three things it joins already resolved.
+
+	Handed the rows rather than fetching them, so a listing loads them once and this does not
+	become §8.4's N+1 wearing a rendering hat.
+	"""
+
+	return Member(
+		user=user(account),
+		role=role.key,
+		workspace=workspace_ref(within),
+		created_at=row.created_at,
+	)
 
 
 def workspace_ref (row: subroutine.db.models.identity.Workspace) -> WorkspaceRef:

@@ -361,6 +361,81 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def users (self) -> list[subroutine.views.User]:
+		"""List the accounts on this instance."""
+
+		body = self._json("GET", "/v1/users")
+
+		return [
+			subroutine.views.User.model_validate(row) for row in body.get("items", [])
+		]
+
+	def create_user (
+		self,
+		*,
+		username: str,
+		display_name: str | None = None,
+		email: str | None = None,
+		timezone: str | None = None,
+		is_service_account: bool = False,
+	) -> subroutine.views.User:
+		"""Add a person, or a machine identity, to this instance."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			"/v1/users",
+			json={
+				**_given(
+					username=username,
+					display_name=display_name,
+					email=email,
+					timezone=timezone,
+				),
+				# Passed rather than left to the server's default, for the reason
+				# `create_project` gives about `visibility`: `_given` drops a false, and a
+				# default in two places is two places to change.
+				"is_service_account": is_service_account,
+			},
+		)
+
+		return subroutine.views.User.model_validate(body)
+
+	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
+		"""List who belongs to one workspace."""
+
+		body = self._json("GET", f"/v1/workspaces/{self._workspace(workspace)}/members")
+
+		return [
+			subroutine.views.Member.model_validate(row) for row in body.get("items", [])
+		]
+
+	def add_member (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Give somebody a role in a workspace."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/workspaces/{self._workspace(workspace)}/members",
+			json={"username": username, "role": role},
+		)
+
+		return subroutine.views.Member.model_validate(body)
+
+	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
+		"""Take somebody out of a workspace."""
+
+		self._refuse_if_read_only()
+
+		self._json(
+			"DELETE",
+			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
+		)
+
 	def create_document (
 		self,
 		*,
@@ -669,6 +744,31 @@ class Client:
 			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
 			hint=f"Check what is serving {self.connection.url} — a proxy, a captive portal or "
 			"an instance on a different API version will answer like this.",
+		)
+
+	def _workspace (self, given: str | None) -> str:
+		"""Return the workspace to address, refusing to guess when none was named.
+
+		**The one place the two transports genuinely cannot behave the same way.** Everywhere
+		else a workspace is a *parameter* the server resolves through
+		``domain.selection.workspace``, which knows the caller's context and their single
+		workspace; here it is a path segment, and there is nothing to resolve it against
+		before the request is made.
+
+		So it refuses rather than picking one. Guessing would put a membership change — the act
+		that decides who can see a private project — in a workspace nobody named, and the
+		mistake would be invisible until somebody read a listing they should not have. Callers
+		pass the slug they already have: the CLI resolves it from the current context first.
+		"""
+
+		if given and given.strip():
+			return given.strip()
+
+		raise subroutine.errors.ValidationError(
+			"Which workspace? Membership belongs to one, so it has to be named.",
+			hint=(
+				"Pass --workspace, or run 'subroutine use <workspace>' to set a current one."
+			),
 		)
 
 	def _refuse_if_read_only (self) -> None:

@@ -86,6 +86,9 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/tasks/{id_or_ref}/complete"): "complete",
 	("POST", "/v1/tasks/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/documents"): "create_document",
+	("POST", "/v1/users"): "create_user",
+	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
+	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/projects"): "create_project",
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
@@ -115,6 +118,8 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
 	("GET", "/v1/me"): "identity",
+	("GET", "/v1/users"): "users",
+	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 }
 
 #: Routes no client reaches, and why. **Deleting an entry is what closes it.**
@@ -258,6 +263,35 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"Who this credential is. §21.3's server instructions already name the connection "
 		"an agent is on, so a tool for this would spend schema restating a fact every "
 		"session already carries.",
+	),
+	"users": (
+		"budget",
+		"Who is on this instance (`#174`). An agent needs a name to attribute or assign work "
+		"to, and it already meets those on the items it reads — a directory is what somebody "
+		"does while setting a team up, which is a person's job and a shell call away.",
+	),
+	"create_user": (
+		"budget",
+		"Adding an account. `instance:user_create` is a verb no role carries, so an agent "
+		"holding it is already an unusual arrangement somebody made on purpose — and they "
+		"can run the command. Five administrative tools would cost §13.3's budget more than "
+		"every agent that never calls them would ever get back.",
+	),
+	"members": (
+		"budget",
+		"Who belongs to a workspace (§7.3a). Same argument as `users` above: it is a question "
+		"asked while arranging a team rather than while doing the work.",
+	),
+	"add_member": (
+		"budget",
+		"Deciding who may work somewhere (§7.3a). `workspace:admin`, and the one write in this "
+		"group whose mistakes are visible to other people — an agent granting membership "
+		"unprompted is the write worth making somebody ask for, which is `discard` above.",
+	),
+	"remove_member": (
+		"budget",
+		"The undo of `add_member` (`#174`), and it would be odd to spend §13.3's bytes on the "
+		"undo of something this surface cannot do.",
 	),
 }
 
