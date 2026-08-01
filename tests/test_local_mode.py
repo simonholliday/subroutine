@@ -135,7 +135,12 @@ def test_a_token_that_cannot_be_used_is_an_error_not_a_fallback (
 		subroutine.domain.local.principal(session, token="sr_deadbeef_nonsense")
 
 	assert raised.value.hint is not None
-	assert "SUBROUTINE_TOKEN" in raised.value.detail
+
+	# Not "SUBROUTINE_TOKEN": this call names no source, and claiming one would be the
+	# defect `#175` was about — the message asserted an environment variable whatever the
+	# credential actually came from, and told the operator to unset something never set.
+	assert "could not be used" in raised.value.detail
+	assert "SUBROUTINE_TOKEN" not in raised.value.detail
 
 
 def test_a_pinned_token_narrows_which_workspace_local_mode_uses (

@@ -15,6 +15,7 @@ import sqlalchemy.event
 import sqlalchemy.orm
 
 import subroutine.db.base
+import subroutine.errors
 
 
 def _apply_sqlite_pragmas (connection: typing.Any, _record: typing.Any) -> None:
@@ -39,10 +40,24 @@ def _apply_sqlite_pragmas (connection: typing.Any, _record: typing.Any) -> None:
 		cursor.close()
 
 
+#: The two backends this is built and tested on (SPEC.md §10.3). Every test runs against both,
+#: and the disagreements between them — NULL ordering, ``LIKE`` case sensitivity, ref
+#: allocation under concurrency — are the reason the list is short and closed.
+SUPPORTED_BACKENDS = ("sqlite", "postgresql")
+
+
 def create_engine (
 	database_url: str, *, echo: bool = False, **kwargs: typing.Any
 ) -> sqlalchemy.engine.Engine:
-	"""Build an engine for ``database_url``, applying per-backend settings."""
+	"""Build an engine for ``database_url``, applying per-backend settings.
+
+	**A backend we do not support is refused by name, before SQLAlchemy looks for a driver**
+	(`#175`). ``database_url = "mysql://…"`` produced ``No module named 'MySQLdb'``, which
+	invites an operator to go and install a driver for a database this does not support and
+	cannot be made to — and then to meet a much stranger failure once they have.
+	"""
+
+	_refuse_an_unsupported_backend(database_url)
 
 	engine = sqlalchemy.create_engine(database_url, echo=echo, future=True, **kwargs)
 
@@ -50,6 +65,31 @@ def create_engine (
 		sqlalchemy.event.listen(engine, "connect", _apply_sqlite_pragmas)
 
 	return engine
+
+
+def _refuse_an_unsupported_backend (database_url: str) -> None:
+	"""Refuse a URL naming a database this is not built for, saying which ones it is."""
+
+	try:
+		backend = sqlalchemy.engine.make_url(database_url).get_backend_name()
+
+	# Broad on purpose: `make_url` raises several different types for different malformed
+	# inputs, and none of them is this function's subject. A URL that cannot be parsed at all
+	# is left to `create_engine`, whose message about it is already the better one.
+	except Exception:
+		return
+
+	if backend in SUPPORTED_BACKENDS:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{backend!r} is not a database Subroutine can use.",
+		hint=(
+			f"It runs on {' and '.join(SUPPORTED_BACKENDS)}. Set 'database_url' to a "
+			f"'sqlite:///…' path or a 'postgresql+psycopg://…' URL — "
+			f"'subroutine config show' says where the file is."
+		),
+	)
 
 
 def create_session_factory (

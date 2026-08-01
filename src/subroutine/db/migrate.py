@@ -20,6 +20,7 @@ import alembic.util.exc
 import sqlalchemy
 import sqlalchemy.engine
 
+import subroutine.config
 import subroutine.db.base
 import subroutine.db.models
 
@@ -39,9 +40,27 @@ def build_config (database_url: str) -> alembic.config.Config:
 
 
 def upgrade (database_url: str, revision: str = "head") -> None:
-	"""Bring ``database_url`` up to ``revision``, creating the schema if it is empty."""
+	"""Bring ``database_url`` up to ``revision``, creating the schema if it is empty.
+
+	The SQLite file is made owner-only afterwards. This is where it comes into existence, so
+	it is the one place that catches every route to a new database — ``init``, ``db upgrade``,
+	``db copy``'s target and a restore — rather than each of them remembering (`#175`).
+	"""
 
 	alembic.command.upgrade(build_config(database_url), revision)
+
+	_keep_the_database_private(database_url)
+
+
+def _keep_the_database_private (database_url: str) -> None:
+	"""Tighten a SQLite database file's permissions, if that is what this URL names."""
+
+	url = sqlalchemy.engine.make_url(database_url)
+
+	if url.get_backend_name() != "sqlite" or not url.database:
+		return
+
+	subroutine.config.keep_private(pathlib.Path(url.database))
 
 
 def downgrade (database_url: str, revision: str) -> None:
@@ -96,6 +115,48 @@ def is_up_to_date (engine: sqlalchemy.engine.Engine) -> bool:
 	"""Report whether a database has every available migration applied."""
 
 	return current_revision(engine) == head_revision()
+
+
+def mismatch_reason (
+	current: str | None, expected: str | None
+) -> tuple[str, str] | None:
+	"""Return what to say about a schema that is not the expected one, and what to do.
+
+	``None`` means the two agree and there is nothing to say.
+
+	**One decision, two surfaces** (`#175`). ``/readyz`` had a single message for all three
+	cases and it was wrong in two of them: it said ``subroutine db upgrade`` — the raw
+	migrator, no backup, no version report — where the CLI says ``subroutine upgrade``, and it
+	said the same thing about a database *newer* than the software, which is advice that
+	cannot be followed. A monitoring alert quotes the endpoint, so the wrong sentence is the
+	one somebody wakes up to.
+
+	The detail and hint are shared rather than the exception, deliberately: the CLI refuses
+	with ``schema_mismatch``, which is a 409, and ``/readyz`` must go on answering 503 or every
+	load balancer reading it changes behaviour.
+	"""
+
+	if current == expected:
+		return None
+
+	if current is None:
+		return (
+			"This database has no Subroutine schema in it.",
+			"Run 'subroutine init' to set it up.",
+		)
+
+	if expected is not None and knows_revision(current):
+		return (
+			f"This database is at schema {current}, and this build expects {expected}.",
+			"Run 'subroutine upgrade' — it backs up first, then migrates.",
+		)
+
+	return (
+		f"This database is at schema {current}, which this build has never heard of. It "
+		f"expects {expected}.",
+		"That database was written by a newer version. Update the software rather than the "
+		"database — there is no downgrade.",
+	)
 
 
 def knows_revision (revision: str) -> bool:

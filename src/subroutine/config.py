@@ -12,6 +12,7 @@ Two precedence chains exist and are deliberately kept apart (SPEC.md §12.3):
 """
 
 import contextlib
+import difflib
 import os
 import pathlib
 import re
@@ -363,6 +364,54 @@ def read_config_file () -> dict[str, typing.Any]:
 		return tomllib.load(handle)
 
 
+def unknown_settings () -> list[tuple[str, str | None]]:
+	"""Return every key in the configuration file this program does not read.
+
+	Each is paired with the nearest real setting where there is an obvious one, because the
+	whole population of this list is typos: ``backups_directory`` for ``backup_directory``,
+	``protectd`` for ``protected``.
+
+	**Reported rather than refused** (`#175`). Silently ignoring one is how somebody comes to
+	believe they set something they did not, and the two that matter fail dangerously: a
+	misspelled ``protected`` means the destructive commands quietly stop asking, and a
+	misspelled ``backup_directory`` means backups go next to the database — which is the
+	arrangement ``docs/hosting.md`` opens by calling "not a backup". ``docs/errors.md`` argues
+	exactly this for request bodies and the file was the one place it did not hold.
+
+	Refusing outright was the other candidate and is wrong here: it would make a stray key in
+	a file stop ``db restore``, and a recovery path blocked by the thing you are recovering
+	from is the defect `#173` was about.
+	"""
+
+	known = set(Settings.model_fields)
+	found = []
+
+	for key in read_config_file():
+		if key in known:
+			continue
+
+		nearest = difflib.get_close_matches(key, known, n=1, cutoff=0.7)
+		found.append((key, nearest[0] if nearest else None))
+
+	return found
+
+
+def describe_unknown_settings () -> list[str]:
+	"""Return one line per unrecognised setting, for a surface to print."""
+
+	lines = []
+
+	for key, nearest in unknown_settings():
+		suggestion = f" Did you mean '{nearest}'?" if nearest else ""
+
+		lines.append(
+			f"'{key}' in {config_file_path()} is not a setting Subroutine reads, so it is "
+			f"having no effect.{suggestion}"
+		)
+
+	return lines
+
+
 class TomlSettingsSource(pydantic_settings.PydanticBaseSettingsSource):
 	"""Feed settings from ``config.toml`` into the resolution chain."""
 
@@ -624,6 +673,27 @@ def _write_private (path: pathlib.Path, text: str) -> None:
 	# Some filesystems — the CIFS share this project is developed on among them — do not
 	# carry POSIX modes. Refusing to write the config over that would be worse than
 	# writing it without the tightened permissions.
+	with contextlib.suppress(OSError):
+		path.chmod(0o600)
+
+
+def keep_private (path: pathlib.Path) -> None:
+	"""Make a file readable only by its owner, where the filesystem allows it.
+
+	**The database is more sensitive than the configuration file, and had looser permissions**
+	(`#175`). ``config.toml`` is written ``0600`` and ``docs/hosting.md`` reassures the reader
+	about exactly that — while the database beside it, holding every task, comment and token
+	hash, was created ``0644`` by whatever umask was in force, and so were the backups. On a
+	shared machine that is every other account able to read the lot.
+
+	It is also the load-bearing control here. §12.1a says there is no local password prompt
+	*because* anyone who can read the file can read every row with ``sqlite3`` — which is an
+	argument for the filesystem permission being right, not for it being ignored.
+
+	Best effort and never fatal, for the reason `write_config` gives: some filesystems do not
+	carry POSIX modes, and refusing to work on one would be worse than working without this.
+	"""
+
 	with contextlib.suppress(OSError):
 		path.chmod(0o600)
 

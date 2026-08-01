@@ -87,7 +87,10 @@ def test_readiness_refuses_an_unmigrated_database (tmp_path: pathlib.Path) -> No
 	body = response.json()
 
 	assert body["code"] == "service_unavailable"
-	assert "subroutine db upgrade" in body["hint"]
+	# `subroutine init`, not `db upgrade`: this database has no schema at all, and telling
+	# somebody to migrate an empty database is advice that does nothing (`#175`). The same
+	# three-way decision the CLI makes, from the same function, so the two cannot drift.
+	assert "subroutine init" in body["hint"]
 
 
 def test_readiness_reports_an_unreachable_database (tmp_path: pathlib.Path) -> None:

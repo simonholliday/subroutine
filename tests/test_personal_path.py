@@ -75,6 +75,11 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 	def invoke (*arguments: str, expect: int = 0, input: str | None = None) -> typer.testing.Result:
 		"""Run one command and check how it ended."""
 
+		# Each call is a fresh shell, and in a real one each command is its own process —
+		# so the once-per-process configuration warning is once per command. Reset here
+		# rather than per test, or the first `init` in a test consumes it for the rest.
+		subroutine.cli.main._said_unknown_settings = False
+
 		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=input)
 
 		assert result.exit_code == expect, (

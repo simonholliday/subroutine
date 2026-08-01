@@ -50,11 +50,18 @@ def principal (
 	*,
 	token: str | None = None,
 	local_user: str | None = None,
+	token_source: str | None = None,
 ) -> subroutine.domain.authentication.Principal:
-	"""Return who this process is acting as, or refuse with what to do about it."""
+	"""Return who this process is acting as, or refuse with what to do about it.
+
+	``token_source`` names where the credential came from, for the refusal to quote. It is
+	optional because a caller may genuinely not know — a test, or anything that was handed a
+	token rather than resolving one — and a message that says "a credential" is honest where
+	one naming the wrong file is not.
+	"""
 
 	if token:
-		return _from_token(session, token)
+		return _from_token(session, token, source=token_source)
 
 	if local_user:
 		return _named(session, local_user)
@@ -99,7 +106,7 @@ def workspace_for (
 
 
 def _from_token (
-	session: sqlalchemy.orm.Session, token: str
+	session: sqlalchemy.orm.Session, token: str, *, source: str | None = None
 ) -> subroutine.domain.authentication.Principal:
 	"""Resolve a presented token, with the failure said plainly.
 
@@ -112,10 +119,21 @@ def _from_token (
 		return subroutine.domain.authentication.authenticate(session, token)
 
 	except subroutine.errors.SubroutineError as error:
+		# **Named from where it actually came from** (`#175`). This said "SUBROUTINE_TOKEN
+		# was set" whatever the source was, and then told the operator to unset a variable
+		# that in the common case was never set — while the credential sat in
+		# `credentials.toml`, unmentioned. `credentials.resolve` has always known which of the
+		# four places won; it simply was not asked.
+		where = f"The token from {source}" if source else "The token supplied"
+
 		raise subroutine.errors.Unauthenticated(
-			f"SUBROUTINE_TOKEN was set but could not be used: {error.detail}",
-			hint="Unset it to use this database directly, or issue a new token with "
-			"'subroutine token create'.",
+			f"{where} could not be used: {error.detail}",
+			hint=(
+				f"Remove it from {source} to use this database directly, or issue a new one "
+				f"with 'subroutine token create'."
+				if source
+				else "Issue a new one with 'subroutine token create'."
+			),
 		) from None
 
 

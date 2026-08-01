@@ -59,13 +59,15 @@ def readiness (request: starlette.requests.Request) -> dict[str, typing.Any]:
 			hint="Check that the database is running and that 'database_url' is right.",
 		) from error
 
-	if revision != expected:
-		at = revision or "an empty database"
+	# The same three-way decision the CLI makes, from the same function. A monitoring alert
+	# quotes this endpoint, so a remedy that differs from the one a person is given at the
+	# terminal — or that cannot be followed at all — is worse here than anywhere.
+	mismatch = subroutine.db.migrate.mismatch_reason(revision, expected)
 
-		raise subroutine.errors.ServiceUnavailable(
-			f"The database schema is at {at}, but this version expects {expected}.",
-			hint="Run 'subroutine db upgrade' to bring it up to date.",
-		)
+	if mismatch is not None:
+		detail, hint = mismatch
+
+		raise subroutine.errors.ServiceUnavailable(detail, hint=hint)
 
 	return {
 		"status": "ready",

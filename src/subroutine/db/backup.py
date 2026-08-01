@@ -78,6 +78,12 @@ class Backup:
 	size_bytes: int
 	profile: str | None
 
+	#: What taking this one *deleted*, when ``--keep`` asked for it. Carried back rather than
+	#: discarded because ``hosting.md`` recommends running the backup from a timer, and a timer's
+	#: log is the only record there will ever be of what went (`#175`). A deletion nothing
+	#: reports is one nobody can audit, on the command whose whole subject is not losing data.
+	removed: tuple["Backup", ...] = ()
+
 	@property
 	def name (self) -> str:
 		"""Return the filename, which is what an operator names on the command line."""
@@ -644,18 +650,14 @@ def take (
 	finally:
 		staged.unlink(missing_ok=True)
 
-	written = Backup(
+	return Backup(
 		path=target,
 		taken_at=taken_at,
 		schema_head=head,
 		size_bytes=size,
 		profile=active,
+		removed=() if keep is None else tuple(prune(settings, keep=keep)),
 	)
-
-	if keep is not None:
-		prune(settings, keep=keep)
-
-	return written
 
 
 def _delivered (
@@ -682,6 +684,11 @@ def _delivered (
 			f"The backup could not be written to {target}: {error}. If that is a network "
 			f"volume, check that it is mounted and writable."
 		) from error
+
+	# A backup is the database, so it gets the database's permissions. Doing it before the
+	# verification below means a copy that fails the check was never readable by anyone else
+	# either, however briefly.
+	subroutine.config.keep_private(target)
 
 	try:
 		arrived = target.stat().st_size

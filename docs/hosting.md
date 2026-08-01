@@ -360,16 +360,27 @@ than left looking like a backup.
 
 ```console
 $ subroutine db backup
-  Backed up instance 'default' to /srv/backups/subroutine/subroutine-20260731T141853Z-0c8f7a7027e6.sql
+  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-0c8f7a7027e6.sql
   60,069 bytes, schema 0c8f7a7027e6.
 
 $ subroutine db backups
   Backups of instance 'default', in /srv/backups/subroutine:
-    subroutine-20260731T141853Z-0c8f7a7027e6.sql  2026-07-31 14:18 UTC  60,069 bytes  schema 0c8f7a7027e6
+    subroutine-default-20260731T141853Z-0c8f7a7027e6.sql  2026-07-31 14:18 UTC  60,069 bytes  schema 0c8f7a7027e6
 ```
 
+**The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says which
+engine took it** — `.sql` for a PostgreSQL dump, which is a script `psql` replays, and `.db`
+for a SQLite copy, which is a database. They are not interchangeable in either direction, and
+a restore refuses the wrong one rather than discovering it partway through. A retention script
+written against `*.sql` therefore matches nothing on SQLite; match both, or match on
+`subroutine-*`.
+
 `--keep N` prunes to the newest N afterwards, which is the whole of the retention policy. Run
-it from a timer.
+it from a timer — it names every file it deletes, so the timer's log is the record of what
+went.
+
+Backups are written owner-only, like the database and `config.toml`. A backup is the whole
+database, so it is exactly as sensitive as the thing it copies.
 
 **Every backup carries the schema version it was taken on, inside the file** — the filename
 echoes it, but the value inside is the authority, because anybody can rename a file. Restoring
@@ -426,6 +437,31 @@ agreement before touching it:
 ```toml
 protected = true
 ```
+
+A setting Subroutine does not recognise is named on every command rather than ignored, with
+the nearest real one suggested. `protectd = true` is not a protected instance and never was;
+before, nothing said so.
+
+## Credentials
+
+`subroutine token list` shows every credential this instance has issued — its prefix, who owns
+it, what it can reach, when it expires and when it was last used. No secret is stored, so
+there is nothing in that listing to leak, and the prefix is what revoking takes:
+
+```console
+$ subroutine token list
+  a1b2c3d4  si      My laptop        no expiry
+            everything its owner can do · last used 2026-07-31
+  e5f6a7b8  claude  claude's token   until 2026-08-30
+            task:read, task:write · in acme only · never used
+
+$ subroutine token revoke a1b2c3d4
+```
+
+Revoking is immediate: a revoked credential is checked on every request rather than cached, so
+there is no session to wait out. That is the answer to "a key leaked", and it is why the
+listing shows what each one can reach — the question at that moment is which of them could
+write.
 
 ## Upgrading
 

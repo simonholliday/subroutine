@@ -117,6 +117,20 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 	says one thing three ways is read as noise, and then so is the next one.
 	"""
 
+	_printed(error)
+
+	raise typer.Exit(code=1)
+
+
+def _printed (error: subroutine.errors.SubroutineError) -> None:
+	"""Write a refusal to standard error, without deciding how the process ends.
+
+	Split out from `_fail` so that `main` can report a refusal that escaped a command
+	entirely: `_fail` raises `typer.Exit`, which means nothing once click's own runner has
+	been left behind, and reusing it there turned a missing backup directory into a traceback
+	about `typer.Exit`.
+	"""
+
 	_err.print(error.detail, markup=False, highlight=False)
 
 	if error.hint is not None:
@@ -141,8 +155,6 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 		# Indented under the field it belongs to when that was printed, so a refusal naming
 		# several fields does not run their remedies together.
 		_err.print(f"{'  ' if said else '    '}{field.hint}", markup=False, highlight=False)
-
-	raise typer.Exit(code=1)
 
 
 def _stop (message: str, hint: str | None = None) -> typing.NoReturn:
@@ -189,13 +201,34 @@ def safe_url (url: str) -> str:
 	return parsed.render_as_string(hide_password=True)
 
 
+#: Whether this process has already named the settings nobody reads. Module state because the
+#: warning belongs to the run, not to any one call — see `_settings`.
+_said_unknown_settings = False
+
+
 def _settings () -> subroutine.config.Settings:
 	"""Resolve configuration, explaining a bad value rather than raising through it.
 
 	Every command starts here, so every command inherits the explanation. An unreadable
 	config file or a mistyped environment variable is an ordinary mistake, and it should
 	read like one.
+
+	**A setting nobody reads is said out loud, on every command** (`#175`). It goes to
+	standard error, so a pipe stays clean and the exit code is untouched — this is a warning
+	about the configuration, not a refusal of the work. Repeating it every time is the point:
+	a typo that silently turns off the confirmation on destructive commands should be
+	annoying until somebody fixes it.
 	"""
+
+	# Once per process, not once per call: `_settings()` is reached more than once by some
+	# commands, and a warning printed twice reads as two problems.
+	global _said_unknown_settings
+
+	if not _said_unknown_settings:
+		_said_unknown_settings = True
+
+		for line in subroutine.config.describe_unknown_settings():
+			_warn(line)
 
 	try:
 		return subroutine.config.load_settings()
@@ -613,6 +646,15 @@ def config_show () -> None:
 		elif name == "database_url":
 			value = safe_url(str(value))
 
+		# **A setting whose default is a *place* names the place** (`#175`). `backup_directory`
+		# printed `None [default]`, which says where backups go only to somebody who already
+		# knows — and the thing it does not say is the one that matters: unset means beside the
+		# database, which is the arrangement this project's own hosting page opens by calling
+		# "not a backup". `subroutine upgrade` takes one automatically, so an operator who never
+		# set the value has their pre-upgrade copy on the disk they are worried about.
+		elif name == "backup_directory" and not value:
+			value = f"(unset — beside the database, in {subroutine.db.backup.directory(settings)})"
+
 		_say(f"{name.ljust(width)}  {value}  [{sources[name]}]")
 
 
@@ -918,6 +960,11 @@ def database_backup (
 
 	_say(f"Backed up {_instance_label()} to {written.path}")
 	_say(f"{written.size_bytes:,} bytes, schema {written.schema_head}.")
+
+	# Named, not counted. This is recommended for a timer, and the timer's log is the only
+	# record there will ever be of which backups stopped existing.
+	for gone in written.removed:
+		_say(f"Deleted {gone.path} to keep {keep}.")
 
 
 @database_app.command("backups")
@@ -1293,6 +1340,10 @@ def token_list () -> None:
 
 	Prefixes, never secrets. Only a hash is stored, so there is nothing here to leak — and
 	the prefix is what 'token revoke' takes, which is the point of printing it.
+
+	Each credential says what it can reach and when it was last used, so "which of these can
+	write?" and "is this one still in use?" are answerable here rather than by reading the
+	database. A credential narrowed to nothing in particular says so in one word.
 	"""
 
 	settings = _settings()
@@ -1311,8 +1362,17 @@ def token_list () -> None:
 			except subroutine.errors.SubroutineError as error:
 				_fail(error)
 
-			listed = [(row, session.get(subroutine.db.models.identity.User, row.user_id))
-				for row in rows]
+			# The workspace pin is resolved to its short name here, while there is a session:
+			# a UUID in a listing is something to go and look up, which is the opposite of
+			# what a listing is for.
+			listed = [
+				(
+					row,
+					session.get(subroutine.db.models.identity.User, row.user_id),
+					_pin_of(session, row),
+				)
+				for row in rows
+			]
 
 	if not listed:
 		_say("No credentials have been issued.")
@@ -1320,11 +1380,65 @@ def token_list () -> None:
 
 		return
 
-	width = max(len(row.token_prefix) for row, _owner in listed)
+	width = max(len(row.token_prefix) for row, _owner, _pin in listed)
 
-	for row, owner in listed:
+	for row, owner, pin in listed:
 		who = "someone since deleted" if owner is None else owner.username
+
 		_say(f"  {row.token_prefix.ljust(width)}  {who}  {row.title}  {_credential_state(row)}")
+		_say(f"  {' ' * width}  {_credential_reach(row, pin)}")
+
+
+def _pin_of (
+	session: sqlalchemy.orm.Session, token: subroutine.db.models.identity.ApiToken
+) -> str | None:
+	"""Return the short name of the workspace a credential is pinned to, if it is.
+
+	Not `_pinned_workspace`, which already exists and answers the *other* direction — what a
+	credential being issued should be pinned to. Two functions of the same name in one module
+	is a shadowing nobody sees until one of them is called.
+	"""
+
+	if token.workspace_id is None:
+		return None
+
+	found = session.get(subroutine.db.models.identity.Workspace, token.workspace_id)
+
+	return None if found is None else found.slug
+
+
+def _credential_reach (
+	token: subroutine.db.models.identity.ApiToken, pinned: str | None
+) -> str:
+	"""Say what a credential can reach, and when it was last used.
+
+	**"Which of my tokens can write?" had no answer** (`#175`). The listing showed a prefix, an
+	owner, a title and an expiry, and every fact that decides what a leaked credential could
+	*do* was absent — which is the question somebody is asking at the moment they read this.
+
+	An empty `scopes` means no narrowing rather than no permission (§12.1a), and that reversal
+	is exactly the kind of thing nobody should have to remember while working out whether to
+	revoke something. It is spelled out.
+	"""
+
+	parts = ["everything its owner can do" if not token.scopes else ", ".join(token.scopes)]
+
+	if pinned is not None:
+		parts.append(f"in {pinned} only")
+
+	if token.project_scope:
+		parts.append(f"projects {', '.join(token.project_scope)}")
+
+	# A credential issued and never presented is the interesting case here — it is either
+	# unused or was pasted somewhere that has not run yet — so it is stated rather than left
+	# as a blank the reader has to interpret.
+	parts.append(
+		"never used"
+		if token.last_used_at is None
+		else f"last used {token.last_used_at.date().isoformat()}"
+	)
+
+	return " · ".join(parts)
 
 
 def _credential_state (token: subroutine.db.models.identity.ApiToken) -> str:
@@ -1836,6 +1950,25 @@ def _default (
 
 
 def main () -> None:
-	"""Entry point for the ``subroutine`` command."""
+	"""Entry point for the 'subroutine' command.
 
-	app()
+	**A refusal that reaches here is still a sentence, not a traceback** (`#175`). Every
+	command is supposed to catch its own and call `_fail`, and most do — but `db backups`
+	printed sixty lines of Python and three chained exceptions for an unusable
+	`backup_directory`, while `db backup` beside it caught the identical condition and said
+	something useful. That is the failure `docs/hosting.md` predicts, and the command an
+	operator would check with was the one that exploded.
+
+	Catching it once here is the fix that does not rot. A per-command `try` is a thing to
+	remember on every command ever added, and the evidence that it gets forgotten is the item
+	this note comes from. Commands still catch what they can say something *better* about;
+	this is only the floor.
+	"""
+
+	try:
+		app()
+
+	except subroutine.errors.SubroutineError as error:
+		_printed(error)
+
+		raise SystemExit(1) from None

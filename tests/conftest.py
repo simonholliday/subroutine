@@ -17,6 +17,7 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 
 import sample_models
+import subroutine.cli.main
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session

@@ -74,6 +74,11 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 		behaviour as the act.
 		"""
 
+		# Each call is a fresh shell, and in a real one each command is its own process —
+		# so the once-per-process configuration warning is once per command. Reset here
+		# rather than per test, or the first `init` in a test consumes it for the rest.
+		subroutine.cli.main._said_unknown_settings = False
+
 		os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
 
 		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=answers)
@@ -919,3 +924,101 @@ def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
 	assert subroutine.db.backup.catalogue(_settings()) == [], (
 		"a truncated backup must not survive to be listed as one"
 	)
+
+
+# --------------------------------------------------------------------------------------
+# The operations surface — item `#175`
+# --------------------------------------------------------------------------------------
+
+
+def test_an_unsupported_backend_is_named_rather_than_missing_a_driver (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#175`. 'No module named MySQLdb' invites installing a driver that cannot help.
+
+	It is not a missing dependency, it is a database this is not built for — and the message
+	that reads like the first sends somebody off to install something, meet a stranger failure
+	after they have, and never learn the actual answer.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	configuration = subroutine.config.config_file_path()
+
+	with configuration.open("a", encoding="utf-8") as handle:
+		handle.write('\ndatabase_url = "mysql://user@localhost/thing"\n')
+
+	refused = run("list", expect=1)
+
+	assert "not a database Subroutine can use" in refused.output
+	assert "sqlite" in refused.output and "postgresql" in refused.output
+	assert "MySQLdb" not in refused.output
+
+
+def test_a_setting_nobody_reads_is_said_out_loud (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#175`. Silence is how somebody comes to believe they set something they did not.
+
+	The two that matter fail dangerously and quietly: a misspelled `protected` means the
+	destructive commands stop asking, and a misspelled `backup_directory` means backups go
+	next to the database. `docs/errors.md` argues exactly this for request bodies, and the
+	configuration file was the one place the principle did not hold.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	configuration = subroutine.config.config_file_path()
+
+	with configuration.open("a", encoding="utf-8") as handle:
+		handle.write('\nprotectd = true\n')
+
+	warned = run("list")
+
+	assert "protectd" in warned.output
+	assert "protected" in warned.output, "the nearest real setting is the useful half"
+
+
+def test_pruning_names_what_it_deleted (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#175`. `hosting.md` recommends a timer, whose log is the only record there will be.
+
+	A deletion nothing reports cannot be audited, on the command whose entire subject is not
+	losing data.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	first = _backup_name(run("db", "backup").output)
+	second = _backup_name(run("db", "backup").output)
+
+	assert first != second, "the two backups collided, so this is not testing pruning"
+
+	pruned = run("db", "backup", "--keep", "1")
+
+	assert "Deleted" in pruned.output
+	assert first in pruned.output
+
+
+def test_the_database_and_its_backups_are_owner_only (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#175`. `config.toml` was 0600 and the database beside it was 0644.
+
+	§12.1a's argument for having no local password is that anyone who can read the file can
+	read every row with `sqlite3` — which makes the filesystem permission the authentication,
+	not a detail. A backup is the whole database, so it is exactly as sensitive.
+	"""
+
+	run("init", "--workspace", "Real")
+	taken = _backup_name(run("db", "backup").output)
+
+	database = _settings().sqlite_path
+
+	assert database is not None
+	assert database.stat().st_mode & 0o077 == 0, oct(database.stat().st_mode)
+
+	copy = subroutine.db.backup.directory(_settings()) / taken
+
+	assert copy.stat().st_mode & 0o077 == 0, oct(copy.stat().st_mode)

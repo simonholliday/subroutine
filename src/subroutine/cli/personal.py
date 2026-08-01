@@ -533,6 +533,15 @@ def register (
 		with contextlib.ExitStack() as stack:
 			clients = []
 
+			# **A connection that cannot even be built is a failure like any other** (`#175`).
+			# It used to be warned about and then forgotten, so with one broken connection and
+			# no others, `gathered.failures` was empty and the reader was told "No connection
+			# could be reached. Run 'subroutine connections'" — a generic line naming a cause
+			# that is not the cause, with the sentence explaining the real one already printed
+			# above it and its remedy thrown away. Collected here, they reach the same report
+			# as a connection that was reached and refused.
+			unbuilt: list[subroutine.fanout.Failure] = []
+
 			for connection in roster:
 				try:
 					clients.append(stack.enter_context(_client(connection, roster, resolved)))
@@ -541,7 +550,9 @@ def register (
 					if strict:
 						fail(error)
 
-					warn(f"{connection.label}: {error.detail}")
+					unbuilt.append(
+						subroutine.fanout.Failure(connection=connection, error=error)
+					)
 
 			# Both inside one handler, because under ``--strict`` the gather *re-raises* rather
 			# than collecting — and a refusal that escapes to Typer arrives as a traceback,
@@ -575,7 +586,7 @@ def register (
 				# is what "my only connection is broken" looks like — never reached it.
 				reasons = []
 
-				for failure in gathered.failures:
+				for failure in (*unbuilt, *gathered.failures):
 					reasons.append(failure.describe())
 
 					# Indented under the connection it belongs to, so several broken connections
@@ -601,7 +612,7 @@ def register (
 					roster=roster,
 					current=_settled(roster, current, reached),
 					reached=reached,
-					unreachable=gathered.failures,
+					unreachable=(*unbuilt, *gathered.failures),
 					settings=resolved,
 					marker=marker,
 				)

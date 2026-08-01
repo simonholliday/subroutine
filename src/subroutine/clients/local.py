@@ -73,6 +73,7 @@ class Client:
 		*,
 		session_factory: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session] | None = None,
 		token: str | None = None,
+		token_source: str | None = None,
 	) -> None:
 		"""Open the database this installation owns.
 
@@ -84,6 +85,11 @@ class Client:
 		self.connection = connection
 		self.settings = settings
 		self._token = token
+		# Where the credential came from, so a refusal can name the thing the operator
+		# actually has to change (`#175`). Without it the message said "SUBROUTINE_TOKEN was
+		# set" about a token read from credentials.toml, and told them to unset a variable
+		# that was never set.
+		self._token_source = token_source
 		self._engine = None if session_factory is not None else subroutine.db.session.create_engine(
 			settings.database_url
 		)
@@ -1003,28 +1009,14 @@ class Client:
 
 		current = subroutine.db.migrate.revision_on(session.connection())
 		expected = subroutine.db.migrate.head_revision()
+		mismatch = subroutine.db.migrate.mismatch_reason(current, expected)
 
-		if current == expected:
+		if mismatch is None:
 			return
 
-		if current is None:
-			raise subroutine.errors.SchemaMismatch(
-				"This database has no Subroutine schema in it.",
-				hint="Run 'subroutine init' to set it up.",
-			)
+		detail, hint = mismatch
 
-		if subroutine.db.migrate.knows_revision(current):
-			raise subroutine.errors.SchemaMismatch(
-				f"This database is at schema {current}, and this build expects {expected}.",
-				hint="Run 'subroutine upgrade' — it backs up first, then migrates.",
-			)
-
-		raise subroutine.errors.SchemaMismatch(
-			f"This database is at schema {current}, which this build has never heard of. It "
-			f"expects {expected}.",
-			hint="That database was written by a newer version. Update the software rather "
-			"than the database — there is no downgrade.",
-		)
+		raise subroutine.errors.SchemaMismatch(detail, hint=hint)
 
 	@contextlib.contextmanager
 	def _reported (self) -> typing.Iterator[None]:
@@ -1077,7 +1069,10 @@ class Client:
 		"""Return who this process is acting as here."""
 
 		return subroutine.domain.local.principal(
-			session, token=self._token, local_user=self.settings.local_user
+			session,
+			token=self._token,
+			local_user=self.settings.local_user,
+			token_source=self._token_source,
 		)
 
 	def _require (
@@ -1247,5 +1242,9 @@ def opened (
 	)
 
 	return Client(
-		connection, settings, session_factory=session_factory, token=resolved.token
+		connection,
+		settings,
+		session_factory=session_factory,
+		token=resolved.token,
+		token_source=resolved.source,
 	)
