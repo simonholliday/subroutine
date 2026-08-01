@@ -213,6 +213,120 @@ def test_every_migration_survives_a_database_with_data_in_it (migrated_url: str)
 		engine.dispose()
 
 
+#: The revision before an event grew ``subject_type``/``subject_id``, when a comment's event
+#: said what it was made on inside its ``changes`` document.
+_BEFORE_SUBJECTS = "0c8f7a7027e6"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_comment_event_written_before_subjects_gains_one (migrated_url: str) -> None:
+	"""`#52`'s backfill, which is most of what that migration is for.
+
+	The columns are what put a comment into the commented-on item's history. Adding them and
+	leaving the existing rows alone would fix the defect for comments written after the
+	upgrade and leave every earlier one invisible for good — the version of the fix that
+	passes every test written against a fresh database.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_SUBJECTS)
+
+		workspace_id, comment_id, subject_id = (subroutine.db.types.new_uuid() for _ in range(3))
+
+		with engine.begin() as connection:
+			_insert(connection, "workspace", {"id": workspace_id, "slug": "w", "title": "W"})
+			_insert(
+				connection,
+				"comment",
+				{
+					"id": comment_id,
+					"workspace_id": workspace_id,
+					"entity_type": "task",
+					"entity_id": subject_id,
+					"body": "Ran the suite.",
+				},
+			)
+			_insert(
+				connection,
+				"event",
+				{
+					"workspace_id": workspace_id,
+					"entity_type": "comment",
+					"entity_id": comment_id,
+					# Explicit, because the two must be distinguishable and `seq` is what orders them.
+					"seq": 1,
+					"action": "created",
+					"changes": {"on": {"from": None, "to": f"task:{subject_id}"}},
+				},
+			)
+			# An edit, which never carried `on` at all. Backfilling from `changes` alone leaves
+			# this one unattributed for ever, and it is the row a reader most wants.
+			_insert(
+				connection,
+				"event",
+				{
+					"workspace_id": workspace_id,
+					"entity_type": "comment",
+					"entity_id": comment_id,
+					"seq": 2,
+					"action": "updated",
+					"changes": {"body": {"from": "Ran it.", "to": "Ran the suite."}},
+				},
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		created, updated = _events_about(engine, comment_id, "subject_type", "subject_id", "changes")
+
+		assert created["subject_type"] == "task"
+		assert created["subject_id"] == subject_id
+		assert updated["subject_id"] == subject_id
+
+		# The old copy is gone rather than left beside the new one: two places saying the same
+		# thing is how they come to disagree. The edit keeps the diff that is its own content.
+		assert created["changes"] is None
+		assert updated["changes"] == {"body": {"from": "Ran it.", "to": "Ran the suite."}}
+
+		# And back, because a downgrade that drops the only copy of a fact is not a downgrade.
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_SUBJECTS)
+
+		was_created, was_updated = _events_about(engine, comment_id, "changes")
+
+		assert was_created["changes"] == {"on": {"from": None, "to": f"task:{subject_id}"}}
+
+		# Nothing invented on the edit: the older schema never wrote `on` onto one, so putting
+		# it there would hand it a row it could not have produced.
+		assert was_updated["changes"] == {"body": {"from": "Ran it.", "to": "Ran the suite."}}
+
+	finally:
+		engine.dispose()
+
+
+def _events_about (
+	engine: sqlalchemy.engine.Engine, entity_id: uuid.UUID, *names: str
+) -> list[sqlalchemy.RowMapping]:
+	"""Read named columns off the events about ``entity_id``, oldest first.
+
+	Through the table rather than a ``text()`` statement so every value passes through its
+	column's type in both directions — SQLite stores a UUID as bare hex, so a literal bound
+	string matches nothing and the row reads as missing rather than as wrong.
+	"""
+
+	table = subroutine.db.base.Base.metadata.tables["event"]
+	columns = [table.c[name] for name in names]
+
+	with engine.connect() as connection:
+		found = connection.execute(
+			sqlalchemy.select(*columns)
+			.where(table.c.entity_id == entity_id)
+			.order_by(table.c.seq.asc())
+		)
+
+		return list(found.mappings().all())
+
+
 def _foreign_keys (connection: sqlalchemy.Connection) -> int:
 	"""Return SQLite's foreign-key enforcement setting for this connection."""
 

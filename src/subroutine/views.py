@@ -331,6 +331,11 @@ class Event(pydantic.BaseModel):
 	session-authenticated one has no token; recording which is which is what makes an audit
 	trail worth reading (§5.11). Ids rather than names, per §8.5 — an unrequested relation is
 	an id, and resolving every actor on every page is what the compact format exists to avoid.
+
+	``subject_*`` is what the event happened *on* when that differs from the entity, and it is
+	null for almost everything. A comment's event names the comment and is reported in the
+	commented-on item's history, so a client rendering that history needs the subject to tell
+	"somebody edited this task" from "somebody commented on it" without a second call.
 	"""
 
 	seq: int
@@ -339,6 +344,9 @@ class Event(pydantic.BaseModel):
 	entity_type: str
 	entity_id: uuid.UUID
 	workspace_id: uuid.UUID
+
+	subject_type: str | None
+	subject_id: uuid.UUID | None
 
 	action: str
 	changes: dict[str, typing.Any] | None
@@ -786,6 +794,8 @@ def event (row: subroutine.db.models.activity.Event) -> Event:
 		entity_type=row.entity_type,
 		entity_id=row.entity_id,
 		workspace_id=row.workspace_id,
+		subject_type=row.subject_type,
+		subject_id=row.subject_id,
 		action=row.action,
 		changes=None if row.changes is None else dict(row.changes),
 		actor_user_id=row.actor_user_id,

@@ -83,6 +83,13 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 			"entity_id",
 			"seq",
 		),
+		sqlalchemy.Index(
+			"ix_event_workspace_id_subject_type_subject_id_seq",
+			"workspace_id",
+			"subject_type",
+			"subject_id",
+			"seq",
+		),
 	)
 
 	seq: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
@@ -113,6 +120,22 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 	entity_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(), nullable=False
 	)
+
+	# What this happened *on*, when that is not the entity itself. A comment is the case that
+	# forced it: the entity is the comment, but "what happened to #42" has to include somebody
+	# commenting on #42, and without this the two are unrelatable rows. Null means the event is
+	# about the entity and nothing else, which is every other write in the system.
+	#
+	# Deliberately not a foreign key and deliberately unconstrained, exactly like `entity_type`
+	# on this table: the subject is polymorphic, and a table that must accept a row for anything
+	# cannot hold a reference to everything.
+	subject_type: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=True
+	)
+	subject_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(), nullable=True
+	)
+
 	action: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(64), nullable=False
 	)

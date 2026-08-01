@@ -738,8 +738,9 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"Read what has happened to one item — newest first, and including a change made a "
-		"moment ago. This is the *history* of one thing; `/v1/changes` (not built yet) will "
-		"be the feed of everything.",
+		"moment ago. Comments made on it are here too, as events whose `subject_id` is this "
+		"item and whose `entity_id` is the comment. This is the *history* of one thing; "
+		"`/v1/changes` (not built yet) will be the feed of everything.",
 		"GET",
 		"/v1/tasks/1/events",
 		None,

@@ -140,6 +140,11 @@ def create (
 	The mention index is wired here and that is what makes this more than CRUD: writing "blocked
 	by #42" in a comment makes the comment a backlink on #42, so somebody reading #42 sees that
 	something is waiting on it without anyone having remembered to link them.
+
+	The event names the comment as its entity and the commented-on item as its **subject**, which
+	is what puts it in that item's history. Recording it against the item instead would be the
+	shorter fix and a false one: the item's own row did not change, and ``#52`` settled that
+	``updated_at`` should go on meaning exactly that.
 	"""
 
 	subject = _entity(session, actor, entity_type=entity_type, entity_id=entity_id)
@@ -177,8 +182,9 @@ def create (
 		workspace_id=subject.workspace_id,
 		entity_type="comment",
 		entity_id=comment.id,
+		subject_type=entity_type,
+		subject_id=entity_id,
 		action=subroutine.domain.events.EventAction.CREATED,
-		changes={"on": {"from": None, "to": f"{entity_type}:{entity_id}"}},
 		actor=actor,
 	)
 	session.flush()
@@ -297,6 +303,8 @@ def update (
 		workspace_id=comment.workspace_id,
 		entity_type="comment",
 		entity_id=comment.id,
+		subject_type=comment.entity_type,
+		subject_id=comment.entity_id,
 		action=subroutine.domain.events.EventAction.UPDATED,
 		changes=subroutine.domain.events.changes_between(
 			{"body": before}, {"body": text}
@@ -358,6 +366,8 @@ def delete (
 		workspace_id=comment.workspace_id,
 		entity_type="comment",
 		entity_id=comment.id,
+		subject_type=comment.entity_type,
+		subject_id=comment.entity_id,
 		action=subroutine.domain.events.EventAction.DELETED,
 		actor=actor,
 	)

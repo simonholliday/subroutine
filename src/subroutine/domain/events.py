@@ -56,6 +56,8 @@ def record (
 	entity_type: str,
 	entity_id: uuid.UUID,
 	action: str,
+	subject_type: str | None = None,
+	subject_id: uuid.UUID | None = None,
 	changes: dict[str, typing.Any] | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.activity.Event:
@@ -65,6 +67,9 @@ def record (
 	migration's data fix, and ``subroutine init`` all happen before anyone has logged in.
 	Recording those as system actions is more honest than attributing them to whoever
 	happened to run the command.
+
+	``subject_*`` names what the event happened *on* when that is something other than the
+	entity itself, and only comments pass it today — see ``selected`` for what reads it.
 	"""
 
 	event = subroutine.db.models.activity.Event(
@@ -73,6 +78,8 @@ def record (
 		actor_token_id=None if actor is None or actor.token is None else actor.token.id,
 		entity_type=entity_type,
 		entity_id=entity_id,
+		subject_type=subject_type,
+		subject_id=subject_id,
 		action=action,
 		changes=None if changes is None else jsonable(changes),
 	)
@@ -130,16 +137,33 @@ def selected (
 	it is the permission check, so re-deriving one here would be a second copy of a rule the
 	route has already applied. The feed has no such resolution to lean on and will have to
 	compose those predicates itself; §5.11a says so, and it is why the histories came first.
+
+	**Naming an entity asks for what happened *to* it, which is not the same as what was
+	recorded *against* it.** Commenting on ``#42`` writes an event whose entity is the comment,
+	so a query matching only ``entity_id`` reported that nothing had happened to an item
+	somebody had just written a paragraph about — both ways of asking blind at once, since
+	``updated_at`` deliberately does not move for a comment either (``#52``). The subject pair
+	is the join that fixes it, and matching it here rather than at the route means the feed
+	inherits the same answer instead of inventing a second one.
 	"""
 
 	model = subroutine.db.models.activity.Event
 	statement = sqlalchemy.select(model).where(model.workspace_id.in_(workspace_ids))
 
-	if entity_type is not None:
-		statement = statement.where(model.entity_type == entity_type)
+	if entity_type is not None and entity_id is not None:
+		statement = statement.where(
+			sqlalchemy.or_(
+				sqlalchemy.and_(model.entity_type == entity_type, model.entity_id == entity_id),
+				sqlalchemy.and_(model.subject_type == entity_type, model.subject_id == entity_id),
+			)
+		)
 
-	if entity_id is not None:
-		statement = statement.where(model.entity_id == entity_id)
+	else:
+		if entity_type is not None:
+			statement = statement.where(model.entity_type == entity_type)
+
+		if entity_id is not None:
+			statement = statement.where(model.entity_id == entity_id)
 
 	if upper_bound is not None:
 		statement = statement.where(model.created_at <= upper_bound)

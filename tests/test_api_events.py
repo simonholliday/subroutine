@@ -210,6 +210,115 @@ def test_a_history_is_not_readable_inside_a_private_project (
 	assert nosy.call("GET", f"/v1/tasks/{hidden['ref']}/events").status_code == 404
 
 
+def test_a_comment_appears_in_the_history_of_what_it_was_made_on (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#52`: the item both ways of asking about were blind to.
+
+	`updated_at` deliberately does not move for a comment — the row genuinely did not change,
+	and §6.1 separates that from `content_updated_at` precisely so evidence keeps its meaning.
+	That left the history as the one place "somebody commented on this" could be true, and it
+	was recording the event against the *comment*, where nothing joined it back.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Fix the parser"}).json()
+
+	comment = world.call(
+		"POST", f"/v1/tasks/{task['ref']}/comments", json={"body": "Ran the suite, two failures."}
+	).json()
+
+	events = world.call("GET", f"/v1/tasks/{task['ref']}/events").json()["items"]
+
+	assert [item["action"] for item in events] == ["created", "created"]
+
+	newest = events[0]
+
+	assert newest["entity_type"] == "comment"
+	assert newest["entity_id"] == comment["id"]
+	assert newest["subject_type"] == "task"
+	assert newest["subject_id"] == task["id"]
+
+
+def test_editing_and_deleting_a_comment_reach_the_history_too (
+	world: test_api_tasks.World,
+) -> None:
+	"""Every comment event carries its subject, not only the first one.
+
+	Wiring `create` alone would leave a history saying a comment was written and never that it
+	was rewritten — the worst of the three to lose, since it is the one where what somebody
+	read earlier is no longer what is there.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Fix the parser"}).json()
+	comment = world.call(
+		"POST", f"/v1/tasks/{task['ref']}/comments", json={"body": "Two failures."}
+	).json()
+
+	world.call("PATCH", f"/v1/comments/{comment['id']}", json={"body": "Three failures."})
+	world.call("DELETE", f"/v1/comments/{comment['id']}")
+
+	events = world.call("GET", f"/v1/tasks/{task['ref']}/events").json()["items"]
+
+	assert [item["action"] for item in events] == ["deleted", "updated", "created", "created"]
+	assert all(item["subject_id"] == task["id"] for item in events[:3])
+
+
+def test_an_ordinary_event_names_no_subject (world: test_api_tasks.World) -> None:
+	"""Null means "this is about the entity and nothing else", which is almost every write.
+
+	Worth pinning: filling the subject in with the entity would make the two columns say the
+	same thing on nearly every row, and the `OR` that reads them would stop being able to tell
+	a comment apart from anything else.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Fix the parser"}).json()
+
+	events = world.call("GET", f"/v1/tasks/{task['ref']}/events").json()["items"]
+
+	assert events[0]["subject_type"] is None
+	assert events[0]["subject_id"] is None
+
+
+def test_a_comment_on_one_item_stays_out_of_another_history (
+	world: test_api_tasks.World,
+) -> None:
+	"""The subject match must narrow as tightly as the entity match it sits beside.
+
+	An `OR` is where a listing quietly widens: getting the parenthesisation wrong returns
+	every comment event in the workspace, and each row still *looks* right on its own.
+	"""
+
+	one = world.call("POST", "/v1/tasks", json={"title": "One"}).json()
+	two = world.call("POST", "/v1/tasks", json={"title": "Two"}).json()
+
+	world.call("POST", f"/v1/tasks/{two['ref']}/comments", json={"body": "About two."})
+
+	events = world.call("GET", f"/v1/tasks/{one['ref']}/events").json()["items"]
+
+	assert [item["entity_id"] for item in events] == [one["id"]]
+
+
+def test_a_comment_history_does_not_cross_entity_kinds (
+	world: test_api_tasks.World,
+) -> None:
+	"""A task and a document are different things even where the subject ids collide.
+
+	They cannot collide in practice — both are UUIDs — but the predicate must compare the
+	*pair*, because the day something is keyed by anything narrower this is what fails first.
+	"""
+
+	document = world.call(
+		"POST", "/v1/documents", json={"title": "The plan", "body": "Later."}
+	).json()
+
+	world.call("POST", f"/v1/documents/{document['ref']}/comments", json={"body": "Read it."})
+
+	events = world.call("GET", f"/v1/documents/{document['ref']}/events").json()["items"]
+
+	assert [item["action"] for item in events] == ["created", "created"]
+	assert events[0]["subject_type"] == "document"
+
+
 def test_a_history_refuses_a_parameter_it_does_not_declare (
 	world: test_api_tasks.World,
 ) -> None:
