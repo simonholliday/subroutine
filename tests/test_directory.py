@@ -151,3 +151,40 @@ def test_a_marker_beats_the_stored_context_and_loses_to_the_environment (
 		("fromflag", subroutine.context.FROM_FLAG),
 		(marker.workspace, subroutine.context.FROM_DIRECTORY),
 	) == ("fromflag", subroutine.context.FROM_FLAG)
+
+
+def test_a_marker_records_the_project_id_beside_the_key (tmp_path: pathlib.Path) -> None:
+	"""`#177`. The id is what survives a rename; the key is what a person can recognise.
+
+	This file's own docstring argued for a key *because* §5.2 forbade renaming one. `#176`
+	removed that clause, so the argument's middle third is gone and the other two survive —
+	which is why both are written rather than one replacing the other.
+	"""
+
+	subroutine.directory.write(
+		tmp_path, project="SR", project_id="0f9c1234-0000-0000-0000-000000000000"
+	)
+
+	found = subroutine.directory.find(tmp_path)
+
+	assert found is not None
+	assert found.project_id == "0f9c1234-0000-0000-0000-000000000000"
+	assert found.project == "SR"
+
+	# And it still reads as something rather than as a pair of opaque values.
+	assert "# SR" in (tmp_path / subroutine.directory.FILE_NAME).read_text(encoding="utf-8")
+
+
+def test_a_marker_written_before_ids_existed_still_works (tmp_path: pathlib.Path) -> None:
+	"""Every marker on disk today names a key and no id — including this repository's own.
+
+	An upgrade that made those stop working would be the outage, not the fix.
+	"""
+
+	_write(tmp_path, 'project = "SR"\n')
+
+	found = subroutine.directory.find(tmp_path)
+
+	assert found is not None
+	assert found.project == "SR"
+	assert found.project_id is None

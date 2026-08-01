@@ -70,10 +70,19 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/projects/{id_or_key}`` accepts.
 
-	``key`` is absent on purpose: it is the first half of every ref the project has minted,
-	and those are written into commit messages, chat and other people's documents. Renaming
-	it here would not rewrite them.
+	``key`` **may be changed** as of `#176`. It was absent here on the grounds that it is "the
+	first half of every ref the project has minted" — which stopped being true on 2026-07-29,
+	when §6.2 made a ref a bare workspace-scoped integer. A project key is in no ref.
+
+	What a rename costs is *addresses*: this URL, a ``.subroutine`` marker in somebody's
+	checkout, ``+KEY`` in a capture line. The old key stops resolving and there is deliberately
+	no alias — the decision is that retiring a name should retire it. Callers who cached the
+	old address get a 404 they can act on rather than a redirect they never notice.
 	"""
+
+	#: The new short name. Validated exactly as creation validates one, so a rename cannot
+	#: arrive at a key nobody could have chosen.
+	key: str | None = None
 
 	title: str | None = None
 	description: str | None = None
@@ -275,6 +284,12 @@ def change (
 
 	if "visibility" in supplied and body.visibility is not None:
 		changes["visibility"] = body.visibility
+
+	# Grouped with `visibility` rather than with the nullable fields above: clearing a key is
+	# not a thing — a project with no short name has no address — so a null here is a caller
+	# who meant "leave it alone" and said it the long way (`#176`).
+	if "key" in supplied and body.key is not None:
+		changes["key"] = body.key
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
 		updated = subroutine.domain.projects.update(

@@ -708,6 +708,26 @@ class Client:
 				session, chosen, account, actor=actor
 			)
 
+	def rename_project (
+		self, project: str, *, key: str, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Give a project a different short name."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			renamed = subroutine.domain.projects.update(
+				session, found, key=key, actor=actor
+			)
+
+			return subroutine.views.project(
+				renamed, subroutine.views.Vocabulary.for_projects(session, [renamed])
+			)
+
 	def create_document (
 		self,
 		*,

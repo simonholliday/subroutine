@@ -2,4 +2,5 @@
 # Written by 'subroutine use --here'. Safe to delete: without it, new items go
 # wherever they went before, and nothing already recorded changes.
 workspace = "si"
+project_id = "019fb2fb-aee7-79e7-bd2c-0a341d5c4e3a"  # SR
 project = "SR"

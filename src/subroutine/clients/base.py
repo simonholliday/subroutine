@@ -362,6 +362,17 @@ class Client(typing.Protocol):
 		mistake is somebody seeing a private project.
 		"""
 
+	def rename_project (
+		self, project: str, *, key: str, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Give a project a different short name — item ``#176``.
+
+		**The old key stops working, and nothing is aliased to it.** That is the decision, not
+		a limitation: an alias keeps a name resolving after its owner deliberately retired it,
+		and a caller holding the old address gets a 404 they can act on rather than a redirect
+		they never notice. Nothing joined to the project moves — ``project.id`` is a UUID.
+		"""
+
 	def create_document (
 		self,
 		*,

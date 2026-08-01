@@ -91,6 +91,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/projects"): "create_project",
+	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
 	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
@@ -193,12 +194,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"Same as creating one, and rarer: a workspace's title and timezone are set once. "
 		"`#141`.",
 	),
-	("PATCH", "/v1/projects/{id_or_key}"): (
-		"tracked",
-		"Renaming a project or changing its visibility. `#141` — the key, which is the part "
-		"that cannot be changed at all, is settled at creation and that is the part that "
-		"matters.",
-	),
 	("POST", "/v1/projects/{id_or_key}/move"): (
 		"disclosure",
 		"Reparenting a whole subtree. Rare, consequential, and there is no undo, so §1.4's "
@@ -287,6 +282,12 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"Deciding who may work somewhere (§7.3a). `workspace:admin`, and the one write in this "
 		"group whose mistakes are visible to other people — an agent granting membership "
 		"unprompted is the write worth making somebody ask for, which is `discard` above.",
+	),
+	"rename_project": (
+		"budget",
+		"Renaming a project (`#176`). It breaks every address anybody wrote down, which is why "
+		"the CLI asks before doing it — and a tool an agent can call without being asked is the "
+		"wrong shape for that. §13.3's bytes are better spent elsewhere.",
 	),
 	"remove_member": (
 		"budget",

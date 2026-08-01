@@ -15,9 +15,12 @@ the interview §21.5 exists to avoid.
 
 **Three decisions worth keeping.**
 
-- **A project *key*, not an id.** ``SR`` is readable, is stable because §5.2 forbids renaming
-  one, and can be checked by a person reading the file. A UUID is noise nobody can verify, and
-  the failure mode of a wrong one is silence.
+- **The project's id, with its key beside it** (`#177`). This began as a key alone, argued
+  three ways: ``SR`` is readable, it is stable because §5.2 forbids renaming one, and a person
+  can check it. The middle clause was the load-bearing one and `#176` removed it — a key can be
+  renamed now, and the day somebody does, every checkout on every machine silently stops
+  knowing where its work goes. So the **id** is the authority and the key stays beside it, which
+  keeps the readability argument whole: this is an addition rather than a swap.
 - **Not in ``CLAUDE.md``.** That file is context every session carries (`#64`), it is specific
   to one vendor's agent, and nothing else reads it. This is read by the CLI, by MCP, and by
   whatever comes next.
@@ -46,8 +49,14 @@ import typing
 FILE_NAME = ".subroutine"
 
 #: The keys it may carry. ``connection`` and ``workspace`` are spelled as ``context.toml``
-#: spells them on purpose; ``project`` is the one this file adds, and the reason it exists.
-KEYS = ("connection", "workspace", "project")
+#: spells them on purpose; ``project`` and ``project_id`` are what this file adds, and the
+#: reason it exists.
+#:
+#: **Both, not either.** The id is what survives a rename (`#177`); the key is what a person
+#: reading this in a code review can recognise. Dropping the key would make the file a pair of
+#: UUIDs nobody can check, and dropping the id would make it stale the first time somebody
+#: renames a project.
+KEYS = ("connection", "workspace", "project", "project_id")
 
 
 class Marker(typing.NamedTuple):
@@ -57,6 +66,10 @@ class Marker(typing.NamedTuple):
 	connection: str | None = None
 	workspace: str | None = None
 	project: str | None = None
+
+	#: The project's permanent identifier. Preferred over ``project`` wherever both are
+	#: present, because a key can be renamed and this cannot.
+	project_id: str | None = None
 
 	def describe (self) -> str:
 		"""Return how a person reads this — ``SR, from ../.subroutine``."""
@@ -120,12 +133,17 @@ def write (
 	connection: str | None = None,
 	workspace: str | None = None,
 	project: str | None = None,
+	project_id: str | None = None,
 ) -> pathlib.Path:
 	"""Write a marker into ``directory``, and return where it went.
 
 	Written out rather than dumped, so the file explains itself to whoever opens it next —
 	which, unlike everything else this program writes, is somebody who did not run the command
 	and may be reading it in a code review.
+
+	The id carries the key as a trailing comment, so the file stays readable to a person while
+	being durable to a rename (`#177`). A bare UUID with nothing beside it is the thing this
+	file's own docstring once argued against, and it was right about that part.
 	"""
 
 	path = directory / FILE_NAME
@@ -135,11 +153,17 @@ def write (
 		"# wherever they went before, and nothing already recorded changes.",
 	]
 
-	for name, value in (
-		("connection", connection), ("workspace", workspace), ("project", project)
-	):
+	for name, value in (("connection", connection), ("workspace", workspace)):
 		if value:
 			lines.append(f'{name} = "{value}"')
+
+	if project_id:
+		named = f"  # {project}" if project else ""
+
+		lines.append(f'project_id = "{project_id}"{named}')
+
+	if project:
+		lines.append(f'project = "{project}"')
 
 	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

@@ -436,6 +436,22 @@ class Client:
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
 		)
 
+	def rename_project (
+		self, project: str, *, key: str, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Give a project a different short name."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"PATCH",
+			f"/v1/projects/{project}",
+			json={"key": key},
+			params=_given(workspace_id=workspace),
+		)
+
+		return subroutine.views.Project.model_validate(body)
+
 	def create_document (
 		self,
 		*,

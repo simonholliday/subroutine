@@ -183,8 +183,11 @@ def update (
 	gives: the caller holds a live session it may still commit, so a half-applied change that
 	raised on the way through would be committed silently alongside whatever else was in flight.
 
-	**The slug is deliberately not changeable**, for the same reason a project key is not. It is
-	the middle segment of every address this workspace's items are written as —
+	**The slug is deliberately not changeable**, and as of `#176` a project key *is* — so the
+	two have parted company and this is now its own argument rather than a reference to one.
+	A project key is an address within one instance, and renaming one breaks addresses on this
+	machine, loudly, for somebody who asked for it. A slug is the middle segment of every
+	address this workspace's items are written as —
 	``work/acme/#42`` (§13.7) — and those strings are in other people's notes, in shell history
 	and in `config.toml` files on other machines. Renaming it here would not rewrite them.
 

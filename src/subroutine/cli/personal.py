@@ -2064,10 +2064,13 @@ def register (
 
 		  subroutine project create API "Public API" --parent WEB
 
-		The key is yours to choose and cannot be changed afterwards. It becomes part of
-		how every item in the project is addressed, and those strings end up in commit
-		messages and other people's notes. A to Z and 0 to 9, starting with a letter, up to
-		sixteen characters.
+		The key is how this project is addressed here — in '+KEY' when you capture a line,
+		and in its web address. A to Z and 0 to 9, starting with a letter, up to sixteen
+		characters.
+
+		It can be changed later with 'subroutine project rename', which says what will stop
+		working before it does it. Nothing already recorded moves: every item keeps its
+		number, because a number belongs to the workspace rather than to the project.
 		"""
 
 		with opened() as world:
@@ -2128,6 +2131,57 @@ def register (
 				shown = f"{'  ' * one.depth}{one.key}".ljust(width)
 
 				say(f"{shown}  {one.title}")
+
+	@project_app.command("rename")
+	def project_rename (
+		key: str = typer.Argument(..., help="The project, by its current short name."),
+		to: str = typer.Argument(..., help="Its new short name."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Give a project a different short name.
+
+		Examples:
+
+		  subroutine project rename ST SR
+
+		The old name stops working, and nothing is left pointing at it. That is deliberate:
+		a name you retired should be retired. Nothing already recorded moves — every item keeps
+		its number, and what it is filed under does not change.
+
+		What does break is anything that wrote the old name down: a bookmarked address, a
+		'.subroutine' file in a checkout, a '+OLD' in a shell history. This says so before it
+		does it.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+			workspace = _writing_workspace(world)
+
+			# **Counted before anything changes, so the question is answerable.** "This will
+			# break addresses" is abstract; "this project holds 137 items and three commands
+			# will stop finding it" is a thing somebody can weigh. The count is the reason
+			# this reads the project first rather than renaming and reporting.
+			held = where.client.tasks(
+				workspace=workspace, project=key, include_completed=True
+			)
+
+			if not yes:
+				say(f"Renaming {key} to {to.upper()}.")
+				say(f"  {len(held)} item{'' if len(held) == 1 else 's'} keep their numbers.")
+				say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
+				say("  .subroutine file that names it.")
+
+				if not typer.confirm("Go on?"):
+					stop("Nothing was renamed.")
+
+			renamed = where.client.rename_project(key, key=to, workspace=workspace)
+
+			say(f"Renamed to {renamed.key} — {renamed.title}")
+
+			# The marker in *this* directory is the one that can be repaired from here, and
+			# the one most likely to be stale a second from now (`#177`).
+			if world.marker is not None and world.marker.project == key.upper():
+				_suggest(console, f"subroutine use --here --project {renamed.key}")
 
 	# **Membership lives under `user`, and there is deliberately no `workspace` group**
 	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
@@ -2441,8 +2495,9 @@ def register (
 			else (world.current.connection, world.current.workspace)
 		)
 		key = project.strip().upper() or None
+		identifier = None if key is None else _project_id_of(world, key)
 
-		if key is not None and not _is_a_project(world, key):
+		if key is not None and identifier is None:
 			stop(
 				f"There is no project {key!r} here.",
 				"Run 'subroutine project list' to see them, or "
@@ -2454,6 +2509,9 @@ def register (
 			connection=connection if world.qualifies_connection else None,
 			workspace=workspace,
 			project=key,
+			# **The id is what makes this survive a rename** (`#177`). The key is written
+			# beside it so the file stays readable, and is the half that goes stale.
+			project_id=identifier,
 		)
 
 		say(f"Wrote {written}.")
@@ -2467,20 +2525,24 @@ def register (
 		say("")
 		_suggest(console, "subroutine add \"something to do\"")
 
-	def _is_a_project (world: World, key: str) -> bool:
-		"""Whether this key names a project the writing connection can see.
+	def _project_id_of (world: World, key: str) -> str | None:
+		"""Return the permanent id of the project this key names, or ``None`` if there is none.
 
 		Checked before the file is written, because a marker naming a project that does not
 		exist fails on the *next* capture rather than here — and the person who would have to
 		work out why is not the one who typed this.
+
+		Returns the **id** rather than a yes-or-no, because that is what the marker records
+		(`#177`) and asking twice would be two chances for the answers to differ.
 		"""
 
 		where = world.writing_to()
 
-		return any(
-			row.key.upper() == key
-			for row in where.client.projects(workspace=_writing_workspace(world))
-		)
+		for row in where.client.projects(workspace=_writing_workspace(world)):
+			if row.key.upper() == key:
+				return str(row.id)
+
+		return None
 
 
 	def _default_project (world: World, text: str) -> str | None:
@@ -2491,26 +2553,68 @@ def register (
 		and must beat a file they may not know is there.
 		"""
 
-		if world.marker is None or world.marker.project is None:
+		if world.marker is None:
+			return None
+
+		if world.marker.project_id is None and world.marker.project is None:
 			return None
 
 		if subroutine.domain.capture.names_a_project(text):
 			return None
 
-		# **Checked, and ignored rather than refused when it is not there** (`#166`). Same rule as
-		# the workspace half above: a marker is advisory context written by a machine, so a
-		# checkout marked for one instance must not stop `add` working against another. One extra
-		# query, only when a marker names a project, and only on the path that would otherwise
-		# fail — which is cheaper than the refusal it replaces.
-		if not _is_a_project(world, world.marker.project.upper()):
+		# **The id decides, and the key is what gets reported** (`#177`). A key can be renamed
+		# as of `#176`, so a marker naming one is stale the moment somebody does — and every
+		# checkout on every machine would silently start filing work into the Inbox. The id
+		# cannot change, so it is asked first.
+		named = _project_named_by(world, world.marker)
+
+		if named is None:
+			# **Ignored rather than refused** (`#166`). A marker is advisory context written by
+			# a machine, so a checkout marked for one instance must not stop `add` working
+			# against another.
+			shown = world.marker.project or world.marker.project_id
+
 			warn(
-				f"{FILE_NAME} here names project {world.marker.project!r}, which is not on "
+				f"{FILE_NAME} here names project {shown!r}, which is not on "
 				f"{world.current.connection}. Ignoring it."
 			)
 
 			return None
 
-		return world.marker.project
+		# **The one moment this file can explain itself.** The id resolved and the key beside
+		# it did not match, which is exactly what a rename leaves behind — so say it once,
+		# here, rather than letting the file go on quietly disagreeing with itself.
+		if world.marker.project and world.marker.project.upper() != named.upper():
+			warn(
+				f"{FILE_NAME} here still says {world.marker.project!r}; that project is now "
+				f"{named}. Run 'subroutine use --here --project {named}' to bring it up to date."
+			)
+
+		return named
+
+	def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
+		"""Return the current key of the project a marker names, or ``None`` if there is none.
+
+		By id where the marker carries one, because that is the half that survives a rename;
+		by key otherwise, which is every marker written before `#177` — including the one in
+		this repository. A marker that predates the change must go on working, or the upgrade
+		is the outage.
+		"""
+
+		where = world.writing_to()
+		found = where.client.projects(workspace=_writing_workspace(world))
+
+		if marker.project_id is not None:
+			for row in found:
+				if str(row.id) == marker.project_id:
+					return row.key
+
+		if marker.project is not None:
+			for row in found:
+				if row.key.upper() == marker.project.upper():
+					return row.key
+
+		return None
 
 	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:

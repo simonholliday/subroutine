@@ -2791,3 +2791,84 @@ def test_a_marker_naming_an_unknown_workspace_is_ignored_not_fatal (
 
 	assert added.exit_code == 0
 	assert run("show", "1").exit_code == 0
+
+
+def test_a_project_can_be_renamed_and_nothing_recorded_moves (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#176`. The reason given for refusing this had been false for three days.
+
+	Four surfaces said a key is "the first half of every ref the project mints" — §6.2 made a
+	ref a bare workspace-scoped integer on 2026-07-29, so a project key is in no ref at all.
+	The rule outlived its own reasoning, in four places, checked by nothing.
+
+	The property that matters is the one asserted last: every item keeps its number, because a
+	number belongs to the workspace and not to the project.
+	"""
+
+	run("init")
+	run("project", "create", "ST", "Subtask")
+	run("add", "Something +ST")
+	run("add", "Another +ST")
+
+	renamed = run("project", "rename", "ST", "SR", "--yes")
+
+	assert "SR" in renamed.output
+
+	listed = run("list", "--project", "SR").output
+
+	assert "#1" in listed
+	assert "#2" in listed
+
+
+def test_a_rename_says_what_will_stop_working_before_it_does_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Simon's decision: the old key just stops working, so this has to be said out loud.
+
+	"This will break addresses" is abstract. The count and the three concrete things — the
+	address, the capture token, the marker file — are what somebody can actually weigh, which
+	is why the project is read before the rename rather than after.
+	"""
+
+	run("init")
+	run("project", "create", "ST", "Subtask")
+	run("add", "Something +ST")
+
+	refused = run("project", "rename", "ST", "SR", expect=1, input="n\n")
+
+	assert "1 item" in refused.output
+	assert "+ST" in refused.output
+	assert "Nothing was renamed" in refused.output
+
+	# And declining really declined.
+	assert "ST" in run("project", "list").output
+
+
+def test_a_checkout_still_finds_its_project_after_a_rename (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`#177`, and `#176` without it would have been a data-loss bug shipped on purpose.
+
+	The day somebody renames a project, every `.subroutine` on every machine names a key that
+	no longer resolves — and new work falls back to the Inbox. That fallback is right for a
+	*deleted* marker and quite wrong for one still sitting there naming something: a file that
+	says `ST` and is ignored is worse than no file.
+	"""
+
+	import os
+
+	run("init")
+	run("project", "create", "ST", "Subtask")
+
+	os.chdir(tmp_path)
+	run("use", "--here", "--project", "ST")
+	run("project", "rename", "ST", "SR", "--yes")
+
+	added = run("add", "After the rename")
+
+	# It landed in the renamed project, and the file explained itself on the way.
+	assert "SR" in added.output
+	assert "still says 'ST'" in added.output
+
+	assert "After the rename" in run("list", "--project", "SR").output

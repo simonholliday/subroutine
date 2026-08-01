@@ -87,8 +87,18 @@ def test_a_listing_can_be_narrowed_to_one_parent (world: test_api_tasks.World) -
 	assert [item["key"] for item in children] == ["API"]
 
 
-def test_a_project_can_be_changed_but_never_rekeyed (world: test_api_tasks.World) -> None:
-	"""The key is the first half of every ref the project has minted."""
+def test_a_project_can_be_rekeyed_and_the_old_address_stops_working (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#176`. This test asserted the opposite, on a reason that had been false for days.
+
+	Its name was ``..._but_never_rekeyed`` and its docstring said "the key is the first half of
+	every ref the project has minted" — one of four places saying so, all of them wrong since
+	§6.2 made a ref a bare workspace-scoped integer on 2026-07-29.
+
+	The half worth keeping is the last assertion. There is deliberately **no alias**: the old
+	address 404s rather than redirecting, because a redirect is a rename nobody notices.
+	"""
 
 	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Website"})
 
@@ -97,10 +107,30 @@ def test_a_project_can_be_changed_but_never_rekeyed (world: test_api_tasks.World
 	assert changed.status_code == 200
 	assert changed.json()["title"] == "The Website"
 
-	refused = world.call("PATCH", "/v1/projects/WEB", json={"key": "SITE"})
+	renamed = world.call("PATCH", "/v1/projects/WEB", json={"key": "SITE"})
 
-	assert refused.status_code == 422
-	assert refused.json()["code"] == "unknown_field"
+	assert renamed.status_code == 200
+	assert renamed.json()["key"] == "SITE"
+
+	assert world.call("GET", "/v1/projects/WEB").status_code == 404
+	assert world.call("GET", "/v1/projects/SITE").status_code == 200
+
+
+def test_a_rename_is_refused_when_the_new_key_could_not_have_been_chosen (
+	world: test_api_tasks.World,
+) -> None:
+	"""Renaming applies creation's rules, or it is a way round them.
+
+	A reserved word, a shape the pattern refuses, and a key another project already holds are
+	all refused at creation; a rename that skipped any of them could arrive at a project
+	nobody could have made.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Website"})
+	world.call("POST", "/v1/projects", json={"key": "API", "title": "The API"})
+
+	assert world.call("PATCH", "/v1/projects/WEB", json={"key": "API"}).status_code == 409
+	assert world.call("PATCH", "/v1/projects/WEB", json={"key": "9NO"}).status_code == 422
 
 
 def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (

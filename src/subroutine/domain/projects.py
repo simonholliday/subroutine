@@ -32,9 +32,12 @@ import subroutine.permissions
 
 #: The shape a project key must take. It is deliberately identical to the ref half of
 #: ``subroutine.domain.mentions.REF_PATTERN``, and that is the whole reason it is
-#: constrained: a key becomes the first part of every ref the project mints, and a ref the
-#: mention scanner cannot match is a ref that is silently invisible to backlinks for the
-#: life of the project.
+#: constrained: a key is a path segment in `/v1/projects/WEB`, a `+WEB` in a capture line
+#: and a word people type, so it has to be unambiguous in all three.
+#:
+#: **It is not part of a ref, and this comment said it was until `#176`.** That was true
+#: under `SR-42` and stopped being true on 2026-07-29, when §6.2 made a ref a bare
+#: workspace-scoped integer. The rule survived its own reasoning in four places at once.
 #:
 #: The cost is that a key must be ASCII — 'CAFÉ' is refused. Titles, descriptions, tags and
 #: comments are all fully Unicode; only this one identifier is not, because it is the piece
@@ -99,40 +102,7 @@ def create (
 
 	normalized_key = normalize_key(key)
 
-	if not KEY_PATTERN.fullmatch(normalized_key):
-		raise subroutine.errors.ValidationError(
-			f"{key!r} cannot be used as a project key.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="key",
-					code="invalid_field_value",
-					message=f"{key!r} contains nothing usable as a key."
-					if not normalized_key
-					else f"{normalized_key!r} is not a usable key.",
-					hint="A key starts with a letter A-Z and continues with letters and "
-					"digits, up to 16 characters — 'SR', 'HOME', 'WEB2'.",
-				)
-			],
-		)
-
-	# A key becomes a path segment, and some segments belong to an endpoint. Refused here
-	# rather than at the API, because the alternative is a project that exists, is listed,
-	# and cannot be opened — and because the CLI can create one without an API in sight.
-	if subroutine.addressing.is_reserved_word(normalized_key):
-		reserved = ", ".join(sorted(subroutine.addressing.RESERVED_PATH_WORDS))
-
-		raise subroutine.errors.ValidationError(
-			f"{normalized_key!r} cannot be used as a project key.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="key",
-					code="invalid_field_value",
-					message=f"{normalized_key!r} is reserved: a project keyed that way "
-					f"would share an address with one of this API's own endpoints.",
-					hint=f"Reserved keys are: {reserved}. Any other key is fine.",
-				)
-			],
-		)
+	check_key(normalized_key, given=key)
 
 	if template not in TEMPLATES:
 		raise subroutine.errors.ValidationError(
@@ -289,6 +259,7 @@ def update (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
 	*,
+	key: str = subroutine.domain.patch.UNSET,
 	title: str = subroutine.domain.patch.UNSET,
 	description: str | None = subroutine.domain.patch.UNSET,
 	visibility: str = subroutine.domain.patch.UNSET,
@@ -303,9 +274,20 @@ def update (
 	caller holds a live session it may still commit, so a half-applied change that raised on
 	the way through would be committed silently alongside whatever else was in flight.
 
-	The key is deliberately not changeable. It is the first half of every ref the project has
-	ever minted, and those refs are written into commit messages, chat and other people's
-	documents; renaming it would not rewrite them.
+	**The key may be changed, and the reason it could not be was false** (`#176`). Four
+	surfaces said it is "the first half of every ref the project mints" — this docstring among
+	them. That stopped being true on 2026-07-29, when §6.2 made a ref a bare workspace-scoped
+	integer allocated from `workspace.next_ref_number`. A project key is in no ref at all.
+
+	What a rename really costs is addresses, not identifiers: `/v1/projects/WEB` as a URL
+	somebody cached, `project = "WEB"` in a `.subroutine` marker in another checkout, `+WEB` in
+	a capture line and in shell history. `project.id` is a UUID and does not move, so nothing
+	joined to this project is disturbed.
+
+	**Simon's decision, 2026-08-01: the old key simply stops working, and we say so loudly.**
+	No alias, because an alias keeps a name resolving that its owner deliberately retired. The
+	loud half belongs to the surfaces — this records the change and the event; the confirmation
+	that says what will break is the CLI's, where somebody can still say no.
 	"""
 
 	_permitted(
@@ -315,6 +297,17 @@ def update (
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET
+	cleaned_key: typing.Any = subroutine.domain.patch.UNSET
+
+	if key is not subroutine.domain.patch.UNSET:
+		# Through the same checks creation uses, so a key that could not have been chosen
+		# cannot be arrived at by renaming — the shape, the reserved words and the duplicate.
+		cleaned_key = normalize_key(key)
+
+		check_key(cleaned_key, given=key)
+
+		if cleaned_key != project.key:
+			_refuse_duplicate_key(session, project.workspace_id, cleaned_key)
 
 	if title is not subroutine.domain.patch.UNSET:
 		cleaned_title = subroutine.domain.text.fit(
@@ -353,6 +346,7 @@ def update (
 	changes: dict[str, typing.Any] = {}
 
 	for field, value in (
+		("key", cleaned_key),
 		("title", cleaned_title),
 		("description", description),
 		("visibility", visibility),
@@ -543,6 +537,57 @@ def _permitted (
 	)
 
 
+def check_key (normalized_key: str, *, given: str | None = None) -> None:
+	"""Refuse a project key that cannot be used, saying which rule it broke.
+
+	Extracted so that creating a project and **renaming** one apply the same rules (`#176`).
+	Before that there was only one caller and the checks were inline; a rename that skipped
+	them could arrive at a key nobody could have chosen in the first place, which is a worse
+	state than either command allows on its own.
+
+	``given`` is what the caller actually typed, for the message. ``'café'`` normalises to
+	``'CAFÉ'`` and is refused; telling somebody ``'CAFÉ'`` is not usable when they wrote
+	something else reads as the program mangling their input and then blaming them for it.
+	"""
+
+	wrote = given if given is not None else normalized_key
+
+	if not KEY_PATTERN.fullmatch(normalized_key):
+		raise subroutine.errors.ValidationError(
+			f"{wrote!r} cannot be used as a project key.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="invalid_field_value",
+					message=f"{wrote!r} contains nothing usable as a key."
+					if not normalized_key
+					else f"{normalized_key!r} is not a usable key.",
+					hint="A key starts with a letter A-Z and continues with letters and "
+					"digits, up to 16 characters — 'SR', 'HOME', 'WEB2'.",
+				)
+			],
+		)
+
+	# A key becomes a path segment, and some segments belong to an endpoint. Refused here
+	# rather than at the API, because the alternative is a project that exists, is listed,
+	# and cannot be opened — and because the CLI can create one without an API in sight.
+	if subroutine.addressing.is_reserved_word(normalized_key):
+		reserved = ", ".join(sorted(subroutine.addressing.RESERVED_PATH_WORDS))
+
+		raise subroutine.errors.ValidationError(
+			f"{normalized_key!r} cannot be used as a project key.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="invalid_field_value",
+					message=f"{normalized_key!r} is reserved: a project keyed that way "
+					f"would share an address with one of this API's own endpoints.",
+					hint=f"Reserved keys are: {reserved}. Any other key is fine.",
+				)
+			],
+		)
+
+
 def normalize_key (key: str) -> str:
 	"""Return the stored form of a project key: trimmed and upper-cased, nothing more.
 
@@ -578,7 +623,7 @@ def _refuse_duplicate_key (
 					field="key",
 					code="duplicate_key",
 					message=f"The key {key!r} is already in use in this workspace.",
-					hint="Keys become the first half of every ref, so they have to be unique.",
+					hint="A key is how this project is addressed here, so no two can share one.",
 				)
 			],
 		)
