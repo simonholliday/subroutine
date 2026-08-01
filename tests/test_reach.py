@@ -1,4 +1,4 @@
-"""What the HTTP API can do and the clients cannot — SPEC.md §13.7, item ``#139``.
+"""What one surface can do and another cannot — SPEC.md §13.7, items ``#139`` and ``#148``.
 
 **Three walls in one afternoon, all the same shape, all found by hand.** ``#134``: a project
 could not be created outside HTTP, so on a default install — where nothing runs ``serve`` — the
@@ -11,26 +11,67 @@ Each was found by trying to *write documentation* and discovering the sentence c
 true. That is a slow and lucky way to find a structural gap, and there was no reason to think
 three was all of them.
 
-The cause is structural rather than careless. The HTTP API is where a capability lands first;
-``clients/base.Client`` is a hand-maintained protocol somebody has to extend to match; and
-nothing compared the two. A capability that never reaches the protocol is invisible to the CLI
-and to MCP — the two surfaces a person and an agent actually touch — and invisible full stop on
-an installation that never starts a server.
+**The rule, agreed with Simon on 2026-08-01 (``#146``): a capability reaches all three surfaces
+unless somebody wrote down why not.** Not "everything everywhere" — three recorded constraints
+would each break under that, and they are named in :data:`KINDS`. The value is ``#139``'s
+argument unchanged: skipping one becomes a decision somebody recorded rather than an omission
+nobody noticed.
 
-So: every mutating route is either **named against the method that reaches it**, or **listed as
-unreached with a written reason**. Adding an endpoint fails this until somebody decides which,
-and that decision is the whole value. It does not argue that everything should be reachable —
-several things here should not be — only that skipping one becomes a decision somebody recorded
-rather than an omission nobody noticed.
+**This file guards three edges, and the first version guarded one.** That is why ``#145`` — an
+agent could not comment on a document — was found by hand five minutes after ``#99``, with the
+guard passing the whole time:
+
+1. **Mutating routes against the client protocol.** The original, and the one that found eleven.
+2. **Reading routes against the client protocol.** Added by ``#148``. ``GET
+   /v1/tasks/{ref}/events`` reached no client at all, so an item's history was unreadable from
+   either surface — including on the morning ``#52`` shipped to put comments into it.
+3. **The protocol against the CLI and against MCP**, derived by reading the source rather than
+   declared, so a cell cannot claim reach it does not have.
+
+**What it does not check, stated because a guard that overstates itself is worse than none.**
+Reach here is *per method*. A capability that is an argument on a method both surfaces already
+call is invisible to it — which is exactly how MCP came to have no search (``client.tasks``
+takes ``q``; the tool does not) and no defer (``client.schedule`` takes ``start``). Those are
+``#149``. Deriving argument-level reach is not possible where a call site passes ``**changes``,
+and declaring it would be a third copy of the matrix in ``#146``.
 """
+
+import ast
+import pathlib
+import typing
 
 import subroutine.api.app
 import subroutine.api.routing
+import subroutine.cli.main
 import subroutine.clients.base
+import subroutine.mcp.tools
 
 #: The verbs that change something. A reader that no client can reach is a missing feature; a
 #: *writer* that no client can reach is a capability the product has and does not offer.
 MUTATING = frozenset({"POST", "PATCH", "PUT", "DELETE"})
+
+#: And the one that reads. Separate lists, because the two fail differently: a missing writer
+#: is work nobody can do, a missing reader is an answer nobody can get.
+READING = frozenset({"GET"})
+
+#: Why a capability legitimately stops at one surface. **Each names a constraint rather than a
+#: preference**, which is the whole difference between an exemption and a shrug.
+#:
+#: - ``budget`` — the MCP schema is context every agent carries whether or not it calls the
+#:   tool. 7 tools / 4,608 bytes, held by ``tests/test_mcp.py``. An entry weighs the addition
+#:   against what the tool buys.
+#: - ``disclosure`` — §1.4. The capability exists and is deliberately not on a beginner's
+#:   first screen, or is deliberately not one line.
+#: - ``administrative`` — §12.4's recovery property: it must work when the service will not
+#:   start, which means the CLI owns it and a client method would be a worse second path.
+#: - ``protocol`` — it belongs to the transport rather than to the product. A health check is
+#:   not a capability somebody is being denied.
+#: - ``tracked`` — not built, and an item says so. **Must name a ref**, so that "later" cannot
+#:   be written by somebody in a hurry and read as considered.
+KINDS = ("budget", "disclosure", "administrative", "protocol", "tracked")
+
+#: One exemption: which kind, and the prose that argues it.
+Excuse = tuple[str, str]
 
 #: Mutating routes, and the :class:`~subroutine.clients.base.Client` method that reaches each.
 REACHED_BY: dict[tuple[str, str], str] = {
@@ -52,61 +93,265 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/documents/{id_or_ref}/links/{link_id}"): "unlink",
 }
 
-#: Mutating routes no client reaches, and why. **A reason, not a shrug** — "not built yet" is
-#: only an acceptable entry when somebody has decided it can wait, and writing it down is what
-#: turns that into a decision. Deleting an entry is what closes it.
-NOT_REACHED: dict[tuple[str, str], str] = {
+#: Reading routes, and the method that reaches each.
+READ_BY: dict[tuple[str, str], str] = {
+	("GET", "/v1/agenda"): "agenda",
+	("GET", "/v1/tasks"): "tasks",
+	("GET", "/v1/tasks/{id_or_ref}"): "task",
+	("GET", "/v1/tasks/{id_or_ref}/comments"): "comments",
+	("GET", "/v1/tasks/{id_or_ref}/links"): "links",
+	("GET", "/v1/documents"): "documents",
+	("GET", "/v1/documents/{id_or_ref}"): "document",
+	("GET", "/v1/documents/{id_or_ref}/comments"): "comments",
+	("GET", "/v1/documents/{id_or_ref}/links"): "links",
+	("GET", "/v1/projects"): "projects",
+	("GET", "/v1/projects/{id_or_key}/comments"): "comments",
+	("GET", "/v1/me"): "identity",
+}
+
+#: Routes no client reaches, and why. **Deleting an entry is what closes it.**
+NOT_REACHED: dict[tuple[str, str], Excuse] = {
 	("POST", "/v1/admin/backups"): (
-		"Administrative, and deliberately so. It needs `instance:admin`, which no role "
-		"carries, and §12.4's recovery property wants `subroutine db backup` to work when "
-		"the service will not start. A client method would be a second path to a thing the "
-		"CLI already does better."
+		"administrative",
+		"It needs `instance:admin`, which no role carries, and §12.4's recovery property "
+		"wants `subroutine db backup` to work when the service will not start. A client "
+		"method would be a second path to a thing the CLI already does better.",
+	),
+	("GET", "/v1/admin/backups"): (
+		"administrative",
+		"The catalogue beside the backup itself, and `subroutine db backups` reads it "
+		"without a running service, which is the whole of §12.4.",
+	),
+	("GET", "/healthz"): (
+		"protocol",
+		"A liveness probe for whatever is in front of this. Not a capability anybody is "
+		"being denied, and §10.4's `subroutine doctor` is the question a person asks.",
+	),
+	("GET", "/readyz"): (
+		"protocol",
+		"The same, plus the schema check §12.4a wants before a client trusts an instance. "
+		"A client that could reach it would be asking whether the thing it is already "
+		"talking to is up; `#89` is that question asked properly, by the CLI, before it "
+		"connects at all.",
+	),
+	("GET", "/v1/docs/agent"): (
+		"protocol",
+		"§13.3's guide, written for an agent arriving with a base URL and a token and no "
+		"other source. Somebody holding a client has already got past the problem it solves.",
+	),
+	("GET", "/v1/docs/examples"): (
+		"protocol",
+		"§13.3's worked calls, executed by `tests/test_api_examples.py`. They are HTTP by "
+		"construction — that is what they are examples of, and a client wrapping them "
+		"would be documentation nobody could run.",
+	),
+	("GET", "/v1/meta"): (
+		"protocol",
+		"What this build can do, in machine-readable form, for a client discovering an "
+		"instance over HTTP. §12.2a's `subroutine help` is the same question asked by a "
+		"person, and `--help` lists the commands.",
+	),
+	("GET", "/v1/projects/{id_or_key}"): (
+		"tracked",
+		"One project on its own. `project list` prints the tree and `show` reads items; "
+		"nothing yet asks for a single project's own record. `#141`.",
+	),
+	("GET", "/v1/tasks/{id_or_ref}/events"): (
+		"tracked",
+		"An item's history, unreadable outside HTTP — `#150`, and the second edge of this "
+		"guard proving itself the moment it was looked at. `#52` shipped to put comments "
+		"into that history on a morning when nothing outside HTTP could display it.",
+	),
+	("GET", "/v1/documents/{id_or_ref}/events"): (
+		"tracked",
+		"The same history on a document, and the same argument — `#150` takes all three "
+		"together because they are one renderer.",
+	),
+	("GET", "/v1/projects/{id_or_key}/events"): (
+		"tracked",
+		"The same history on a project. `#150`, and the last of the three; a project has "
+		"no `show` of its own yet either.",
+	),
+	("GET", "/v1/workspaces"): (
+		"tracked",
+		"`init` makes one and most installations need exactly one, so listing them is a "
+		"real gap without being a wall. `#141`.",
+	),
+	("GET", "/v1/workspaces/{id_or_slug}"): (
+		"tracked",
+		"Reading one workspace's own record. Same as listing them, and rarer. `#141`.",
 	),
 	("POST", "/v1/workspaces"): (
+		"tracked",
 		"`init` makes one and most installations need exactly one, so this is a real gap "
-		"without being a wall — `#141`. Unlike a project, nothing refuses for want of it."
+		"without being a wall — `#141`. Unlike a project, nothing refuses for want of it.",
 	),
 	("PATCH", "/v1/workspaces/{id_or_slug}"): (
+		"tracked",
 		"Same as creating one, and rarer: a workspace's title and timezone are set once. "
-		"`#141`."
+		"`#141`.",
 	),
 	("PATCH", "/v1/projects/{id_or_key}"): (
+		"tracked",
 		"Renaming a project or changing its visibility. `#141` — the key, which is the part "
 		"that cannot be changed at all, is settled at creation and that is the part that "
-		"matters."
+		"matters.",
 	),
 	("POST", "/v1/projects/{id_or_key}/move"): (
-		"Reparenting a whole subtree. Rare, consequential, and there is no undo, so it is "
-		"the last of these to want a one-line command. `#141`."
+		"disclosure",
+		"Reparenting a whole subtree. Rare, consequential, and there is no undo, so §1.4's "
+		"argument runs the other way: this one should be harder to reach, not easier. "
+		"`#141` holds the shape it eventually wants.",
 	),
 	("PATCH", "/v1/documents/{id_or_ref}"): (
+		"tracked",
 		"Editing a document's body. Waits on `#15` (`subroutine edit`), because the answer "
 		"is an editor rather than a flag — a `--body` that replaces a specification from a "
-		"shell argument is a worse offer than none."
+		"shell argument is a worse offer than none.",
 	),
 	("PATCH", "/v1/comments/{comment_id}"): (
+		"tracked",
 		"Only the author may edit a comment, and the honest alternative to editing attributed "
-		"prose is deleting it. Low value from a CLI; nobody has asked. `#141`."
+		"prose is deleting it. Low value from a CLI; nobody has asked. `#141`.",
 	),
 	("DELETE", "/v1/comments/{comment_id}"): (
+		"tracked",
 		"`#141`, alongside editing one — and the more useful of the pair, since deleting is "
-		"the honest alternative to rewriting somebody's attributed words."
+		"the honest alternative to rewriting somebody's attributed words.",
 	),
 	("DELETE", "/v1/projects/{id_or_key}"): (
+		"disclosure",
 		"Deleting a project takes its tasks out of the visible world with it. That wants "
-		"confirmation and a considered message rather than the same one-liner. `#141`."
+		"confirmation and a considered message rather than the same one-liner as `#140`. "
+		"`#141`.",
+	),
+}
+
+#: Client methods the CLI does not call, and why.
+NOT_IN_CLI: dict[str, Excuse] = {
+	"close": (
+		"protocol",
+		"Resource lifetime, not a capability §13.7 could deny anybody. `cli/personal.py` "
+		"closes its clients through the context manager `opened()` wraps, which is the same "
+		"call by another spelling.",
+	),
+}
+
+#: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
+NOT_IN_MCP: dict[str, Excuse] = {
+	"close": (
+		"protocol",
+		"Resource lifetime, not a capability §13.7 could deny anybody — the server closes "
+		"its client when the process ends, which is what a stdio adapter's lifetime is.",
+	),
+	"agenda": (
+		"tracked",
+		"`today` is the question this product is built around and there is no tool for it. "
+		"`#149`.",
+	),
+	"schedule": (
+		"tracked",
+		"Planning a day and deferring. Decision `#96` says an external wait *is* a defer "
+		"with a reason and `#99` built `--because` for it, so a decision taken on "
+		"2026-07-31 is unreachable from the surface it was written for. `#149`.",
+	),
+	"link": (
+		"tracked",
+		"`subroutine_list(ready=true)` filters on exactly the links an agent cannot create: "
+		"it can ask what is startable and cannot say what blocks what. `#149`.",
+	),
+	"unlink": (
+		"tracked",
+		"Withdrawing a link, which ships with making one — an unwanted link is worse than a "
+		"missing one, because it narrows what looks startable. `#149`.",
+	),
+	"create_project": (
+		"tracked",
+		"SPEC §21.5's adoption procedure is the agent's first act on a new repository, and "
+		"the skill has to tell it to shell out to `subroutine project create`. `#149`.",
+	),
+	"projects": (
+		"tracked",
+		"Reading the tree, which adoption needs before it can choose a parent. The skill "
+		"shells out to `subroutine project list`. `#149`.",
+	),
+	"discard": (
+		"budget",
+		"Deleting. §6.9 makes it soft and `#140` gave a person `subroutine delete`, but an "
+		"agent removing items unprompted is the one write worth making it ask for — and the "
+		"schema bytes buy little when the CLI is one shell call away.",
+	),
+	"undiscard": (
+		"budget",
+		"Restoring, which only matters once deleting is reachable. Same argument as "
+		"`discard` above, and it would be odd to spend §13.3's bytes on the undo of a "
+		"thing this surface cannot do.",
+	),
+	"identity": (
+		"budget",
+		"Who this credential is. §21.3's server instructions already name the connection "
+		"an agent is on, so a tool for this would spend schema restating a fact every "
+		"session already carries.",
 	),
 }
 
 
-def _mutating () -> set[tuple[str, str]]:
-	"""Return every route that changes something, as (verb, path)."""
+def _declared (verbs: frozenset[str]) -> set[tuple[str, str]]:
+	"""Return every mounted route using one of ``verbs``, as (verb, path)."""
 
 	found = set()
 
 	for path, methods in subroutine.api.routing.declarations(subroutine.api.app.ROUTERS):
-		for verb in methods & MUTATING:
+		for verb in methods & verbs:
 			found.add((verb, path))
+
+	return found
+
+
+def _mutating () -> set[tuple[str, str]]:
+	"""Return every route that changes something."""
+
+	return _declared(MUTATING)
+
+
+def _reading () -> set[tuple[str, str]]:
+	"""Return every route that answers a question."""
+
+	return _declared(READING)
+
+
+def _protocol () -> set[str]:
+	"""Return every method of the client protocol."""
+
+	return {
+		name
+		for name in dir(subroutine.clients.base.Client)
+		if not name.startswith("_") and callable(getattr(subroutine.clients.base.Client, name))
+	}
+
+
+def _called_in (package: str) -> set[str]:
+	"""Return the protocol methods this package calls, read from its source.
+
+	**Derived rather than declared, which is the point.** A table saying "MCP reaches
+	``link``" is a claim somebody typed; this is the source saying so. It matches on the
+	attribute name alone — every call here is on a variable named for a client, and a
+	protocol method name colliding with something else would produce a false *pass*, not a
+	false failure, which is the safe direction for a check whose job is to find gaps.
+	"""
+
+	names = _protocol()
+	found = set()
+
+	for path in sorted(pathlib.Path("src/subroutine", package).rglob("*.py")):
+		tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+		for node in ast.walk(tree):
+			if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+				continue
+
+			if node.func.attr in names:
+				found.add(node.func.attr)
 
 	return found
 
@@ -127,34 +372,97 @@ def test_every_mutating_route_is_either_reached_or_excused () -> None:
 	)
 
 
-def test_neither_list_names_a_route_that_no_longer_exists () -> None:
+def test_every_reading_route_is_either_reached_or_excused () -> None:
+	"""The second edge, added by ``#148`` and immediately worth its keep.
+
+	``GET /v1/tasks/{ref}/events`` had reached no client since the day it shipped, so an
+	item's history was unreadable from the CLI and from MCP alike — and ``#52`` spent a
+	morning putting comments into that history without anybody noticing there was nowhere to
+	read it. A missing writer is work nobody can do; a missing reader is an answer nobody can
+	get, and it is the quieter of the two.
+	"""
+
+	classified = set(READ_BY) | set(NOT_REACHED)
+	unclassified = _reading() - classified
+
+	assert not unclassified, (
+		f"{sorted(unclassified)} answer a question and nothing says whether a client can "
+		f"reach them. Add the method to READ_BY, or a written reason to NOT_REACHED."
+	)
+
+
+def test_every_client_method_is_either_called_by_the_cli_or_excused () -> None:
+	"""The third edge, and the half a route-level check structurally cannot see.
+
+	A capability can reach ``clients/base.Client`` and stop there, and then both of the
+	surfaces a person and an agent actually touch are missing it while every earlier check
+	passes.
+	"""
+
+	unclassified = _protocol() - _called_in("cli") - set(NOT_IN_CLI)
+
+	assert not unclassified, (
+		f"the CLI never calls {sorted(unclassified)}, and nothing says why. Call it, or add a "
+		f"written reason to NOT_IN_CLI."
+	)
+
+
+def test_every_client_method_is_either_called_by_mcp_or_excused () -> None:
+	"""The same for the agent's surface, where the budget makes the decision a real one.
+
+	``#145`` lived here: ``comment`` reached the protocol correctly and the MCP adapter called
+	it wrongly. This does not catch that — the call was there, with the wrong argument — which
+	is the limit written into this module's docstring rather than left to be discovered.
+	"""
+
+	unclassified = _protocol() - _called_in("mcp") - set(NOT_IN_MCP)
+
+	assert not unclassified, (
+		f"the MCP adapter never calls {sorted(unclassified)}, and nothing says why. Add a "
+		f"tool, or a written reason to NOT_IN_MCP."
+	)
+
+
+def test_no_list_names_a_route_that_no_longer_exists () -> None:
 	"""The other direction, and the one that lets an entry be deleted with confidence.
 
 	Without it a stale exemption outlives the endpoint it excused, and the next reader has no
-	way to tell a decision from a leftover.
+	way to tell a decision from a leftover. Three separate allow-lists rotted this way on
+	2026-07-31, which is why every list here has this check rather than only the first one.
 	"""
 
-	live = _mutating()
-	stale = (set(REACHED_BY) | set(NOT_REACHED)) - live
+	live = _mutating() | _reading()
+	stale = (set(REACHED_BY) | set(READ_BY) | set(NOT_REACHED)) - live
 
 	assert not stale, f"{sorted(stale)} are listed here and are not routes"
 
 
-def test_every_method_named_here_exists_on_the_protocol () -> None:
-	"""So a rename shows up here rather than in a caller.
+def test_no_list_names_a_client_method_that_no_longer_exists () -> None:
+	"""The same, for the three lists keyed by protocol method rather than by route."""
 
-	``Client`` is a ``typing.Protocol``, so its methods are ordinary attributes of the class
-	object; nothing has to be instantiated to ask.
-	"""
-
-	declared = {
-		name
-		for name in dir(subroutine.clients.base.Client)
-		if not name.startswith("_") and callable(getattr(subroutine.clients.base.Client, name))
-	}
-	named = set(REACHED_BY.values())
+	declared = _protocol()
+	named = set(REACHED_BY.values()) | set(READ_BY.values())
+	excused = set(NOT_IN_CLI) | set(NOT_IN_MCP)
 
 	assert named <= declared, f"{sorted(named - declared)} are not methods of Client"
+	assert excused <= declared, f"{sorted(excused - declared)} are excused and do not exist"
+
+
+def test_nothing_is_excused_from_a_surface_that_reaches_it () -> None:
+	"""An exemption for something already built is the failure mode nobody notices.
+
+	It reads as a decision and is a leftover, and the surface it excuses is *working* — so
+	nothing else in this file, and nothing a user does, will ever contradict it. Deleting the
+	entry is what closes the item it names, and this is what says the moment has come.
+	"""
+
+	for package, excuses in (("cli", NOT_IN_CLI), ("mcp", NOT_IN_MCP)):
+		reached = _called_in(package) & set(excuses)
+
+		assert not reached, (
+			f"{sorted(reached)} are excused from {package} and are called there. Delete the "
+			f"entry — and the item it names may be done."
+		)
 
 
 def test_every_reason_is_a_reason () -> None:
@@ -162,13 +470,70 @@ def test_every_reason_is_a_reason () -> None:
 
 	The failure mode is a one-word "later" that reads as considered and is not, and it arrives
 	the first time somebody is in a hurry — which is exactly when the endpoint they are adding
-	deserves the thought.
+	deserves the thought. ``#148`` added the *kind*, so that an exemption has to name which of
+	the five constraints it is claiming rather than describing one in passing.
 	"""
 
-	for route, reason in NOT_REACHED.items():
-		assert len(reason) > 40, f"{route} is excused by {reason!r}, which explains nothing"
-		assert "#1" in reason or "§" in reason, (
-			f"{route} is excused without naming an item or a specification section, so nothing "
-			f"tracks it and nothing says it was a decision"
-		)
+	lists: tuple[tuple[str, dict[typing.Any, Excuse]], ...] = (
+		("NOT_REACHED", typing.cast(dict[typing.Any, Excuse], NOT_REACHED)),
+		("NOT_IN_CLI", typing.cast(dict[typing.Any, Excuse], NOT_IN_CLI)),
+		("NOT_IN_MCP", typing.cast(dict[typing.Any, Excuse], NOT_IN_MCP)),
+	)
 
+	for name, excuses in lists:
+		for subject, (kind, reason) in excuses.items():
+			assert kind in KINDS, f"{name}[{subject}] claims {kind!r}, which is not a kind"
+			assert len(reason) > 40, (
+				f"{name}[{subject}] is excused by {reason!r}, which explains nothing"
+			)
+
+			if kind == "tracked":
+				assert "`#" in reason, (
+					f"{name}[{subject}] is 'tracked' and names no item, so nothing tracks it "
+					f"and 'later' is doing the work a decision should"
+				)
+
+			else:
+				assert "§" in reason or "`#" in reason, (
+					f"{name}[{subject}] names neither a specification section nor an item"
+				)
+
+
+def test_the_cli_and_mcp_agree_about_what_a_ref_names () -> None:
+	"""``#145``, guarded where it can be: both surfaces take a document's number.
+
+	One counter per workspace serves tasks and documents (§6.2), so a ref alone does not say
+	which it is. The MCP adapter assumed "task" in one tool and asked in another, three
+	hundred lines apart — the shape a per-method check cannot see, so it is asserted directly.
+	"""
+
+	source = pathlib.Path("src/subroutine/mcp/tools.py").read_text(encoding="utf-8")
+
+	assert source.count("_item(client") >= 2, (
+		"the MCP tools that take a ref must resolve it the same way; `_item` is that way, and "
+		"fewer than two callers means one of them has its own answer again"
+	)
+
+
+def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
+	"""What an inconsistency costs, made visible before somebody pays it again.
+
+	The skill tells an agent to shell out to the CLI for what MCP cannot do. That is a
+	legitimate answer — the plugin ships both — but each one is a place the agent surface
+	routes around itself, and on 2026-08-01 there were four. This pins the count so that
+	adding a fifth is a decision rather than a drift, and `#149` lowers it.
+	"""
+
+	skill = pathlib.Path("plugins/subroutine/skills/subroutine/SKILL.md").read_text(
+		encoding="utf-8"
+	)
+	commands = {
+		line.split("subroutine ")[1].split()[0]
+		for line in skill.splitlines()
+		if "subroutine " in line and "subroutine_" not in line
+	}
+
+	assert len(commands) <= 3, (
+		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
+		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
+	)
