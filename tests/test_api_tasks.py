@@ -234,6 +234,73 @@ def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (world: World) 
 	assert cleared["title"] == "Renamed", "and must not disturb anything else"
 
 
+def test_the_all_day_flag_can_be_changed_without_resending_the_date (world: World) -> None:
+	"""`#195`. It was declared, documented, reported — and dropped on the way in.
+
+	``due_is_all_day`` was a plain argument on the service rather than a patch sentinel, so it
+	was consulted only when ``due`` was being set too. Sent on its own it produced ``200 OK``,
+	changed nothing, and left ``version`` where it was: a correctly spelled, published field
+	silently discarded, which is what the ``unknown_field`` refusal exists to argue against —
+	and worse, because a typo at least gets refused.
+
+	Both directions, because they are two different answers and only one of them is "leave the
+	instant alone". Off keeps the moment the task already had and reports it as a moment; on
+	snaps to the boundary of that local day, which is §6.5's rule and the reason a task due
+	"Friday" is not overdue on Friday morning.
+	"""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Ship it", "due": "2026-09-01"}
+	).json()
+
+	assert created["due_is_all_day"] is True
+	assert created["due_at"] == "2026-09-01T23:59:59.999999Z"
+
+	instant = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"due_is_all_day": False}
+	).json()
+
+	assert instant["due_is_all_day"] is False
+	assert instant["due_at"] == created["due_at"], "the flag says how to read it, not when"
+	assert instant["version"] > created["version"], "a change that happened has to be a change"
+
+	# The other way, from a time to a day: the boundary is applied, not the clock.
+	timed = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"due": "2026-09-01T14:00:00Z"}
+	).json()
+
+	assert timed["due_is_all_day"] is False
+
+	whole = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"due_is_all_day": True}
+	).json()
+
+	assert whole["due_is_all_day"] is True
+	assert whole["due_at"] == "2026-09-01T23:59:59.999999Z"
+
+
+def test_the_all_day_flag_is_refused_when_there_is_no_date_to_describe (
+	world: World,
+) -> None:
+	"""The one combination that cannot mean anything, and so the one that must not be silent.
+
+	Storing it against a null would put `#195` back in a smaller form: a request that reports
+	success and leaves the caller believing something they cannot see is not true.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "No dates at all"}).json()
+	response = world.call(
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"start_is_all_day": True}
+	)
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "start_is_all_day", "and it names which one"
+	assert "start" in body["errors"][0]["hint"], "and what to send instead"
+
+
 def test_completing_a_task_uses_whatever_this_workspace_calls_done (world: World) -> None:
 	"""The status key is data; the category is the fixed thing a client branches on."""
 

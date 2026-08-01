@@ -484,8 +484,15 @@ def change (
 		if name in supplied
 	}
 
-	# These four are not patchable-to-null in the service — they qualify another field
-	# rather than being one — so they are passed only when given.
+	# None of these four is patchable-to-null: a status and a type are required, and the two
+	# all-day flags are booleans on a NOT NULL column, so `null` has nothing to mean. Passed
+	# only when given and not null.
+	#
+	# **The flags do reach the service on their own, and until `#195` the service dropped
+	# them.** They were plain arguments there rather than patch sentinels, so one sent without
+	# its date was consulted by nothing and the request returned 200 having changed nothing.
+	# This loop was always right; it is named here because reading it is what suggests
+	# otherwise.
 	for name, parameter in (
 		("status", "status_key"),
 		("type", "type_key"),

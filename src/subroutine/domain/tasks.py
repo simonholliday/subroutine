@@ -471,10 +471,10 @@ def update (
 	urgency: int | None = subroutine.domain.patch.UNSET,
 	estimate: int | str | None = subroutine.domain.patch.UNSET,
 	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
-	due_is_all_day: bool | None = None,
+	due_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
 	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
-	start_is_all_day: bool | None = None,
+	start_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
@@ -553,20 +553,22 @@ def update (
 	)
 	instant = now or subroutine.db.types.utcnow()
 
-	deadline: typing.Any = subroutine.domain.patch.UNSET if due is subroutine.domain.patch.UNSET else subroutine.domain.schedule.interpret(
-		due,
-		boundary=subroutine.domain.schedule.Boundary.END,
-		timezone=zone,
-		now=instant,
+	deadline: typing.Any = _rescheduled(
+		task.due_at,
+		given=due,
 		all_day=due_is_all_day,
+		boundary=subroutine.domain.schedule.Boundary.END,
+		zone=zone,
+		now=instant,
 		field="due_at",
 	)
-	defer: typing.Any = subroutine.domain.patch.UNSET if start is subroutine.domain.patch.UNSET else subroutine.domain.schedule.interpret(
-		start,
-		boundary=subroutine.domain.schedule.Boundary.START,
-		timezone=zone,
-		now=instant,
+	defer: typing.Any = _rescheduled(
+		task.start_at,
+		given=start,
 		all_day=start_is_all_day,
+		boundary=subroutine.domain.schedule.Boundary.START,
+		zone=zone,
+		now=instant,
 		field="start_at",
 	)
 	planned: typing.Any = (
@@ -684,14 +686,39 @@ def update (
 		)
 
 	if moving:
+		moved_from = task.project_id
 		task.project_id = project.id
 
 		# **The parts go with it, because the invariant says they must.** Their own version
 		# is bumped: a client holding one and sending it back under §8.9 has a stale view of
 		# where that task lives, which is exactly what the check exists to catch.
+		#
+		# **And each one says so in its own history** (`#200`). The version moved and nothing
+		# recorded why, so a subtask's history read `created` and nothing else while its ETag
+		# had changed underneath a client — a 409 with no account of itself, which is §10.7's
+		# invariant 9 broken on the commonest multi-row write in the product. An event per
+		# descendant rather than a count on the parent, because the history somebody reads is
+		# the *child's*: a number on another item's event is not an answer to "what happened to
+		# this one". They are already loaded, so this writes no rows the move did not imply.
 		for descendant in descendants:
 			descendant.project_id = project.id
 			descendant.version += 1
+
+			subroutine.domain.events.record(
+				session,
+				workspace_id=descendant.workspace_id,
+				entity_type="task",
+				entity_id=descendant.id,
+				action=subroutine.domain.events.EventAction.MOVED,
+				changes={
+					"project_id": {"from": moved_from, "to": project.id},
+					# Which move this was part of. Without it the event says a task changed
+					# project and not that it was carried, and "why did this move?" has no
+					# answer but the timestamps.
+					"moved_with": {"from": None, "to": task.ref},
+				},
+				actor=actor,
+			)
 
 	if wanted_tags is not subroutine.domain.patch.UNSET:
 		# **Replaces, so an empty list clears.** Every other field on a PATCH is assigned
@@ -929,6 +956,62 @@ def restore (
 	session.flush()
 
 	return task
+
+
+def _rescheduled (
+	stored: datetime.datetime | None,
+	*,
+	given: typing.Any,
+	all_day: typing.Any,
+	boundary: subroutine.domain.schedule.Boundary,
+	zone: str,
+	now: datetime.datetime,
+	field: str,
+) -> typing.Any:
+	"""Work out a date column's new value from whichever half of the pair was sent.
+
+	The pair is a date and a flag saying whether it names a whole day, and **either may be
+	changed without the other** (`#195`). The flag used to be a plain argument rather than a
+	patch sentinel, so it was consulted only when the date beside it was also being set — which
+	meant ``PATCH {"due_is_all_day": false}`` was accepted with a ``200``, changed nothing, and
+	left ``version`` where it was. A declared, documented field, silently discarded: exactly
+	what the ``unknown_field`` refusal exists to argue against, and worse, because a correctly
+	spelled field gives a caller no reason to doubt it.
+
+	Changing the flag alone re-reads the date the task already has. ``interpret`` takes a
+	``datetime`` and returns it untouched when the flag is off, or snapped to the boundary of
+	its local day when the flag is on — so the two directions are the two answers a person
+	means: "this is a day, not a time", and "no, I meant that exact instant".
+
+	**A flag with no date to describe is refused**, rather than stored against a null. It is
+	the one combination that cannot mean anything, and accepting it would put the silence back.
+	"""
+
+	if given is subroutine.domain.patch.UNSET and all_day is subroutine.domain.patch.UNSET:
+		return subroutine.domain.patch.UNSET
+
+	if given is subroutine.domain.patch.UNSET and stored is None:
+		raise subroutine.errors.ValidationError(
+			f"There is no {field.removesuffix('_at')} date for that to describe.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=f"{field.removesuffix('_at')}_is_all_day",
+					code="invalid_field_value",
+					message="Whether something is a whole day or a time says nothing on its own.",
+					hint=f"Send '{field.removesuffix('_at')}' as well, with the day or the "
+					f"instant you mean.",
+				)
+			],
+		)
+
+	return subroutine.domain.schedule.interpret(
+		stored if given is subroutine.domain.patch.UNSET else given,
+		boundary=boundary,
+		timezone=zone,
+		now=now,
+		all_day=None if all_day is subroutine.domain.patch.UNSET else all_day,
+		field=field,
+	)
 
 
 def _snapshot (
