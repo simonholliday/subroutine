@@ -1,9 +1,26 @@
 # Contributing to Subroutine
 
-Thank you for considering it. This file covers the one piece of paperwork, then how to
-get a working checkout, then the conventions the codebase holds to.
+## We are not seeking code contributions yet
 
-## The paperwork, first
+Thank you for thinking of it, and please do not spend your time on a pull request we would
+have to turn down. Subroutine is early: the core is still moving, the backlog is planned some
+way ahead, and there is not yet a stable enough surface to review outside work against
+fairly. Accepting patches now would mostly mean asking people to rewrite them.
+
+That will change once the shape has settled, and this file will say so when it does.
+
+**Two things are very welcome in the meantime:**
+
+- **Bug reports.** If something is wrong, or a message sent you the wrong way, please open an
+  issue. That is the most useful thing anybody outside the project can do right now.
+- **Telling us it does not fit.** If you tried it and stopped, we would rather know why than
+  not. An issue saying "I wanted X and there was no way to do it" is worth more than a guess.
+
+The rest of this file is kept for two reasons: an unsolicited pull request still needs the
+licence agreement below if it is ever taken, and the conventions are worth having if you are
+reading the code to decide whether to trust it.
+
+## The paperwork, if a change is ever agreed
 
 **Every contributor agrees to the [Contributor Licence Agreement](CLA.md) before their
 first pull request is merged.** Say so in the pull request:

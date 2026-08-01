@@ -1,4 +1,4 @@
-"""``subroutine help <topic>`` — the concepts, not the commands.
+"""``subroutine explain <topic>`` — the concepts, not the commands.
 
 ``--help`` teaches the verbs. This teaches the model: what a ref is, what dates mean, what
 the capture grammar will and will not read. §12.2a asks for both because a user who knows

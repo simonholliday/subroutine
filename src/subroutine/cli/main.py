@@ -53,13 +53,12 @@ app = typer.Typer(
 	# `--help` is still one keystroke away for anyone who wants the wall.
 	invoke_without_command=True,
 	add_completion=False,
-	# **The two helps are different and neither used to say so.** This page lists the
-	# *commands*; `subroutine help` explains the *concepts* a command cannot — how a date is
-	# written, what the capture shorthand does, why a number means what it does. A user who
-	# guessed one had no reason to think the other existed, and `help` already pointed here.
+	# **`subroutine help` prints this page too** (`#154`). The two used to differ, which made
+	# one question have two answers; now the epilog offers `explain` as a *second* thing to
+	# reach for rather than as a correction to what the reader just typed.
 	epilog=(
-		"Try 'subroutine help' to understand dates, refs and the capture shorthand — "
-		"the ideas behind the commands, rather than the list of them."
+		"Try 'subroutine explain dates' for the ideas behind the commands — how a date is "
+		"written, what a number means, what the capture shorthand does."
 	),
 )
 
@@ -526,16 +525,32 @@ def _refuse_public_bind (
 
 
 @app.command("help")
-def help_topic (
+def help_command (context: typer.Context) -> None:
+	"""Show what this can do — the same as 'subroutine --help'.
+
+	**The same answer, deliberately** (`#154`, Simon 2026-08-01). This used to explain
+	*concepts* while ``--help`` listed *commands*, so one question had two answers and the
+	reader had to learn which was which before learning either. ``help`` is what everybody
+	types first, so it answers the commonest question; the concepts moved to ``explain``,
+	whose name says what it is for in a way ``help <topic>`` never did.
+	"""
+
+	parent = context.parent
+
+	_say(context.get_help() if parent is None else parent.get_help())
+
+
+@app.command("explain")
+def explain_topic (
 	topic: str = typer.Argument("", help="A concept to explain. Omit to list them."),
 ) -> None:
 	"""Explain a concept — refs, dates, the capture grammar, scripting.
 
 	Examples:
 
-	  subroutine help
+	  subroutine explain
 
-	  subroutine help dates
+	  subroutine explain dates
 	"""
 
 	if not topic.strip():
@@ -548,8 +563,8 @@ def help_topic (
 			_say(f"  {item.name.ljust(width)}  {item.summary}")
 
 		_say("")
-		_say("  subroutine help dates")
-		_say("  subroutine --help          for the list of commands")
+		_say("  subroutine explain dates")
+		_say("  subroutine help            for the list of commands")
 
 		return
 
@@ -1431,7 +1446,7 @@ def _default (
 
 	  subroutine done 1
 
-	  subroutine help dates
+	  subroutine explain dates
 
 	Run with no arguments, this shows today's agenda.
 	"""

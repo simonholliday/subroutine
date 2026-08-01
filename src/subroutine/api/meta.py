@@ -66,7 +66,7 @@ router = fastapi.APIRouter(
 #: list makes ``/v1/meta`` exactly the large response §13.1 exists to avoid.
 TAG_LIMIT = 50
 
-#: Which ``subroutine help`` topics the agent guide inlines. **Not all of them**, because
+#: Which ``subroutine explain`` topics the agent guide inlines. **Not all of them**, because
 #: §13.3 caps the guide at 8 KB and the topics are what push it over: `scripting` is about a
 #: terminal and `refs` says useful things about how a *shell* treats ``#``, neither of which an
 #: HTTP client needs. The two that carry grammar it cannot guess — the date vocabulary and the
@@ -313,7 +313,7 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	nothing to use the guide for. Caught by ``tests/test_api_authentication.py`` rather
 	than by anybody noticing, which is the point of that test.
 
-	The same text the CLI prints for ``subroutine help <topic>``, which is itself generated
+	The same text the CLI prints for ``subroutine explain <topic>``, which is itself generated
 	from the parsers rather than transcribed (S2-06): the date vocabulary comes from
 	``dates.KEYWORDS``, the capture table from ``capture``'s own constants, the estimate
 	units from ``durations.UNITS``. A guide listing a keyword the parser rejects is worse
@@ -402,7 +402,7 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		# The `refs` topic below is written for somebody at a terminal, and says useful
 		# things an HTTP client does not need — how a shell treats `#`. These are the facts
 		# it does not cover, and they belong here rather than there: sharing one text with
-		# `subroutine help` is deliberate (§12.2a), and the way to keep that honest is to put
+		# `subroutine explain` is deliberate (§12.2a), and the way to keep that honest is to put
 		# audience-specific detail in the audience's own preamble.
 		"**An item's `ref` is an integer, and it is how you address one.** "
 		"`GET /v1/tasks/42` and `GET /v1/tasks/{id}` are the same request; every "

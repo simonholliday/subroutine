@@ -11,6 +11,45 @@
 > are specified and not written. The specification and the implementation plan are not
 > published yet.
 
+## In a hurry
+
+Three things you might want. Pick one; they compose.
+
+**A to-do list on your own machine.** Nothing to configure — SQLite is made on first use.
+
+```console
+$ pip install subroutine
+$ subroutine init
+$ subroutine add "Call the dentist before Sunday"
+$ subroutine today
+```
+
+**Your coding agent using it for you.** Install the Claude Code plugin and it gets the tools
+and the working practice together — it will keep the backlog, record what it did, and adopt
+Subroutine into a project you are already working on. **You do not have to learn the CLI**:
+ask Claude to add, rank, defer or close things and it will.
+
+```console
+$ claude plugin marketplace add simonholliday/subroutine
+$ claude plugin install subroutine@subroutine
+```
+
+**A shared instance over HTTP**, for a team or for agents on other machines. Loopback by
+default; it refuses a wider bind without TLS in front of it.
+
+```console
+$ subroutine serve
+$ subroutine token create --title "CI"      # a scoped credential for something else
+```
+
+The full recipe — systemd, PostgreSQL, TLS, backups — is in
+[docs/hosting.md](docs/hosting.md).
+
+New to it? `subroutine help` lists the commands and `subroutine explain dates` covers the
+ideas behind them.
+
+---
+
 Every project management tool was built for humans, and has been bolting AI onto the side
 ever since. Subroutine starts from the assumption that both kinds of user are here to
 stay, and that neither should be a guest in the other's system. Same tasks, same data
@@ -231,9 +270,9 @@ not yet published. It lands here once the API has settled enough to be worth rea
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first — it
-covers the house style and the one piece of paperwork, a [contributor licence
-agreement](CLA.md) that has to be agreed before a pull request can be merged.
+**Not code, for now** — the core is still moving and there is no stable surface to review
+outside work against fairly. [CONTRIBUTING.md](CONTRIBUTING.md) says so at more length, and
+says what *is* welcome: bug reports, and being told why you stopped using it.
 
 ## Licence
 

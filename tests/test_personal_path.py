@@ -791,14 +791,14 @@ def test_help_explains_concepts_not_only_commands (
 	flag still does not know that "due Friday" means the end of Friday.
 	"""
 
-	listed = run("help")
+	listed = run("explain")
 
 	for topic in ("dates", "capture", "refs", "scripting"):
 		assert topic in listed.output
 
-	assert "deadline" in run("help", "dates").output.lower()
-	assert "Nothing is ever lost" in run("help", "capture").output
-	assert "#7" in run("help", "refs").output
+	assert "deadline" in run("explain", "dates").output.lower()
+	assert "Nothing is ever lost" in run("explain", "capture").output
+	assert "#7" in run("explain", "refs").output
 
 
 def test_the_help_topics_are_generated_from_the_parsers (
@@ -810,12 +810,12 @@ def test_the_help_topics_are_generated_from_the_parsers (
 	rather than asserting a transcription.
 	"""
 
-	dates = run("help", "dates").output
+	dates = run("explain", "dates").output
 
 	for keyword in subroutine.domain.dates.KEYWORDS:
 		assert keyword in dates
 
-	capture = run("help", "capture").output
+	capture = run("explain", "capture").output
 
 	for word in subroutine.domain.capture.DEADLINE_WORDS:
 		assert word in capture
@@ -826,7 +826,7 @@ def test_an_unknown_help_topic_lists_the_real_ones (
 ) -> None:
 	"""§12.2a: errors state the remedy."""
 
-	result = run("help", "quantum", expect=1)
+	result = run("explain", "quantum", expect=1)
 
 	assert "dates" in result.output
 
@@ -1403,20 +1403,36 @@ def test_an_explicit_today_carries_no_beginner_signpost (
 	assert "--help" not in run("today").output
 
 
-def test_the_two_helps_point_at_each_other (
+def test_help_and_dash_dash_help_are_the_same_answer (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""``--help`` lists the commands; ``help`` explains the concepts. Neither is the whole of it.
+	"""`#154`, Simon 2026-08-01. One question must not have two answers.
 
-	A user who guessed one had no reason to think the other existed. `help` already pointed
-	at `--help`; the reverse is the epilog on the application, so whichever a beginner lands
-	on names the other.
+	These used to differ — ``--help`` listed the commands and ``help`` explained concepts —
+	so a reader had to learn which was which before learning either, and the epilog on one
+	read as a correction to what they had just typed. ``help`` is what everybody types first,
+	so it answers the commonest question; the concepts are ``explain``, whose name says what
+	it is for.
 	"""
 
 	run("init")
 
-	assert "subroutine help" in run("--help").output
-	assert "--help" in run("help").output
+	assert run("help").output == run("--help").output
+
+
+def test_help_offers_explain_as_a_second_thing_rather_than_a_correction (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Each still names the other, which is what stopped either being undiscoverable.
+
+	The direction is the change: ``help`` no longer sends somebody back to a different help,
+	it offers a topic they can read next.
+	"""
+
+	run("init")
+
+	assert "subroutine explain" in run("--help").output
+	assert "subroutine help" in run("explain").output
 
 
 def test_a_deferred_task_says_so_wherever_it_appears (
