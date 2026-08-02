@@ -12,6 +12,22 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **If you have neither uv nor pipx, the install instructions now say how to get one.** 0.1.3
+  replaced `pip install subroutine` with `uv tool install` and `pipx install`, which is right —
+  and left nowhere to go for somebody who has neither, since no distribution ships either tool.
+  On a fresh Ubuntu that was three failures in a row. The Install section now names
+  `sudo apt install pipx`, `brew install pipx`, and uv's own installer.
+
+### Changed
+
+- A release now creates its GitHub release automatically, with the changelog section as its
+  notes and the wheel and sdist attached — so what changed is on the Releases page rather than
+  only in a file you have to open.
+
 ## 0.1.3 — 2026-08-02
 
 ### Fixed
