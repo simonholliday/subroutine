@@ -44,6 +44,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.durations
+import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.refs
 import subroutine.domain.tags
@@ -359,6 +360,20 @@ class Event(pydantic.BaseModel):
 	entity_type: str
 	entity_id: uuid.UUID
 	workspace_id: uuid.UUID
+
+	#: How the item this event is *about* is named to a reader — its ref and its title. The
+	#: subject's when there is one, the entity's otherwise, so a comment reports the item
+	#: somebody wrote on rather than the comment row, which has neither.
+	#:
+	#: **Both null where there is nothing to name**: a workspace, a link, an item outside the
+	#: three that carry titles. `item_ref` is null for a project too, which addresses itself by
+	#: key and never had one (§6.2).
+	#:
+	#: Here rather than left to each client because the alternative is every client resolving
+	#: the same ids again — a CLI, an agent and a browser writing three answers to one
+	#: question, which is the divergence this module sits outside `api/` to prevent.
+	item_ref: int | None = None
+	item_title: str | None = None
 
 	subject_type: str | None
 	subject_id: uuid.UUID | None
@@ -954,16 +969,31 @@ def comment (row: subroutine.db.models.activity.Comment) -> Comment:
 	)
 
 
-def event (row: subroutine.db.models.activity.Event) -> Event:
+def event (
+	row: subroutine.db.models.activity.Event,
+	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
+) -> Event:
 	"""Render one event.
 
 	No vocabulary argument: an event's ``action`` is an open string rather than a seeded
 	vocabulary row (§5.11), so there is nothing to batch-load and nothing to resolve.
+
+	``described`` is the batch from :func:`subroutine.domain.events.descriptions`, keyed by the
+	id each event is about. **Optional, and absent means null rather than a lookup** — a
+	renderer that quietly queried per row would be `#39`'s N+1 reintroduced in the one place
+	that pages fifty rows at a time.
 	"""
+
+	about = None
+
+	if described is not None:
+		about = described.get(row.subject_id or row.entity_id)
 
 	return Event(
 		seq=row.seq,
 		id=row.id,
+		item_ref=None if about is None else about.ref,
+		item_title=None if about is None else about.title,
 		entity_type=row.entity_type,
 		entity_id=row.entity_id,
 		workspace_id=row.workspace_id,

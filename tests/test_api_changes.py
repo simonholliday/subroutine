@@ -29,7 +29,6 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import conftest
-import subroutine.api.changes
 import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.session
@@ -480,7 +479,7 @@ def test_an_event_committed_late_is_never_skipped (own_database: str) -> None:
 					subroutine.domain.events.selected(
 						workspace_ids=[workspace_id],
 						upper_bound=subroutine.db.types.utcnow()
-						- subroutine.api.changes.WATERMARK,
+						- subroutine.domain.events.WATERMARK,
 					)
 				)
 

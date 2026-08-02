@@ -238,6 +238,32 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _projected(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_changes",
+			title="What changed",
+			description=(
+				"What has changed since you last looked, oldest first. Ask at the start of a "
+				"session: nothing here tells you when your own knowledge went stale. Pass the "
+				"seq of the last event you saw back as 'since' — it is inclusive, so you will "
+				"see that one again."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"since": {
+						"type": "integer",
+						"description": "Resume from this seq, inclusive. Omit for the newest.",
+					},
+					"mine": {
+						"type": "boolean",
+						"description": "Only what this credential itself did.",
+					},
+					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"workspace": WORKSPACE,
+				},
+			},
+			call=lambda arguments: _changed(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
 			title="Finish a task",
 			description="Mark a task complete by its ref number.",
@@ -252,6 +278,54 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _completed(client, arguments),
 		),
 	]
+
+
+def _changed (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Return the feed as one compact line per event, ending with the number to resume from.
+
+	**The resume number is printed even when nothing changed**, because an agent that polled
+	and saw nothing still needs somewhere to carry on from — and if it has to infer that from
+	an empty list it will infer wrongly on the one occasion it matters.
+	"""
+
+	since = arguments.get("since")
+	# Same reading of `limit` as `_listed`: an explicit zero is passed through to
+	# `domain.paging.size`, which is the one arbiter of a page size and refuses it by name.
+	given = arguments.get("limit")
+
+	events = client.changes(
+		since=since,
+		mine=bool(arguments.get("mine")),
+		newest=since is None,
+		workspace=_text(arguments, "workspace"),
+		limit=DEFAULT_LIMIT if given is None else given,
+	)
+
+	if not events:
+		return "Nothing has changed."
+
+	lines = [
+		f"{event.seq}  {event.created_at.astimezone():%d %b %H:%M}  {_happened(event)}  "
+		f"{_named(event)}"
+		for event in events
+	]
+
+	return "\n".join([*lines, f"Resume with since={events[-1].seq}."])
+
+
+def _named (event: subroutine.views.Event) -> str:
+	"""Return the item an event is about, as short as it can be said.
+
+	``item_ref``/``item_title`` are on the view so that this, the CLI and any browser name a
+	row the same way rather than each resolving the id again.
+	"""
+
+	if event.item_ref is None:
+		return event.item_title or event.entity_type
+
+	return f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
 
 
 def _listed (

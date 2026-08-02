@@ -1352,6 +1352,75 @@ def register (
 			q=_asked(terms, "What are you looking for?"),
 		)
 
+	@app.command()
+	def changes (
+		since: int | None = typer.Option(
+			None, "--since", help="Carry on from this number, printed by the last run."
+		),
+		mine: bool = typer.Option(
+			False, "--mine", help="Only what this machine's own credential did."
+		),
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the events as JSON."),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""What has changed, oldest first — the question to ask after time away.
+
+		'subroutine list' says what is open now. This says what *moved*, which is the thing
+		you cannot work out by looking at the current state.
+
+		Examples:
+
+		  subroutine changes
+
+		  subroutine changes --since 412
+
+		  subroutine changes --mine
+		"""
+
+		with opened(strict=strict) as world:
+			# **A number belongs to one instance.** Every connection counts its own events from
+			# one, so resuming from 412 against two of them would mean two different places in
+			# two different histories — and the half that was wrong would look like an ordinary
+			# quiet week rather than an error.
+			if since is not None and len(world.reached) > 1:
+				stop(
+					"'--since' needs one connection, and this machine can reach "
+					f"{len(world.reached)}.",
+					"Each one counts its changes separately, so a number means nothing to "
+					"the others. Run it against one at a time.",
+				)
+
+			def ask (client: subroutine.clients.base.Client) -> list[subroutine.views.Event]:
+				"""Ask one connection what has moved."""
+
+				# **The newest page unless resuming.** Somebody typing this for the first
+				# time against a long history wants this morning, not the instance's first
+				# afternoon — and `--since` is what says they have a place already.
+				return client.changes(
+					since=since, mine=mine, newest=since is None, limit=limit
+				)
+
+			gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
+
+			if json_output:
+				say(
+					json.dumps(
+						[
+							{"connection": answer.connection.name, **event.model_dump(mode="json")}
+							for answer in gathered.answers
+							for event in answer.value
+						],
+						indent=2,
+					)
+				)
+
+				return
+
+			_say_changes(world, gathered, console=console, say=say)
+
 	@app.command("ls", hidden=True)
 	def list_tasks (
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
@@ -2756,6 +2825,83 @@ def register (
 
 		for failure in (*world.unreachable, *failures):
 			warn(failure.describe())
+
+	def _say_changes (
+		world: World,
+		gathered: subroutine.fanout.Gathered[list[subroutine.views.Event]],
+		*,
+		console: rich.console.Console,
+		say: typing.Callable[[str], None],
+	) -> None:
+		"""Print what moved, grouped by connection and then by day.
+
+		**Grouped rather than merged**, unlike ``today``. §13.7 makes that call per command,
+		and the reason here is arithmetic rather than taste: a resume number belongs to one
+		instance, so a single interleaved list would carry two of them and no way to say which
+		row ended which.
+
+		The last number is printed at the end because it is the whole point — a feed you
+		cannot resume from is a feed you have to read twice.
+		"""
+
+		for answer in gathered.answers:
+			if world.qualifies_connection:
+				console.print(rich.text.Text(answer.connection.label, style=HEADING))
+
+			if not answer.value:
+				console.print(rich.text.Text("  Nothing new.", style=DETAIL))
+				say("")
+
+				continue
+
+			day = None
+
+			for event in answer.value:
+				when = event.created_at.astimezone()
+
+				if when.date() != day:
+					day = when.date()
+
+					console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
+
+				console.print(f"    {when:%H:%M}  {_change_line(event)}")
+
+			last = answer.value[-1].seq
+
+			say("")
+			_suggest(console, f"subroutine changes --since {last}", "carry on from here")
+			say("")
+
+		for failure in gathered.failures:
+			console.print(rich.text.Text(failure.describe(), style=LATE))
+
+	def _change_line (event: subroutine.views.Event) -> str:
+		"""Render one event as a line somebody can read.
+
+		Names the item rather than its id — ``item_ref``/``item_title`` are on the view for
+		exactly this, so that a CLI, an agent and a browser say the same thing about one row.
+
+		**The changed field *names*, not their values.** A status moving from one word to
+		another is worth a glance; a description rewritten is not worth four lines of the
+		terminal, and anybody who wants the values has ``subroutine show``.
+		"""
+
+		named = (
+			f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
+			if event.item_ref is not None and event.item_title is not None
+			else event.item_title or event.entity_type
+		)
+		verb = event.action.replace("_", " ")
+
+		# A comment is the one action whose entity is not what it is about, and "commented on"
+		# reads as what happened where "created" would name the comment row nobody can see.
+		if event.entity_type == "comment":
+			verb = f"{verb} a comment on"
+
+		fields = sorted(event.changes or {})
+		listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
+
+		return f"{verb:<12}  {named}{listed}"
 
 	def _listing (
 		world: World,

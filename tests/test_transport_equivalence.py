@@ -1371,3 +1371,95 @@ def test_both_refuse_a_parent_that_names_nothing (pair: Pair) -> None:
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.NotFound):
 			client.tasks(parent=9999, limit=50)
+
+
+def test_both_report_the_same_changes (pair: Pair) -> None:
+	"""The feed's watermark, scoping and ordering live in the domain so that this holds.
+
+	They were in the route first, which would have made this test the only thing standing
+	between an instance that withheld the last second over HTTP and one that did not withhold
+	it locally — a lost event on one transport and not the other, with nothing in the output
+	saying which transport you were on.
+	"""
+
+	for index in range(4):
+		make(pair, f"Task number {index}")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+
+	assert local.changes() == remote.changes()
+	assert [event.seq for event in local.changes()] == sorted(
+		event.seq for event in local.changes()
+	)
+
+
+def test_both_name_the_item_a_change_is_about (pair: Pair) -> None:
+	"""`item_ref`/`item_title` are rendered server-side precisely so both sides agree.
+
+	Left to each client they would be two answers to one question, which is what `views.py`
+	sits outside `api/` to prevent — and the CLI, an agent and any browser would each resolve
+	the same ids again.
+	"""
+
+	made = make(pair, "Fix the parser")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	named = [event for event in local.changes() if event.item_ref == made.ref]
+
+	assert named, "the created task should be named in the feed"
+	assert named[0].item_title == "Fix the parser"
+	assert local.changes() == remote.changes()
+
+
+def test_both_resume_from_the_same_point (pair: Pair) -> None:
+	"""``since`` is inclusive on both, or a client switching transports loses or repeats a row."""
+
+	for index in range(5):
+		make(pair, f"Task number {index}")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	everything = local.changes()
+	middle = everything[2].seq
+
+	assert local.changes(since=middle) == remote.changes(since=middle)
+	assert local.changes(since=middle)[0].seq == middle
+
+
+def test_both_read_the_newest_page_the_same_way (pair: Pair) -> None:
+	"""``newest`` reverses the query and both sides must turn the page back the right way up."""
+
+	for index in range(6):
+		make(pair, f"Task number {index}")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	tail = local.changes(newest=True, limit=3)
+
+	assert tail == remote.changes(newest=True, limit=3)
+	assert [event.seq for event in tail] == sorted(event.seq for event in tail)
+	assert tail[-1].seq == local.changes()[-1].seq
+
+
+def _settle (pair: Pair) -> None:
+	"""Age every event past the watermark, so the feed will report it.
+
+	The watermark is a second and this suite would otherwise sleep through it once per test.
+	Shifted row by row rather than by one ``UPDATE``, because ``UtcDateTime`` normalises a
+	bound value and meets the timedelta expecting a datetime.
+	"""
+
+	shift = datetime.timedelta(seconds=2)
+
+	for event in pair.session.scalars(
+		sqlalchemy.select(subroutine.db.models.activity.Event)
+	):
+		event.created_at = event.created_at - shift
+
+	pair.session.flush()

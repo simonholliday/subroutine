@@ -315,6 +315,33 @@ class Client:
 
 		return self._collected(subroutine.views.Event, body, endpoint="events")
 
+	def changes (
+		self,
+		*,
+		since: int | None = None,
+		mine: bool = False,
+		newest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has changed, oldest first, across everything this credential can see."""
+
+		body = self._json(
+			"GET",
+			"/v1/changes",
+			params=_given(
+				since=since,
+				# The endpoint takes a word rather than a flag, so a later `?actor=<username>`
+				# needs no second parameter and no deprecation.
+				actor="me" if mine else None,
+				newest=True if newest else None,
+				workspace_id=workspace,
+				limit=limit,
+			),
+		)
+
+		return self._collected(subroutine.views.Event, body, endpoint="changes")
+
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> list[subroutine.views.Project]:

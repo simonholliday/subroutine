@@ -106,6 +106,18 @@ setup interview is how a tool loses the person who just installed it.
 
 ## Day to day
 
+**Open by asking what changed.** Your context is a snapshot and it does not decay — nothing
+will tell you that something you read is now stale, so you will answer from it confidently and
+be wrong:
+
+```
+subroutine_changes()
+```
+
+Keep the `seq` it prints last and pass it back as `since` next time. It is inclusive, so you
+will see that one again; ignore what you already have. `mine=true` narrows it to what your own
+credential did, which is how you pick up your own unfinished work rather than everybody's.
+
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:
 

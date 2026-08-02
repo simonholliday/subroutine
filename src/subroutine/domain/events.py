@@ -21,7 +21,12 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.project
+import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.scoping
+import subroutine.errors
 
 
 class EventAction(enum.StrEnum):
@@ -148,9 +153,9 @@ def selected (
 	  "inclusive-with-dedupe" because a client that persists its cursor before it has finished
 	  processing a page must not lose the page — one duplicated row per poll buys that, and
 	  every event carries a stable ``id`` to dedupe on.
-	* ``visible`` is :func:`subroutine.domain.scoping.visible_events`, passed in rather than
-	  built here: this module writes events and must not import the module that decides who may
-	  read entities.
+	* ``visible`` is :func:`subroutine.domain.scoping.visible_events`. It is a *parameter* so
+	  that this stays a builder rather than a policy — :func:`feed` is the one place that
+	  decides a feed always narrows, and a history always does not.
 	* ``actor_token_id`` answers "what did *I* do" (`#158`) — **the credential, not the user**.
 	  An agent with its own service-account token wants what it did, not what the person who
 	  issued it did from a laptop.
@@ -195,6 +200,204 @@ def selected (
 		statement = statement.where(model.actor_token_id == actor_token_id)
 
 	return statement
+
+
+#: How far behind the clock the newest reportable event sits. §5.11 fixes the value because it
+#: is client-visible: a caller polling more often than this sees nothing new, and one reasoning
+#: about freshness needs to know the feed is deliberately a second stale.
+#:
+#: **In the domain rather than in the route**, because two clients answer this question — the
+#: HTTP endpoint and ``clients.local`` — and a watermark that existed in only one of them would
+#: mean the same instance losing events over one transport and not the other. That divergence
+#: is what S3-07 removed for tasks and what ``views.py`` sits outside ``api/`` to prevent.
+WATERMARK = datetime.timedelta(seconds=1)
+
+
+def feed (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	since: int | None = None,
+	mine: bool = False,
+	newest: bool = False,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+	"""Return the change feed's statement — ordered, watermarked and narrowed (§5.11a).
+
+	Everything :func:`selected` leaves to the caller, this decides, because for a feed the
+	answers are not a caller's to choose: it always runs forwards, it always withholds the last
+	second, and it is always narrowed to what the principal may see. A history is the opposite
+	on all three counts, and keeping them one function is how they would come to agree only for
+	a while.
+
+	``mine`` is ``#158``'s ``?actor=me``. **A caller with no token gets nothing**, rather than
+	everything: a session-authenticated principal has no ``actor_token_id`` on anything it
+	wrote, so matching on a null token would quietly widen the filter to every system-written
+	row — and the belief being tested is precisely "these are the things I did".
+	"""
+
+	model = subroutine.db.models.activity.Event
+	token_id = None if principal.token is None else principal.token.id
+
+	statement = selected(
+		workspace_ids=workspace_ids,
+		upper_bound=subroutine.db.types.utcnow() - WATERMARK,
+		since=since,
+		visible=subroutine.domain.scoping.visible_events(
+			principal, workspace_ids=workspace_ids
+		),
+		actor_token_id=token_id if mine else None,
+	)
+
+	if mine and token_id is None:
+		statement = statement.where(sqlalchemy.false())
+
+	# **`newest` reads the tail, and :func:`page` turns it the right way up again.** A feed is
+	# defined forwards and stays that way in every answer; this is only about which end of a
+	# long history the *first* call lands on. Without it somebody meeting an instance with
+	# thousands of events is shown its first afternoon and has to page to reach this morning,
+	# which is not what "what has changed" asks.
+	return statement.order_by(model.seq.desc() if newest else model.seq.asc())
+
+
+def page (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	size: int,
+	since: int | None = None,
+	mine: bool = False,
+	newest: bool = False,
+) -> tuple[list[subroutine.db.models.activity.Event], bool]:
+	"""Return one page of the feed, **always oldest first**, and whether more follow.
+
+	The one place the ``newest`` reversal is undone, so that no caller can return a feed
+	running backwards and no two callers can disagree about how ``has_more`` was counted.
+
+	``has_more`` means "there is another page in the direction you are reading" — later events
+	on an ordinary call, *earlier* ones when ``newest`` is set. Either way the page itself
+	reads forwards, and its last row is the number to resume from.
+	"""
+
+	statement = feed(
+		principal, workspace_ids=workspace_ids, since=since, mine=mine, newest=newest
+	)
+	rows = list(session.scalars(statement.limit(size + 1)))
+	has_more = len(rows) > size
+	rows = rows[:size]
+
+	if newest:
+		rows.reverse()
+
+	return rows, has_more
+
+
+def refuse_expired_cursor (
+	session: sqlalchemy.orm.Session,
+	*,
+	since: int | None,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> None:
+	"""Refuse a cursor pointing further back than this instance can still account for.
+
+	§5.11 retains events for ``events_retention_days`` and requires ``410 cursor_expired``
+	below that floor, so a client resyncs rather than being handed a page that silently omits
+	everything pruned in between — the one failure a feed must never have, because it looks
+	exactly like nothing having happened.
+
+	**The test is "did events below this point exist and go", not "is this old".** A caller
+	resuming from seq 5 on an instance that still holds seq 1 is simply behind, and behind is
+	what the feed is for.
+
+	**Currently unreachable, and honestly so.** Nothing prunes yet (`#251`), so the oldest
+	surviving event is the first one ever written and no cursor can fall below it. The path is
+	built and tested by deleting rows, and goes live the day retention does.
+	"""
+
+	if since is None:
+		return
+
+	model = subroutine.db.models.activity.Event
+	oldest = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.min(model.seq)).where(
+			model.workspace_id.in_(workspace_ids)
+		)
+	)
+
+	if oldest is None or since >= oldest:
+		return
+
+	raise subroutine.errors.CursorExpired(
+		f"Events before seq {oldest} are no longer held, so what happened since {since} "
+		f"cannot be reported in full.",
+		hint="Ask again without 'since' to resync from the oldest event still kept.",
+	)
+
+
+class Described(typing.NamedTuple):
+	"""How an item is named to a reader, as against how it is keyed."""
+
+	#: ``None`` for the things that carry no ref — a project, a workspace (§6.2).
+	ref: int | None
+	title: str
+
+
+def descriptions (
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+) -> dict[uuid.UUID, Described]:
+	"""Return the ref and title of whatever each of ``rows`` is *about*, keyed by that id.
+
+	**"About" is the subject when there is one and the entity otherwise.** An event recording
+	a comment names the comment as its entity, which has no ref and no title and is not what a
+	reader wants to be told; its subject is the item somebody wrote on, which is. Deciding that
+	here rather than in each client is what keeps a CLI, an agent and a future browser saying
+	the same thing about the same row.
+
+	**Batched, because the alternative is `#39`'s N+1 by another name.** Three queries per
+	page whatever its size, and a page of fifty events touching one task asks about that task
+	once.
+
+	Anything unresolvable is simply absent from the map — a workspace, a link, an item hard to
+	reach — and the view reports null rather than inventing a name. Nothing here re-checks
+	visibility: these rows have already been narrowed by :func:`feed` or resolved through a
+	subject, and an event a caller may read is one whose item they may read by construction.
+	"""
+
+	wanted: dict[str, set[uuid.UUID]] = {"task": set(), "document": set(), "project": set()}
+
+	for row in rows:
+		kind = row.subject_type or row.entity_type
+		identifier = row.subject_id or row.entity_id
+
+		if kind in wanted:
+			wanted[kind].add(identifier)
+
+	task = subroutine.db.models.work.Task
+	document = subroutine.db.models.work.Document
+	project = subroutine.db.models.project.Project
+	found: dict[uuid.UUID, Described] = {}
+
+	# Written out per model rather than looped over a tuple of them: the three do not share a
+	# base that declares `ref` and `title`, and a loop only type-checks by widening to `Base`
+	# and then reaching for attributes it cannot promise are there.
+	if wanted["task"]:
+		for one in session.scalars(sqlalchemy.select(task).where(task.id.in_(wanted["task"]))):
+			found[one.id] = Described(ref=one.ref, title=one.title)
+
+	if wanted["document"]:
+		for paper in session.scalars(
+			sqlalchemy.select(document).where(document.id.in_(wanted["document"]))
+		):
+			found[paper.id] = Described(ref=paper.ref, title=paper.title)
+
+	if wanted["project"]:
+		for folder in session.scalars(
+			sqlalchemy.select(project).where(project.id.in_(wanted["project"]))
+		):
+			found[folder.id] = Described(ref=None, title=folder.title)
+
+	return found
 
 
 def jsonable (value: typing.Any) -> typing.Any:

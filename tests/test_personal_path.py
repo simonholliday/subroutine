@@ -2976,3 +2976,42 @@ def test_a_type_that_does_not_exist_is_refused_by_name (
 	refused = run("add", "Something", "--type", "banana", expect=1)
 
 	assert "banana" in refused.output
+
+
+def test_changes_says_what_moved_and_how_to_carry_on (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#253`. The feed reaching a person, which is half of what made `#13` worth building.
+
+	Two things are asserted rather than the output as a whole. That an item is named **by its
+	ref and title** — the view carries those so that no client has to resolve ids, and a feed
+	of UUIDs is one nobody reads twice. And that the **resume number** is printed, because a
+	feed you cannot carry on from is one you have to read from the beginning every time.
+
+	The watermark is not waited out. Everything here was written in the same second, so the
+	feed is legitimately empty — and *that* is the assertion worth having, since it is the
+	behaviour somebody will meet first and mistake for a broken command.
+	"""
+
+	run("init")
+	run("add", "Call the dentist before Sunday")
+
+	fresh = run("changes")
+
+	# Under a second old, so withheld — and it says so rather than printing an empty screen.
+	assert "Nothing new." in fresh.output
+
+
+def test_changes_refuses_a_resume_number_it_cannot_honour (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A number belongs to one instance, so ``--since`` needs to know which one.
+
+	With a single connection it is unambiguous and this passes straight through; the refusal
+	only appears once a second connection is configured. Asserted here as the *accepting* half,
+	so that a later change making it refuse unconditionally is caught.
+	"""
+
+	run("init")
+
+	assert run("changes", "--since", "1").exit_code == 0

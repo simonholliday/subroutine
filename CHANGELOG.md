@@ -34,7 +34,10 @@ upgrade involves.
   a cursor that has already moved on. Poll more often than that and you will simply see
   nothing new.
 
-  It is reachable over HTTP only for now. No CLI command and no MCP tool yet.
+  `subroutine changes` reads it from the command line, and an agent has it as a tool. With no
+  `--since` you get the most recent page rather than the instance's first afternoon; with one,
+  you carry on from where you were. Each event names the item it is about, so a feed reads as
+  `#42 Fix the parser` rather than as a list of identifiers.
 
 - New error code `cursor_expired` (410), for a `?since=` older than the events an instance
   still holds — so a client resyncs rather than being handed a page that silently omits

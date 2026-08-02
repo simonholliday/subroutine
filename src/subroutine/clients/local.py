@@ -548,8 +548,60 @@ class Client:
 					subroutine.db.models.activity.Event.seq.desc()
 				).limit(size)
 			).all()
+			described = subroutine.domain.events.descriptions(session, rows)
 
-			return [subroutine.views.event(row) for row in rows]
+			return [subroutine.views.event(row, described) for row in rows]
+
+	def changes (
+		self,
+		*,
+		since: int | None = None,
+		mine: bool = False,
+		newest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has changed, oldest first, across everything this credential can see.
+
+		**The watermark, the scoping and the ``410`` all come from
+		:mod:`subroutine.domain.events`** rather than being restated here. That is the whole
+		reason they were moved out of the route: a feed that withheld the last second over HTTP
+		and not locally would lose events on one transport only, and the transport is the last
+		place anybody would look for a missing change.
+
+		Spans every readable workspace unless one is named, which is what makes "what did I
+		miss" answerable in one call by somebody working across two.
+		"""
+
+		size = subroutine.domain.paging.size(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			if workspace is None:
+				chosen = subroutine.domain.workspaces.readable(session, actor)
+
+			else:
+				chosen = [
+					subroutine.domain.selection.workspace(session, actor, requested=workspace)
+				]
+
+			workspace_ids = [each.id for each in chosen]
+
+			subroutine.domain.events.refuse_expired_cursor(
+				session, since=since, workspace_ids=workspace_ids
+			)
+
+			rows, _more = subroutine.domain.events.page(
+				session,
+				actor,
+				workspace_ids=workspace_ids,
+				size=size,
+				since=since,
+				mine=mine,
+				newest=newest and since is None,
+			)
+			described = subroutine.domain.events.descriptions(session, rows)
+
+			return [subroutine.views.event(row, described) for row in rows]
 
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None

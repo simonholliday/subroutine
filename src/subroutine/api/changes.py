@@ -31,12 +31,10 @@ invisible here. A feed is the one place in this API where forgetting to add a ru
 publish something rather than hide it.
 """
 
-import datetime
 import typing
 import uuid
 
 import fastapi
-import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
@@ -45,12 +43,9 @@ import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.config
-import subroutine.db.models.activity
-import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.paging
-import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -61,11 +56,6 @@ router = fastapi.APIRouter(
 )
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Event)
-
-#: How far behind the clock the newest reportable event sits. §5.11 fixes the value, because
-#: it is client-visible: a caller polling more often than this simply sees nothing new, and
-#: one that reasons about freshness needs to know the endpoint is deliberately a second stale.
-WATERMARK = datetime.timedelta(seconds=1)
 
 #: The only value ``?actor=`` takes. **This credential, not this user** (`#158`): an agent
 #: holding a service-account token wants what *it* did, not what the person who issued the
@@ -96,6 +86,11 @@ def listing (
 		None,
 		alias="actor",
 		description="'me' for what this credential itself did. Omit for everything you can see.",
+	),
+	newest: bool = fastapi.Query(
+		False,
+		description="Start at the newest events rather than the oldest. For a first look at "
+		"a long history; the page still reads forwards. Ignored when 'since' is given.",
 	),
 	limit: int | None = fastapi.Query(None, description="How many to return."),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
@@ -156,7 +151,9 @@ def listing (
 			],
 		)
 
-	_refuse_expired_cursor(session, settings, since=since, workspace_ids=workspace_ids)
+	subroutine.domain.events.refuse_expired_cursor(
+		session, since=since, workspace_ids=workspace_ids
+	)
 
 	return _page(
 		session,
@@ -165,6 +162,9 @@ def listing (
 		workspace_ids=workspace_ids,
 		since=since,
 		mine=actor_filter == ACTOR_ME,
+		# `since` wins: it says where the caller has got to, which `newest` cannot improve on
+		# and would silently contradict by skipping everything between.
+		newest=newest and since is None,
 		limit=limit,
 		shape=subroutine.api.shaping.wanted(
 			format=format, fields=fields, available=SELECTABLE, entity="event"
@@ -180,83 +180,29 @@ def _page (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	since: int | None,
 	mine: bool,
+	newest: bool,
 	limit: int | None,
 	shape: typing.Any,
 ) -> typing.Any:
 	"""Return one page of the feed."""
 
-	model = subroutine.db.models.activity.Event
-
-	# **`mine` with no token is an empty feed, not an unfiltered one.** A session-authenticated
-	# caller has no `actor_token_id` on anything they did, so matching on a null token would
-	# silently widen `?actor=me` to everything — the failure mode being asked about here is
-	# precisely somebody believing they are seeing only their own work.
-	token_id = None if actor.token is None else actor.token.id
-
-	if mine and token_id is None:
-		return subroutine.api.shaping.response(
-			[], subroutine.views.Page(limit=subroutine.domain.paging.size(limit, settings)), shape
-		)
-
-	statement = subroutine.domain.events.selected(
-		workspace_ids=workspace_ids,
-		upper_bound=subroutine.db.types.utcnow() - WATERMARK,
-		since=since,
-		visible=subroutine.domain.scoping.visible_events(actor, workspace_ids=workspace_ids),
-		actor_token_id=token_id if mine else None,
-	)
-
 	size = subroutine.domain.paging.size(limit, settings)
-	rows = list(session.scalars(statement.order_by(model.seq.asc()).limit(size + 1)))
-	has_more = len(rows) > size
+	shown, has_more = subroutine.domain.events.page(
+		session,
+		actor,
+		workspace_ids=workspace_ids,
+		size=size,
+		since=since,
+		mine=mine,
+		newest=newest,
+	)
+	described = subroutine.domain.events.descriptions(session, shown)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.event(row) for row in rows[:size]],
+		[subroutine.views.event(row, described) for row in shown],
 		# **No `next_cursor`, and that is the contract rather than an omission.** This feed
 		# resumes on `?since=<seq>` (§5.11a), and handing back an opaque keyset cursor would
 		# offer a second way to page that the endpoint does not accept.
 		subroutine.views.Page(limit=size, has_more=has_more, total=None),
 		shape,
-	)
-
-
-def _refuse_expired_cursor (
-	session: sqlalchemy.orm.Session,
-	settings: subroutine.config.Settings,
-	*,
-	since: int | None,
-	workspace_ids: typing.Sequence[uuid.UUID],
-) -> None:
-	"""Refuse a cursor pointing further back than this instance can still account for.
-
-	§5.11 retains events for ``events_retention_days`` and requires ``410 cursor_expired``
-	below that floor, so a client resyncs rather than being handed a page that silently omits
-	everything pruned in between — the one failure a feed must never have, because it looks
-	exactly like nothing having happened.
-
-	**The test is "did events below this point exist and go", not "is this old".** A caller
-	resuming from seq 5 on an instance that still holds seq 1 is simply behind, and behind is
-	what this endpoint is for.
-
-	**Currently unreachable, and honestly so.** Nothing prunes yet (`#251`), so the oldest
-	surviving event is the first one ever written and no cursor can fall below it. The path
-	is built and tested by deleting rows, and goes live the day retention does.
-	"""
-
-	if since is None:
-		return
-
-	oldest = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.min(subroutine.db.models.activity.Event.seq)).where(
-			subroutine.db.models.activity.Event.workspace_id.in_(workspace_ids)
-		)
-	)
-
-	if oldest is None or since >= oldest:
-		return
-
-	raise subroutine.errors.CursorExpired(
-		f"Events before seq {oldest} are no longer held, so what happened since {since} "
-		f"cannot be reported in full.",
-		hint="Ask again without 'since' to resync from the oldest event still kept.",
 	)

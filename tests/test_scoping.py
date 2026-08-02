@@ -45,6 +45,12 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
 	"domain/tags.py": "reads a task's own tag rows, having been handed the task",
+	"domain/events.py": "`descriptions()` reads titles and refs by id for events the caller "
+	"already holds — the feed narrowed them through visible_events, a history resolved its "
+	"subject — so the rows are vetted before this sees them. Same standing as views.py: it "
+	"decides how a row is *named*, never which rows there are. It deliberately applies no "
+	"deleted or archived filter, because a deletion is the event most worth reporting and an "
+	"item in the trash still has to be nameable in the line that says it went there",
 	"domain/agenda.py": "builds on the helper and adds only what the agenda means",
 	"api/tasks.py": "every listing and lookup starts at readable_tasks; the direct select is "
 	"the include_total count, taken over that same narrowed statement as a subquery",

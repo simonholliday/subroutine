@@ -283,6 +283,31 @@ class Client(typing.Protocol):
 		asking about.
 		"""
 
+	def changes (
+		self,
+		*,
+		since: int | None = None,
+		mine: bool = False,
+		newest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> list[subroutine.views.Event]:
+		"""Return what has changed, oldest first, across everything this credential can see.
+
+		**The resumption question, and the counterpart to :meth:`history`.** That one asks what
+		happened to a named item; this asks what happened at all, which is what somebody
+		arriving after an absence actually wants and cannot assemble from the other.
+
+		``since`` is the ``seq`` of the last event already dealt with, and is **inclusive** —
+		send back what you last saw rather than the number after it, and ignore what you
+		already hold (§5.11). ``mine`` narrows to what *this credential* did, not this person.
+
+		Oldest first, because a feed is read forwards. **Events under a second old are withheld**
+		and this is not a defect to be worked around: a sequence number becomes visible at
+		commit rather than at insert, so reporting the newest instantly is how a change ends up
+		behind a cursor that has already passed it.
+		"""
+
 	def projects (
 		self, *, workspace: str | None = None, limit: int | None = None
 	) -> list[subroutine.views.Project]:

@@ -121,6 +121,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/projects"): "projects",
 	("GET", "/v1/projects/{id_or_key}/comments"): "comments",
 	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
+	("GET", "/v1/changes"): "changes",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
 	("GET", "/v1/me"): "identity",
 	("GET", "/v1/users"): "users",
@@ -129,14 +130,6 @@ READ_BY: dict[tuple[str, str], str] = {
 
 #: Routes no client reaches, and why. **Deleting an entry is what closes it.**
 NOT_REACHED: dict[tuple[str, str], Excuse] = {
-	("GET", "/v1/changes"): (
-		"tracked",
-		"`#253`. The feed itself is `#13` and is built; reaching it from a client is its own "
-		"work, and the MCP half is a deliberate act rather than a build — the tool surface "
-		"budget in `tests/test_mcp.py` has seven bytes of slack, so a tenth tool is a case to "
-		"be argued and measured, not a rider on the endpoint that made it possible. Deleting "
-		"this entry is what closes `#253`.",
-	),
 	("POST", "/v1/admin/backups"): (
 		"administrative",
 		"It needs `instance:admin`, which no role carries, and §12.4's recovery property "

@@ -703,7 +703,28 @@ def test_the_whole_tool_surface_stays_small (
 	  full each time. Only ``$defs`` would cut it, and a client that does not resolve a
 	  reference would show a property with no description at all.
 
-	The slack above the current total is deliberate and small — **7 bytes** as this is written,
+	- **2026-08-02, 9 / 6,144 -> 10 / 6,912**, for ``subroutine_changes`` (`#253`). Measured
+	  at **705 bytes**, which is roughly 175 tokens a session.
+
+	  **The case is unlike the other two, and worth keeping for that reason: there was no
+	  alternative being paid for elsewhere.** Both earlier raises replaced a shell-out the
+	  skill was already teaching. Here the skill could not tell an agent to run a CLI command
+	  either, because until the same day there was none — so the capability was not expensive,
+	  it was absent.
+
+	  **What settles it is that its absence is self-concealing.** Every other missing tool
+	  announces itself: an agent that cannot create a project finds out when it tries. An agent
+	  that cannot ask what changed does not discover a gap — it answers from a snapshot and is
+	  confident. That happened on 2026-08-02, which is what `#13` was raised from: Simon closed
+	  `#85`, asked whether I would have noticed unprompted, and I would not have. No amount of
+	  care substitutes, because the failure is invisible from the inside.
+
+	  **Fat was read for first and none was taken.** The nine existing schemas were re-read
+	  against `#149`'s pass, which had already removed the priority teaching from ``update``
+	  and named the ``workspace`` property once. What is left is argument descriptions a
+	  client shows a model, and cutting those trades context for a worse call.
+
+	The slack above the current total is deliberate and small — **68 bytes** as this is written,
 	which is less than one word. A cap set exactly at what is there makes every addition a cap
 	change, which is theatre; a generous one stops being a budget.
 
@@ -717,11 +738,11 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 9, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 10, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 6144, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 6912, f"the tool schemas are {size} bytes of every session's context"
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:

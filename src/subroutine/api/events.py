@@ -120,9 +120,10 @@ def _page (
 	rows = list(session.scalars(ordered.limit(size + 1)))
 	has_more = len(rows) > size
 	rows = rows[:size]
+	described = subroutine.domain.events.descriptions(session, rows)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.event(row) for row in rows],
+		[subroutine.views.event(row, described) for row in rows],
 		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
