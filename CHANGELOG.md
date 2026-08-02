@@ -12,6 +12,22 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **`subroutine project move` — reparent a project and everything under it.** The endpoint has
+  existed since the project tree did; nothing but HTTP could reach it, so reorganising meant
+  leaving the command line on a tool whose main surface is one. It counts what will move —
+  projects and the items travelling with them — and asks before doing it, because this is the
+  one project operation with no undo.
+
+  `--under KEY` or `--root`, and one of them has to be said: an omitted destination once meant
+  "move to root", which flattened subtrees by accident.
+
+  Deliberately not an agent tool. Rare, consequential and irreversible is the case where being
+  harder to reach is the feature.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

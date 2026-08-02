@@ -2298,6 +2298,119 @@ def register (
 			if world.marker is not None and world.marker.project == key.upper():
 				_suggest(console, f"subroutine use --here --project {renamed.key}")
 
+	@project_app.command("move")
+	def project_move (
+		key: str = typer.Argument(..., help="The project to move, by its short name."),
+		under: str = typer.Option(
+			"", "--under", help="Put it inside this project, by key."
+		),
+		root: bool = typer.Option(
+			False, "--root", help="Make it a top-level project instead."
+		),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Move a project, and everything underneath it, somewhere else in the tree.
+
+		Examples:
+
+		  subroutine project move WEB --under ACME
+
+		  subroutine project move WEB --root
+
+		Nothing is renumbered and nothing is refiled: every item keeps its number and stays in
+		the project it was in. What moves is where that project sits.
+
+		'--under' and '--root' are the two directions and one of them has to be said. An
+		omitted destination once meant "move to root", which flattened subtrees by accident.
+		"""
+
+		# **Neither, or both, is a refusal rather than a default** — this is the one project
+		# command with no undo, and `POST /v1/projects/{key}/move` refuses the same way for
+		# the same reason. Guessing either direction is how a subtree gets flattened.
+		if bool(under) == root:
+			stop(
+				"Say where to move it.",
+				"'--under KEY' puts it inside another project; '--root' makes it top-level.",
+			)
+
+		with opened() as world:
+			place = world.writing_to()
+			workspace = _writing_workspace(world)
+
+			# Counted before anything changes, like `project rename` — "this moves a subtree"
+			# is abstract, and "this moves 3 projects and 137 items" is something somebody can
+			# weigh. Reading first is the whole reason this is not a one-liner.
+			tree = place.client.projects(workspace=workspace)
+			moving = _subtree(tree, key)
+
+			if not moving:
+				stop(
+					f"There is no project called {key.upper()!r} here.",
+					"Run 'subroutine project list' to see what there is.",
+				)
+
+			# **Every project in the subtree, not just the named one.** Asking only about `key`
+			# reported one item where two were moving, which is the exact opposite of what a
+			# count is for. One request per project in the subtree is a real cost and the
+			# right one to pay here: this runs once, on a rare operation, to answer a question
+			# somebody is about to say yes to.
+			held = sum(
+				len(
+					place.client.tasks(
+						workspace=workspace, project=item.key, include_completed=True
+					)
+				)
+				for item in moving
+			)
+
+			if not yes:
+				destination = "the top level" if root else under.upper()
+				projects = f"{len(moving)} project{'' if len(moving) == 1 else 's'}"
+				items = f"{held} item{'' if held == 1 else 's'}"
+
+				say(f"Moving {key.upper()} to {destination}.")
+				say(f"  {projects} move, and {items} {'goes' if held == 1 else 'go'} with them.")
+				say("  Every number stays the same, and nothing is refiled.")
+
+				if not typer.confirm("Go on?"):
+					stop("Nothing was moved.")
+
+			moved = place.client.move_project(
+				key, parent=None if root else under, workspace=workspace
+			)
+
+			say(f"Moved {moved.key} — {moved.title}")
+
+	def _subtree (
+		tree: list[subroutine.views.Project], key: str
+	) -> list[subroutine.views.Project]:
+		"""Return the project with this key and everything under it.
+
+		**Walked through ``parent_id``, not read off ``path``.** The materialised path is
+		exactly what makes this a single containment test in the database, and it is
+		deliberately *not* on the view — §6.9 calls it an implementation of the hierarchy
+		rather than a field of it, and the writability guard records that. So a client
+		assembles the tree from the one relation it is given, which is the right side of that
+		trade: `path` is ours to change and `parent_id` is a fact.
+
+		``projects()`` returns parents before children (§8.4), so one forward pass is enough
+		and nothing has to recurse.
+		"""
+
+		wanted = key.strip().upper()
+		root = next((item for item in tree if item.key == wanted), None)
+
+		if root is None:
+			return []
+
+		inside = {root.id}
+
+		for item in tree:
+			if item.parent_id in inside:
+				inside.add(item.id)
+
+		return [item for item in tree if item.id in inside]
+
 	# **Membership lives under `user`, and there is deliberately no `workspace` group**
 	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
 	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a

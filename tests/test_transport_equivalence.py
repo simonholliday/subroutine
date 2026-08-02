@@ -1463,3 +1463,43 @@ def _settle (pair: Pair) -> None:
 		event.created_at = event.created_at - shift
 
 	pair.session.flush()
+
+
+def test_both_move_a_project_the_same_way (pair: Pair) -> None:
+	"""`#246`. `POST /v1/projects/{key}/move` reached no client until now."""
+
+	local, remote = pair.both()
+
+	local.create_project(key="ACME", title="Acme")
+	local.create_project(key="WEB", title="Website")
+	local.create_project(key="API", title="The API", parent="WEB")
+
+	moved = local.move_project("WEB", parent="ACME")
+	acme = next(item for item in local.projects() if item.key == "ACME")
+
+	assert moved.parent_id == acme.id
+	assert local.projects() == remote.projects()
+
+	# The subtree came with it, which is the whole of what "move" means here.
+	api = next(item for item in local.projects() if item.key == "API")
+	web = next(item for item in local.projects() if item.key == "WEB")
+
+	assert api.parent_id == web.id
+	assert api.depth == web.depth + 1
+
+
+def test_both_take_a_project_back_to_the_root_the_same_way (pair: Pair) -> None:
+	"""``parent=None`` is an instruction, not an omission — and it must survive the wire.
+
+	`_given` drops a `None`, which is right for a filter and wrong here: the endpoint refuses
+	a body naming no parent at all, precisely so that "move to root" has to be said. A client
+	that dropped the key would meet that refusal instead of moving anything.
+	"""
+
+	local, remote = pair.both()
+
+	local.create_project(key="ACME", title="Acme")
+	local.create_project(key="WEB", title="Website", parent="ACME")
+
+	assert remote.move_project("WEB", parent=None).parent_id is None
+	assert local.projects() == remote.projects()

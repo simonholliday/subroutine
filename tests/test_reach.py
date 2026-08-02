@@ -96,6 +96,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/projects"): "create_project",
 	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
+	("POST", "/v1/projects/{id_or_key}/move"): "move_project",
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
 	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
@@ -219,12 +220,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"Same as creating one, and rarer: a workspace's title and timezone are set once. "
 		"`#141`.",
 	),
-	("POST", "/v1/projects/{id_or_key}/move"): (
-		"disclosure",
-		"Reparenting a whole subtree. Rare, consequential, and there is no undo, so §1.4's "
-		"argument runs the other way: this one should be harder to reach, not easier. "
-		"`#141` holds the shape it eventually wants.",
-	),
 	("PATCH", "/v1/documents/{id_or_ref}"): (
 		"tracked",
 		"Editing a document's body. Waits on `#15` (`subroutine edit`), because the answer "
@@ -261,6 +256,14 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"move_project": (
+		"disclosure",
+		"Reparenting a whole subtree: rare, consequential, and no undo. §1.4's argument runs "
+		"the other way for this one — it should be harder to reach, not easier — and the CLI "
+		"half (`#246`) counts what will move and asks before doing it, which is not a shape "
+		"a tool call has. An eleventh tool for an operation nobody performs weekly is also "
+		"the wrong side of the budget `tests/test_mcp.py` holds.",
+	),
 	"close": (
 		"protocol",
 		"Resource lifetime, not a capability §13.7 could deny anybody — the server closes "

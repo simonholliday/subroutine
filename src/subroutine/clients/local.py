@@ -780,6 +780,33 @@ class Client:
 				renamed, subroutine.views.Vocabulary.for_projects(session, [renamed])
 			)
 
+	def move_project (
+		self, project: str, *, parent: str | None, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Reparent a project, taking everything under it."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			# Resolved through the same function as the project being moved, so an unknown
+			# parent is refused here exactly as the endpoint refuses it, and a private one
+			# somebody is not a member of is absent rather than forbidden.
+			under = (
+				None
+				if parent is None
+				else subroutine.domain.selection.project(session, actor, chosen, parent)
+			)
+
+			subroutine.domain.projects.move(session, found, parent=under, actor=actor)
+
+			return subroutine.views.project(
+				found, subroutine.views.Vocabulary.for_projects(session, [found])
+			)
+
 	def create_document (
 		self,
 		*,

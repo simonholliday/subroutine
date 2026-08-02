@@ -398,6 +398,22 @@ class Client(typing.Protocol):
 		they never notice. Nothing joined to the project moves — ``project.id`` is a UUID.
 		"""
 
+	def move_project (
+		self, project: str, *, parent: str | None, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Reparent a project, taking everything under it — item ``#246``.
+
+		``parent`` is a key or an id; ``None`` makes it a root. **Null is a real answer here
+		and cannot double as "not asked"**, which is why the argument is required rather than
+		defaulted: an omitted parent used to mean "move to root", and flattened whole subtrees
+		by accident.
+
+		Nothing is renumbered and nothing changes hands — a project's items travel with it,
+		and every ref is per-workspace (§6.2) rather than per-project. What does move is the
+		materialised path of the project and of every descendant, which is why this is the one
+		project operation whose cost is worth reporting before it runs.
+		"""
+
 	def create_document (
 		self,
 		*,

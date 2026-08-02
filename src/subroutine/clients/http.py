@@ -479,6 +479,26 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def move_project (
+		self, project: str, *, parent: str | None, workspace: str | None = None
+	) -> subroutine.views.Project:
+		"""Reparent a project, taking everything under it."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/projects/{project}/move",
+			# **Sent whatever it is, including null.** `_given` drops a None, which is right
+			# for a filter and wrong for a field whose null is an instruction — the endpoint
+			# refuses a body that names no parent at all, precisely so that "move to root"
+			# has to be said rather than implied.
+			json={"parent": parent},
+			params=_given(workspace_id=workspace),
+		)
+
+		return subroutine.views.Project.model_validate(body)
+
 	def create_document (
 		self,
 		*,

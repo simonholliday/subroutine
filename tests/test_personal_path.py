@@ -3216,3 +3216,49 @@ def test_init_can_still_be_retried_after_it_failed_part_way (
 
 	assert result.exit_code == 0
 	assert "Ready." in result.output
+
+
+def test_project_move_counts_the_whole_subtree_before_asking (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#246`. The count is the reason this is not a one-liner, so it has to be right.
+
+	`project rename` set the pattern: "this will break addresses" is abstract, and "137 items
+	keep their numbers" is something somebody can weigh. The first version of this asked only
+	about the named project and reported one item while two were moving — a count that
+	undercounts is worse than none, because it is the number somebody says yes to.
+	"""
+
+	run("init")
+	run("project", "create", "ACME", "Acme")
+	run("project", "create", "WEB", "Website")
+	run("project", "create", "API", "The API", "--parent", "WEB")
+	run("add", "Fix the nav +WEB")
+	run("add", "Rate limit +API")
+
+	asked = run("project", "move", "WEB", "--under", "ACME", input="n\n", expect=1)
+
+	assert "2 projects move, and 2 items go with them" in asked.output
+	assert "Nothing was moved." in asked.output
+
+	# Declining left the tree alone, which is what makes the question a question.
+	assert "  WEB" not in run("project", "list").output
+
+
+def test_project_move_refuses_to_guess_a_direction (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Neither `--under` nor `--root`, or both, is a refusal rather than a default.
+
+	This is the one project command with no undo, and an omitted destination once meant "move
+	to root" — which flattened whole subtrees by accident. The endpoint refuses the same way
+	for the same reason; this is the CLI half of that decision.
+	"""
+
+	run("init")
+	run("project", "create", "WEB", "Website")
+
+	for arguments in (("project", "move", "WEB"), ("project", "move", "WEB", "--root", "--under", "ACME")):
+		refused = run(*arguments, expect=1)
+
+		assert "Say where to move it." in refused.output
