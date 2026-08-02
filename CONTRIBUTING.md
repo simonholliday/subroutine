@@ -16,6 +16,10 @@ That will change once the shape has settled, and this file will say so when it d
 - **Telling us it does not fit.** If you tried it and stopped, we would rather know why than
   not. An issue saying "I wanted X and there was no way to do it" is worth more than a guess.
 
+**A vulnerability is the exception, and please treat it as one.** An issue is public from the
+moment it is filed, so it is the one report that must not start there —
+[SECURITY.md](SECURITY.md) says where it should go instead.
+
 The rest of this file is kept for two reasons: an unsolicited pull request still needs the
 licence agreement below if it is ever taken, and the conventions are worth having if you are
 reading the code to decide whether to trust it.

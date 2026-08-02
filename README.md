@@ -307,6 +307,8 @@ Named plainly, because a tool that overstates itself wastes your afternoon:
 - **[docs/errors.md](docs/errors.md)** — every error code the API can return. Generated from
   the registry, so it cannot drift from the code.
 - **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
+- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability privately, and what is in
+  scope. Not through an issue: an issue is public from the moment it is filed.
 
 The full specification — data model, API, permissions and agent design — is written but
 not yet published. It lands here once the API has settled enough to be worth reading.
