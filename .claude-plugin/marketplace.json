@@ -10,7 +10,7 @@
     {
       "name": "subroutine",
       "source": "./plugins/subroutine",
-      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. Needs Subroutine itself installed separately — 'pip install subroutine', then 'subroutine init'.",
+      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. Needs Subroutine itself installed separately and on your PATH \u2014 'uv tool install subroutine' or 'pipx install subroutine', then 'subroutine init'.",
       "author": {
         "name": "Simon Holliday",
         "email": "simon.holliday@protonmail.com"

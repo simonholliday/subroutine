@@ -98,7 +98,10 @@ def test_the_marketplace_says_the_product_is_a_separate_install () -> None:
 
 	described = _read(MARKETPLACE)["plugins"][0]["description"]
 
-	assert "pip install subroutine" in described
+	# Same correction as the skill's (`#237`): the listing is read by somebody who is about to
+	# wire an editor to it, so the install it names has to be one that leaves the command
+	# findable. `pip install` into a virtualenv satisfies "installed" and fails anyway.
+	assert any(phrase in described for phrase in ("uv tool install", "pipx install"))
 	assert "subroutine init" in described
 
 
@@ -216,9 +219,24 @@ def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
 
 	text = _skill()
 
-	assert "pip install subroutine" in text
+	# **An install that lands on `PATH`, not merely an install** (`#237`). This asserted
+	# `pip install subroutine` until the day somebody met the failure: the editor launches the
+	# program itself, so a `pip install` into a virtualenv satisfies the old wording and leaves
+	# the tools missing anyway. Either tool installer is accepted; naming one would pin a
+	# preference this test has no business holding.
+	assert any(phrase in text for phrase in ("uv tool install", "pipx install")), (
+		"the skill must name an install that puts the command where an editor can find it"
+	)
 	assert "subroutine init" in text
+
+	# The two escape hatches, both needed: one for somebody who will install it again, one for
+	# somebody who would rather point at the copy they already have.
 	assert "/plugin configure" in text, "the virtualenv case is the likely one, not the rare one"
+
+	# **And the command that tells the two causes apart.** Not installed and installed-but-
+	# unreachable are identical from inside a session — no tools, no error — so a skill that
+	# describes the remedies without naming the diagnostic sends half its readers the wrong way.
+	assert "claude mcp list" in text
 
 
 def test_every_tool_the_skill_names_exists (

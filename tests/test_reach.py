@@ -38,6 +38,7 @@ and declaring it would be a third copy of the matrix in ``#146``.
 
 import ast
 import pathlib
+import re
 import typing
 
 import subroutine.api.app
@@ -551,11 +552,28 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	skill = (ROOT / "plugins" / "subroutine" / "skills" / "subroutine" / "SKILL.md").read_text(
 		encoding="utf-8"
 	)
+
+	# **Counted against the real command list, because the word after "subroutine " is not
+	# always a command** (`#237`). This split on the literal and took the next token, so
+	# ``subroutine init`` in prose and the same in a fenced block counted as two — the second
+	# carrying its closing backtick — and a line reading ``uv tool install subroutine  # or:
+	# pipx …`` registered a command called ``#``. Three spellings of one route-around and one
+	# that was not a route-around at all, against a budget of three: it failed on a change that
+	# added no shelling out whatsoever, which is a guard measuring its own regex.
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
 	commands = {
-		line.split("subroutine ")[1].split()[0]
-		for line in skill.splitlines()
-		if "subroutine " in line and "subroutine_" not in line
+		match.group(1)
+		for match in re.finditer(r"\bsubroutine ([a-z][a-z-]*)", skill)
+		if match.group(1) in registered
 	}
+
+	# The floor matters as much as the ceiling here: an extraction that reaches nothing passes
+	# a ceiling test silently, which is the failure this comment exists because of.
+	assert commands, "found no CLI commands in the skill — has this stopped reaching them?"
 
 	assert len(commands) <= 3, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "

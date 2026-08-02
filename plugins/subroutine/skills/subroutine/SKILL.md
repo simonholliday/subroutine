@@ -9,13 +9,29 @@ Subroutine is a task and project tracker that a person and an agent use as equal
 write in it is attributed to you, addressable by a number, and still there after your context
 is gone — which is the whole reason to spend calls on it.
 
-**If the `subroutine_*` tools are not available, stop and say so.** The plugin configures them
-but does not install the program. Tell the user:
+**If the `subroutine_*` tools are not available, stop and say so — and do not guess which of the
+two causes it is.** The plugin configures the tools but does not install the program, so either
+it is not installed, or it is installed somewhere the editor cannot see. Both look identical
+from here: no tools, and no error, because installing a plugin and starting its server are
+separate moments and only the first one reports. One command tells them apart:
 
 ```
-pip install subroutine
+claude mcp list
+```
+
+`✘ Failed to connect` beside `plugin:subroutine:subroutine` means the program was not found on
+the `PATH` the editor passes down — nearly always a virtualenv. Say so, and offer the two ways
+out: install it as a tool so it is on the `PATH` for good, or point the plugin at the copy that
+already exists.
+
+```
+uv tool install subroutine     # or: pipx install subroutine
 subroutine init
 ```
+
+`/plugin configure subroutine` takes the absolute path instead — `<venv>/bin/subroutine` — for
+somebody who would rather not install it twice. If the server is not listed at all, the plugin
+itself is not installed or is disabled.
 
 **If the tools are there but every call fails, read what the failure says — it names the
 remedy.** This is the ordinary case on a fresh install and it is not the one above: the MCP
@@ -24,10 +40,9 @@ and then refuse. `no Subroutine instance has been set up here yet.` means the us
 `subroutine init` once; a schema message means `subroutine upgrade`. Pass the failure on
 verbatim rather than diagnosing it — the sentence is written for them.
 
-If it is installed but the tools still fail with nothing useful, it is almost certainly on a
-path Claude Code cannot see — a virtualenv, usually. `/plugin configure subroutine` takes the
-full path to the `subroutine` command. Do not work around it by writing to a file instead; a
-tracker nobody can reach is worse than an honest failure.
+**Whichever of these it is, do not work around it by writing to a file instead.** A tracker
+nobody can reach is worse than an honest failure, and a to-do list in a scratch file is a
+tracker nobody can reach.
 
 `GET /v1/docs/agent` on any served instance is the reference for the HTTP API. This page is
 about *when* to reach for it and what good practice looks like — it does not repeat the API.

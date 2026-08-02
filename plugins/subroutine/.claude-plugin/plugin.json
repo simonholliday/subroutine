@@ -18,7 +18,7 @@
     "command": {
       "type": "string",
       "title": "The subroutine command",
-      "description": "Usually just 'subroutine'. Give the full path if you installed it into a virtualenv your editor does not activate — for example /home/you/.venvs/subroutine/bin/subroutine. Not installed yet? Run 'pip install subroutine' and then 'subroutine init' in a terminal, then come back here.",
+      "description": "Usually just 'subroutine'. Your editor launches it, so it has to be on your PATH \u2014 'uv tool install subroutine' or 'pipx install subroutine' put it there. Give the full path instead if it lives in a virtualenv your editor does not activate, for example /home/you/.venvs/subroutine/bin/subroutine. Not installed yet? Install it in a terminal, run 'subroutine init', then come back here.",
       "default": "subroutine"
     },
     "connection": {
@@ -30,7 +30,7 @@
     "token": {
       "type": "string",
       "title": "Agent token (optional)",
-      "description": "A token issued for this agent, if you want it to have less access than you do — 'subroutine token create --service-account claude --scope task:read'. Leave empty to let it act as you. Stored in your system keychain, never in a settings file.",
+      "description": "A token issued for this agent, if you want it to have less access than you do \u2014 'subroutine token create --service-account claude --scope task:read'. Leave empty to let it act as you. Stored in your system keychain, never in a settings file.",
       "sensitive": true,
       "default": ""
     }

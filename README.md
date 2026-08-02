@@ -39,6 +39,7 @@ practice — it keeps the backlog, records what it did, and adopts Subroutine in
 are already working on. **You never have to learn the CLI.**
 
 ```console
+$ uv tool install subroutine    # or pipx — your editor starts it, so it must be on your PATH
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
@@ -71,10 +72,21 @@ commands and `subroutine explain dates` covers the ideas behind them.
 ## Install
 
 Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
-start — SQLite is the default and `subroutine init` makes it. PostgreSQL when you outgrow it:
+start — SQLite is the default and `subroutine init` makes it.
+
+`pip install subroutine` is fine if you are only going to type commands yourself. **If an
+editor or an agent is going to launch it, install it as a tool instead** — that is what puts
+`subroutine` on your `PATH`, where something other than your shell can find it:
 
 ```console
-$ pip install "subroutine[postgres]"
+$ uv tool install subroutine
+$ pipx install subroutine        # the same thing, if you have pipx rather than uv
+```
+
+PostgreSQL when you outgrow SQLite — the extra goes on whichever of the three you used:
+
+```console
+$ uv tool install "subroutine[postgres]"
 ```
 
 ## The shape of it
@@ -163,10 +175,15 @@ $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-It asks once for the path to the `subroutine` command — give the absolute path if you
-installed into a virtualenv your editor does not activate — and optionally for a connection
-and a token, which are only needed for somebody else's instance. The token is kept in your
-system keychain, never in a settings file.
+**Your editor launches `subroutine` itself, so it has to be on your `PATH`** — which is what
+`uv tool install` and `pipx install` guarantee and a virtualenv does not. If the tools do not
+appear afterwards, that is nearly always why, and `claude mcp list` says so in one line:
+installing a plugin and starting its server are separate moments, and only the first one
+reports. `/plugin configure subroutine` takes the absolute path when you would rather point at
+a virtualenv than install it again.
+
+It can also be given a connection and a token, both only needed for somebody else's instance.
+The token is kept in your system keychain, never in a settings file.
 
 Without the plugin, or for another MCP client:
 
