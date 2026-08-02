@@ -18,6 +18,7 @@ import sys
 import typing
 
 import pytest
+import rich.text
 import typer.testing
 
 import subroutine.cli.main
@@ -3681,3 +3682,137 @@ def test_revising_a_document_does_not_read_stdin_when_it_was_told_what_to_write 
 	# that would otherwise fall through to the read.
 	run("doc", "edit", "1", "--title", "A conclusion, restated")
 	run("doc", "edit", "1", "--type", "decision")
+
+
+def test_renaming_a_project_counts_past_a_page_and_agrees_with_itself (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#296``. The number is the whole point of the prompt, and it saturated at a page.
+
+	`project rename` asked `client.tasks` with no limit and reported `len()`, so
+	`default_page_size` capped it: renaming a project of 249 items promised that 50 kept their
+	numbers. False in the direction that makes an irreversible operation look *smaller*, in the
+	one sentence somebody reads while deciding to do it.
+
+	Sixty items, over the default fifty, because a project smaller than a page cannot show
+	this — which is why nothing caught it.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("project", "create", "BIG", "Big")
+
+	for index in range(60):
+		run("add", f"item {index} +BIG")
+
+	refused = run("project", "rename", "BIG", "HUGE", input="n\n", expect=1)
+
+	assert "60 items keep their numbers" in refused.output, refused.output
+
+
+def test_the_rename_prompt_agrees_when_there_is_one_item (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#296``'s other half: "1 item keep their numbers" pluralised the noun alone.
+
+	Both rename commands print this sentence and each had its own copy, so the copies could
+	disagree — and did, in opposite ways. One helper now, asserted on the command that had it
+	wrong.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("project", "create", "SOLO", "Solo")
+	run("add", "the only one +SOLO")
+
+	refused = run("project", "rename", "SOLO", "ONE", input="n\n", expect=1)
+
+	assert "1 item keeps its number" in refused.output, refused.output
+	assert "keep their numbers" not in refused.output
+
+
+def test_show_caps_the_comments_and_says_how_many_there_are (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#37``, requested by Simon. A reader asking "what is this" should not get a transcript.
+
+	The count is what makes the cap safe: a section that silently printed five of eight would
+	be `#33`'s truncation-in-silence, which is the thing this project keeps finding wrong.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("add", "Something long-running")
+
+	for index in range(8):
+		run("comment", "1", f"comment number {index}")
+
+	shown = run("show", "1").output
+
+	assert "What happened (8, showing 5)" in shown, shown
+	assert "comment number 7" in shown
+	assert "comment number 2" not in shown
+
+
+def test_show_prints_every_comment_when_there_are_few (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the ordinary item reads exactly as it did — no count, no cap, nothing to explain.
+
+	Nothing in this instance has more than a handful, so this is the case that matters most
+	and the one a change like `#37` most easily breaks.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("add", "Something ordinary")
+	run("comment", "1", "the only thing that happened")
+
+	shown = run("show", "1").output
+
+	assert "the only thing that happened" in shown
+	assert "showing" not in shown
+	assert "What happened" in shown
+
+
+def test_a_search_marks_the_word_it_matched (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#103``. The matched-field column says *where*; this saves scanning a long title for it.
+
+	Asserted on the styled spans rather than on the output, because the output is the thing
+	that must *not* change: this is a highlight, not an encoding (decision `#102`), so a piped
+	run or `NO_COLOR` loses the colour and keeps the answer.
+	"""
+
+	line = rich.text.Text()
+	subroutine.cli.personal._append_title(line, "cursor jumps when the cursor moves", "CURSOR")
+
+	assert line.plain == "cursor jumps when the cursor moves"
+	# Every occurrence, not the first: a title matching twice and marked once reads as though
+	# the program found something the reader cannot see.
+	assert [(span.start, span.end) for span in line.spans] == [(0, 6), (22, 28)]
+
+
+def test_a_title_that_looks_like_markup_is_still_printed_rather_than_obeyed (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A title is user data, which is why it goes through ``Text`` and never through markup.
+
+	Highlighting by building a marked-up string would reopen exactly that — and the failure is
+	invisible until somebody files an item with a bracket in its title.
+	"""
+
+	line = rich.text.Text()
+	subroutine.cli.personal._append_title(line, "[bold]shout[/bold] about cursor", "cursor")
+
+	assert line.plain == "[bold]shout[/bold] about cursor"
+	assert [(span.start, span.end) for span in line.spans] == [(25, 31)]
+
+
+def test_nothing_is_marked_when_no_search_was_made (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""An ordinary listing is not a search, and must render exactly as it always has."""
+
+	line = rich.text.Text()
+	subroutine.cli.personal._append_title(line, "cursor jumps", None)
+
+	assert line.plain == "cursor jumps"
+	assert line.spans == []

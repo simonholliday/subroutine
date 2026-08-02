@@ -250,6 +250,14 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"count_tasks": (
+		"budget",
+		"`#296`. It exists so the two rename commands can print a number that is not a page "
+		"size, and both of those are already `NOT_IN_MCP` — renaming is rare, consequential "
+		"and confirmed at a terminal. An agent wanting a count asks `subroutine_list` and "
+		"reads what came back; a whole tool schema in every session to save it that is the "
+		"trade §21's budget exists to refuse.",
+	),
 	"update_document": (
 		"tracked",
 		"`#293`, and this guard is what found it — the CLI half landed as `#291` and the "

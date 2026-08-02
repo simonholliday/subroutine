@@ -161,6 +161,39 @@ class Client:
 
 			return subroutine.views.agenda(session, built)
 
+	def count_tasks (
+		self, *, workspace: str | None = None, project: str | None = None
+	) -> int:
+		"""Return how many tasks a project holds, completed ones included (`#296`)."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			narrowed = (
+				None
+				if project is None
+				else subroutine.domain.selection.project(session, actor, chosen, project)
+			)
+
+			statement = subroutine.domain.scoping.readable_tasks(
+				actor, workspace_ids=[chosen.id], include_completed=True
+			)
+
+			if narrowed is not None:
+				statement = statement.where(
+					subroutine.db.models.work.Task.project_id == narrowed.id
+				)
+
+			# Counted over the narrowed statement as a subquery rather than by loading rows,
+			# which is the whole reason this is not `len(tasks(...))`.
+			return int(
+				session.scalar(
+					sqlalchemy.select(sqlalchemy.func.count()).select_from(
+						statement.subquery()
+					)
+				)
+				or 0
+			)
+
 	def tasks (
 		self,
 		*,

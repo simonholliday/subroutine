@@ -1501,6 +1501,28 @@ def test_both_refuse_a_cursor_below_the_first_seq_the_same_way (pair: Pair) -> N
 	assert "names nothing" in str(locally.value)
 
 
+def test_both_count_a_project_past_a_page (pair: Pair) -> None:
+	"""``#296``. A count is not a page, and `len(tasks(...))` reported the page size.
+
+	Sixty items over a default page of fifty, because the whole defect is invisible below the
+	limit — which is why `project rename` promised "50 items keep their numbers" about a
+	project of 249 and nothing noticed.
+
+	Both transports, because the local side counts over a subquery and the HTTP side asks for
+	§8.4's `include_total`: two implementations of one number, which is the arrangement this
+	file exists for.
+	"""
+
+	for index in range(60):
+		make(pair, f"item {index}")
+
+	local, remote = pair.both()
+
+	assert local.count_tasks() == remote.count_tasks() == 60
+	# And the listing still stops at a page, so the two answer different questions.
+	assert len(local.tasks(limit=None)) < 60
+
+
 def _settle (pair: Pair) -> None:
 	"""Age every event past the watermark, so the feed will report it.
 

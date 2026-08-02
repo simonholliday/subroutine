@@ -113,12 +113,43 @@ upgrade involves.
   Naming a field changes that field and leaves the text alone, so `doc edit 42 --title "…"`
   does what it looks like.
 
+- **`subroutine show` says how many comments there are, and prints the most recent five.**
+  Every comment in full is right for the three or four an item usually has and wrong for the
+  hundred it might accumulate, where a reader asking "what is this" gets a transcript. The
+  count is always shown — `What happened (8, showing 5)` — so a bounded section is never a
+  silently truncated one. An item with five or fewer reads exactly as it did.
+
+- **`subroutine search` marks the word it matched.** The `matched` column already said which
+  field the hit was in; on a long title the reader still had to find the word. A highlight
+  rather than an encoding, so a pipe or `NO_COLOR` loses the colour and keeps the answer, and
+  every occurrence is marked rather than the first.
+
 - **`subroutine_search` — an agent can search by name.** The capability existed as a `q`
   argument on `subroutine_list`, which meant a model reading tool *names* to decide what it
   could do had no reason to think searching was possible. `q` moves off `list` onto the new
   tool, so there is one name for one thing.
 
 ### Fixed
+
+- **`subroutine project rename` counts the whole project rather than one page.** It asked for
+  a listing and reported its length, so `default_page_size` capped it: renaming a project of
+  249 items promised that 50 would keep their numbers. Wrong in the direction that makes an
+  irreversible operation look smaller, in the one sentence somebody reads while deciding to do
+  it. It also said "1 item keep their numbers" — the noun pluralised and the verb left behind.
+  Both rename commands now share one sentence, and `subroutine workspace rename` loses the
+  "at least" hedge it was using to stay honest.
+
+- **`subroutine token list` names the projects a credential is scoped to.** The line above
+  resolved the workspace pin to its slug; the project scope on the next line printed raw
+  UUIDs. Resolved through the same narrowing every other listing uses, so a key is never shown
+  to somebody who cannot see that project — and an id that does not resolve is left as it was
+  rather than dropped, because a listing of what a credential can reach must not report less
+  than the truth.
+
+- **`subroutine user list` says `instance admin`, not `admin`.** `admin` is also the key of a
+  workspace role, and `user list --workspace acme` prints its answer in the same column
+  position — so the same person read as `admin` in one command and `owner` in the other, where
+  the first named a role she does not hold.
 
 - **`subroutine db copy` no longer migrates a database it is about to refuse.** It brought the
   target up to schema *first* and checked whether it was empty second — so naming an existing

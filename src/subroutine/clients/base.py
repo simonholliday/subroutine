@@ -114,6 +114,24 @@ class Client(typing.Protocol):
 		different days merged into one list.
 		"""
 
+	def count_tasks (
+		self, *, workspace: str | None = None, project: str | None = None
+	) -> int:
+		"""Return how many tasks a project holds, completed ones included.
+
+		**A count, not a page** (`#296`). ``tasks()`` returns at most a page, so a caller
+		measuring a project with ``len()`` reported ``default_page_size`` and called it a total
+		— which `project rename` did, in the sentence somebody reads while deciding whether to
+		do something irreversible, and it was wrong in the direction that makes the operation
+		look *smaller* than it is. §8.4's ``include_total`` has answered this on the endpoint
+		since M1 and reached no client.
+
+		Deliberately its own method rather than a flag on :meth:`tasks`. That would have to
+		change what the listing returns for every caller in order to carry one number back, and
+		the two questions — *what is in here* and *how much is in here* — are asked separately
+		and by different code.
+		"""
+
 	def tasks (
 		self,
 		*,

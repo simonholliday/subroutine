@@ -71,6 +71,19 @@ SUGGESTION = "dim cyan"
 GROUP = "bold cyan"
 TROUBLE = "yellow"
 
+#: Where a search term matched. One of the sixteen basic names, so it is *the user's* yellow
+#: and their terminal theme decides what that looks like (decision `#102`) — a hex value would
+#: ignore the theme and land unreadable on somebody's background. Not `LATE`'s red: red already
+#: means overdue here, and one colour with two meanings is the thing that rule exists to stop.
+MATCH = "yellow"
+
+#: How many comments ``show`` prints in full before it stops and says how many there are
+#: (`#37`). Enough that the ordinary item — everything in this instance has a handful — reads
+#: exactly as it did, and small enough that an item somebody has worked on for a month is still
+#: an answer rather than a transcript. The *count* is always shown, so a reader is never left
+#: unaware that a record exists.
+COMMENTS_SHOWN = 5
+
 
 #: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
 #: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
@@ -473,6 +486,45 @@ def _parent_cell (item: Item) -> str:
 	return f"{PARENT_SIGIL}{item.parent_ref}"
 
 
+def _append_title (line: rich.text.Text, title: str, term: str | None) -> None:
+	"""Append a title, marking where a search term matched it (`#103`).
+
+	**A highlight, never an encoding** (decision `#102`). The `matched` column already says
+	*which field* the hit was in, so this adds nothing a reader needs and only saves them
+	scanning a long title for the word — which is exactly what colour is good at and what §12.2a
+	means by marking an exception. Piped, or under ``NO_COLOR``, the styles fall away and the
+	answer is unchanged.
+
+	**Spans, never markup.** A title is user data and is rendered through ``rich.text.Text``
+	precisely so that a literal ``[bold]`` somebody typed prints rather than obeys; building a
+	marked-up string here would reopen that. ``Text.stylize`` takes offsets and cannot.
+
+	Case-insensitively, to match the ``ilike`` that selected the row. Every occurrence is marked
+	rather than the first: a title matching twice and highlighted once reads as though the
+	program found something the reader cannot see.
+	"""
+
+	start = len(line)
+	line.append(title)
+
+	if not term:
+		return
+
+	wanted = term.casefold()
+	folded = title.casefold()
+	at = folded.find(wanted)
+
+	# `casefold` can change a string's *length* — 'ß' folds to 'ss' — so an offset found in the
+	# folded text is not always an offset into the original. Skip the highlight rather than
+	# stylise the wrong characters; the row and its `matched` cell are correct either way.
+	if len(folded) != len(title):
+		return
+
+	while at >= 0:
+		line.stylize(MATCH, start + at, start + at + len(wanted))
+		at = folded.find(wanted, at + len(wanted))
+
+
 def _match_cell (item: Item, term: str | None) -> str:
 	"""Return where a search term was found, or nothing when no search was made.
 
@@ -762,6 +814,23 @@ def register (
 			world.current,
 			[workspace.slug for workspace in here.identity.workspaces],
 		)
+
+	def _kept (held: int) -> str:
+		"""Say how many items survive a rename, with the verb and the possessive agreeing.
+
+		**One sentence, one place, because both rename commands print it** (`#296`). They had a
+		copy each and the copies disagreed twice over: `project rename` pluralised the *noun*
+		and left the verb behind — "1 item keep their numbers" — while `workspace rename` got
+		the grammar right and hedged the count with "at least" because it was reading a page.
+
+		It is only ever read at the moment somebody is deciding whether to do something
+		irreversible, which is the worst possible place for either fault.
+		"""
+
+		if held == 1:
+			return "1 item keeps its number"
+
+		return f"{held:,} items keep their numbers"
 
 	def _locate (
 		world: World,
@@ -2598,13 +2667,11 @@ def register (
 			# break addresses" is abstract; "this project holds 137 items and three commands
 			# will stop finding it" is a thing somebody can weigh. The count is the reason
 			# this reads the project first rather than renaming and reporting.
-			held = where.client.tasks(
-				workspace=workspace, project=key, include_completed=True
-			)
+			held = where.client.count_tasks(workspace=workspace, project=key)
 
 			if not yes:
 				say(f"Renaming {key} to {to.upper()}.")
-				say(f"  {len(held)} item{'' if len(held) == 1 else 's'} keep their numbers.")
+				say(f"  {_kept(held)}.")
 				say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
 				say("  .subroutine file that names it.")
 
@@ -2682,32 +2749,15 @@ def register (
 			# something a person can weigh. A workspace is a tenancy boundary, so the member
 			# count belongs here and does not on the project version — a rename changes the
 			# address for everybody who can reach it, not only whoever typed it.
-			# **Asked for a whole page's worth, and hedged when it comes back full** (`#296`).
-			# The sibling command asks with no limit at all and reports whatever one default
-			# page holds, so renaming a project of 249 items promises that 50 keep their
-			# numbers — a reassurance that is false in the direction that makes the operation
-			# look smaller. "At least" is honest without an endpoint that counts; §8.4's
-			# `include_total` is the real answer and reaches no client yet.
-			ceiling = settings().max_page_size
-			held = where.client.tasks(
-				workspace=slug, limit=ceiling, include_completed=True
-			)
+			# **A count rather than a page, since `#296`.** This asked for a whole page's worth
+			# and hedged with "at least" when it came back full, which was honest and was still
+			# a workaround; `count_tasks` asks §8.4's `include_total` and the hedge is gone.
+			held = where.client.count_tasks(workspace=slug)
 			people = where.client.members(workspace=slug)
-			counted = (
-				f"at least {ceiling}" if len(held) >= ceiling else str(len(held))
-			)
-			# One item *keeps its number*; several *keep their numbers*. The verb and the
-			# possessive have to move with the noun, and the sibling command gets this wrong
-			# ("1 item keep their numbers") — recorded on `#296` rather than fixed from here.
-			kept = (
-				"item keeps its number"
-				if len(held) == 1
-				else "items keep their numbers"
-			)
 
 			if not yes:
 				say(f"Renaming {slug} to {to.lower()}.")
-				say(f"  {counted} {kept}.")
+				say(f"  {_kept(held)}.")
 
 				if len(people) > 1:
 					say(f"  {len(people)} people reach it, and the address changes for all of them.")
@@ -4082,7 +4132,7 @@ def _item_line (
 		# glance only if the units line up.
 		line.append(f"{_estimate_cell(item):>{columns.estimate}}  ", style=DETAIL)
 
-	line.append(item.title)
+	_append_title(line, item.title, columns.term)
 
 	detail = _when(item)
 
@@ -4214,10 +4264,24 @@ def _render_item (
 			console.print(line)
 
 	if remarks:
-		console.print("")
-		console.print(rich.text.Text("What happened", style=HEADING))
+		# **The count is always shown; the bodies are bounded** (`#37`, Simon's request). Every
+		# comment in full is right for the three or four an item usually has and wrong for the
+		# hundred it might accumulate — a reader asking "what is this" gets a wall of history.
+		# Printing only the newest few and heading the section with the count answers "is there
+		# more" without a second command, which is what `#33` did for the listing.
+		#
+		# Simon was content for the bodies not to be printed at all. Keeping the recent ones is
+		# a deliberate departure: removing a working display is a regression for every item in
+		# this instance, none of which has more than a handful.
+		recent = remarks[-COMMENTS_SHOWN:]
+		rollup = (
+			"" if len(recent) == len(remarks) else f" ({len(remarks)}, showing {len(recent)})"
+		)
 
-		for remark in remarks:
+		console.print("")
+		console.print(rich.text.Text(f"What happened{rollup}", style=HEADING))
+
+		for remark in recent:
 			line = rich.text.Text()
 			line.append(f"  {remark.created_at.date().isoformat()}  ", style=DETAIL)
 			line.append(remark.body)

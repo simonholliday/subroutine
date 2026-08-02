@@ -134,6 +134,31 @@ class Client:
 
 		return self._parsed(subroutine.views.Agenda, body)
 
+	def count_tasks (
+		self, *, workspace: str | None = None, project: str | None = None
+	) -> int:
+		"""Return how many tasks a project holds, completed ones included (`#296`)."""
+
+		body = self._json(
+			"GET",
+			"/v1/tasks",
+			params=_given(
+				workspace_id=workspace,
+				project=project,
+				include_completed="true",
+				include_total="true",
+				# One row rather than none: `ge=1` is not declared on the endpoint, but a page
+				# of zero is a request for nothing and the total is what is being asked for.
+				limit=1,
+			),
+		)
+		total = body.get("page", {}).get("total")
+
+		if not isinstance(total, int):
+			raise self._not_an_instance("its /v1/tasks response carried no total when asked")
+
+		return total
+
 	def tasks (
 		self,
 		*,
