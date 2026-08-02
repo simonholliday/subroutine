@@ -212,6 +212,11 @@ def selected (
 #: is what S3-07 removed for tasks and what ``views.py`` sits outside ``api/`` to prevent.
 WATERMARK = datetime.timedelta(seconds=1)
 
+#: The lowest ``seq`` a cursor can name. Written down rather than spelled ``1`` at the two
+#: places that need it, because a caller sending ``0`` is told this number and would otherwise
+#: be told it by a literal nobody had connected to the column it describes.
+FIRST_SEQ = 1
+
 
 def feed (
 	principal: subroutine.domain.authentication.Principal,
@@ -277,7 +282,18 @@ def page (
 	``has_more`` means "there is another page in the direction you are reading" — later events
 	on an ordinary call, *earlier* ones when ``newest`` is set. Either way the page itself
 	reads forwards, and its last row is the number to resume from.
+
+	**And the one place ``since`` overrules ``newest``** (`#310`). Both transports worked that
+	rule out for themselves — ``newest=newest and since is None``, written twice — which is the
+	shape this module exists to prevent: the watermark and the ``410`` were moved here so that
+	a feed could not behave differently over HTTP and locally, and a third rule was left behind
+	in both routes. The equivalence suite exercised each argument alone and never together, so
+	a divergence in exactly the combination the rule is about would have passed.
 	"""
+
+	# `since` says where the caller has got to, which `newest` cannot improve on and would
+	# contradict by skipping everything in between.
+	newest = newest and since is None
 
 	statement = feed(
 		principal, workspace_ids=workspace_ids, since=since, mine=mine, newest=newest
@@ -292,30 +308,56 @@ def page (
 	return rows, has_more
 
 
-def refuse_expired_cursor (
+def refuse_unusable_cursor (
 	session: sqlalchemy.orm.Session,
 	*,
 	since: int | None,
 	workspace_ids: typing.Sequence[uuid.UUID],
 ) -> None:
-	"""Refuse a cursor pointing further back than this instance can still account for.
+	"""Refuse a cursor that names nothing, or one pointing further back than this instance holds.
+
+	**Two refusals, and they must be in that order** (`#309`). ``since`` is a ``seq`` and the
+	first one is 1, so ``since=0`` names nothing — and, read as a cursor, it is below every
+	surviving event and therefore looks exactly like one that expired. That is what happened:
+	the route checked ``since >= 1`` for itself and ``clients.local`` did not, so an
+	uninitialised cursor — zero, the ordinary default in most languages — got a ``422`` over
+	HTTP and, locally, a ``410`` announcing that events had been pruned on an instance that has
+	never pruned anything. A refusal that states a cause it has not established is worse than a
+	vague one, and this one sent the reader looking for a retention policy that does not exist.
+
+	Both live here rather than in either caller because §5.11a's whole reason for this module is
+	that a feed must not answer differently over two transports.
 
 	§5.11 retains events for ``events_retention_days`` and requires ``410 cursor_expired``
 	below that floor, so a client resyncs rather than being handed a page that silently omits
 	everything pruned in between — the one failure a feed must never have, because it looks
 	exactly like nothing having happened.
 
-	**The test is "did events below this point exist and go", not "is this old".** A caller
-	resuming from seq 5 on an instance that still holds seq 1 is simply behind, and behind is
-	what the feed is for.
+	**The expiry test is "did events below this point exist and go", not "is this old".** A
+	caller resuming from seq 5 on an instance that still holds seq 1 is simply behind, and
+	behind is what the feed is for.
 
-	**Currently unreachable, and honestly so.** Nothing prunes yet (`#251`), so the oldest
-	surviving event is the first one ever written and no cursor can fall below it. The path is
-	built and tested by deleting rows, and goes live the day retention does.
+	**That half is still unreachable, and honestly so.** Nothing prunes yet (`#251`), so the
+	oldest surviving event is the first one ever written and no *legal* cursor can fall below
+	it. The path is built and tested by deleting rows, and goes live the day retention does.
 	"""
 
 	if since is None:
 		return
+
+	if since < FIRST_SEQ:
+		raise subroutine.errors.ValidationError(
+			f"'since' is a seq and the first one is {FIRST_SEQ}, so {since} names nothing.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field="since",
+					code="invalid_field_value",
+					message="Send the seq of the last event you processed, or omit 'since' "
+					"to start from the oldest event still held.",
+				)
+			],
+		)
 
 	model = subroutine.db.models.activity.Event
 	oldest = session.scalar(

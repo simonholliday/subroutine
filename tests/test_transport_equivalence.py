@@ -1447,6 +1447,60 @@ def test_both_read_the_newest_page_the_same_way (pair: Pair) -> None:
 	assert tail[-1].seq == local.changes()[-1].seq
 
 
+def test_both_let_since_overrule_newest (pair: Pair) -> None:
+	"""The two arguments together, which is the combination the rule is about (`#310`).
+
+	Each was covered alone and neither test could see a divergence in the rule that decides
+	between them — which is what made it safe to write ``newest and since is None`` twice, once
+	per transport, and leave both.
+	"""
+
+	for index in range(6):
+		make(pair, f"Task number {index}")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	middle = local.changes()[2].seq
+
+	# **A limit smaller than what is left, or this cannot fail.** Without one the whole
+	# remainder fits on a page, both directions select the same rows, and `page` reverses the
+	# backwards one into the same order — so the answer is identical whether the rule ran or
+	# not. Written without the limit first, and it passed with the rule deleted.
+	assert local.changes(since=middle, newest=True, limit=2) == remote.changes(
+		since=middle, newest=True, limit=2
+	)
+	# `since` wins, so this is the page *after* the cursor rather than the tail of the feed.
+	assert local.changes(since=middle, newest=True, limit=2) == local.changes(
+		since=middle, limit=2
+	)
+
+
+def test_both_refuse_a_cursor_below_the_first_seq_the_same_way (pair: Pair) -> None:
+	"""``since=0`` is a request nobody can honour, and both must say so the same way (`#309`).
+
+	The floor was checked in the endpoint alone, so the local client fell through to the
+	expiry refusal and told a caller its events had been pruned — on an instance that has
+	never pruned anything, and about a cursor that was simply not a ``seq``. A refusal naming
+	a cause it has not established is the failure mode this project has had to correct three
+	times; here it also made the two transports disagree.
+	"""
+
+	make(pair, "Something to have happened")
+	_settle(pair)
+
+	local, remote = pair.both()
+
+	with pytest.raises(subroutine.errors.ValidationError) as locally:
+		local.changes(since=0)
+
+	with pytest.raises(subroutine.errors.ValidationError) as remotely:
+		remote.changes(since=0)
+
+	assert str(locally.value) == str(remotely.value)
+	assert "names nothing" in str(locally.value)
+
+
 def _settle (pair: Pair) -> None:
 	"""Age every event past the watermark, so the feed will report it.
 

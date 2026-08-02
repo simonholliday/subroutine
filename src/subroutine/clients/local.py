@@ -618,11 +618,15 @@ class Client:
 	) -> list[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
-		**The watermark, the scoping and the ``410`` all come from
-		:mod:`subroutine.domain.events`** rather than being restated here. That is the whole
-		reason they were moved out of the route: a feed that withheld the last second over HTTP
-		and not locally would lose events on one transport only, and the transport is the last
-		place anybody would look for a missing change.
+		**The watermark, the scoping, both cursor refusals and "``since`` overrules ``newest``"
+		all come from :mod:`subroutine.domain.events`** rather than being restated here. That is
+		the whole reason they were moved out of the route: a feed that withheld the last second
+		over HTTP and not locally would lose events on one transport only, and the transport is
+		the last place anybody would look for a missing change.
+
+		Two of those arrived late and by the route this predicts (`#309`, `#310`) — the ``since``
+		floor was checked in the endpoint alone, so an uninitialised cursor met a ``422`` there
+		and a ``410`` here claiming events had been pruned.
 
 		Spans every readable workspace unless one is named, which is what makes "what did I
 		miss" answerable in one call by somebody working across two.
@@ -641,7 +645,7 @@ class Client:
 
 			workspace_ids = [each.id for each in chosen]
 
-			subroutine.domain.events.refuse_expired_cursor(
+			subroutine.domain.events.refuse_unusable_cursor(
 				session, since=since, workspace_ids=workspace_ids
 			)
 
@@ -652,7 +656,7 @@ class Client:
 				size=size,
 				since=since,
 				mine=mine,
-				newest=newest and since is None,
+				newest=newest,
 			)
 			described = subroutine.domain.events.descriptions(session, rows)
 

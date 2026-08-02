@@ -120,24 +120,6 @@ def listing (
 
 	workspace_ids = [workspace.id for workspace in workspaces]
 
-	# **Checked here rather than with `ge=1` on the parameter**, so the refusal names the field
-	# and says what to do instead. It also keeps `since=0` from meaning "before everything",
-	# which would be indistinguishable from a pruned cursor and so would answer `410` to a
-	# caller who had simply never polled before.
-	if since is not None and since < 1:
-		raise subroutine.errors.ValidationError(
-			f"'since' is a seq and the first one is 1, so {since} names nothing.",
-			code="invalid_field_value",
-			errors=[
-				subroutine.errors.FieldError(
-					field="since",
-					code="invalid_field_value",
-					message="Send the seq of the last event you processed, or omit 'since' "
-					"to start from the oldest event still held.",
-				)
-			],
-		)
-
 	if actor_filter is not None and actor_filter != ACTOR_ME:
 		raise subroutine.errors.ValidationError(
 			f"'actor' takes {ACTOR_ME!r} or nothing.",
@@ -151,7 +133,9 @@ def listing (
 			],
 		)
 
-	subroutine.domain.events.refuse_expired_cursor(
+	# Both cursor refusals, in the domain so that this transport and `clients.local` cannot
+	# answer differently — which is what they were doing for `since=0` (`#309`).
+	subroutine.domain.events.refuse_unusable_cursor(
 		session, since=since, workspace_ids=workspace_ids
 	)
 
@@ -162,9 +146,7 @@ def listing (
 		workspace_ids=workspace_ids,
 		since=since,
 		mine=actor_filter == ACTOR_ME,
-		# `since` wins: it says where the caller has got to, which `newest` cannot improve on
-		# and would silently contradict by skipping everything between.
-		newest=newest and since is None,
+		newest=newest,
 		limit=limit,
 		shape=subroutine.api.shaping.wanted(
 			format=format, fields=fields, available=SELECTABLE, entity="event"
