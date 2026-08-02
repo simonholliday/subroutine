@@ -85,6 +85,7 @@ def readable_projects (
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
+	include_deleted: bool = False,
 	include_archived: bool = False,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.project.Project]]:
 	"""Return a select over the projects this principal may see, and no others.
@@ -92,16 +93,24 @@ def readable_projects (
 	``workspace_ids`` is required and is never allowed to be empty-meaning-all: a listing
 	that quietly spans every workspace when handed an empty list is one refactor away from
 	spanning every workspace belonging to everybody.
+
+	``include_deleted`` did not exist until `#307`, and its absence was invisible because
+	every other parameter here has one: :func:`visible_events` asked for archived and template
+	rows, could not ask for deleted projects, and so reported nothing when one was thrown
+	away. A list of ``include_`` flags reads as considered; the one that is missing reads as
+	nothing at all.
 	"""
 
 	project = subroutine.db.models.project.Project
 
 	statement = sqlalchemy.select(project).where(
 		project.workspace_id.in_(workspace_ids),
-		project.deleted_at.is_(None),
 		subroutine.domain.authorization.visible_projects(principal),
 		within_project_scope(principal),
 	)
+
+	if not include_deleted:
+		statement = statement.where(project.deleted_at.is_(None))
 
 	if not include_archived:
 		statement = statement.where(project.archived_at.is_(None))
@@ -114,6 +123,7 @@ def readable_documents (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	include_deleted: bool = False,
+	include_deleted_projects: bool = False,
 	include_archived: bool = False,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Document]]:
 	"""Return a select over the documents this principal may see, and no others.
@@ -122,6 +132,12 @@ def readable_documents (
 	the same permissions as the task beside it (SPEC.md §5.6, §7.3a) — a specification in a
 	private project is exactly as hidden as the work derived from it, and it would be an odd
 	kind of privacy if it were not.
+
+	The two deletion flags are separate axes and must stay so (`#307`). ``include_deleted`` is
+	about *this row*; ``include_deleted_projects`` is about its container, which ``projects.
+	delete`` deliberately does not touch — a deleted project's documents are hidden by this
+	join rather than thrown away, so folding the two together would put a document nobody
+	deleted into the trash listing.
 	"""
 
 	document = subroutine.db.models.work.Document
@@ -132,11 +148,13 @@ def readable_documents (
 		.join(project, project.id == document.project_id)
 		.where(
 			document.workspace_id.in_(workspace_ids),
-			project.deleted_at.is_(None),
 			subroutine.domain.authorization.visible_projects(principal),
 			within_project_scope(principal),
 		)
 	)
+
+	if not include_deleted_projects:
+		statement = statement.where(project.deleted_at.is_(None))
 
 	if not include_deleted:
 		statement = statement.where(document.deleted_at.is_(None))
@@ -152,6 +170,7 @@ def readable_tasks (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	include_deleted: bool = False,
+	include_deleted_projects: bool = False,
 	include_completed: bool = True,
 	include_archived: bool = False,
 	include_templates: bool = False,
@@ -162,6 +181,12 @@ def readable_tasks (
 	the step ``subroutine ls`` was missing. The defaults describe an ordinary listing:
 	nothing deleted, nothing archived, and no recurrence templates, which are machinery
 	rather than work (§6.7).
+
+	``include_deleted`` and ``include_deleted_projects`` are separate axes and must stay so
+	(`#307`). The first is about *this row*; the second is about its container, which
+	``projects.delete`` deliberately leaves alone — "its tasks are not touched … they leave the
+	visible world with it and come back with it". One flag for both would put a task nobody
+	deleted into the trash.
 	"""
 
 	task = subroutine.db.models.work.Task
@@ -172,11 +197,13 @@ def readable_tasks (
 		.join(project, project.id == task.project_id)
 		.where(
 			task.workspace_id.in_(workspace_ids),
-			project.deleted_at.is_(None),
 			subroutine.domain.authorization.visible_projects(principal),
 			within_project_scope(principal),
 		)
 	)
+
+	if not include_deleted_projects:
+		statement = statement.where(project.deleted_at.is_(None))
 
 	if not include_deleted:
 		statement = statement.where(task.deleted_at.is_(None))
@@ -232,12 +259,19 @@ def visible_events (
 	is why the histories were built first.
 
 	**The three statements are asked for everything they would otherwise hide.** Deleted,
-	archived and template rows are all included, because a *deletion* is the event most worth
-	reporting and the defaults would hide precisely it — a feed that goes quiet when something
-	is removed cannot be resumed from. That this is expressible at all rests on nothing in
-	this system hard-deleting: the row is still joinable, so the feed can report the deletion
-	*and* still check who is entitled to know of it. §5.11a names that property as load-bearing
-	and this is the second place to lean on it.
+	archived and template rows are all included, **and so are rows whose *project* is deleted**,
+	because a *deletion* is the event most worth reporting and the defaults would hide precisely
+	it — a feed that goes quiet when something is removed cannot be resumed from. That this is
+	expressible at all rests on nothing in this system hard-deleting: the row is still joinable,
+	so the feed can report the deletion *and* still check who is entitled to know of it. §5.11a
+	names that property as load-bearing and this is the second place to lean on it.
+
+	**The container clause is the one that was missing** (`#307`), and it failed in two
+	directions at once. A project's own deletion went unreported, and — because a task is
+	reached through a join to its project — deleting a project retroactively removed every
+	event about everything inside it, so a client polling afterwards was told those items had
+	never existed. Rewriting the past is the one failure §5.11a says a resumable feed cannot
+	have; this had it, while the paragraph above claimed it did not.
 
 	**A comment is matched through its subject**, the pair
 	:func:`subroutine.domain.events.selected` already joins on: an event whose entity is a
@@ -260,16 +294,21 @@ def visible_events (
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
+			include_deleted_projects=True,
 			include_archived=True,
 			include_templates=True,
 		).with_only_columns(subroutine.db.models.work.Task.id),
 		"project": readable_projects(
-			principal, workspace_ids=workspace_ids, include_archived=True
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
 		).with_only_columns(subroutine.db.models.project.Project.id),
 		"document": readable_documents(
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
+			include_deleted_projects=True,
 			include_archived=True,
 		).with_only_columns(subroutine.db.models.work.Document.id),
 	}

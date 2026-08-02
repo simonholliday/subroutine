@@ -219,6 +219,72 @@ def _secret (item: dict[str, typing.Any]) -> bool:
 	return "SECRET" in str(item.get("changes"))
 
 
+def test_a_projects_deletion_reaches_the_feed (session: sqlalchemy.orm.Session) -> None:
+	"""A deletion is the event most worth reporting, and it was the one being dropped (`#307`).
+
+	The feed reached a project through ``readable_projects``, which had no ``include_deleted``
+	at all — so the row went, and with it the only notice anybody polling would ever get.
+	"""
+
+	world = test_api_tasks._world(session)
+
+	world.call("POST", "/v1/projects", json={"key": "DOOMED", "title": "Doomed"})
+	world.call("DELETE", "/v1/projects/DOOMED")
+	_settled(session)
+
+	assert [
+		item
+		for item in _feed(world)
+		if item["entity_type"] == "project" and item["action"] == "deleted"
+	] != []
+
+
+def test_deleting_a_project_does_not_erase_its_contents_past (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**A feed may not rewrite what it has already reported** (SPEC.md §5.11a, `#307`).
+
+	The worse half, and the one no permission test could see. A task is reached through a join
+	to its project, so deleting the project removed every event about everything inside it —
+	and a client polling afterwards was told those items had never existed. That is the single
+	failure a resumable feed cannot have, because it is indistinguishable from nothing having
+	happened.
+
+	Asserted across the deletion rather than after it: the point is not that the events are
+	present, it is that the same question gets the same answer twice.
+	"""
+
+	world = test_api_tasks._world(session)
+
+	world.call("POST", "/v1/projects", json={"key": "DOOMED", "title": "Doomed"})
+	inside = world.call(
+		"POST", "/v1/tasks", json={"title": "Filed in it", "project": "DOOMED"}
+	).json()
+	_settled(session)
+
+	# Identified by ``seq`` rather than compared whole: ``_settled`` back-dates every row it
+	# finds, so calling it twice moves the ``created_at`` of events already reported. The claim
+	# is that the same events are still there, not that their timestamps never move.
+	before = _about(world, inside["id"])
+
+	assert before != []
+
+	world.call("DELETE", "/v1/projects/DOOMED")
+	_settled(session)
+
+	assert _about(world, inside["id"])[: len(before)] == before
+
+
+def _about (world: test_api_tasks.World, entity_id: str) -> list[tuple[int, str]]:
+	"""Return the feed's events for one entity, as the pairs that identify them."""
+
+	return [
+		(item["seq"], item["action"])
+		for item in _feed(world)
+		if item["entity_id"] == entity_id
+	]
+
+
 def test_a_comment_reaches_the_feed_through_what_it_was_written_on (
 	world: test_api_tasks.World,
 ) -> None:
