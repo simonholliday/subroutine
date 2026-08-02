@@ -3534,3 +3534,49 @@ def test_editing_a_task_by_number_says_it_is_a_task (
 
 	assert "task" in refused.output.lower()
 	assert "Call the dentist" in refused.output
+
+
+def test_a_workspace_can_be_renamed_and_everything_keeps_its_number (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#295``. Simon challenged the prohibition and it did not survive being checked.
+
+	The rename itself is the easy half — nothing in the database references a slug, so no ref,
+	link or membership moves. The half worth testing is that the *claim* the confirmation
+	makes is true: every item keeps its number.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("add", "Call the dentist")
+	run("add", "Buy milk")
+
+	run("workspace", "rename", "personal", "projects", "--yes")
+
+	listed = run("-w", "projects", "list").output
+
+	assert "Call the dentist" in listed
+	assert "Buy milk" in listed
+	assert "Call the dentist" in run("-w", "projects", "show", "1").output
+
+
+def test_renaming_a_workspace_says_what_stops_working_before_it_does_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#176`'s argument, applied one segment earlier in an address.
+
+	"This breaks addresses" is abstract where "this holds 2 items and these three things stop
+	working" is something a person can weigh — which is the whole reason the command reads the
+	workspace before renaming it rather than renaming and reporting.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("add", "Call the dentist")
+
+	refused = run("workspace", "rename", "personal", "projects", input="n\n", expect=1)
+
+	assert "1 item keeps its number" in refused.output, refused.output
+	assert "'personal' stops working" in refused.output
+	assert "Nothing was renamed." in refused.output
+
+	# And it meant it — the old name still works.
+	assert "Call the dentist" in run("-w", "personal", "list").output

@@ -479,6 +479,15 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
+		"""Give a workspace a different short name."""
+
+		self._refuse_if_read_only()
+
+		body = self._json("PATCH", f"/v1/workspaces/{workspace}", json={"slug": slug})
+
+		return subroutine.views.Workspace.model_validate(body)
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

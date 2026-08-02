@@ -398,6 +398,20 @@ class Client(typing.Protocol):
 		they never notice. Nothing joined to the project moves — ``project.id`` is a UUID.
 		"""
 
+	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
+		"""Give a workspace a different short name — item `#295`.
+
+		The same trade ``rename_project`` makes, one segment earlier in an address. Nothing
+		inside the instance moves: every table keys on ``workspace_id``, so no ref, link,
+		mention or membership is touched. What stops working is anything that wrote the old
+		name down — a ``.subroutine`` marker, a stored context, an address in somebody's notes
+		— and there is deliberately no alias, for ``rename_project``'s reason.
+
+		Takes the workspace by its *current* short name rather than from the ambient context,
+		because renaming the place you are standing in is the ordinary case and naming it
+		explicitly is what makes the command re-readable in shell history.
+		"""
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

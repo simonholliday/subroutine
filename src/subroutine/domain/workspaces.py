@@ -67,77 +67,12 @@ def create (
 		field="title",
 		limit=MAX_TITLE_LENGTH,
 	)
-	normalized = normalize_slug(slug)
-
-	if not normalized:
-		raise subroutine.errors.ValidationError(
-			"A workspace needs a short name made of letters, numbers and hyphens.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="slug",
-					code="invalid_field_value",
-					message=f"{slug!r} contains nothing usable as a short name.",
-					hint="Try something like 'home' or 'acme-engineering'.",
-				)
-			],
-		)
-
-	normalized = subroutine.domain.text.fit(
-		normalized, field="slug", limit=MAX_SLUG_LENGTH, label="short name"
-	)
+	normalized = validated_slug(session, slug)
 
 	# Same check as `update`, and it was missing here: `create` took whatever string it was
 	# handed, so `{"timezone": "Mars/Olympus"}` was stored and only surfaced later, as a
 	# refusal that named the caller's request rather than the workspace holding the bad value.
 	subroutine.domain.dates.zone(timezone)
-
-	# **A short name must begin with a letter, and this is structural rather than cosmetic.**
-	# §5.4 forces the same on a project key so that `/v1/tasks/42` and `/v1/projects/WEB`
-	# cannot be confused; §13.7 then made a workspace slug the middle segment of
-	# `connection/workspace/ref`, and gave it no equivalent rule. A slug of `2026` reads as a
-	# number wherever an address is written, and `subroutine use 2026` is a sentence nobody can
-	# parse at a glance.
-	if not normalized[0].isascii() or not normalized[0].isalpha():
-		raise subroutine.errors.ValidationError(
-			"A workspace's short name has to start with a letter.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="slug",
-					code="invalid_field_value",
-					message=f"{normalized!r} starts with {normalized[0]!r}.",
-					hint="A short name is part of an address — 'work/acme/42' — so it must not "
-					"read as a number. Try 'acme' or 'q3-planning'.",
-				)
-			],
-		)
-
-	if subroutine.addressing.is_reserved_workspace_word(normalized):
-		raise subroutine.errors.ValidationError(
-			f"{normalized!r} cannot be a workspace's short name.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="slug",
-					code="invalid_field_value",
-					message=f"{normalized!r} is reserved, because it means something else in "
-					"an address or a command.",
-					hint="Reserved short names: "
-					f"{', '.join(sorted(subroutine.addressing.RESERVED_WORKSPACE_WORDS))}.",
-				)
-			],
-		)
-
-	if _slug_taken(session, normalized):
-		raise subroutine.errors.Conflict(
-			f"A workspace called {normalized!r} already exists.",
-			code="duplicate_key",
-			errors=[
-				subroutine.errors.FieldError(
-					field="slug",
-					code="duplicate_key",
-					message=f"The short name {normalized!r} is already in use.",
-				)
-			],
-		)
 
 	workspace = subroutine.db.models.identity.Workspace(
 		slug=normalized,
@@ -170,6 +105,7 @@ def update (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
 	*,
+	slug: str = subroutine.domain.patch.UNSET,
 	title: str = subroutine.domain.patch.UNSET,
 	description: str | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = subroutine.domain.patch.UNSET,
@@ -183,13 +119,20 @@ def update (
 	gives: the caller holds a live session it may still commit, so a half-applied change that
 	raised on the way through would be committed silently alongside whatever else was in flight.
 
-	**The slug is deliberately not changeable**, and as of `#176` a project key *is* — so the
-	two have parted company and this is now its own argument rather than a reference to one.
-	A project key is an address within one instance, and renaming one breaks addresses on this
-	machine, loudly, for somebody who asked for it. A slug is the middle segment of every
-	address this workspace's items are written as —
-	``work/acme/#42`` (§13.7) — and those strings are in other people's notes, in shell history
-	and in `config.toml` files on other machines. Renaming it here would not rewrite them.
+	**The slug may be changed as of `#295`**, and the argument against it did not survive
+	being checked. It ran: a project key is an address within one instance, while a slug also
+	appears in other people's notes, in shell history and in ``config.toml`` on other
+	machines. The third is simply false — no connection and no setting names a workspace, so
+	nothing on another machine holds one except a ``.subroutine`` marker, which is exactly
+	what renaming a project key already breaks (`#176`). And nothing *inside* the database
+	references a slug at all: every table keys on ``workspace_id``, so a rename moves no
+	relationship and breaks no join.
+
+	What is left is real and is handled the way `#176` handled it — by counting first and
+	saying what stops working, rather than by refusing. The one difference worth respecting is
+	that a workspace is a tenancy boundary, so a rename changes the address for everybody who
+	can reach it: hence ``WORKSPACE_WRITE`` below, and hence the CLI naming members as well as
+	items before it asks.
 
 	``timezone`` may be set to ``None``, and that is meaningful rather than sloppy: null means
 	"not stated", which lets the instance's own zone show through (§12.3). It was
@@ -208,6 +151,12 @@ def update (
 	subroutine.domain.versions.require(workspace, expected_version, noun="This workspace")
 
 	changed: dict[str, typing.Any] = {}
+
+	if slug is not subroutine.domain.patch.UNSET:
+		# Validated by the same function `create` uses, so a rename cannot arrive at a name
+		# creation would have refused — which is how two paths drift, and how renaming becomes
+		# the way to reach a slug nobody could have chosen.
+		changed["slug"] = validated_slug(session, slug, except_id=workspace.id)
 
 	if title is not subroutine.domain.patch.UNSET:
 		changed["title"] = subroutine.domain.text.fit(
@@ -542,6 +491,96 @@ def find_role (
 	)
 
 
+def validated_slug (
+	session: sqlalchemy.orm.Session,
+	slug: str,
+	*,
+	except_id: uuid.UUID | None = None,
+) -> str:
+	"""Return the stored form of a workspace short name, or refuse and say which rule it broke.
+
+	**One copy, shared by ``create`` and ``update``** (`#295`). A rename has to arrive at a
+	name creation would have accepted, or the two paths drift and renaming becomes the way to
+	get a slug nobody could have chosen. Five rules, in the order a reader meets them: it must
+	contain something usable, fit the length, begin with a letter, not be a reserved word, and
+	not already be in use.
+
+	``except_id`` is the workspace being renamed, which must not collide with itself. Renaming
+	``acme`` to ``acme`` is a no-op rather than a duplicate-key conflict — and that call
+	arrives from any client that sends every field whether or not it changed.
+	"""
+
+	normalized = normalize_slug(slug)
+
+	if not normalized:
+		raise subroutine.errors.ValidationError(
+			"A workspace needs a short name made of letters, numbers and hyphens.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="invalid_field_value",
+					message=f"{slug!r} contains nothing usable as a short name.",
+					hint="Try something like 'home' or 'acme-engineering'.",
+				)
+			],
+		)
+
+	normalized = subroutine.domain.text.fit(
+		normalized, field="slug", limit=MAX_SLUG_LENGTH, label="short name"
+	)
+
+	# **A short name must begin with a letter, and this is structural rather than cosmetic.**
+	# §5.4 forces the same on a project key so that `/v1/tasks/42` and `/v1/projects/WEB`
+	# cannot be confused; §13.7 then made a workspace slug the middle segment of
+	# `connection/workspace/ref`, and gave it no equivalent rule. A slug of `2026` reads as a
+	# number wherever an address is written, and `subroutine use 2026` is a sentence nobody can
+	# parse at a glance.
+	if not normalized[0].isascii() or not normalized[0].isalpha():
+		raise subroutine.errors.ValidationError(
+			"A workspace's short name has to start with a letter.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="invalid_field_value",
+					message=f"{normalized!r} starts with {normalized[0]!r}.",
+					hint="A short name is part of an address — 'work/acme/42' — so it must not "
+					"read as a number. Try 'acme' or 'q3-planning'.",
+				)
+			],
+		)
+
+	if subroutine.addressing.is_reserved_workspace_word(normalized):
+		raise subroutine.errors.ValidationError(
+			f"{normalized!r} cannot be a workspace's short name.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="invalid_field_value",
+					message=f"{normalized!r} is reserved, because it means something else in "
+					"an address or a command.",
+					hint="Reserved short names: "
+					f"{', '.join(sorted(subroutine.addressing.RESERVED_WORKSPACE_WORDS))}.",
+				)
+			],
+		)
+
+	if _slug_taken(session, normalized, except_id=except_id):
+		raise subroutine.errors.Conflict(
+			f"A workspace called {normalized!r} already exists.",
+			code="duplicate_key",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="duplicate_key",
+					message=f"The short name {normalized!r} is already in use.",
+				)
+			],
+		)
+
+
+	return normalized
+
+
 def normalize_slug (slug: str) -> str:
 	"""Return the stored form of a workspace short name."""
 
@@ -554,18 +593,22 @@ def normalize_slug (slug: str) -> str:
 	return collapsed
 
 
-def _slug_taken (session: sqlalchemy.orm.Session, slug: str) -> bool:
+def _slug_taken (
+	session: sqlalchemy.orm.Session, slug: str, *, except_id: uuid.UUID | None = None
+) -> bool:
 	"""Report whether a live workspace already uses this short name.
 
 	Deleted workspaces are ignored, matching the partial unique index: a name in the trash
-	is available again.
+	is available again. ``except_id`` exempts the workspace asking, so renaming one to the
+	name it already has is not a conflict with itself.
 	"""
 
 	model = subroutine.db.models.identity.Workspace
-
-	return (
-		session.scalars(
-			sqlalchemy.select(model.id).where(model.slug == slug, model.deleted_at.is_(None))
-		).first()
-		is not None
+	statement = sqlalchemy.select(model.id).where(
+		model.slug == slug, model.deleted_at.is_(None)
 	)
+
+	if except_id is not None:
+		statement = statement.where(model.id != except_id)
+
+	return session.scalars(statement).first() is not None

@@ -826,6 +826,21 @@ class Client:
 				renamed, subroutine.views.Vocabulary.for_projects(session, [renamed])
 			)
 
+	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
+		"""Give a workspace a different short name."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			renamed = subroutine.domain.workspaces.update(
+				session, chosen, slug=slug, actor=actor
+			)
+
+			return subroutine.views.workspace(renamed)
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

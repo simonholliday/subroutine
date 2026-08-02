@@ -2580,6 +2580,80 @@ def register (
 			if world.marker is not None and world.marker.project == key.upper():
 				_suggest(console, f"subroutine use --here --project {renamed.key}")
 
+	workspace_app = typer.Typer(
+		help="Look after the spaces work is kept in.", no_args_is_help=True
+	)
+	app.add_typer(workspace_app, name="workspace")
+
+	@workspace_app.command("rename")
+	def workspace_rename (
+		slug: str = typer.Argument(..., help="The workspace to rename, by its short name."),
+		to: str = typer.Argument(..., help="The new short name."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Give a workspace a different short name.
+
+		Examples:
+
+		  subroutine workspace rename si projects
+
+		Nothing inside moves — every item keeps its number and everything stays joined to what
+		it was joined to. What stops working is anything that wrote the old name down.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			# **Counted before anything changes**, exactly as `project rename` does: "this
+			# breaks addresses" is abstract where "this holds 249 items and two people" is
+			# something a person can weigh. A workspace is a tenancy boundary, so the member
+			# count belongs here and does not on the project version — a rename changes the
+			# address for everybody who can reach it, not only whoever typed it.
+			# **Asked for a whole page's worth, and hedged when it comes back full** (`#296`).
+			# The sibling command asks with no limit at all and reports whatever one default
+			# page holds, so renaming a project of 249 items promises that 50 keep their
+			# numbers — a reassurance that is false in the direction that makes the operation
+			# look smaller. "At least" is honest without an endpoint that counts; §8.4's
+			# `include_total` is the real answer and reaches no client yet.
+			ceiling = settings().max_page_size
+			held = where.client.tasks(
+				workspace=slug, limit=ceiling, include_completed=True
+			)
+			people = where.client.members(workspace=slug)
+			counted = (
+				f"at least {ceiling}" if len(held) >= ceiling else str(len(held))
+			)
+			# One item *keeps its number*; several *keep their numbers*. The verb and the
+			# possessive have to move with the noun, and the sibling command gets this wrong
+			# ("1 item keep their numbers") — recorded on `#296` rather than fixed from here.
+			kept = (
+				"item keeps its number"
+				if len(held) == 1
+				else "items keep their numbers"
+			)
+
+			if not yes:
+				say(f"Renaming {slug} to {to.lower()}.")
+				say(f"  {counted} {kept}.")
+
+				if len(people) > 1:
+					say(f"  {len(people)} people reach it, and the address changes for all of them.")
+
+				say(f"  '{slug}' stops working: in an address like '{slug}/42', in")
+				say("  'subroutine use', and in any .subroutine file that names it.")
+
+				if not typer.confirm("Go on?"):
+					stop("Nothing was renamed.")
+
+			renamed = where.client.rename_workspace(slug, slug=to)
+
+			say(f"Renamed to {renamed.slug} — {renamed.title}")
+
+			# The stored context is the one caller we *can* repair, and the one that would
+			# otherwise fail on the very next command.
+			if world.current.workspace == slug:
+				_suggest(console, f"subroutine use {renamed.slug}")
+
 	@project_app.command("move")
 	def project_move (
 		key: str = typer.Argument(..., help="The project to move, by its short name."),

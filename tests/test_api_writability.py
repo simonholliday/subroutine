@@ -375,7 +375,10 @@ REFUSES_NULL: dict[str, str] = {
 		"both create and update hold it to the same standard (domain.text.require)."
 	),
 	"key": "A project key is its address (§5.2) and is fixed after creation.",
-	"slug": "A workspace's short name is the middle of every 'work/acme/#42' (§13.7).",
+	# Changed, not cleared — `#295` made a rename possible and this list is about `null`.
+	# A workspace with no short name has no middle segment for any address to carry (§13.7),
+	# so it would be unreachable by name from the moment it was emptied.
+	"slug": "A workspace's short name can be changed but not removed (§13.7, `#295`).",
 	"status": "A project always has a status; clearing one has no meaning.",
 }
 

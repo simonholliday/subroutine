@@ -1551,3 +1551,47 @@ def test_both_clear_a_document_body_rather_than_ignoring_the_request (pair: Pair
 
 	assert emptied.body is None
 	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
+
+
+def test_both_rename_a_workspace_the_same_way (pair: Pair) -> None:
+	"""``#295``. Simon challenged the prohibition and it did not survive being checked.
+
+	The stated reason was that a slug lives "in other people's notes, in shell history and in
+	`config.toml` on other machines" — and no connection and no setting names a workspace, so
+	the last of those was false. Nothing inside the database references a slug either: every
+	table keys on `workspace_id`, so this moves no relationship and breaks no join.
+	"""
+
+	local, remote = pair.both()
+
+	before = local.tasks()
+	renamed = local.rename_workspace(pair.workspace.slug, slug="renamed")
+
+	assert renamed.slug == "renamed"
+
+	# **Every item keeps its number**, which is the whole claim the confirmation makes. A ref
+	# is per workspace and the workspace is the same row — only its name moved.
+	assert [task.ref for task in local.tasks(workspace="renamed")] == [
+		task.ref for task in before
+	]
+	assert local.tasks(workspace="renamed") == remote.tasks(workspace="renamed")
+
+
+def test_a_workspace_cannot_be_renamed_to_something_creation_would_refuse (pair: Pair) -> None:
+	"""One validator, shared, or a rename becomes the way to get a name nobody could choose.
+
+	`create` grew five rules over time — usable characters, length, a leading letter, not a
+	reserved word, not already taken. A second copy in `update` would have started identical
+	and drifted, which is this codebase's signature defect.
+	"""
+
+	local, _remote = pair.both()
+
+	for refused in ("2026", "all", ""):
+		with pytest.raises(subroutine.errors.SubroutineError):
+			local.rename_workspace(pair.workspace.slug, slug=refused)
+
+	# And renaming to the name it already has is a no-op, not a collision with itself.
+	same = pair.workspace.slug
+
+	assert local.rename_workspace(same, slug=same).slug == same

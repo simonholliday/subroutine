@@ -139,10 +139,17 @@ def test_the_agenda_can_now_narrow_to_one_of_two_workspaces (
 	assert narrowed["unscheduled_total"] == 1
 
 
-def test_the_title_and_timezone_can_change_and_the_slug_cannot (
+def test_the_title_the_timezone_and_the_slug_can_all_change (
 	world: test_api_tasks.World,
 ) -> None:
-	"""§8.3 semantics, and the one field that is deliberately not offered."""
+	"""§8.3 semantics, including the field that used not to be offered.
+
+	**The slug was refused here until `#295`**, on the stated grounds that it lives "in other
+	people's notes, in shell history and in ``config.toml`` on other machines". No connection
+	and no setting names a workspace, so the last of those was false — and what remained was
+	the exposure a project key has, which `#176` had already decided is acceptable when the
+	caller is told what stops working first.
+	"""
 
 	created = world.call(
 		"POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"}
@@ -167,12 +174,21 @@ def test_the_title_and_timezone_can_change_and_the_slug_cannot (
 
 	assert cleared.json()["timezone"] is None
 
-	# The slug is not an accepted field, and a body with an unknown field is refused outright
-	# rather than quietly ignored — so a caller who tries gets told.
-	refused = world.call("PATCH", "/v1/workspaces/acme", json={"slug": "acme-two"})
+	# The slug moves, and the workspace is the same row — so it answers at the new address
+	# and not at the old one. There is deliberately no alias: retiring a name retires it.
+	renamed = world.call("PATCH", "/v1/workspaces/acme", json={"slug": "acme-two"})
 
-	assert refused.status_code == 422
-	assert world.call("GET", "/v1/workspaces/acme").status_code == 200
+	assert renamed.status_code == 200
+	assert renamed.json()["slug"] == "acme-two"
+	assert world.call("GET", "/v1/workspaces/acme-two").status_code == 200
+	assert world.call("GET", "/v1/workspaces/acme").status_code == 404
+
+	# **Validated exactly as creation validates one**, so a rename cannot arrive at a name
+	# nobody could have chosen — one validator, or the two paths drift.
+	for refused in ("2026", "all", ""):
+		answer = world.call("PATCH", "/v1/workspaces/acme-two", json={"slug": refused})
+
+		assert answer.status_code in (409, 422), f"{refused!r} was accepted"
 
 
 def test_a_bad_timezone_is_refused_when_written_not_when_read (

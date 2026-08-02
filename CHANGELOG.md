@@ -40,6 +40,19 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+- **`subroutine workspace rename` — a workspace's short name can be changed.** It could not
+  be, on the grounds that the name lives in other people's notes, in shell history and in
+  `config.toml` on other machines. The last of those was never true: nothing in a
+  configuration file names a workspace. What remains is the same exposure a project key has,
+  which has been renameable since 0.1.
+
+  Nothing inside moves — every item keeps its number, and everything stays joined to what it
+  was joined to. What stops working is anything that wrote the old name down: an address like
+  `acme/42`, your current context, a `.subroutine` file in a checkout. The command counts the
+  items and the people affected and says all of that before asking.
+
+  There is deliberately no alias for the old name. A name you retired should be retired.
+
 - **The agent skill says where a document belongs.** It taught agents to write documents and
   never which project to file one under, so conclusions accumulated in the Inbox — which is
   where things go when nobody decided, and a document's project cannot be changed afterwards.

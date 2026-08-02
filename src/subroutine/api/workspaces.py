@@ -78,12 +78,17 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/workspaces/{id_or_slug}`` accepts.
 
-	``slug`` is absent on purpose. It is the middle segment of every address this workspace's
-	items are written as — ``work/acme/#42`` — and those strings live in other people's notes,
-	in shell history and in ``config.toml`` on other machines. Renaming it here would not
-	rewrite them, for the same reason a project key cannot be renamed (§5.2).
+	``slug`` **may be changed** as of `#295`. It was absent on the grounds that it lives "in
+	other people's notes, in shell history and in ``config.toml`` on other machines" — and the
+	last of those is not true: no connection and no setting names a workspace. What is left is
+	the same exposure a project key has, which `#176` decided is acceptable when the caller is
+	told what stops working first.
+
+	Validated exactly as creation validates one, so a rename cannot arrive at a short name
+	nobody could have chosen.
 	"""
 
+	slug: str | None = None
 	title: str | None = None
 	description: str | None = None
 	timezone: str | None = None
@@ -267,7 +272,7 @@ def change (
 	supplied = body.model_fields_set
 	changes: dict[str, typing.Any] = {
 		name: getattr(body, name)
-		for name in ("title", "description", "timezone")
+		for name in ("slug", "title", "description", "timezone")
 		if name in supplied
 	}
 

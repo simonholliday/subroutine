@@ -265,6 +265,15 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"argument on the existing one, or nothing, is measured in `tests/test_mcp.py` the way "
 		"the three previous raises were. **Deleting this entry is what closes `#293`.**",
 	),
+	"rename_workspace": (
+		"disclosure",
+		"`#295`. Retires an address every item in the workspace is written as, for everybody "
+		"who can reach it — §1.4's argument runs the other way here as it does for "
+		"`move_project`: this should be harder to reach, not easier. The CLI half counts the "
+		"items and the members and asks before doing any of it, which is not a shape a tool "
+		"call has, and an agent that renamed a workspace would break addresses in notes it "
+		"cannot see.",
+	),
 	"move_project": (
 		"disclosure",
 		"Reparenting a whole subtree: rare, consequential, and no undo. §1.4's argument runs "
