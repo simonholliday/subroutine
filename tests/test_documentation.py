@@ -13,6 +13,7 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 """
 
 import pathlib
+import re
 import typing
 
 import pytest
@@ -89,3 +90,35 @@ def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> N
 	# Otherwise this passes just as happily on a page whose links have all been deleted, which
 	# is the failure mode a link checker is least able to notice about itself.
 	assert checked, f"{page.name} has no relative links — has this test stopped reaching them?"
+
+
+def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
+	"""`#274`. A table of contents that is quietly incomplete is worse than none.
+
+	`## Credentials` had fallen out of it, and nothing noticed — so a reader looking for
+	credentials in the list concludes the document does not cover them. The list is maintained
+	by hand and drifts every time somebody adds a section; I added one today and got it right
+	by luck.
+
+	**The anchor is derived rather than trusted**, because that is what the link depends on:
+	GitHub lowercases the heading, drops everything but word characters, spaces and hyphens,
+	and turns the spaces into hyphens. A list entry pointing at an anchor that does not exist
+	is the same defect one level down.
+	"""
+
+	text = (ROOT / "docs" / "hosting.md").read_text(encoding="utf-8")
+	contents = text[text.index("## Contents") : text.index("## An account")]
+
+	listed = dict(re.findall(r"^- \[(.+?)\]\(#(.+?)\)$", contents, re.MULTILINE))
+	headings = [
+		line.removeprefix("## ")
+		for line in text.splitlines()
+		if line.startswith("## ") and line != "## Contents"
+	]
+
+	assert list(listed) == headings, "the contents list and the sections disagree"
+
+	for heading, anchor in listed.items():
+		expected = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+
+		assert anchor == expected, f"{heading!r} links to #{anchor}, but its anchor is #{expected}"

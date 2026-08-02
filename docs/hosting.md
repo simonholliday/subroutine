@@ -31,6 +31,7 @@ Rails application, you have already done this.
 - [Giving an agent a token](#giving-an-agent-a-token)
 - [Reaching it from your own machine](#reaching-it-from-your-own-machine)
 - [Backups](#backups)
+- [Credentials](#credentials)
 - [Upgrading](#upgrading)
 - [The AGPL obligation, which is a product requirement here](#the-agpl-obligation-which-is-a-product-requirement-here)
 
