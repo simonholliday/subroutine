@@ -84,6 +84,10 @@ $ uv tool install subroutine
 $ pipx install subroutine        # the same thing, if you have pipx rather than uv
 ```
 
+**Neither of them installed?** `sudo apt install pipx` on Debian or Ubuntu, `brew install pipx`
+on a Mac — or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which
+is one line and needs no Python. Either will do; you only need one.
+
 `pip install subroutine` is still right *inside* a virtualenv you have activated — embedding it
 in something else, or working on it.
 
