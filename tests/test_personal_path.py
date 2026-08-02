@@ -3140,3 +3140,79 @@ def test_a_missing_database_says_which_one_and_why_it_looked_there (
 
 	# And that nobody chose it, which is what separates "never set up" from "misconfigured".
 	assert "Nothing has configured 'database_url'" in result.output
+
+
+def test_init_says_when_it_is_about_to_build_a_second_instance (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#267`. The quiet failure behind the loud one, and the worse of the two.
+
+	Set up on PostgreSQL with the URL in the environment, then run `init` again without it —
+	which is what somebody does when a service says "run `subroutine init` first". It reported
+	`Ready.`, `db current` reported a healthy schema and `list` reported an empty backlog:
+	three confident answers about a database nobody wanted, with the first instance untouched
+	and unreachable. The shape of that, to the person it happens to, is "my data has gone".
+
+	The signal is exact rather than heuristic: `config.toml` carries a `secret_key`, which only
+	`init` writes, **and** the database it is looking at now is absent — so the earlier run
+	used a different one.
+
+	A warning rather than a refusal, because `ensure_secret_key` runs before the database is
+	prepared: an `init` that failed part-way leaves a key and no database, and that retry must
+	still work. The test below holds that open.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	runner = typer.testing.CliRunner()
+	elsewhere = tmp_path / "elsewhere.db"
+
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", f"sqlite:///{elsewhere}")
+
+	assert runner.invoke(subroutine.cli.main.app, ["init"]).exit_code == 0
+	assert elsewhere.exists()
+
+	# The variable goes with the shell, exactly as it does for a service.
+	monkeypatch.delenv("SUBROUTINE_DATABASE_URL")
+
+	again = runner.invoke(subroutine.cli.main.app, ["init"])
+
+	assert again.exit_code == 0
+	assert "has run here before" in again.output
+	assert "a second, empty one" in again.output
+
+	# Conditional, so that it stays true for the retry case the test below covers.
+	assert "If you set an instance up earlier" in again.output
+
+	# Before the work, not after it — a warning under `Ready.` reads as a footnote to success.
+	assert again.output.index("has run here before") < again.output.index("Ready.")
+
+
+def test_init_can_still_be_retried_after_it_failed_part_way (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The flow the warning above must not have become a refusal.
+
+	`ensure_secret_key` writes before `migrate.upgrade` runs, so an `init` that could not reach
+	its database leaves a signing key behind and no database at all — which is the same two
+	facts the warning fires on. **So the warning fires here too**, and it must still succeed.
+
+	That is why the message is phrased as a condition rather than as a finding: "if you set an
+	instance up earlier and it is not there". Written as an assertion it would be false exactly
+	when somebody is already recovering from a failure, which is the worst moment to be told
+	something untrue about their data.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	runner = typer.testing.CliRunner()
+
+	# A key on disk with nothing else, which is what a part-way failure leaves.
+	subroutine.config.ensure_secret_key(subroutine.config.load_settings())
+
+	result = runner.invoke(subroutine.cli.main.app, ["init"])
+
+	assert result.exit_code == 0
+	assert "Ready." in result.output

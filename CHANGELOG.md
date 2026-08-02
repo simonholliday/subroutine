@@ -87,6 +87,12 @@ upgrade involves.
   write the URL for you: a PostgreSQL URL routinely carries a password and that file is the one
   that holds no secrets. It can tell you, and now does.
 
+- **`init` warns before building a second instance when the first one is elsewhere.** Running
+  it in a configuration directory that already holds a signing key, while the database it is
+  configured for is absent, means the earlier instance is somewhere this configuration does not
+  name. It used to carry on in silence — and then `db current` reported a healthy schema and
+  the list came back empty, which to the person it happens to looks like their data has gone.
+
 - **The hosting guide has a route for starting on PostgreSQL**, rather than only for switching
   to it later. Four steps, of which writing `database_url` into `config.toml` is the one whose
   absence leaves a service restarting every five seconds.

@@ -333,6 +333,8 @@ def init (
 
 	_refuse_unusable_storage(settings)
 
+	_warn_an_earlier_instance_is_elsewhere(settings)
+
 	password = _read_password(password_stdin, non_interactive)
 	_key, written_to = subroutine.config.ensure_secret_key(settings)
 
@@ -1981,6 +1983,49 @@ def _outermost_missing (directory: pathlib.Path) -> pathlib.Path:
 		missing = parent
 
 	return missing
+
+
+def _warn_an_earlier_instance_is_elsewhere (settings: subroutine.config.Settings) -> None:
+	"""Say so before building a *second* instance, when the first one is somewhere else (`#267`).
+
+	The state is specific and the signal is exact rather than heuristic: ``config.toml``
+	already carries a ``secret_key``, which only ``init`` writes, so ``init`` has run in this
+	configuration directory before — and the database it is looking at now is absent, so that
+	earlier run cannot have used it. The first instance is therefore somewhere this
+	configuration does not name.
+
+	**Which is what happens on a PostgreSQL install where the URL was given in the environment
+	and never written down** (`#265`). Without this, ``init`` reports ``Ready.``, ``db current``
+	reports a healthy schema and ``list`` reports an empty backlog — three confident answers
+	about a database nobody wanted, and a service that then starts against it and serves
+	nothing. Worse than the restart loop of `#264`, because a loud failure has become a quiet
+	wrong answer whose shape is "the data has gone".
+
+	**A warning rather than a refusal, and not out of caution.** ``ensure_secret_key`` runs
+	before ``migrate.upgrade``, so an ``init`` that failed while preparing its database leaves a
+	key behind and no database; refusing would block that retry. It has to come *before* the
+	work, though — after ``Ready.`` it reads as a footnote to a success.
+	"""
+
+	if not subroutine.config.config_file_path().exists():
+		return
+
+	if "secret_key" not in subroutine.config.read_config_file():
+		return
+
+	if not _database_is_absent(settings):
+		return
+
+	# **Phrased as a condition, not as a finding.** The same two facts are left behind by an
+	# `init` that failed while preparing its database, where no earlier instance exists at all —
+	# so asserting that one does would be false exactly when somebody is already recovering.
+	_warn(
+		f"'init' has run here before — {subroutine.config.config_file_path()} already holds a "
+		f"signing key — and there is no database at {safe_url(settings.database_url)}. If you "
+		f"set an instance up earlier and it is not there, it is somewhere this configuration "
+		f"does not name: put its 'database_url' in that file and run this again, or carrying "
+		f"on will build a second, empty one."
+	)
 
 
 def _warn_an_environment_database_is_not_recorded (

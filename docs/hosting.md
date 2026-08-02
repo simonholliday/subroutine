@@ -212,6 +212,12 @@ Skip this and everything looks fine until the service starts: the environment va
 with the shell, the unit sets only the XDG paths, and `serve` looks at the SQLite default,
 finds nothing, and restarts every five seconds.
 
+**And do not answer that by running `init` again**, which is what the message used to suggest.
+Without `database_url` set it will build a *second*, empty instance in SQLite, and everything
+after that looks healthy: `db current` reports a schema, `list` reports an empty backlog, and
+the service starts and serves nothing. `init` warns before doing it — but the remedy is step 3,
+not another `init`.
+
 **4. Check before starting anything**, as the service account:
 
 ```console
