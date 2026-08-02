@@ -495,9 +495,28 @@ token = "sr_…"
 
 **Tokens live in their own file and never in `config.toml`** (§12.3a), so that a configuration
 file can be copied, committed or pasted into a bug report without taking a credential with it.
-Make it `chmod 600`. The token is one you issued on the *server*, with `subroutine token
-create` as the service account — see [Giving an agent a token](#giving-an-agent-a-token). If
-your shell already has `SUBROUTINE_TOKEN` set, that is another way in and needs no file.
+Make it `chmod 600`. If your shell already has `SUBROUTINE_TOKEN` set, that is another way in
+and needs no file.
+
+**It is not `secret_key`,** which is the only thing in `config.toml` that looks like a
+credential and is the wrong one. Every instance writes its own at `init` — the server has one
+already — and it signs pagination cursors and nothing else. Copying it across achieves nothing.
+
+**And there is nothing to look up.** Only a hash of a token is stored, so no command can show
+you one that was issued earlier; `token list` prints prefixes, which is what `revoke` takes. If
+you have lost a token, issue another and revoke the old one. Issue it on the *server*, as the
+service account:
+
+```console
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token create --title "my laptop"
+```
+
+That is the only time the secret is shown. See
+[Giving an agent a token](#giving-an-agent-a-token) for narrowing one.
 
 Then it just appears, with each row saying where it lives:
 

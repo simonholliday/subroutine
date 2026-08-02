@@ -64,7 +64,9 @@ upgrade involves.
 
 - **The hosting guide says how to reach a served instance from your own machine.** Adding a
   connection is two short files and the guide never showed them, while the README sells one
-  list across every machine. There is a section for it now.
+  list across every machine. There is a section for it now — including that the credential you
+  need is a token you issue on the server rather than the `secret_key` sitting in your own
+  configuration file, which is the only thing there that looks like one.
 
 - **The hosting guide says how to get PostgreSQL**, rather than assuming you already have one.
   Installing the server, and creating the role and database with names and ownership that
