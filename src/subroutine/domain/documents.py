@@ -155,6 +155,7 @@ def update (
 	status_key: str = subroutine.domain.patch.UNSET,
 	type_key: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
+	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	supersedes: subroutine.db.models.work.Document | None = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
@@ -175,6 +176,67 @@ def update (
 		workspace_id=document.workspace_id,
 	)
 	subroutine.domain.versions.require(document, expected_version, noun="This document")
+
+	# **Filing it somewhere else** (`#294`). A document could be created into a project and
+	# never moved, so a conclusion written before anybody decided where it belonged stayed in
+	# the Inbox for good — and unlike a task's, a document's project is what decides *who can
+	# read it* (§7.3a), so this was a permissions consequence rather than a tidiness one.
+	moving = project is not subroutine.domain.patch.UNSET and project.id != document.project_id
+	descendants: list[subroutine.db.models.work.Document] = []
+
+	if moving:
+		if project.workspace_id != document.workspace_id:
+			# The same refusal `tasks.update` gives, for the same reason: a cross-workspace
+			# move rewrites the ref's tenancy (§6.2) and would leave the document pointing at
+			# another workspace's vocabulary. `#297` is the shape a real one takes.
+			raise subroutine.errors.ValidationError(
+				"A document cannot be moved to a project in another workspace.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project",
+						code="invalid_field_value",
+						message=f"{project.key!r} is in a different workspace.",
+						hint="Move it to a project in the same workspace, or write it there.",
+					)
+				],
+			)
+
+		# Both ends checked in the pass that may raise, so somebody who may write here and not
+		# there cannot move a conclusion out of their own reach — nor learn it exists.
+		_permitted(
+			session,
+			actor,
+			subroutine.permissions.TASK_WRITE,
+			project=project,
+			workspace_id=project.workspace_id,
+		)
+
+		if document.parent_id is not None:
+			# `create` refuses a section in a different project from the document it is part
+			# of, so moving a child alone would break that invariant from the other side.
+			raise subroutine.errors.ValidationError(
+				"A section belongs to the same project as the document it is part of.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project",
+						code="invalid_field_value",
+						message="This document is part of another, which decides its project.",
+						hint="Move the one it belongs to — its sections go with it.",
+					)
+				],
+			)
+
+		descendants = list(
+			session.scalars(
+				sqlalchemy.select(subroutine.db.models.work.Document).where(
+					subroutine.domain.hierarchy.subtree(
+						subroutine.db.models.work.Document, document
+					),
+					subroutine.db.models.work.Document.id != document.id,
+					subroutine.db.models.work.Document.deleted_at.is_(None),
+				)
+			)
+		)
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = (
@@ -267,6 +329,13 @@ def update (
 			changes["supersedes_id"] = {"from": document.supersedes_id, "to": wanted}
 			document.supersedes_id = wanted
 
+	if moving:
+		# Captured before the assignment, because the descendants' events are recorded after
+		# it and would otherwise report moving from the project they are moving *to*.
+		came_from = document.project_id
+		changes["project_id"] = {"from": came_from, "to": project.id}
+		document.project_id = project.id
+
 	if not changes:
 		return document
 
@@ -299,6 +368,26 @@ def update (
 		changes=changes,
 		actor=actor,
 	)
+
+	# **Sections travel with the document they are part of, and each gets its own event.**
+	# `create` holds the invariant that a section shares its parent's project, so a move that
+	# left them behind would break it — and the history somebody reads is the *section's*, so
+	# a count on the parent's event is not an answer to "what happened to this one" (§10.7
+	# invariant 9). They are already loaded, so this writes no rows the move did not imply.
+	for descendant in descendants:
+		descendant.project_id = project.id
+		descendant.version += 1
+
+		subroutine.domain.events.record(
+			session,
+			workspace_id=descendant.workspace_id,
+			entity_type="document",
+			entity_id=descendant.id,
+			action=subroutine.domain.events.EventAction.UPDATED,
+			changes={"project_id": {"from": came_from, "to": project.id}},
+			actor=actor,
+		)
+
 	session.flush()
 
 	return document

@@ -63,13 +63,28 @@ upgrade involves.
   disk, and says to ask rather than guess when a conclusion is sensitive, because a private
   project is what limits who can read it and publishing cannot be undone.
 
+- **A document can be filed under a different project.** `project` was accepted when a
+  document was created and by nothing afterwards, so a conclusion written before anybody had
+  decided where it belonged stayed in the Inbox for good.
+
+  That matters more than tidiness: a document's project is what decides who can read it, so
+  "file this where the client cannot see it" was unachievable after the fact. `subroutine doc
+  edit 42 --project WEB`, or `project` on `PATCH /v1/documents`.
+
+  Sections travel with the document they are part of. Moving one to a project in another
+  workspace is still refused, by name — that rewrites the ref's tenancy and would leave the
+  document pointing at another workspace's statuses.
+
 - **`subroutine doc edit` — revise a document you have already written.** `PATCH
   /v1/documents` had existed since the first release and nothing but HTTP could reach it, so
   a conclusion recorded in an instance could never be corrected there.
 
-  Takes `--title`, `--body`, `--type` and `--status`, or reads the body from a pipe the way
-  `doc create` does. With nothing to change it opens the document in `$VISUAL` or `$EDITOR`,
-  which is what makes it usable for a document of any length.
+  Takes `--title`, `--body`, `--type`, `--status` and `--project`. Say nothing else and it
+  reads the body from a pipe, or opens the document in `$VISUAL` or `$EDITOR` when there is a
+  terminal — which is what makes it usable for a document of any length.
+
+  Naming a field changes that field and leaves the text alone, so `doc edit 42 --title "…"`
+  does what it looks like.
 
 - **`subroutine_search` — an agent can search by name.** The capability existed as a `q`
   argument on `subroutine_list`, which meant a model reading tool *names* to decide what it

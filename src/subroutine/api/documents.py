@@ -100,6 +100,13 @@ class Update(subroutine.api.schemas.RequestModel):
 	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
+
+	#: The project to file it under, by key — `#294`. Accepted on create since M1 and here by
+	#: nothing, so a conclusion written before anybody decided where it belonged stayed in the
+	#: Inbox for good. A document's project also decides who may read it (§7.3a), which makes
+	#: this a permissions field rather than a filing one.
+	project: str | None = None
+
 	supersedes: subroutine.api.schemas.Reference | None = None
 
 	#: The version this change is based on (SPEC.md §8.9).
@@ -342,6 +349,13 @@ def change (
 
 	if "type" in supplied and body.type is not None:
 		changes["type_key"] = body.type
+
+	if "project" in supplied and body.project is not None:
+		# Resolved here because the service takes a row and the caller has a key, which is
+		# what `selection.project` is for and what the task endpoint already does.
+		changes["project"] = subroutine.domain.selection.project(
+			session, actor, workspace, body.project
+		)
 
 	if "supersedes" in supplied:
 		changes["supersedes"] = (

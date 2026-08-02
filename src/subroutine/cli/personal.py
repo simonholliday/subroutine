@@ -2191,6 +2191,7 @@ def register (
 			"", "--type", help="note, spec, design, decision, finding or dead_end."
 		),
 		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
+		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Revise a document you have already written.
@@ -2217,16 +2218,42 @@ def register (
 		with opened() as world:
 			located, document = _a_document(world, asked, verb="edit")
 
-			# Piped input first, then the flag, then the editor — the same order `doc create`
-			# reads them in, and the editor last because it is the only one that cannot happen
-			# unattended. A flag or a pipe means somebody already said what they wanted.
-			piped = None if sys.stdin.isatty() else sys.stdin.read()
-			said = body.strip() or (piped.strip() if piped is not None else "")
-			asked_for_nothing = not any((said, title.strip(), kind.strip(), status.strip()))
+			# **Standard input is consulted only when nothing else was said at all** (`#299`).
+			# There is no way to tell an empty pipe from no pipe without blocking, so the
+			# question has to be settled before reading rather than by reading: a caller who
+			# named a field has told us what they wanted, and reading on top of that would
+			# hang wherever there is no terminal — every script, CI job and agent shelling
+			# out — as well as replacing a body nobody asked to replace.
+			#
+			# So `doc edit 42 --title "…"` changes the title and leaves the text alone, which
+			# is also what somebody typing it expects.
+			named = any((title.strip(), kind.strip(), status.strip(), project.strip()))
+			said = body.strip()
+			revised: str = subroutine.clients.base.UNSET
 
-			revised = (
-				_in_an_editor(document.body or "") if asked_for_nothing else said
-			)
+			if said:
+				revised = said
+
+			elif not named:
+				# Nothing was said, so the text comes from somewhere else: the editor when
+				# there is a person, and otherwise whatever was piped.
+				if sys.stdin.isatty():
+					revised = _in_an_editor(document.body or "")
+
+				else:
+					revised = sys.stdin.read()
+
+					# **An empty pipe is not an instruction to empty the document.**
+					# `subroutine doc edit 42 < /dev/null` would otherwise silently replace a
+					# conclusion with nothing, which is the one outcome nobody types that to get.
+					if not revised.strip():
+						fail(
+							subroutine.errors.ValidationError(
+								"Nothing was piped in, so there is nothing to change.",
+								hint="Pipe the new text in, or pass --body, --title, --type, "
+								"--status or --project.",
+							)
+						)
 
 			where = world.connection(located.connection)
 
@@ -2242,9 +2269,10 @@ def register (
 				ref=document.ref,
 				workspace=located.workspace,
 				title=title.strip() or subroutine.clients.base.UNSET,
-				body=revised if revised or asked_for_nothing else subroutine.clients.base.UNSET,
+				body=revised,
 				type=kind.strip() or subroutine.clients.base.UNSET,
 				status=status.strip() or subroutine.clients.base.UNSET,
+				project=project.strip() or subroutine.clients.base.UNSET,
 			)
 
 			if json_output:

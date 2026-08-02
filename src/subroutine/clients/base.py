@@ -463,6 +463,7 @@ class Client(typing.Protocol):
 		body: str | None = UNSET,
 		type: str = UNSET,
 		status: str = UNSET,
+		project: str = UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).
 

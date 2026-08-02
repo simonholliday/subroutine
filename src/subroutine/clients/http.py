@@ -715,6 +715,7 @@ class Client:
 		body: str | None = subroutine.clients.base.UNSET,
 		type: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		project: str = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document, over the wire.
 
@@ -725,7 +726,13 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		given = {"title": title, "body": body, "type": type, "status": status}
+		given = {
+			"title": title,
+			"body": body,
+			"type": type,
+			"status": status,
+			"project": project,
+		}
 		answered = self._json(
 			"PATCH",
 			f"/v1/documents/{ref}",

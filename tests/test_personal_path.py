@@ -3492,6 +3492,13 @@ def test_revising_a_document_with_nothing_to_change_opens_an_editor (
 	monkeypatch.setenv("EDITOR", "sed -i 's/Before/After/'")
 	monkeypatch.delenv("VISUAL", raising=False)
 
+	# A terminal, because `CliRunner` supplies a stdin that is not one — and without a
+	# terminal `doc edit` takes the pipe rather than the editor, which is the point of the
+	# branch rather than an accident of the harness.
+	terminal = _NoInput()
+	terminal.stdin = _ATerminal()
+	monkeypatch.setattr(subroutine.cli.personal, "sys", terminal)
+
 	run("doc", "edit", "1")
 
 	assert "After." in run("show", "1").output
@@ -3512,6 +3519,10 @@ def test_revising_a_document_says_what_to_do_when_no_editor_is_set (
 
 	monkeypatch.delenv("EDITOR", raising=False)
 	monkeypatch.delenv("VISUAL", raising=False)
+
+	terminal = _NoInput()
+	terminal.stdin = _ATerminal()
+	monkeypatch.setattr(subroutine.cli.personal, "sys", terminal)
 
 	refused = run("doc", "edit", "1", expect=1)
 
@@ -3580,3 +3591,93 @@ def test_renaming_a_workspace_says_what_stops_working_before_it_does_it (
 
 	# And it meant it — the old name still works.
 	assert "Call the dentist" in run("-w", "personal", "list").output
+
+
+def test_a_document_can_be_filed_under_a_different_project (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#294`` from the command line, which is where it was needed.
+
+	The gap stranded eleven decision documents in the Inbox — everything this project had
+	concluded about itself — because a document's project could be set once and never again.
+	"""
+
+	run("init")
+	run("project", "create", "DOCS", "Docs")
+	run("doc", "create", "A conclusion", "--body", "Reasoning.")
+
+	run("doc", "edit", "1", "--project", "DOCS")
+
+	assert "DOCS" in run("show", "1").output
+
+
+class _RefusesToBeRead:
+	"""Standing in for input that will never arrive and never end."""
+
+	def isatty (self) -> bool:
+		"""Report that this is not a terminal, which is what makes reading it a trap."""
+
+		return False
+
+	def read (self) -> str:
+		"""Fail loudly rather than blocking, which is what the real thing would do."""
+
+		raise AssertionError("stdin was read when the caller had already said what it wanted")
+
+
+class _ATerminal(_RefusesToBeRead):
+	"""Standing in for a person at a keyboard, so the editor path is reachable in a test."""
+
+	def isatty (self) -> bool:
+		"""Report a terminal, which is what sends `doc edit` to the editor."""
+
+		return True
+
+
+class _NoInput:
+	"""``sys``, with a standard input that cannot be read.
+
+	**Patched over the module's own ``sys``, not over ``sys.stdin``.** ``CliRunner`` replaces
+	``sys.stdin`` for the duration of an invocation, so a monkeypatch of the real one is
+	discarded before the command runs — and a test written that way passes against the defect.
+	This proxies everything else through, so nothing else in the command changes behaviour.
+	"""
+
+	stdin = _RefusesToBeRead()
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Defer to the real module for everything except standard input."""
+
+		return getattr(sys, name)
+
+
+def test_revising_a_document_does_not_read_stdin_when_it_was_told_what_to_write (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``#299``. It hung: no terminal and nothing piped is a read that never returns.
+
+	Every script, every CI job and every agent shelling out is in that position, and none of
+	them know to send EOF. ``doc create`` short-circuits and carries a comment saying exactly
+	why; `#291` copied the shape and lost the ``or``.
+
+	**Asserted as "stdin is never touched", because the obvious test cannot fail.**
+	``CliRunner`` supplies an EOF-able stdin, so ``read()`` returns immediately and a
+	runner-based test passes against the defect — the same family as asserting on captured
+	output. A subprocess with a pipe nobody closes would reproduce it faithfully and hang the
+	suite the day it regressed, which is a worse trade than this.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+
+	monkeypatch.setattr(subroutine.cli.personal, "sys", _NoInput())
+
+	run("doc", "edit", "1", "--body", "After.")
+
+	assert "After." in run("show", "1").output
+
+	# The same for every other way of saying what you wanted, since each one takes the branch
+	# that would otherwise fall through to the read.
+	run("doc", "edit", "1", "--title", "A conclusion, restated")
+	run("doc", "edit", "1", "--type", "decision")

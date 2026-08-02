@@ -1323,3 +1323,68 @@ def test_an_update_that_changes_nothing_still_writes_nothing (
 	session.flush()
 
 	assert len(_events(session, workspace.id, "task", task.id)) == before
+
+
+def test_a_document_is_filed_under_a_different_project (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``#294``. ``project`` was accepted on create and by nothing afterwards.
+
+	So a conclusion written before anybody had decided where it belonged stayed in the Inbox
+	permanently. Found when eleven decision documents — including a live migration runbook —
+	could not be filed, and it is worse than the task version was: a document's project is
+	what decides **who may read it** (§7.3a), so this was a permissions gap.
+	"""
+
+	workspace = _workspace(session)
+	inbox = _project(session, workspace, key="INBOX")
+	docs = _project(session, workspace, key="DOCS")
+
+	written = subroutine.domain.documents.create(
+		session, project=inbox, title="A conclusion", body="Reasoning."
+	)
+	moved = subroutine.domain.documents.update(session, written, project=docs)
+
+	assert moved.project_id == docs.id
+	assert moved.ref == written.ref, "filing it elsewhere does not renumber it"
+
+	# The history says where it went, because a project change is what somebody later asks
+	# about — and the event names both ends rather than only the destination.
+	recorded = session.scalars(
+		sqlalchemy.select(subroutine.db.models.activity.Event)
+		.where(subroutine.db.models.activity.Event.entity_id == written.id)
+		.order_by(subroutine.db.models.activity.Event.seq.desc())
+	).first()
+
+	assert recorded is not None
+	assert recorded.changes is not None
+	assert recorded.changes["project_id"] == {"from": str(inbox.id), "to": str(docs.id)}
+
+
+def test_a_document_cannot_be_filed_into_another_workspace (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The refusal ``tasks.update`` gives, for the reason `#297` sets out at length.
+
+	A cross-workspace move rewrites the ref's tenancy (§6.2) *and* leaves the document
+	pointing at another workspace's vocabulary — ``status`` and ``item_type`` are per
+	workspace and their foreign keys are not scoped to the pair, so nothing in the schema
+	would notice. Refused by name rather than half-done.
+
+	Reachable only here, and that is worth saying: both clients resolve a project key inside
+	the chosen workspace, so they answer "no such project" first. This is the guard that
+	catches a caller holding a row.
+	"""
+
+	here = _workspace(session)
+	elsewhere = _workspace(session)
+	written = subroutine.domain.documents.create(
+		session, project=_project(session, here), title="A conclusion"
+	)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.documents.update(
+			session, written, project=_project(session, elsewhere)
+		)
+
+	assert "another workspace" in refused.value.detail

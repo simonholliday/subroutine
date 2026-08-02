@@ -1595,3 +1595,25 @@ def test_a_workspace_cannot_be_renamed_to_something_creation_would_refuse (pair:
 	same = pair.workspace.slug
 
 	assert local.rename_workspace(same, slug=same).slug == same
+
+
+def test_both_move_a_document_to_another_project (pair: Pair) -> None:
+	"""``#294``. ``project`` was accepted on create and by nothing afterwards.
+
+	So a conclusion written before anybody had decided where it belonged stayed in the Inbox
+	permanently — and unlike a task's, a document's project decides **who may read it**
+	(§7.3a), which made this a permissions gap rather than an untidy one. Found when eleven
+	decision documents, including a live migration runbook, could not be filed.
+	"""
+
+	local, remote = pair.both()
+
+	local.create_project(key="DOCS", title="Docs")
+	written = local.create_document(title="A conclusion", body="Reasoning.")
+	moved = local.update_document(ref=written.ref, project="DOCS")
+
+	assert moved.project_key == "DOCS"
+	assert moved.ref == written.ref, "filing it somewhere else does not renumber it"
+
+	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
+

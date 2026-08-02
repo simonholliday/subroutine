@@ -386,6 +386,7 @@ class Client:
 		body: str | None = subroutine.clients.base.UNSET,
 		type: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		project: str = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
 
@@ -416,6 +417,14 @@ class Client:
 			# `_subject` refuses a ref that names nothing, so this cannot be None — and
 			# asserting it is cheaper than a second refusal that could word it differently.
 			assert row is not None
+
+			if project is not subroutine.clients.base.UNSET:
+				# Resolved here for the reason `update` gives: the service takes a row and a
+				# command line carries a key, and handing the key straight through raises
+				# `AttributeError` on `.id` rather than refusing by name.
+				changes["project"] = subroutine.domain.selection.project(
+					session, actor, chosen, project
+				)
 
 			revised = subroutine.domain.documents.update(session, row, actor=actor, **changes)
 
