@@ -303,7 +303,39 @@ WantedBy=multi-user.target
 ```
 
 `ExecStart` takes no `--host` or `--port` because both are settings; the defaults are
-`127.0.0.1` and `8471`. `ProtectSystem=strict` makes the whole filesystem read-only apart from
+`127.0.0.1` and `8471`.
+
+**When the proxy is on another machine** — a router, a NAS, a box running Nginx Proxy Manager
+or Caddy — loopback is no longer enough, because the proxy has to reach this host over the
+network. Bind wider and say where the proxy serves it, both in `config.toml`:
+
+```toml
+host = "0.0.0.0"
+public_url = "https://tasks.example.com"
+```
+
+That is the second of the three ways past the TLS refusal above, and it needs **no flag**: the
+`https://` scheme in `public_url` is what satisfies the check. `public_url` is also published
+at `GET /v1/meta`, so an agent handed a token finds out the address to come back to — which
+`--insecure` would not tell it. Restart, and `journalctl -u subroutine` should show it
+listening on `0.0.0.0`.
+
+Naming the machine's own address rather than `0.0.0.0` is better where you can: it will not
+follow you onto a café's wifi if this is a laptop, and it makes the intent legible to whoever
+reads the file next.
+
+**`--insecure` is for the case where there is no proxy at all** and the network is genuinely
+trusted — a home LAN with nothing exposed. It goes on `ExecStart`, because it is a decision
+about this invocation rather than a property of the installation:
+
+```ini
+ExecStart=/opt/subroutine/bin/subroutine serve --insecure
+```
+
+Either way, be clear about what a bind beyond loopback without TLS means: **bearer tokens
+cross that network in clear**, and anything that can see the traffic can replay them. On a home
+LAN that is a reasonable trade. It should be one you have made rather than one you have
+inherited from a flag you copied. `ProtectSystem=strict` makes the whole filesystem read-only apart from
 what `StateDirectory` grants, which is why a backup directory elsewhere needs naming — a
 `ReadWritePaths` you forgot shows up as a backup that cannot be written, on the day you need
 one.

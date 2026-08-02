@@ -68,6 +68,12 @@ upgrade involves.
   need is a token you issue on the server rather than the `secret_key` sitting in your own
   configuration file, which is the only thing there that looks like one.
 
+- **The hosting guide shows how to serve beyond loopback with a proxy on another machine** —
+  a router, a NAS, Nginx Proxy Manager. It is two settings and no flag, and the guide had only
+  ever demonstrated a public bind as a command-line option, on a page whose whole subject is a
+  unit file. `--insecure` is now described as what it is: the case where there is no proxy at
+  all.
+
 - **The hosting guide says how to get PostgreSQL**, rather than assuming you already have one.
   Installing the server, and creating the role and database with names and ownership that
   actually let the first migration run — `--owner` in particular, without which it fails on
