@@ -40,6 +40,13 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+- **The agent skill says where a document belongs.** It taught agents to write documents and
+  never which project to file one under, so conclusions accumulated in the Inbox — which is
+  where things go when nobody decided, and a document's project cannot be changed afterwards.
+  It now also draws the line between what belongs in an instance and what stays a file on
+  disk, and says to ask rather than guess when a conclusion is sensitive, because a private
+  project is what limits who can read it and publishing cannot be undone.
+
 - **`subroutine doc edit` — revise a document you have already written.** `PATCH
   /v1/documents` had existed since the first release and nothing but HTTP could reach it, so
   a conclusion recorded in an instance could never be corrected there.

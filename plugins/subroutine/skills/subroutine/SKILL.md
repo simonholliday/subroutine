@@ -185,6 +185,21 @@ subroutine_document(title="Why we dropped the queue", type="decision",
 Dead ends especially. "We tried X and it does not work because Y" is the single most valuable
 thing to leave behind, because without it the next session will try X.
 
+**Say which project it belongs in.** Pass `project="WEB"`. Without one it lands in the Inbox,
+which is where things go when nobody decided — fine for a quick capture, wrong for a conclusion
+somebody will go looking for. **A document's project cannot be changed afterwards**, so it is
+the one field worth a moment now rather than later.
+
+**Here, or on disk?** A conclusion the next *session* needs is a document here. A thing a
+*program* reads — a specification whose sections code and tests address by number, a config
+file, a README — stays a file. The test is who reads it, not how important it is. And one thing
+lives in one place, never both: two copies drift, and nobody can tell which one is stale.
+
+**Ask before writing anything sensitive.** A document in a private project is visible only to
+that project's members; one anywhere else is visible to everybody who can reach the workspace.
+If a conclusion names a client, a rate, a person or a credential, ask which project it belongs
+in rather than choosing for yourself — publishing cannot be undone.
+
 **Finish by leaving the trail.** Before your context ends: comment on what you touched, write a
 document for anything you decided, and mark done what is done. `subroutine_done(ref=42)`.
 
