@@ -66,6 +66,15 @@ upgrade involves.
   rows above it and false of the next command; it now reads `A bare number means work/acme
   (from the command line).` when the flags are what decided it.
 
+- **`subroutine connections` marks the connection being written to**, not only the one that
+  would be written to if nothing had chosen. Those are different questions — the second is
+  the fallback, and `subroutine use`, a `.subroutine` file, `-c` or `SUBROUTINE_CONNECTION`
+  all override it — and only the second was ever answered, under the word `default`.
+
+  The row now reads `in use` where your next command goes, `default` for the fallback, and
+  both together in the ordinary case where they agree. When they differ it also says why:
+  `Writing to work/acme (from 'subroutine use').`
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

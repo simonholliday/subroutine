@@ -121,7 +121,13 @@ class Connection:
 
 @dataclasses.dataclass(frozen=True)
 class Roster:
-	"""Every connection configured, and which one a write goes to by default."""
+	"""Every connection configured, and which one is asked when nothing has said.
+
+	``default`` is the *fallback*, not the answer: a write goes to the current context
+	(§13.7), and this only decides matters when no flag, environment variable, marker or
+	stored context has chosen one. Saying otherwise here is what made ``subroutine
+	connections`` read as an answer to "where do my writes go" (`#278`).
+	"""
 
 	connections: tuple[Connection, ...]
 	default: str

@@ -341,6 +341,44 @@ def test_a_listing_under_a_flag_says_the_context_came_from_the_flag (
 	assert "from the command line" not in run("list").output
 
 
+def test_connections_marks_the_one_being_written_to_not_only_the_fallback (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""``#278``. Two meanings of "default" coexisted and the listing named only one.
+
+	``roster.default`` is the fallback — where a write goes when *nothing* has chosen — and
+	the current context is where it actually goes. An agent read the column, concluded local
+	was the answer, and told Simon so; a bare ``add`` then filed to the other instance.
+	"""
+
+	run("use", "work/acme")
+
+	output = run("connections").output
+	marked = next(line for line in output.splitlines() if "in use" in line)
+
+	assert marked.startswith("work"), f"the context's connection is the one in use: {output!r}"
+
+	# The column can say which; only prose can say why, and why is the whole question for
+	# somebody who has just watched a write land somewhere unexpected.
+	assert "Writing to work/" in output
+	assert "subroutine use" in output
+
+
+def test_connections_says_nothing_extra_when_both_answers_agree (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The ordinary case, which must not grow an explanation nobody needs.
+
+	With no ``use`` set the context falls back to the default, so the two questions have one
+	answer and there is nothing to disentangle.
+	"""
+
+	output = run("connections").output
+
+	assert "in use, default" in output
+	assert "Writing to" not in output
+
+
 def test_the_listing_groups_by_connection_and_merges_on_request (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

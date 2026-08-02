@@ -2897,9 +2897,15 @@ def register (
 
 		return subroutine.directory.resolve(marker, found)
 
+	# **This docstring is published as `--help`**, so the reasoning lives out here. `#278`:
+	# the listing marks the connection being written to as well as the one that is merely the
+	# fallback. Those are different questions, and only the second used to be answered — under
+	# a word, "default", that reads like the first. An agent read it, told Simon local was
+	# where writes went, and a bare `add` filed to the other instance.
 	@app.command(hidden=not _worth_showing(settings))
 	def connections () -> None:
-		"""List the instances this reaches, and where each one's token came from.
+		"""List the instances this reaches, which one you are working in, and where each
+		one's token came from.
 
 		No token is ever printed, and none can be recovered from what is. Which of the four
 		places supplied it is the useful part — the standing footgun in comparable tooling is
@@ -2907,9 +2913,19 @@ def register (
 		"""
 
 		resolved = settings()
+		current = None
 
 		try:
 			roster = subroutine.connections.roster(resolved)
+
+			# Resolved without opening anything, deliberately: this is the command somebody
+			# runs when a connection is *not* working, so it must not need one to answer.
+			current = subroutine.context.resolve(
+				roster,
+				connection=selected.connection,
+				workspace=selected.workspace,
+				marker=subroutine.directory.find(),
+			)
 
 		except subroutine.errors.SubroutineError as error:
 			fail(error)
@@ -2919,7 +2935,7 @@ def register (
 		if warning is not None:
 			warn(warning)
 
-		rows = [_connection_row(connection, roster, resolved) for connection in roster]
+		rows = [_connection_row(connection, roster, resolved, current) for connection in roster]
 		widths = [max(len(row[column]) for row in rows) for column in range(3)]
 
 		for row in rows:
@@ -2928,6 +2944,14 @@ def register (
 				f"{row[2].ljust(widths[2])}  {row[3]}"
 			)
 
+		# **Where it came from, when the two answers differ** (`#278`). One word in a column
+		# cannot say why, and why is the whole question when somebody has just watched a write
+		# land somewhere they did not expect. Silent when they agree, which is the ordinary
+		# case and needs no explanation.
+		if current.connection != roster.default:
+			say("")
+			say(f"Writing to {current.describe(qualified=roster.qualifies)}.")
+
 		say("")
 		_suggest(console, "subroutine use")
 
@@ -2935,6 +2959,7 @@ def register (
 		connection: subroutine.connections.Connection,
 		roster: subroutine.connections.Roster,
 		resolved: subroutine.config.Settings,
+		current: subroutine.context.Current,
 	) -> tuple[str, str, str, str]:
 		"""Describe one connection: its name, where it is, its token, and what it is."""
 
@@ -2947,6 +2972,13 @@ def register (
 			token = f"unusable — {error.detail}"
 
 		notes = []
+
+		# **"in use" first, because it is the one somebody is asking about** (`#278`). A
+		# reader scanning this column wants to know where their next command goes; "default"
+		# answers a narrower question — where it would go if nothing had chosen — and read as
+		# the first, which is how an agent came to tell Simon the wrong thing.
+		if connection.name == current.connection:
+			notes.append("in use")
 
 		if connection.name == roster.default:
 			notes.append("default")
