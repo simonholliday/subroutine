@@ -192,3 +192,44 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # **After PyPI, never beside it** (`SR#241`). A GitHub release is an announcement, and one
+  # announcing a version the index does not have sends people to an install that fails. So this
+  # needs `pypi`, which means a failed upload leaves no release to explain away.
+  #
+  # The notes are the changelog section for this tag rather than a list of commit subjects,
+  # because two accounts of one release drift the moment anybody edits either — and
+  # `release_notes.py` exits non-zero on a missing or empty section, so what would otherwise be
+  # a silent failure (a release page saying nothing at all) fails the job instead.
+  announce:
+    name: GitHub release
+    needs: pypi
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    # The only job here that writes anything back to the repository, which is why the file
+    # declares `contents: read` at the top and this one widens it for itself alone.
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      # The wheel and the sdist go up with it: the same files PyPI got, reachable by somebody
+      # who cannot use an index, and a second place to check a release against.
+      - name: Publish the release, with the changelog as its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          python scripts/release_notes.py "$version" > /tmp/notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Subroutine $version" \
+            --notes-file /tmp/notes.md \
+            dist/*
