@@ -273,38 +273,47 @@ def test_a_comment_on_a_private_task_stays_out_of_the_feed (
 	assert [item for item in _feed(nosy) if item["entity_type"] == "comment"] == []
 
 
-def test_a_link_event_is_excluded (world: test_api_tasks.World) -> None:
-	"""`#252`, and the exclusion is deliberate rather than an oversight.
+def test_a_link_event_reaches_the_feed_through_the_item_it_hangs_off (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#252`. Link events were excluded entirely, and this test asserted the exclusion.
 
-	A link event's ``entity_id`` names the link row, whose visibility is the conjunction of
-	two items' visibility — either of which may sit in a private project. Until a link records
-	its subject the feed cannot tell, and under-reporting is the recoverable half of that
-	choice. **Deleting this test is part of closing `#252`.**
+	The exclusion was the right way round while it stood — an event whose ``entity_id`` names
+	a link row cannot be scoped, and under-reporting is the recoverable half of that choice.
+	It stops being needed once a link records *what it hangs off*, which is the pair a comment
+	has always carried: the feed then narrows it with a rule that knows nothing about links.
+
+	**The residual is `#302` and is deliberately not asserted away here**: the subject is the
+	link's source, so an event whose source is visible still reports the far end's ref in its
+	``changes``. That is the conjunction one subject cannot express, and it is a schema
+	question rather than a line.
 	"""
 
 	first = world.call("POST", "/v1/tasks", json={"title": "Build the endpoint"}).json()
 	second = world.call("POST", "/v1/tasks", json={"title": "Design it"}).json()
 
+	# **Asserted, because the version of this test that guarded the exclusion was vacuous.**
+	# It sent `type` where the model declares `link_type`, so the request was refused, no link
+	# event was ever written, and it passed by having nothing to exclude — it went on passing
+	# with the whole scoping predicate removed, which is how it was caught.
 	linked = world.call(
 		"POST",
 		f"/v1/tasks/{first['ref']}/links",
 		json={"target_type": "task", "target": second["ref"], "link_type": "blocks"},
 	)
 
-	# **Asserted, because the first version of this test did not and was vacuous.** It sent
-	# `type` where the model declares `link_type`, the request was refused as an unknown field,
-	# no link event was ever written, and the test below passed by having nothing to exclude —
-	# it went on passing with the whole scoping predicate removed, which is how it was caught.
 	assert linked.status_code == 201, linked.text
-
-	events = subroutine.domain.events.selected(workspace_ids=[world.workspace.id])
-	written = [event.entity_type for event in world.session.scalars(events)]
-
-	assert "link" in written
 
 	_settled(world.session)
 
-	assert [item for item in _feed(world) if item["entity_type"] == "link"] == []
+	reported = [item for item in _feed(world) if item["entity_type"] == "link"]
+
+	assert reported, "a link event is no longer excluded from the feed"
+
+	# Scoped through the source, and named to the reader as that item — which is what makes
+	# the row readable rather than a bare identifier.
+	assert reported[0]["subject_type"] == "task"
+	assert reported[0]["item_ref"] == first["ref"]
 
 
 def test_actor_me_reports_only_this_credential (session: sqlalchemy.orm.Session) -> None:

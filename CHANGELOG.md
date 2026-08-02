@@ -99,6 +99,17 @@ upgrade involves.
 
 ### Fixed
 
+- **The change feed reports links.** A link event carried no record of *what* it was a link
+  on, so nothing could work out who was entitled to see it and the feed left them out
+  entirely — an agent resuming from `?since=` never learned that anything had been joined to
+  anything.
+
+  They are scoped through the item the link hangs off, exactly as a comment is, so a link on
+  a task in a private project stays invisible to anyone who cannot see that task.
+
+  Links created before this release have no such record and remain absent from the feed.
+  They are still on the items themselves.
+
 - **A workspace created anywhere but `init` had no Inbox**, so filing a task in it without
   naming a project — the ordinary way to file one — failed with a `500`. That is every
   workspace ever made through `POST /v1/workspaces`, which has been able to create them since

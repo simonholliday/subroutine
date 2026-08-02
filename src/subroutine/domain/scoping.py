@@ -199,12 +199,17 @@ def readable_tasks (
 #: here is invisible**, which is the only safe default: a kind of event added by a later
 #: feature must not become public because nobody remembered this file.
 #:
-#: ``link`` is deliberately absent (`#252`). Its ``entity_id`` names a link row, and a link's
-#: visibility is the conjunction of two items' visibility, either of which may sit in a
-#: private project. Excluding it under-reports; including it would leak the existence of
-#: something private, and only one of those is recoverable.
+#: ``link`` was absent until `#252` gave link events a subject. They are scoped through the
+#: item the link hangs off, exactly as a comment is — so a link on a task in a private project
+#: is invisible to anybody who cannot see that task, and no rule here knows what a link is.
+#:
+#: **What that does not check is the far end** (`#302`). A link's visibility is really the
+#: conjunction of two items', and one subject can only express one of them, so an event whose
+#: source is visible reports the *ref* of a target that may not be. A number rather than a
+#: title, and a workspace's refs are close to guessable anyway — but it is a narrower version
+#: of the leak this exclusion existed to prevent, and it is recorded rather than assumed away.
 FEED_ENTITY_TYPES = frozenset(
-	{"task", "project", "document", "comment", "workspace", "workspace_member"}
+	{"task", "project", "document", "comment", "workspace", "workspace_member", "link"}
 )
 
 #: Narrowed by the workspace and nothing further, because belonging to the workspace is the

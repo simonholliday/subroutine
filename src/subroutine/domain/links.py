@@ -174,6 +174,13 @@ def create (
 		workspace_id=workspace_id,
 		entity_type="link",
 		entity_id=link.id,
+		# **The item the link hangs off, so the event can be scoped** (`#252`). Without it
+		# `entity_id` names a link row and nothing can decide who may see the event — which is
+		# why the change feed excluded link events entirely until now. This is the pair
+		# `domain.comments` already uses, and `scoping.visible_events` narrows on it without
+		# knowing what kind of thing wrote it.
+		subject_type=source.entity_type,
+		subject_id=source.id,
 		action=subroutine.domain.events.EventAction.CREATED,
 		changes={
 			"link_type": {"from": None, "to": link_type.key},
@@ -216,6 +223,11 @@ def remove (
 		workspace_id=link.workspace_id,
 		entity_type="link",
 		entity_id=link.id,
+		# The same subject as the creation, read off the row rather than off a caller's
+		# argument: an unlink names the link, and the item it was hung on is what decides
+		# who may know it went away (`#252`).
+		subject_type=link.source_type,
+		subject_id=link.source_id,
 		action=subroutine.domain.events.EventAction.DELETED,
 		actor=actor,
 	)
