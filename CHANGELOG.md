@@ -12,6 +12,22 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **The first install line no longer fails on the machine most people have.** `pip install
+  subroutine` outside a virtualenv is refused by Debian, Ubuntu and Fedora — PEP 668's
+  `externally-managed-environment` — and that was the first command in this README, the first
+  on the PyPI page, and the first thing anybody read. It is now `uv tool install subroutine`
+  or `pipx install subroutine`: they work on those systems, they put `subroutine` on your
+  `PATH` where an editor or an agent can launch it, and pipx is what Debian's own error
+  message tells you to use.
+
+  **This corrects the note at the end of 0.1.2 below**, which said `pip install subroutine`
+  remained right if you were only going to type commands yourself. That holds inside a
+  virtualenv you have activated, and nowhere else — which is not what it implied.
+
 ## 0.1.2 — 2026-08-02
 
 No migration notice: the schema head has not moved since 0.1.0. Nothing in the package itself

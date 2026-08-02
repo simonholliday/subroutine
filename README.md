@@ -28,7 +28,7 @@ Three things you might want. Pick one; they compose.
 **A to-do list on your own machine.** Nothing to configure.
 
 ```console
-$ pip install subroutine
+$ uv tool install subroutine    # or: pipx install subroutine
 $ subroutine init
 $ subroutine add "Call the dentist before Sunday"
 $ subroutine today
@@ -39,7 +39,7 @@ practice — it keeps the backlog, records what it did, and adopts Subroutine in
 are already working on. **You never have to learn the CLI.**
 
 ```console
-$ uv tool install subroutine    # or pipx — your editor starts it, so it must be on your PATH
+$ uv tool install subroutine    # or: pipx install subroutine
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
@@ -74,16 +74,20 @@ commands and `subroutine explain dates` covers the ideas behind them.
 Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
 start — SQLite is the default and `subroutine init` makes it.
 
-`pip install subroutine` is fine if you are only going to type commands yourself. **If an
-editor or an agent is going to launch it, install it as a tool instead** — that is what puts
-`subroutine` on your `PATH`, where something other than your shell can find it:
+**Install it as a tool**, because that is what it is — an application, not a library. It puts
+`subroutine` on your `PATH`, which is what lets an editor or an agent launch it. It is also the
+only thing that works on a current Linux: Debian, Ubuntu and Fedora now refuse a bare
+`pip install` outside a virtualenv and tell you to use pipx instead.
 
 ```console
 $ uv tool install subroutine
 $ pipx install subroutine        # the same thing, if you have pipx rather than uv
 ```
 
-PostgreSQL when you outgrow SQLite — the extra goes on whichever of the three you used:
+`pip install subroutine` is still right *inside* a virtualenv you have activated — embedding it
+in something else, or working on it.
+
+PostgreSQL when you outgrow SQLite — the extra goes on whichever you used:
 
 ```console
 $ uv tool install "subroutine[postgres]"
