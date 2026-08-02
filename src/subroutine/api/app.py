@@ -18,6 +18,7 @@ import sqlalchemy.orm
 import subroutine
 import subroutine.api.admin
 import subroutine.api.agenda
+import subroutine.api.changes
 import subroutine.api.comments
 import subroutine.api.documents
 import subroutine.api.events
@@ -75,6 +76,9 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.comments.project_comments),
 	("", subroutine.api.comments.document_comments),
 	("", subroutine.api.comments.router),
+	# The feed reads the same rows as the histories below and shares a path with nothing:
+	# `/v1/changes` is a literal under no entity's prefix.
+	("", subroutine.api.changes.router),
 	# The history sub-resources, likewise after the routers they extend.
 	("", subroutine.api.events.task_events),
 	("", subroutine.api.events.project_events),

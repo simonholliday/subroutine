@@ -115,6 +115,9 @@ def selected (
 	entity_type: str | None = None,
 	entity_id: uuid.UUID | None = None,
 	upper_bound: datetime.datetime | None = None,
+	since: int | None = None,
+	visible: sqlalchemy.ColumnElement[bool] | None = None,
+	actor_token_id: uuid.UUID | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
 	"""Return the statement both readers of this table are built on (SPEC.md §5.11a).
 
@@ -137,6 +140,20 @@ def selected (
 	it is the permission check, so re-deriving one here would be a second copy of a rule the
 	route has already applied. The feed has no such resolution to lean on and will have to
 	compose those predicates itself; §5.11a says so, and it is why the histories came first.
+
+	**The last three arguments belong to the feed alone**, and are stated here so that both
+	readers are still built by one function rather than two that agree for a while:
+
+	* ``since`` is a ``seq`` and is **inclusive**. §5.11 fixes cursors as
+	  "inclusive-with-dedupe" because a client that persists its cursor before it has finished
+	  processing a page must not lose the page — one duplicated row per poll buys that, and
+	  every event carries a stable ``id`` to dedupe on.
+	* ``visible`` is :func:`subroutine.domain.scoping.visible_events`, passed in rather than
+	  built here: this module writes events and must not import the module that decides who may
+	  read entities.
+	* ``actor_token_id`` answers "what did *I* do" (`#158`) — **the credential, not the user**.
+	  An agent with its own service-account token wants what it did, not what the person who
+	  issued it did from a laptop.
 
 	**Naming an entity asks for what happened *to* it, which is not the same as what was
 	recorded *against* it.** Commenting on ``#42`` writes an event whose entity is the comment,
@@ -167,6 +184,15 @@ def selected (
 
 	if upper_bound is not None:
 		statement = statement.where(model.created_at <= upper_bound)
+
+	if since is not None:
+		statement = statement.where(model.seq >= since)
+
+	if visible is not None:
+		statement = statement.where(visible)
+
+	if actor_token_id is not None:
+		statement = statement.where(model.actor_token_id == actor_token_id)
 
 	return statement
 

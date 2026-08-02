@@ -136,6 +136,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"partial read is worse than a clear failure.",
 		),
 		_define(
+			"cursor_expired",
+			410,
+			"Cursor expired",
+			"A change-feed cursor names a point older than the events this instance still "
+			"holds, so the gap between there and now cannot be reported (SPEC.md §5.11). "
+			"The client resyncs from the beginning rather than being handed a page that "
+			"silently omits everything pruned in between.",
+		),
+		_define(
 			"payload_too_large",
 			413,
 			"Too large",
@@ -341,6 +350,12 @@ class PayloadTooLarge(SubroutineError):
 	CODE = "payload_too_large"
 
 
+class CursorExpired(SubroutineError):
+	"""A change-feed cursor points further back than this instance can still report."""
+
+	CODE = "cursor_expired"
+
+
 class ValidationError(SubroutineError):
 	"""The request was well-formed but cannot be carried out as written."""
 
@@ -418,6 +433,7 @@ _BY_STATUS: dict[int, type[SubroutineError]] = {
 	404: NotFound,
 	405: MethodNotAllowed,
 	409: Conflict,
+	410: CursorExpired,
 	413: PayloadTooLarge,
 	422: ValidationError,
 	429: RateLimited,

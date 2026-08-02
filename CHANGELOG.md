@@ -12,6 +12,34 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **`GET /v1/changes` — what changed while you were away**, across everything you can see, in
+  one call and without naming an item. This is the question an agent could not previously ask:
+  it could write durably here and could not resume incrementally, so every session either
+  re-read the backlog defensively or carried on believing something that had since moved.
+
+  Resume with `?since=<seq>`, using the `seq` of the last event you dealt with. It is
+  inclusive, so you will see that one again — send it back rather than the one after, and
+  ignore what you already hold.
+
+  `?actor=me` narrows it to what *this credential* did, which is not the same as what its
+  owner did: an agent with its own service-account token gets its own work back, not yours.
+
+  **Events under a second old are withheld deliberately.** A sequence number is allocated when
+  a change is written and becomes visible when it commits, and those are not the same moment —
+  without the delay a fast transaction can commit past a slower one and leave a change behind
+  a cursor that has already moved on. Poll more often than that and you will simply see
+  nothing new.
+
+  It is reachable over HTTP only for now. No CLI command and no MCP tool yet.
+
+- New error code `cursor_expired` (410), for a `?since=` older than the events an instance
+  still holds — so a client resyncs rather than being handed a page that silently omits
+  whatever fell off the end. It cannot occur yet: nothing prunes events, so nothing falls off.
+
 ## 0.1.4 — 2026-08-02
 
 ### Fixed

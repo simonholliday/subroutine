@@ -239,6 +239,7 @@ def _rebuild (
 		subroutine.errors.NotFound,
 		subroutine.errors.MethodNotAllowed,
 		subroutine.errors.Conflict,
+		subroutine.errors.CursorExpired,
 		subroutine.errors.PayloadTooLarge,
 		subroutine.errors.ValidationError,
 		subroutine.errors.RateLimited,

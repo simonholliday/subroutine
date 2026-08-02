@@ -302,9 +302,10 @@ Named plainly, because a tool that overstates itself wastes your afternoon:
   in full and not built. What *is* built is the substrate they need: attribution on every
   change, per-item history, documents linked to the work they came from, and a comment thread
   per item.
-- **No `GET /v1/changes` feed.** History is per item today.
 - **No manual reordering, no re-parenting, no time tracking.** `~2h` records an estimate; it
   does not track one.
+- **The change feed is API-only.** `GET /v1/changes` answers "what moved while I was away";
+  no CLI command and no MCP tool reaches it yet.
 
 ## Documentation
 

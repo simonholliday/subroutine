@@ -11,6 +11,7 @@ following one lands on the section describing it.
 
 | Code | HTTP | Title | Meaning |
 | --- | --- | --- | --- |
+| `cursor_expired` | 410 | Cursor expired | A change-feed cursor names a point older than the events this instance still holds, so the gap between there and now cannot be reported (SPEC.md §5.11). The client resyncs from the beginning rather than being handed a page that silently omits everything pruned in between. |
 | `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy or a chain of blocking links. |
 | `duplicate_key` | 409 | Already exists | Something with that identifying value is already here — a project key, a username, a tag name. |
 | `forbidden` | 403 | Not permitted | The credential is valid but does not carry the permission this action needs. The permission is named, so a caller can ask for a token that has it. |
@@ -28,6 +29,12 @@ following one lands on the section describing it.
 | `unauthenticated` | 401 | Not authenticated | No credential was presented, or the one presented is not valid. Every reason reports identically: an unknown token, a revoked one and an expired one are indistinguishable from outside on purpose. |
 | `unknown_field` | 422 | Unknown field | The request body carried a field this endpoint does not accept. Rejected rather than ignored, because silently dropping a typo is how a caller comes to believe it set something it did not (SPEC.md §8.1). |
 | `version_conflict` | 409 | Version conflict | The entity changed since the version the caller sent. The response carries both versions and the current entity, so the caller can merge rather than refetch and start again. |
+
+## cursor_expired
+
+**Cursor expired** — HTTP 410.
+
+A change-feed cursor names a point older than the events this instance still holds, so the gap between there and now cannot be reported (SPEC.md §5.11). The client resyncs from the beginning rather than being handed a page that silently omits everything pruned in between.
 
 ## cycle_detected
 

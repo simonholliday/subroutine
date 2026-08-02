@@ -28,6 +28,7 @@ import uuid
 
 import sqlalchemy
 
+import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
@@ -192,3 +193,93 @@ def readable_tasks (
 		statement = statement.where(task.is_template.is_(False))
 
 	return statement
+
+
+#: Which ``entity_type`` values the change feed knows how to narrow. **A value absent from
+#: here is invisible**, which is the only safe default: a kind of event added by a later
+#: feature must not become public because nobody remembered this file.
+#:
+#: ``link`` is deliberately absent (`#252`). Its ``entity_id`` names a link row, and a link's
+#: visibility is the conjunction of two items' visibility, either of which may sit in a
+#: private project. Excluding it under-reports; including it would leak the existence of
+#: something private, and only one of those is recoverable.
+FEED_ENTITY_TYPES = frozenset(
+	{"task", "project", "document", "comment", "workspace", "workspace_member"}
+)
+
+#: Narrowed by the workspace and nothing further, because belonging to the workspace is the
+#: whole of the test — there is no project standing between the caller and the fact that
+#: somebody was added to one.
+_WORKSPACE_LEVEL = ("workspace", "workspace_member")
+
+
+def visible_events (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a predicate selecting the events this principal may see, and no others.
+
+	**An event is exactly as visible as the entity it describes** (SPEC.md §5.11a). A
+	per-entity history gets that free by resolving its subject through the entity's own
+	narrowed statement; the change feed has no subject to resolve and must compose the same
+	predicates itself. §5.11a predicted that this would be the genuinely shared work, and it
+	is why the histories were built first.
+
+	**The three statements are asked for everything they would otherwise hide.** Deleted,
+	archived and template rows are all included, because a *deletion* is the event most worth
+	reporting and the defaults would hide precisely it — a feed that goes quiet when something
+	is removed cannot be resumed from. That this is expressible at all rests on nothing in
+	this system hard-deleting: the row is still joinable, so the feed can report the deletion
+	*and* still check who is entitled to know of it. §5.11a names that property as load-bearing
+	and this is the second place to lean on it.
+
+	**A comment is matched through its subject**, the pair
+	:func:`subroutine.domain.events.selected` already joins on: an event whose entity is a
+	comment carries the item the comment was written on, so it is visible exactly when that
+	item is.
+
+	**Everything unlisted is excluded.** ``tests/test_events_scoping.py`` fails the build when
+	a module emits an ``entity_type`` this file has no rule for — the allow-list is a shape
+	assumption, and a guard sharing the assumption of the thing it guards is how this project
+	has shipped every hole it has found.
+	"""
+
+	model = subroutine.db.models.activity.Event
+
+	# Read out of the statements every other listing starts from, rather than restated here.
+	# A hand-written copy of these predicates is exactly how `ls` and the agenda came to
+	# disagree about who may see a private project.
+	identifiers = {
+		"task": readable_tasks(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+			include_templates=True,
+		).with_only_columns(subroutine.db.models.work.Task.id),
+		"project": readable_projects(
+			principal, workspace_ids=workspace_ids, include_archived=True
+		).with_only_columns(subroutine.db.models.project.Project.id),
+		"document": readable_documents(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+		).with_only_columns(subroutine.db.models.work.Document.id),
+	}
+
+	clauses = [
+		sqlalchemy.and_(model.entity_type == kind, model.entity_id.in_(rows))
+		for kind, rows in identifiers.items()
+	]
+
+	# The same three sets answer the comments, because `subject_type` is only ever one of them.
+	clauses += [
+		sqlalchemy.and_(model.subject_type == kind, model.subject_id.in_(rows))
+		for kind, rows in identifiers.items()
+	]
+
+	clauses.append(model.entity_type.in_(_WORKSPACE_LEVEL))
+
+	return sqlalchemy.or_(*clauses)

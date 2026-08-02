@@ -740,9 +740,21 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"Read what has happened to one item — newest first, and including a change made a "
 		"moment ago. Comments made on it are here too, as events whose `subject_id` is this "
 		"item and whose `entity_id` is the comment. This is the *history* of one thing; "
-		"`/v1/changes` (not built yet) will be the feed of everything.",
+		"`/v1/changes` below is the feed of everything.",
 		"GET",
 		"/v1/tasks/1/events",
+		None,
+	),
+	(
+		"Ask what has changed across everything you can see — the question to open a session "
+		"with, when your last one ended and you do not know what moved. Oldest first. Keep the "
+		"`seq` of the last event you dealt with and send it back as `?since=` next time; it is "
+		"inclusive, so you will see that one again and should ignore what you already have. "
+		"Add `?actor=me` for what this credential itself did. Events under a second old are "
+		"withheld on purpose, so that nothing can be committed behind a cursor you have "
+		"already advanced past.",
+		"GET",
+		"/v1/changes",
 		None,
 	),
 	(
