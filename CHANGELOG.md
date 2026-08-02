@@ -62,6 +62,18 @@ upgrade involves.
   nothing — and it did not know about `[connections.…]`, which is the one thing in that file
   people write by hand. It said the connection was being ignored, immediately before using it.
 
+- **A connection with nothing in it keeps its heading in `subroutine list`.** An instance you
+  had just set up and not yet used vanished from the listing entirely — no heading, no line,
+  and no failure either, since a failure line only appears for a connection that errored. There
+  was nothing anywhere in the output separating "reachable and empty" from "not working", and
+  the natural reading of a missing group is a missing connection. A single connection still
+  prints no heading at all.
+
+- **`subroutine use <connection>` says so, instead of looking for a workspace of that name.**
+  It takes `workspace` or `connection/workspace`, and given just the connection it searched the
+  wrong instance and reported about the wrong thing — while the connection was sitting in the
+  roster it had already loaded. It now names the completion, with the workspace filled in.
+
 - **The connection section names `subroutine connections`**, which is how you check that a
   connection you added is being read — and which stays out of `--help` until a second
   connection exists, so it is invisible for exactly as long as the answer is "it did not work".

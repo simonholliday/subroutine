@@ -975,3 +975,60 @@ def test_a_whole_token_is_refused_where_a_prefix_belongs (
 	# And the forgiving half: the scheme-prefixed spelling of the *prefix* is taken, because
 	# a ref accepts `42` and `#42` for the same reason.
 	assert "Revoked" in run("token", "revoke", "_".join(secret.split("_")[:2])).output
+
+
+def test_an_empty_connection_keeps_its_heading (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#269`. A reachable instance with nothing in it must not read as a broken one.
+
+	Simon wired up a connection, saw it in `subroutine connections`, ran `subroutine list`, and
+	saw only `Local` — because the new instance had no items yet and `_grouped` skipped it. He
+	went back to check two configuration files and a token, all of which were correct. The
+	absence carried a meaning it had not earned.
+
+	The failure line only appears for a connection that *errored*, so before this there was
+	nothing anywhere in the output separating "reachable and empty" from "not reachable".
+	"""
+
+	run("done", "work/acme/1")
+
+	listed = run("ls").output
+
+	assert "work" in listed, "the connection is still named"
+	assert "Nothing here." in listed
+	assert "Pay the gas bill" in listed, "and the local side is unaffected"
+
+
+def test_one_connection_alone_still_prints_no_heading (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And §13.5b's transcript is untouched, which is what bounds the fix above.
+
+	With a single connection there is no group at all — printing "Local" and "Nothing here." to
+	somebody setting up a to-do list would be the whole §1.4 rule broken to solve a problem
+	they do not have. Without this the change above would have gone unnoticed until it reached
+	the four-command test.
+	"""
+
+	run("init")
+
+	assert "Nothing here." not in run("ls").output
+	assert "Local" not in run("ls").output
+
+
+def test_use_says_when_the_name_given_is_a_connection (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#270`. `use` takes `workspace` or `connection/workspace`, and a bare connection name is
+	the obvious near-miss — the roster had just printed it.
+
+	It looked for a *workspace* called `work` on the current connection, did not find one, and
+	reported about somewhere else entirely. The completion is exact rather than a shape,
+	because every connection's workspaces are already loaded when the world opens.
+	"""
+
+	refused = run("use", "work", expect=1)
+
+	assert "is a connection, not a workspace" in refused.output
+	assert "subroutine use work/acme" in refused.output

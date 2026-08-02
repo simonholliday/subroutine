@@ -2773,9 +2773,43 @@ def register (
 			)
 
 		if item.identity.workspace(wanted) is None:
+			# **A bare connection name is the likely typo, and the program knows it is one**
+			# (`#270`). Told `use hpz2g4`, this looked for a *workspace* of that name on the
+			# current connection, did not find one, and reported about somewhere else
+			# entirely — while the roster listed `hpz2g4` on the line above.
+			named = world.connection(wanted)
+
+			if len(parts) == 1 and named is not None:
+				stop(
+					f"{wanted!r} is a connection, not a workspace.",
+					_completions(named),
+				)
+
 			stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
 
 		return item.name, wanted
+
+	def _completions (item: Reached) -> str:
+		"""Return the ``use`` a person meant, given the connection they named.
+
+		Its workspaces are already loaded — ``identity()`` is asked of every connection when
+		the world opens — so the completion can be exact rather than a shape to fill in.
+		"""
+
+		slugs = [workspace.slug for workspace in item.identity.workspaces]
+
+		if len(slugs) == 1:
+			return f"Say which workspace on it — 'subroutine use {item.name}/{slugs[0]}'."
+
+		if not slugs:
+			return (
+				"It has no workspace this credential can see, so there is nothing to "
+				"work in yet."
+			)
+
+		listed = ", ".join(sorted(slugs))
+
+		return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
 
 	def _require_connection (
 		world: World, name: str
@@ -3244,7 +3278,14 @@ def _grouped (
 	)
 
 	for answer in gathered.answers:
-		if not answer.value.rows:
+		# **An empty connection keeps its heading once there are several** (`#269`). Skipping
+		# it made a reachable instance with nothing in it indistinguishable from one that is
+		# not working — and somebody who has just wired up a connection reads a missing group
+		# as a missing connection, and goes back to check the thing that was never wrong.
+		#
+		# Guarded on `qualifies_connection`, because with one connection there is no heading at
+		# all and §13.5b's four-command transcript must stay exactly as it is.
+		if not answer.value.rows and not world.qualifies_connection:
 			continue
 
 		if printed:
@@ -3252,6 +3293,11 @@ def _grouped (
 
 		console.print(rich.text.Text(answer.connection.label, style=GROUP))
 		printed = True
+
+		if not answer.value.rows:
+			console.print(rich.text.Text("  Nothing here.", style=DETAIL))
+
+			continue
 
 		_flat(world, answer.value.rows, console=console, columns=columns)
 
