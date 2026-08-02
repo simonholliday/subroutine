@@ -128,6 +128,28 @@ subroutine_list(ready=true, order="-priority_score")
 `ready` leaves out anything blocked by unfinished work and anything deferred to a later date.
 Without it you get a backlog in priority order, which includes things nobody can act on yet.
 
+**Look before you file.** Searching costs one call and a duplicate costs somebody an afternoon
+of wondering which of two items is the real one:
+
+```
+subroutine_search(q="deploy script")
+```
+
+It reads titles *and* what was written about them, so a half-remembered phrase from a
+description will find it. Use it before creating anything, and whenever the user refers to
+something you have no record of — it is usually already there.
+
+**Read one before acting on it.** A listing is titles; `subroutine_show(ref=42)` is the whole
+item, with what it is linked to and everything anybody has recorded against it:
+
+```
+subroutine_show(ref=42)
+```
+
+That record is the point. Somebody — possibly you, last week — wrote down why this was
+attempted and what happened, and reading it is cheaper than repeating it. A ref names a task
+*or* a document, so this is also how you read a decision somebody pointed you at.
+
 **File the work before you start it**, so it is visible while it is happening rather than
 afterwards. One line carries the detail:
 
@@ -187,8 +209,8 @@ thing to leave behind, because without it the next session will try X.
 
 **Say which project it belongs in.** Pass `project="WEB"`. Without one it lands in the Inbox,
 which is where things go when nobody decided — fine for a quick capture, wrong for a conclusion
-somebody will go looking for. **A document's project cannot be changed afterwards**, so it is
-the one field worth a moment now rather than later.
+somebody will go looking for. It can be moved later, so this is worth a moment and not worth a
+question.
 
 **Here, or on disk?** A conclusion the next *session* needs is a document here. A thing a
 *program* reads — a specification whose sections code and tests address by number, a config

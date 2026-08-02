@@ -319,9 +319,11 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	units from ``durations.UNITS``. A guide listing a keyword the parser rejects is worse
 	than no guide, and one written twice becomes that within a release.
 
-	SPEC.md §13.3 asks for more than this — ten worked request/response examples, executed
-	by a CI job so they cannot drift. That is still owed and is filed in Appendix A. What is
-	here is the half that already exists and is already drift-proof.
+	SPEC.md §13.3 also asks for worked request/response examples executed by a CI job so they
+	cannot drift. Those are at ``/v1/docs/examples`` and ``tests/test_api_examples.py`` runs
+	every one of them against a real instance, so an example that stops working fails the
+	build. **This paragraph said they were still owed until `#315`** — five lines above the
+	text below, which tells the reader to go and read them.
 
 	**It opens with what the reader gets, not with how to authenticate.** An agent arriving
 	with a base URL and a token has no other way to learn why it should bother, and a guide
@@ -359,7 +361,10 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"| You re-read the same files to rebuild the same understanding | A document, with "
 		"`#42` in its body to tie it to the work | The mention is indexed, so the next "
 		"session finds it from either end |",
-		"| You cannot tell what changed while you were thinking | `expected_version` on every "
+		"| You cannot tell what moved while you were away | `GET /v1/changes?since=` | You "
+		"resume from where you stopped instead of re-reading the backlog or trusting a "
+		"snapshot that has quietly gone stale |",
+		"| Somebody edits the same item while you are thinking | `expected_version` on every "
 		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
 		"edit |",
 		"",
@@ -385,6 +390,19 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"`POST /v1/tasks` creates one, from `title` or from a `text` line; and "
 		"`POST /v1/documents` is where a conclusion goes, tied to the task it came from with "
 		"`POST /v1/tasks/{ref}/links`.",
+		"",
+		# The feed is the endpoint an agent most needs and was the one the guide did not
+		# mention (`#313`) — built for exactly this reader and invisible to it for a release.
+		# Placed with the four above rather than in a section of its own, because it is the
+		# call to make *first* in a session and a heading further down would be read last.
+		"**Start a session with `GET /v1/changes`**, which answers what has moved since you "
+		"last looked. Keep the `seq` of the last event you dealt with and send it back as "
+		"`?since=`; it is inclusive, so you see that one again and skip what you already have. "
+		"`?actor=me` narrows it to what your own credential did, which is how you pick your "
+		"own unfinished work out of everybody's. Without this a context window is a snapshot "
+		"that does not decay: nothing tells you a thing you read on Tuesday is now closed, so "
+		"you go on reporting it open, confidently. The feed deliberately withholds the last "
+		"second, so an event you have just written may take a moment to appear.",
 		"",
 		"Read `GET /v1/meta` first: it reports this installation's statuses, item types, "
 		"link types and limits, which are workspace data and are not the same everywhere.",

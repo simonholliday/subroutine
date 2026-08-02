@@ -16,6 +16,16 @@ upgrade involves.
 
 ### Added
 
+- **`POST /v1/projects/{key}/restore` — take a project back out of the trash.** Deleting one has
+  always said its tasks "come back with it", and nothing brought them back: the restore added
+  for tasks and documents was never given to the container both of them hang off. So deleting a
+  project removed everything filed in it, permanently, by a route that read as reversible.
+
+  Nothing touches the contents in either direction — every listing joins the project, so
+  undeleting the project is the whole of undeleting what is in it. Restoring a project whose
+  parent is also in the trash is refused by name, because it would clear one flag and change
+  nothing anybody could see.
+
 - **`subroutine project move` — reparent a project and everything under it.** The endpoint has
   existed since the project tree did; nothing but HTTP could reach it, so reorganising meant
   leaving the command line on a tool whose main surface is one. It counts what will move —
@@ -62,12 +72,23 @@ upgrade involves.
 
   There is deliberately no alias for the old name. A name you retired should be retired.
 
+- **The agent guide says how to resume.** `GET /v1/docs/agent` is what an agent is told to read
+  first, and it did not mention the change feed at all — so the feature built for that reader
+  was invisible to anybody arriving over HTTP rather than through the plugin. It now opens a
+  session with `GET /v1/changes` and explains `?since=` and `?actor=me`.
+
+- **The skill names every tool an agent has.** `subroutine_search` and `subroutine_show` were in
+  the catalogue and in nothing an agent reads — and `q` had moved *off* `subroutine_list` in the
+  same change that added `subroutine_search`, so the practice described a surface in which
+  searching was impossible. Every tool costs context in every session whether it is called or
+  not; one nobody has been told about is pure cost.
+
 - **The agent skill says where a document belongs.** It taught agents to write documents and
   never which project to file one under, so conclusions accumulated in the Inbox — which is
-  where things go when nobody decided, and a document's project cannot be changed afterwards.
-  It now also draws the line between what belongs in an instance and what stays a file on
-  disk, and says to ask rather than guess when a conclusion is sensitive, because a private
-  project is what limits who can read it and publishing cannot be undone.
+  where things go when nobody decided. It now also draws the line between what belongs in an
+  instance and what stays a file on disk, and says to ask rather than guess when a conclusion
+  is sensitive, because a private project is what limits who can read it and publishing cannot
+  be undone.
 
 - **A document can be filed under a different project.** `project` was accepted when a
   document was created and by nothing afterwards, so a conclusion written before anybody had
@@ -98,6 +119,36 @@ upgrade involves.
   tool, so there is one name for one thing.
 
 ### Fixed
+
+- **`subroutine db copy` no longer migrates a database it is about to refuse.** It brought the
+  target up to schema *first* and checked whether it was empty second — so naming an existing
+  instance with `--to` moved that database forward through every intervening revision and then
+  reported that nothing had happened. There is no downgrade, so the build serving it would not
+  start again.
+
+  **If you have run `db copy` against a non-empty database, check its schema** with
+  `subroutine db current` before starting the service that owns it. The order is now the other
+  way round: an occupied target is refused before anything is written to it.
+
+- **The change feed reports a project's deletion, and no longer erases what was inside it.**
+  Two failures with one cause. A project's own deletion never appeared, so nothing polling the
+  feed was told it had gone. Worse, because an item is reached through a join to its project,
+  deleting one retroactively removed every event about every task and document filed in it — a
+  client that polled afterwards was told those items had never existed. A feed that rewrites
+  its own past cannot be resumed from, which is the one thing it is for.
+
+- **`?since=0` is refused the same way over HTTP and locally.** `since` is a `seq` and the
+  first one is 1, so zero names nothing — the endpoint said so and the local client did not,
+  falling through to the "your cursor expired" refusal instead. That told a caller its events
+  had been pruned on an instance that has never pruned anything. Both now answer `422`, from
+  one place. A client whose cursor starts at zero should send no `since` at all.
+
+- **A `.subroutine` marker survives a workspace rename.** It recorded the project's permanent
+  id beside its key, so a project rename was already safe, and recorded the workspace by name
+  alone — so renaming a workspace left every marked checkout printing `names workspace 'x',
+  which is not on local` on every command, for ever. Work still went to the right project
+  throughout; the warning was about nothing. New markers carry `workspace_id`; existing ones go
+  on resolving by name.
 
 - **The change feed reports links.** A link event carried no record of *what* it was a link
   on, so nothing could work out who was entitled to see it and the feed left them out

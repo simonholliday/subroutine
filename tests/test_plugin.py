@@ -265,6 +265,42 @@ def test_every_tool_the_skill_names_exists (
 	assert named <= available, f"the skill promises {sorted(named - available)}, which do not exist"
 
 
+def test_every_tool_that_exists_is_named_by_the_skill (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""**The direction the test above cannot see** (`#318`).
+
+	It asks whether every promise is kept and never whether every capability is offered, so a
+	tool nobody wrote about is invisible to it. ``subroutine_search`` shipped that way (`#312`):
+	the argument for adding it was that "a model reading tool *names* to decide what it could do
+	had no reason to think searching was possible" — and it was then added to the catalogue and
+	to nothing an agent reads, while ``q`` came *off* ``subroutine_list`` in the same change. So
+	the surface got a search verb and the practice describing it said searching was impossible.
+
+	The budget is the reason this is a real check rather than tidiness. Every tool costs context
+	in every session whether or not it is called, so one nobody has been told about is pure
+	cost — and the fix is a sentence, which is why nothing forces it.
+	"""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, database_url=f"sqlite:///{tmp_path}/x.db"),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		available = {tool.name for tool in subroutine.mcp.tools.catalogue(client)}
+
+	# Read from the whole page rather than from fenced examples alone: naming a tool in a
+	# sentence is teaching it, and requiring a code block would push prose into ceremony.
+	unmentioned = {name for name in available if name not in _skill()}
+
+	assert not unmentioned, (
+		f"{sorted(unmentioned)} exist and the skill never names them, so they cost every "
+		f"session context and teach nobody anything."
+	)
+
+
 def test_every_command_the_skill_shows_exists () -> None:
 	"""The same promise in the other vocabulary, and the one the adoption procedure rests on.
 

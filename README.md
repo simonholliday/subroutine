@@ -10,7 +10,7 @@ your machine, in a backlog it uses as fluently as you do.
 - **Agents get real credentials.** Narrower than yours, unable to widen, every action attributed.
 - **`--ready`, not "everything".** What can be started now, with nothing unfinished blocking it.
 - **One list across every machine.** Your laptop and the team's server in one `subroutine today`.
-- **Cheap for an agent to read.** Compact replies; ten MCP tools and 7 KB, held there by a test.
+- **Cheap for an agent to read.** Compact replies; eleven MCP tools and 7 KB, held by a test.
 - **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
 
 One person with a to-do list, or a team of developers and their agents on interconnected work:
@@ -199,11 +199,11 @@ Without the plugin, or for another MCP client:
 $ claude mcp add subroutine -- subroutine mcp
 ```
 
-Ten tools: list, show, add, update, comment, done, document, link, project and changes.
-Deliberately ten and not one per endpoint — a tool's schema is context the agent carries for
-its whole session whether it calls it or not, so the whole surface is about 7 KB of JSON,
-roughly 1,700 tokens, and there is a test that fails if it grows past a budget somebody has to
-raise on purpose.
+Eleven tools: list, search, show, add, update, comment, done, document, link, project and
+changes. Deliberately eleven and not one per endpoint — a tool's schema is context the agent
+carries for its whole session whether it calls it or not, so the whole surface is about 7 KB of
+JSON, roughly 1,850 tokens, and there is a test that fails if it grows past a budget somebody
+has to raise on purpose.
 
 **Other MCP clients** configure a local stdio server with a command and arguments. Cursor,
 Windsurf, Zed, VS Code's Copilot agent mode, Gemini CLI, Codex CLI, Cline, Continue, OpenCode

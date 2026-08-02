@@ -269,7 +269,7 @@ before starting the service:
 
 ```console
 $ subroutine db current
-  Schema is at 0c8f7a7027e6.
+  Schema is at 547fe53b263c.
 ```
 
 An empty database says so and tells you to run `init`. It is never silently created underneath
@@ -407,7 +407,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"0c8f7a7027e6"}
+  {"status":"ready","api_version":"1.0","schema_revision":"547fe53b263c"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database *and* that the
@@ -696,12 +696,12 @@ than left looking like a backup.
 
 ```console
 $ subroutine db backup
-  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-0c8f7a7027e6.sql
-  60,069 bytes, schema 0c8f7a7027e6.
+  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-547fe53b263c.sql
+  60,069 bytes, schema 547fe53b263c.
 
 $ subroutine db backups
   Backups of instance 'default', in /srv/backups/subroutine:
-    subroutine-default-20260731T141853Z-0c8f7a7027e6.sql  2026-07-31 14:18 UTC  60,069 bytes  schema 0c8f7a7027e6
+    subroutine-default-20260731T141853Z-547fe53b263c.sql  2026-07-31 14:18 UTC  60,069 bytes  schema 547fe53b263c
 ```
 
 **The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says which
@@ -727,7 +727,7 @@ An agent can take one before attempting something bulk:
 
 ```console
 $ curl -s -X POST -H "Authorization: Bearer $TOKEN" https://tasks.example.com/v1/admin/backups
-  {"name":"subroutine-…-0c8f7a7027e6.sql","schema_head":"0c8f7a7027e6","size_bytes":61311,…}
+  {"name":"subroutine-…-547fe53b263c.sql","schema_head":"547fe53b263c","size_bytes":61311,…}
 ```
 
 That endpoint needs `instance:admin`, which **no role carries** — only an administrator of the
@@ -818,11 +818,11 @@ then read the schema back rather than assuming.
 
 ```console
 $ subroutine upgrade
-  This version expects schema 0c8f7a7027e6.
+  This version expects schema 547fe53b263c.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
-  Upgraded from 233f898a2bee to 0c8f7a7027e6.
+  Upgraded from 233f898a2bee to 547fe53b263c.
 ```
 
 It is safe to run when there is nothing to do — it prints both numbers and stops, which is also
@@ -830,8 +830,8 @@ the cheapest way to ask the question:
 
 ```console
 $ subroutine upgrade
-  This version expects schema 0c8f7a7027e6.
-  The database is at 0c8f7a7027e6.
+  This version expects schema 547fe53b263c.
+  The database is at 547fe53b263c.
   Nothing to do.
 ```
 
@@ -851,7 +851,7 @@ deciding the remedy:
 ```console
 $ subroutine today
   Nothing could be read.
-  Local: This database is at schema 233f898a2bee, and this build expects 0c8f7a7027e6.
+  Local: This database is at schema 233f898a2bee, and this build expects 547fe53b263c.
     Run 'subroutine upgrade' — it backs up first, then migrates.
 ```
 

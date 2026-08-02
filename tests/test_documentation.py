@@ -20,6 +20,7 @@ import pytest
 import typer.testing
 
 import subroutine.cli.main
+import subroutine.db.migrate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
@@ -64,6 +65,49 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 
 	for line in refusal("--host", "0.0.0.0").splitlines():
 		assert line.strip() in page, f"docs/hosting.md no longer quotes: {line.strip()!r}"
+
+
+#: The three ways ``docs/hosting.md`` quotes *this build's* schema revision back to a reader —
+#: ``db current``, ``/readyz`` and ``upgrade``. Each is somebody checking their own instance
+#: against the page, so each has to name the head this build actually wants. Deliberately not
+#: every twelve-hex token on the page: the upgrade walkthrough also quotes an *older* revision,
+#: on purpose, and a guard that could not tell the two apart would have to be switched off.
+_QUOTED_HEAD = (
+	re.compile(r"Schema is at ([0-9a-f]{12})\."),
+	re.compile(r'"schema_revision":"([0-9a-f]{12})"'),
+	re.compile(r"This version expects schema ([0-9a-f]{12})\."),
+)
+
+
+def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> None:
+	"""A migration moves the head and leaves the page confidently wrong (`#314`).
+
+	It had, eleven times, including both of the steps the page tells an operator to run *to
+	check the setup worked* — so somebody following it and seeing a different revision had no
+	way to tell a healthy instance from a broken one. The page opens by promising every quoted
+	output is what the program actually printed, which is the promise that makes it worth
+	reading and the one nothing was holding.
+
+	The other quoted revisions are left alone deliberately. A backup filename records the
+	revision it was taken at, and the upgrade example needs an older one to upgrade *from*;
+	both are illustrative, and only these three are claims about the software the reader has.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	head = subroutine.db.migrate.head_revision()
+
+	assert head is not None
+
+	for pattern in _QUOTED_HEAD:
+		found = pattern.findall(page)
+
+		assert found, f"docs/hosting.md no longer quotes {pattern.pattern!r} at all"
+
+		for quoted in found:
+			assert quoted == head, (
+				f"docs/hosting.md says this build expects schema {quoted}, and it expects "
+				f"{head}. A migration has landed since the page was written."
+			)
 
 
 @pytest.mark.parametrize("page", [HOSTING, README, CHANGELOG], ids=lambda path: path.name)

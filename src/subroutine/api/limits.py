@@ -22,9 +22,16 @@ log, not about what the counter is keyed on.
 workers would each enforce their own share of the limit. ``serve`` runs one; anything running
 this under gunicorn wants a shared store, and there is none.
 
-**Behind a proxy every request carries the proxy's address**, so the failure limiter sees one
-client. It is set high enough that ordinary use cannot reach it — the point is to bound
-hammering, not to be a lockout — and `X-Forwarded-For` support is `#277`.
+**Behind a proxy every request would carry the proxy's address**, so the failure limiter would
+see one client — and `trusted_proxies` is how it does not (`#277`). Name the address this
+instance sees the proxy connecting from and :func:`_where_from` reads `X-Forwarded-For` from
+the right, counting the caller rather than the hop. Left empty the header is ignored entirely,
+which is correct when nothing is in front. Either way the allowance is set high enough that
+ordinary use cannot reach it: the point is to bound hammering, not to be a lockout.
+
+**This paragraph said that support was unbuilt until `#316`**, sixty lines above the function
+that implements it — so the module described the exposure `trusted_proxies` closes as a live
+limitation, on an instance where it was already closed.
 """
 
 import dataclasses
