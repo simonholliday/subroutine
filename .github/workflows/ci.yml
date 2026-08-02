@@ -29,11 +29,11 @@ jobs:
       # Full history and tags, because the release check compares this commit's migration
       # head against the one at the most recent tag. A shallow clone has neither, and the
       # check would find no previous tag and cheerfully pass every time.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -67,14 +67,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -102,9 +102,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -143,14 +143,14 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -177,14 +177,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
