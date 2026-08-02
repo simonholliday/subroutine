@@ -80,11 +80,25 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 						"type": "boolean",
 						"description": "The agenda: overdue, due today, and planned next.",
 					},
-					"q": {"type": "string", "description": "Find by words, in titles and bodies."},
 					"workspace": WORKSPACE,
 				},
 			},
 			call=lambda arguments: _listed(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
+			name="subroutine_search",
+			title="Search",
+			description="Find items by words, in titles and bodies. Tasks and documents both.",
+			schema={
+				"type": "object",
+				"properties": {
+					"q": {"type": "string", "description": "Words to look for."},
+					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"workspace": WORKSPACE,
+				},
+				"required": ["q"],
+			},
+			call=lambda arguments: _searched(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_show",
@@ -326,6 +340,34 @@ def _named (event: subroutine.views.Event) -> str:
 		return event.item_title or event.entity_type
 
 	return f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
+
+
+def _searched (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Find items by words, sharing the renderer the listing uses.
+
+	**A verb of its own rather than an argument on the listing** (`#282`, Simon's decision).
+	The CLI has had ``subroutine search`` since it had ``list``, and this surface carried the
+	same capability as ``list(q=…)`` — so an agent that learned one surface was taught
+	something false about the other, and three attempts at the CLI failed with messages
+	naming neither. Two surfaces disagreeing about what a verb is called is the same family
+	as `#276` and `#278`: a true statement that misleads about the system.
+
+	The schema requires ``q``, which stops the empty call; this refuses a *blank* one, which
+	the schema cannot see and which would otherwise answer "find nothing" with the whole
+	backlog.
+
+	``_text`` is deliberately not consulted for that check: it treats ``"   "`` as given,
+	because for every other argument a string of spaces is a value somebody meant. Here it is
+	the empty call wearing a disguise, and letting it through searched for whitespace and
+	reported "Nothing open." — an answer about the backlog to a question about a word.
+	"""
+
+	if not (arguments.get("q") or "").strip():
+		return "Say what to look for."
+
+	return _listed(client, arguments)
 
 
 def _listed (

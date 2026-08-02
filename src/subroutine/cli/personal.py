@@ -33,6 +33,7 @@ import typing
 import rich.console
 import rich.text
 import typer
+import typer.core
 
 import subroutine.clients.base
 import subroutine.clients.opening
@@ -1333,12 +1334,57 @@ def register (
 			)
 		)
 
+	class _Listing(typer.core.TyperCommand):
+		"""``list``, with its catch-all argument kept out of the usage line.
+
+		The argument exists only to intercept ``subroutine list some words`` and point at
+		``search`` (`#282`). Click renders a positional in the usage line whether or not it is
+		``hidden``, so without this the help reads ``list [OPTIONS] [words]...`` — advertising
+		the very thing the argument refuses, which would trade one confusion for a worse one.
+		A ``metavar=""`` alone leaves ``[]`` behind, hence filtering rather than naming.
+		"""
+
+		def collect_usage_pieces (self, ctx: typing.Any) -> list[str]:
+			"""Return the usage pieces, dropping the placeholder left by a hidden argument."""
+
+			return [
+				piece for piece in super().collect_usage_pieces(ctx) if piece.strip("[]. ")
+			]
+
+	def _refuse_words (words: list[str] | None, looking_for: str) -> None:
+		"""Send somebody who tried to search a listing to the command that searches.
+
+		**Three shapes, one signpost** (`#282`). ``list -q words``, ``list --search words`` and
+		a bare ``list words`` were three different refusals naming neither each other nor
+		``search`` — and Click's did-you-mean made the middle one actively misleading by
+		offering ``--strict``, so the one message that tried to help pointed away from the
+		answer. §12.2a: a dead end where a signpost would do.
+
+		Caught as *hidden parameters* rather than by reading Click's usage errors, because
+		that keeps this in Typer's own vocabulary and out of an undeclared dependency's
+		internals. They refuse rather than search: `list` takes filters and `search` takes
+		words, and a hidden flag that quietly did the other command's job would be the second
+		way to do one thing that the `ls` synonym is hidden to avoid.
+		"""
+
+		wanted = " ".join(words or []).strip() or looking_for.strip()
+
+		if not wanted:
+			return
+
+		fail(
+			subroutine.errors.ValidationError(
+				"'subroutine list' filters what you have; it does not search it.",
+				hint=f'Try: subroutine search "{wanted}"',
+			)
+		)
+
 	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
 	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
 	# who already knows Unix — which is not the audience §1.4 is written for. `ls` keeps
 	# working because it is in muscle memory and in every note anybody has written, and is
 	# hidden rather than removed: a synonym in the help is a second thing to choose between.
-	@app.command("list")
+	@app.command("list", cls=_Listing)
 	def list_items (
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
@@ -1363,6 +1409,12 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
+		words: list[str] | None = typer.Argument(
+			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
+		),
+		looking_for: str = typer.Option(
+			"", "-q", "--search", hidden=True, help="Not a filter — see 'subroutine search'."
+		),
 	) -> None:
 		"""List everything still open — tasks and documents — newest first.
 
@@ -1376,6 +1428,8 @@ def register (
 
 		  subroutine list --project SR --order due_at
 		"""
+
+		_refuse_words(words, looking_for)
 
 		_listed(
 			limit=limit,
@@ -1500,7 +1554,7 @@ def register (
 
 			_say_changes(world, gathered, console=console, say=say)
 
-	@app.command("ls", hidden=True)
+	@app.command("ls", hidden=True, cls=_Listing)
 	def list_tasks (
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
@@ -1525,6 +1579,12 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
+		words: list[str] | None = typer.Argument(
+			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
+		),
+		looking_for: str = typer.Option(
+			"", "-q", "--search", hidden=True, help="Not a filter — see 'subroutine search'."
+		),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
 
@@ -1532,6 +1592,8 @@ def register (
 
 		  subroutine ls
 		"""
+
+		_refuse_words(words, looking_for)
 
 		_listed(
 			limit=limit,

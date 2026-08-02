@@ -727,9 +727,34 @@ def test_the_whole_tool_surface_stays_small (
 	  and named the ``workspace`` property once. What is left is argument descriptions a
 	  client shows a model, and cutting those trades context for a worse call.
 
-	The slack above the current total is deliberate and small — **68 bytes** as this is written,
-	which is less than one word. A cap set exactly at what is there makes every addition a cap
-	change, which is theatre; a generous one stops being a budget.
+	- **2026-08-02, 10 / 6,912 -> 11 / 7,424**, for ``subroutine_search`` (`#282`), Simon's
+	  decision: *"MCP should have a search verb like the CLI. `list -q` is clumsy."*
+
+	  Measured at **+328 bytes** net — the tool costs 406 and taking ``q`` off
+	  ``subroutine_list`` returns 80. Roughly 82 tokens a session.
+
+	  **This is the weakest of the four cases and is recorded as such.** The other three
+	  bought a capability that was absent. This one was present: an agent could already search
+	  with ``list(q=…)``, and the skill never taught a shell-out because it never had to. So
+	  the bytes are not buying the ability to search.
+
+	  **What they buy is that the capability is findable, and that the two surfaces agree.** A
+	  model deciding what it can do reads tool *names* — a capability parked in one parameter
+	  of another tool's schema is discoverable only by reading every schema in full, which is
+	  what a model reliably does not do. And a Claude Code agent working through the CLI cold
+	  hit this from the other side: it learned ``q`` here, tried ``list -q``, ``list --search``
+	  and ``list words``, and got three refusals naming neither ``search`` nor each other.
+	  Two surfaces disagreeing about a verb's name is the family `#276` and `#278` are in — a
+	  true statement on one surface that misleads about the system.
+
+	  **Fat was read for first and none was taken, for the second time running.** ``update``
+	  (1,069 bytes, the largest) is argument descriptions after `#149` stripped its priority
+	  teaching; cutting those trades context for a worse call, which is the trade this budget
+	  exists to avoid making by accident.
+
+	The slack above the current total is deliberate and small — **252 bytes** as of 2026-08-02,
+	which is about one description. A cap set exactly at what is there makes every addition a
+	cap change, which is theatre; a generous one stops being a budget.
 
 	**That number is now stated as of a date, because the last one rotted.** It said 33 bytes,
 	which was true when it was written and was 7 by the time anybody read it again — a title
@@ -741,11 +766,11 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 10, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 11, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 6912, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 7424, f"the tool schemas are {size} bytes of every session's context"
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:
@@ -1211,3 +1236,56 @@ def test_the_binding_does_not_follow_subroutine_use (
 	subroutine.mcp.session.build(settings=subroutine.config.Settings(dev_mode=True))
 
 	assert handed == ["local"], "the binding follows default_connection, not 'subroutine use'"
+
+
+def test_search_is_a_verb_of_its_own (bound: subroutine.mcp.protocol.Server) -> None:
+	"""``#282``, Simon's decision: *"MCP should have a search verb like the CLI."*
+
+	The capability was never missing — ``subroutine_list`` took ``q``. What was missing was
+	the *name*, and a model deciding what it can do reads tool names rather than every
+	schema in full. A Claude Code agent hit the same disagreement from the other side: it
+	learned ``q`` here and then failed three ways at the CLI.
+	"""
+
+	_added(bound, "Call the dentist")
+	_added(bound, "Buy milk")
+
+	text, failed = _called(bound, "subroutine_search", q="dentist")
+
+	assert not failed, text
+	assert "Call the dentist" in text
+	assert "Buy milk" not in text, "a search that returns everything is a listing"
+
+
+def test_search_without_words_says_so_rather_than_listing_everything (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The schema requires ``q``; it cannot see a *blank* one.
+
+	Answering "find nothing" with the whole backlog is the shape that costs an agent its
+	context window and tells it something false about what matched.
+	"""
+
+	_added(bound, "Buy milk")
+
+	text, _failed = _called(bound, "subroutine_search", q="   ")
+
+	assert "Buy milk" not in text
+	assert "look for" in text
+
+
+def test_the_listing_no_longer_advertises_a_search_argument (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""One capability, one name. Leaving ``q`` on both would be the duplication `#282` removed.
+
+	The CLI hides ``ls`` for the same reason — a synonym you can *see* is a second thing to
+	choose between — and here neither could be hidden, because both are schemas a model reads.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
+
+	assert "q" not in tools["subroutine_list"]["inputSchema"]["properties"]
+	assert "q" in tools["subroutine_search"]["inputSchema"]["properties"]
+	assert tools["subroutine_search"]["inputSchema"]["required"] == ["q"]

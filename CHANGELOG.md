@@ -40,7 +40,17 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+- **`subroutine_search` — an agent can search by name.** The capability existed as a `q`
+  argument on `subroutine_list`, which meant a model reading tool *names* to decide what it
+  could do had no reason to think searching was possible. `q` moves off `list` onto the new
+  tool, so there is one name for one thing.
+
 ### Fixed
+
+- **`subroutine list` points at `subroutine search` instead of refusing.** `list -q words`,
+  `list --search words` and a bare `list words` gave three different errors naming neither
+  the search command nor each other — and the one that offered a suggestion offered
+  `--strict`. All three now answer `Try: subroutine search "words"`.
 
 - **`subroutine add` now says where the new item landed**, when there is more than one place
   it could have gone. Previously it confirmed with the title alone, so a capture routed to

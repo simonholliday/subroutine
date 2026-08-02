@@ -3262,3 +3262,49 @@ def test_project_move_refuses_to_guess_a_direction (
 		refused = run(*arguments, expect=1)
 
 		assert "Say where to move it." in refused.output
+
+
+def test_list_sends_a_search_to_the_command_that_searches (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#282``, reported by a Claude Code agent that had learned the MCP surface first.
+
+	It tried ``-q``, ``--search`` and a bare argument, and got three different refusals
+	naming neither ``search`` nor each other — and Click's did-you-mean made the middle one
+	worse by offering ``--strict``, so the one message that tried to help pointed away from
+	the answer. §12.2a: a dead end where a signpost would do.
+
+	Parameterised over all three shapes on purpose. A test covering only the bare argument
+	would have passed while ``-q`` still produced "No such option".
+	"""
+
+	run("init")
+	run("add", "Call the dentist")
+
+	for attempt in (["-q", "dentist"], ["--search", "dentist"], ["dentist"]):
+		refused = run("list", *attempt, expect=1)
+
+		assert "subroutine search" in refused.output, f"{attempt} gave: {refused.output!r}"
+		assert "dentist" in refused.output, "the refusal repeats what to search for"
+
+
+def test_the_listing_still_lists_and_its_help_offers_no_words (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The guard on the catcher, which must not become a feature.
+
+	Click renders a positional in the usage line whether or not it is ``hidden``, so the
+	interception could easily advertise the thing it refuses — trading one confusion for a
+	worse one. And an over-eager catcher would break the ordinary listing entirely.
+	"""
+
+	run("init")
+	run("add", "Call the dentist")
+
+	assert "Call the dentist" in run("list").output
+	assert "Call the dentist" in run("ls").output
+
+	usage = run("list", "--help").output.splitlines()[1]
+
+	assert "[OPTIONS]" in usage
+	assert "words" not in usage and "[]" not in usage, f"the usage line offers: {usage!r}"
