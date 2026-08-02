@@ -1044,7 +1044,22 @@ def register (
 			# no vocabulary and is what somebody would type again.
 			read = "" if captured.summary is None else f"  {captured.summary}"
 
-			say(f"Added: {captured.task.title}{_when(captured.task)}{read}")
+			# **Where it landed** (`#279`). Every other acting command says this through
+			# `_acted`; `add` said only the title, so a write that went to the wrong
+			# connection — the `#273` hazard, which happened twice in one afternoon — read
+			# exactly like one that went to the right place. It is the *creating* command,
+			# so it is the one where a silent misfile leaves a row nobody goes back for.
+			#
+			# Deliberately not louder than that. `#135` settled that an ordinary "Buy milk"
+			# is owed no report of machinery it did not ask for, and `_acted`'s guard already
+			# draws the line in the right place: a misfile needs somewhere else to file to.
+			landed = Located(
+				connection=where.name,
+				workspace=_writing_workspace(world),
+				item=captured.task,
+			)
+
+			say(f"{_acted(world, landed, 'Added')}{_when(captured.task)}{read}")
 
 			# **Said out loud, every time, because nobody typed it** (§13.7a, `#159`). A file
 			# three directories up that silently redirects where work is filed is the footgun
@@ -3220,6 +3235,10 @@ def register (
 		``git commit`` prints the branch and the sha. But only where the address could have
 		been relative: with one workspace on one connection there is nothing to disambiguate,
 		and adding ``#1`` to "Done: Buy wine" is noise for the person §1.4 exists to protect.
+
+		``add`` uses this too (`#279`), and the guard is exactly right for it: the misfile
+		it exists to prevent is only *possible* where there is more than one place to file
+		to, which is the same condition.
 		"""
 
 		if not world.qualifies_workspace and not world.qualifies_connection:

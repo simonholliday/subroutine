@@ -261,6 +261,36 @@ def test_a_remote_row_prints_an_address_that_can_be_typed_back (
 	assert "Done: work/" in run("done", typed).output
 
 
+def test_add_says_which_instance_the_new_item_landed_on (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""``#279``, reported by a Claude Code agent whose own bug report went to the wrong one.
+
+	``add`` confirmed with the title alone, so a capture routed somewhere unexpected — by a
+	``use`` context, by a ``.subroutine`` marker, or by ``-c`` — was indistinguishable from
+	one that went where the caller meant. That is the ``#273`` hazard's missing safety net:
+	nothing was wrong with *where* it went, only with nobody being told.
+
+	The creating command is the one where this costs most. Acting on the wrong item is at
+	least visible in the listing you took the number from; creating one in the wrong place
+	leaves a row in an instance nobody thinks to look at.
+	"""
+
+	landed = run("-c", "work", "add", "Renew the certificate").output
+
+	assert "Renew the certificate" in landed
+	assert "work/" in landed, f"add must name the instance it wrote to: {landed!r}"
+
+	# And what it printed is an address, so it resolves — the same property the row test
+	# above asserts for a listing. A confirmation naming a place you cannot type back at is
+	# only half an answer.
+	address = next(
+		word for word in landed.split() if word.startswith("work/")
+	).replace("#", "")
+
+	assert "Renew the certificate" in run("show", address).output
+
+
 def test_the_listing_groups_by_connection_and_merges_on_request (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

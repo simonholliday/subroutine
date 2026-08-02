@@ -40,6 +40,19 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+### Fixed
+
+- **`subroutine add` now says where the new item landed**, when there is more than one place
+  it could have gone. Previously it confirmed with the title alone, so a capture routed to
+  another instance — by a `use` context, by a `.subroutine` file, or by `-c` — looked exactly
+  like one that went where you meant. `Added: work/acme/#42  Renew the certificate`.
+
+  Nothing changes for a single instance with a single workspace: there is nowhere else for it
+  to go, so there is nothing to disambiguate and the confirmation stays as it was.
+
+  Reported by a Claude Code agent whose own bug report went to the wrong instance and who had
+  to search both to find out where.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added
