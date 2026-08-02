@@ -16,6 +16,7 @@ import json
 import pathlib
 import shutil
 import subprocess
+import sys
 import typing
 
 import pytest
@@ -85,10 +86,21 @@ def cut (repository: pathlib.Path) -> typing.Callable[..., subprocess.CompletedP
 	"""Return a runner for the script, in the repository the other fixture built."""
 
 	def run (*arguments: str) -> subprocess.CompletedProcess[str]:
-		"""Cut a release and hand back whatever happened."""
+		"""Cut a release and hand back whatever happened.
+
+		**``sys.executable``, never ``"python"``** (`#254`). A bare ``python`` is a PATH lookup,
+		and the interpreter running this suite is only on PATH under that name when the
+		virtualenv happens to be *activated* — so ``/home/…/venvs/subroutine/bin/python -m
+		pytest``, a perfectly ordinary way to run it, failed all eleven tests here with
+		``FileNotFoundError``. It is also the more correct thing to ask for: a test spawning a
+		subprocess wants the interpreter running the test, not whichever one a shell would find.
+
+		The direction is worth noting because it is the opposite of `#227`, `#228` and `#230`
+		— this one passed in CI, which activates the venv, and failed locally.
+		"""
 
 		return subprocess.run(
-			["python", str(repository / "scripts" / "release.py"), *arguments],
+			[sys.executable, str(repository / "scripts" / "release.py"), *arguments],
 			cwd=repository, capture_output=True, text=True, check=False,
 		)
 
