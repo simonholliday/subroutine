@@ -62,6 +62,19 @@ upgrade involves.
   nothing — and it did not know about `[connections.…]`, which is the one thing in that file
   people write by hand. It said the connection was being ignored, immediately before using it.
 
+- **A checkout now records which instance it belongs to, always.** `subroutine use --here`
+  wrote the connection into `.subroutine` only if a second one already existed — so every
+  marker written before you added a second instance quietly stopped identifying anything, and
+  work started in that directory went wherever the machine-wide context happened to point.
+  That lands hardest on an agent, which is the one caller that cannot be asked. Existing
+  markers are not repaired automatically; `subroutine use --here` rewrites one.
+
+- **A listing across more than one instance says which one a bare number means.** It never
+  did — the only clue was which rows printed without a prefix, which is the addressing rule
+  read backwards. Nothing was ever ambiguous to the program, but somebody reading fifty rows
+  and typing a number off them had no statement of where it would land. Silent when there is
+  only one place to be in.
+
 - **A connection with nothing in it keeps its heading in `subroutine list`.** An instance you
   had just set up and not yet used vanished from the listing entirely — no heading, no line,
   and no failure either, since a failure line only appears for a connection that errored. There

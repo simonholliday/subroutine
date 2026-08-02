@@ -1032,3 +1032,71 @@ def test_use_says_when_the_name_given_is_a_connection (
 
 	assert "is a connection, not a workspace" in refused.output
 	assert "subroutine use work/acme" in refused.output
+
+
+def test_a_listing_says_which_place_a_bare_number_means (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#271`. Simon, reading a two-connection listing: "I could mark the wrong item complete."
+
+	He was right about the risk and wrong about the mechanism, and the mechanism is worth
+	keeping: `_locate` never guesses. What was missing is that the listing never *said* which
+	place a bare number meant — the only signal was which rows happened to print bare, which
+	is the shortest-address rule read backwards.
+
+	`subroutine use` answers it exactly and is one command away, which is the wrong place: the
+	risk is at the moment of reading a list and typing a number off it.
+	"""
+
+	run("use", "work/acme")
+
+	listed = run("ls").output
+
+	assert "A bare number means work/acme" in listed
+
+
+def test_one_connection_alone_says_nothing_about_context (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the bound on it, which is the whole of the argument against a banner.
+
+	§13.7's case for leaving the context unsaid is that forgetting it cannot cost you a missed
+	item, because reads span everything reachable. That holds, and is why this appears only
+	when there is more than one place to be in — somebody who has never heard of a connection
+	sees exactly what §13.5b says they see.
+	"""
+
+	run("init")
+
+	assert "A bare number means" not in run("ls").output
+
+
+def test_a_marker_records_its_connection_even_when_there_is_only_one (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#273`. The marker's completeness must not depend on the day it was written.
+
+	`use --here` wrote the connection only when a second one already existed. So every marker
+	written on a one-connection machine became ambiguous the moment a second was configured —
+	silently, and for exactly the caller §13.7a says cannot be asked. An agent working in this
+	repository had two writes redirected to a different instance within an hour of that
+	happening.
+	"""
+
+	run("init")
+
+	written = tmp_path / "checkout"
+	written.mkdir()
+
+	# **`monkeypatch.chdir`, not `os.chdir`** — it restores afterwards, and a test that leaves
+	# the process somewhere else takes the rest of the suite with it.
+	monkeypatch.chdir(written)
+	run("use", "--here")
+
+	marker = (written / ".subroutine").read_text(encoding="utf-8")
+
+	# The whole point: one connection here, and it is still named. Written with the `two`
+	# fixture this passed without testing anything the title claims.
+	assert "connection =" in marker

@@ -1247,12 +1247,47 @@ def register (
 
 			_say_parked(gathered, console=console, hidden=hiding)
 
+			_say_where_a_bare_number_goes(world, console=console)
+
 			say("")
 			_suggest(
 				console,
 				f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}",
 				"read one of them in full",
 			)
+
+	def _say_where_a_bare_number_goes (
+		world: World, *, console: rich.console.Console
+	) -> None:
+		"""Name the current context under a listing, when there is more than one to be in.
+
+		**Not a banner, and the distinction is the whole of `#271`.** §13.7's argument for
+		leaving it unsaid is that forgetting your context cannot cost you a *missed* item,
+		because reads span everything reachable — and that is true and is why there is no
+		banner on every response. It does not cover a **write**. Somebody reading a list of
+		fifty rows and typing a number off it is one keystroke from acting on the right number
+		in the wrong place, and the only thing telling them which place is which rows happen to
+		be printed bare.
+
+		Silent with one connection, so §13.5b's transcript and everybody who has never heard of
+		a connection see exactly what they saw before.
+		"""
+
+		if not world.qualifies_connection:
+			return
+
+		# The bare address rather than `describe`, which carries its provenance — useful when
+		# somebody asks where the context came from, and one clause too many under a list they
+		# are about to act on.
+		where = world.current.workspace or "(no workspace chosen)"
+
+		console.print(
+			rich.text.Text(
+				f"      A bare number means {world.current.connection}/{where}. "
+				f"'subroutine use' to change it.",
+				style=DETAIL,
+			)
+		)
 
 	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
 	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
@@ -2586,7 +2621,14 @@ def register (
 
 		written = subroutine.directory.write(
 			pathlib.Path.cwd(),
-			connection=connection if world.qualifies_connection else None,
+			# **Always, not only when there is more than one connection** (`#273`). Omitting
+			# it saved one line in a file and made the marker's completeness depend on how
+			# many connections existed the day it was written — so configuring a second one
+			# later left every existing marker naming a workspace that may not be on the
+			# current connection, silently, for exactly the caller §13.7a says cannot be
+			# asked. It happened to an agent working in this repository within an hour of a
+			# second connection being added.
+			connection=connection,
 			workspace=workspace,
 			project=key,
 			# **The id is what makes this survive a rename** (`#177`). The key is written
