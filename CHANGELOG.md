@@ -105,6 +105,20 @@ upgrade involves.
   Setting `public_url` — which `serve` already requires for a non-loopback bind without
   `--insecure` — is enough to fix it.
 
+- **`trusted_proxies` — count the caller behind a reverse proxy, not the proxy.** Failed
+  authentications are limited per address, and through a proxy every request arrives from the
+  same one, so they shared a single allowance. Name the address your proxy connects from and
+  the real caller is counted:
+
+  ```toml
+  trusted_proxies = ["127.0.0.1"]
+  ```
+
+  **Name only proxies you control.** `X-Forwarded-For` is written by whoever sends the
+  request, so this is you vouching for a specific peer; pointed at anything else it would let
+  a caller choose which bucket it lands in. Left empty the header is ignored entirely, which
+  is the correct behaviour with nothing in front and remains the default.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

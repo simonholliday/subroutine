@@ -507,9 +507,15 @@ class Settings(pydantic_settings.BaseSettings):
 	# only protects whoever remembers to type it.
 	protected: bool = False
 
-	# **Rate limiting, SPEC.md §7.7.** Unset is not "off": it means on unless the bind is
-	# loopback, because a limiter is about callers arriving over a network and on a laptop the
-	# only caller is the person who owns the machine. Set it either way to say so out loud.
+	# **Rate limiting, SPEC.md §7.7.** Unset is not "off": it means on unless nothing outside
+	# this machine can reach the instance, because a limiter is about callers arriving over a
+	# network and on a laptop the only caller is the person who owns the machine. Set it
+	# either way to say so out loud.
+	#
+	# **A loopback bind is not by itself evidence of that** (`#286`). A TLS-terminating proxy
+	# in front of an application on `127.0.0.1` is what `docs/hosting.md` recommends, and
+	# there the socket is loopback while the service is public — so `public_url` being set
+	# counts as reachable whatever the bind.
 	#
 	# **The counters live in this process's memory** (`#247`). Two workers would each enforce
 	# their own share of the limit, so an instance served by anything other than `subroutine
@@ -523,9 +529,20 @@ class Settings(pydantic_settings.BaseSettings):
 	# Per *address*, on requests whose credential did not work, and deliberately much lower.
 	# Keyed on where the request came from rather than on the token prefix — a prefix is
 	# chosen by the caller, so keying on it would give an attacker a fresh allowance every
-	# attempt. High enough that ordinary use cannot reach it, because behind a proxy every
-	# request carries the proxy's address (`#277`).
+	# attempt.
 	rate_limit_failures_per_minute: int = 30
+
+	# The proxies whose `X-Forwarded-For` this instance believes (`#277`). Empty means the
+	# header is ignored entirely and the immediate peer is the key, which is right for a
+	# direct bind and wrong behind Nginx Proxy Manager, where every caller shares the proxy's
+	# address and therefore one allowance.
+	#
+	# **It has to be a list rather than a flag, and that is the security of it.** Reading the
+	# header from an untrusted peer is worse than ignoring it: the header is written by the
+	# caller, so believing it hands whoever is guessing a fresh key on every request — the
+	# identical defeat that keying failures on the token prefix would have been. Naming the
+	# proxy is what makes the claim worth anything.
+	trusted_proxies: list[str] = pydantic.Field(default_factory=list)
 
 	# Where `db backup` writes (SPEC.md §12.6b). Unset means the instance's own data directory,
 	# which is right for one laptop and wrong as soon as the point of a backup is surviving the

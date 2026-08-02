@@ -170,6 +170,9 @@ class Limits:
 		self.on = wanted(settings, host=host)
 		self.requests = Limiter(per_minute=settings.rate_limit_per_minute)
 		self.failures = Limiter(per_minute=settings.rate_limit_failures_per_minute)
+		self.trusted = frozenset(
+			address.strip() for address in settings.trusted_proxies if address.strip()
+		)
 
 	def count_a_request (self, prefix: str) -> None:
 		"""Spend one request against a working credential, refusing when it is going too fast."""
@@ -201,14 +204,15 @@ class Limits:
 		if not self.on:
 			return
 
-		waiting = self.failures.take(_where_from(request))
+		where = _where_from(request, self.trusted)
+		waiting = self.failures.take(where)
 
 		if waiting is None:
 			return
 
 		_logger.warning(
 			"Rate limiting failed authentications from %s (token prefix %s)",
-			_where_from(request),
+			where,
 			_prefix_of(request) or "none",
 		)
 
@@ -219,14 +223,39 @@ class Limits:
 		)
 
 
-def _where_from (request: starlette.requests.Request) -> str:
+def _where_from (
+	request: starlette.requests.Request, trusted: frozenset[str] = frozenset()
+) -> str:
 	"""Return the address a request came from, or a stand-in when there is none.
 
 	``request.client`` is ``None`` under an ASGI transport that carries no client — the test
 	suite is one — and a limiter that raised there would fail a request rather than count it.
+
+	**``X-Forwarded-For`` is read only when the immediate peer is a proxy somebody named**
+	(`#277`, §7.7). The header is written by the caller, so believing it from anyone else
+	hands whoever is guessing a fresh key on every request — the identical defeat that keying
+	failures on the token prefix would have been, and the reason ``trusted_proxies`` is a
+	list rather than a flag.
+
+	Read from the **right**, because each hop *appends* the address it received from. The
+	rightmost entry no trusted hop wrote is the furthest back this instance has grounds to
+	believe; anything a caller prepended stays to the left of it and is never reached.
 	"""
 
-	return "unknown" if request.client is None else request.client.host
+	peer = "unknown" if request.client is None else request.client.host
+
+	if peer not in trusted:
+		return peer
+
+	for entry in reversed(request.headers.get("x-forwarded-for", "").split(",")):
+		address = entry.strip()
+
+		if address and address not in trusted:
+			return address
+
+	# Every hop named itself, or the proxy sent no header at all. Its own address is the only
+	# thing left that is true, and sharing one bucket is better than counting nothing.
+	return peer
 
 
 def _prefix_of (request: starlette.requests.Request) -> str | None:

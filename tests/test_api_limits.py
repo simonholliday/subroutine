@@ -18,6 +18,7 @@ import typing
 
 import pytest
 import sqlalchemy.orm
+import starlette.requests
 
 import subroutine.api.limits
 import subroutine.config
@@ -225,3 +226,111 @@ def test_an_allowance_refills_over_time () -> None:
 
 	assert limiter.take("k") is None
 	assert limiter.take("k") is not None
+
+
+# --- Which address a failure is counted against ------------------------------------------
+
+
+def _arriving (peer: str | None, forwarded: str | None = None) -> starlette.requests.Request:
+	"""Return a request from ``peer``, optionally carrying an ``X-Forwarded-For``."""
+
+	headers = [] if forwarded is None else [(b"x-forwarded-for", forwarded.encode())]
+
+	return starlette.requests.Request(
+		{
+			"type": "http",
+			"method": "GET",
+			"path": "/v1/tasks",
+			"headers": headers,
+			"client": None if peer is None else (peer, 51234),
+		}
+	)
+
+
+def test_a_forwarded_header_from_an_untrusted_peer_is_ignored () -> None:
+	"""**The one that decides whether any of this is safe** (`#277`, §7.7).
+
+	``X-Forwarded-For`` is written by whoever sends it. Believing it from a peer nobody named
+	would let a caller choose its own bucket key and mint a fresh allowance per guess — the
+	identical defeat that keying failures on the token prefix would have been, which `#247`
+	rejected for the same reason. This is why ``trusted_proxies`` is a list and not a flag.
+	"""
+
+	spoofing = _arriving("203.0.113.9", forwarded="10.0.0.1, 10.0.0.2")
+
+	assert subroutine.api.limits._where_from(spoofing, frozenset()) == "203.0.113.9"
+	assert (
+		subroutine.api.limits._where_from(spoofing, frozenset({"192.168.0.127"}))
+		== "203.0.113.9"
+	)
+
+
+def test_a_named_proxy_is_believed_so_callers_get_their_own_allowance () -> None:
+	"""What `#277` is actually for: behind NPM every caller shared one bucket.
+
+	Bounded damage — the failure bucket is only ever spent by an authentication that failed,
+	so a working credential was never held back — but one client hammering with a stale token
+	made *other people's* mistakes answer 429 instead of 401.
+	"""
+
+	trusted = frozenset({"192.168.0.127"})
+
+	first = _arriving("192.168.0.127", forwarded="203.0.113.9")
+	second = _arriving("192.168.0.127", forwarded="203.0.113.10")
+
+	assert subroutine.api.limits._where_from(first, trusted) == "203.0.113.9"
+	assert subroutine.api.limits._where_from(second, trusted) == "203.0.113.10"
+
+
+def test_a_caller_behind_a_trusted_proxy_cannot_prepend_its_way_out () -> None:
+	"""Read from the right, because each hop *appends* the address it received from.
+
+	nginx's ``$proxy_add_x_forwarded_for`` is "whatever arrived, then the peer" — so a caller
+	sending ``X-Forwarded-For: fake`` reaches this instance as ``fake, <their real address>``.
+	Taking the leftmost entry is the standard way to get this wrong, and it would hand the
+	caller its own key back despite the proxy being trusted.
+	"""
+
+	trusted = frozenset({"192.168.0.127"})
+	sneaky = _arriving("192.168.0.127", forwarded="1.1.1.1, 2.2.2.2, 203.0.113.9")
+
+	assert subroutine.api.limits._where_from(sneaky, trusted) == "203.0.113.9"
+
+
+def test_chained_proxies_are_skipped_only_where_they_are_named () -> None:
+	"""Two hops, both named, so the caller is what is left after skipping them."""
+
+	trusted = frozenset({"192.168.0.127", "10.0.0.8"})
+	chained = _arriving("192.168.0.127", forwarded="203.0.113.9, 10.0.0.8")
+
+	assert subroutine.api.limits._where_from(chained, trusted) == "203.0.113.9"
+
+	# And an *unnamed* middle hop is where the chain stops being believed. Returning it rather
+	# than the address behind it is the conservative answer: nobody vouched for that claim.
+	partial = _arriving("192.168.0.127", forwarded="203.0.113.9, 172.16.0.4")
+
+	assert subroutine.api.limits._where_from(partial, trusted) == "172.16.0.4"
+
+
+def test_a_trusted_proxy_that_forwards_nothing_falls_back_to_itself () -> None:
+	"""Misconfiguration should share one bucket, not stop counting.
+
+	A proxy named in ``trusted_proxies`` but not setting the header is a real setup mistake.
+	Counting nothing would turn a typo in ``config.toml`` into a silently disabled limiter,
+	which is the failure mode `#286` was about one level up.
+	"""
+
+	trusted = frozenset({"192.168.0.127"})
+
+	assert subroutine.api.limits._where_from(_arriving("192.168.0.127"), trusted) == (
+		"192.168.0.127"
+	)
+	assert subroutine.api.limits._where_from(
+		_arriving("192.168.0.127", forwarded="  ,  "), trusted
+	) == "192.168.0.127"
+
+
+def test_no_client_at_all_is_counted_rather_than_raising () -> None:
+	"""An ASGI transport carrying no client — the test suite is one."""
+
+	assert subroutine.api.limits._where_from(_arriving(None), frozenset()) == "unknown"

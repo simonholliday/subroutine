@@ -446,6 +446,35 @@ tasks.example.com {
 Whichever you use, set `public_url` to match. It is published at `GET /v1/meta`, so an agent
 handed a token can find out where it is talking to without being told separately.
 
+**Setting it also turns rate limiting on**, which matters here more than it looks. The default
+is "limit unless nothing outside this machine can reach us", and a proxy in front of an
+application listening on `127.0.0.1` is exactly the case where the socket looks private and
+the service is not. `public_url` is how this instance knows the difference.
+
+### Telling it which address a request came from
+
+Failed authentications are counted per address, so that guessing a token gets slower. Through
+a proxy every request arrives from the *proxy*, so without help they all share one allowance —
+one client hammering with a stale credential makes other people's mistakes answer `429`
+instead of `401`.
+
+Name the proxy and the real caller is counted instead:
+
+```toml
+trusted_proxies = ["127.0.0.1"]
+```
+
+That is the address **this instance sees the proxy connecting from**, which is not always the
+one you think of as the proxy's. Co-located behind nginx or Caddy it is `127.0.0.1`; if the
+proxy runs on another machine it is that machine's address on your network.
+
+**Name only proxies you control.** `X-Forwarded-For` is written by whoever sends the request,
+so this setting is you vouching for a specific peer. Point it at something you do not control
+and any caller can choose which bucket it is counted in, which is worse than leaving it empty.
+
+Left empty the header is ignored entirely, which is the right behaviour when nothing is in
+front.
+
 ## Adding the people
 
 An instance starts with one account — whoever ran `init`, who is its administrator. Everybody
