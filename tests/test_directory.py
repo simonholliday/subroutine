@@ -245,3 +245,62 @@ def test_a_marker_naming_nothing_here_resolves_to_nothing (tmp_path: pathlib.Pat
 	)
 
 	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) is None
+
+
+class _Space(typing.NamedTuple):
+	"""The two fields `resolve_workspace` reads, standing in for a workspace."""
+
+	id: uuid.UUID
+	slug: str
+
+
+def test_a_marker_follows_a_renamed_workspace_by_id (tmp_path: pathlib.Path) -> None:
+	"""`#317`: the same durability as a project key, one level up.
+
+	A workspace could not be renamed when this file was designed, so its slug was durable by
+	construction and recording only the name was correct. `#295` made renaming possible and
+	did not carry `#177`'s answer across — so every marked checkout printed "names workspace
+	'x', which is not on local" on every command afterwards, about nothing, since `project_id`
+	went on filing the work in the right place.
+	"""
+
+	moved = uuid.uuid4()
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME,
+		workspace="personal",
+		workspace_id=str(moved),
+	)
+
+	assert subroutine.directory.resolve_workspace(marker, [_Space(moved, "projects")]) == (
+		"projects"
+	)
+
+
+def test_a_marker_written_before_workspace_ids_still_resolves_by_slug (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Every marker written before `#317` carries a slug and no id, including this repository's.
+
+	Exactly, not case-insensitively: a slug is lowercase by validation, where a project key is
+	uppercase and is normalised on the way in.
+	"""
+
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, workspace="si"
+	)
+
+	assert subroutine.directory.resolve_workspace(marker, [_Space(uuid.uuid4(), "si")]) == "si"
+
+
+def test_a_marker_naming_a_workspace_that_is_not_here_resolves_to_nothing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#166` again: the warning and the carrying-on are what a stale marker must produce."""
+
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME,
+		workspace="elsewhere",
+		workspace_id=str(uuid.uuid4()),
+	)
+
+	assert subroutine.directory.resolve_workspace(marker, [_Space(uuid.uuid4(), "si")]) is None

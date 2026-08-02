@@ -672,7 +672,7 @@ def register (
 			try:
 				yield World(
 					roster=roster,
-					current=_settled(roster, current, reached),
+					current=_settled(roster, current, reached, marker),
 					reached=reached,
 					unreachable=(*unbuilt, *gathered.failures),
 					settings=resolved,
@@ -686,6 +686,7 @@ def register (
 		roster: subroutine.connections.Roster,
 		current: subroutine.context.Current,
 		reached: typing.Sequence[Reached],
+		marker: subroutine.directory.Marker | None,
 	) -> subroutine.context.Current:
 		"""Answer steps 4 and 5 of §13.7's order, now that the connections have been asked.
 
@@ -705,11 +706,19 @@ def register (
 			and current.workspace_source == subroutine.context.FROM_DIRECTORY
 		):
 			here = next((item for item in reached if item.name == current.connection), None)
-			known = (
-				{space.slug for space in here.identity.workspaces} if here is not None else set()
+			# **Resolved by id where the marker carries one** (`#317`), so a workspace that has
+			# merely been renamed is followed rather than reported missing. Without it a
+			# `workspace rename` left every marked checkout printing the warning below on every
+			# command for ever — about nothing, since `project_id` went on carrying the work to
+			# the right place. Markers written before `#317` have no id and fall back to the
+			# slug, which is what they have always done.
+			resolved = (
+				None
+				if here is None or marker is None
+				else subroutine.directory.resolve_workspace(marker, here.identity.workspaces)
 			)
 
-			if here is not None and current.workspace not in known:
+			if here is not None and resolved is None:
 				warn(
 					f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
 					f"{current.connection}. Ignoring it."
@@ -717,6 +726,9 @@ def register (
 				current = dataclasses.replace(
 					current, workspace=None, workspace_source=subroutine.context.FROM_NOTHING
 				)
+
+			elif resolved is not None and resolved != current.workspace:
+				current = dataclasses.replace(current, workspace=resolved)
 
 		if current.workspace is not None:
 			return current
@@ -3160,6 +3172,11 @@ def register (
 			# second connection being added.
 			connection=connection,
 			workspace=workspace,
+			# **The same pairing as the project, and it was missing** (`#317`). A workspace
+			# could not be renamed when this file was designed, so its slug was durable by
+			# construction; `#295` made renaming possible and the marker went on recording only
+			# the name.
+			workspace_id=_workspace_id_of(world, workspace),
 			project=key,
 			# **The id is what makes this survive a rename** (`#177`). The key is written
 			# beside it so the file stays readable, and is the half that goes stale.
@@ -3176,6 +3193,28 @@ def register (
 		say(f"New work started in this directory goes to {key}, unless a line says otherwise.")
 		say("")
 		_suggest(console, "subroutine add \"something to do\"")
+
+	def _workspace_id_of (world: World, slug: str | None) -> str | None:
+		"""Return the permanent id of the workspace this slug names, or ``None``.
+
+		``None`` rather than a refusal when it does not resolve: the slug written beside it is
+		the fallback :func:`subroutine.directory.resolve_workspace` already uses for every
+		marker predating `#317`, so a marker with a name and no id is the state the program has
+		always handled rather than a broken one.
+		"""
+
+		if slug is None:
+			return None
+
+		for item in world.reached:
+			if item.name != world.current.connection:
+				continue
+
+			for space in item.identity.workspaces:
+				if space.slug == slug:
+					return str(space.id)
+
+		return None
 
 	def _project_id_of (world: World, key: str) -> str | None:
 		"""Return the permanent id of the project this key names, or ``None`` if there is none.

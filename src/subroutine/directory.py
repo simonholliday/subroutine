@@ -56,7 +56,12 @@ FILE_NAME = ".subroutine"
 #: reading this in a code review can recognise. Dropping the key would make the file a pair of
 #: UUIDs nobody can check, and dropping the id would make it stale the first time somebody
 #: renames a project.
-KEYS = ("connection", "workspace", "project", "project_id")
+#:
+#: ``workspace_id`` is the same pairing one level up, and it arrived late (`#317`). A workspace
+#: could not be renamed when this file was designed, so its slug was durable by construction;
+#: `#295` made renaming possible and did not carry `#177`'s answer across, leaving every marked
+#: checkout to print "names workspace 'x', which is not on local" on every command afterwards.
+KEYS = ("connection", "workspace", "workspace_id", "project", "project_id")
 
 
 class Marker(typing.NamedTuple):
@@ -70,6 +75,9 @@ class Marker(typing.NamedTuple):
 	#: The project's permanent identifier. Preferred over ``project`` wherever both are
 	#: present, because a key can be renamed and this cannot.
 	project_id: str | None = None
+
+	#: The workspace's permanent identifier, preferred over ``workspace`` for the same reason.
+	workspace_id: str | None = None
 
 	def describe (self) -> str:
 		"""Return how a person reads this — ``SR, from ../.subroutine``."""
@@ -118,6 +126,44 @@ def resolve (marker: Marker, projects: typing.Iterable[Named]) -> str | None:
 		for row in projects:
 			if row.key.upper() == marker.project.upper():
 				return row.key
+
+	return None
+
+
+class Slugged(typing.Protocol):
+	"""The two fields a marker's workspace is resolved against."""
+
+	@property
+	def id (self) -> typing.Any:
+		"""The workspace's permanent identifier."""
+
+	@property
+	def slug (self) -> str:
+		"""The workspace's current short name."""
+
+
+def resolve_workspace (marker: Marker, workspaces: typing.Iterable[Slugged]) -> str | None:
+	"""Return the current slug of the workspace a marker names, or ``None`` if there is none.
+
+	:func:`resolve` one level up, and for the same reason (`#317`). By id where the marker has
+	one, so a ``workspace rename`` leaves the checkout working rather than warning about a
+	workspace that is merely called something else now; by slug otherwise, which is every marker
+	written before `#317` — those must go on working, or the upgrade is the outage.
+
+	``None`` is an answer rather than a failure, exactly as it is for a project: a marker is
+	advisory context written by a machine, and one naming somewhere this connection has never
+	heard of must not stop the program.
+	"""
+
+	if marker.workspace_id is not None:
+		for row in workspaces:
+			if str(row.id) == marker.workspace_id:
+				return row.slug
+
+	if marker.workspace is not None:
+		for row in workspaces:
+			if row.slug == marker.workspace:
+				return row.slug
 
 	return None
 
@@ -173,6 +219,7 @@ def write (
 	*,
 	connection: str | None = None,
 	workspace: str | None = None,
+	workspace_id: str | None = None,
 	project: str | None = None,
 	project_id: str | None = None,
 ) -> pathlib.Path:
@@ -194,9 +241,18 @@ def write (
 		"# wherever they went before, and nothing already recorded changes.",
 	]
 
-	for name, value in (("connection", connection), ("workspace", workspace)):
-		if value:
-			lines.append(f'{name} = "{value}"')
+	if connection:
+		lines.append(f'connection = "{connection}"')
+
+	# The same id-carries-the-name pairing as the project below, for the same reason: durable to
+	# a rename, still readable by whoever opens this in a code review.
+	if workspace_id:
+		named = f"  # {workspace}" if workspace else ""
+
+		lines.append(f'workspace_id = "{workspace_id}"{named}')
+
+	if workspace:
+		lines.append(f'workspace = "{workspace}"')
 
 	if project_id:
 		named = f"  # {project}" if project else ""
