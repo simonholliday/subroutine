@@ -24,7 +24,7 @@
     "connection": {
       "type": "string",
       "title": "Which instance (optional)",
-      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty to use the database on this machine, which is what most people want. Connections are set up with 'subroutine' itself, not here.",
+      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty for your default connection — the database on this machine, unless you have set 'default_connection' to something else. Run 'subroutine connections' to see the names and which one that is. Note that one session reaches one instance, so if you keep work and personal instances separately, name the one this project belongs to. Connections are set up with 'subroutine' itself, not here.",
       "default": ""
     },
     "token": {

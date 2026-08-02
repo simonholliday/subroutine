@@ -75,6 +75,21 @@ upgrade involves.
   both together in the ordinary case where they agree. When they differ it also says why:
   `Writing to work/acme (from 'subroutine use').`
 
+- **An agent session no longer binds to whichever instance `subroutine use` last pointed at.**
+  The MCP server reads its connection once, at startup, and holds it for the whole session —
+  so with no connection configured it inherited a setting people move between tasks, and two
+  sessions started on one machine on one day could reach different instances with nothing to
+  say so.
+
+  It now falls back to your `default_connection`, which is set in `config.toml` and can be
+  read back with `subroutine connections`. Name a connection in the plugin's settings to
+  choose a different one.
+
+- **An agent is told which instances it cannot reach.** The server's instructions named the
+  connection it was bound to, which read as though that were the only one — so an agent had
+  no reason to ask. Where more than one is configured they now say so; where only one is,
+  they are unchanged.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

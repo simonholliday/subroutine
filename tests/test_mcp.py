@@ -23,14 +23,17 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.clients.local
+import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
+import subroutine.context
 import subroutine.db.models.project
 import subroutine.directory
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.mcp.protocol
+import subroutine.mcp.session
 import subroutine.mcp.tools
 
 
@@ -1095,3 +1098,116 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 	# holding a repository whose file claims one thing and an instance that says another.
 	assert "ELSEWHERE" in text
 	assert "Ignoring it" in text
+
+
+# --- Which instance a session is bound to ------------------------------------------------
+
+
+def _roster (*names: str, default: str) -> subroutine.connections.Roster:
+	"""Return a roster of the given connections, the first one local."""
+
+	built = tuple(
+		subroutine.connections.Connection(
+			name=name, url=None if index == 0 else f"http://127.0.0.1:{8000 + index}"
+		)
+		for index, name in enumerate(names)
+	)
+
+	return subroutine.connections.Roster(connections=built, default=default)
+
+
+def _standing_up (
+	monkeypatch: pytest.MonkeyPatch, roster: subroutine.connections.Roster
+) -> str:
+	"""Return the instructions ``build`` produces for this roster, without opening anything.
+
+	Driven through ``build`` rather than by calling the private helper, so these assert what
+	a session is actually told. Calling ``_instructions`` directly would fail against the
+	previous code with a ``TypeError`` about its signature — evidence that the test matches
+	the new shape, and none at all that it would have caught the old behaviour.
+	"""
+
+	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
+	monkeypatch.setattr(
+		subroutine.clients.opening, "for_connection", lambda connection, roster, settings: None
+	)
+	monkeypatch.setattr(subroutine.mcp.tools, "catalogue", lambda client: [])
+
+	built = subroutine.mcp.session.build(settings=subroutine.config.Settings(dev_mode=True))
+
+	assert built.instructions is not None, "a session is always told where it is"
+
+	return built.instructions
+
+
+def test_the_instructions_name_the_instances_this_session_cannot_reach (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``#276``. Naming only the bound one is what let an agent be sure it knew where it was.
+
+	The sentence was true — it said 'on connection Local' — and nothing in it suggested the
+	name was one of several, so there was no reason to ask. `subroutine connections` answers
+	it from the command line and has no equivalent here, which is `#232`'s gap from the other
+	side.
+	"""
+
+	said = _standing_up(monkeypatch, _roster("local", "work", default="local"))
+
+	assert "work" in said
+	assert "cannot reach" in said
+
+
+def test_one_connection_is_told_nothing_about_connections (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The guard that keeps the sentence above off every session that will never need it.
+
+	Instructions are context every session carries, so this is the same budget the tool
+	schemas are held to — and the same rule that keeps ``subroutine connections`` out of
+	``--help`` until a second connection exists.
+	"""
+
+	said = _standing_up(monkeypatch, _roster("local", default="local"))
+
+	assert "cannot reach" not in said
+	assert "configured here" not in said
+
+
+def test_the_binding_does_not_follow_subroutine_use (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``#276``, and the half that made it intermittent rather than merely undiscoverable.
+
+	The fallback used to be the stored context, which a person moves between tasks — read
+	once at startup and held for the whole session. So which instance an agent wrote to
+	depended on where ``subroutine use`` happened to point at the unrelated moment its
+	process started. Two sessions on one machine on one day bound different instances and
+	neither could tell.
+
+	``build`` is driven for real, with only the client-opening step stubbed — that needs a
+	database and the question here is purely which connection is handed to it. A first
+	version asserted ``(None or roster.default) == "local"``, which re-implemented the
+	expression under test and would have passed with the defect still in place.
+	"""
+
+	roster = _roster("local", "work", default="local")
+	handed: list[str] = []
+
+	monkeypatch.setattr(
+		subroutine.context, "read", lambda: {"connection": "work", "workspace": "acme"}
+	)
+	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
+	monkeypatch.setattr(
+		subroutine.clients.opening,
+		"for_connection",
+		lambda connection, roster, settings: handed.append(connection.name),
+	)
+	monkeypatch.setattr(subroutine.mcp.tools, "catalogue", lambda client: [])
+
+	# The stored context says 'work'. Asserted first, so a fixture that failed to set it
+	# cannot let the real assertion pass for the wrong reason.
+	assert subroutine.context.resolve(roster).connection == "work"
+
+	subroutine.mcp.session.build(settings=subroutine.config.Settings(dev_mode=True))
+
+	assert handed == ["local"], "the binding follows default_connection, not 'subroutine use'"
