@@ -3015,3 +3015,59 @@ def test_changes_refuses_a_resume_number_it_cannot_honour (
 	run("init")
 
 	assert run("changes", "--since", "1").exit_code == 0
+
+
+def test_init_says_what_to_do_when_it_cannot_write_its_directories (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#255`. Simon met this as a traceback, following ``docs/hosting.md`` on a clean server.
+
+	``/var/lib/subroutine`` is created by ``StateDirectory=`` when the service first starts,
+	and the service cannot start until ``init`` has run — so on the manual first run the
+	directory is absent and ``/var/lib`` is root-owned. What came back was four frames of
+	``pathlib.mkdir`` recursion and a bare ``PermissionError``.
+
+	**The guard for it already existed and covered the database directory only**, reached
+	through ``settings.sqlite_path``, which is ``None`` on PostgreSQL. So this is written
+	against the *configuration* directory specifically: that is the one nothing checked, and
+	the one ``ensure_secret_key`` walks into a moment later.
+
+	It names the outermost missing part rather than the leaf, because that is the directory
+	somebody can actually create.
+	"""
+
+	# **Only the configuration directory is unwritable**, and the other two are fine. Locking
+	# all three would let the *data* check fire first — which the old code already had — and
+	# the test would pass against the very defect it was written for. That is what the first
+	# version of this did.
+	locked = tmp_path / "var"
+	locked.mkdir()
+
+	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(locked / "subroutine" / "config"))
+
+	locked.chmod(0o500)
+
+	try:
+
+		result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["init"])
+
+		assert result.exit_code == 1
+
+		# **Asserted on the exception, not on the output.** `CliRunner` captures what was
+		# raised rather than letting Typer render it, so "Traceback" and "PermissionError"
+		# are absent from `result.output` whether or not the bug is present — two assertions
+		# that read like the point of the test and could never fail. What a person actually
+		# meets is the rendering of *this*.
+		assert not isinstance(result.exception, OSError), result.exception
+
+		assert "Cannot create the configuration directory" in result.output
+
+		# The part somebody can act on, four levels above the one that failed.
+		assert f"{locked / 'subroutine'} does not exist" in result.output
+		assert "Make it as root" in result.output
+
+	finally:
+		# Restored whatever happened, or pytest cannot clean the directory up afterwards.
+		locked.chmod(0o700)

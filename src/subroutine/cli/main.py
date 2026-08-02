@@ -1885,25 +1885,40 @@ def _database_is_absent (settings: subroutine.config.Settings) -> bool:
 
 
 def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:
-	"""Prepare the storage directory, and stop if SQLite cannot lock in it.
+	"""Make every directory ``init`` writes into, and stop with a sentence if one cannot be.
 
-	SPEC.md §10.4. The locking failure otherwise arrives as ``database is locked`` on the
-	first write, which reads as a concurrency bug rather than as "this directory is on a
-	network share" — and by then there is a half-built database to clean up.
+	SPEC.md §10.4 for the second half — SQLite's locking failure otherwise arrives as
+	``database is locked`` on the first write, which reads as a concurrency bug rather than as
+	"this directory is on a network share", and by then there is a half-built database to clean
+	up.
+
+	**All three XDG directories, not only the database's** (`#255`). This checked
+	``settings.sqlite_path``, which is ``None`` on PostgreSQL, so it returned immediately and
+	``ensure_secret_key`` walked into an unwritable configuration directory a moment later —
+	reaching a person setting up a server as four frames of ``pathlib.mkdir`` recursion and a
+	bare ``PermissionError``. Simon met that following ``docs/hosting.md`` on a clean Ubuntu
+	server, where ``/var/lib/subroutine`` does not exist until the service first starts and the
+	service cannot start until this has run.
+
+	Not PostgreSQL-specific, which is what makes it worth the wider check: a writable data
+	directory and an unwritable configuration one produced the same traceback on SQLite.
 	"""
+
+	for what, directory in (
+		("configuration", subroutine.config.config_home()),
+		("data", subroutine.config.data_home()),
+		("state", subroutine.config.state_home()),
+	):
+		_make_directory(what, directory)
 
 	path = settings.sqlite_path
 
 	if path is None:
 		return
 
-	try:
-		path.parent.mkdir(parents=True, exist_ok=True)
-
-	except OSError as error:
-		_err.print(f"Cannot create {path.parent}: {error}", markup=False, highlight=False)
-
-		raise typer.Exit(code=1) from None
+	# Usually inside the data directory and already made above, but `database_url` may name
+	# somewhere else entirely, and that somewhere still has to exist.
+	_make_directory("database", path.parent)
 
 	problem = subroutine.config.probe_sqlite_locking(path.parent)
 
@@ -1911,6 +1926,62 @@ def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:
 		_err.print(problem, markup=False, highlight=False)
 
 		raise typer.Exit(code=1)
+
+
+def _make_directory (what: str, directory: pathlib.Path) -> None:
+	"""Create one of the directories ``init`` needs, or stop and say what to do about it.
+
+	**Names the outermost part that is missing, not the leaf.** Told it cannot create
+	``/var/lib/subroutine/config/subroutine``, somebody reasonably tries to create exactly
+	that and is refused again; the part they can actually act on is ``/var/lib/subroutine``,
+	four levels up, and it is the only one that needs root.
+	"""
+
+	try:
+		directory.mkdir(parents=True, exist_ok=True)
+
+	except OSError as error:
+		blocked = _outermost_missing(directory)
+
+		_err.print(
+			f"Cannot create the {what} directory {directory}: {error.strerror or error}.",
+			markup=False,
+			highlight=False,
+		)
+		_err.print("", markup=False, highlight=False)
+
+		if blocked != directory:
+			_err.print(
+				f"{blocked} does not exist, and this account cannot create it. Make it as "
+				f"root and hand it to this account, or point the XDG directories somewhere "
+				f"this account can already write.",
+				markup=False,
+				highlight=False,
+			)
+
+		else:
+			_err.print(
+				f"Give this account permission to write in {directory.parent}, or point the "
+				f"XDG directories somewhere it can already write.",
+				markup=False,
+				highlight=False,
+			)
+
+		raise typer.Exit(code=1) from None
+
+
+def _outermost_missing (directory: pathlib.Path) -> pathlib.Path:
+	"""Return the highest ancestor of ``directory`` that does not exist, or ``directory``."""
+
+	missing = directory
+
+	for parent in directory.parents:
+		if parent.exists():
+			break
+
+		missing = parent
+
+	return missing
 
 
 def _read_password (from_stdin: bool, non_interactive: bool) -> str | None:

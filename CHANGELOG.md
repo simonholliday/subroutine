@@ -43,6 +43,25 @@ upgrade involves.
   still holds — so a client resyncs rather than being handed a page that silently omits
   whatever fell off the end. It cannot occur yet: nothing prunes events, so nothing falls off.
 
+### Fixed
+
+- **`subroutine init` now says what to do when it cannot write where it was told to.** It
+  checked the directory the database goes in and never the one the configuration goes in — so
+  on PostgreSQL, where there is no database directory to check, nothing was checked at all, and
+  a permission problem arrived as a Python traceback. It now names the outermost directory that
+  is missing, which is the one you can actually create, rather than the innermost, which you
+  cannot.
+
+- **The hosting guide's first run works from a clean machine.** Setting up a service account
+  meant creating `/var/lib/subroutine` by hand first, and the guide never said so — systemd
+  makes that directory, but not until the service first starts, and the service cannot start
+  until `subroutine init` has run. One command, now in the guide where it is needed.
+
+- **The hosting guide says how to get PostgreSQL**, rather than assuming you already have one.
+  Installing the server, and creating the role and database with names and ownership that
+  actually let the first migration run — `--owner` in particular, without which it fails on
+  `permission denied for schema public` long after the step that caused it.
+
 ## 0.1.4 — 2026-08-02
 
 ### Fixed

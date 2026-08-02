@@ -54,6 +54,19 @@ is usually in.
 
 ## First run, and what it writes
 
+**Make the state directory first.** The unit below carries `StateDirectory=subroutine`, which
+creates `/var/lib/subroutine` and hands it to the service account — but only when the service
+first starts, and the service cannot start until `init` has run. So on this one occasion you
+make it yourself:
+
+```console
+# install -d -o subroutine -g subroutine -m 0755 /var/lib/subroutine
+```
+
+`StateDirectory=` is content to find it already there, and that owner and mode are what it
+would have set. Skip this and `init` stops with `Cannot create the configuration directory`,
+because `/var/lib` is root-owned and a `--system` account cannot write in it.
+
 Run `init` **as the service account, with the same environment the unit will use**, so that the
 database and the signing key land where the service will look for them:
 
@@ -113,8 +126,52 @@ small team that is not writing concurrently. Switch when any of these is true:
   rather than corrupting the file quietly.
 - You want your existing backup, replication and point-in-time recovery to cover it.
 
-Create the database and role however you normally would. If this is a **new** installation,
-name it in `config.toml` and you are done:
+**The `[postgres]` extra is not PostgreSQL.** It installs psycopg, the client driver, and it
+installs perfectly happily with no server anywhere. The server is yours to provide.
+
+On Debian or Ubuntu:
+
+```console
+# apt install -y postgresql
+```
+
+The package creates a cluster, starts it and enables it at boot, so there is no `initdb` step
+by hand. `pg_lsclusters` should show one cluster, `online`.
+
+Then a role and a database, and **both take the name of the service account**:
+
+```console
+# sudo -u postgres createuser subroutine
+# sudo -u postgres createdb --owner=subroutine subroutine
+```
+
+`postgresql+psycopg:///subroutine` names no host and no user, so it connects over a Unix socket
+as the *operating system* user — which under the unit is `subroutine`. The default
+`pg_hba.conf` maps that straight through with peer authentication, so there is no password to
+keep anywhere and nothing listening on the network.
+
+**`--owner` is load-bearing, and it looks decorative.** Since PostgreSQL 15 the `public` schema
+no longer lets every user create tables in it; the database owner does. Create the database
+without it and the first migration stops on `permission denied for schema public` — a message
+about schemas, arriving a long way from the decision that caused it.
+
+Worth confirming before Subroutine touches it at all, because both are much cheaper to fix now
+than with data in them:
+
+```console
+# sudo -u subroutine psql -d subroutine -c '\conninfo'
+# sudo -u postgres psql -l
+```
+
+The first should report connecting as `subroutine` over a socket. In the second, check that the
+`subroutine` row says `UTF8`: a minimal server image with the locale left at `C` can give you a
+`SQL_ASCII` cluster.
+
+A database on **another machine**, or one that wants a password, takes the full URL form
+instead — and then `After=postgresql.service` in the unit is meaningless and can go.
+
+With that in place, if this is a **new** installation, name it in `config.toml` and you are
+done:
 
 ```toml
 database_url = "postgresql+psycopg:///subroutine"
