@@ -291,6 +291,56 @@ def test_add_says_which_instance_the_new_item_landed_on (
 	assert "Renew the certificate" in run("show", address).output
 
 
+def test_advice_printed_under_a_flag_still_works_once_the_flag_is_gone (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""``#280``, and the sharpest of the six the agent filed.
+
+	A tip is read *after* the command that printed it has finished, so it is a statement
+	about the next invocation — and ``-c``/``-w`` have expired by then. The agenda's closing
+	tip is ``subroutine done``, so a bare number justified by a flag is somebody's item
+	completed on another instance.
+
+	What makes this one hard to see is that it is the **qualified** invocation that was
+	wrong and the bare one that was right, which is backwards from any guess.
+
+	**The flags have to name the place the item is actually in**, or this cannot fail. A
+	first attempt used ``-c work -w personal``, which put the context on one connection and
+	the agenda's first row on the other — so the address was qualified for the ordinary
+	reason and the test passed against the very defect it was written for.
+	"""
+
+	tip = next(
+		line
+		for line in run("-c", "work", "-w", "acme", "today").output.splitlines()
+		if "subroutine done" in line
+	)
+	typed = tip.split("subroutine done")[1].split()[0]
+
+	assert "/" in typed, f"a tip printed under a flag has to carry its address: {tip!r}"
+
+	# The property itself, rather than the shape of the string: typed into a shell that
+	# carries no flags, it reaches the item the tip was about. `run` fails on a non-zero
+	# exit, so a tip naming something unreachable fails here.
+	run("done", typed)
+
+
+def test_a_listing_under_a_flag_says_the_context_came_from_the_flag (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""``#281``. The footer was true of the rows above it and false of the next command.
+
+	It was read exactly that way — as evidence that the stored context had changed — and
+	the reader had to run a second, bare listing to find out it had not.
+	"""
+
+	assert "from the command line" in run("-c", "work", "list").output
+
+	# And the ordinary case is untouched: with the context settled by something that will
+	# still be true next time, there is no provenance to explain.
+	assert "from the command line" not in run("list").output
+
+
 def test_the_listing_groups_by_connection_and_merges_on_request (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

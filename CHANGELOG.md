@@ -53,6 +53,19 @@ upgrade involves.
   Reported by a Claude Code agent whose own bug report went to the wrong instance and who had
   to search both to find out where.
 
+- **Advice printed under `-c` or `-w` now survives the flag.** A tip suggesting a command was
+  addressed to the invocation that printed it rather than the one you type next, so
+  `subroutine -c work list` could end `Tip: subroutine done 1` — and typing that, without the
+  flag, completed a different item on a different instance.
+
+  Suggested commands now carry a full address whenever the current context came from
+  something that will not still be true next time. Nothing changes when it came from
+  `subroutine use`, a `.subroutine` file or your only connection, which is the ordinary case.
+
+- **A listing under `-c` or `-w` says so.** `A bare number means work/acme.` was true of the
+  rows above it and false of the next command; it now reads `A bare number means work/acme
+  (from the command line).` when the flags are what decided it.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

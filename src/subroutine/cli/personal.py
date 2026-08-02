@@ -171,20 +171,41 @@ class World:
 			"'subroutine use <connection>'.",
 		)
 
-	def address_of (self, connection: str, workspace_id: typing.Any, ref: int) -> str:
+	def address_of (
+		self,
+		connection: str,
+		workspace_id: typing.Any,
+		ref: int,
+		*,
+		next_time: bool = False,
+	) -> str:
 		"""Return the shortest address that resolves to this item, from here.
 
 		A row inside the current context is a bare ``#42``; one in another workspace carries
 		it; one on another connection carries both. That is what makes a merged listing safe
 		to copy out of — a bare number beside an item somewhere else is an invitation to act
 		on the wrong one.
+
+		``next_time`` asks the *other* question: not "how do I label this row for somebody
+		reading it now" but "what would reach this item from the command they type next"
+		(`#280`). The two answers differ exactly when the context came from a flag, because
+		a flag is gone by then — and the shortest form is then the dangerous one.
 		"""
 
 		item = self.connection(connection)
 		slug = None if item is None else item.slug_of(workspace_id)
-		in_context = connection == self.current.connection and slug == self.current.workspace
 
-		if in_context or slug is None:
+		if slug is None:
+			return subroutine.domain.refs.format_ref(ref)
+
+		if next_time and not self.current.persists:
+			return subroutine.domain.refs.format_address(
+				ref,
+				workspace=slug,
+				connection=connection if self.qualifies_connection else None,
+			)
+
+		if connection == self.current.connection and slug == self.current.workspace:
 			return subroutine.domain.refs.format_ref(ref)
 
 		if connection == self.current.connection or not self.qualifies_connection:
@@ -192,10 +213,10 @@ class World:
 
 		return subroutine.domain.refs.format_address(ref, workspace=slug, connection=connection)
 
-	def address_of_item (self, connection: str, item: Item) -> str:
+	def address_of_item (self, connection: str, item: Item, *, next_time: bool = False) -> str:
 		"""Return the shortest address that resolves to this item, task or document."""
 
-		return self.address_of(connection, item.workspace_id, item.ref)
+		return self.address_of(connection, item.workspace_id, item.ref, next_time=next_time)
 
 	def address_of_located (self, located: "Located") -> str:
 		"""Return the shortest address that resolves to an item already found.
@@ -1295,11 +1316,19 @@ def register (
 		# somebody asks where the context came from, and one clause too many under a list they
 		# are about to act on.
 		where = world.current.workspace or "(no workspace chosen)"
+		said = f"{world.current.connection}/{where}"
+
+		# **Except when the context will not outlive the command** (`#281`). Under `-c`/`-w`
+		# the sentence is true of the listing above and false of the next command, which is
+		# the one the reader is about to type — and it was read exactly that way: as evidence
+		# that the stored context had changed. Naming the source is what separates them, and
+		# `describe` already words it.
+		if not world.current.persists:
+			said = world.current.describe(qualified=True)
 
 		console.print(
 			rich.text.Text(
-				f"      A bare number means {world.current.connection}/{where}. "
-				f"'subroutine use' to change it.",
+				f"      A bare number means {said}. 'subroutine use' to change it.",
 				style=DETAIL,
 			)
 		)
@@ -2008,7 +2037,11 @@ def register (
 					"Wrote",
 				)
 			)
-			_suggest(console, f"subroutine show {created.ref}", "read it back")
+			_suggest(
+				console,
+				f"subroutine show {_typeable(world, where.name, created)}",
+				"read it back",
+			)
 
 	@app.command("link")
 	def link_items (
@@ -2047,7 +2080,11 @@ def register (
 			)
 
 			say(f"{made.label}: {made.other.title}")
-			_suggest(console, f"subroutine show {near.ref}", "see everything it is joined to")
+			_suggest(
+				console,
+				f"subroutine show {_typeable(world, near.connection, near.item)}",
+				"see everything it is joined to",
+			)
 
 	@app.command("unlink")
 	def unlink_items (
@@ -2103,7 +2140,7 @@ def register (
 				)
 
 			say(f"Unlinked: {joins[0].other.title}")
-			_suggest(console, f"subroutine show {near.ref}")
+			_suggest(console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
 	@app.command("delete")
 	def discard_item (
@@ -2136,7 +2173,11 @@ def register (
 			# to trust; the command that does it is one they can run. Printed with the ref
 			# because after this the item is out of every listing, so the number on screen is
 			# the only way back to it.
-			_suggest(console, f"subroutine restore {located.ref}", "put it back")
+			_suggest(
+				console,
+				f"subroutine restore {_typeable(world, located.connection, located.item)}",
+				"put it back",
+			)
 
 	@app.command("restore")
 	def undiscard_item (
@@ -3304,9 +3345,16 @@ def _typeable (world: World, connection: str, item: Item) -> str:
 
 	A suggested command has to be one that works, and ``#`` starts a comment in every POSIX
 	shell (SPEC.md §12.2a), so a suggestion carries the bare number or the qualified path.
+
+	**"Works" means when it is typed, not when it is printed** (`#280`). A ``-c``/``-w`` flag
+	settles this invocation alone, so a bare number justified by it names something else by
+	the time anybody acts on the advice — and the agenda's closing tip is ``subroutine done``,
+	where that is somebody's item completed on the wrong instance.
 	"""
 
-	return world.address_of_item(connection, item).replace(subroutine.domain.refs.SIGIL, "")
+	return world.address_of_item(connection, item, next_time=True).replace(
+		subroutine.domain.refs.SIGIL, ""
+	)
 
 
 def _asked (given: str, question: str) -> str:

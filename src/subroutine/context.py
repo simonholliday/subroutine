@@ -71,6 +71,15 @@ FROM_DEFAULT = "the default connection"
 FROM_SOLE = "the only one there is"
 FROM_NOTHING = "nothing"
 
+#: The sources that will answer the *next* command the way they answered this one. A flag
+#: settles one invocation and nothing after it, and an environment variable may have been a
+#: one-shot prefix — indistinguishable here from an exported one, so it is counted as not
+#: carrying. Erring that way costs a longer address in printed advice; erring the other way
+#: prints a command that acts somewhere else (`#280`).
+CARRIED = frozenset(
+	{FROM_DIRECTORY, FROM_STORED, FROM_DEFAULT, FROM_SOLE, FROM_NOTHING}
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class Current:
@@ -89,6 +98,17 @@ class Current:
 		"""Return this context with the workspace settled by a later step."""
 
 		return dataclasses.replace(self, workspace=slug, workspace_source=source)
+
+	@property
+	def persists (self) -> bool:
+		"""Report whether the next bare command will resolve to the same place.
+
+		The question printed advice has to ask. A tip naming an item, or a footer saying
+		what a bare number means, is read *after* this command has finished — so it is a
+		statement about the next one, and a ``-c``/``-w`` flag has by then expired.
+		"""
+
+		return {self.connection_source, self.workspace_source} <= CARRIED
 
 	def describe (self, *, qualified: bool) -> str:
 		"""Return the context as a person reads it — ``work/acme (from …)``.
