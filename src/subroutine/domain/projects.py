@@ -25,6 +25,7 @@ import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.patch
+import subroutine.domain.scoping
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -441,6 +442,56 @@ def delete (
 	session.flush()
 
 	return project
+
+
+def keys_for (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	identifiers: typing.Sequence[str],
+) -> list[str]:
+	"""Return each identifier as the project key it names, or unchanged where it names nothing.
+
+	Built for ``token list`` (`#203`), which printed a credential's ``project_scope`` as raw
+	UUIDs on the line *below* one that resolves the workspace pin to its slug — same output,
+	same argument, applied once. A UUID in a listing is something to go and look up, which is
+	the opposite of what a listing is for.
+
+	**Here rather than in the command**, because it narrows: a key discloses more than an id,
+	so resolving one for a reader who cannot see that project would turn a listing of their own
+	credentials into a way of learning a private project's name. Narrowing belongs beside the
+	other narrowing, and ``tests/test_scoping.py`` is what said so.
+
+	Anything that does not resolve — malformed, deleted, or simply not visible — is passed
+	through as it was stored. A listing whose job is "what can this credential reach" must never
+	report a *narrower* reach than the credential has.
+	"""
+
+	spaces = list(
+		session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace.id))
+	)
+	named: list[str] = []
+
+	for identifier in identifiers:
+		try:
+			wanted = uuid.UUID(str(identifier))
+
+		except ValueError:
+			named.append(identifier)
+
+			continue
+
+		found = session.scalars(
+			subroutine.domain.scoping.readable_projects(
+				principal,
+				workspace_ids=spaces,
+				include_deleted=True,
+				include_archived=True,
+			).where(subroutine.db.models.project.Project.id == wanted)
+		).first()
+
+		named.append(identifier if found is None else found.key)
+
+	return named
 
 
 def restore (

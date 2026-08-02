@@ -220,3 +220,30 @@ def test_joining_somebody_to_a_workspace_is_a_permission_check (
 			role_key="member",
 			actor=subroutine.domain.authentication.Principal(user=outsider),
 		)
+
+
+def test_an_instance_administrator_is_not_called_by_a_workspace_role_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#204``, from the release-candidate review. Two commands, one column, two vocabularies.
+
+	``user list`` rendered ``is_superuser`` as the bare word ``admin``, which is also the key
+	of a workspace role — and ``user list --workspace acme`` prints its answer in the same
+	column position. So the same person read as ``admin`` in one and ``owner`` in the other,
+	where the first named a role she does not hold and the second could legitimately have
+	printed it.
+
+	Both listings are asserted together, because the collision only exists between them.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "add", "thomas", "--role", "member")
+
+	instance = run("user", "list").output
+	workspace = run("user", "list", "--workspace", "acme").output
+
+	assert "instance admin" in instance, instance
+	# The bare word belongs to the workspace listing alone, and only where a role holds it.
+	assert "owner" in workspace
+	assert "member" in workspace

@@ -509,12 +509,20 @@ class User(pydantic.BaseModel):
 		return self.username
 
 	def columns (self) -> tuple[str, ...]:
-		"""Return this account as the cells of one compact line."""
+		"""Return this account as the cells of one compact line.
+
+		**"instance admin", not "admin"** (`#204`). ``admin`` is also the key of a workspace
+		role, and ``user list`` and ``user list --workspace acme`` print their answers in the
+		same column position two commands apart — so the same person read as ``admin`` in one
+		and ``owner`` in the other, where the first word named a role she does not hold and the
+		second could legitimately have printed it. Being a superuser is an *instance* fact and
+		saying so collides with nothing.
+		"""
 
 		return (
 			self.username,
 			"agent" if self.is_service_account else "person",
-			"admin" if self.is_superuser else "",
+			"instance admin" if self.is_superuser else "",
 			"" if self.is_active else "inactive",
 			self.display_name or "",
 		)

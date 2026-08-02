@@ -42,6 +42,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local
+import subroutine.domain.projects
 import subroutine.domain.schedule
 import subroutine.domain.tokens
 import subroutine.domain.users
@@ -1466,14 +1467,16 @@ def token_list () -> None:
 			except subroutine.errors.SubroutineError as error:
 				_fail(error)
 
-			# The workspace pin is resolved to its short name here, while there is a session:
-			# a UUID in a listing is something to go and look up, which is the opposite of
-			# what a listing is for.
+			# The workspace pin and the project scope are both resolved to their names here,
+			# while there is a session: a UUID in a listing is something to go and look up,
+			# which is the opposite of what a listing is for. The pin was; the scope on the
+			# very next line was not (`#203`) — same output, same argument, applied once.
 			listed = [
 				(
 					row,
 					session.get(subroutine.db.models.identity.User, row.user_id),
 					_pin_of(session, row),
+					_scope_of(session, operator, row),
 				)
 				for row in rows
 			]
@@ -1484,13 +1487,13 @@ def token_list () -> None:
 
 		return
 
-	width = max(len(row.token_prefix) for row, _owner, _pin in listed)
+	width = max(len(row.token_prefix) for row, _owner, _pin, _scope in listed)
 
-	for row, owner, pin in listed:
+	for row, owner, pin, scope in listed:
 		who = "someone since deleted" if owner is None else owner.username
 
 		_say(f"  {row.token_prefix.ljust(width)}  {who}  {row.title}  {_credential_state(row)}")
-		_say(f"  {' ' * width}  {_credential_reach(row, pin)}")
+		_say(f"  {' ' * width}  {_credential_reach(row, pin, scope)}")
 
 
 def _pin_of (
@@ -1511,8 +1514,26 @@ def _pin_of (
 	return None if found is None else found.slug
 
 
+def _scope_of (
+	session: sqlalchemy.orm.Session,
+	operator: subroutine.domain.authentication.Principal,
+	token: subroutine.db.models.identity.ApiToken,
+) -> list[str]:
+	"""Return the keys of the projects a credential is restricted to, in the stored order.
+
+	Through the domain, which narrows (`#203`). A key discloses more than an id, so this is not
+	a lookup — it is a scoped read, and it lives beside every other scoped read.
+	"""
+
+	return subroutine.domain.projects.keys_for(
+		session, operator, token.project_scope or []
+	)
+
+
 def _credential_reach (
-	token: subroutine.db.models.identity.ApiToken, pinned: str | None
+	token: subroutine.db.models.identity.ApiToken,
+	pinned: str | None,
+	scope: typing.Sequence[str],
 ) -> str:
 	"""Say what a credential can reach, and when it was last used.
 
@@ -1530,8 +1551,8 @@ def _credential_reach (
 	if pinned is not None:
 		parts.append(f"in {pinned} only")
 
-	if token.project_scope:
-		parts.append(f"projects {', '.join(token.project_scope)}")
+	if scope:
+		parts.append(f"projects {', '.join(scope)}")
 
 	# A credential issued and never presented is the interesting case here — it is either
 	# unused or was pasted somewhere that has not run yet — so it is stated rather than left

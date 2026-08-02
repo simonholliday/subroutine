@@ -14,9 +14,11 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.auth
+import subroutine.cli.main
 import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.errors
 import subroutine.permissions
 
@@ -351,3 +353,41 @@ def test_an_empty_project_scope_is_refused_rather_than_guessed (
 
 	assert "ambiguous" in error.value.detail.lower()
 	assert error.value.errors[0].field == "project_scope"
+
+
+def test_a_credentials_project_scope_is_listed_by_name (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``#203``, from the release-candidate review. Same output, same argument, applied once.
+
+	``token list`` resolves the workspace pin to a slug, with a comment giving the reason — "a
+	UUID in a listing is something to go and look up, which is the opposite of what a listing
+	is for". The project scope printed on the very next line was raw ids.
+
+	An id that no longer resolves keeps its raw form rather than being dropped: a listing whose
+	job is "what can this credential reach" must never report a *narrower* reach than the
+	credential has, and an id nobody can look up is still the truth about it.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	gone = uuid.uuid4()
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="scoped",
+		project_scope=[str(setup.inbox.id), str(gone)],
+	)
+	session.flush()
+
+	named = subroutine.cli.main._scope_of(
+		session, subroutine.domain.authentication.Principal(user=setup.user), token
+	)
+
+	assert named == [setup.inbox.key, str(gone)]
+	assert f"projects {setup.inbox.key}" in subroutine.cli.main._credential_reach(
+		token, None, named
+	)
