@@ -68,6 +68,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
+          # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
+          # install a package quietly claiming to be a version nobody released.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -139,6 +144,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
+          # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
+          # install a package quietly claiming to be a version nobody released.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -168,6 +178,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
+          # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
+          # install a package quietly claiming to be a version nobody released.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:

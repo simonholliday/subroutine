@@ -52,6 +52,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
+          # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
+          # install a package quietly claiming to be a version nobody released.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -100,20 +105,31 @@ jobs:
       - name: Check the metadata
         run: twine check dist/*
 
-      # The tag says which release this is and `pyproject.toml` says what will be uploaded
-      # under that name. If they disagree, the thing published is not the thing the tag names
-      # — and this is the last moment that mistake costs nothing.
-      - name: The tag names the version being built
+      # **Two things, and only the second can now be wrong** (`SR#234`). The package derives its
+      # version from the tag, so the first comparison is close to tautological — it is kept
+      # because it is not *quite* one: a shallow clone, a missing tag or a dirty tree all make
+      # the backend produce a `.devN+g…` version instead, and this is where that would be caught
+      # rather than at the upload. The plugin manifest is static JSON with no build step, so it
+      # is the half that a release can genuinely publish out of step with itself.
+      - name: The tag names what is being built and what the plugin claims
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           tagged="${GITHUB_REF_NAME#v}"
-          built="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+
+          built="$(python -c 'import importlib.metadata; print(importlib.metadata.version("subroutine"))')"
           if [ "$tagged" != "$built" ]; then
-            echo "the tag $GITHUB_REF_NAME does not name version $built" >&2
+            echo "the tag $GITHUB_REF_NAME built version $built — expected $tagged" >&2
             exit 1
           fi
-          echo "tag and version agree on $built"
+
+          declared="$(python -c 'import json, pathlib; print(json.loads(pathlib.Path("plugins/subroutine/.claude-plugin/plugin.json").read_text())["version"])')"
+          if [ "$tagged" != "$declared" ]; then
+            echo "the plugin manifest says $declared, and this release is $tagged" >&2
+            exit 1
+          fi
+
+          echo "tag, package and plugin all agree on $tagged"
 
       # A release that moves the schema has to say so in the changelog (SPEC.md §12.4a). CI
       # checks this on every commit; it is checked again here because this is the run where

@@ -13,7 +13,7 @@ is found by a stranger.
 import json
 import pathlib
 import re
-import tomllib
+import subprocess
 import typing
 
 import pytest
@@ -42,16 +42,35 @@ def _read (path: pathlib.Path) -> dict[str, typing.Any]:
 	return loaded
 
 
-def test_the_plugin_version_matches_the_package () -> None:
+def test_the_plugin_version_matches_the_tag_it_is_released_under () -> None:
 	"""One repository, one tag, one version — which is the whole reason they share a repo.
 
-	``claude plugin tag`` validates that the manifest and the marketplace entry agree with each
-	other; nothing but this checks that either agrees with ``pyproject.toml``.
+	**The tag is the source now, not ``pyproject.toml``** (`#234`). The package derives its
+	version from the tag and so cannot disagree with it; the plugin manifest is static JSON
+	that Claude Code reads straight from the repository, with no build step to derive anything
+	— so it is the only half left that can drift, and this is what stops it.
+
+	**Checked only on a tagged commit, and that is the whole constraint rather than a weakening
+	of it.** Between releases the manifest is deliberately *ahead* of the newest tag: bumping it
+	is what makes the commit worth tagging. Asserting equality on every commit would fail on
+	precisely the commit that does the bumping. What must never happen is a *release* whose two
+	halves disagree, and a release is a tag.
+
+	The release workflow makes the same comparison independently, because a test can be skipped
+	by not running it and a published artefact cannot be recalled.
 	"""
 
-	packaged = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+	tagged = subprocess.run(
+		["git", "tag", "--points-at", "HEAD"],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
 
-	assert _read(PLUGIN)["version"] == packaged["project"]["version"]
+	names = [line for line in tagged.stdout.split() if line.startswith("v")]
+
+	if tagged.returncode != 0 or not names:
+		pytest.skip("HEAD carries no release tag, so there is nothing yet to agree with")
+
+	assert _read(PLUGIN)["version"] in {name.removeprefix("v") for name in names}
 
 
 def test_the_marketplace_points_at_the_plugin_that_is_here () -> None:

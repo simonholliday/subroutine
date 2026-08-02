@@ -1,10 +1,19 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "subroutine"
-version = "0.1.0"
+
+# Derived from the git tag, never written here (`#234`). `v0.1.1` builds `0.1.1`; anything
+# further along builds a `.devN+g<sha>` version, which PyPI refuses — so an untagged commit
+# cannot be published even by accident. `subroutine.__version__` already read this back
+# through `importlib.metadata`, so nothing at runtime changed.
+#
+# **The cost is that a shallow clone lies rather than fails.** Without tags the backend warns
+# and produces `0.1.dev1+g…`, so every workflow job that installs this package checks out with
+# `fetch-depth: 0`.
+dynamic = ["version"]
 description = "Project management for people and agents, in equal measure."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,6 +49,9 @@ dependencies = [
 	"uuid6>=2024.7",
 	"uvicorn[standard]>=0.30",
 ]
+
+[tool.hatch.version]
+source = "vcs"
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.1"]

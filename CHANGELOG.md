@@ -12,6 +12,25 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## 0.1.1 — 2026-08-02
+
+No migration notice: the schema head has not moved since 0.1.0.
+
+### Fixed
+
+- An agent working in a checkout marked for a different instance could not file anything.
+  Committing a `.subroutine` file is how a team says which project a repository belongs to, so
+  a colleague who cloned the repository and ran `subroutine init` had a marker naming a project
+  that was not on their own instance — and `subroutine_add` refused every call rather than
+  ignoring it, while the CLI beside it carried on. Reads were never affected. A renamed project
+  is now also followed by its id over the Model Context Protocol, as it already was on the
+  command line.
+
+### Changed
+
+- The version is derived from the git tag rather than written into `pyproject.toml`, so what
+  the package reports and what was released cannot drift apart.
+
 ## 0.1.0 — 2026-08-01
 
 The first public release. Everything here is new, so this section says what exists rather than
