@@ -121,10 +121,22 @@ def _reasons_to_stop (version: str) -> str | None:
 	if _git("tag", "--list", f"v{version}").strip():
 		return f"v{version} already exists. A released version is never re-cut — choose the next one."
 
-	if not UNRELEASED.search(CHANGELOG.read_text(encoding="utf-8")):
+	waiting = _unreleased(CHANGELOG.read_text(encoding="utf-8"))
+
+	if waiting is None:
 		return (
 			f"{CHANGELOG.name} has no '## Unreleased' section, so this release would say "
 			f"nothing about itself. Write what changed under one, then cut it."
+		)
+
+	# **Empty is caught here rather than at the announcement** (`#243`). `release_notes.py`
+	# refuses an empty section too, but that runs in the job *after* the upload — so a heading
+	# with nothing under it used to pass this, publish to PyPI, and then fail on the way to the
+	# GitHub release, having already spent a version number that cannot be reused.
+	if not waiting.strip():
+		return (
+			f"{CHANGELOG.name}'s '## Unreleased' section is empty. Write what changed under "
+			f"it — a release nobody can read about is worse than one nobody cut."
 		)
 
 	latest = _latest_version()
@@ -138,6 +150,25 @@ def _reasons_to_stop (version: str) -> str | None:
 		return f"{version} is not ahead of {latest}, the most recent tag."
 
 	return None
+
+
+def _unreleased (text: str) -> str | None:
+	"""Return what is written under ``## Unreleased``, or ``None`` if there is no such heading.
+
+	The empty string is a real answer and a different one from ``None`` — a heading with
+	nothing under it and no heading at all fail for different reasons and deserve to be told
+	apart, because the first looks like somebody started and the second like nobody did.
+	"""
+
+	found = UNRELEASED.search(text)
+
+	if found is None:
+		return None
+
+	rest = text[found.end() :]
+	following = re.search(r"^##\s", rest, re.MULTILINE)
+
+	return rest[: following.start()] if following else rest
 
 
 def _ordered (version: str) -> tuple[int, ...] | None:

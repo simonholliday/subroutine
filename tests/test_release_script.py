@@ -231,3 +231,32 @@ def test_a_changelog_with_nothing_unreleased_is_refused (
 
 	assert done.returncode == 1
 	assert "no '## Unreleased' section" in done.stderr
+
+
+def test_an_empty_unreleased_section_is_refused (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`#243`. Right guard, and it used to be on the wrong side of the irreversible step.
+
+	`release_notes.py` refuses an empty section too — but that runs in the job *after* the
+	upload, so a heading with nothing under it passed here, published to PyPI, and then failed
+	on the way to the GitHub release, having already spent a version number that cannot be
+	reused. Caught here it costs nothing.
+
+	Told apart from a *missing* section on purpose: one looks like somebody started and the
+	other like nobody did, and the remedy is worded differently for each.
+	"""
+
+	changelog = repository / "CHANGELOG.md"
+	changelog.write_text(
+		CHANGELOG.replace("### Fixed\n\n- Something that was wrong is now right.\n", ""),
+		encoding="utf-8",
+	)
+
+	_git(repository, "commit", "-qam", "a heading with nothing under it")
+
+	done = cut("0.1.1")
+
+	assert done.returncode == 1
+	assert "is empty" in done.stderr
+	assert not _git(repository, "tag", "--list", "v0.1.1").strip()
