@@ -11,9 +11,11 @@ import contextlib
 import datetime
 import getpass
 import pathlib
+import re
 import shutil
 import sys
 import tomllib
+import traceback
 import typing
 
 import pydantic
@@ -58,6 +60,11 @@ app = typer.Typer(
 	# `--help` is still one keystroke away for anyone who wants the wall.
 	invoke_without_command=True,
 	add_completion=False,
+	# **No boxed traceback** (`#258`). Typer renders an unhandled exception as source with a
+	# caret, which is a developer's view of a developer's problem — and it prints from inside
+	# `app()`, so `main`'s handler below would otherwise report the same defect a second time
+	# in a different voice. Off here, reported there, once.
+	pretty_exceptions_enable=False,
 	# **`subroutine help` prints this page too** (`#154`). The two used to differ, which made
 	# one question have two answers; now the epilog offers `explain` as a *second* thing to
 	# reach for rather than as a correction to what the reader just typed.
@@ -120,6 +127,111 @@ def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
 	_printed(error)
 
 	raise typer.Exit(code=1)
+
+
+#: Where a crash report is written, under the state directory. XDG's description of
+#: ``STATE_HOME`` fits it exactly — useful to keep, safe to lose — and it is per-profile with
+#: everything else (§12.5), so a disposable instance's crashes do not accumulate in the real
+#: one's directory.
+CRASH_DIRECTORY = "crashes"
+
+#: A token, in whatever argument it turned up in. Tokens are not supposed to be passed on a
+#: command line (§7.4) and this does not make it acceptable — it makes the *report* safe when
+#: somebody has done it anyway.
+_TOKEN_ARGUMENT = re.compile(rf"^{subroutine.auth.TOKEN_SCHEME}_[A-Za-z0-9_.\-]+$")
+
+
+def _masked_arguments () -> list[str]:
+	"""Return the command line with anything secret in it replaced.
+
+	**A crash report is a file people are asked to send**, which makes it the same hazard
+	``safe_url`` exists for one surface along — and `#189` is this project's recorded instance
+	of that going wrong, where verifying a document's output put real tokens into it. Two
+	things reach here: a database URL carrying a password, which ``db copy --to`` takes
+	routinely, and a token somebody passed as an argument.
+	"""
+
+	masked = []
+
+	for argument in sys.argv:
+		if _TOKEN_ARGUMENT.match(argument):
+			masked.append(f"{subroutine.auth.TOKEN_SCHEME}_***")
+
+		elif "://" in argument:
+			masked.append(safe_url(argument))
+
+		else:
+			masked.append(argument)
+
+	return masked
+
+
+def _crash_report (exception: BaseException) -> pathlib.Path | None:
+	"""Write the traceback where it can be found later, or return ``None`` if it cannot be.
+
+	**Nothing in here may raise.** It runs because something has already gone wrong, and a
+	crash handler that crashes replaces a bad message with a worse one — an unwritable state
+	directory is `#255`'s exact condition, and the moment somebody most needs the sentence
+	this makes possible. A report that cannot be written is a missing convenience; an
+	exception thrown from the handler is a second bug on top of the first.
+	"""
+
+	try:
+		directory = subroutine.config.state_home() / CRASH_DIRECTORY
+		directory.mkdir(parents=True, exist_ok=True)
+
+		now = datetime.datetime.now()
+		path = directory / f"crash-{now.strftime('%Y%m%d-%H%M%S-%f')}.txt"
+
+		path.write_text(
+			f"subroutine {subroutine.__version__}\n"
+			f"{now.isoformat(timespec='seconds')}\n"
+			f"{' '.join(_masked_arguments())}\n\n"
+			+ "".join(traceback.format_exception(exception)),
+			encoding="utf-8",
+		)
+
+		return path
+
+	# Broad on purpose, and the docstring above is the reason. Anything at all raised while
+	# reporting a crash must end as "no file", never as a traceback about the reporter.
+	except Exception:
+		return None
+
+
+def _report_a_defect (exception: BaseException) -> None:
+	"""Say that something broke, in a sentence, and where the details went.
+
+	§13.5's voice rule applied to the case it is hardest to apply to: the reader is somebody
+	setting up a to-do list, the program has no idea what went wrong, and forty lines of
+	``pathlib`` recursion answers a question they did not ask. What they can act on is that it
+	is not their fault, that the details are kept, and where to send them.
+	"""
+
+	path = _crash_report(exception)
+
+	_err.print("Something went wrong that should not have.", markup=False, highlight=False)
+
+	if path is None:
+		# No file, so the trace is the only copy there will ever be — and withholding it now
+		# would leave nothing to report at all. This is the one path that prints a stack.
+		_err.print(
+			"The details could not be written down, so they are here instead:",
+			markup=False,
+			highlight=False,
+		)
+		_err.print(
+			"".join(traceback.format_exception(exception)), markup=False, highlight=False
+		)
+
+	else:
+		_err.print(f"The details are in {path}", markup=False, highlight=False)
+
+	_err.print(
+		f"Please report it at {subroutine.ISSUES_URL}, with that file attached.",
+		markup=False,
+		highlight=False,
+	)
 
 
 def _printed (error: subroutine.errors.SubroutineError) -> None:
@@ -2243,5 +2355,22 @@ def main () -> None:
 
 	except subroutine.errors.SubroutineError as error:
 		_printed(error)
+
+		raise SystemExit(1) from None
+
+	# **Everything else is a defect, and is reported as one** (`#258`). Typer's boxed source
+	# and caret is a developer's view of a developer's problem; §1.4's reader is setting up a
+	# to-do list and can act on none of it.
+	#
+	# **Caught after the refusal above, which is what stops the two being flattened.** A
+	# failure the program understands — an unwritable directory the *operator* chose, a
+	# database that is not there — is a `SubroutineError` with a sentence naming the thing,
+	# and `#255` is the item that made those specific. This only ever sees what nothing
+	# anticipated.
+	#
+	# `Exception` rather than `BaseException`, so `KeyboardInterrupt` still ends the process
+	# quietly and `SystemExit` still carries its own code.
+	except Exception as defect:
+		_report_a_defect(defect)
 
 		raise SystemExit(1) from None

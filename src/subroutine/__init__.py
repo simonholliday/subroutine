@@ -23,3 +23,9 @@ __version__ = _installed_version()
 #: The API version exposed at ``/v1`` and reported in ``X-Subroutine-Api-Version``.
 #: This tracks the wire contract, not the package release.
 API_VERSION = "1.0"
+
+#: Where to send a defect. Named here rather than beside the one caller because it is the
+#: project's own address, not an instance's: ``config.source_url`` is what a *served*
+#: instance declares to satisfy the AGPL's network clause (§2.2) and an operator may point it
+#: at their own fork, while a crash in this code belongs upstream wherever it was run.
+ISSUES_URL = "https://github.com/simonholliday/subroutine/issues"

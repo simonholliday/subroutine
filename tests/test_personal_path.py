@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import pathlib
+import sys
 import typing
 
 import pytest
@@ -3308,3 +3309,125 @@ def test_the_listing_still_lists_and_its_help_offers_no_words (
 
 	assert "[OPTIONS]" in usage
 	assert "words" not in usage and "[]" not in usage, f"the usage line offers: {usage!r}"
+
+
+def _exploding () -> typing.Callable[[], None]:
+	"""Return a stand-in for the Typer app that fails the way nothing anticipated."""
+
+	def app () -> None:
+		"""Fail."""
+
+		raise RuntimeError("a defect nobody anticipated")
+
+	return app
+
+
+def test_a_defect_reaches_a_person_as_a_sentence_and_a_file (
+	home: pathlib.Path,
+	capsys: pytest.CaptureFixture[str],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``#258``. Typer rendered any unhandled exception as boxed source with a caret.
+
+	§1.4's reader is setting up a to-do list and can act on none of that; §13.5 says an error
+	says what to do next. Found as the general case behind `#255`, where only the specific
+	path was fixed — the class stayed, so every unhandled ``OSError`` and every genuine
+	defect still arrived as a stack.
+
+	**Driven through ``main`` rather than ``CliRunner``, and that is the point.** The runner
+	captures what a command raised, so ``result.output`` is empty on a crash and an assertion
+	about what a person sees passes against the broken code. That trap has caught this
+	project once already and is recorded; this calls the function the console script calls.
+	"""
+
+	monkeypatch.setattr(subroutine.cli.main, "app", _exploding())
+
+	with pytest.raises(SystemExit) as ended:
+		subroutine.cli.main.main()
+
+	assert ended.value.code == 1
+
+	said = capsys.readouterr().err
+
+	assert "Something went wrong" in said
+	assert "Traceback" not in said, "a person is not shown a stack"
+	assert subroutine.ISSUES_URL in said
+
+	# **The stack is kept rather than discarded**, which is what makes a report worth asking
+	# for — and the sentence names the file, because a report nobody can find is not one.
+	written = sorted(
+		(subroutine.config.state_home() / subroutine.cli.main.CRASH_DIRECTORY).glob("*.txt")
+	)
+
+	assert len(written) == 1
+
+	report = written[0].read_text(encoding="utf-8")
+
+	assert "a defect nobody anticipated" in report
+	assert "Traceback" in report
+	assert str(written[0]) in said
+
+
+def test_a_defect_is_still_reported_when_the_report_cannot_be_written (
+	home: pathlib.Path,
+	capsys: pytest.CaptureFixture[str],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""**A crash handler that crashes replaces a bad message with a worse one.**
+
+	An unwritable state directory is `#255`'s exact condition, and the moment somebody most
+	needs a sentence — so a report that cannot be written has to degrade to printing the
+	trace, never to a second exception on top of the first.
+	"""
+
+	monkeypatch.setattr(subroutine.cli.main, "app", _exploding())
+	monkeypatch.setattr(
+		subroutine.cli.main, "_crash_report", lambda exception: None
+	)
+
+	with pytest.raises(SystemExit) as ended:
+		subroutine.cli.main.main()
+
+	assert ended.value.code == 1
+
+	said = capsys.readouterr().err
+
+	assert "Something went wrong" in said
+
+	# With nowhere to keep it, the trace itself is the only copy there will ever be.
+	assert "a defect nobody anticipated" in said
+
+
+def test_a_crash_report_never_carries_a_password_or_a_token (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""**A crash report is a file people are asked to send.**
+
+	The same hazard ``safe_url`` exists for one surface along, and `#189` is this project's
+	recorded instance of it going wrong: verifying a document's quoted output put real tokens
+	into two published pages. ``db copy --to`` takes a password routinely, and a token on a
+	command line is not supposed to happen (§7.4) but must be safe when it does.
+	"""
+
+	monkeypatch.setattr(
+		sys,
+		"argv",
+		[
+			"subroutine",
+			"db",
+			"copy",
+			"--to",
+			"postgresql+psycopg://si:hunter2@db.example.com/subroutine",
+			"sr_abc123_deadbeefdeadbeef",
+		],
+	)
+
+	masked = " ".join(subroutine.cli.main._masked_arguments())
+
+	assert "hunter2" not in masked
+	assert "deadbeef" not in masked
+
+	# Masked, not dropped: which command was run is the whole value of recording it, and a
+	# host that is not a secret is often the thing that explains the failure.
+	assert "db copy" in masked
+	assert "db.example.com" in masked

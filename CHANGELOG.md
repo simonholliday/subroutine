@@ -47,6 +47,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A crash is a sentence now, not forty lines of Python.** Anything the program did not
+  anticipate printed a boxed traceback with a caret, which is a developer's view of a
+  developer's problem. It now says that something went wrong, where the details were written,
+  and where to report it.
+
+  The stack is kept rather than thrown away — one file per crash under `crashes/` in the
+  state directory, named by the instant — so the report is already on disk when somebody asks
+  for it, instead of you having to reproduce the failure with a debug flag set.
+
+  Passwords and tokens in the command line are masked in that file, because it is a file you
+  are being asked to send. Failures the program *does* understand are unaffected and keep the
+  specific message they already had.
+
 - **`subroutine list` points at `subroutine search` instead of refusing.** `list -q words`,
   `list --search words` and a bare `list words` gave three different errors naming neither
   the search command nor each other — and the one that offered a suggestion offered
