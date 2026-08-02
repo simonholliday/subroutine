@@ -488,15 +488,15 @@ def test_a_loopback_bind_is_recognised_however_it_is_written (host: str) -> None
 	spelled ``127.0.0.1`` would be the check failing on its own best case.
 	"""
 
-	assert subroutine.cli.main.is_loopback(host)
+	assert subroutine.config.is_loopback(host)
 
 
 def test_a_wildcard_bind_is_not_loopback_even_though_it_includes_it () -> None:
 	"""It accepts a connection from anywhere the machine has an address, which is the point."""
 
-	assert not subroutine.cli.main.is_loopback("0.0.0.0")
-	assert not subroutine.cli.main.is_loopback("::")
-	assert not subroutine.cli.main.is_loopback("192.168.0.5")
+	assert not subroutine.config.is_loopback("0.0.0.0")
+	assert not subroutine.config.is_loopback("::")
+	assert not subroutine.config.is_loopback("192.168.0.5")
 
 
 def test_public_url_over_https_is_what_makes_a_public_bind_acceptable (

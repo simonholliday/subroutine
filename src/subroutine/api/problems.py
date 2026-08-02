@@ -80,6 +80,14 @@ def respond (
 	if error.status == 401 and "www-authenticate" not in response.headers:
 		response.headers["WWW-Authenticate"] = subroutine.api.security.BEARER_SCHEME
 
+	# And a 429 has to say when to come back (§7.7), for the same reason and in the same
+	# place. The value rides as an extension member because a caller needs to *act* on it;
+	# this turns it into the header a standard client already knows how to obey.
+	waiting = error.extensions.get("retry_after")
+
+	if error.status == 429 and waiting is not None and "retry-after" not in response.headers:
+		response.headers["Retry-After"] = str(int(waiting))
+
 	subroutine.api.middleware.apply_headers(request, response)
 
 	return response

@@ -109,9 +109,36 @@ def resolve (
 def principal (
 	request: starlette.requests.Request, session: subroutine.api.dependencies.SessionDep
 ) -> subroutine.domain.authentication.Principal:
-	"""Return the principal making this request, refusing it if there is none."""
+	"""Return the principal making this request, refusing it if there is none.
 
-	return resolve(session, request)
+	**Also where §7.7's two limiters run**, and that placement is the reason they need no
+	exempt-path list: this dependency is declared on every route that takes a credential and
+	on none of the public ones, so a health check a load balancer polls is not counted and a
+	limiter cannot be forgotten. The same property `tests/test_api_authentication.py` already
+	enforces for authentication carries rate limiting for free.
+
+	The order matters. A *failed* credential is counted against the address it came from,
+	before anything else; a *successful* one is counted against its own token. A caller whose
+	credential works is therefore never held back by somebody else's failures — which is what
+	makes the address key safe behind a proxy, where every request appears to come from one
+	place.
+	"""
+
+	limits = getattr(request.app.state, "limits", None)
+
+	try:
+		found = resolve(session, request)
+
+	except subroutine.errors.Unauthenticated:
+		if limits is not None:
+			limits.count_a_failure(request)
+
+		raise
+
+	if limits is not None and found.token is not None:
+		limits.count_a_request(found.token.token_prefix)
+
+	return found
 
 
 #: Declared as an annotation so an endpoint reads ``actor: PrincipalDep``. Its presence on

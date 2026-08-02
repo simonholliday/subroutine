@@ -28,6 +28,18 @@ upgrade involves.
   Deliberately not an agent tool. Rare, consequential and irreversible is the case where being
   harder to reach is the feature.
 
+- **Rate limiting, which was specified and did nothing.** An instance reachable over a network
+  now slows a credential making requests faster than it serves them, and — separately and much
+  harder — slows repeated authentication failures from one place. Both return `429` with
+  `Retry-After`.
+
+  **Off on a loopback bind**, so a to-do list on your own machine is unaffected and nothing
+  about it changes. Set `rate_limit` to say otherwise either way; `rate_limit_per_minute` and
+  `rate_limit_failures_per_minute` are the two allowances.
+
+  The counters live in the serving process's memory, so an instance run under something that
+  forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

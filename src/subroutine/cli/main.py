@@ -10,7 +10,6 @@ whoever does want it.
 import contextlib
 import datetime
 import getpass
-import ipaddress
 import pathlib
 import shutil
 import sys
@@ -396,32 +395,6 @@ def init (
 #: Host names that mean "this machine only" without being addresses. ``ipaddress`` cannot
 #: parse a name, and refusing to serve on ``localhost`` because it is not spelled ``127.0.0.1``
 #: would be a check failing on the one case it exists to allow.
-LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
-
-
-def is_loopback (host: str) -> bool:
-	"""Report whether binding to this host keeps the socket on one machine.
-
-	A wildcard — ``0.0.0.0`` or ``::`` — is *not* loopback even though it includes it: it
-	accepts a connection from anywhere the machine has an address, which is the whole of what
-	SPEC.md §12.4 is about. An unparseable name is treated as non-loopback, because guessing
-	the safe answer wrong in that direction only costs one flag.
-	"""
-
-	name = host.strip().lower().strip("[]")
-
-	if name in LOOPBACK_NAMES:
-		return True
-
-	try:
-		address = ipaddress.ip_address(name)
-
-	except ValueError:
-		return False
-
-	return address.is_loopback
-
-
 @app.command()
 def mcp (
 	connection: str = typer.Option(
@@ -547,7 +520,7 @@ def _refuse_public_bind (
 	first minute.
 	"""
 
-	if insecure or is_loopback(host):
+	if insecure or subroutine.config.is_loopback(host):
 		return
 
 	public = (settings.public_url or "").strip()

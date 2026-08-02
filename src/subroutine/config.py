@@ -13,6 +13,7 @@ Two precedence chains exist and are deliberately kept apart (SPEC.md §12.3):
 
 import contextlib
 import difflib
+import ipaddress
 import os
 import pathlib
 import re
@@ -161,6 +162,40 @@ def profile_names () -> list[str]:
 		for entry in directory.iterdir()
 		if entry.is_dir() and _PROFILE_NAME.match(entry.name)
 	)
+
+
+#: Names that mean this machine and are not IP addresses, so ``ipaddress`` cannot answer for
+#: them. ``localhost.localdomain`` and ``ip6-localhost`` are what some distributions put in
+#: ``/etc/hosts``, and somebody who typed one meant loopback.
+LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+
+
+def is_loopback (host: str) -> bool:
+	"""Report whether binding to this host keeps the socket on one machine.
+
+	A wildcard — ``0.0.0.0`` or ``::`` — is *not* loopback even though it includes it: it
+	accepts a connection from anywhere the machine has an address, which is the whole of what
+	SPEC.md §12.4 is about. An unparseable name is treated as non-loopback, because guessing
+	the safe answer wrong in that direction only costs one flag.
+
+	**Here rather than in ``cli/main.py``, where it was written**, because two callers now ask
+	it: the bind refusal (§12.4) and whether rate limiting is on by default (§7.7). Nothing in
+	``api`` may depend on the CLI — a served instance need not have been started through it —
+	and a second copy of this rule is the defect this codebase has found nine times.
+	"""
+
+	name = host.strip().lower().strip("[]")
+
+	if name in LOOPBACK_NAMES:
+		return True
+
+	try:
+		address = ipaddress.ip_address(name)
+
+	except ValueError:
+		return False
+
+	return address.is_loopback
 
 
 def config_home () -> pathlib.Path:
@@ -471,6 +506,26 @@ class Settings(pydantic_settings.BaseSettings):
 	# purpose: the thing worth protecting is a particular database, and a flag on the command
 	# only protects whoever remembers to type it.
 	protected: bool = False
+
+	# **Rate limiting, SPEC.md §7.7.** Unset is not "off": it means on unless the bind is
+	# loopback, because a limiter is about callers arriving over a network and on a laptop the
+	# only caller is the person who owns the machine. Set it either way to say so out loud.
+	#
+	# **The counters live in this process's memory** (`#247`). Two workers would each enforce
+	# their own share of the limit, so an instance served by anything other than `subroutine
+	# serve` wants a shared store, and there is none.
+	rate_limit: bool | None = None
+
+	# Per *token*, and generous: a backstop against a runaway client rather than a quota.
+	# Keyed on the token prefix, which is its public half.
+	rate_limit_per_minute: int = 600
+
+	# Per *address*, on requests whose credential did not work, and deliberately much lower.
+	# Keyed on where the request came from rather than on the token prefix — a prefix is
+	# chosen by the caller, so keying on it would give an attacker a fresh allowance every
+	# attempt. High enough that ordinary use cannot reach it, because behind a proxy every
+	# request carries the proxy's address (`#277`).
+	rate_limit_failures_per_minute: int = 30
 
 	# Where `db backup` writes (SPEC.md §12.6b). Unset means the instance's own data directory,
 	# which is right for one laptop and wrong as soon as the point of a backup is surviving the

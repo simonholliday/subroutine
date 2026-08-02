@@ -24,6 +24,7 @@ import subroutine.api.documents
 import subroutine.api.events
 import subroutine.api.health
 import subroutine.api.identity
+import subroutine.api.limits
 import subroutine.api.meta
 import subroutine.api.middleware
 import subroutine.api.problems
@@ -113,6 +114,14 @@ def create_app (
 	)
 
 	application.state.settings = resolved
+
+	# **Built once, here, because a token bucket rebuilt per request counts nothing** (§7.7).
+	# `host` decides only the *default*: unset `rate_limit` means on unless the bind keeps the
+	# socket on one machine, and an instance that never serves anybody else has nobody to
+	# limit. Read from settings rather than from the `serve` flag, so an application started
+	# by gunicorn or by a test gets the same answer as one started by the CLI.
+	application.state.limits = subroutine.api.limits.Limits(resolved, host=resolved.host)
+
 	application.state.engine = None
 	application.state.session_factory = session_factory
 
