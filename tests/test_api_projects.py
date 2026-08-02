@@ -216,6 +216,65 @@ def test_deleting_a_project_hides_its_tasks_with_it (world: test_api_tasks.World
 	assert world.call("GET", "/v1/projects/WEB").status_code == 404
 
 
+def test_restoring_a_project_brings_its_tasks_back_with_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""The reversal ``DELETE`` has always promised, and nothing provided until `#308`.
+
+	The test above ends where the product used to: everything hidden, permanently, by a route
+	whose own summary says the tasks "return with it". Nothing touches the tasks in either
+	direction — undeleting the project is the whole of undeleting what is in it, which is what
+	makes this one row rather than a cascade to unwind.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Website"})
+	world.call("POST", "/v1/tasks", json={"title": "Fix the header", "project": "WEB"})
+	world.call("DELETE", "/v1/projects/WEB")
+
+	assert world.call("GET", "/v1/tasks").json()["items"] == []
+
+	back = world.call("POST", "/v1/projects/WEB/restore")
+
+	assert back.status_code == 200
+	assert back.json()["deleted_at"] is None
+	assert len(world.call("GET", "/v1/tasks").json()["items"]) == 1
+	assert world.call("GET", "/v1/projects/WEB").status_code == 200
+
+
+def test_restoring_a_project_twice_is_not_an_error (world: test_api_tasks.World) -> None:
+	"""Symmetrically with deleting twice, and neither moves a timestamp already in place."""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Website"})
+	world.call("DELETE", "/v1/projects/WEB")
+	world.call("POST", "/v1/projects/WEB/restore")
+
+	again = world.call("POST", "/v1/projects/WEB/restore")
+
+	assert again.status_code == 200
+	assert again.json()["deleted_at"] is None
+
+
+def test_a_project_under_a_deleted_one_is_not_restored_alone (
+	world: test_api_tasks.World,
+) -> None:
+	"""Putting a row back inside a subtree nobody can see would report a success that is not one.
+
+	Privacy and deletion both inherit down the tree, so restoring the child of a deleted parent
+	clears one ``deleted_at`` and changes nothing anybody can observe. The refusal names the
+	ancestor, because that is the command the caller actually wants.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Website"})
+	world.call("POST", "/v1/projects", json={"key": "API", "title": "API", "parent": "WEB"})
+	world.call("DELETE", "/v1/projects/WEB")
+	world.call("DELETE", "/v1/projects/API")
+
+	refused = world.call("POST", "/v1/projects/API/restore")
+
+	assert refused.status_code == 422
+	assert "WEB" in refused.json()["detail"]
+
+
 def test_the_inbox_cannot_be_deleted (world: test_api_tasks.World) -> None:
 	"""A workspace without one has nowhere to file a task with no project."""
 

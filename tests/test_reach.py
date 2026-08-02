@@ -229,6 +229,13 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"confirmation and a considered message rather than the same one-liner as `#140`. "
 		"`#141`.",
 	),
+	("POST", "/v1/projects/{id_or_key}/restore"): (
+		"disclosure",
+		"The other half of the entry above, and it goes with it. `#308` built the endpoint "
+		"because `DELETE` promised a reversal nothing provided; a client verb for putting a "
+		"project back, where taking it away is still HTTP-only, would be the pair reachable "
+		"from opposite directions. `#141` closes both.",
+	),
 }
 
 #: Client methods the CLI does not call, and why.

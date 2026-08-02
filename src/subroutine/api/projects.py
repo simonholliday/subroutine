@@ -338,6 +338,39 @@ def move (
 	return _rendered(session, project)
 
 
+@router.post("/{id_or_key}/restore", summary="Take a project out of the trash")
+def unremove (
+	request: starlette.requests.Request,
+	id_or_key: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Project:
+	"""Restore a soft-deleted project, and everything filed in it (SPEC.md §6.9).
+
+	**`DELETE` has always said its tasks "come back with it" and nothing brought them back**
+	(`#308`). `#140` gave tasks and documents a restore and did not give one to the container
+	they hang off, so deleting a project removed every item inside it by a route that read as
+	reversible and was not.
+
+	Registered before the parameterised routes below it for `routing.check`'s reason, and
+	`POST` rather than `DELETE ?restore=` because it is not a deletion of anything.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	project = resolve(session, actor, workspace, id_or_key, include_deleted=True)
+
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
+		back = subroutine.domain.projects.restore(
+			session,
+			project,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, back)
+
+
 @router.delete("/{id_or_key}", summary="Move a project to the trash")
 def remove (
 	request: starlette.requests.Request,
@@ -367,17 +400,26 @@ def resolve (
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
 	id_or_key: str,
+	*,
+	include_deleted: bool = False,
 ) -> subroutine.db.models.project.Project:
 	"""Find one project by id or key, or report that there is no such thing.
 
 	Through the scoping helper, so a private project the caller is not a member of is
 	reported as absent rather than forbidden — saying "forbidden" would confirm it exists.
+
+	``include_deleted`` is off by default and set by :func:`unremove` alone. A project in the
+	trash is absent from every other answer here, which is what its deletion means; restoring
+	one is the single request that has to be able to name it.
 	"""
 
 	model = subroutine.db.models.project.Project
 	wanted = id_or_key.strip()
 	statement = subroutine.domain.scoping.readable_projects(
-		actor, workspace_ids=[workspace.id], include_archived=True
+		actor,
+		workspace_ids=[workspace.id],
+		include_deleted=include_deleted,
+		include_archived=True,
 	)
 
 	try:

@@ -443,6 +443,90 @@ def delete (
 	return project
 
 
+def restore (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.Project:
+	"""Take a project back out of the trash, and its contents with it (SPEC.md §6.9).
+
+	**:func:`delete` has always promised this and nothing provided it** (`#308`). Its docstring
+	says a project's tasks "leave the visible world with it and come back with it", which is a
+	statement about a journey only half of which existed: `#140` gave tasks and documents a
+	restore and did not give one to the container both of them hang off. So deleting a project
+	took every item inside it out of sight permanently, by a route that looked reversible.
+
+	Nothing here touches the contents, for the same reason ``delete`` does not: every listing
+	joins the project, so undeleting the project is the whole of undeleting what is in it. That
+	is what makes this a one-row write rather than a cascade to reverse.
+
+	The same permission as deleting, and the same symmetry: restoring twice is not an error, and
+	neither call moves a timestamp that is already where it belongs.
+	"""
+
+	_permitted(
+		session, actor, subroutine.permissions.PROJECT_DELETE, project=project
+	)
+	subroutine.domain.versions.require(project, expected_version, noun="This project")
+
+	if project.deleted_at is None:
+		return project
+
+	# An ancestor still in the trash would put this row back into a subtree nobody can see, so
+	# the caller would be told it worked and nothing would appear. Refused by name instead.
+	buried = _deleted_ancestor(session, project)
+
+	if buried is not None:
+		raise subroutine.errors.ValidationError(
+			f"'{project.key}' is inside '{buried.key}', which is also in the trash.",
+			hint=f"Restore '{buried.key}' first, and this comes back with it.",
+		)
+
+	project.deleted_at = None
+
+	# A restore is a change, and §8.9's guard compares a number that has to move or it silently
+	# passes for every caller reading stale state.
+	project.version += 1
+	project.updated_by = None if actor is None else actor.user.id
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=project.workspace_id,
+		entity_type="project",
+		entity_id=project.id,
+		action=subroutine.domain.events.EventAction.RESTORED,
+		actor=actor,
+	)
+	session.flush()
+
+	return project
+
+
+def _deleted_ancestor (
+	session: sqlalchemy.orm.Session, project: subroutine.db.models.project.Project
+) -> subroutine.db.models.project.Project | None:
+	"""Return the nearest ancestor still in the trash, or ``None`` when the way up is clear."""
+
+	model = subroutine.db.models.project.Project
+	current = project
+
+	while current.parent_id is not None:
+		parent = session.get(model, current.parent_id)
+
+		if parent is None:
+			return None
+
+		if parent.deleted_at is not None:
+			return parent
+
+		current = parent
+
+	return None
+
+
 def _ensure_member (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
