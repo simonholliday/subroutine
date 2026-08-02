@@ -615,6 +615,20 @@ $ subroutine list
     Tip: subroutine show work/acme/1 — read one of them in full
 ```
 
+**`subroutine connections` is how you check it**, and it is worth knowing about because it
+stays out of `subroutine --help` until a second connection exists — which is to say, until the
+thing you are checking has already worked. It lists what this machine reaches and, for each,
+*which of the four places its token came from*, which is the question that actually bites:
+
+```console
+$ subroutine connections
+  local  sqlite:////home/si/.local/share/subroutine/subroutine.db  …/credentials.toml  default
+```
+
+No token is printed and none can be recovered from what is. If your new connection is missing
+from that list, `config.toml` is not being read the way you think — check the table name and
+the spelling of `[connections.<name>]`.
+
 Each row prints **the shortest address that resolves** — a bare number for your own, and the
 connection and workspace for anything that needs them. Whatever it prints is what you can type
 back, which is the point: a bare number beside an item on somebody else's server would be an

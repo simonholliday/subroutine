@@ -62,6 +62,10 @@ upgrade involves.
   nothing — and it did not know about `[connections.…]`, which is the one thing in that file
   people write by hand. It said the connection was being ignored, immediately before using it.
 
+- **The connection section names `subroutine connections`**, which is how you check that a
+  connection you added is being read — and which stays out of `--help` until a second
+  connection exists, so it is invisible for exactly as long as the answer is "it did not work".
+
 - **The hosting guide says how to reach a served instance from your own machine.** Adding a
   connection is two short files and the guide never showed them, while the README sells one
   list across every machine. There is a section for it now — including that the credential you
