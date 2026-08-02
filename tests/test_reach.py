@@ -256,6 +256,15 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"update_document": (
+		"tracked",
+		"`#293`, and this guard is what found it — the CLI half landed as `#291` and the "
+		"agent half is a budget decision rather than an oversight. `subroutine_document` "
+		"writes one and nothing revises it, so a session that concluded something wrongly "
+		"cannot correct what the next session will read. Whether that is a new tool, a `ref` "
+		"argument on the existing one, or nothing, is measured in `tests/test_mcp.py` the way "
+		"the three previous raises were. **Deleting this entry is what closes `#293`.**",
+	),
 	"move_project": (
 		"disclosure",
 		"Reparenting a whole subtree: rare, consequential, and no undo. §1.4's argument runs "

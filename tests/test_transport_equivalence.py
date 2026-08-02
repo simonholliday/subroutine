@@ -1503,3 +1503,51 @@ def test_both_take_a_project_back_to_the_root_the_same_way (pair: Pair) -> None:
 
 	assert remote.move_project("WEB", parent=None).parent_id is None
 	assert local.projects() == remote.projects()
+
+
+def test_both_revise_a_document_the_same_way (pair: Pair) -> None:
+	"""``#291``. ``PATCH /v1/documents`` existed since M1 and no client could reach it.
+
+	So the instance could accumulate conclusions and never correct one, which defeats the
+	reason for keeping them there — §5.10 says a document is what you concluded, and one that
+	cannot be revised records only what you concluded *once*. Found when a migration runbook
+	changed twice within the hour it was written.
+	"""
+
+	local, remote = pair.both()
+
+	written = local.create_document(title="What we settled", body="First thoughts.")
+	revised = local.update_document(
+		ref=written.ref, title="What we settled, and why", body="Second thoughts."
+	)
+
+	assert revised.title == "What we settled, and why"
+	assert revised.body == "Second thoughts."
+	assert revised.version > written.version
+
+	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
+
+
+def test_both_clear_a_document_body_rather_than_ignoring_the_request (pair: Pair) -> None:
+	"""``None`` clears and omitted is unchanged (§8.3), and the difference has to cross the wire.
+
+	The HTTP client builds its body by comparison against ``UNSET`` rather than by dropping
+	empty values for exactly this: a filter that removed nulls would answer "empty this
+	document" with a 200 and no change. That is the shape `update` already carries a note
+	about, and it is easier to get wrong the second time.
+	"""
+
+	local, remote = pair.both()
+
+	written = local.create_document(title="A conclusion", body="Some reasoning.")
+
+	# Omitted leaves it alone...
+	untouched = remote.update_document(ref=written.ref, title="A conclusion, restated")
+
+	assert untouched.body == "Some reasoning."
+
+	# ...and null empties it, over the same transport.
+	emptied = remote.update_document(ref=written.ref, body=None)
+
+	assert emptied.body is None
+	assert local.document(ref=written.ref) == remote.document(ref=written.ref)

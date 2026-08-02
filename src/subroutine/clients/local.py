@@ -377,6 +377,52 @@ class Client:
 				row, subroutine.views.Vocabulary.for_documents(session, [row])
 			)
 
+	def update_document (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = subroutine.clients.base.UNSET,
+		body: str | None = subroutine.clients.base.UNSET,
+		type: str = subroutine.clients.base.UNSET,
+		status: str = subroutine.clients.base.UNSET,
+	) -> subroutine.views.Document:
+		"""Revise a document, through the same service the endpoint calls."""
+
+		self._refuse_if_read_only()
+
+		# Compared against UNSET rather than filtered for falsey values, because `None` is
+		# meaningful — it is how §8.3 says "clear this" — and `body=None` on a document is a
+		# thing somebody genuinely does.
+		given: dict[str, typing.Any] = {
+			"title": title,
+			"body": body,
+			"status_key": status,
+			"type_key": type,
+		}
+		changes: dict[str, typing.Any] = {
+			name: value
+			for name, value in given.items()
+			if value is not subroutine.clients.base.UNSET
+		}
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = session.get(
+				subroutine.db.models.work.Document,
+				self._subject(session, actor, chosen.id, "document", ref),
+			)
+
+			# `_subject` refuses a ref that names nothing, so this cannot be None — and
+			# asserting it is cheaper than a second refusal that could word it differently.
+			assert row is not None
+
+			revised = subroutine.domain.documents.update(session, row, actor=actor, **changes)
+
+			return subroutine.views.document(
+				revised, subroutine.views.Vocabulary.for_documents(session, [revised])
+			)
+
 	def links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Link]:

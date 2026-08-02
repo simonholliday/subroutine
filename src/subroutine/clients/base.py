@@ -440,6 +440,29 @@ class Client(typing.Protocol):
 		workspace's Inbox.
 		"""
 
+	def update_document (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = UNSET,
+		body: str | None = UNSET,
+		type: str = UNSET,
+		status: str = UNSET,
+	) -> subroutine.views.Document:
+		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).
+
+		**Separate from :meth:`update` rather than a flag on it** (`#291`). That one edits a
+		task, and the two share almost no fields: a document has a body and no priority, no
+		estimate, no schedule, because §6.14 says a document is not scheduled. One signature
+		carrying both would be two disjoint halves and a runtime rule about which apply.
+
+		``PATCH /v1/documents/{id_or_ref}`` has existed since M1 and no client could reach it,
+		so the instance could accumulate conclusions and never correct one — which defeats the
+		point of keeping them there. §5.10 says a document is what you *concluded*, and a
+		conclusion that cannot be revised is a record of what you concluded once.
+		"""
+
 	def capture (
 		self,
 		*,

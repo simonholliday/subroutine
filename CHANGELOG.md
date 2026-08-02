@@ -40,6 +40,14 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+- **`subroutine doc edit` — revise a document you have already written.** `PATCH
+  /v1/documents` had existed since the first release and nothing but HTTP could reach it, so
+  a conclusion recorded in an instance could never be corrected there.
+
+  Takes `--title`, `--body`, `--type` and `--status`, or reads the body from a pipe the way
+  `doc create` does. With nothing to change it opens the document in `$VISUAL` or `$EDITOR`,
+  which is what makes it usable for a document of any length.
+
 - **`subroutine_search` — an agent can search by name.** The capability existed as a `q`
   argument on `subroutine_list`, which meant a model reading tool *names* to decide what it
   could do had no reason to think searching was possible. `q` moves off `list` onto the new

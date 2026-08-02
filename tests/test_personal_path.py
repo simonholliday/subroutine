@@ -3431,3 +3431,106 @@ def test_a_crash_report_never_carries_a_password_or_a_token (
 	# host that is not a secret is often the thing that explains the failure.
 	assert "db copy" in masked
 	assert "db.example.com" in masked
+
+
+def test_a_document_can_be_revised_from_the_command_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#291``. ``doc create`` wrote one and nothing edited one.
+
+	The gap cost something the hour it was found: a migration runbook written as a document
+	changed twice while it was being agreed, and neither change could be folded in — leaving
+	a choice between a comment saying "step 5 is different", which is the two-copies problem
+	the project exists to avoid, and a runbook wrong in a way somebody discovers while
+	following it.
+	"""
+
+	run("init")
+	run("doc", "create", "What we settled", "--body", "First thoughts.", "--type", "decision")
+
+	run("doc", "edit", "1", "--title", "What we settled, and why")
+
+	shown = run("show", "1").output
+
+	assert "What we settled, and why" in shown
+	assert "First thoughts." in shown, "a title change must not touch the body"
+
+
+def test_revising_a_document_reads_a_pipe_like_writing_one_does (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The same three sources ``doc create`` takes, in the same order.
+
+	Piped input is how anybody writes more than a sentence at a terminal, and it is the path
+	an agent takes — so ``edit`` reading it differently from ``create`` would be a surface
+	disagreeing with itself, which is the family `#282` was.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+
+	run("doc", "edit", "1", input="After, from a pipe.\n")
+
+	assert "After, from a pipe." in run("show", "1").output
+
+
+def test_revising_a_document_with_nothing_to_change_opens_an_editor (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""What makes it usable for a document of any length, which every one written so far is.
+
+	The editor is a real subprocess on a real temporary file — ``sed`` standing in for one,
+	so this asserts the round trip rather than that a function was called. A stub would pass
+	against a version that never wrote the current text out or never read the result back,
+	which are the two ways this goes wrong.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+
+	monkeypatch.setenv("EDITOR", "sed -i 's/Before/After/'")
+	monkeypatch.delenv("VISUAL", raising=False)
+
+	run("doc", "edit", "1")
+
+	assert "After." in run("show", "1").output
+
+
+def test_revising_a_document_says_what_to_do_when_no_editor_is_set (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A refusal that can be acted on, rather than a guess at ``vi``.
+
+	Falling back to an editor nobody chose looks helpful until it is not installed, and the
+	failure is then about a program the reader never asked for.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+
+	monkeypatch.delenv("EDITOR", raising=False)
+	monkeypatch.delenv("VISUAL", raising=False)
+
+	refused = run("doc", "edit", "1", expect=1)
+
+	assert "editor" in refused.output
+	assert "--body" in refused.output
+
+
+def test_editing_a_task_by_number_says_it_is_a_task (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2c, from the other side. One counter serves both kinds, so ``doc edit 3`` may name
+	a task — and "there is no document #3" about something sitting in the listing is the
+	answer `#42` was raised to stop being given.
+	"""
+
+	run("init")
+	run("add", "Call the dentist")
+
+	refused = run("doc", "edit", "1", expect=1)
+
+	assert "task" in refused.output.lower()
+	assert "Call the dentist" in refused.output

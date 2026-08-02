@@ -697,6 +697,39 @@ class Client:
 
 		return self._parsed(subroutine.views.Task, body)
 
+	def update_document (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+		title: str = subroutine.clients.base.UNSET,
+		body: str | None = subroutine.clients.base.UNSET,
+		type: str = subroutine.clients.base.UNSET,
+		status: str = subroutine.clients.base.UNSET,
+	) -> subroutine.views.Document:
+		"""Revise a document, over the wire.
+
+		Built against ``UNSET`` for the reason ``update`` gives above, and it matters more
+		here: ``body=None`` is how §8.3 clears a document's body, and a filter that dropped
+		nulls would answer "empty this" with a 200 and no change.
+		"""
+
+		self._refuse_if_read_only()
+
+		given = {"title": title, "body": body, "type": type, "status": status}
+		answered = self._json(
+			"PATCH",
+			f"/v1/documents/{ref}",
+			params=_given(workspace_id=workspace),
+			json={
+				name: value
+				for name, value in given.items()
+				if value is not subroutine.clients.base.UNSET
+			},
+		)
+
+		return self._parsed(subroutine.views.Document, answered)
+
 	def schedule (
 		self,
 		*,

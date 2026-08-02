@@ -25,9 +25,12 @@ import contextlib
 import dataclasses
 import datetime
 import json
+import os
 import pathlib
 import shlex
+import subprocess
 import sys
+import tempfile
 import typing
 
 import rich.console
@@ -873,6 +876,33 @@ def register (
 				f"{shown} is a document, not a task — {found.title}",
 				f"'subroutine {verb}' works on tasks. Read this one with 'subroutine show "
 				f"{shown.replace(subroutine.domain.refs.SIGIL, '')}'.",
+			)
+
+		return located, found
+
+	def _a_document (
+		world: World, given: str, *, verb: str
+	) -> tuple[Located, subroutine.views.Document]:
+		"""Resolve an address into a document, turning down a task by saying what it is.
+
+		``_a_task``'s argument run the other way (§12.2c, `#42`), and it needed making the
+		moment a document command took a ref: one counter per workspace serves both kinds, so
+		``doc edit 3`` may name a task perfectly reasonably — and "there is no #3" about
+		something sitting in the listing the reader just printed is exactly the answer that
+		item exists to stop being given.
+		"""
+
+		located = _locate(world, given, kinds=ANY_ITEM, verb=verb)
+		found = located.item
+
+		if not isinstance(found, subroutine.views.Document):
+			shown = world.address_of_located(located)
+			bare = shown.replace(subroutine.domain.refs.SIGIL, "")
+
+			stop(
+				f"{shown} is a task, not a document — {found.title}",
+				f"'subroutine doc {verb}' works on documents. Change this one with "
+				f"'subroutine update {bare}'.",
 			)
 
 		return located, found
@@ -2034,6 +2064,49 @@ def register (
 				f"subroutine show {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
 			)
 
+	def _in_an_editor (current: str) -> str:
+		"""Open text in the reader's editor and return what they saved.
+
+		**`$VISUAL` before `$EDITOR`**, which is the older convention and still the right one:
+		``VISUAL`` names the full-screen editor and ``EDITOR`` the line editor, so a terminal
+		that can run the first should get it.
+
+		Neither set is a refusal rather than a guess. Falling back to ``vi`` looks helpful
+		until it is not installed, and then the failure is about a program the reader never
+		chose — where "set EDITOR, or pass --body" is something they can act on (§13.5).
+
+		The scratch file goes wherever the platform puts temporary files, never beside the
+		checkout: this project's own working tree is on a share that does not honour
+		create-then-rename, which is the hazard that has eaten files here before.
+		"""
+
+		chosen = os.environ.get("VISUAL", "").strip() or os.environ.get("EDITOR", "").strip()
+
+		if not chosen:
+			fail(
+				subroutine.errors.ValidationError(
+					"Nothing says which editor to open.",
+					hint="Set $EDITOR, or pass --body, or pipe the text in.",
+				)
+			)
+
+		with tempfile.NamedTemporaryFile(
+			"w+", suffix=".md", delete=False, encoding="utf-8"
+		) as handle:
+			handle.write(current)
+			path = pathlib.Path(handle.name)
+
+		try:
+			# `shlex.split`, so `EDITOR="code --wait"` works — an editor setting carrying
+			# arguments is ordinary, and treating the whole string as a filename would look
+			# for a program with a space in its name.
+			subprocess.run([*shlex.split(chosen), str(path)], check=True)
+
+			return path.read_text(encoding="utf-8")
+
+		finally:
+			path.unlink(missing_ok=True)
+
 	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
 	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
 	# documents and `show <ref>` already reads either. A second listing would be a second
@@ -2106,6 +2179,93 @@ def register (
 			_suggest(
 				console,
 				f"subroutine show {_typeable(world, where.name, created)}",
+				"read it back",
+			)
+
+	@document_app.command("edit")
+	def document_edit (
+		which: str = typer.Argument("", help="Which document, by its number."),
+		body: str = typer.Option("", "--body", help="Replace the text. Or pipe it in."),
+		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
+		kind: str = typer.Option(
+			"", "--type", help="note, spec, design, decision, finding or dead_end."
+		),
+		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Revise a document you have already written.
+
+		Examples:
+
+		  subroutine doc edit 42
+
+		  subroutine doc edit 42 --title "What we settled, and why"
+
+		  cat revised.md | subroutine doc edit 42
+
+		With nothing to change, this opens the document in your editor.
+
+		A conclusion that cannot be revised is a record of what you concluded once — so this
+		is what keeps the instance the place the *current* answer lives.
+		"""
+
+		asked = _asked(which, "Which document?")
+
+		# **Read before any of the three sources are consulted**, because the editor needs the
+		# current text to open and the refusal for a bad ref should arrive before somebody has
+		# spent five minutes typing into vim.
+		with opened() as world:
+			located, document = _a_document(world, asked, verb="edit")
+
+			# Piped input first, then the flag, then the editor — the same order `doc create`
+			# reads them in, and the editor last because it is the only one that cannot happen
+			# unattended. A flag or a pipe means somebody already said what they wanted.
+			piped = None if sys.stdin.isatty() else sys.stdin.read()
+			said = body.strip() or (piped.strip() if piped is not None else "")
+			asked_for_nothing = not any((said, title.strip(), kind.strip(), status.strip()))
+
+			revised = (
+				_in_an_editor(document.body or "") if asked_for_nothing else said
+			)
+
+			where = world.connection(located.connection)
+
+			if where is None:
+				fail(
+					subroutine.errors.ServiceUnavailable(
+						f"{located.connection} could not be reached, so nothing can be changed "
+						"there."
+					)
+				)
+
+			changed = where.client.update_document(
+				ref=document.ref,
+				workspace=located.workspace,
+				title=title.strip() or subroutine.clients.base.UNSET,
+				body=revised if revised or asked_for_nothing else subroutine.clients.base.UNSET,
+				type=kind.strip() or subroutine.clients.base.UNSET,
+				status=status.strip() or subroutine.clients.base.UNSET,
+			)
+
+			if json_output:
+				say(json.dumps(changed.model_dump(mode="json"), indent=2))
+
+				return
+
+			say(
+				_acted(
+					world,
+					Located(
+						connection=located.connection,
+						workspace=located.workspace,
+						item=changed,
+					),
+					"Revised",
+				)
+			)
+			_suggest(
+				console,
+				f"subroutine show {_typeable(world, located.connection, changed)}",
 				"read it back",
 			)
 
