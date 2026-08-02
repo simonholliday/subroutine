@@ -388,6 +388,7 @@ def init (
 				return
 
 	_say('Ready. Try: subroutine add "something to do"')
+	_warn_an_environment_database_is_not_recorded(settings)
 
 
 #: Host names that mean "this machine only" without being addresses. ``ipaddress`` cannot
@@ -503,10 +504,7 @@ def serve (
 	_refuse_public_bind(settings, where, insecure=insecure)
 
 	if _database_is_absent(settings):
-		_stop(
-			"There is no database here yet, so there would be nothing to serve.",
-			"Run 'subroutine init' first.",
-		)
+		_refuse_absent_database(settings, doing=", so there would be nothing to serve")
 
 	# **Imported here rather than at the top of the module**, and measured rather than
 	# assumed: FastAPI and uvicorn together cost 0.3 seconds of this program's 0.8-second
@@ -703,7 +701,7 @@ def database_copy (
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	unusable = subroutine.db.transfer.unusable_target(to)
 
@@ -748,7 +746,8 @@ def database_current () -> None:
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_say("There is no database here yet. Run 'subroutine init'.")
+		_say(f"There is no database at {safe_url(settings.database_url)}.")
+		_say(_where_a_database_would_come_from(settings))
 
 		return
 
@@ -798,7 +797,7 @@ def upgrade (
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	_refuse_unusable_storage(settings)
 
@@ -948,7 +947,7 @@ def database_backup (
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	with _database(settings) as engine:
 		try:
@@ -1252,7 +1251,7 @@ def token_create (
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	# Checked *before* anything is issued, so a credential is never minted and then
 	# stranded. `store` reads the existing file (which refuses unparseable TOML) and writes
@@ -1367,7 +1366,7 @@ def token_list () -> None:
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	with _database(settings) as engine:
 		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
@@ -1497,7 +1496,7 @@ def token_revoke (
 	settings = _settings()
 
 	if _database_is_absent(settings):
-		_stop("There is no database here yet.", "Run 'subroutine init' first.")
+		_refuse_absent_database(settings)
 
 	named = _named_prefix(prefix)
 
@@ -1982,6 +1981,78 @@ def _outermost_missing (directory: pathlib.Path) -> pathlib.Path:
 		missing = parent
 
 	return missing
+
+
+def _warn_an_environment_database_is_not_recorded (
+	settings: subroutine.config.Settings
+) -> None:
+	"""Say so when the database just built is one nothing will remember (`#265`).
+
+	A fresh PostgreSQL installation has a chicken-and-egg in it: ``config.toml`` does not exist
+	until ``init`` has run, so the database is named in the environment for that one run. It
+	works, the schema lands, and **nothing records where it went** — ``init`` writes only
+	``secret_key``. The variable dies with the shell, the unit sets only the XDG paths, and the
+	service comes up configured for SQLite and restarts every five seconds.
+
+	**Writing it to ``config.toml`` here would be the wrong fix and is not on the table.** A
+	PostgreSQL URL routinely carries a password and §12.3a is that this file holds no secrets —
+	that is the entire reason ``credentials.toml`` exists. Persisting an environment value into
+	a file would also invert the precedence the configuration model rests on.
+
+	So the value cannot be written for the operator, and the operator can be told they must
+	write it. This is the moment to do that: before the mistake, rather than after it, in a
+	service log.
+	"""
+
+	if subroutine.config.setting_sources(settings).get("database_url") != "environment":
+		return
+
+	_warn(
+		f"This database came from the environment, and nothing has recorded it. Put "
+		f"'database_url' in {subroutine.config.config_file_path()}, or anything started "
+		f"without that variable — a service, another shell — will look somewhere else."
+	)
+
+
+def _refuse_absent_database (
+	settings: subroutine.config.Settings, *, doing: str = ""
+) -> typing.NoReturn:
+	"""Stop, naming the database that is not there and what to do about it.
+
+	**Written once and called eight times, because it was written eight times** — six of them
+	character-identical. That is how a message comes to be improved in one command and not the
+	other seven, and how `#264` cost Simon an afternoon: a service in ``Restart=on-failure``
+	repeating "run 'subroutine init' first" while a populated PostgreSQL database sat beside it
+	and the configuration quietly pointed at a SQLite path nobody had chosen.
+	"""
+
+	_stop(
+		f"There is no database at {safe_url(settings.database_url)}{doing}.",
+		_where_a_database_would_come_from(settings),
+	)
+
+
+def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> str:
+	"""Return the advice to print beside "there is no database", given where the URL came from.
+
+	**Two different faults wear the same message.** Somebody who has never set an instance up
+	needs ``init``. Somebody who set one up in PostgreSQL, whose service is looking at a SQLite
+	path, needs to know ``database_url`` is not configured — telling *them* to run ``init``
+	sends them back to the command that already worked.
+
+	The distinguishing fact is where the setting came from, and ``setting_sources`` already
+	knows: a default means nobody chose this database, anything else means somebody did.
+	"""
+
+	if subroutine.config.setting_sources(settings).get("database_url") != "default":
+		return "Run 'subroutine init' first."
+
+	return (
+		"Nothing has configured 'database_url', so this is the default. Run 'subroutine init' "
+		f"to set an instance up here, or name the database you meant in "
+		f"{subroutine.config.config_file_path()} — a URL given only in the environment is not "
+		f"recorded anywhere, so a service started without it will not find it."
+	)
 
 
 def _read_password (from_stdin: bool, non_interactive: bool) -> str | None:

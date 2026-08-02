@@ -264,12 +264,22 @@ def test_config_show_reports_where_each_value_came_from (
 def test_db_current_reports_an_empty_database_honestly (
 	isolated_home: dict[str, str],
 ) -> None:
-	"""Before setup there is no schema, and saying so beats an exception."""
+	"""Before setup there is no schema, and saying so beats an exception.
+
+	**Asserted as a property rather than as the sentence.** This pinned the literal "no
+	database here yet" and so refused `#264`, which replaced that phrase with one naming the
+	database it looked at — the fix for a message that had told Simon's service to run `init`
+	while a populated PostgreSQL database sat beside it. A guard on the wording of a message
+	is a guard against improving it; what matters here is that the command answers rather
+	than raising, and says which database it means.
+	"""
 
 	before = _run(isolated_home, "db", "current")
 
 	assert before.returncode == 0
-	assert "no database here yet" in before.stdout
+	assert "no database at" in before.stdout
+	assert "subroutine.db" in before.stdout
+	assert "Traceback" not in before.stderr
 
 	assert _run(isolated_home, "init").returncode == 0
 

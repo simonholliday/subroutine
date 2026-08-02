@@ -74,6 +74,23 @@ upgrade involves.
   unit file. `--insecure` is now described as what it is: the case where there is no proxy at
   all.
 
+- **A missing database now says which one it looked for, and why it looked there.** "There is
+  no database here yet. Run 'subroutine init' first" was the answer given to a service whose
+  PostgreSQL database was populated and running — because the configuration was pointing at a
+  SQLite path nobody had chosen, and the message never said so. It names the database now, and
+  distinguishes "nothing is set up" from "nothing configured `database_url`". The same
+  refusal existed in eight places, six of them identical; there is one now.
+
+- **`init` says when the database it just used is recorded nowhere.** Setting up on PostgreSQL
+  means naming the database in the environment for that one run, because `config.toml` does not
+  exist yet — and `init` writes only the signing key, so the value goes no further. It cannot
+  write the URL for you: a PostgreSQL URL routinely carries a password and that file is the one
+  that holds no secrets. It can tell you, and now does.
+
+- **The hosting guide has a route for starting on PostgreSQL**, rather than only for switching
+  to it later. Four steps, of which writing `database_url` into `config.toml` is the one whose
+  absence leaves a service restarting every five seconds.
+
 - **The hosting guide says how to get PostgreSQL**, rather than assuming you already have one.
   Installing the server, and creating the role and database with names and ownership that
   actually let the first migration run — `--owner` in particular, without which it fails on

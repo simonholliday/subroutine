@@ -171,12 +171,58 @@ The first should report connecting as `subroutine` over a socket. In the second,
 A database on **another machine**, or one that wants a password, takes the full URL form
 instead — and then `After=postgresql.service` in the unit is meaningless and can go.
 
-With that in place, if this is a **new** installation, name it in `config.toml` and you are
-done:
+### Starting on PostgreSQL
+
+If you are setting a server up now, this is the order — and step 3 is the one that costs an
+afternoon when it is skipped.
+
+**1. Run `init` with the database named in the environment.** It cannot come from
+`config.toml`, because `init` is the thing that creates that file:
+
+```console
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    SUBROUTINE_DATABASE_URL=postgresql+psycopg:///subroutine \
+    /opt/subroutine/bin/subroutine init
+```
+
+**2. Note that it says the value is recorded nowhere**, because it is not:
+
+```console
+  Ready. Try: subroutine add "something to do"
+  This database came from the environment, and nothing has recorded it. Put 'database_url' in
+  /var/lib/subroutine/config/subroutine/config.toml, or anything started without that
+  variable — a service, another shell — will look somewhere else.
+```
+
+**`init` will not write it for you, and that is deliberate.** A PostgreSQL URL routinely
+carries a password, and this file is the one that holds no secrets — that is why
+`credentials.toml` exists.
+
+**3. So write it yourself**, into
+`/var/lib/subroutine/config/subroutine/config.toml`:
 
 ```toml
 database_url = "postgresql+psycopg:///subroutine"
 ```
+
+Skip this and everything looks fine until the service starts: the environment variable went
+with the shell, the unit sets only the XDG paths, and `serve` looks at the SQLite default,
+finds nothing, and restarts every five seconds.
+
+**4. Check before starting anything**, as the service account:
+
+```console
+# sudo -u subroutine env XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    /opt/subroutine/bin/subroutine db current
+```
+
+A schema revision means the configuration and the data agree. If it names a path ending
+`.db`, step 3 has not taken effect.
+
+### Switching an instance you already have
 
 **If you already have data in SQLite, copy it across first.** Do not just change the URL — that
 gives you an empty database and leaves everything you have in a file nothing is reading. A

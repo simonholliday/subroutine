@@ -21,6 +21,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.config
 import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
@@ -3071,3 +3072,71 @@ def test_init_says_what_to_do_when_it_cannot_write_its_directories (
 	finally:
 		# Restored whatever happened, or pytest cannot clean the directory up afterwards.
 		locked.chmod(0o700)
+
+
+def test_init_says_when_the_database_it_used_is_recorded_nowhere (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#265`. The chicken-and-egg that left Simon's service restarting every five seconds.
+
+	`config.toml` does not exist until `init` has run, so a fresh PostgreSQL installation names
+	the database in the environment for that one run. It works — and `init` writes only
+	`secret_key`, so nothing records where the data went. The variable dies with the shell, the
+	unit sets only the XDG paths, and the service comes up configured for SQLite.
+
+	**Writing it to `config.toml` is the wrong fix and is not what this asserts.** A PostgreSQL
+	URL routinely carries a password and §12.3a is that this file holds no secrets. The value
+	cannot be written for the operator; the operator can be told they must write it.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	elsewhere = tmp_path / "elsewhere.db"
+	monkeypatch.setenv("SUBROUTINE_DATABASE_URL", f"sqlite:///{elsewhere}")
+
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["init"])
+
+	assert result.exit_code == 0, result.output
+	assert "Ready." in result.output
+
+	assert "came from the environment" in result.output
+	assert "will look somewhere else" in result.output
+	assert str(subroutine.config.config_file_path()) in result.output
+
+
+def test_init_is_quiet_when_the_database_is_the_configured_one (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the warning stays out of the ordinary path — §13.5b's first line is one line.
+
+	Without this the test above would pass just as well against a version that warned every
+	time, which is the same as not warning at all.
+	"""
+
+	assert run("init").output.strip() == 'Ready. Try: subroutine add "something to do"'
+
+
+def test_a_missing_database_says_which_one_and_why_it_looked_there (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#264`. Simon's service said "run init first" while a populated database sat beside it.
+
+	`has_no_instance_yet` can only answer for SQLite, so the refusal fires **exactly when the
+	configuration says SQLite** — which, for somebody who set PostgreSQL up and never recorded
+	it, is the whole diagnosis and was the one fact the message withheld. It advised re-running
+	the command that had already succeeded.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["serve"])
+
+	assert result.exit_code == 1
+
+	# The database it actually looked at, rather than "here".
+	assert "subroutine.db" in result.output
+
+	# And that nobody chose it, which is what separates "never set up" from "misconfigured".
+	assert "Nothing has configured 'database_url'" in result.output
