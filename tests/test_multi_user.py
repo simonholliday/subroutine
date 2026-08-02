@@ -81,15 +81,15 @@ def test_a_second_person_can_be_added_and_given_a_role (
 
 	run("init", "--workspace", "Acme")
 
-	run("user", "create", "ana", "--name", "Ana Ruiz")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
 
-	assert "ana" in run("user", "list").output
+	assert "thomas" in run("user", "list").output
 
-	run("user", "add", "ana", "--role", "member")
+	run("user", "add", "thomas", "--role", "member")
 
 	members = run("user", "list", "--workspace", "acme").output
 
-	assert "ana" in members
+	assert "thomas" in members
 	assert "member" in members
 
 
@@ -110,7 +110,7 @@ def test_adding_a_colleague_does_not_cost_you_your_own_list (
 	run("init", "--workspace", "Acme")
 	run("add", "Buy milk")
 
-	created = run("user", "create", "ana")
+	created = run("user", "create", "thomas")
 
 	assert "go on acting as" in created.output
 
@@ -125,9 +125,9 @@ def test_a_role_is_named_rather_than_assumed (
 	"""What somebody may do is the decision being taken, so the command will not take it."""
 
 	run("init", "--workspace", "Acme")
-	run("user", "create", "ana")
+	run("user", "create", "thomas")
 
-	refused = run("user", "add", "ana", expect=1)
+	refused = run("user", "add", "thomas", expect=1)
 
 	assert "--role" in refused.output
 
@@ -142,15 +142,15 @@ def test_somebody_added_by_mistake_can_be_removed (
 	"""
 
 	run("init", "--workspace", "Acme")
-	run("user", "create", "ana")
-	run("user", "add", "ana", "--role", "member")
+	run("user", "create", "thomas")
+	run("user", "add", "thomas", "--role", "member")
 
-	run("user", "remove", "ana")
+	run("user", "remove", "thomas")
 
-	assert "ana" not in run("user", "list", "--workspace", "acme").output
+	assert "thomas" not in run("user", "list", "--workspace", "acme").output
 
 	# And the account itself survives, because what somebody wrote stays theirs.
-	assert "ana" in run("user", "list").output
+	assert "thomas" in run("user", "list").output
 
 
 def test_the_last_administrator_cannot_be_removed (
@@ -183,7 +183,7 @@ def test_a_new_account_belongs_to_nothing_until_somebody_says_so (
 	them wherever they like.
 	"""
 
-	created = subroutine.domain.users.create(session, username="ana")
+	created = subroutine.domain.users.create(session, username="thomas")
 
 	assert subroutine.domain.workspaces.readable(
 		session, subroutine.domain.authentication.Principal(user=created)
@@ -210,7 +210,7 @@ def test_joining_somebody_to_a_workspace_is_a_permission_check (
 	)
 
 	outsider = subroutine.domain.users.create(session, username="mallory")
-	joining = subroutine.domain.users.create(session, username="ana")
+	joining = subroutine.domain.users.create(session, username="thomas")
 
 	with pytest.raises(subroutine.errors.SubroutineError):
 		subroutine.domain.workspaces.add_member(

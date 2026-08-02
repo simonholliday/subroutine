@@ -454,26 +454,26 @@ and giving them a role says where they may work. Those are different decisions a
 different people.
 
 ```console
-$ subroutine user create ana --name "Ana Ruiz" --email ana@example.com
-  Created ana
+$ subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
+  Created thomas
   Local commands will go on acting as si.
 
-$ subroutine user add ana --role member --workspace acme
-  ana is now member in acme
+$ subroutine user add thomas --role member --workspace acme
+  thomas is now member in acme
 
 $ subroutine user list --workspace acme
-  si   owner
-  ana  member  Ana Ruiz
+  si      owner
+  thomas  member  Thomas Anderson
 ```
 
 A new account belongs to no workspace and can see nothing until it is given a role, which is
 why `user create` tells you the next command rather than stopping at "Created".
 
-**There is no password.** Subroutine authenticates with bearer tokens, so what Ana needs next
+**There is no password.** Subroutine authenticates with bearer tokens, so what Thomas needs next
 is one of her own, and it is readable exactly once:
 
 ```console
-$ subroutine token create --username ana --title "Ana's laptop"
+$ subroutine token create --username thomas --title "Thomas's laptop"
 ```
 
 `--username` is for somebody who already has an account; `--service-account` is for a machine

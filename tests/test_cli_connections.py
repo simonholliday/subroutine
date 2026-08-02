@@ -839,19 +839,19 @@ def test_a_credential_for_a_person_and_one_for_a_machine_are_different_commands 
 	"""
 
 	run("init")
-	run("user", "create", "ana", "--name", "Ana Ruiz")
-	run("user", "add", "ana", "--role", "member")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "add", "thomas", "--role", "member")
 
-	issued = run("token", "create", "--username", "ana", "--title", "Ana's laptop").output
+	issued = run("token", "create", "--username", "thomas", "--title", "Thomas's laptop").output
 
 	assert re.search(r"sr_[0-9a-f]{8}_", issued), "the documented command issues a credential"
 	assert "service account" not in issued.lower(), "and does not report making one"
 
-	# Ana is still a person. The flag that would have said otherwise now refuses.
-	refused = run("token", "create", "--service-account", "ana", expect=1).output
+	# Thomas is still a person. The flag that would have said otherwise now refuses.
+	refused = run("token", "create", "--service-account", "thomas", expect=1).output
 
 	assert "not a machine identity" in refused
-	assert "--username ana" in refused, "and names the flag that does what they meant"
+	assert "--username thomas" in refused, "and names the flag that does what they meant"
 
 	# The machine half is untouched: it still creates, and still reuses on a second call.
 	created = run("token", "create", "--service-account", "claude").output
@@ -878,12 +878,12 @@ def test_a_credential_is_never_issued_for_an_account_that_could_not_use_it (
 	"""
 
 	run("init")
-	run("user", "create", "ana", "--name", "Ana Ruiz")
-	run("user", "add", "ana", "--role", "member")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("user", "add", "thomas", "--role", "member")
 
-	_deactivate(home, "ana")
+	_deactivate(home, "thomas")
 
-	stopped = run("token", "create", "--username", "ana", expect=1).output
+	stopped = run("token", "create", "--username", "thomas", expect=1).output
 
 	assert "deactivated" in stopped
 	assert "Reactivate" in stopped

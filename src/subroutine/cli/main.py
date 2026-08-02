@@ -1195,7 +1195,7 @@ def token_create (
 
 	  subroutine token create --title "My laptop"
 
-	  subroutine token create --username ana --title "Ana's laptop"
+	  subroutine token create --username thomas --title "Thomas's laptop"
 
 	  subroutine token create --service-account claude --scope task:read --scope task:write
 

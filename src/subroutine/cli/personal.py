@@ -2491,9 +2491,9 @@ def register (
 
 		Examples:
 
-		  subroutine user create ana --name "Ana Ruiz"
+		  subroutine user create thomas --name "Thomas Anderson"
 
-		  subroutine user create ana --name "Ana Ruiz" --email ana@example.com
+		  subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
 
 		A new account belongs to no workspace yet, and until it does there is nothing it can
 		see. 'subroutine user add' is the second half, and this command says so when it is
@@ -2602,7 +2602,7 @@ def register (
 
 			if not rows:
 				say("Nobody here yet.")
-				_suggest(console, "subroutine user create ana")
+				_suggest(console, "subroutine user create thomas")
 
 				return
 
@@ -2621,9 +2621,9 @@ def register (
 
 		Examples:
 
-		  subroutine user add ana --role member
+		  subroutine user add thomas --role member
 
-		  subroutine user add ana --role admin --workspace acme
+		  subroutine user add thomas --role admin --workspace acme
 
 		The role is named rather than assumed. What somebody may do is the decision being
 		taken here, and a default would be this command taking it quietly on your behalf.
@@ -2662,7 +2662,7 @@ def register (
 
 		Examples:
 
-		  subroutine user remove ana
+		  subroutine user remove thomas
 
 		This removes their membership, not their account: what they wrote stays, and stays
 		attributed to them. The last person able to administer a workspace cannot be removed

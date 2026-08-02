@@ -1,8 +1,8 @@
 """Credentials over HTTP — item ``#208``.
 
 The gap this closes is the one ``#196`` was, one surface along: ``POST /v1/users`` could add
-Ana and nothing over HTTP could give her a way in, so an administrator without a shell on the
-server created accounts that could never be used.
+Thomas and nothing over HTTP could give them a way in, so an administrator without a shell on
+the server created accounts that could never be used.
 
 **What is worth testing here is not "does it issue one".** It is the three refusals — a
 credential may never be wider than the one that asked for it, may not be minted for an account
@@ -52,7 +52,7 @@ def world (session: sqlalchemy.orm.Session) -> World:
 	setup = subroutine.domain.bootstrap.initialise(
 		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
 	)
-	member = subroutine.domain.users.create(session, username=f"ana-{uuid.uuid4().hex[:8]}")
+	member = subroutine.domain.users.create(session, username=f"thomas-{uuid.uuid4().hex[:8]}")
 
 	subroutine.domain.workspaces.add_member(
 		session, setup.workspace, member, role_key="member", actor=None
@@ -151,7 +151,7 @@ def test_issuing_for_somebody_else_needs_the_authority_to_create_them (world: Wo
 	assert refused.status_code == 403
 
 	allowed = world.call(
-		"POST", "/v1/tokens", json={"title": "Ana's laptop", "username": world.member.username}
+		"POST", "/v1/tokens", json={"title": "Thomas's laptop", "username": world.member.username}
 	)
 
 	assert allowed.status_code == 201

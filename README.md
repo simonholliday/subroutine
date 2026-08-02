@@ -262,21 +262,21 @@ Adding the people is two commands, and they are deliberately two: creating an ac
 somebody exists, and giving them a role says where they may work.
 
 ```console
-$ subroutine user create ana --name "Ana Ruiz"
-  Created ana
+$ subroutine user create thomas --name "Thomas Anderson"
+  Created thomas
   Local commands will go on acting as si.
-    Tip: subroutine user add ana --role member
+    Tip: subroutine user add thomas --role member
 
-$ subroutine user add ana --role member --workspace acme
-  ana is now member in acme
+$ subroutine user add thomas --role member --workspace acme
+  thomas is now member in acme
 
 $ subroutine user list --workspace acme
-  si   owner
-  ana  member  Ana Ruiz
+  si      owner
+  thomas  member  Thomas Anderson
 ```
 
-There is no password: Subroutine authenticates with tokens, so what Ana needs next is
-`subroutine token create --username ana`. That is for a person; `--service-account` is for an
+There is no password: Subroutine authenticates with tokens, so what Thomas needs next is
+`subroutine token create --username thomas`. That is for a person; `--service-account` is for an
 agent and creates the identity as it goes. Roles belong to a workspace, so `member` in one is
 not `member` in another, and the last account able to administer a workspace cannot be removed
 from it.
