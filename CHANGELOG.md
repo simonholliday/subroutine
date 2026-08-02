@@ -12,6 +12,27 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## 0.1.2 — 2026-08-02
+
+No migration notice: the schema head has not moved since 0.1.0. Nothing in the package itself
+changed — this release is the plugin and the documentation around installing it.
+
+### Fixed
+
+- Installing the Claude Code plugin now gives you working tools without your having to supply
+  a path. Your editor launches `subroutine` itself, so it has to be on your `PATH` — and
+  `pip install` into a virtualenv satisfies "installed" while leaving every tool missing, with
+  no error at the point of the mistake. The plugin route now tells you to install it as a
+  tool, with `uv tool install subroutine` or `pipx install subroutine`, which is what puts the
+  command where something other than your shell can find it.
+- The plugin's skill sent that failure the wrong way. It could not tell "not installed" from
+  "installed where the editor cannot see it" — both look the same from inside a session — so it
+  told people who had already installed it to install it again. It now names `claude mcp list`,
+  which is the one command that separates them.
+
+`pip install subroutine` remains exactly right if you are only going to type commands
+yourself.
+
 ## 0.1.1 — 2026-08-02
 
 No migration notice: the schema head has not moved since 0.1.0.
