@@ -177,6 +177,46 @@ def test_a_target_that_already_holds_data_is_refused (
 	assert "already holds data" in str(refused.value)
 
 
+def test_a_target_that_is_refused_is_not_migrated_on_the_way (
+	sqlite_url: str, postgres_database: str
+) -> None:
+	"""Naming somebody else's instance with ``--to`` must not move their schema (`#306`).
+
+	The refusal above is only worth having if it happens *before* anything is written. It did
+	not: the target was brought to head first, so pointing at a live instance from an older
+	release migrated it through every intervening revision and then reported that nothing had
+	happened. There is no downgrade, so the build serving it would not start again.
+
+	Written from the older side deliberately — a target already at head cannot show this,
+	which is why the test beside it passed throughout.
+	"""
+
+	_filled(sqlite_url)
+	_filled(postgres_database)
+	subroutine.db.migrate.downgrade(postgres_database, test_migrations._BEFORE_SUBJECTS)
+
+	engine = subroutine.db.session.create_engine(postgres_database)
+
+	try:
+		before = subroutine.db.migrate.current_revision(engine)
+
+	finally:
+		engine.dispose()
+
+	with pytest.raises(subroutine.errors.SubroutineError) as refused:
+		subroutine.db.transfer.copy_into(sqlite_url, postgres_database)
+
+	assert "already holds data" in str(refused.value)
+
+	engine = subroutine.db.session.create_engine(postgres_database)
+
+	try:
+		assert subroutine.db.migrate.current_revision(engine) == before
+
+	finally:
+		engine.dispose()
+
+
 def test_copying_a_database_into_itself_is_refused (sqlite_url: str) -> None:
 	"""It would double every table it did not fail on, which is worse than either outcome."""
 

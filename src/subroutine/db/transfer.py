@@ -110,16 +110,25 @@ def _same_database (source_url: str, target_url: str) -> bool:
 
 
 def _prepare (target_url: str, target: sqlalchemy.engine.Engine) -> None:
-	"""Bring the target up to the same schema, and refuse to write into a used one.
+	"""Refuse to write into a used database, and only then bring the target up to schema.
+
+	**The order is the whole of it, and it was the other way round** (`#306`). Migrating first
+	meant that naming somebody else's instance with ``--to`` moved *their* schema forward
+	through every intervening revision and then refused, reporting that nothing had happened.
+	There is no downgrade, so that is not recoverable, and the build serving it would no longer
+	start. A command whose entire promise is "nothing is at risk while you check" has to
+	establish that the target is unused before it touches it at all.
+
+	Asking an unmigrated database for its row counts is safe and is what makes the order
+	possible: :func:`_counts` reads the table list off the database and reports zero for a
+	table that is not there yet, so an empty target and a target from an older release are both
+	answerable without writing anything.
 
 	**Migrated rather than built with ``create_all``.** A database this leaves behind has to
 	be one ``subroutine upgrade`` will accept later, and that means an ``alembic_version`` row
 	saying which revision it is — which `create_all` does not write. It is the same reason
 	§10.3 keeps the migration path and the model path separate everywhere else.
 	"""
-
-	if not subroutine.db.migrate.is_up_to_date(target):
-		subroutine.db.migrate.upgrade(target_url)
 
 	occupied = [name for name, count in _counts(target).items() if count]
 
@@ -131,6 +140,9 @@ def _prepare (target_url: str, target: sqlalchemy.engine.Engine) -> None:
 				"and doing it by accident would leave neither of them right."
 			),
 		)
+
+	if not subroutine.db.migrate.is_up_to_date(target):
+		subroutine.db.migrate.upgrade(target_url)
 
 
 def _tables () -> list[sqlalchemy.Table]:
