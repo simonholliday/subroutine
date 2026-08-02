@@ -2613,6 +2613,39 @@ def register (
 	)
 	app.add_typer(workspace_app, name="workspace")
 
+	@workspace_app.command("create")
+	def workspace_create (
+		slug: str = typer.Argument(..., help="Its short name, used in addresses."),
+		title: str = typer.Argument(..., help="What to call it."),
+		timezone: str = typer.Option(
+			"", "--timezone", help="Its zone, e.g. 'Europe/London'. Unset follows the instance."
+		),
+	) -> None:
+		"""Make another workspace, for work that should be kept apart.
+
+		Examples:
+
+		  subroutine workspace create personal Personal
+
+		  subroutine workspace create acme "Acme Ltd" --timezone Europe/London
+
+		Numbers start again at 1 in a new workspace, so the two do not have to share a
+		sequence — and nothing in one is visible from the other unless you are in both.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+			created = where.client.create_workspace(
+				slug=slug, title=title, timezone=timezone.strip() or None
+			)
+
+			say(f"Created {created.slug} — {created.title}")
+
+			# **Said because it is the surprising part.** Everything reachable is still listed,
+			# but a *write* goes to one place (§13.7), so a new workspace is not where the next
+			# `add` lands until somebody says so.
+			_suggest(console, f"subroutine use {created.slug}", "work in it")
+
 	@workspace_app.command("rename")
 	def workspace_rename (
 		slug: str = typer.Argument(..., help="The workspace to rename, by its short name."),

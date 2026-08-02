@@ -1337,8 +1337,14 @@ def test_a_document_is_filed_under_a_different_project (
 	"""
 
 	workspace = _workspace(session)
-	inbox = _project(session, workspace, key="INBOX")
 	docs = _project(session, workspace, key="DOCS")
+
+	# The workspace's own Inbox, not one made here: `#301` means every workspace has one, and
+	# creating a second `INBOX` is now a duplicate key. This is also the real case — the
+	# documents that could not be filed were the ones that landed in the Inbox.
+	inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
+
+	assert inbox is not None
 
 	written = subroutine.domain.documents.create(
 		session, project=inbox, title="A conclusion", body="Reasoning."
@@ -1388,3 +1394,52 @@ def test_a_document_cannot_be_filed_into_another_workspace (
 		)
 
 	assert "another workspace" in refused.value.detail
+
+
+def test_a_workspace_is_created_with_an_inbox_to_file_things_in (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``#301``. It was ``bootstrap``'s job, so only ``init`` produced a complete workspace.
+
+	Every other route — ``POST /v1/workspaces`` since M1, and ``subroutine workspace create``
+	as of `#300` — produced one that refused every task filed with no project, which is the
+	ordinary way to file one (§6.14) and the whole of §1.4's capture path. The message it gave
+	said setup had been "interrupted" and told you to run ``init`` again, which is advice
+	`#264` and `#267` exist to stop being given.
+
+	Asserted through ``tasks.create`` rather than by looking for the row, because "can I file
+	something here" is the property, and a project called INBOX that was not flagged
+	``is_inbox`` would pass a row check and fail this.
+	"""
+
+	workspace = _workspace(session)
+	inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
+
+	assert inbox is not None
+	assert inbox.is_inbox
+
+	filed = subroutine.domain.tasks.create(session, project=inbox, title="Buy milk")
+
+	assert filed.project_id == inbox.id
+	assert filed.ref == 1, "a new workspace starts its own numbering"
+
+
+def test_init_does_not_leave_a_second_inbox_behind (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The half of `#301` that would be easy to get wrong in the other direction.
+
+	``bootstrap`` used to create the Inbox itself. Moving that into ``workspaces.create``
+	without removing the old call would leave two — and ``inbox_for`` returns one of them,
+	so half the writes would land in a project nothing lists.
+	"""
+
+	workspace = _workspace(session)
+	inboxes = session.scalars(
+		sqlalchemy.select(subroutine.db.models.project.Project).where(
+			subroutine.db.models.project.Project.workspace_id == workspace.id,
+			subroutine.db.models.project.Project.is_inbox.is_(True),
+		)
+	).all()
+
+	assert len(inboxes) == 1

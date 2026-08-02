@@ -388,3 +388,31 @@ def _a_user (session: sqlalchemy.orm.Session) -> typing.Any:
 	return subroutine.domain.bootstrap.initialise(
 		session, username=f"u-{uuid.uuid4().hex[:8]}", instance_name="Test"
 	).user
+
+
+def test_a_workspace_made_over_http_can_be_filed_into (
+	world: test_api_tasks.World,
+) -> None:
+	"""``#301``, at the surface that shipped it.
+
+	``POST /v1/workspaces`` produced a workspace with no Inbox from M1 until 2026-08-02, so
+	``POST /v1/tasks`` with no project — the ordinary way to file one — refused every time.
+	Nothing caught it because no client could create a workspace until `#300`, and every test
+	here named a project immediately afterwards.
+
+	The second call is the whole test. Creating one was never the broken part.
+	"""
+
+	created = world.call(
+		"POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"}
+	)
+
+	assert created.status_code == 201
+
+	filed = world.call(
+		"POST", "/v1/tasks", json={"title": "Buy milk", "workspace_id": "acme"}
+	)
+
+	assert filed.status_code == 201, filed.text
+	assert filed.json()["project_key"] == "INBOX"
+	assert filed.json()["ref"] == 1

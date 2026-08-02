@@ -398,6 +398,24 @@ class Client(typing.Protocol):
 		they never notice. Nothing joined to the project moves — ``project.id`` is a UUID.
 		"""
 
+	def create_workspace (
+		self, *, slug: str, title: str, timezone: str | None = None
+	) -> subroutine.views.Workspace:
+		"""Make another workspace, owned by whoever asked — item `#300`.
+
+		``init`` names the *first* one and nothing made a second, so an instance could not
+		grow past the shape it was installed with. ``POST /v1/workspaces`` has existed since
+		M1 and no client reached it.
+
+		Needs ``instance:workspace_create``, which is an instance-tier verb: it happens
+		outside every workspace, so no role can carry it and only a superuser holds it (§7.1).
+		The check lives in the service, so both transports refuse identically.
+
+		``timezone`` unset means *not stated* rather than UTC, so the instance's own zone
+		shows through (§12.3) — a default here would shadow it and leave a step in the chain
+		nothing could reach.
+		"""
+
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name — item `#295`.
 

@@ -835,6 +835,27 @@ class Client:
 				renamed, subroutine.views.Vocabulary.for_projects(session, [renamed])
 			)
 
+	def create_workspace (
+		self, *, slug: str, title: str, timezone: str | None = None
+	) -> subroutine.views.Workspace:
+		"""Make another workspace, through the same service the endpoint calls."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			created = subroutine.domain.workspaces.create(
+				session,
+				slug=slug,
+				title=title,
+				# The creator owns what they create, which is what makes them able to
+				# administer it — a workspace with no owner is not a state worth reaching.
+				owner=actor.user,
+				timezone=timezone or "UTC",
+				actor=actor,
+			)
+
+			return subroutine.views.workspace(created)
+
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
 

@@ -479,6 +479,21 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def create_workspace (
+		self, *, slug: str, title: str, timezone: str | None = None
+	) -> subroutine.views.Workspace:
+		"""Make another workspace, over the wire."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			"/v1/workspaces",
+			json=_given(slug=slug, title=title, timezone=timezone),
+		)
+
+		return subroutine.views.Workspace.model_validate(body)
+
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
 

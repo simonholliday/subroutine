@@ -94,6 +94,9 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
+	("POST", "/v1/workspaces"): "create_workspace",
+	("PATCH", "/v1/workspaces/{id_or_slug}"): "rename_workspace",
+	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
 	("POST", "/v1/projects"): "create_project",
 	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
 	("POST", "/v1/projects/{id_or_key}/move"): "move_project",
@@ -210,22 +213,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"tracked",
 		"Reading one workspace's own record. Same as listing them, and rarer. `#141`.",
 	),
-	("POST", "/v1/workspaces"): (
-		"tracked",
-		"`init` makes one and most installations need exactly one, so this is a real gap "
-		"without being a wall — `#141`. Unlike a project, nothing refuses for want of it.",
-	),
-	("PATCH", "/v1/workspaces/{id_or_slug}"): (
-		"tracked",
-		"Same as creating one, and rarer: a workspace's title and timezone are set once. "
-		"`#141`.",
-	),
-	("PATCH", "/v1/documents/{id_or_ref}"): (
-		"tracked",
-		"Editing a document's body. Waits on `#15` (`subroutine edit`), because the answer "
-		"is an editor rather than a flag — a `--body` that replaces a specification from a "
-		"shell argument is a worse offer than none.",
-	),
 	("PATCH", "/v1/comments/{comment_id}"): (
 		"tracked",
 		"Only the author may edit a comment, and the honest alternative to editing attributed "
@@ -264,6 +251,14 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"cannot correct what the next session will read. Whether that is a new tool, a `ref` "
 		"argument on the existing one, or nothing, is measured in `tests/test_mcp.py` the way "
 		"the three previous raises were. **Deleting this entry is what closes `#293`.**",
+	),
+	"create_workspace": (
+		"disclosure",
+		"`#300`. A tenancy boundary, and an instance-tier permission no role can carry — only "
+		"a superuser holds `instance:workspace_create` (§7.1). An agent that made one would "
+		"be creating a place its own tools then could not see into, since a session reaches "
+		"one connection and one workspace at a time (`#276`). §1.4's argument runs the other "
+		"way here as it does for `move_project`: harder to reach is the feature.",
 	),
 	"rename_workspace": (
 		"disclosure",
@@ -600,4 +595,40 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	assert len(commands) <= 3, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
+	)
+
+
+def test_no_route_is_both_reached_and_excused () -> None:
+	"""**The gap that let three excuses outlive their reason.**
+
+	``NOT_REACHED`` fails the build for a route that is *neither* reached nor excused, which
+	is the case it was written for. It says nothing about a route that is *both* — so when a
+	client method finally arrived, the entry claiming nothing reached it simply stayed, still
+	naming an item, still reading as a considered decision.
+
+	Three of them at once on 2026-08-02: `#291` reached ``PATCH /v1/documents``, `#295`
+	reached ``PATCH /v1/workspaces`` and `#300` reached ``POST /v1/workspaces``, and this file
+	went on saying all three were gaps waiting on `#141`. An allow-list that cannot go stale
+	is the whole value of writing reasons down; one that can is a document with a test's
+	reputation.
+	"""
+
+	contradicted = sorted(
+		f"{method} {path}"
+		for method, path in set(NOT_REACHED) & (set(REACHED_BY) | set(READ_BY))
+	)
+
+	assert not contradicted, (
+		f"these routes are excused as unreachable and are reached: {contradicted}. "
+		f"Delete the entry — that is what closes the item it names."
+	)
+
+
+def test_no_client_method_is_both_called_by_mcp_and_excused_from_it () -> None:
+	"""The same check one surface along, so the two lists cannot drift apart either."""
+
+	contradicted = sorted(set(NOT_IN_MCP) & _called_in("mcp"))
+
+	assert not contradicted, (
+		f"these methods are excused from MCP and called by it: {contradicted}."
 	)

@@ -22,7 +22,6 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.system
 import subroutine.domain.instances
-import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -30,13 +29,16 @@ import subroutine.errors
 #: The project a task with no project of its own is filed in. One per workspace, not one
 #: per user: ``project.key`` is unique per workspace, so per-user inboxes collide on the
 #: second user, and nothing in the schema records whose inbox a project is (SPEC.md §6.8).
-INBOX_KEY = "INBOX"
-INBOX_TITLE = "Inbox"
+#: Re-exported, because `#301` moved the Inbox's creation into `domain.workspaces` and the
+#: names belong beside it. Kept resolving here so a caller that learned them from this module
+#: is not broken by where they moved to.
+INBOX_KEY = subroutine.domain.workspaces.INBOX_KEY
+INBOX_TITLE = subroutine.domain.workspaces.INBOX_TITLE
 
 #: The Inbox is the clearest case for the personal template — two statuses, no evidence
 #: gate. Someone setting up a to-do list should never meet an acceptance criterion unless
 #: they go looking for one (SPEC.md §6.12).
-INBOX_TEMPLATE = "personal"
+INBOX_TEMPLATE = subroutine.domain.workspaces.INBOX_TEMPLATE
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,15 +104,18 @@ def initialise (
 		timezone=timezone,
 	)
 
-	inbox = subroutine.domain.projects.create(
-		session,
-		workspace_id=workspace.id,
-		key=INBOX_KEY,
-		title=INBOX_TITLE,
-		template=INBOX_TEMPLATE,
-		owner_id=user.id,
-		is_inbox=True,
-	)
+	# **Made by `workspaces.create`, not here** (`#301`). It used to be this call, which meant
+	# `init` produced a complete workspace and every other route produced one that could not
+	# be captured into. Asked for rather than assumed, so a workspace that somehow arrived
+	# without one is a failure here rather than a puzzle three commands later.
+	inbox = inbox_for(session, workspace)
+
+	if inbox is None:
+		raise subroutine.errors.SubroutineError(
+			"This workspace was created without an Inbox.",
+			hint="Nothing has been set up. Report this — it should not be reachable.",
+		)
+
 	session.flush()
 
 	return Bootstrap(

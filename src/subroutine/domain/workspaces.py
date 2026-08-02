@@ -19,6 +19,7 @@ import subroutine.domain.authorization
 import subroutine.domain.dates
 import subroutine.domain.events
 import subroutine.domain.patch
+import subroutine.domain.projects
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -33,6 +34,17 @@ FOUNDING_ROLE = "owner"
 #: in Python rather than left to the backend.
 MAX_SLUG_LENGTH = 64
 MAX_TITLE_LENGTH = 255
+
+
+#: The project a task with no project is filed in. Named here rather than in ``bootstrap``
+#: because this is where an Inbox is made — ``bootstrap`` was the only caller when it owned
+#: these, and stopped being so when `#301` moved the creation (§6.14).
+INBOX_KEY = "INBOX"
+INBOX_TITLE = "Inbox"
+
+#: Two statuses and no evidence requirement: the clearest case for the personal template,
+#: since the Inbox is where a capture lands before anybody has decided anything about it.
+INBOX_TEMPLATE = "personal"
 
 
 def create (
@@ -96,6 +108,25 @@ def create (
 		actor=actor,
 	)
 	record_seeding(session, workspace, report, actor=actor)
+
+	# **An Inbox is part of what a workspace is** (`#301`), which is the same argument the
+	# paragraph above makes about roles and an owner: a workspace without one refuses every
+	# task filed with no project, and that is the ordinary way to file one (§6.14, §1.4).
+	#
+	# It was `bootstrap`'s job until now, so `init` produced a complete workspace and every
+	# other route produced one that could not be captured into — `POST /v1/workspaces` has
+	# shipped that since M1. Made here so there is one answer rather than a step each caller
+	# has to remember.
+	subroutine.domain.projects.create(
+		session,
+		workspace_id=workspace.id,
+		key=INBOX_KEY,
+		title=INBOX_TITLE,
+		template=INBOX_TEMPLATE,
+		owner_id=owner.id,
+		is_inbox=True,
+		actor=actor,
+	)
 	session.flush()
 
 	return workspace

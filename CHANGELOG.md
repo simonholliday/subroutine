@@ -43,6 +43,12 @@ upgrade involves.
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
 
+- **`subroutine workspace create` — make a second workspace.** `init` named the first one and
+  nothing made another, so an instance could not grow past the shape it was installed with.
+  `POST /v1/workspaces` had existed since the first release with no client able to reach it.
+
+  Numbers start again at `#1` in a new workspace, so two do not share a sequence.
+
 - **`subroutine workspace rename` — a workspace's short name can be changed.** It could not
   be, on the grounds that the name lives in other people's notes, in shell history and in
   `config.toml` on other machines. The last of those was never true: nothing in a
@@ -92,6 +98,19 @@ upgrade involves.
   tool, so there is one name for one thing.
 
 ### Fixed
+
+- **A workspace created anywhere but `init` had no Inbox**, so filing a task in it without
+  naming a project — the ordinary way to file one — failed with a `500`. That is every
+  workspace ever made through `POST /v1/workspaces`, which has been able to create them since
+  the first release.
+
+  The error said setup had been "interrupted" and told you to run `init` again, which is
+  wrong twice: nothing was interrupted, and re-running `init` on a live instance is its own
+  hazard. An Inbox is now part of creating a workspace rather than a step each caller has to
+  remember.
+
+  **Existing workspaces are not repaired by upgrading.** If you made one over HTTP and it
+  refuses tasks, create a project in it and file into that, or make the workspace again.
 
 - **A crash is a sentence now, not forty lines of Python.** Anything the program did not
   anticipate printed a boxed traceback with a caret, which is a developer's view of a
