@@ -152,6 +152,48 @@ def test_limiting_is_off_on_loopback_and_on_otherwise (host: str, expected: bool
 	assert subroutine.api.limits.wanted(settings, host=host) is expected
 
 
+def test_a_proxied_instance_is_limited_though_its_socket_is_loopback () -> None:
+	"""``#286``. The bind says who can open the socket; ``public_url`` says who can reach it.
+
+	A reverse proxy in front of an application on ``127.0.0.1`` is how TLS gets terminated
+	everywhere, and it is what ``docs/hosting.md`` recommends — so "loopback means a laptop"
+	is false for the deployment this project tells people to build. Asking the socket turned
+	the limiter off by default on precisely the instances that needed it.
+
+	Found on 2026-08-02 diagnosing a 502 on Simon's public instance. He was protected only by
+	the accident that his proxy runs on a different machine and so could not reach a loopback
+	bind at all; co-locate them, which is the commonest arrangement, and the instance is
+	public with no limiter and nothing to say so.
+	"""
+
+	proxied = subroutine.config.Settings(
+		dev_mode=True, public_url="https://subroutine.example.com"
+	)
+
+	assert subroutine.api.limits.wanted(proxied, host="127.0.0.1") is True
+
+	# And it is still the *operator's* call, not a rule that cannot be turned off.
+	quiet = subroutine.config.Settings(
+		dev_mode=True, public_url="https://subroutine.example.com", rate_limit=False
+	)
+
+	assert subroutine.api.limits.wanted(quiet, host="127.0.0.1") is False
+
+
+def test_a_blank_public_url_is_not_a_public_url () -> None:
+	"""An empty or whitespace setting is somebody who has not set it, not somebody who has.
+
+	``config.toml`` is hand-edited, so ``public_url = ""`` is a real state — and reading it
+	as "this is served publicly" would switch a limiter on for every laptop whose owner left
+	the key in the file.
+	"""
+
+	for blank in ("", "   "):
+		settings = subroutine.config.Settings(dev_mode=True, public_url=blank)
+
+		assert subroutine.api.limits.wanted(settings, host="127.0.0.1") is False
+
+
 @pytest.mark.parametrize("chosen", [True, False])
 def test_an_explicit_setting_is_obeyed_either_way (chosen: bool) -> None:
 	"""Somebody testing a limiter on loopback, or turning one off on a public bind, said so."""

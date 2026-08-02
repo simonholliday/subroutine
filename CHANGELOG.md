@@ -90,6 +90,21 @@ upgrade involves.
   no reason to ask. Where more than one is configured they now say so; where only one is,
   they are unchanged.
 
+### Security
+
+- **An instance served through a reverse proxy is now rate limited by default.** The default
+  was "on unless the bind is loopback", and the deployment these documents recommend is a
+  TLS-terminating proxy in front of an application listening on `127.0.0.1` — so the socket
+  was loopback, the service was on the public internet, and the limiter was off.
+
+  Setting `public_url` now turns it on whatever the bind, because that setting is you saying
+  a proxy serves this to other people. Nothing changes for a laptop with no `public_url`, and
+  `rate_limit` still overrides both ways.
+
+  **If you run an instance behind a proxy on a loopback bind, it has not been rate limiting.**
+  Setting `public_url` — which `serve` already requires for a non-loopback bind without
+  `--insecure` — is enough to fix it.
+
 ## 0.2.0 — 2026-08-02
 
 ### Added

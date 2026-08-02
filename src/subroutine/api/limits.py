@@ -130,16 +130,28 @@ class Limiter:
 def wanted (settings: subroutine.config.Settings, *, host: str) -> bool:
 	"""Report whether this instance should be rate limiting at all.
 
-	``rate_limit`` unset means **on unless the bind is loopback** (§7.7). A limiter is about
-	callers reaching this over a network, and on a laptop the only caller is the person who
-	owns the machine — counting their requests would be ceremony in service of nothing.
+	``rate_limit`` unset means **on unless nothing outside this machine can reach it** (§7.7).
+	A limiter is about callers arriving over a network, and on a laptop the only caller is the
+	person who owns the machine — counting their requests would be ceremony in service of
+	nothing.
 
 	Set explicitly, it is obeyed either way: an operator who wants one on loopback is usually
 	testing the limiter, and one who wants it off on a public bind has said so out loud.
+
+	**The bind is the weaker of the two signals and used to be the only one** (`#286`). A
+	reverse proxy in front of an application listening on ``127.0.0.1`` is how TLS is
+	terminated everywhere — it is what ``docs/hosting.md`` recommends — and in that topology
+	the socket is loopback while the service is on the public internet. Asking the socket
+	turned the limiter off by default on exactly the instances that needed it. ``public_url``
+	is the operator saying "a proxy serves this to other people", which is the fact that
+	matters, and ``_refuse_public_bind`` already reads it that way.
 	"""
 
 	if settings.rate_limit is not None:
 		return settings.rate_limit
+
+	if (settings.public_url or "").strip():
+		return True
 
 	return not subroutine.config.is_loopback(host)
 
