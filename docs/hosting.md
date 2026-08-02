@@ -29,6 +29,7 @@ Rails application, you have already done this.
 - [A reverse proxy](#a-reverse-proxy)
 - [Adding the people](#adding-the-people)
 - [Giving an agent a token](#giving-an-agent-a-token)
+- [Reaching it from your own machine](#reaching-it-from-your-own-machine)
 - [Backups](#backups)
 - [Upgrading](#upgrading)
 - [The AGPL obligation, which is a product requirement here](#the-agpl-obligation-which-is-a-product-requirement-here)
@@ -454,6 +455,82 @@ is what stops an agent quietly promoting itself.
 and never read from `config.toml`. `--store <connection>` writes it to `credentials.toml`
 instead, and is deliberately opt-in: storing a narrow agent token under your own connection
 name would quietly narrow your own CLI.
+
+## Reaching it from your own machine
+
+Everything above set up a server. This is the other end: your own account, on your own laptop
+or on the same machine, listing the server's work beside your own.
+
+**It is a *connection*, and your own database is one too.** That is the whole design (§13.7):
+`subroutine today` asks every connection and merges the answers, so the dentist and the
+stand-up appear in one list rather than in two tools. Your own database is called `local` and
+exists whether or not you declare it.
+
+**A server account and your own account are separate installations on one machine, and that is
+correct rather than a mistake.** Subroutine keeps its files under the XDG directories, so the
+service account's instance lives under `/var/lib/subroutine` and yours under `~/.config` and
+`~/.local/share`. Running `subroutine list` as yourself shows *your* items and always will;
+`subroutine config show` will say `database_url … [default]` pointing at your own SQLite file.
+Reaching the server is not a matter of changing that — it is a matter of adding a connection
+beside it.
+
+Two files, both under `~/.config/subroutine`. First the connection, in `config.toml`:
+
+```toml
+[connections.work]
+url = "http://127.0.0.1:8471"
+```
+
+The name — `work` here — is *yours*. It is the first segment of every address the server's
+items print as, so `work/acme/#42`, and two people connected to the same server may call it
+different things. A name must start with a letter, because one made only of digits would read
+as a ref.
+
+Then the token, in `credentials.toml` beside it, keyed by that same name:
+
+```toml
+[work]
+token = "sr_…"
+```
+
+**Tokens live in their own file and never in `config.toml`** (§12.3a), so that a configuration
+file can be copied, committed or pasted into a bug report without taking a credential with it.
+Make it `chmod 600`. The token is one you issued on the *server*, with `subroutine token
+create` as the service account — see [Giving an agent a token](#giving-an-agent-a-token). If
+your shell already has `SUBROUTINE_TOKEN` set, that is another way in and needs no file.
+
+Then it just appears, with each row saying where it lives:
+
+```console
+$ subroutine list
+  Local
+              #1  Pay the gas bill
+
+  work
+    work/acme/#1  Fix the deploy script
+
+    Tip: subroutine show work/acme/1 — read one of them in full
+```
+
+Each row prints **the shortest address that resolves** — a bare number for your own, and the
+connection and workspace for anything that needs them. Whatever it prints is what you can type
+back, which is the point: a bare number beside an item on somebody else's server would be an
+invitation to act on the wrong one.
+
+`subroutine use work` changes which connection a *write* goes to — `subroutine add` and the
+rest. It never changes what you can see: reads always span everything reachable, which is what
+makes switching safe (§13.7).
+
+If a connection cannot be reached, the rest of the list still prints and one line says which
+one failed. That is deliberate: being told nothing about your own to-do list because a work
+server is down is the outcome this design exists to avoid.
+
+Other keys a `[connections.<name>]` table takes: `display_name` for what it is called in
+output, `read_only = true` to refuse writes to it from this machine, `token_env` or
+`token_command` to fetch the credential from the environment or from `pass`, `gpg`,
+`secret-tool` or a password manager rather than from a file, `timeout_seconds`, and
+`enabled = false` to keep a connection configured and switched off. Anything else in that table
+is refused by name rather than ignored.
 
 ## Backups
 

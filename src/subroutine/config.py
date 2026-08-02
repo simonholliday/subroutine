@@ -365,6 +365,18 @@ def read_config_file () -> dict[str, typing.Any]:
 		return tomllib.load(handle)
 
 
+#: Top-level keys the configuration file legitimately carries that are **not** settings, and
+#: so are absent from ``Settings.model_fields``. They are read by their own module rather than
+#: by the settings object — ``connections`` by :mod:`subroutine.connections`, which does its
+#: own strict check of the keys *inside* each table.
+#:
+#: **Without this the check contradicts itself** (`#259`): the one table a person hand-writes
+#: was reported as having no effect while it was working perfectly, and the warning exists
+#: precisely so that somebody cannot come to believe they set something they did not. Being
+#: told the opposite by the same mechanism is worse than silence, because it is specific.
+TABLES = frozenset({"connections"})
+
+
 def unknown_settings () -> list[tuple[str, str | None]]:
 	"""Return every key in the configuration file this program does not read.
 
@@ -384,7 +396,7 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 	from is the defect `#173` was about.
 	"""
 
-	known = set(Settings.model_fields)
+	known = set(Settings.model_fields) | TABLES
 	found = []
 
 	for key in read_config_file():

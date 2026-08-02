@@ -296,3 +296,40 @@ def test_a_value_with_awkward_characters_round_trips (
 	parsed = tomllib.loads(subroutine.config.config_file_path().read_text(encoding="utf-8"))
 
 	assert parsed["database_url"] == awkward
+
+
+def test_a_connection_table_is_not_reported_as_an_ignored_setting (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#259`. The warning for typos said the one table people hand-write was doing nothing.
+
+	`unknown_settings` compares against `Settings.model_fields`, and `connections` is
+	deliberately not a field — it is read by `subroutine.connections`, which does its own
+	strict check of the keys inside each table. So adding a connection, which is the only way
+	to add one, greeted the person with an authoritative statement that it was having no
+	effect, immediately before it worked.
+
+	Worse than a stray warning because of what the warning is for: `#175` built it so that a
+	misspelled `protected` cannot silently do nothing. Somebody trusting it would delete a
+	working connection.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+	written = subroutine.config.config_file_path()
+	written.parent.mkdir(parents=True, exist_ok=True)
+	# The typo goes *above* the table: in TOML every key after a table header belongs to it,
+	# so written the other way round `protectd` is a key inside the connection and is caught
+	# by `connections.KNOWN_KEYS` instead — a different check, and not the one under test.
+	written.write_text(
+		'protectd = true\n\n[connections.work]\nurl = "https://tasks.example.com"\n',
+		encoding="utf-8",
+	)
+
+	reported = dict(subroutine.config.unknown_settings())
+
+	assert "connections" not in reported
+
+	# And the real typo beside it is still caught, with its suggestion — otherwise this would
+	# pass just as well against a check that had stopped looking at anything.
+	assert reported["protectd"] == "protected"

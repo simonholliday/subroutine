@@ -57,6 +57,15 @@ upgrade involves.
   makes that directory, but not until the service first starts, and the service cannot start
   until `subroutine init` has run. One command, now in the guide where it is needed.
 
+- **A connection you add by hand is no longer reported as having no effect.** `config.toml`
+  warns about keys it does not recognise, so that a misspelled setting cannot silently do
+  nothing — and it did not know about `[connections.…]`, which is the one thing in that file
+  people write by hand. It said the connection was being ignored, immediately before using it.
+
+- **The hosting guide says how to reach a served instance from your own machine.** Adding a
+  connection is two short files and the guide never showed them, while the README sells one
+  list across every machine. There is a section for it now.
+
 - **The hosting guide says how to get PostgreSQL**, rather than assuming you already have one.
   Installing the server, and creating the role and database with names and ownership that
   actually let the first migration run — `--owner` in particular, without which it fails on
