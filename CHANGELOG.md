@@ -33,9 +33,12 @@ upgrade involves.
   harder — slows repeated authentication failures from one place. Both return `429` with
   `Retry-After`.
 
-  **Off on a loopback bind**, so a to-do list on your own machine is unaffected and nothing
-  about it changes. Set `rate_limit` to say otherwise either way; `rate_limit_per_minute` and
-  `rate_limit_failures_per_minute` are the two allowances.
+  **On unless nothing outside this machine can reach the instance**, so a to-do list on your
+  own laptop is unaffected and nothing about it changes. A loopback bind alone is not enough
+  to be sure of that — see the security note below — so setting `public_url` turns it on
+  whatever the bind. Set `rate_limit` to say otherwise either way; `rate_limit_per_minute` and
+  `rate_limit_failures_per_minute` are the two allowances, and `trusted_proxies` decides
+  whether a caller behind a proxy is counted or the proxy is.
 
   The counters live in the serving process's memory, so an instance run under something that
   forks workers would enforce a share of the limit per worker. `subroutine serve` runs one.
