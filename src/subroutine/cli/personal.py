@@ -2088,12 +2088,16 @@ def register (
 
 				return
 
+			# **A slug, not the id** (`#289`). `Located.workspace` is what `refs.format_address`
+			# composes `connection/workspace/ref` from, so the id rendered an address nobody
+			# could type: `local/019fad98-4313-7e36-b972-f7decf66f8ae/#288`. Every other caller
+			# of `_acted` passes a slug, and `add` gets it from this same function.
 			say(
 				_acted(
 					world,
 					Located(
 						connection=where.name,
-						workspace=str(created.workspace_id),
+						workspace=_writing_workspace(world),
 						item=created,
 					),
 					"Wrote",

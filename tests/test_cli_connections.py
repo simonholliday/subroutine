@@ -379,6 +379,31 @@ def test_connections_says_nothing_extra_when_both_answers_agree (
 	assert "Writing to" not in output
 
 
+def test_doc_create_confirms_with_an_address_that_can_be_typed_back (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""``#289``. It passed a workspace *id* where ``Located.workspace`` wants a slug.
+
+	``refs.format_address`` composes ``connection/workspace/ref`` from it, so the
+	confirmation read ``local/019fad98-4313-7e36-b972-f7decf66f8ae/#288`` — an address that
+	resolves to nothing and that nobody would type. Every other caller of ``_acted`` passes
+	a slug.
+
+	**This needs a qualifying world or it cannot fail.** With one connection and one
+	workspace ``_acted`` returns the title alone and the id is never rendered, which is why
+	the defect survived: the single-instance path does not simplify the multi-instance one,
+	it skips the code. `#273` and `#276` were invisible for the same reason.
+	"""
+
+	written = run("doc", "create", "A conclusion", "--body", "Something concluded.").output
+	address = next(word for word in written.split() if "/#" in word)
+
+	assert "-" not in address, f"an id where a slug belongs: {written!r}"
+
+	# The property rather than the shape: what it printed reaches the document.
+	assert "A conclusion" in run("show", address.replace("#", "")).output
+
+
 def test_the_listing_groups_by_connection_and_merges_on_request (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
