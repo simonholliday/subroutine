@@ -246,6 +246,18 @@ class ApiToken(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 	project_scope: sqlalchemy.orm.Mapped[list[str] | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.json_column(), nullable=True
 	)
+
+	# **The write set: where this credential may change things, within what it can reach**
+	# (§7.3, item `#371`). NULL means "wherever it can reach", so every credential issued
+	# before this column existed keeps exactly the authority it had — the whole point of
+	# spelling the default as a null rather than as a copy of `project_scope`.
+	#
+	# A list is a *subset* of `project_scope` when that is set, enforced at issue. Reads still
+	# go by `project_scope` alone: this narrows the verbs in
+	# `permissions.WRITES_INSIDE_A_PROJECT` and nothing else.
+	project_write_scope: sqlalchemy.orm.Mapped[list[str] | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.json_column(), nullable=True
+	)
 	expires_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True
 	)

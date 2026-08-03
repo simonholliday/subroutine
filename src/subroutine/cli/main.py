@@ -1321,6 +1321,11 @@ def token_create (
 		"--project",
 		help="Restrict it to this project and everything under it. Repeatable.",
 	),
+	write: list[str] = typer.Option(
+		None,
+		"--write",
+		help="Only let it change things in this project. Must be one it can reach.",
+	),
 	expires: str = typer.Option(
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
 	),
@@ -1388,6 +1393,7 @@ def token_create (
 				workspace=workspace.strip() or None,
 				scopes=[item.strip() for item in (scope or []) if item.strip()],
 				projects=[item.strip() for item in (project or []) if item.strip()] or None,
+				writes=[item.strip() for item in (write or []) if item.strip()] or None,
 				expires=expires.strip() or None,
 			)
 
@@ -1568,6 +1574,11 @@ def agent_create (
 		"--project",
 		help="Restrict it to this project and everything under it. Repeatable.",
 	),
+	write: list[str] = typer.Option(
+		None,
+		"--write",
+		help="Only let it change things in this project. Must be one it can reach.",
+	),
 	workspace: str = typer.Option(
 		"", "--workspace", help="Which workspace it works in. Pins the credential to it."
 	),
@@ -1626,6 +1637,7 @@ def agent_create (
 				workspace=workspace.strip() or None,
 				scopes=[item.strip() for item in (scope or []) if item.strip()],
 				projects=[item.strip() for item in (project or []) if item.strip()] or None,
+				writes=[item.strip() for item in (write or []) if item.strip()] or None,
 				expires=expires.strip() or None,
 			)
 

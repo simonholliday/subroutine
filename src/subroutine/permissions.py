@@ -79,6 +79,28 @@ WORKSPACE_LEVEL: frozenset[str] = frozenset(
 	}
 )
 
+#: The verbs whose effect lands *inside a project*, which is what makes them the ones a
+#: credential's write set narrows (§7.3, decision `#370`, item `#371`).
+#:
+#: **Named explicitly rather than derived from the string.** "Anything not ending in `:read`"
+#: would be an implicit convention deciding a security control, and it is wrong in both
+#: directions: `tag:write`, `status:write` and `link_type:write` curate the *workspace's*
+#: vocabulary rather than anything in a project, and `workspace:admin` is not about a project
+#: at all. A verb added later joins this set by somebody deciding it does, which is the
+#: property a suffix rule cannot have.
+#:
+#: Reads are deliberately absent. A credential's *reach* — `project_scope` — already decides
+#: which rows exist for it, and narrowing reads twice would mean two controls with one job.
+WRITES_INSIDE_A_PROJECT: frozenset[str] = frozenset(
+	{
+		PROJECT_WRITE,
+		PROJECT_DELETE,
+		TASK_WRITE,
+		TASK_DELETE,
+		COMMENT_WRITE,
+	}
+)
+
 #: Creating the second workspace happens outside every existing workspace, and creating an
 #: account happens before that account belongs to one — so neither can be expressed as a
 #: role permission, and without their own verbs the only way to do either is to skip the

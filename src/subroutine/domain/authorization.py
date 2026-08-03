@@ -51,6 +51,7 @@ class AuthorizationFailure(enum.StrEnum):
 	ROLE_LACKS_PERMISSION = "role_lacks_permission"
 	OUT_OF_TOKEN_SCOPE = "out_of_token_scope"
 	OUT_OF_PROJECT_SCOPE = "out_of_project_scope"
+	OUT_OF_PROJECT_WRITE_SCOPE = "out_of_project_write_scope"
 	PROJECT_INVISIBLE = "project_invisible"
 	NOT_A_SUPERUSER = "not_a_superuser"
 
@@ -83,6 +84,12 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 	),
 	AuthorizationFailure.OUT_OF_PROJECT_SCOPE: (
 		"The token you used is scoped to a different set of projects."
+	),
+	# Says which of the two restrictions stopped it, because the remedy is different: this
+	# credential can *read* here and the caller can see that it can, so a message about the
+	# project scope would send them looking for a restriction that is not the one biting.
+	AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE: (
+		"The token you used can read this project but may only write in another."
 	),
 	AuthorizationFailure.NOT_A_SUPERUSER: (
 		"This affects the whole installation, and needs the {permission!r} permission. "
@@ -437,6 +444,17 @@ def _refusal (
 	if project is not None and not _within_project_scope(principal, project):
 		return AuthorizationFailure.OUT_OF_PROJECT_SCOPE
 
+	# **Reach and write are two questions, asked in that order** (`#371`). Everything above
+	# has established that this credential can *see* the project; this asks whether it may
+	# change anything there. Only the verbs that land inside a project are narrowed, and they
+	# are named rather than derived — see `permissions.WRITES_INSIDE_A_PROJECT`.
+	if (
+		project is not None
+		and permission in subroutine.permissions.WRITES_INSIDE_A_PROJECT
+		and not _within_write_scope(principal, project)
+	):
+		return AuthorizationFailure.OUT_OF_PROJECT_WRITE_SCOPE
+
 	return None
 
 
@@ -585,7 +603,43 @@ def _within_project_scope (
 	ordinary string check rather than a recursive query.
 	"""
 
-	allowed = principal.project_scope
+	return _covers(principal.project_scope, project)
+
+
+def _within_write_scope (
+	principal: subroutine.domain.authentication.Principal,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether a credential may change things in this project — item ``#371``.
+
+	**``None`` means "wherever it can reach", not "everywhere".** That is what keeps every
+	credential issued before this column existed behaving exactly as it did: the reach check
+	has already run and passed by the time this is asked, so falling through here grants
+	nothing the reach did not already allow. Spelling the default as a copy of
+	``project_scope`` would have been the same behaviour and a worse record — a credential
+	would then carry a write set nobody chose, indistinguishable from one somebody did.
+
+	Subtree-inclusive for :func:`_within_project_scope`'s reason: a write set of ``SR`` that
+	refused ``SR/WEB`` would be useless on any tree deeper than one level.
+	"""
+
+	writable = principal.project_write_scope
+
+	if writable is None:
+		return True
+
+	return _covers(writable, project)
+
+
+def _covers (
+	allowed: list[str] | None, project: subroutine.db.models.project.Project
+) -> bool:
+	"""Report whether a list of project ids covers this project or an ancestor of it.
+
+	Shared by the two restrictions above so that "reaches" and "may write in" cannot come to
+	mean subtly different things about the same tree — which is the divergence this codebase
+	finds more often than any other.
+	"""
 
 	# The sentinel again: no list means no restriction.
 	if allowed is None:

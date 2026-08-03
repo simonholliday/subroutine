@@ -434,6 +434,7 @@ class Client:
 		workspace: str | None = None,
 		scopes: typing.Sequence[str] = (),
 		projects: typing.Sequence[str] | None = None,
+		writes: typing.Sequence[str] | None = None,
 		expires: str | None = None,
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
@@ -454,6 +455,7 @@ class Client:
 					# question the caller did not ask.
 					scopes=list(scopes) or None,
 					project_scope=None if projects is None else list(projects),
+					project_write_scope=None if writes is None else list(writes),
 					expires=expires,
 				),
 			),

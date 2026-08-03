@@ -160,6 +160,7 @@ def issue (
 	workspace: str | None = None,
 	scopes: typing.Sequence[str] = (),
 	projects: typing.Sequence[str] | None = None,
+	writes: typing.Sequence[str] | None = None,
 	expires: str | None = None,
 ) -> tuple[
 	subroutine.db.models.identity.ApiToken,
@@ -182,6 +183,10 @@ def issue (
 
 	``projects`` takes keys or ids. The column stores ids, because a key can be renamed
 	(`#176`) and a credential must not follow it onto whatever takes the old name.
+
+	``writes`` is the same, one dimension down: where this credential may *change* things,
+	within what ``projects`` lets it see (`#371`). ``None`` means its whole reach, so saying
+	nothing leaves a credential exactly as it would have been before the distinction existed.
 
 	``service_account`` names a machine identity and **creates one if there is none**, with a
 	role it can actually work with. That whole sequence is here rather than in the caller
@@ -209,6 +214,14 @@ def issue (
 		session, actor, projects, workspace=pinned
 	)
 
+	# **Resolved the same way, so `--project SR --write SR` cannot mean two different SRs**
+	# (`#371`). Both go through the one resolver, which refuses an unknown key and an
+	# ambiguous one; the *relationship* between the two lists — that a write set is inside
+	# the reach — is checked by `issue_token`, where the ids are canonical.
+	writable = subroutine.domain.selection.token_projects(
+		session, actor, writes, workspace=pinned
+	)
+
 	row, issued = subroutine.domain.authentication.issue_token(
 		session,
 		user=owner,
@@ -217,6 +230,9 @@ def issue (
 		scopes=scopes,
 		project_scope=(
 			None if restricted is None else [str(found.id) for found in restricted]
+		),
+		project_write_scope=(
+			None if writable is None else [str(found.id) for found in writable]
 		),
 		expires_at=expires_on(
 			expires,

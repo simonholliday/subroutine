@@ -615,6 +615,19 @@ class Credential(pydantic.BaseModel):
 	#: a caller that wants certainty reads ``project_scope``, which has always been sent.
 	project_scope_keys: list[str] | None = None
 
+	#: Where it may *change* things, within that reach — item `#371`. Null means its whole
+	#: reach, which for a restricted credential is **not** everywhere: a caller reading this
+	#: as "unrestricted" would report a bounded agent as unbounded.
+	#:
+	#: **Defaulted**, so a client can read a response from an instance that predates the field
+	#: (`#345`).
+	project_write_scope: list[str] | None = None
+
+	#: The same, with each id resolved to the key a person types. Null alongside
+	#: ``project_write_scope``, and never a narrower list than it, for ``project_scope_keys``'
+	#: reason.
+	project_write_scope_keys: list[str] | None = None
+
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None
 
@@ -704,6 +717,19 @@ class Token(pydantic.BaseModel):
 	#: that resolves to nothing visible is passed through as it was stored, because a
 	#: credential's reported reach must not be smaller than its real one.
 	project_scope_keys: list[str] | None = None
+
+	#: Where it may *change* things, within that reach — item `#371`. Null means its whole
+	#: reach, which for a restricted credential is **not** everywhere: a caller reading this
+	#: as "unrestricted" would report a bounded agent as unbounded.
+	#:
+	#: **Defaulted**, so a client can read a response from an instance that predates the field
+	#: (`#345`).
+	project_write_scope: list[str] | None = None
+
+	#: The same, with each id resolved to the key a person types. Null alongside
+	#: ``project_write_scope``, and never a narrower list than it, for ``project_scope_keys``'
+	#: reason.
+	project_write_scope_keys: list[str] | None = None
 
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None
@@ -1386,9 +1412,20 @@ def credential (
 			if row.project_scope is None
 			else subroutine.domain.projects.keys_for(session, principal, row.project_scope)
 		),
+		project_write_scope=(
+			None if row.project_write_scope is None else list(row.project_write_scope)
+		),
+		project_write_scope_keys=(
+			None
+			if row.project_write_scope is None
+			else subroutine.domain.projects.keys_for(
+				session, principal, row.project_write_scope
+			)
+		),
 		workspace_id=row.workspace_id,
 		narrows=bool(row.scopes)
 		or row.project_scope is not None
+		or row.project_write_scope is not None
 		or row.workspace_id is not None,
 		expires_at=row.expires_at,
 		last_used_at=row.last_used_at,
@@ -1513,9 +1550,20 @@ def token (
 			if row.project_scope is None or session is None or principal is None
 			else subroutine.domain.projects.keys_for(session, principal, row.project_scope)
 		),
+		"project_write_scope": (
+			None if row.project_write_scope is None else list(row.project_write_scope)
+		),
+		"project_write_scope_keys": (
+			None
+			if row.project_write_scope is None or session is None or principal is None
+			else subroutine.domain.projects.keys_for(
+				session, principal, row.project_write_scope
+			)
+		),
 		"workspace_id": row.workspace_id,
 		"narrows": bool(row.scopes)
 		or row.project_scope is not None
+		or row.project_write_scope is not None
 		or row.workspace_id is not None,
 		"usable": row.revoked_at is None
 		and (row.expires_at is None or row.expires_at > moment),

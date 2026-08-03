@@ -426,12 +426,17 @@ class Client(typing.Protocol):
 		workspace: str | None = None,
 		scopes: typing.Sequence[str] = (),
 		projects: typing.Sequence[str] | None = None,
+		writes: typing.Sequence[str] | None = None,
 		expires: str | None = None,
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included — item `#348`.
 
 		**The only moment the secret exists outside the caller.** Only a hash is stored, so
 		nothing recovers it afterwards, including the instance that issued it.
+
+		``writes`` narrows where it may *change* things to a subset of ``projects`` — the
+		arrangement an agent working inside a related tree needs, where reading the neighbours
+		is the point and writing to them is not (`#371`). ``None`` means its whole reach.
 
 		``projects`` restricts it to those projects and everything under them, by key or by id.
 		Keys are resolved by the instance rather than by whichever client asked, so ``SR``

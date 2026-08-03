@@ -806,6 +806,7 @@ class Client:
 		workspace: str | None = None,
 		scopes: typing.Sequence[str] = (),
 		projects: typing.Sequence[str] | None = None,
+		writes: typing.Sequence[str] | None = None,
 		expires: str | None = None,
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
@@ -820,6 +821,7 @@ class Client:
 				workspace=workspace,
 				scopes=scopes,
 				projects=projects,
+				writes=writes,
 				expires=expires,
 			)
 			rendered = subroutine.views.token(

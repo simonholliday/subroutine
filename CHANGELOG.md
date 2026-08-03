@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `e4862f5da622`.
+> **This release changes the database schema**, to `d5d0458f5ad5`.
 >
 > Install it, then run `subroutine upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service

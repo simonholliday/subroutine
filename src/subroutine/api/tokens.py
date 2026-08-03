@@ -86,6 +86,13 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: behalf gets a security control wrong in silence.
 	project_scope: list[str] | None = None
 
+	#: Where it may *change* things, within ``project_scope`` — item `#371`. Null means its
+	#: whole reach, which is what every credential issued before this field existed has. An
+	#: empty list is refused for ``project_scope``'s reason, and one naming a project outside
+	#: the reach is refused too: a write set the credential cannot read would be a permission
+	#: it could never exercise, reported as though it could.
+	project_write_scope: list[str] | None = None
+
 	#: When it stops working, in §9.3's grammar — ``2026-09-01`` or ``now+30d``. It names a
 	#: whole day and the credential works through the end of it, the same reading a deadline
 	#: gets.
@@ -104,8 +111,9 @@ def create (
 	nothing recovers it afterwards — including this instance. Store it when you receive it.
 
 	A credential may never grant more than the one that asked for it: wider scopes, a wider set
-	of projects, or an unpinned workspace where the caller's own token is pinned are all
-	refused, as is issuing for somebody else without ``instance:user_create``.
+	of projects, a wider set of projects it may *write* in, an expiry later than its own, or an
+	unpinned workspace where the caller's own token is pinned are all refused — as is issuing
+	for somebody else without ``instance:user_create``.
 	"""
 
 	_row, owner, issued, created = subroutine.domain.tokens.issue(
@@ -117,6 +125,7 @@ def create (
 		workspace=body.workspace,
 		scopes=body.scopes or (),
 		projects=body.project_scope,
+		writes=body.project_write_scope,
 		expires=body.expires,
 	)
 

@@ -101,6 +101,21 @@ class Principal:
 		return None if self.token is None else self.token.project_scope
 
 	@property
+	def project_write_scope (self) -> list[str] | None:
+		"""Return where this credential may *change* things, or ``None`` for its whole reach.
+
+		**Not the same question as :attr:`project_scope`, which is what it can see** (`#371`).
+		A credential that reads a related tree and writes into one project of it is the
+		ordinary shape for an agent working alongside others, and one list cannot say it.
+
+		``None`` falls back to the reach, so a credential issued before this existed is
+		unchanged — and a caller must never read this as "everywhere", because for a scoped
+		credential it is not.
+		"""
+
+		return None if self.token is None else self.token.project_write_scope
+
+	@property
 	def pinned_workspace_id (self) -> uuid.UUID | None:
 		"""Return the workspace this credential is pinned to, or ``None`` for any."""
 
@@ -125,6 +140,7 @@ def issue_token (
 	workspace_id: uuid.UUID | None = None,
 	scopes: typing.Sequence[str] = (),
 	project_scope: typing.Sequence[str] | None = None,
+	project_write_scope: typing.Sequence[str] | None = None,
 	expires_at: datetime.datetime | None = None,
 	created_by: uuid.UUID | None = None,
 	actor: Principal | None = None,
@@ -157,6 +173,7 @@ def issue_token (
 			workspace_id=workspace_id,
 			scopes=scopes,
 			project_scope=project_scope,
+			project_write_scope=project_write_scope,
 			expires_at=expires_at,
 		)
 
@@ -183,6 +200,13 @@ def issue_token (
 		)
 
 	project_scope = None if project_scope is None else _canonical_project_scope(project_scope)
+	project_write_scope = (
+		None
+		if project_write_scope is None
+		else _canonical_project_scope(project_write_scope, field="project_write_scope")
+	)
+
+	_refuse_a_write_set_outside_the_reach(project_scope, project_write_scope)
 
 	issued = _mint_unused_token(session)
 
@@ -194,6 +218,9 @@ def issue_token (
 		token_hash=issued.token_hash,
 		scopes=list(scopes),
 		project_scope=None if project_scope is None else list(project_scope),
+		project_write_scope=(
+			None if project_write_scope is None else list(project_write_scope)
+		),
 		expires_at=expires_at,
 		created_by=created_by,
 	)
@@ -210,6 +237,7 @@ def _refuse_amplification (
 	workspace_id: uuid.UUID | None,
 	scopes: typing.Sequence[str],
 	project_scope: typing.Sequence[str] | None,
+	project_write_scope: typing.Sequence[str] | None,
 	expires_at: datetime.datetime | None,
 ) -> None:
 	"""Refuse a token that would grant more than the credential asking for it.
@@ -299,6 +327,35 @@ def _refuse_amplification (
 			],
 		)
 
+	# **The write set is compared against the presenter's, falling back to its reach** (`#371`).
+	# A credential that may write only in `SUBSAMPLE` must not issue one that writes across
+	# `SR` — and where the presenter has no write set of its own, what bounds it is what it can
+	# reach, which is exactly what `_within_write_scope` falls back to at check time. The two
+	# fallbacks have to agree or the guard and the enforcement mean different things.
+	held_writes = actor.token.project_write_scope
+	bounds = held_writes if held_writes is not None else actor.token.project_scope
+
+	if bounds is not None:
+		asked = (
+			project_write_scope
+			if project_write_scope is not None
+			else project_scope
+		)
+		allowed = set(bounds)
+
+		if asked is None or not set(_canonical_project_scope(asked)) <= allowed:
+			raise subroutine.errors.Forbidden(
+				"A token cannot write in more projects than the one that asked for it.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="project_write_scope",
+						code="forbidden",
+						message=f"The credential you presented writes in: "
+						f"{', '.join(sorted(allowed))}.",
+					)
+				],
+			)
+
 	if actor.token.expires_at is not None and (
 		expires_at is None or expires_at > actor.token.expires_at
 	):
@@ -377,7 +434,9 @@ def revoke_token (
 		token.revoked_at = at if at is not None else subroutine.db.types.utcnow()
 
 
-def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
+def _canonical_project_scope (
+	project_scope: typing.Sequence[str], *, field: str = "project_scope"
+) -> list[str]:
 	"""Return the project ids in the exact form the permission check compares against.
 
 	Two failures are being closed here, and both are silent without it. A malformed id
@@ -392,6 +451,10 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 
 	The ids are *not* checked against existing projects: a token may legitimately name a
 	project its issuer cannot see, or one created later.
+
+	``field`` names the argument in the refusal, because ``project_write_scope`` goes through
+	the same rules and a message about the wrong field sends its reader to the wrong flag
+	(`#371`).
 	"""
 
 	if not project_scope:
@@ -399,14 +462,14 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 		# which reaches an HTTP caller as a 500 and a person as a traceback — for a mistake
 		# either of them can make in one keystroke.
 		raise subroutine.errors.ValidationError(
-			"An empty project_scope is ambiguous: it could mean every project or none.",
+			f"An empty {field} is ambiguous: it could mean every project or none.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="project_scope",
+					field=field,
 					code="invalid_field_value",
 					message="An empty list says nothing about which projects are meant.",
-					hint="Name at least one project id, or leave project_scope out entirely "
-					"for a credential that is not restricted by project.",
+					hint=f"Name at least one project id, or leave {field} out entirely for a "
+					f"credential that is not restricted that way.",
 				)
 			],
 		)
@@ -422,9 +485,9 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 				f"{entry!r} is not a project id.",
 				errors=[
 					subroutine.errors.FieldError(
-						field="project_scope",
+						field=field,
 						code="invalid_field_value",
-						message=f"project_scope holds project ids; {entry!r} is not one.",
+						message=f"{field} holds project ids; {entry!r} is not one.",
 						hint="A project's id is the `id` field of GET /v1/projects — a UUID, "
 						"not its key.",
 					)
@@ -432,6 +495,43 @@ def _canonical_project_scope (project_scope: typing.Sequence[str]) -> list[str]:
 			) from None
 
 	return canonical
+
+
+def _refuse_a_write_set_outside_the_reach (
+	project_scope: list[str] | None, project_write_scope: list[str] | None
+) -> None:
+	"""Refuse a write set naming a project the credential cannot even see — item ``#371``.
+
+	**The two lists are not independent, and letting them be would make the narrower one a
+	lie.** A credential that reaches `SUBSAMPLE` and claims a write set of `SR` would report
+	itself as able to write in a project every read of which returns nothing — a control that
+	is present, exercised and meaningless, which is this codebase's second signature defect.
+
+	Nothing here checks against *real* projects, for :func:`_canonical_project_scope`'s reason:
+	a credential may name a project its issuer cannot see, or one created later. This is the
+	relationship between the two fields, which is knowable without asking the database.
+	"""
+
+	if project_scope is None or project_write_scope is None:
+		return
+
+	outside = sorted(set(project_write_scope) - set(project_scope))
+
+	if not outside:
+		return
+
+	raise subroutine.errors.ValidationError(
+		"A credential cannot be given write access to a project it cannot read.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="project_write_scope",
+				code="invalid_field_value",
+				message=f"Not inside this credential's reach: {', '.join(outside)}.",
+				hint="The write set is a subset of the projects the credential can reach. "
+				"Widen project_scope, or drop these from the write set.",
+			)
+		],
+	)
 
 
 def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.IssuedToken:
