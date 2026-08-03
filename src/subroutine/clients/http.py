@@ -737,6 +737,32 @@ class Client:
 
 		return self._parsed(subroutine.views.Task, body)
 
+	def claim (
+		self, *, ref: int, minutes: int | None = None, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
+
+		return self._parsed(
+			subroutine.views.Task,
+			self._json(
+				"POST",
+				f"/v1/tasks/{ref}/claim",
+				params=_given(minutes=minutes, workspace_id=workspace),
+			),
+		)
+
+	def release (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Give a task back, so somebody else can take it (`#350`)."""
+
+		return self._parsed(
+			subroutine.views.Task,
+			self._json(
+				"POST", f"/v1/tasks/{ref}/release", params=_given(workspace_id=workspace)
+			),
+		)
+
 	def complete (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:

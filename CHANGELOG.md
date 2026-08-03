@@ -14,7 +14,33 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `e4862f5da622`.
+>
+> Install it, then run `subroutine upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
+
+- **Claims — two workers cannot both take the same task.** `subroutine claim 42`, `release`,
+  and `subroutine_claim` for an agent. Until now `--ready --order -priority_score` answered the
+  same for everybody, so two workers asking the obvious question collided by construction — and
+  the cost is not a merge conflict, which git handles, but both of them doing the same work and
+  one finding out at the end.
+
+  **A lease, not a lock.** It expires, and an expired one is ignored rather than needing anybody
+  to clear it: workers die mid-task, and a claim that outlived its holder would strand the work
+  permanently. Say it again while you are still going. Nothing has to run for a task to come
+  back.
+
+  Work somebody else holds disappears from a ready listing until their claim runs out, and your
+  own never disappears from yours. Claiming something held is refused by name and by time —
+  who, and until when — because those are the two facts that decide what you do next. Anybody
+  who can change a task can release it, not only the holder, since the case it exists for is a
+  worker that died holding one.
+
+  `claim_lease_minutes` is read for the first time; it has been a documented setting that
+  nothing consulted since the first release.
 
 - **`subroutine agent create` — one command sets an AI agent up as a principal of its own.**
   The account, its membership and its credential in one act, because they are one decision: an

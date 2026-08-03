@@ -165,6 +165,21 @@ subroutine_list(ready=true, order="-priority_score")
 `ready` leaves out anything blocked by unfinished work and anything deferred to a later date.
 Without it you get a backlog in priority order, which includes things nobody can act on yet.
 
+**If anybody else works from this list, take the task before you start it.**
+
+```
+subroutine_claim(ref=42)
+```
+
+Nothing enforces this and nothing has to: a claim is how you say "I am on this" to workers who
+cannot see your screen. `ready=true` then hides it from them and never from you. It expires by
+itself, so say it again if you are still going, and nothing is stranded if your context ends
+first — which it will.
+
+`subroutine_claim(ref=42, release=true)` gives it back when you stop without finishing. If
+somebody else holds it you are told who and until when, which is the answer to what you do
+next.
+
 **Look before you file.** Searching costs one call and a duplicate costs somebody an afternoon
 of wondering which of two items is the real one:
 

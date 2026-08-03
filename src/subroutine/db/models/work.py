@@ -142,6 +142,22 @@ class Task(
 		nullable=True,
 	)
 
+	# **A lease, not a lock** (§14.11). Agents die mid-task routinely, and a hard lock would
+	# strand the work permanently — so a claim carries an expiry and an expired one is ignored
+	# rather than needing anybody to clean it up. All three move together or none of them do.
+	claimed_by_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
+		nullable=True,
+		index=True,
+	)
+	claimed_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+	claim_expires_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = (
+		sqlalchemy.orm.mapped_column(subroutine.db.types.UtcDateTime(), nullable=True)
+	)
+
 	# Recurrence is stored as an RFC 5545 rule; natural language is an input convenience
 	# that is parsed into this, never the stored form.
 	recurrence_rule: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(

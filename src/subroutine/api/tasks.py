@@ -34,6 +34,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.claims
 import subroutine.domain.hierarchy
 import subroutine.domain.links
 import subroutine.domain.ordering
@@ -394,7 +395,9 @@ def listing (
 
 	if ready:
 		statement = statement.where(
-			subroutine.domain.readiness.ready(model, now=subroutine.db.types.utcnow())
+			subroutine.domain.readiness.ready(
+				model, now=subroutine.db.types.utcnow(), by=actor.user.id
+			)
 		)
 
 	if assignee_id is not None:
@@ -546,6 +549,61 @@ def complete (
 		)
 
 	return _rendered(session, finished)
+
+
+@router.post("/{id_or_ref}/claim", summary="Take a task, so nobody else does")
+def take (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	minutes: int | None = fastapi.Query(
+		None, description="How long the lease lasts. Defaults to the instance's setting."
+	),
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Task:
+	"""Take a lease on a task, or renew one you already hold.
+
+	A **lease, not a lock** (SPEC.md §14.11): it expires, and an expired one is ignored rather
+	than needing anybody to clear it. Workers die mid-task, and a claim that outlived its
+	holder would strand the work permanently.
+
+	Claiming something somebody else holds is a `409` naming who and until when. Claiming
+	something you already hold renews it, and keeps the instant you first took it.
+
+	`?ready=true` hides work another worker holds, and never hides your own.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	held = subroutine.domain.claims.claim(
+		session, task, minutes=minutes, settings=subroutine.config.load_settings(), actor=actor
+	)
+
+	return _rendered(session, held)
+
+
+@router.post("/{id_or_ref}/release", summary="Give a task back")
+def give_back (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Task:
+	"""Give a task back, so somebody else can take it.
+
+	Releasing something nobody holds is not an error and records nothing — a worker tidying up
+	after itself should not have to check first.
+
+	**Anybody who may change the task may release it**, not only the holder. The case this
+	exists for is a worker that died holding a lease, and requiring its credential would put
+	the remedy in the hands of the one principal that cannot act.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	freed = subroutine.domain.claims.release(session, task, actor=actor)
+
+	return _rendered(session, freed)
 
 
 @router.post("/{id_or_ref}/restore", summary="Take a task out of the trash")

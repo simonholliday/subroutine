@@ -6,7 +6,8 @@ next needs to skip all three without caring which applies:
 * it is **finished** — done or cancelled;
 * it is **blocked** — something unfinished must land first (§5.7's ``blocks``);
 * it is **deferred** — ``start_at`` is in the future, and §6.5 says a task is not actionable
-  before it.
+  before it;
+* it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
 two are a graph and a clock — folding either into the number would make the number mean two
@@ -21,6 +22,7 @@ one on offer was the scalar.
 
 import datetime
 import typing
+import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
@@ -140,14 +142,51 @@ def refuse_unknown_deferral (choice: str) -> str:
 	return chosen
 
 
+def unclaimed (
+	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items no *other* worker holds a live lease on.
+
+	**Your own claim does not hide your own work.** An agent that claims a task and then asks
+	what it can start would otherwise lose the thing it just took — which is the one behaviour
+	that would make claiming a trap rather than a tool.
+
+	An expired lease matches, with no cleanup: a claim nobody renewed simply stops counting,
+	which is what makes a lease a lease. ``claims.held_by`` is the row-level form of the same
+	rule, and the two are the pair §6.3a warns about — a predicate the database sorts by and a
+	function that reads a loaded row have to agree, so they are tested against each other.
+
+	``by`` is ``None`` for a caller with no principal, where every live claim belongs to
+	somebody else.
+	"""
+
+	live = sqlalchemy.and_(
+		model.claimed_by_id.is_not(None), model.claim_expires_at > now
+	)
+
+	if by is None:
+		return sqlalchemy.not_(live)
+
+	return sqlalchemy.or_(sqlalchemy.not_(live), model.claimed_by_id == by)
+
+
 def ready (
-	model: type[typing.Any], *, now: datetime.datetime
+	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None = None
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items that can actually be started.
 
-	The three clauses together. ``completed`` is left to the caller's own
+	The four clauses together. ``completed`` is left to the caller's own
 	``include_completed``, which every listing already has — repeating it here would give two
 	parameters an argument about the same rows.
+
+	**The claim clause is the one that is about the *viewer* rather than the work**, and that
+	is worth naming because this module's other predicates are deliberately not. ``unblocked``
+	reads blocker tasks without narrowing by visibility precisely because readiness is a fact
+	about the work; a claim is not, and cannot be — "can I start this" has a different answer
+	for the agent holding the lease than for anybody else. So ``by`` is passed rather than
+	assumed, and a caller that does not pass one gets the strictest reading.
 	"""
 
-	return sqlalchemy.and_(unblocked(model), undeferred(model, now=now))
+	return sqlalchemy.and_(
+		unblocked(model), undeferred(model, now=now), unclaimed(model, now=now, by=by)
+	)

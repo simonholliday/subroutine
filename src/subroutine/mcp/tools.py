@@ -336,6 +336,28 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			call=lambda arguments: _changed(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_claim",
+			title="Take a task",
+			description=(
+				"Take a task so another worker does not start it too, or give one back. "
+				"'ready' listings hide what somebody else holds and never hide your own. A "
+				"claim expires by itself, so say it again while you are still working."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"ref": {"type": "integer", "description": "The task's number."},
+					"release": {
+						"type": "boolean",
+						"description": "Give it back instead of taking it.",
+					},
+					"workspace": WORKSPACE,
+				},
+				"required": ["ref"],
+			},
+			call=lambda arguments: _claimed(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_whoami",
 			title="Who am I",
 			description=(
@@ -361,6 +383,41 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			call=lambda arguments: _completed(client, arguments),
 		),
 	]
+
+
+def _claimed (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Take a task or give it back, and say which — item ``#350``.
+
+	**One tool with a ``release`` flag rather than two, and that is a budget decision made
+	against `#149`'s lesson rather than in ignorance of it.** A capability parked in another
+	tool's argument is undiscoverable — a model reads tool *names* to decide what it can do,
+	which is why searching became its own tool. What makes this different is that taking and
+	giving back are the same capability in two directions, named together in one description a
+	model reads whole: an agent that has found "take a task" has found how to give it back, in
+	a way it could never have found ``list(q=…)`` from a tool called ``list``.
+
+	The alternative was measured at roughly two hundred more bytes on every session, for a
+	verb agents call rarely and only after calling this one.
+	"""
+
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+
+	if arguments.get("release"):
+		freed = client.release(ref=ref, workspace=workspace)
+
+		return f"Released #{freed.ref}  {freed.title}"
+
+	held = client.claim(ref=ref, workspace=workspace)
+	until = (
+		""
+		if held.claim_expires_at is None
+		else f", until {held.claim_expires_at.isoformat(timespec='minutes')}"
+	)
+
+	return f"Claimed #{held.ref}  {held.title}{until}"
 
 
 def _whoami (client: subroutine.clients.base.Client) -> str:

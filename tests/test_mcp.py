@@ -783,7 +783,27 @@ def test_the_whole_tool_surface_stays_small (
 	  **Fat was read for first and none was taken, for the third time running.** ``update`` is
 	  still the largest and is still argument descriptions doing work.
 
-	The slack above the current total is deliberate and small — **253 bytes** as of 2026-08-03,
+	* ``subroutine_claim`` (`#350`), 2026-08-03, **580 bytes** — the thirteenth, and the second
+	  raise in one day, which is worth saying rather than sliding through. `#338` closed that
+	  morning and gave every agent a distinct, bounded identity; identity answers *afterwards*
+	  who did what, and does nothing about two workers taking the same item off the same ranked
+	  listing. ``list(ready=true, order='-priority_score')`` deliberately answers the same for
+	  everybody, so two agents asking the obvious question collide by construction — and the
+	  cost is not a merge conflict, which git handles, but two of them doing the same work and
+	  one finding out at the end.
+
+	  **One tool with a ``release`` flag rather than two**, decided against `#149`'s lesson
+	  rather than in ignorance of it. That lesson is that a capability parked in another tool's
+	  argument is undiscoverable, because a model reads tool *names*. What makes this different
+	  is that taking and giving back are one capability in two directions, named together in a
+	  description read whole: an agent that has found "take a task" has found how to give it
+	  back, in a way it could never have found ``list(q=…)`` from a tool called ``list``. Two
+	  tools measured at roughly two hundred bytes more, for a verb called rarely and only after
+	  this one.
+
+	  **Fat was read for first and none was taken, for the fourth time running.**
+
+	The slack above the current total is deliberate and small — **171 bytes** as of 2026-08-03,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -797,11 +817,11 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 12, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 13, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 7750, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 8250, f"the tool schemas are {size} bytes of every session's context"
 
 
 def _two_workspaces (

@@ -1810,6 +1810,84 @@ def register (
 	# enclosing scope — so every refusal in every command registered here would have called the
 	# command instead. `mypy --strict` caught it; nothing at runtime would have, because the
 	# paths that call `stop()` are the ones nobody exercises on a good day.
+	@app.command("claim", hidden=not _worth_showing(settings))
+	def claim_item (
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
+		minutes: int = typer.Option(
+			0,
+			"--minutes",
+			show_default=False,
+			help="How long to hold it. Defaults to this instance's setting.",
+		),
+	) -> None:
+		"""Take something, so nobody else starts it too.
+
+		Examples:
+
+		  subroutine claim 42
+
+		  subroutine release 42
+
+		For when more than one person or agent works from the same list. A claim expires on its
+		own, so nothing is stranded if whoever took it never comes back — say it again to hold
+		it for longer.
+
+		Work somebody else has claimed disappears from 'subroutine list --ready' until their
+		claim runs out. Your own never disappears from your own.
+		"""
+
+		with opened() as world:
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="claim",
+			)
+			client = _require_connection(world, located.connection)
+
+			try:
+				held = client.claim(
+					ref=task.ref,
+					minutes=minutes or None,
+					workspace=located.workspace,
+				)
+
+			except subroutine.errors.SubroutineError as error:
+				fail(error)
+
+			say(_acted(world, dataclasses.replace(located, item=held), "Claimed"))
+			_suggest(console, "subroutine list --ready", "what is free to start")
+
+	@app.command("release", hidden=not _worth_showing(settings))
+	def release_item (
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
+	) -> None:
+		"""Put something back, so somebody else can pick it up.
+
+		Examples:
+
+		  subroutine release 42
+
+		Releasing something nobody had claimed is not an error, so this is safe to run when you
+		are not sure. Anybody who can change the task can release it — which is what makes an
+		agent that died mid-task somebody else's problem to solve rather than nobody's.
+		"""
+
+		with opened() as world:
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="release",
+			)
+			client = _require_connection(world, located.connection)
+
+			try:
+				freed = client.release(ref=task.ref, workspace=located.workspace)
+
+			except subroutine.errors.SubroutineError as error:
+				fail(error)
+
+			say(_acted(world, dataclasses.replace(located, item=freed), "Released"))
+
 	@app.command("start")
 	def start_item (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),

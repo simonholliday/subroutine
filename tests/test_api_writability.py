@@ -94,6 +94,16 @@ DERIVED: dict[str, str] = {
 		"The title of parent_task_id, resolved so a client can render a subtree without a "
 		"call per row. Changed by editing the parent, never through the child."
 	),
+	"claimed_by_id": (
+		"Who holds a lease on this task (§14.11). Claiming is its own operation, like "
+		"completing and deleting — assigning a holder by hand would let a caller park work "
+		"under somebody else's name, which is the one thing a lease exists to make honest."
+	),
+	"claimed_at": "When the current lease was first taken. Follows the claim, never assigned.",
+	"claim_expires_at": (
+		"When the lease runs out. Set from the lease length at claim time, because a caller "
+		"choosing its own expiry could take a lock and call it a lease."
+	),
 	"created_by": "The actor who wrote the row. Taken from the credential, never from the body — a caller that could name someone else could forge attribution.",
 	"updated_by": "The actor who last changed it, on the same terms.",
 }

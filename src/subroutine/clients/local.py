@@ -43,6 +43,7 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.capture
+import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.events
@@ -277,7 +278,9 @@ class Client:
 			# because a readiness that meant something different here would be worse than none.
 			if ready:
 				statement = statement.where(
-					subroutine.domain.readiness.ready(model, now=subroutine.db.types.utcnow())
+					subroutine.domain.readiness.ready(
+						model, now=subroutine.db.types.utcnow(), by=actor.user.id
+					)
 				)
 
 			if parent is not None:
@@ -1180,6 +1183,38 @@ class Client:
 			return subroutine.views.task(
 				acted(session, row, actor=actor),
 				subroutine.views.Vocabulary.for_tasks(session, [row]),
+			)
+
+	def claim (
+		self, *, ref: int, minutes: int | None = None, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			row = self._require(session, actor, ref, workspace)
+			held = subroutine.domain.claims.claim(
+				session, row, minutes=minutes, settings=self.settings, actor=actor
+			)
+
+			return subroutine.views.task(
+				held, subroutine.views.Vocabulary.for_tasks(session, [held])
+			)
+
+	def release (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Give a task back, so somebody else can take it (`#350`)."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			row = self._require(session, actor, ref, workspace)
+			freed = subroutine.domain.claims.release(session, row, actor=actor)
+
+			return subroutine.views.task(
+				freed, subroutine.views.Vocabulary.for_tasks(session, [freed])
 			)
 
 	def complete (

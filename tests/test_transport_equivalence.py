@@ -37,8 +37,10 @@ import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.links
@@ -223,6 +225,118 @@ def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
 		[subroutine.permissions.TASK_READ]
 	]
 	assert all(workspace.narrowed_by_credential for workspace in mine.workspaces)
+
+
+def test_a_claim_hides_the_work_from_everybody_but_its_holder (
+	pair: Pair, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#350`, and the whole point of it: two workers cannot take the same item.
+
+	**Two principals, because one cannot fail.** A test where the claimer and the reader are
+	the same credential passes whether or not the predicate distinguishes them — and telling
+	them apart is the entire behaviour. Same lesson as the one-workspace fixture in `#332`.
+	"""
+
+	task = make(pair, "Something two agents would both pick up")
+	other = subroutine.domain.users.create(
+		session, username=f"other-{uuid.uuid4().hex[:8]}", is_service_account=True
+	)
+	subroutine.domain.workspaces.add_member(
+		session, pair.workspace, other, role_key="contributor"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=other, title="The other worker"
+	)
+	session.flush()
+
+	local, _remote = pair.both()
+	theirs = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	assert task.ref in [found.ref for found in local.tasks(ready=True)], "free to start"
+
+	local.claim(ref=task.ref)
+
+	with theirs:
+		assert task.ref not in [found.ref for found in theirs.tasks(ready=True)], (
+			"another worker's live claim takes it off the list"
+		)
+
+		# **And the refusal names who, which is what the other worker does next with it.**
+		with pytest.raises(subroutine.errors.Conflict) as refused:
+			theirs.claim(ref=task.ref)
+
+		assert pair.user.username in str(refused.value.hint)
+
+	# Never hidden from its own holder: an agent that claimed something and then asked what it
+	# could start would otherwise lose the thing it had just taken.
+	assert task.ref in [found.ref for found in local.tasks(ready=True)]
+
+	local.release(ref=task.ref)
+
+	with theirs:
+		assert task.ref in [found.ref for found in theirs.tasks(ready=True)], "given back"
+
+
+def test_both_claim_and_release_the_same_way (pair: Pair) -> None:
+	"""Whichever transport asked, the lease and what it reports are the same."""
+
+	local, remote = pair.both()
+	task = make(pair, "Claimed over one transport, released over the other")
+
+	held = remote.claim(ref=task.ref)
+
+	assert held.claimed_by_id == pair.user.id
+	assert held.claimed_at is not None
+	assert held.claim_expires_at is not None
+
+	# Renewing keeps the instant it was first taken — how long this has been in hand is not
+	# lost by saying so again.
+	renewed = local.claim(ref=task.ref)
+
+	assert renewed.claimed_at == held.claimed_at
+	assert renewed.claim_expires_at is not None
+	assert renewed.claim_expires_at >= held.claim_expires_at
+
+	freed = local.release(ref=task.ref)
+
+	assert freed.claimed_by_id is None
+	assert freed.claim_expires_at is None
+
+	# Releasing what nobody holds is not an error, so tidying up needs no check first.
+	assert remote.release(ref=task.ref).claimed_by_id is None
+
+
+def test_a_lease_nobody_renewed_stops_counting (
+	pair: Pair, session: sqlalchemy.orm.Session
+) -> None:
+	"""A lease, not a lock — and nothing has to run for the work to come back.
+
+	The case this exists for is a worker that died: no release, no cleanup job, and the task
+	simply becomes available again. Asserted by putting the expiry in the past rather than by
+	waiting, which is the only way to test a clock without one.
+	"""
+
+	local, _remote = pair.both()
+	task = make(pair, "Taken by an agent that never came back")
+
+	local.claim(ref=task.ref, minutes=1)
+
+	row = session.get(subroutine.db.models.work.Task, task.id)
+
+	assert row is not None
+
+	row.claim_expires_at = subroutine.db.types.utcnow() - datetime.timedelta(minutes=1)
+	session.flush()
+
+	assert subroutine.domain.claims.held_by(row) is None, "the row-level reading"
+	assert task.ref in [
+		found.ref for found in local.tasks(ready=True)
+	], "and the predicate the database sorts by, which has to agree with it"
 
 
 def test_both_administer_credentials_the_same_way (pair: Pair) -> None:

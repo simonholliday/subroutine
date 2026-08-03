@@ -53,6 +53,13 @@ class EventAction(enum.StrEnum):
 	STATUS_CHANGED = "status_changed"
 	COMPLETED = "completed"
 
+	#: A lease was taken on a task, renewed, or given back (§14.11, `#350`). Recorded because
+	#: "who was working on this and gave up" is otherwise unanswerable — a claim that expires
+	#: leaves no trace in the row, which is the whole point of a lease and would make the
+	#: history the only place the attempt existed.
+	CLAIMED = "claimed"
+	RELEASED = "released"
+
 
 def record (
 	session: sqlalchemy.orm.Session,

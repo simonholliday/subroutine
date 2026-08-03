@@ -105,6 +105,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
 	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
+	("POST", "/v1/tasks/{id_or_ref}/claim"): "claim",
+	("POST", "/v1/tasks/{id_or_ref}/release"): "release",
 	("POST", "/v1/tasks/{id_or_ref}/restore"): "undiscard",
 	("POST", "/v1/documents/{id_or_ref}/restore"): "undiscard",
 	("POST", "/v1/tasks/{id_or_ref}/links"): "link",

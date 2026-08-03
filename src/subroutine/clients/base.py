@@ -674,6 +674,36 @@ class Client(typing.Protocol):
 		places said the same true-sounding thing about a product where "delete" meant "gone".
 		"""
 
+	def claim (
+		self, *, ref: int, minutes: int | None = None, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Take a lease on a task, or renew one this credential already holds — item `#350`.
+
+		**A lease, not a lock** (§14.11). It expires, and an expired one is ignored rather than
+		needing anybody to clear it: workers die mid-task routinely, and a claim that outlived
+		its holder would strand the work permanently.
+
+		What it is for is two workers taking the same item off the same ranked listing —
+		``tasks(ready=True, order="-priority_score")`` deliberately answers the same for
+		everybody, so two agents asking the obvious question collide by construction, and the
+		cost is not a merge conflict but two of them doing the same work.
+
+		Refuses with :class:`~subroutine.errors.Conflict` when somebody else holds it, naming
+		who and until when. Claiming what you already hold renews it and keeps the instant you
+		first took it.
+		"""
+
+	def release (
+		self, *, ref: int, workspace: str | None = None
+	) -> subroutine.views.Task:
+		"""Give a task back, so somebody else can take it — item `#350`.
+
+		Releasing what nobody holds is not an error and records nothing, so a worker tidying up
+		after itself need not check first. Anybody who may change the task may release it, not
+		only the holder: the case it exists for is a worker that died holding a lease, and
+		requiring its credential would leave the remedy with the one principal that cannot act.
+		"""
+
 	def complete (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:

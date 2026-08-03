@@ -180,6 +180,19 @@ class Task(pydantic.BaseModel):
 	project_key: str
 	parent_task_id: uuid.UUID | None
 
+	#: Who holds a lease on this, and until when (§14.11, `#350`). **Ids, not names**, which is
+	#: §8.5's rule for an unrequested relation and is how ``assignee_id`` is already reported —
+	#: a caller that needs the name asks once for the accounts rather than paying for one on
+	#: every row of every listing.
+	#:
+	#: **An expired lease is still reported.** Who was working on this is worth knowing even
+	#: once the lease has run out, and ``claim_expires_at`` against the clock is what says
+	#: whether it still counts — the same reading ``domain.claims.held_by`` applies. Defaulted,
+	#: so a client can read a response from an instance that predates them (`#345`).
+	claimed_by_id: uuid.UUID | None = None
+	claimed_at: datetime.datetime | None = None
+	claim_expires_at: datetime.datetime | None = None
+
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
 	#: anything at all — and on a listing that is one call per row. Both are batch-loaded with
@@ -1035,6 +1048,9 @@ def task (
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
+		claimed_by_id=row.claimed_by_id,
+		claimed_at=row.claimed_at,
+		claim_expires_at=row.claim_expires_at,
 		importance=row.importance,
 		urgency=row.urgency,
 		# Computed here rather than read from the database: §6.3 calls it derived, and a
