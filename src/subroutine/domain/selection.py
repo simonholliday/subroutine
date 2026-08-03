@@ -156,15 +156,7 @@ def project (
 	"""
 
 	if wanted is None:
-		inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
-
-		if inbox is None:
-			raise subroutine.errors.InternalError(
-				"This workspace has no Inbox to file a task in.",
-				hint="It was interrupted part-way through setup; run 'subroutine init' again.",
-			)
-
-		return inbox
+		return _files_where(session, actor, workspace)
 
 	model = subroutine.db.models.project.Project
 	statement = subroutine.domain.scoping.readable_projects(
@@ -196,6 +188,102 @@ def project (
 		)
 
 	return found
+
+
+def _files_where (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+) -> typing.Any:
+	"""Return where a caller who named no project means, which is not always the Inbox.
+
+	**The Inbox is the answer for a caller who can reach it** — §1.4's rule, and what makes
+	``POST /v1/tasks {"title": "…"}`` work without knowing that projects exist.
+
+	**It is the wrong answer for a credential scoped to a project** (`#369`). The Inbox is
+	outside such a credential's reach, so the default sent the primary capture path — the one
+	thing §1.4 is built around — into a refusal, on the first write, for exactly the agents
+	`#216` exists to bound. Measured over HTTPS before it was fixed: ``403 Not permitted``.
+
+	So a credential that can reach one project files there, which is the same rule the Inbox
+	default is: **the default is the only place the caller could have meant.** Reaching two or
+	more is ambiguous and is refused with them named, for the reason :func:`workspace` refuses
+	an unspecified choice between two — a task filed somewhere the author did not look is found
+	days later, if at all.
+	"""
+
+	inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
+	reachable = _reach_within(session, actor, workspace)
+
+	if actor.project_scope is None:
+		if inbox is None:
+			raise subroutine.errors.InternalError(
+				"This workspace has no Inbox to file a task in.",
+				hint="It was interrupted part-way through setup; run 'subroutine init' again.",
+			)
+
+		return inbox
+
+	if inbox is not None and any(found.id == inbox.id for found in reachable):
+		return inbox
+
+	if len(reachable) == 1:
+		return reachable[0]
+
+	if not reachable:
+		raise subroutine.errors.Forbidden(
+			"This credential cannot reach any project in this workspace, so there is nowhere "
+			"to file it.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="forbidden",
+					message="The credential is restricted to projects that are not here.",
+					hint="Ask whoever issued it to widen it, or name a workspace it reaches.",
+				)
+			],
+		)
+
+	named = ", ".join(sorted(found.key for found in reachable))
+
+	raise subroutine.errors.ValidationError(
+		"This could be filed under any of several projects, so it needs to say which.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="project",
+				code="missing_field",
+				message=f"This credential reaches {named}, and this request named none.",
+				hint=f"Name one of: {named}.",
+			)
+		],
+	)
+
+
+def _reach_within (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+) -> list[typing.Any]:
+	"""Return the projects a restricted credential is pointed at inside one workspace.
+
+	**The projects it was *scoped to*, not everything that scope reaches.** A scope of ``SR``
+	reaches ``SR/WEB`` as well, and answering "which project did you mean" with the whole
+	subtree would make a one-project credential look ambiguous.
+	"""
+
+	if actor.project_scope is None:
+		return []
+
+	model = subroutine.db.models.project.Project
+	wanted = [uuid.UUID(item) for item in actor.project_scope]
+
+	return list(
+		session.scalars(
+			subroutine.domain.scoping.readable_projects(
+				actor, workspace_ids=[workspace.id], include_archived=True
+			).where(model.id.in_(wanted))
+		)
+	)
 
 
 def token_projects (

@@ -20,11 +20,15 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.scoping
+import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.errors
+import subroutine.permissions
 
 SOURCE = pathlib.Path(subroutine.__file__).parent
 
@@ -376,3 +380,313 @@ def test_an_empty_workspace_list_returns_nothing_rather_than_everything (
 	).all()
 
 	assert list(found) == []
+
+
+def _scoped_to (
+	session: sqlalchemy.orm.Session,
+	world: World,
+	*projects: subroutine.db.models.project.Project,
+) -> subroutine.domain.authentication.Principal:
+	"""Return the owner, presenting a credential restricted to those projects."""
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=world.owner,
+		title="Bounded",
+		project_scope=[str(project.id) for project in projects],
+	)
+	session.flush()
+
+	return subroutine.domain.authentication.Principal(user=world.owner, token=token)
+
+
+def test_a_credential_reaching_one_project_files_there_rather_than_the_inbox (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#369`. The Inbox default sent every bounded agent's first write into a refusal.
+
+	§1.4's whole shape is that ``subroutine add "something"`` works without knowing projects
+	exist, and it does that by defaulting to the workspace's Inbox — which is *outside* the
+	reach of a credential scoped to a project. Measured over HTTPS before this: ``403 Not
+	permitted``, on the primary capture path, for exactly the credentials `#216` exists to
+	create.
+
+	The rule is unchanged and only its application widens: **the default is the only place the
+	caller could have meant.** For a credential that reaches one project, that is the project.
+	"""
+
+	bounded = _scoped_to(session, world, world.public)
+	filed = subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert filed.id == world.public.id
+
+	# And the unrestricted caller still gets the Inbox, which is the behaviour §1.4 needs and
+	# the reason this could not simply be changed for everybody.
+	owner = subroutine.domain.authentication.Principal(user=world.owner)
+	inbox = subroutine.domain.bootstrap.inbox_for(session, world.workspace)
+
+	assert inbox is not None
+	assert (
+		subroutine.domain.selection.project(session, owner, world.workspace, None).id
+		== inbox.id
+	)
+
+
+def test_a_credential_reaching_the_inbox_still_files_there (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""A scope that names the Inbox means the Inbox, and the narrower rule must not override it."""
+
+	inbox = subroutine.domain.bootstrap.inbox_for(session, world.workspace)
+
+	assert inbox is not None
+
+	bounded = _scoped_to(session, world, inbox, world.public)
+	filed = subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert filed.id == inbox.id, "an explicitly reachable Inbox wins over the one-project rule"
+
+
+def test_a_credential_reaching_two_projects_is_asked_which (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""Ambiguity is a refusal, never a guess — the rule `selection.workspace` already applies.
+
+	A task filed somewhere its author did not look is found days later, if at all, and a
+	credential reaching two projects has said nothing about which one it meant.
+	"""
+
+	bounded = _scoped_to(session, world, world.public, world.private)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert refused.value.errors[0].field == "project"
+	assert "OPEN" in str(refused.value.errors[0].hint)
+	assert "SECRET" in str(refused.value.errors[0].hint), "and it names them both"
+
+
+def test_the_reach_is_what_was_scoped_to_not_everything_underneath (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""A scope of ``SR`` reaches ``SR/WEB`` too, and that must not make it look ambiguous.
+
+	Written because the obvious implementation — "the projects this credential can read" —
+	returns the whole subtree, so a credential deliberately pointed at one project would be
+	refused for naming none. The one-project case is the case this exists for.
+	"""
+
+	child = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="OPENSUB",
+		title="Underneath",
+		parent=world.public,
+	)
+	session.flush()
+
+	bounded = _scoped_to(session, world, world.public)
+
+	assert [
+		found.key
+		for found in session.scalars(
+			subroutine.domain.scoping.readable_projects(
+				bounded, workspace_ids=[world.workspace.id]
+			)
+		)
+	] != [world.public.key], "the subtree really is reachable, so the guard is not vacuous"
+
+	filed = subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert filed.id == world.public.id
+	assert child.id != world.public.id
+
+
+def _reaching_writing (
+	session: sqlalchemy.orm.Session,
+	world: World,
+	*,
+	reach: typing.Sequence[subroutine.db.models.project.Project],
+	writes: typing.Sequence[subroutine.db.models.project.Project],
+) -> subroutine.domain.authentication.Principal:
+	"""Return the owner, presenting a credential that reads wider than it writes."""
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=world.owner,
+		title="Reads two, writes one",
+		project_scope=[str(project.id) for project in reach],
+		project_write_scope=[str(project.id) for project in writes],
+	)
+	session.flush()
+
+	return subroutine.domain.authentication.Principal(user=world.owner, token=token)
+
+
+def test_a_credential_can_read_a_project_it_cannot_write_to (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#371`, and the arrangement decision `#370` exists for.
+
+	An agent working on one project inside a related tree needs to read its neighbours for
+	context and write only its own. Before this, one list gated reads and writes together, so
+	the choice was between an agent that could see nothing else and one that could change
+	everything.
+	"""
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public, world.private], writes=[world.public]
+	)
+
+	# It reads both — the whole point, and the half that a single project_scope already did.
+	assert _titles(session, bounded, world.workspace) == [
+		"Acquire the rival company",
+		"Ordinary work",
+	]
+
+	# It writes in its own, and is refused in the other, *by name*: the refusal says the
+	# credential can read here and writes elsewhere, because that is the fact that decides
+	# what the caller does next.
+	subroutine.domain.authorization.authorize(
+		session,
+		bounded,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=world.workspace.id,
+		project=world.public,
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authorization.authorize(
+			session,
+			bounded,
+			subroutine.permissions.TASK_WRITE,
+			workspace_id=world.workspace.id,
+			project=world.private,
+		)
+
+	assert "may only write in another" in str(refused.value)
+
+
+def test_a_write_set_narrows_only_the_verbs_that_land_in_a_project (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""Reading is governed by the reach alone, and the two controls must not overlap.
+
+	Written because the tempting implementation — "narrow anything that is not a read" — would
+	have caught `tag:write` and `status:write`, which curate the *workspace's* vocabulary and
+	have no project to be inside.
+	"""
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public, world.private], writes=[world.public]
+	)
+
+	for permitted in (
+		subroutine.permissions.TASK_READ,
+		subroutine.permissions.COMMENT_READ,
+		subroutine.permissions.PROJECT_READ,
+	):
+		subroutine.domain.authorization.authorize(
+			session,
+			bounded,
+			permitted,
+			workspace_id=world.workspace.id,
+			project=world.private,
+		)
+
+	assert subroutine.permissions.TAG_WRITE not in (
+		subroutine.permissions.WRITES_INSIDE_A_PROJECT
+	), "curating a workspace's vocabulary is not a write inside a project"
+
+
+def test_a_write_set_reaches_the_subtree_under_it (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""A write set of ``SR`` that refused ``SR/WEB`` would be useless past one level.
+
+	The same rule the reach already follows, and they share one implementation so that
+	"reaches" and "may write in" cannot come to mean different things about one tree.
+	"""
+
+	child = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="UNDERNEATH",
+		title="Underneath",
+		parent=world.public,
+	)
+	session.flush()
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public], writes=[world.public]
+	)
+
+	subroutine.domain.authorization.authorize(
+		session,
+		bounded,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=world.workspace.id,
+		project=child,
+	)
+
+
+def test_a_write_set_outside_the_reach_is_refused_at_issue (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""A permission the credential could never exercise, reported as though it could.
+
+	That is the 'specified, documented and inert' family with a security label on it, so the
+	two lists are checked against each other where they are written rather than left to
+	disagree quietly.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=world.owner,
+			title="Writes where it cannot read",
+			project_scope=[str(world.public.id)],
+			project_write_scope=[str(world.private.id)],
+		)
+
+	assert refused.value.errors[0].field == "project_write_scope"
+	assert str(world.private.id) in str(refused.value.errors[0].message)
+
+
+def test_a_credential_cannot_issue_one_that_writes_more_widely (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The fifth way to amplify, refused beside the other four.
+
+	Both directions matter and only one is obvious: a credential with a write set may not hand
+	out a wider one, *and* a credential restricted only by its reach may not hand out a write
+	set beyond that reach — because for it, the reach is what bounds writing.
+	"""
+
+	narrow = _reaching_writing(
+		session, world, reach=[world.public, world.private], writes=[world.public]
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=world.owner,
+			title="Wider",
+			project_scope=[str(world.public.id), str(world.private.id)],
+			project_write_scope=[str(world.private.id)],
+			actor=narrow,
+		)
+
+	assert refused.value.errors[0].field == "project_write_scope"
+
+	# A subset is fine, which is what makes this a narrowing rule rather than a freeze.
+	allowed, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=world.owner,
+		title="Narrower",
+		project_scope=[str(world.public.id)],
+		project_write_scope=[str(world.public.id)],
+		actor=narrow,
+	)
+
+	assert allowed.project_write_scope == [str(world.public.id)]
