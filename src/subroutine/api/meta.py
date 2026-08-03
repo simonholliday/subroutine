@@ -304,6 +304,21 @@ def meta (
 	)
 
 
+def _unbuilt () -> str:
+	"""Name the unbuilt features in a sentence, from the list a test can check.
+
+	Written out here rather than typed into the prose so that the sentence and the guard read
+	the same tuple — a list somebody keeps in their head is the thing `#355` was.
+	"""
+
+	named = [name for name, _fragment in UNBUILT]
+
+	if len(named) == 1:
+		return named[0]
+
+	return f"{', '.join(named[:-1])}, and {named[-1]}"
+
+
 @router.get("/docs/agent", summary="A guide written for an agent", response_class=fastapi.responses.PlainTextResponse)
 def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	"""Return the agent guide as Markdown.
@@ -334,8 +349,15 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 	**And it describes only what is built.** §13.1's rule — publishing what an installation
 	does not implement is worse than publishing less — matters more here than anywhere: an
 	agent told to leave a handoff at an endpoint that 404s trusts nothing else in the
-	document. Sessions, decisions, verification evidence and claims are M4-M7 and named as
-	unbuilt rather than promised.
+	document. Sessions, decisions and verification evidence are M4-M7 and named as unbuilt
+	rather than promised.
+
+	**The inverse cost the same and nobody was watching for it** (`#355`). Claims shipped, and
+	this list went on naming them unbuilt — to the one reader with no alternative, since an
+	agent on MCP has the skill and a person has ``--help``, and an agent arriving here with a
+	base URL and a token has only this. The endpoint check compares the paths this document
+	*names* against routes that exist; it cannot see a route named nowhere. So a capability
+	added anywhere near this list is owed a look at it.
 	"""
 
 	sections = [
@@ -367,15 +389,17 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"| Somebody edits the same item while you are thinking | `expected_version` on every "
 		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
 		"edit |",
+		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim` | "
+		"It leaves their ready listing until you are done — a lease, so nothing is stranded "
+		"if you stop first |",
 		"",
 		"**Being bounded is what earns you more to do.** Your token can be scoped narrower "
 		"than its owner's — particular permissions, particular projects, one workspace. That "
 		"is the reason a human hands over work they would otherwise supervise. `GET /v1/me` "
 		"says exactly what you may do, so you never learn it by being refused.",
 		"",
-		"**Not built yet, and named rather than promised:** session handoffs, decisions as a "
-		"first-class entity, verification evidence on a completion, and task claims. Specified "
-		"in full, not here. What is above is what exists.",
+		f"**Not built yet, and named rather than promised:** {_unbuilt()}. Specified in full, "
+		"not here. What is above is what exists.",
 		"",
 		"## How to use it",
 		"",
@@ -680,6 +704,26 @@ def _grammars () -> dict[str, Grammar]:
 #: that the guide's promises ("a document, linked to the task it came from") have somewhere to
 #: point instead of being unactionable.
 #:
+#: What §14 and §15 specify and this build does not implement, each beside the path segment
+#: its endpoints would carry if it did.
+#:
+#: **The fragment is what makes the claim checkable, and is the whole point of this being data**
+#: (`#355`). §13.1's rule is that promising what an installation does not implement is worse
+#: than publishing less, and the guide has always honoured it — but the *inverse* cost exactly
+#: the same and nothing was watching for it: claims shipped and this list went on calling them
+#: unbuilt, to the one reader with no other source. ``tests/test_api_meta.py`` now fails if any
+#: route this application serves contains one of these fragments, so building a thing is what
+#: deletes its entry.
+#:
+#: The guide's own endpoint check cannot do this. It compares the paths the document *names*
+#: against routes that exist, which proves every path named is real and says nothing at all
+#: about a real path named nowhere.
+UNBUILT: tuple[tuple[str, str], ...] = (
+	("session handoffs", "/sessions"),
+	("decisions as a first-class entity", "/decisions"),
+	("verification evidence on a completion", "/verifications"),
+)
+
 #: Every ``EXAMPLES`` entry is executed by ``tests/test_api_examples.py`` against a real
 #: application, so a shape here cannot drift from the endpoint. That is the whole reason they
 #: are data rather than prose.
@@ -773,6 +817,16 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"already advanced past.",
 		"GET",
 		"/v1/changes",
+		None,
+	),
+	(
+		"Take a task, so another worker does not start it too. `?ready=true` listings hide "
+		"what somebody else holds and never hide your own. It is a **lease**: it expires by "
+		"itself, so send this again while you are still working, and nothing is stranded if "
+		"your session ends first. `POST /v1/tasks/1/release` gives it back. Claiming what "
+		"somebody else holds is a `409` naming who and until when.",
+		"POST",
+		"/v1/tasks/1/claim",
 		None,
 	),
 	(

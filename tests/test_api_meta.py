@@ -287,6 +287,50 @@ def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
 	assert len(guide.encode("utf-8")) < GUIDE_BUDGET, "the guide has grown past its budget"
 
 
+def test_the_guide_never_calls_a_built_thing_unbuilt (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#355`. The guide named task claims among the unbuilt for a day after they shipped.
+
+	**The direction nothing was watching.** §13.1's rule is that promising what an installation
+	does not implement is worse than publishing less, and the guide's endpoint check enforces
+	it — by comparing the paths the document *names* against routes that exist. That proves
+	every path named is real. It is structurally blind to a real path named nowhere, which is
+	the failure that actually happened, and the one whose cost falls entirely on the reader
+	with no other source: an agent on MCP has the skill and a person has `--help`.
+
+	So the unbuilt list is data, each entry carrying the path segment its endpoints would have.
+	Building the thing is then what deletes the entry — which is the question `CLAUDE.md` says
+	to ask of every allow-list in this repository, asked here.
+	"""
+
+	served = {
+		f"{prefix}{route.path}"
+		for prefix, router in subroutine.api.app.ROUTERS
+		for route in router.routes
+		if hasattr(route, "path")
+	}
+
+	assert subroutine.api.meta.UNBUILT, "the list is empty — has it stopped being read?"
+
+	for name, fragment in subroutine.api.meta.UNBUILT:
+		built = sorted(path for path in served if fragment in path)
+
+		assert not built, (
+			f"the guide calls {name!r} unbuilt, and this application serves {built}. "
+			f"Delete its entry from meta.UNBUILT and say so in the guide."
+		)
+
+	# And the sentence the reader actually sees is built from that same tuple, so the two
+	# cannot part company the way the prose and the code did.
+	guide = world.call("GET", "/v1/docs/agent").text
+
+	for name, _fragment in subroutine.api.meta.UNBUILT:
+		assert name in guide
+
+	assert "task claims" not in guide, "the one that was wrong, pinned"
+
+
 def test_meta_says_what_this_is_for_the_caller_that_cannot_read_the_readme (
 	world: test_api_tasks.World,
 ) -> None:
