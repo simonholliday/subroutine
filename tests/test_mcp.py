@@ -803,7 +803,20 @@ def test_the_whole_tool_surface_stays_small (
 
 	  **Fat was read for first and none was taken, for the fourth time running.**
 
-	The slack above the current total is deliberate and small — **171 bytes** as of 2026-08-03,
+	* **`#367`, to 8,500** — a `project` argument on `list`, `search` and `document`, which is
+	  a *capability* rather than a tool: `subroutine list --project` has always existed and no
+	  agent could ask, so one that wanted to spend its context on a single project had to read
+	  the whole workspace and discard most of it. That is §13.1's concern paying for itself,
+	  and it is `#149`'s blind spot for the third time — this file's reach guard compares
+	  surfaces per *method*, and an argument on a method both already call is invisible to it.
+
+	  **Measured at 23 bytes over the old cap**, which is the case worth stating plainly: the
+	  addition cost about 80 bytes and the slack had already been spent. Trimming a
+	  description by nine characters would have fitted it under 8,250, and that is precisely
+	  the theatre the paragraph below warns about — a cap you edit prose to satisfy has
+	  stopped measuring anything. Raised deliberately instead.
+
+	The slack above the current total is deliberate and small — **227 bytes** as of 2026-08-03,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -821,7 +834,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 8250, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 8500, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -1528,3 +1541,49 @@ def test_the_listing_no_longer_advertises_a_search_argument (
 	assert "q" not in tools["subroutine_list"]["inputSchema"]["properties"]
 	assert "q" in tools["subroutine_search"]["inputSchema"]["properties"]
 	assert tools["subroutine_search"]["inputSchema"]["required"] == ["q"]
+
+
+def test_a_listing_can_be_narrowed_to_one_project (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#367`. `subroutine list --project` existed and no agent could ask.
+
+	**Two projects, because one cannot fail.** A test with a single project passes whether or
+	not the argument reaches the client at all — which is exactly how an argument comes to be
+	declared, documented and never supplied, the shape `#333` was and the reason `_within`
+	exists.
+
+	Built through the tools rather than through the domain, because the question is whether an
+	*agent* can do this, and a fixture that reached past the surface would answer a different
+	one.
+
+	The marker is deliberately not involved: §13.7 settles that context directs writes and
+	never narrows what a caller can see, so this is a capability an agent chooses to use rather
+	than a default it has to notice.
+	"""
+
+	for key in ("HERE", "ELSEWHERE"):
+		_answer, failed = _called(bound, "subroutine_project", key=key, title=key.title())
+
+		assert not failed, _answer
+
+	_added(bound, "Work in this project +HERE")
+	_added(bound, "Work in the other one +ELSEWHERE")
+
+	everything, failed = _called(bound, "subroutine_list")
+
+	assert not failed
+	assert "Work in this project" in everything
+	assert "Work in the other one" in everything, "both are visible without the argument"
+
+	narrowed, failed = _called(bound, "subroutine_list", project="HERE")
+
+	assert not failed
+	assert "Work in this project" in narrowed
+	assert "Work in the other one" not in narrowed, "the argument has to actually narrow"
+
+	found, failed = _called(bound, "subroutine_search", q="Work", project="HERE")
+
+	assert not failed
+	assert "Work in this project" in found
+	assert "Work in the other one" not in found, "and on search too, which shares the reader"

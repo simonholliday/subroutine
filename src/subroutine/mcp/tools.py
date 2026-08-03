@@ -55,6 +55,21 @@ DEFAULT_LIMIT = 20
 #: Measuring it in the test is what makes the argument checkable rather than dated.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
+#: Narrowing a listing to one project and everything under it — item `#367`.
+#:
+#: **An argument rather than a default, and that is the decision rather than the cheap
+#: option.** §13.7 settles that context directs *writes* and never narrows what you can see:
+#: "forgetting it cannot cost you a missed item". A `.subroutine` marker is context, so it
+#: fills in where a task is *filed* (`_added`) and deliberately not what a listing shows —
+#: an agent silently blind to work filed next door finds out by not finding something.
+#:
+#: What was missing is the capability, not the default. `subroutine list --project` has always
+#: existed and no tool could ask, so an agent that *wants* to spend its context on one project
+#: had no way to say so. That gap is `#149`'s blind spot for the third time: this file's guard
+#: compares surfaces per method, and an *argument* on a method both already call is invisible
+#: to it.
+PROJECT = {"type": "string", "description": "Narrow to this project and everything under it."}
+
 
 def catalogue (
 	client: subroutine.clients.base.Client, *, workspace: str | None = None
@@ -131,6 +146,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						),
 					},
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"project": PROJECT,
 					"ready": {
 						"type": "boolean",
 						"description": (
@@ -155,6 +171,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"type": "object",
 				"properties": {
 					"q": {"type": "string", "description": "Words to look for."},
+					"project": PROJECT,
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
 					"workspace": WORKSPACE,
 				},
@@ -608,8 +625,10 @@ def _listed (
 
 		return "\n".join(rows) if rows else "Nothing on today."
 
+	project = _text(arguments, "project")
 	tasks = client.tasks(
 		workspace=workspace,
+		project=project,
 		limit=limit,
 		order=_text(arguments, "order"),
 		ready=ready,
@@ -624,7 +643,9 @@ def _listed (
 	# and nothing blocks one, so every specification and decision in the instance would report
 	# as ready — true, useless, and enough of them to bury the tasks the caller asked about.
 	documents = (
-		client.documents(workspace=workspace, limit=limit - len(tasks), q=query)
+		client.documents(
+			workspace=workspace, project=project, limit=limit - len(tasks), q=query
+		)
 		if len(tasks) < limit and not ready
 		else []
 	)
