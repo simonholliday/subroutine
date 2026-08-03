@@ -272,3 +272,57 @@ def test_an_empty_unreleased_section_is_refused (
 	assert done.returncode == 1
 	assert "is empty" in done.stderr
 	assert not _git(repository, "tag", "--list", "v0.1.1").strip()
+
+
+def test_a_release_below_the_plugin_manifest_is_refused (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`#396`. The plugin's version leads, and a release may not walk it backwards.
+
+	The two numbers do different jobs at different frequencies. **The plugin's is a cache
+	key** — Claude Code stores an installed copy under it, so it must move on any change under
+	`plugins/` or the artefact cannot be delivered at all, which was met twice as `#380` and
+	`#393`. The package's is a *release*, an act with a changelog behind it, and tagging every
+	plugin bump would make a release mean nothing.
+
+	So the manifest runs ahead between releases and the next release takes the number it has
+	reached. **Cutting below it would publish a plugin version somebody already has cached** —
+	`#380` with the numbers reversed, and no way for anybody to notice, because the install
+	would report success and change nothing.
+
+	A skipped package version is cheap. That is the trade, stated.
+	"""
+
+	manifest = repository / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
+	carried = json.loads(manifest.read_text(encoding="utf-8"))
+	carried["version"] = "0.3.0"
+	manifest.write_text(json.dumps(carried, indent=2) + "\n", encoding="utf-8")
+	_git(repository, "commit", "-am", "bump the plugin between releases")
+
+	done = cut("0.2.0")
+
+	assert done.returncode == 1
+	assert "behind 0.3.0" in done.stderr
+	assert "cached under that number" in done.stderr
+	assert not _git(repository, "tag", "--list", "v0.2.0").strip(), "and nothing was tagged"
+
+
+def test_a_release_matching_the_plugin_manifest_is_allowed (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""Equal is the ordinary case, not a near miss.
+
+	The manifest reaching the number first is exactly how this is meant to work — it is bumped
+	when the plugin changes, and the release then takes it. A guard that refused equality would
+	refuse every release cut the intended way.
+	"""
+
+	manifest = repository / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
+	carried = json.loads(manifest.read_text(encoding="utf-8"))
+	carried["version"] = "0.1.1"
+	manifest.write_text(json.dumps(carried, indent=2) + "\n", encoding="utf-8")
+	_git(repository, "commit", "-am", "bump the plugin between releases")
+
+	done = cut("0.1.1")
+
+	assert done.returncode == 0, done.stderr

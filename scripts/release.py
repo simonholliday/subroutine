@@ -149,6 +149,31 @@ def _reasons_to_stop (version: str) -> str | None:
 	if proposed is not None and previous is not None and proposed <= previous:
 		return f"{version} is not ahead of {latest}, the most recent tag."
 
+	# **The plugin's version leads, and a release may not walk it backwards** (`#396`).
+	#
+	# The two numbers do different jobs at different frequencies. The plugin's is a *cache
+	# key*: Claude Code stores an installed copy under it, so it must move on any change to
+	# `plugins/` or the artefact cannot be delivered at all — met twice, as `#380` and `#393`.
+	# The package's is a *release*, which is an act with a changelog behind it. Tagging every
+	# plugin bump would make a release mean nothing.
+	#
+	# So the manifest runs ahead between releases and the next release takes the number it has
+	# reached. A skipped package version is cheap; **cutting below the manifest would publish a
+	# plugin version somebody already has cached**, which is `#380` with the numbers reversed
+	# and no way for anybody to notice.
+	#
+	# Equal is the ordinary case and is fine: the manifest reaching the number first is exactly
+	# how this is meant to work.
+	declared = json.loads(PLUGIN.read_text(encoding="utf-8"))["version"]
+	carried = _ordered(declared)
+
+	if proposed is not None and carried is not None and proposed < carried:
+		return (
+			f"{version} is behind {declared}, which the plugin manifest already carries. "
+			f"Anybody who installed {declared} has it cached under that number, so a release "
+			f"below it could never reach them. Cut {declared} or higher."
+		)
+
 	return None
 
 
