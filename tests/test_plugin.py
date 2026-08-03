@@ -334,52 +334,56 @@ def test_every_command_the_skill_shows_exists () -> None:
 
 
 def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
-	"""`#380`. A manifest edited without a bump can never reach anybody.
+	"""`#380`, and then `#393` when this was not strong enough.
 
 	Claude Code caches an installed plugin under its **version**, so an install at a version
-	already present is a no-op. `#333` added the `workspace` field, the version stayed at the
-	tag's, and three sessions on another machine went on meeting the refusal it was built to
-	remove — while the fix sat in the repository and every test passed.
+	already present is a no-op. A manifest edited without a bump can therefore never reach
+	anybody: `claude plugin update` finds the version already there and correctly does nothing.
 
-	**The guards in this repository stop at its edge**, which is the family this belongs to:
-	`#236` is that installing a plugin says nothing about whether its server starts. The code
-	was right, the suite was green, and the artefact a user installs did not contain the change.
+	**The first version of this compared against the newest tag, and Simon met the same failure
+	three commits later.** The manifest said 0.2.1, the tag was v0.2.0, so it passed — and went
+	on passing through the server rename and a skill fix, both of which were then uninstallable
+	because 0.2.1 was already cached. It answered "has this changed since the last release" when
+	the question is "has this changed since the last thing anybody could have installed", and
+	what people install is a version.
 
-	So: if anything under `plugins/` differs from the newest tag, the manifest must not still
-	name that tag's version. Deliberately *not* an equality check against the next version —
-	nobody knows what that will be — only that the two cannot be the same while the contents
-	differ.
+	That is this repository's own lesson landing on a guard written hours earlier: **a guard
+	checks the shape it was written from.** `#380` was written from the state where the manifest
+	still named the tag's version, so that is the only state it could see.
 
-	**Silent with no tags at all**, for the reason the version test skips: a fresh clone with
-	no release history has nothing to compare against, and a guard that fails there fails for
-	everybody who has just cloned.
+	The rule now: if anything under `plugins/` differs from the commit that last *set* the
+	current version, the version must be bumped again. It subsumes the tag comparison, because a
+	manifest still naming the tag's version while the contents differ is the same condition.
+
+	**The working tree counts**, deliberately — an edit in progress should demand the bump
+	before the commit, not after somebody has failed to install it.
 	"""
 
-	tags = subprocess.run(
-		["git", "tag", "--list", "v*", "--sort=-v:refname"],
-		capture_output=True, text=True, cwd=ROOT, check=False,
-	)
-	names = [line for line in tags.stdout.split() if line.startswith("v")]
-
-	if tags.returncode != 0 or not names:
-		pytest.skip("no release tags to compare against")
-
-	newest = names[0]
-	changed = subprocess.run(
-		["git", "diff", "--name-only", newest, "--", "plugins/"],
-		capture_output=True, text=True, cwd=ROOT, check=False,
-	)
-
-	if changed.returncode != 0 or not changed.stdout.strip():
-		return
-
 	declared = _read(PLUGIN)["version"]
-	touched = ", ".join(sorted(changed.stdout.split()))
+	introduced = subprocess.run(
+		["git", "log", "-1", "--format=%H", "-S", f'"version": "{declared}"', "--", str(PLUGIN)],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+	commit = introduced.stdout.strip()
 
-	assert declared != newest.removeprefix("v"), (
-		f"the plugin has changed since {newest} ({touched}) and its manifest still says "
-		f"{declared}. Claude Code caches by version, so nobody who installs it would get "
-		f"these changes — bump the version in {PLUGIN.name}."
+	if introduced.returncode != 0 or not commit:
+		pytest.skip("no commit introduced this version, so there is nothing to compare against")
+
+	changed = subprocess.run(
+		["git", "diff", "--name-only", commit, "--", "plugins/"],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+
+	if changed.returncode != 0:
+		pytest.skip("git could not compare the plugin against that commit")
+
+	touched = sorted(changed.stdout.split())
+
+	assert not touched, (
+		f"the plugin has changed since {commit[:9]} set version {declared} "
+		f"({', '.join(touched)}), and the manifest still says {declared}. Claude Code caches "
+		f"by version, so anybody already on {declared} would never receive these — bump the "
+		f"version in {PLUGIN.name}."
 	)
 
 
