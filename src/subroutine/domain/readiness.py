@@ -194,7 +194,7 @@ def unclaimed (
 
 
 def ready (
-	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None = None
+	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items that can actually be started.
 
@@ -207,7 +207,14 @@ def ready (
 	reads blocker tasks without narrowing by visibility precisely because readiness is a fact
 	about the work; a claim is not, and cannot be — "can I start this" has a different answer
 	for the agent holding the lease than for anybody else. So ``by`` is passed rather than
-	assumed, and a caller that does not pass one gets the strictest reading.
+	assumed.
+
+	**Required rather than defaulted** (`#361`). It defaulted to ``None``, which is the
+	strictest reading, for a caller with no principal — and there is no such caller: both
+	listings have an actor. A future one that forgot the argument would hide an agent's own
+	claimed work from that agent, which is the one behaviour this module says would make
+	claiming a trap rather than a tool, and nothing would have looked wrong. ``None`` is still
+	*expressible*, so a genuinely anonymous reader is still describable; it just has to be said.
 	"""
 
 	return sqlalchemy.and_(

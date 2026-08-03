@@ -823,6 +823,24 @@ def test_the_whole_tool_surface_stays_small (
 
 	assert size < 8250, f"the tool schemas are {size} bytes of every session's context"
 
+	# **The shared `workspace` description's cost, measured here rather than asserted in a
+	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
+	# — "638 bytes across 11 tools as of 2026-08-03" — and it was 696 across 12 two commits
+	# later, in the paragraph directly under that module's own note that a count belongs
+	# somewhere it can fail. The claim being made is that this is a *small* share of the
+	# surface and not worth `$defs`, so that is what is checked.
+	repeated = sum(
+		len(json.dumps(subroutine.mcp.tools.WORKSPACE))
+		for tool in tools
+		if "workspace" in tool["inputSchema"].get("properties", {})
+	)
+
+	assert repeated < size // 8, (
+		f"the repeated workspace description is {repeated} of {size} bytes — past a share "
+		f"where 'a repeated literal is cheaper than a reference nobody can be sure resolves' "
+		f"is still the obvious answer"
+	)
+
 
 def _two_workspaces (
 	session: sqlalchemy.orm.Session,

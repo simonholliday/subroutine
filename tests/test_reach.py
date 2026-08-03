@@ -622,8 +622,11 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# route-around by this test's definition and is the right one: an agent that can run a shell
 	# has two credentials available to it — the one this server was given and the one the shell
 	# resolves — and the *only* way to find out which the shell will use is to ask the shell.
-	# A tool here would answer for the server, which is the half that was never in doubt. The
-	# reason is written out in NOT_IN_MCP under `me`.
+	# A tool here would answer for the server, which is the half that was never in doubt.
+	#
+	# This used to end "the reason is written out in NOT_IN_MCP under `me`", and that entry was
+	# deleted in the same commit — correctly, since deleting an excuse is what closes it. So
+	# the pointer outlived the thing it pointed at, by minutes (`#361`). The reason is above.
 	assert len(commands) <= 4, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
