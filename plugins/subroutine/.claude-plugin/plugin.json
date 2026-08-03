@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Project management for people and agents, in equal measure. Wires this session to a Subroutine instance and carries the working practice for using it well.",
   "author": {
     "name": "Simon Holliday",

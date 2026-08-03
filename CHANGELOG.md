@@ -243,6 +243,22 @@ upgrade involves.
   could do had no reason to think searching was possible. `q` moves off `list` onto the new
   tool, so there is one name for one thing.
 
+- **`whoami` says which versions you are actually talking to.** A session reaches Subroutine
+  through as many as three installations that upgrade separately — the editor's cached copy of
+  the plugin, the program on your machine, and the instance on the far end — and nothing
+  reported any of them. `subroutine whoami` and `subroutine_whoami` now end with a line naming
+  each, plus the migration the database is at, and a second line when two of them disagree.
+
+  **The cost of not having it is an hour, every time.** A tool that ignores an argument, a
+  field that is missing, a capability you have read about that does not appear: from inside a
+  session all three look identical to a feature that was never built, and the only way to tell
+  them apart was to test every call by hand. `GET /v1/me` carries the same two facts as
+  `instance_version` and `schema_revision` for anything talking to the API directly.
+
+  Both fields are optional, so a client reading an instance that predates them keeps working —
+  and that case is reported as *"instance too old to say"* rather than left blank, because it
+  is usually the answer somebody has come looking for.
+
 ### Fixed
 
 - **A client can read an instance that is a release behind it.** `GET /v1/me` grew two new

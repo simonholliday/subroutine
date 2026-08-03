@@ -7,9 +7,12 @@ suite had no way to notice, because every check it makes about PostgreSQL runs *
 connection it could not make.
 """
 
+import os
+
 import sqlalchemy.engine
 
 import conftest
+import subroutine.installations
 
 
 def test_a_derived_url_keeps_its_password () -> None:
@@ -48,3 +51,21 @@ def test_a_url_object_is_accepted_as_well_as_a_string () -> None:
 	assert conftest.with_database(parsed, "other") == conftest.with_database(
 		"postgresql+psycopg://u:p@host/postgres", "other"
 	)
+
+
+def test_the_editors_plugin_variable_does_not_reach_a_test () -> None:
+	"""No test may see the plugin the developer happens to have installed — item ``#381``.
+
+	``CLAUDE_PLUGIN_ROOT`` is set by an editor in the environment of every process a plugin
+	starts, which includes an MCP server and so any suite run from one. It is not a
+	``SUBROUTINE_`` name, so the loop that clears the product's own variables never touched
+	it, and ``installations.plugin()`` would have reported *this machine's* cached version
+	inside a test that had said nothing about a plugin at all.
+
+	The same leak as a developer's ``config.toml`` reaching the suite, arriving through a name
+	this project does not own — which is why the check is here rather than left to the one
+	autouse fixture asserting its own good behaviour.
+	"""
+
+	assert subroutine.installations.PLUGIN_ROOT not in os.environ
+	assert subroutine.installations.plugin() is None

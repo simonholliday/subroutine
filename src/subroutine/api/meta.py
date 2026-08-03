@@ -435,6 +435,11 @@ def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
 		"and exactly what you may do, already narrowed by your token — you never need to "
 		"work that out by being refused.",
 		"",
+		"It also reports `instance_version` and `schema_revision`: what this installation "
+		"runs, and which migration its database is at. Read them when a field you expected "
+		"is absent — a client ahead of its instance is ordinary, and looks from your side "
+		"exactly like a feature that was never built.",
+		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared — the only way to clear a date. **The names you write are not the names you "
 		"read:** send `due` and `start`, which accept the whole date grammar; you get back "

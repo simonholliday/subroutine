@@ -32,6 +32,7 @@ import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.views
 
@@ -503,17 +504,29 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 		# would report this credential's reach as an instance with nothing in it.
 		lines.append("No workspace here can be read with this credential.")
 
-		return "\n".join(lines)
+	else:
+		lines.append("")
+		lines.extend(
+			f"{workspace.slug}  {workspace.role or 'no role'}"
+			+ (
+				f"  may: {', '.join(workspace.permissions)}"
+				if workspace.narrowed_by_credential
+				else ""
+			)
+			for workspace in me.workspaces
+		)
 
+	# **The early return this used to take is gone, deliberately** (`#381`). A credential that
+	# reaches no workspace is the single most likely reason somebody asks this question, and
+	# it was the one branch that would have answered without saying which versions were in
+	# play — the answer missing from exactly the case that needs it.
 	lines.append("")
 	lines.extend(
-		f"{workspace.slug}  {workspace.role or 'no role'}"
-		+ (
-			f"  may: {', '.join(workspace.permissions)}"
-			if workspace.narrowed_by_credential
-			else ""
+		subroutine.views.versions(
+			me,
+			program=subroutine.installations.program(),
+			plugin=subroutine.installations.plugin(),
 		)
-		for workspace in me.workspaces
 	)
 
 	return "\n".join(lines)

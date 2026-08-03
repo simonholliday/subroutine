@@ -21,6 +21,7 @@ import subroutine.cli.main
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
+import subroutine.installations
 
 #: Connects to the maintenance database so the throwaway test database can be created.
 #: Override to point the suite at a different server.
@@ -67,12 +68,20 @@ def _no_inherited_installation (
 	developer's data.
 
 	``SUBROUTINE_TEST_*`` is left alone — those configure the harness, not the product.
+
+	**And one variable that is nobody's here** (`#381`): an editor sets ``CLAUDE_PLUGIN_ROOT``
+	in the environment of any process a plugin starts, which includes an MCP server and
+	therefore any suite run from one. Left alone, ``installations.plugin()`` would report the
+	*developer's* installed plugin version inside a test — the same class of leak as the
+	`config.toml` above, arriving through a name this project does not own.
 	"""
 
 	root = tmp_path_factory.mktemp("xdg")
 
 	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
 		monkeypatch.setenv(variable, str(root / variable.lower()))
+
+	monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
 
 	for name in list(os.environ):
 		if name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_"):

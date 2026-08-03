@@ -154,3 +154,37 @@ def test_a_missing_field_that_was_never_optional_is_still_refused () -> None:
 
 	with pytest.raises(pydantic.ValidationError):
 		subroutine.views.Me.model_validate(body)
+
+
+def test_an_instance_that_predates_the_version_fields_reads_as_saying_nothing () -> None:
+	"""Item ``#381``'s two fields are the newest to be added to this response.
+
+	They are the reason to be careful *here* of all places: a client that refused a body for
+	lacking ``instance_version`` would refuse precisely the instances the field exists to
+	identify — the older ones — turning a diagnostic into the failure it was meant to explain.
+
+	Null means "did not say", and :func:`subroutine.views.versions` renders it as *"instance
+	too old to say"* rather than as a blank, because that is itself the answer somebody
+	looking for a missing feature has come for.
+	"""
+
+	answer = subroutine.views.Me.model_validate(ME_BEFORE_PROJECT_SCOPE_KEYS)
+
+	assert answer.instance_version is None
+	assert answer.schema_revision is None
+
+
+def test_the_captured_bodies_predate_the_version_fields () -> None:
+	"""The guard on the guard above, in the same shape as its neighbour.
+
+	If somebody "keeps the fixture current" by adding the new keys, the test above starts
+	asserting that this build's own output parses — which is true of every model and proves
+	nothing about an older instance.
+	"""
+
+	for body in (ME_BEFORE_PROJECT_SCOPE_KEYS, ME_WITH_A_RESTRICTED_CREDENTIAL):
+		assert "instance_version" not in body
+		assert "schema_revision" not in body
+
+	assert "instance_version" in subroutine.views.Me.model_fields
+	assert "schema_revision" in subroutine.views.Me.model_fields

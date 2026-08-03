@@ -36,6 +36,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine
+import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -54,6 +55,7 @@ import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.workspaces
+import subroutine.installations
 
 Item = typing.TypeVar("Item")
 
@@ -672,6 +674,25 @@ class Me(pydantic.BaseModel):
 
 	api_version: str
 	user: Caller
+
+	#: What the installation that answered this call is *running* — item ``#381``. Not
+	#: :attr:`api_version`, which is the wire contract and has read ``"1.0"`` since M1: this
+	#: is the program, and it is the only thing that says whether a feature an agent has read
+	#: about exists here yet.
+	#:
+	#: **Defaulted, like everything added to this model after it shipped** (`#345`). An
+	#: instance one release behind sends no such key and must keep working.
+	instance_version: str | None = None
+
+	#: Which migration that installation's database is actually at — the same twelve-hex
+	#: token ``subroutine db current`` prints and ``/readyz`` compares. Null only where the
+	#: database carries no ``alembic_version`` at all, which no installation this program
+	#: creates ever does: ``init`` migrates, and the suite *stamps* so that a test database
+	#: describes itself the way a real one does.
+	#:
+	#: Here because the pair is what makes skew legible: a program newer than its schema is
+	#: `#376`, and it looked from inside a session exactly like a feature that did not work.
+	schema_revision: str | None = None
 
 	#: Absent in local mode, where the CLI acts as a user with no credential at all.
 	credential: Credential | None
@@ -1358,6 +1379,13 @@ def me (
 
 	return Me(
 		api_version=subroutine.API_VERSION,
+		# **Read off the connection this answer was assembled over, not off configuration**
+		# (`#381`). The whole value of reporting it is that it comes from the database the
+		# process is actually using, which on 2026-08-03 was not the one anybody expected.
+		# Null-safe: a database with no `alembic_version` table makes alembic answer `None`
+		# rather than raise, so this cannot be the call that breaks a diagnostic.
+		instance_version=subroutine.installations.program(),
+		schema_revision=subroutine.db.migrate.revision_on(session.connection()),
 		user=caller(principal.user),
 		credential=credential(session, principal),
 		instance_permissions=sorted(
@@ -1514,6 +1542,61 @@ def narrowing (
 		parts.append(f"scopes {', '.join(credential.scopes)}")
 
 	return "; ".join(parts)
+
+
+def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
+	"""Say which installations answered this call, and whether any of them disagree — ``#381``.
+
+	**One renderer for the same reason :func:`narrowing` is one** (`#357`): the CLI's
+	``whoami`` and the MCP tool of the same name both need it, and three copies of a sentence
+	about versions would be the one place a version claim could itself go stale.
+
+	Three things can be in play and each upgrades separately — the plugin the editor cached,
+	the program on the machine, and the instance on the far end. ``plugin`` is ``None`` when
+	no plugin started this process, which is every command line; ``program`` is required,
+	because a caller that could not say what it is running has nothing to report.
+
+	**Every installation is named, even when they all agree**, which is the one place this
+	module departs from its own rule that a value repeated on every row says nothing. The
+	line is asked for as a question — "what am I talking to?" — and an answer that dropped a
+	number *because* it matched would make the reader reason about the omission. The *second*
+	line is the exception-shaped half, and it appears only when there is something to act on.
+
+	**It never says which is newer.** Ordering two version strings correctly needs
+	``packaging``, which is not one of this project's declared dependencies, and a comparison
+	that is right for ``0.2.1`` and wrong for ``0.2.1.dev51`` would be a diagnostic asserting
+	a cause it has not established. Naming the disagreement is what the reader can act on.
+	"""
+
+	# **A null here is a fact, not a gap.** An instance that sends no version is one that
+	# predates this field, which is itself the answer to "why does the feature I read about
+	# not work" — so it is worded as a finding rather than left blank.
+	instance = me.instance_version or "too old to say"
+
+	seen = [] if plugin is None else [f"plugin {plugin}"]
+
+	seen.extend([f"program {program}", f"instance {instance}"])
+
+	where = ", ".join(seen)
+	schema = "" if me.schema_revision is None else f", schema {me.schema_revision}"
+	lines = [f"{where[0].upper()}{where[1:]}{schema}."]
+
+	# Each disagreement names the failure it actually produced, on 2026-08-03, rather than
+	# advising a refresh in general terms: `#345` was a field one side had and the other did
+	# not, and `#379` was an argument a tool offered that its program had never heard of.
+	if me.instance_version != program:
+		lines.append(
+			"The program and the instance disagree, so a call may be refused for a field "
+			"one of them does not have."
+		)
+
+	if plugin is not None and plugin != program:
+		lines.append(
+			"The plugin and the program disagree, so a tool may offer an argument the "
+			"program does not accept, or lack one it does."
+		)
+
+	return lines
 
 
 def token (

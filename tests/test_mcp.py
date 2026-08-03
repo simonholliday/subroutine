@@ -1738,3 +1738,69 @@ def test_an_agent_can_write_the_description_its_skill_tells_it_to_use (
 	assert "which is what the title deliberately omits" in shown, (
 		"a description that cannot be read back is not one that was written"
 	)
+
+
+def test_asking_who_you_are_says_which_versions_are_in_play (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""Item ``#381``, and the reason it is on *this* tool rather than a new one.
+
+	An agent cannot run a shell command to compare two installations, and it cannot tell a
+	capability that does not exist from one its program is too old to have. ``whoami`` is
+	already where it goes when something does not add up, and the skill already tells it to
+	ask on its first call — so the answer to "which versions?" costs no new tool and no new
+	schema against §21.2's budget.
+	"""
+
+	text, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed
+	expected = f"Program {subroutine.__version__}, instance {subroutine.__version__}, schema "
+
+	assert expected in text
+
+
+def test_the_versions_are_reported_even_when_nothing_can_be_read (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A credential that reaches no workspace still learns which versions it is talking to.
+
+	**This branch used to return early**, and it is the single likeliest reason somebody asks
+	this question at all — an agent that has just been refused everything wants to know
+	whether it is bounded or whether it is talking to the wrong thing. Reporting the answer
+	in every case except that one would have been the feature missing from exactly the case
+	it was built for.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	stranger = subroutine.domain.users.create(
+		session,
+		actor=subroutine.domain.authentication.Principal(user=setup.user),
+		username=f"nobody-{uuid.uuid4().hex[:8]}",
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=stranger,
+		title="reaches nothing",
+		scopes=[subroutine.permissions.TASK_READ],
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed
+	assert "No workspace here can be read with this credential." in text
+	assert f"Program {subroutine.__version__}" in text

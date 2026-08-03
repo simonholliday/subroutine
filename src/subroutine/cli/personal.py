@@ -55,6 +55,7 @@ import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.errors
 import subroutine.fanout
+import subroutine.installations
 import subroutine.views
 
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
@@ -3459,6 +3460,12 @@ def register (
 						[
 							{
 								"connection": answer.connection.name,
+								# **Beside the instance's own numbers, not instead of them**
+								# (`#381`). `instance_version` arrives inside the response;
+								# these two are properties of the process that asked, and a
+								# reader comparing them is doing the whole job of this field.
+								"program_version": subroutine.installations.program(),
+								"plugin_version": subroutine.installations.plugin(),
 								**answer.value.model_dump(mode="json"),
 							}
 							for answer in gathered.answers
@@ -3477,6 +3484,20 @@ def register (
 					console.print(rich.text.Text(answer.connection.label, style=HEADING))
 
 				for line in _whoami_lines(answer.value):
+					console.print(line)
+
+				# **A footer, and per connection rather than once** (`#381`). The program is
+				# the same for every block and the *instance* is not, so the one line that
+				# would be repeated is also the one that has to sit beside the answer it
+				# describes — a single trailing line naming three connections' versions is
+				# unreadable, and worse, is read as applying to whichever block is nearest.
+				console.print("")
+
+				for line in subroutine.views.versions(
+					answer.value,
+					program=subroutine.installations.program(),
+					plugin=subroutine.installations.plugin(),
+				):
 					console.print(line)
 
 			_report(world, gathered.failures)

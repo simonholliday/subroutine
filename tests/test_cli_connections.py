@@ -29,9 +29,11 @@ import pytest
 import sqlalchemy
 import typer.testing
 
+import subroutine
 import subroutine.cli.main
 import subroutine.credentials
 import subroutine.domain.tokens
+import subroutine.installations
 
 #: The zone every instance in this file is created in, named once because a test that asks
 #: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
@@ -1648,3 +1650,72 @@ def test_db_upgrade_still_migrates_a_database_that_exists_unstamped (
 
 	assert result.exit_code == 0, result.output
 	assert "Schema is at" in result.output
+
+
+def test_whoami_says_which_versions_are_in_play (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Item ``#381``: the numbers that decide whether a feature exists here yet.
+
+	**A footer rather than a warning**, and that is the point. Somebody debugging a tool that
+	behaves oddly has no reason to suspect a version at all until they can see one, so this
+	line has to be part of the ordinary answer rather than something that appears when the
+	program has already worked out that it is in trouble.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	answer = run("whoami").output
+
+	assert f"Program {subroutine.__version__}" in answer
+	assert f"instance {subroutine.__version__}" in answer
+	assert "schema " in answer, "the migration this database is actually at"
+
+	# One process reaching its own database cannot disagree with itself, so the advice half
+	# stays silent — the rule every listing here keeps about what is true of every row.
+	assert "disagree" not in answer
+
+
+def test_whoami_reports_the_plugin_that_started_it (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A session launched by a plugin has a third version, and it is the one nothing reported.
+
+	The failure this closes was met twice on 2026-08-03 (`#380`, `#393`): an editor's cached
+	copy of the plugin predating the feature it had been installed for, reporting success on
+	install and changing nothing a session could see.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	manifest = tmp_path / ".claude-plugin" / "plugin.json"
+	manifest.parent.mkdir(parents=True)
+	manifest.write_text(json.dumps({"version": "9.9.9"}), encoding="utf-8")
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(tmp_path))
+
+	answer = run("whoami").output
+
+	assert "Plugin 9.9.9" in answer
+	assert "The plugin and the program disagree" in answer
+
+
+def test_whoami_json_carries_the_versions_of_the_process_that_asked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``--json`` is what an agent reads, and it needs both sides of the comparison.
+
+	``instance_version`` arrives inside the response; the program's and the plugin's are
+	properties of the process that made the call and exist nowhere in it. A reader handed one
+	side of a comparison has been handed nothing.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	answered = json.loads(run("whoami", "--json").output)[0]
+
+	assert answered["program_version"] == subroutine.__version__
+	assert answered["plugin_version"] is None, "no plugin started a command line"
+	assert answered["instance_version"] == subroutine.__version__
+	assert answered["schema_revision"]

@@ -125,9 +125,10 @@ start of a session:
 subroutine_whoami()
 ```
 
-It names the account, the credential by its title, and what that credential is limited to. One
-machine commonly holds more than one — the person's own, and one per agent — so the answer is
-not obvious and is not something to assume. Two answers are worth acting on:
+It names the account, the credential by its title, what that credential is limited to, and the
+versions of everything in play. One machine commonly holds more than one credential — the
+person's own, and one per agent — so the answer is not obvious and is not something to assume.
+Three answers are worth acting on:
 
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
@@ -135,6 +136,17 @@ not obvious and is not something to assume. Two answers are worth acting on:
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
+- **`disagree` on the last line** means two of the three installations are not the same
+  version. Go back to it whenever a tool does something you did not expect — an argument
+  ignored, a field missing, a capability you have read about here that does not seem to be
+  there.
+
+**That last one is why the versions are printed at all.** The plugin, the program and the
+instance upgrade separately, so you may be holding a tool description written for a program
+that has not been updated, or talking to an instance that has. You cannot tell a capability
+that does not exist from one that is merely too old from where you sit, and guessing wrongly
+costs the person an hour. Report the line as it stands and let them fix it; refreshing either
+half is theirs to do, not yours.
 
 **And if you can also run shell commands, ask twice.** The tools and the shell resolve
 credentials independently — the tools use whatever the plugin was configured with, the shell
