@@ -41,16 +41,19 @@ import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.permissions
 
-#: What a lease lasts when nobody says. Long enough that an agent doing real work is not
-#: renewing constantly, short enough that a dead one frees its task within a coffee break.
-#: ``claim_lease_minutes`` in the configuration overrides it — and until this module existed
-#: that setting was declared, printed by ``config show`` and read by nothing, which is the
-#: family `#247`, `#251` and `#303` belong to.
-DEFAULT_LEASE_MINUTES = 30
-
-#: The longest lease anybody may ask for. A lease is a promise that the work comes back if the
-#: worker does not, so an unbounded one is a lock wearing a lease's clothes.
-MAX_LEASE_MINUTES = 60 * 24
+#: How long a lease lasts, and the most anybody may ask for — **both in `subroutine.config`,
+#: which is the only place they can bound the setting as well as the argument** (`#358`).
+#:
+#: They were declared here and the setting was not held to them: `claim_lease_minutes` went
+#: through `_lease` unchecked, so an instance configured with `0` gave every claim an expiry on
+#: the instant it was taken — claiming succeeded, printed a confirmation, and did nothing, for
+#: every worker at once. Aliased rather than re-declared so this module still reads as the
+#: place a lease is decided.
+#:
+#: The setting itself was `#247`'s family until this module existed: declared, printed by
+#: `config show`, and read by nothing.
+DEFAULT_LEASE_MINUTES = subroutine.config.DEFAULT_LEASE_MINUTES
+MAX_LEASE_MINUTES = subroutine.config.MAX_LEASE_MINUTES
 
 
 def held_by (

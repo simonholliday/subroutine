@@ -14,6 +14,7 @@ import datetime
 import threading
 import uuid
 
+import pydantic
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
@@ -395,6 +396,28 @@ def test_the_instances_configured_lease_is_what_a_claim_lasts (
 	)
 
 	assert task.claim_expires_at == moment + datetime.timedelta(minutes=90)
+
+
+@pytest.mark.parametrize(
+	"configured", [0, -5, subroutine.domain.claims.MAX_LEASE_MINUTES + 1]
+)
+def test_a_configured_lease_is_held_to_the_bound_the_argument_is (configured: int) -> None:
+	"""`#358`. The path a caller controls was bounded; the path the operator controls was not.
+
+	**Zero is the one worth naming.** It put every expiry on the instant of the claim, so
+	`held_by` reported that nobody held it — claiming succeeded, printed a confirmation, and
+	did nothing, silently, for every worker on the instance at once. The other direction is a
+	ten-week lease, which is the lock the bound exists to refuse.
+
+	Refused where the settings are loaded rather than where a claim is taken, so it is one
+	message about the configuration at startup instead of a refused claim every time somebody
+	works.
+	"""
+
+	with pytest.raises(pydantic.ValidationError) as refused:
+		subroutine.config.Settings(claim_lease_minutes=configured)
+
+	assert "claim_lease_minutes" in str(refused.value)
 
 
 def test_two_workers_cannot_both_take_the_same_task (

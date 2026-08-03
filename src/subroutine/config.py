@@ -39,6 +39,22 @@ NETWORK_FILESYSTEMS = frozenset(
 )
 
 
+#: What a claim's lease lasts when nobody says (SPEC.md §14.11). Long enough that an agent
+#: doing real work is not renewing constantly, short enough that a dead one frees its task
+#: within a coffee break.
+DEFAULT_LEASE_MINUTES = 30
+
+#: The longest lease anybody may ask for, or configure. A lease is a promise that the work
+#: comes back if the worker does not, so an unbounded one is a lock wearing a lease's clothes.
+#:
+#: **Here rather than in `domain.claims`, which is where it was written** (`#358`). That module
+#: imports this one, so a bound declared there could not narrow the setting — and the two had
+#: to be the same bound, or the argument and the configuration would refuse different things.
+#: `claims.DEFAULT_LEASE_MINUTES` was a second copy of the default beside it, unreachable in
+#: production because every real caller passes a `Settings`: two numbers free to disagree,
+#: where the one that read as authoritative was the one that never applied.
+MAX_LEASE_MINUTES = 60 * 24
+
 #: The environment variable naming the active instance (SPEC.md §12.5). Read on every path
 #: lookup rather than captured once, so a test or a subprocess can change instance without
 #: reloading the module.
@@ -578,7 +594,17 @@ class Settings(pydantic_settings.BaseSettings):
 	events_retention_days: int = 180
 	default_page_size: int = 50
 	max_page_size: int = 200
-	claim_lease_minutes: int = 30
+
+	# **Bounded here, because the bound on the argument beside it was not the same bound**
+	# (`#358`). `claims.claim(minutes=…)` refuses anything outside 1 to MAX_LEASE_MINUTES by
+	# name; this went through unchecked, so the path a *caller* controls was bounded and the
+	# path the *operator* controls — the one that applies by default to everybody — was not.
+	# Zero was the bad one: every expiry landed on the instant of the claim, so claiming
+	# succeeded, printed a confirmation, and did nothing, silently, for every worker.
+	claim_lease_minutes: int = pydantic.Field(
+		default=DEFAULT_LEASE_MINUTES, ge=1, le=MAX_LEASE_MINUTES
+	)
+
 	require_verification_to_complete: bool = False
 
 	# Bounds how deep a project or subtask tree may nest, and with it the length of a
