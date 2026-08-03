@@ -1,10 +1,13 @@
 # Running Subroutine as a service
 
 **Every `subroutine` command on this page has been run, and every quoted output is what it
-actually printed** — with only paths and hostnames moved to the deployment described here.
-That includes the refusals, which are worth meeting on a page rather than at two in the
-morning, and a test fails the build if the two quoted bind refusals stop matching what the
-program says. The `useradd`, `systemctl`, nginx and Caddy fragments are ordinary system
+actually printed** — with only paths and hostnames moved to the deployment described here,
+and **credentials cut back to the prefix they are looked up by**. That last one is the single
+exception to the rule above, and it is deliberate: verifying a transcript against a live
+instance would otherwise put a working credential in a file bound for a public repository. A
+test fails the build on a whole one. That includes the refusals, which are worth meeting on a
+page rather than at two in the morning, and a test fails the build if the two quoted bind
+refusals stop matching what the program says. The `useradd`, `systemctl`, nginx and Caddy fragments are ordinary system
 administration, are not exercised by anything here, and are a starting point for however your
 machines are already set up.
 
@@ -550,7 +553,7 @@ $ subroutine agent create claude --project WEB --scope task:read --scope task:wr
 
   Set this in the environment the agent's session starts from:
 
-    SUBROUTINE_TOKEN_WORK=sr_7e6abdce_S2MRP1ehbK3imO9G5hPlGw3ABblhxSi6KUh0Xi4Zv24
+    SUBROUTINE_TOKEN_WORK=sr_7e6abdce_…
 
   That is the only time the credential is shown. Nothing recovers it afterwards.
 

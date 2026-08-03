@@ -14,11 +14,13 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 
 import pathlib
 import re
+import subprocess
 import typing
 
 import pytest
 import typer.testing
 
+import subroutine.auth
 import subroutine.cli.main
 import subroutine.db.migrate
 
@@ -166,3 +168,112 @@ def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
 		expected = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
 
 		assert anchor == expected, f"{heading!r} links to #{anchor}, but its anchor is #{expected}"
+
+
+#: The two published transcripts that quote a whole credential, from before the rule against
+#: it existed. `#189` found them, measured them inert, and leaving them was Simon's call at the
+#: time; `#363` is the item to revisit that, and **deleting an entry here is what closes it**.
+#:
+#: Grandfathered by exact line rather than by file, so a *new* whole credential in either of
+#: these documents still fails.
+PUBLISHED_BEFORE_THE_RULE = frozenset(
+	{
+		"sr_d78d5d93_hU5ak4GqR_E2GyX2lC0Zq8Mz5JA1kbm-byrlb5hXEfY",
+		"sr_d9fb02fa_UxzFqMe7i_NGb_eXRbOAsVhcm5_O-4pphVO6JhPe494",
+	}
+)
+
+#: A credential as it is printed: the `sr_` marker, the prefix it is looked up by, and the
+#: secret. Only the third part is dangerous, so the pattern requires it at *full length* — a
+#: transcript quoting `sr_7e6abdce_…` is the redaction and not a match, and neither is
+#: `sr_deadbeef_nonesuch`, which is how the suite spells a credential that was never issued.
+#:
+#: **Built from `subroutine.auth`'s own constants rather than from a count of characters in a
+#: string somebody pasted.** A guard that hardcoded 43 would stop firing the day the secret
+#: length changed, silently, which is the failure it exists to prevent one level up.
+WHOLE_CREDENTIAL = re.compile(
+	rf"{subroutine.auth.TOKEN_SCHEME}_"
+	rf"[0-9a-f]{{{subroutine.auth.TOKEN_PREFIX_LENGTH}}}_"
+	rf"[A-Za-z0-9_-]{{{(subroutine.auth.TOKEN_SECRET_BYTES * 4) // 3},}}"
+)
+
+
+def test_no_published_page_quotes_a_whole_credential () -> None:
+	"""`#359`. The third one reached a published page, and the first two are still there.
+
+	**The rule was written down after the first two and did not stop the third**, which is the
+	part worth building a guard from rather than a note: recording a lesson does not inoculate
+	you against it. `#345` made the same point twice in one day.
+
+	The hazard is not the strings — none of them resolves anywhere. It is that `docs/hosting.md`
+	promises every transcript is what the program actually printed, so the next person verifying
+	one against a live instance produces a *working* credential in a file bound for a public
+	repository. Two true rules colliding, which is how `#189` was found in the first place.
+
+	Tracked files only, and read through git so that a scratch file or an untracked note cannot
+	fail somebody's build.
+	"""
+
+	listed = subprocess.run(
+		["git", "ls-files", "-z"],
+		cwd=ROOT,
+		capture_output=True,
+		text=True,
+		check=True,
+	)
+	found: dict[str, list[str]] = {}
+
+	for name in listed.stdout.split("\0"):
+		path = ROOT / name
+
+		if not name or not path.is_file():
+			continue
+
+		try:
+			text = path.read_text(encoding="utf-8")
+
+		except UnicodeDecodeError:
+			continue
+
+		quoted = [
+			match
+			for match in WHOLE_CREDENTIAL.findall(text)
+			if match not in PUBLISHED_BEFORE_THE_RULE
+		]
+
+		if quoted:
+			found[name] = quoted
+
+	assert not found, (
+		f"a whole credential is committed in {sorted(found)}. Cut it back to the prefix it is "
+		f"looked up by — 'sr_<eight characters>_…' — which is the public half and is what the "
+		f"transcripts quote."
+	)
+
+
+def test_the_credential_guard_can_actually_fire () -> None:
+	"""The floor beside the ceiling: a pattern that matches nothing passes silently.
+
+	Written because the guard above is only ever seen passing, and a typo in the regular
+	expression would look exactly like a clean repository.
+	"""
+
+	# **Minted here rather than pasted**, which is not fastidiousness: a sample written into
+	# this file would be a whole credential committed to the repository, and the guard above
+	# would fail on its own test. It did, on the first run. Nothing stores this one.
+	minted = subroutine.auth.generate_token().value.get_secret_value()
+
+	assert WHOLE_CREDENTIAL.search(f"  {minted}\n")
+	assert not WHOLE_CREDENTIAL.search(
+		f"  SUBROUTINE_TOKEN_WORK={minted.rsplit('_', 1)[0]}_…\n"
+	), "the redaction this test exists to permit"
+	assert not WHOLE_CREDENTIAL.search("give it to a client as SUBROUTINE_TOKEN")
+	assert not WHOLE_CREDENTIAL.search("sr_deadbeef_nonesuch"), (
+		"the suite's own spelling for a credential that was never issued"
+	)
+
+	for grandfathered in PUBLISHED_BEFORE_THE_RULE:
+		assert WHOLE_CREDENTIAL.fullmatch(grandfathered), (
+			"an excused string that the pattern would not have caught anyway is an excuse "
+			"for nothing"
+		)
