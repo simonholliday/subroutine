@@ -1406,10 +1406,10 @@ def token_create (
 	# **Said back, because the subtree is the part nobody would guess.** A restriction to `SR`
 	# also reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a
 	# tree deeper than one level and is not visible in what was typed.
-	if minted.project_scope:
-		named = minted.project_scope_keys or minted.project_scope
+	restricted = subroutine.views.reach(minted)
 
-		_say(f"Restricted to {', '.join(named)} and anything filed underneath.")
+	if restricted:
+		_say(f"Restricted to {', '.join(restricted)} and anything filed underneath.")
 
 	_say("")
 	_say(secret)
@@ -1523,9 +1523,7 @@ def _credential_reach (token: subroutine.views.Token, pinned: str | None) -> str
 	if pinned is not None:
 		parts.append(f"in {pinned} only")
 
-	# Keys where the instance could resolve them, ids where it could not — never a shorter
-	# list than the credential actually reaches (`#203`).
-	named = token.project_scope_keys or token.project_scope
+	named = subroutine.views.reach(token)
 
 	if named:
 		parts.append(f"projects {', '.join(named)}")
@@ -1711,7 +1709,7 @@ def _what_the_credential_can_do (
 	# A scope decides which verbs; a workspace pin decides where — a project decides which
 	# *items* exist at all for this credential, which is what `#216` exists for and what makes
 	# an agent bounded rather than merely named.
-	named = credential.project_scope_keys or credential.project_scope
+	named = subroutine.views.reach(credential)
 	within = f", and only within {', '.join(named)}" if named else ""
 
 	return f"{answer.user.username} ({kind}), in {where}{within}"

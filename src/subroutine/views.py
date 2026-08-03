@@ -1415,6 +1415,70 @@ def workspace_access (
 	)
 
 
+def reach (credential: Credential | Token) -> list[str]:
+	"""Name the projects a credential is restricted to, as somebody would type them.
+
+	**Keys where the instance could resolve them, ids where it could not** — never a shorter
+	list than the credential actually reaches (`#203`). An id that resolves to nothing visible
+	is passed through as it was stored, because a credential's *reported* reach must never be
+	smaller than its real one.
+
+	Empty for a credential restricted to nothing at all, which is a different statement from
+	``None`` and is the caller's to word.
+	"""
+
+	if credential.project_scope is None:
+		return []
+
+	return list(credential.project_scope_keys or credential.project_scope)
+
+
+def narrowing (
+	credential: Credential,
+	workspaces: typing.Sequence[WorkspaceAccess] = (),
+) -> str:
+	"""Say what a credential has been limited to, in the words it was limited with.
+
+	**One renderer, because there were three** (`#357`). The CLI's `whoami`, the MCP tool of
+	the same name and `agent create`'s closing check each built this sentence themselves, from
+	the same three clauses in the same order with the same comment above them — and they had
+	already parted company: where a workspace pin names a workspace the credential cannot read,
+	one printed the raw id and another printed "one workspace". Both are defensible and only
+	one can be right, and nothing would ever have noticed they disagreed. That is this
+	codebase's signature defect, arriving divergent rather than drifting into it.
+
+	**The id wins**, which was the CLI's answer. A pin the caller cannot resolve is exactly
+	when they need something to go and look up; "one workspace" tells them a fact they can
+	already see in the word "pinned".
+
+	``workspaces`` is what a slug is resolved through, and defaults to none — a caller that has
+	not got the list gets the id rather than a second query.
+	"""
+
+	parts = []
+
+	if credential.workspace_id is not None:
+		named = [
+			workspace.slug
+			for workspace in workspaces
+			if workspace.id == credential.workspace_id
+		]
+
+		parts.append(
+			f"workspace {named[0]!r}" if named else f"workspace {credential.workspace_id}"
+		)
+
+	if credential.project_scope is not None:
+		within = reach(credential)
+
+		parts.append(f"projects {', '.join(within)}" if within else "no project at all")
+
+	if credential.scopes:
+		parts.append(f"scopes {', '.join(credential.scopes)}")
+
+	return "; ".join(parts)
+
+
 def token (
 	row: subroutine.db.models.identity.ApiToken,
 	*,

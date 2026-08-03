@@ -3501,7 +3501,10 @@ def register (
 		lines = [f"{me.user.username} ({kind}), via {how}."]
 
 		if credential is not None and credential.narrows:
-			lines.append(f"Narrowed to {_narrowing(credential, me.workspaces)}.")
+			lines.append(
+				f"Narrowed to "
+				f"{subroutine.views.narrowing(credential, me.workspaces)}."
+			)
 
 		if me.instance_permissions:
 			lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")
@@ -3546,41 +3549,6 @@ def register (
 		"""
 
 		return workspace.role or "no role"
-
-	def _narrowing (
-		credential: subroutine.views.Credential,
-		workspaces: typing.Sequence[subroutine.views.WorkspaceAccess],
-	) -> str:
-		"""Say what a credential has been limited to, in the words it was limited with."""
-
-		parts = []
-
-		if credential.workspace_id is not None:
-			named = [
-				workspace.slug
-				for workspace in workspaces
-				if workspace.id == credential.workspace_id
-			]
-
-			# A pin naming a workspace this credential cannot read leaves nothing to name it
-			# by, and that is the case worth printing the raw id for rather than hiding.
-			parts.append(f"workspace {named[0]!r}" if named else f"workspace {credential.workspace_id}")
-
-		if credential.project_scope is not None:
-			# **Keys, not ids.** Somebody wrote `--project WEB` and reading it back as a UUID
-			# makes them go and look up what they just typed. The instance resolves them, and
-			# passes an id through unchanged when it names nothing visible — so this never
-			# reports a *narrower* reach than the credential has (`#203`).
-			named = credential.project_scope_keys or credential.project_scope
-
-			parts.append(
-				f"projects {', '.join(named)}" if named else "no project at all"
-			)
-
-		if credential.scopes:
-			parts.append(f"scopes {', '.join(credential.scopes)}")
-
-		return "; ".join(parts)
 
 	# **This docstring is published as `--help`**, so the reasoning lives out here. `#278`:
 	# the listing marks the connection being written to as well as the one that is merely the

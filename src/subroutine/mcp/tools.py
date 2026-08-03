@@ -44,11 +44,15 @@ DEFAULT_LIMIT = 20
 #:
 #: **It saves no budget, and it would be easy to believe it does.** The dict is shared by
 #: reference in this file and serialised in full for each tool, so the wire cost is exactly
-#: what the same number of literals would cost — **638 bytes across 11 tools as of
-#: 2026-08-03**, roughly a twelfth of the surface, spent saying one thing repeatedly. The only
-#: construction that would actually cut it is ``$defs`` plus ``$ref``, and that is not worth
-#: betting a client's parser on: one that does not resolve a reference shows a property with
-#: no description at all, which is worse than a repeated one.
+#: what the same number of literals would cost — roughly a twelfth of the surface, spent saying
+#: one thing repeatedly. The only construction that would actually cut it is ``$defs`` plus
+#: ``$ref``, and that is not worth betting a client's parser on: one that does not resolve a
+#: reference shows a property with no description at all, which is worse than a repeated one.
+#:
+#: **The figure that used to be here is in `tests/test_mcp.py`** (`#361`). It said "638 bytes
+#: across 11 tools as of 2026-08-03" and was 696 across 12 two commits later — stale in the
+#: paragraph directly below this module's own note that a count belongs somewhere it can fail.
+#: Measuring it in the test is what makes the argument checkable rather than dated.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
 
@@ -445,12 +449,17 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 	how = (
 		"the local database"
 		if credential is None
-		else f"token {credential.title!r} ({credential.prefix})"
+		# The ellipsis is not decoration: a prefix is the *public half* of a credential (§7.4),
+		# and printing it bare invites a reader to think they are looking at a short token. The
+		# CLI's `whoami` has always said it this way and this had not (`#361`).
+		else f"token {credential.title!r} ({credential.prefix}…)"
 	)
 	lines = [f"{me.user.username} ({kind}), via {how}."]
 
 	if credential is not None and credential.narrows:
-		lines.append(f"Narrowed to {_narrowed_to(credential, me.workspaces)}.")
+		lines.append(
+			f"Narrowed to {subroutine.views.narrowing(credential, me.workspaces)}."
+		)
 
 	if me.instance_permissions:
 		lines.append(f"Over the installation: {', '.join(me.instance_permissions)}.")
@@ -474,36 +483,6 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 	)
 
 	return "\n".join(lines)
-
-
-def _narrowed_to (
-	credential: subroutine.views.Credential,
-	workspaces: typing.Sequence[subroutine.views.WorkspaceAccess],
-) -> str:
-	"""Say what a credential is limited to, naming projects by key where they resolve."""
-
-	parts = []
-
-	if credential.workspace_id is not None:
-		named = [
-			workspace.slug
-			for workspace in workspaces
-			if workspace.id == credential.workspace_id
-		]
-
-		parts.append(f"workspace {named[0]!r}" if named else "one workspace")
-
-	if credential.project_scope is not None:
-		# Keys where the instance could resolve them, ids where it could not — never a
-		# shorter list than the credential actually reaches (`#203`).
-		named = credential.project_scope_keys or credential.project_scope
-
-		parts.append(f"projects {', '.join(named)}" if named else "no project at all")
-
-	if credential.scopes:
-		parts.append(f"scopes {', '.join(credential.scopes)}")
-
-	return "; ".join(parts)
 
 
 def _changed (

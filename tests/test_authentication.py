@@ -340,6 +340,55 @@ def test_a_malformed_project_scope_is_refused (session: sqlalchemy.orm.Session) 
 	assert "SR" in error.value.detail, "and it quotes what was actually sent"
 
 
+def test_one_renderer_says_what_a_credential_is_narrowed_to (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#357`. Three surfaces built this sentence themselves and two already disagreed.
+
+	The CLI's `whoami`, the MCP tool of the same name and `agent create`'s closing check each
+	had the same three clauses in the same order — and where a workspace pin names a workspace
+	the credential cannot read, one printed the raw id and the other printed "one workspace".
+	Both defensible, only one right, and nothing would ever have noticed.
+
+	The id is the answer that survived, and this is where that decision is pinned: a pin the
+	reader cannot resolve is exactly when they need something to go and look up.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="Bounded",
+		workspace_id=setup.workspace.id,
+		scopes=[subroutine.permissions.TASK_READ],
+		project_scope=[str(setup.inbox.id)],
+	)
+	session.flush()
+
+	principal = subroutine.domain.authentication.Principal(user=setup.user, token=token)
+	credential = subroutine.views.credential(session, principal)
+
+	assert credential is not None
+
+	places = [
+		subroutine.views.workspace_access(session, principal, setup.workspace)
+	]
+	said = subroutine.views.narrowing(credential, places)
+
+	assert said == (
+		f"workspace {setup.workspace.slug!r}; projects {setup.inbox.key}; "
+		f"scopes {subroutine.permissions.TASK_READ}"
+	)
+
+	# With no workspaces to resolve the pin through — which is the caller that has not fetched
+	# them — the id is printed rather than a phrase that says nothing.
+	assert str(setup.workspace.id) in subroutine.views.narrowing(credential)
+
+
 def _presenting (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,
