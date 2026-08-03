@@ -60,8 +60,12 @@ dev = [
 	"mypy>=1.10",
 	"pytest>=8.2",
 	"pytest-cov>=5.0",
+	# Reading the plugin skill's YAML frontmatter, which nothing parsed until a colon in it
+	# made the skill load with no metadata at all and 2,391 tests passed over it.
+	"pyyaml>=6.0",
 	"ruff>=0.5",
 	"types-python-dateutil",
+	"types-pyyaml",
 ]
 
 [project.scripts]

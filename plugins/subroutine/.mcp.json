@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "subroutine": {
+    "tools": {
       "command": "${user_config.command}",
       "args": [
         "mcp",

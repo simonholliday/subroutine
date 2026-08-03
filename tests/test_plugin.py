@@ -18,6 +18,7 @@ import typing
 
 import pytest
 import sqlalchemy.orm
+import yaml
 
 import api_support
 import subroutine.cli.main
@@ -114,7 +115,7 @@ def test_the_server_runs_the_configured_command_rather_than_a_fixed_one () -> No
 	for this repository and deliberately deleted, and why the value is prompted for instead.
 	"""
 
-	server = _read(SERVERS)["mcpServers"]["subroutine"]
+	server = _read(SERVERS)["mcpServers"]["tools"]
 
 	assert server["command"] == "${user_config.command}"
 	assert server["args"][0] == "mcp"
@@ -129,7 +130,7 @@ def test_the_token_travels_in_the_environment_and_is_held_as_a_secret () -> None
 	up in shell history.
 	"""
 
-	assert _read(SERVERS)["mcpServers"]["subroutine"]["env"]["SUBROUTINE_TOKEN"] == (
+	assert _read(SERVERS)["mcpServers"]["tools"]["env"]["SUBROUTINE_TOKEN"] == (
 		"${user_config.token}"
 	)
 	assert _read(PLUGIN)["userConfig"]["token"]["sensitive"] is True
@@ -380,3 +381,46 @@ def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
 		f"{declared}. Claude Code caches by version, so nobody who installs it would get "
 		f"these changes — bump the version in {PLUGIN.name}."
 	)
+
+
+def test_the_skill_frontmatter_parses_as_yaml () -> None:
+	"""The check the suite did not have, and the one that would have caught today's worst edit.
+
+	`#378` rewrote the skill's description to make an agent read it. The new text contained
+	``the tool descriptions do not: how to open …`` — and a colon followed by a space inside an
+	unquoted YAML scalar is a mapping indicator, so the frontmatter stopped parsing.
+
+	**The failure is silent and total.** ``claude plugin validate`` reports it as "at runtime
+	this skill loads with empty metadata (all frontmatter fields silently dropped)" — so the
+	description, which is the entire mechanism by which a skill is discovered, would have been
+	*gone*. A change made to get the skill read would have made it unreadable.
+
+	2,391 tests passed over it. Nothing here had ever parsed this file's frontmatter; the
+	manifests are covered because they are JSON that `_read` loads, and the one YAML in the
+	plugin was the one nothing touched.
+
+	`CLAUDE.md` already says to run ``claude plugin validate`` before committing either
+	manifest, and I did not. A rule that depends on remembering is not the same as a check.
+	"""
+
+	text = SKILL.read_text(encoding="utf-8")
+
+	assert text.startswith("---\n"), "the skill has no frontmatter block at all"
+
+	front = text.split("---", 2)[1]
+
+	try:
+		parsed = yaml.safe_load(front)
+
+	except yaml.YAMLError as error:
+		raise AssertionError(
+			f"the skill's frontmatter does not parse, so every field is silently dropped and "
+			f"the skill becomes undiscoverable: {error}"
+		) from None
+
+	assert isinstance(parsed, dict), "the frontmatter is not a mapping"
+
+	# Named explicitly rather than "some keys parsed": a scalar that swallows the rest of the
+	# block still parses, and would leave exactly the fields that matter missing.
+	assert parsed.get("name") == "subroutine"
+	assert parsed.get("description"), "a skill with no description is one nothing will load"
