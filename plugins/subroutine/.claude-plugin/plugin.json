@@ -27,6 +27,12 @@
       "description": "The name of a connection you have already configured, such as 'work'. Leave this empty for your default connection — the database on this machine, unless you have set 'default_connection' to something else. Run 'subroutine connections' to see the names and which one that is. Note that one session reaches one instance, so if you keep work and personal instances separately, name the one this project belongs to. Connections are set up with 'subroutine' itself, not here.",
       "default": ""
     },
+    "workspace": {
+      "type": "string",
+      "title": "Which workspace (optional)",
+      "description": "The workspace this session's work belongs in, by its short name \u2014 'subroutine list' prints them beside each item when there is more than one. Leave empty if this instance has only one, which is the usual case: it is then resolved for you and naming it here would be a word you never needed. With two or more, an agent that has not been told a name has every read refused as ambiguous, and no way to learn one. This is a default rather than a limit \u2014 a call may still name another, and a token pinned to a workspace is what narrows access for real.",
+      "default": ""
+    },
     "token": {
       "type": "string",
       "title": "Agent token (optional)",

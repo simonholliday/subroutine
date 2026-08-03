@@ -33,6 +33,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
+import subroutine.domain.workspaces
 import subroutine.mcp.protocol
 import subroutine.mcp.session
 import subroutine.mcp.tools
@@ -803,6 +804,106 @@ def test_the_whole_tool_surface_stays_small (
 	assert size < 7750, f"the tool schemas are {size} bytes of every session's context"
 
 
+def _two_workspaces (
+	session: sqlalchemy.orm.Session,
+) -> tuple[subroutine.clients.local.Client, str, str]:
+	"""Return a client on an instance holding two workspaces, and both their names.
+
+	**Two, because one cannot fail.** `#333` was latent for as long as every instance had a
+	single workspace: the parameter was never supplied and nothing noticed, because the one
+	candidate always resolved. A fixture with one workspace reproduces exactly that blindness
+	— every assertion below passes against a session that ignores the setting entirely.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	second = subroutine.domain.workspaces.create(
+		session, slug="acme", title="Acme", owner=setup.user
+	)
+	session.flush()
+
+	return (
+		subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=api_support.factory_for(session),
+		),
+		setup.workspace.slug,
+		second.slug,
+	)
+
+
+def test_without_a_workspace_a_session_on_two_of_them_cannot_read_anything (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The baseline `#333` was found by, kept so the fix below has something to be a fix of.
+
+	The refusal itself is good — it names both workspaces, which is how a caller recovers.
+	What was missing is that there was anything to recover *from*: the CLI carries a workspace
+	and a session did not.
+	"""
+
+	client, first, second = _two_workspaces(session)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_list")
+
+	assert failed
+	assert first in text and second in text, "and it says which names would work"
+
+
+def test_a_session_bound_to_a_workspace_reads_and_writes_there (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""What the plugin's new setting buys, end to end through the wire."""
+
+	client, first, second = _two_workspaces(session)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client, workspace=second),
+			name="subroutine",
+			version="0",
+		)
+
+		added, failed = _called(server, "subroutine_add", text="Something in Acme")
+
+		assert not failed, added
+
+		listed, failed = _called(server, "subroutine_list")
+
+		assert not failed
+		assert "Something in Acme" in listed
+
+		# **A default, not a pin.** An agent that has to read a decision filed next door can,
+		# which is why this is not the same thing as narrowing the credential (§7.3).
+		elsewhere, failed = _called(server, "subroutine_list", workspace=first)
+
+		assert not failed
+		assert "Something in Acme" not in elsewhere
+
+
+def test_the_instructions_say_where_work_goes_only_when_a_session_was_told (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Silent on a single-workspace instance, which is most of them (§1.4).
+
+	An instruction about workspaces is context every session carries, and one that will only
+	ever have a single workspace should not carry a sentence about the concept at all.
+	"""
+
+	roster = _roster("local", default="local")
+
+	assert "Work goes to the 'acme' workspace" in _standing_up(
+		monkeypatch, roster, workspace="acme"
+	)
+	assert "Work goes to" not in _standing_up(monkeypatch, roster)
+
+
 def test_an_agent_can_ask_which_principal_it_is (
 	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
 ) -> None:
@@ -1234,7 +1335,9 @@ def _roster (*names: str, default: str) -> subroutine.connections.Roster:
 
 
 def _standing_up (
-	monkeypatch: pytest.MonkeyPatch, roster: subroutine.connections.Roster
+	monkeypatch: pytest.MonkeyPatch,
+	roster: subroutine.connections.Roster,
+	workspace: str | None = None,
 ) -> str:
 	"""Return the instructions ``build`` produces for this roster, without opening anything.
 
@@ -1248,9 +1351,13 @@ def _standing_up (
 	monkeypatch.setattr(
 		subroutine.clients.opening, "for_connection", lambda connection, roster, settings: None
 	)
-	monkeypatch.setattr(subroutine.mcp.tools, "catalogue", lambda client: [])
+	monkeypatch.setattr(
+		subroutine.mcp.tools, "catalogue", lambda client, workspace=None: []
+	)
 
-	built = subroutine.mcp.session.build(settings=subroutine.config.Settings(dev_mode=True))
+	built = subroutine.mcp.session.build(
+		workspace=workspace, settings=subroutine.config.Settings(dev_mode=True)
+	)
 
 	assert built.instructions is not None, "a session is always told where it is"
 
@@ -1319,7 +1426,9 @@ def test_the_binding_does_not_follow_subroutine_use (
 		"for_connection",
 		lambda connection, roster, settings: handed.append(connection.name),
 	)
-	monkeypatch.setattr(subroutine.mcp.tools, "catalogue", lambda client: [])
+	monkeypatch.setattr(
+		subroutine.mcp.tools, "catalogue", lambda client, workspace=None: []
+	)
 
 	# The stored context says 'work'. Asserted first, so a fixture that failed to set it
 	# cannot let the real assertion pass for the wrong reason.

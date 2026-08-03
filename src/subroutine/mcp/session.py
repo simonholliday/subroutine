@@ -30,9 +30,21 @@ import subroutine.mcp.tools
 def build (
 	*,
 	connection: str | None = None,
+	workspace: str | None = None,
 	settings: subroutine.config.Settings | None = None,
 ) -> subroutine.mcp.protocol.Server:
-	"""Return a server bound to one connection, named or current."""
+	"""Return a server bound to one connection, named or current, and one workspace.
+
+	``workspace`` is a *default* for the tools' existing argument rather than a pin — the
+	credential is what pins (§7.3), and a session that could not look anywhere else would make
+	an agent unable to read a decision filed next door.
+
+	**Not validated at startup, deliberately.** Checking the name means asking the instance,
+	and a server that will not start when the instance is briefly down is worse than one whose
+	first call is refused with a message naming the workspaces that do exist — which is what
+	`#333` was found by and is already well worded. Starting and serving are separate moments
+	and only the second one reports (`#236`).
+	"""
 
 	resolved = settings or subroutine.config.load_settings()
 	roster = subroutine.connections.roster(resolved)
@@ -52,16 +64,17 @@ def build (
 	client = subroutine.clients.opening.for_connection(chosen, roster, resolved)
 
 	return subroutine.mcp.protocol.Server(
-		subroutine.mcp.tools.catalogue(client),
+		subroutine.mcp.tools.catalogue(client, workspace=workspace),
 		name="subroutine",
 		version=subroutine.__version__,
-		instructions=_instructions(chosen, roster),
+		instructions=_instructions(chosen, roster, workspace),
 	)
 
 
 def _instructions (
 	connection: subroutine.connections.Connection,
 	roster: subroutine.connections.Roster,
+	workspace: str | None = None,
 ) -> str:
 	"""Return what a client is told about this server before it calls anything.
 
@@ -77,6 +90,16 @@ def _instructions (
 	reason, since an instruction about instances costs every session that will never have two.
 	"""
 
+	# **Named here as well as passed to the tools** (`#333`). It costs one short clause and
+	# it is the difference between an agent knowing where its work lands and finding out from
+	# the first call that disagrees with its assumption. Silent when there is none, so a
+	# single-workspace instance carries no sentence about a concept it does not need (§1.4).
+	where = (
+		""
+		if workspace is None
+		else f"Work goes to the '{workspace}' workspace unless a call says otherwise. "
+	)
+
 	elsewhere = tuple(name for name in roster.names if name != connection.name)
 	others = (
 		""
@@ -89,7 +112,7 @@ def _instructions (
 
 	return (
 		f"Shared project management for people and agents, on connection "
-		f"'{connection.label}'. {others}"
+		f"'{connection.label}'. {where}{others}"
 		f"Items are addressed by a number written #42, unique per "
 		f"workspace and never reused, shared between tasks and documents. "
 		f"A comment is what happened; a document is what you concluded — if the next "
@@ -102,10 +125,13 @@ def run (
 	outgoing: typing.TextIO,
 	*,
 	connection: str | None = None,
+	workspace: str | None = None,
 	settings: subroutine.config.Settings | None = None,
 ) -> None:
 	"""Serve MCP over the given streams until the input closes."""
 
 	subroutine.mcp.protocol.serve(
-		build(connection=connection, settings=settings), incoming, outgoing
+		build(connection=connection, workspace=workspace, settings=settings),
+		incoming,
+		outgoing,
 	)

@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Added
 
+- **An agent session can be told which workspace it works in.** On an instance with more than
+  one, every read from an agent was refused as ambiguous — correctly, and with both names in
+  the message, but there was no way to answer it: the command line carries a workspace and a
+  session did not. Latent for as long as every instance had one workspace, and immediate once
+  any instance had two.
+
+  A `workspace` setting in the plugin, beside the connection, and `subroutine mcp --workspace`
+  underneath it. It is a default rather than a limit: a call that names a workspace still goes
+  there, so an agent can read a decision filed next door, and a token pinned to a workspace is
+  what narrows access for real. The session's instructions say where work will land.
+
+  It is deliberately not read from the current context — that is working state somebody moves
+  between tasks, and a session that bound to it would land wherever it happened to point when
+  the process started.
+
 - **`subroutine_whoami` — an agent can ask which principal it is.** An agent commonly reaches an
   instance two ways at once: through these tools, and by running `subroutine` in a shell. They
   resolve credentials separately, so they can be two different accounts — and until now the only

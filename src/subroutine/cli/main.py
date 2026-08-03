@@ -514,6 +514,9 @@ def mcp (
 	connection: str = typer.Option(
 		"", "--connection", help="Which instance to work in. Defaults to the current one."
 	),
+	workspace: str = typer.Option(
+		"", "--workspace", help="Which workspace its calls land in. Unset means say each time."
+	),
 ) -> None:
 	"""Serve this instance to an AI agent over MCP, on stdin and stdout.
 
@@ -523,6 +526,8 @@ def mcp (
 
 	  subroutine mcp --connection work
 
+	  subroutine mcp --connection work --workspace acme
+
 	Speaks the Model Context Protocol over stdio, so a client starts this as a child process
 	rather than connecting to a port. There is nothing to expose and no listener: if the
 	client is not running it, nothing is serving.
@@ -530,6 +535,11 @@ def mcp (
 	One connection, chosen here. Unlike 'today', which merges every configured instance
 	because a person has one day, a tool call writes somewhere — and where it writes has to
 	be a decision you can see rather than one this process takes for you.
+
+	'--workspace' is the same argument one level down, and it matters as soon as an instance
+	holds two: without it every read is refused as ambiguous, and the agent has no way to
+	learn a name it was never told. It is a default rather than a limit — a call naming a
+	workspace still goes there, and a token pinned to one narrows it for real.
 	"""
 
 	# Imported inside the function like `serve`'s uvicorn: an MCP session is a long-lived
@@ -538,7 +548,11 @@ def mcp (
 	import subroutine.mcp.session
 
 	subroutine.mcp.session.run(
-		sys.stdin, sys.stdout, connection=connection or None, settings=_settings()
+		sys.stdin,
+		sys.stdout,
+		connection=connection or None,
+		workspace=workspace or None,
+		settings=_settings(),
 	)
 
 

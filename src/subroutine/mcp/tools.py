@@ -1,10 +1,14 @@
-"""What an agent can actually do here, as nine tools.
+"""What an agent can actually do here.
 
-**Nine, not one per endpoint, and that is the whole design.** A tool's schema is context an
-agent carries for its entire session whether it calls the tool or not, so a surface is a
+**A handful, not one per endpoint, and that is the whole design.** A tool's schema is context
+an agent carries for its entire session whether it calls the tool or not, so a surface is a
 fixed cost paid up front against a variable benefit. ``#14``'s own note records the
 measurement that makes this concrete: Beads found 10-50k tokens via MCP against 1-2k via a
 CLI. A tool per endpoint would spend the benefit before earning it.
+
+**The count lives in ``tests/test_mcp.py`` and deliberately not here.** It said "nine" for as
+long as there were more than nine, in the file whose own argument is that the number matters —
+which is `#198`'s finding about a figure repeated in four places, met one more time.
 
 So the arguments lean on grammars that already exist. ``add`` takes one captured line
 (§6.13) rather than ten typed properties, because the grammar is published, tested, and
@@ -18,6 +22,7 @@ these strings are read by a model, and a full task is 400-600 tokens of which mo
 nobody asked for.
 """
 
+import dataclasses
 import datetime
 import typing
 
@@ -35,19 +40,72 @@ import subroutine.views
 #: are context spent on rows it will not act on.
 DEFAULT_LIMIT = 20
 
-#: Named once because it appears on every tool and nine copies of a sentence drift.
+#: Named once because it appears on nearly every tool and copies of a sentence drift.
 #:
 #: **It saves no budget, and it would be easy to believe it does.** The dict is shared by
 #: reference in this file and serialised in full for each tool, so the wire cost is exactly
-#: what nine literals cost — 434 bytes, a tenth of the surface, spent saying the same thing
-#: nine times. The only construction that would actually cut it is ``$defs`` plus ``$ref``,
-#: and that is not worth betting a client's parser on: one that does not resolve a reference
-#: shows a property with no description at all, which is worse than a repeated one.
+#: what the same number of literals would cost — **638 bytes across 11 tools as of
+#: 2026-08-03**, roughly a twelfth of the surface, spent saying one thing repeatedly. The only
+#: construction that would actually cut it is ``$defs`` plus ``$ref``, and that is not worth
+#: betting a client's parser on: one that does not resolve a reference shows a property with
+#: no description at all, which is worse than a repeated one.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
 
-def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.protocol.Tool]:
-	"""Return the tools, bound to one connection."""
+def catalogue (
+	client: subroutine.clients.base.Client, *, workspace: str | None = None
+) -> list[subroutine.mcp.protocol.Tool]:
+	"""Return the tools, bound to one connection and — optionally — to one workspace.
+
+	``workspace`` is what a session is bound to when the plugin names one, and it is a
+	*default* rather than a pin: the ``workspace`` argument every tool already carries still
+	wins, so an agent that needs to look somewhere else can, and one that says nothing lands
+	where the session was pointed (`#333`).
+
+	**Not read from the stored context**, which is the tempting answer and is the one `#276`
+	deliberately removed: `subroutine use` is working state that a person moves between tasks,
+	and a server reads it once at startup and holds it for the session — so which workspace an
+	agent wrote to would depend on where that pointed at the unrelated moment its process
+	started. A setting somebody wrote down is a decision they can see.
+	"""
+
+	return _within(workspace, _tools(client))
+
+
+def _within (
+	workspace: str | None, tools: list[subroutine.mcp.protocol.Tool]
+) -> list[subroutine.mcp.protocol.Tool]:
+	"""Give every tool a default workspace, leaving one the caller named alone.
+
+	Done once here rather than in each tool's own reader, so that a tool added later inherits
+	it — the failure this closes was a parameter nobody noticed was never supplied, and a fix
+	that has to be remembered per tool would be the same shape one layer down.
+	"""
+
+	if workspace is None:
+		return tools
+
+	def bound (
+		tool: subroutine.mcp.protocol.Tool,
+	) -> subroutine.mcp.protocol.Tool:
+		"""Return one tool with the session's workspace filled in when none was given."""
+
+		call = tool.call
+
+		return dataclasses.replace(
+			tool,
+			call=lambda arguments: call(
+				arguments
+				if _text(arguments, "workspace")
+				else {**arguments, "workspace": workspace}
+			),
+		)
+
+	return [bound(tool) for tool in tools]
+
+
+def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.protocol.Tool]:
+	"""Return the tools themselves, bound to one connection."""
 
 	return [
 		subroutine.mcp.protocol.Tool(
