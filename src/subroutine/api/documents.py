@@ -214,9 +214,12 @@ def listing (
 		statement = statement.where(model.deleted_at.is_not(None))
 
 	if project is not None:
+		# The project and everything under it (`#320`), matching the task listing — a document
+		# filed in a sub-project is part of that area of work in exactly the same way.
 		statement = statement.where(
-			model.project_id
-			== subroutine.domain.selection.project(session, actor, workspace, project).id
+			subroutine.domain.scoping.within_project(
+				subroutine.domain.selection.project(session, actor, workspace, project)
+			)
 		)
 
 	if type is not None:

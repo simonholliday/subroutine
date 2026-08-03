@@ -131,6 +131,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A project listing includes the sub-projects underneath it.** `subroutine project list`
+  drew a tree and `subroutine list --project PARENT` returned only what was filed directly in
+  the parent, so a hierarchy answered for none of its own contents — which is most of what a
+  hierarchy is for. `--project` and `?project=` now mean that project *and everything under
+  it*, on tasks and on documents, over both transports.
+
+  Naming a child still means the child alone. The same rule already governed a token's
+  `project_scope`, one function away and in the opposite direction.
+
+  `subroutine project move` counted its subtree by asking per project and adding up, which
+  became a double count once a parent answered for its children; it now asks once, which also
+  frees it from the page cap below.
+
 - **`subroutine project rename` counts the whole project rather than one page.** It asked for
   a listing and reported its length, so `default_page_size` capped it: renaming a project of
   249 items promised that 50 would keep their numbers. Wrong in the direction that makes an

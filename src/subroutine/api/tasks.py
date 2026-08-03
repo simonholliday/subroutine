@@ -340,7 +340,9 @@ def listing (
 
 	if project is not None:
 		chosen = subroutine.domain.selection.project(session, actor, workspace, project)
-		statement = statement.where(model.project_id == chosen.id)
+		# The project *and everything under it* (`#320`) — a named project means that area of
+		# work, and a parent whose listing excluded its own children made the tree decorative.
+		statement = statement.where(subroutine.domain.scoping.within_project(chosen))
 
 	if status is not None:
 		statement = statement.where(

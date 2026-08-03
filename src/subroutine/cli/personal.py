@@ -2828,19 +2828,16 @@ def register (
 					"Run 'subroutine project list' to see what there is.",
 				)
 
-			# **Every project in the subtree, not just the named one.** Asking only about `key`
-			# reported one item where two were moving, which is the exact opposite of what a
-			# count is for. One request per project in the subtree is a real cost and the
-			# right one to pay here: this runs once, on a rare operation, to answer a question
-			# somebody is about to say yes to.
-			held = sum(
-				len(
-					place.client.tasks(
-						workspace=workspace, project=item.key, include_completed=True
-					)
-				)
-				for item in moving
-			)
+			# **One count over the subtree root** (`#320`). This used to ask per project and add
+			# the answers up, which was right when a project listing meant that project alone
+			# and became a double count the moment naming a parent included its children — the
+			# item in a sub-project was counted once for the sub-project and again for its
+			# parent. `tests/test_personal_path.py` caught it, which is what that test is for.
+			#
+			# It also fixes `#296`'s fault here in passing: `len(client.tasks(...))` capped at a
+			# page, so a subtree of more than fifty items understated itself in the sentence
+			# somebody says yes to.
+			held = place.client.count_tasks(workspace=workspace, project=key)
 
 			if not yes:
 				destination = "the top level" if root else under.upper()

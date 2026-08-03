@@ -33,6 +33,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.hierarchy
 
 
 def within_project_scope (
@@ -78,6 +79,37 @@ def within_project_scope (
 	# needed. Never a range comparison, which is wrong under a non-byte-wise collation.
 	return sqlalchemy.or_(
 		*[project.path.contains(f"/{identifier}/") for identifier in allowed]
+	)
+
+
+def within_project (
+	project: subroutine.db.models.project.Project,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return a predicate selecting one project **and everything filed underneath it** (`#320`).
+
+	**A named project means that area of work, not that one node.** Every listing that took a
+	``project`` compared ``project_id`` to a single id, so a parent's listing excluded its own
+	children: ``project list`` drew a tree and ``list --project PARENT`` returned only what was
+	filed directly in it. A hierarchy whose parent answers for none of its contents is a
+	decoration, and it is precisely the thing sub-projects are for.
+
+	**The rule already existed one function away, saying the opposite.**
+	:func:`within_project_scope` narrows a *credential* by subtree, and argues it in writing —
+	"restricting an agent to a project and then refusing it the sub-projects underneath makes
+	the restriction useless below one level". That argument is unchanged for a listing. Two
+	copies of one rule disagreeing is this codebase's signature defect, and this was a fresh
+	instance of it.
+
+	Through :func:`subroutine.domain.hierarchy.subtree`, so the ``LIKE``-not-a-range decision is
+	made once: a half-open range over ``path`` silently drops descendants under a non-byte-wise
+	collation, correctly on SQLite and wrongly on PostgreSQL.
+
+	**Every caller must already have joined ``project``**, which the three ``readable_*``
+	statements do — the predicate is over the project's path, not the item's.
+	"""
+
+	return subroutine.domain.hierarchy.subtree(
+		subroutine.db.models.project.Project, project
 	)
 
 

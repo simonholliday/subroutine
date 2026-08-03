@@ -1693,3 +1693,39 @@ def test_both_move_a_document_to_another_project (pair: Pair) -> None:
 
 	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
 
+
+
+def test_both_include_a_sub_projects_items_under_its_parent (pair: Pair) -> None:
+	"""``#320``. A named project means that area of work, not that one node.
+
+	Every listing compared ``project_id`` to a single id, so ``project list`` drew a tree and
+	``list --project PARENT`` returned only what was filed directly in it — a hierarchy whose
+	parent answers for none of its contents.
+
+	The rule already existed one function away saying the opposite: ``within_project_scope``
+	narrows a *credential* by subtree and argues the case in writing. Two copies of one rule
+	disagreeing, which is what this file exists to catch between transports and did not catch
+	between a listing and a permission.
+	"""
+
+	parent = pair.local.create_project(key="PARENT", title="Parent")
+	child = pair.local.create_project(key="CHILD", title="Child", parent=parent.key)
+
+	assert child.parent_id == parent.id
+
+	make(pair, "lives in the parent +PARENT")
+	make(pair, "lives in the child +CHILD")
+
+	local, remote = pair.both()
+	under = local.tasks(project="PARENT")
+
+	assert local.tasks(project="PARENT") == remote.tasks(project="PARENT")
+	assert {task.title for task in under} == {
+		"lives in the parent",
+		"lives in the child",
+	}
+
+	# And naming the child still means the child alone — a subtree is not a widening of
+	# everything, it is the branch somebody named.
+	assert {task.title for task in local.tasks(project="CHILD")} == {"lives in the child"}
+	assert local.count_tasks(project="PARENT") == 2

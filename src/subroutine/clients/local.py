@@ -180,7 +180,7 @@ class Client:
 
 			if narrowed is not None:
 				statement = statement.where(
-					subroutine.db.models.work.Task.project_id == narrowed.id
+					subroutine.domain.scoping.within_project(narrowed)
 				)
 
 			# Counted over the narrowed statement as a subquery rather than by loading rows,
@@ -239,7 +239,7 @@ class Client:
 				statement = statement.where(model.deleted_at.is_not(None))
 
 			if narrowed is not None:
-				statement = statement.where(model.project_id == narrowed.id)
+				statement = statement.where(subroutine.domain.scoping.within_project(narrowed))
 
 			# **Built in steps rather than one chained expression, and `is not None` rather
 			# than `or`.** A SQLAlchemy element raises on truth-testing, so `predicate or
@@ -356,7 +356,7 @@ class Client:
 					.where(
 						sqlalchemy.true()
 						if narrowed is None
-						else model.project_id == narrowed.id
+						else subroutine.domain.scoping.within_project(narrowed)
 					)
 					.where(
 						sqlalchemy.true()
