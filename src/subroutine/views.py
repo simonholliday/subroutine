@@ -594,7 +594,13 @@ class Credential(pydantic.BaseModel):
 	#: reach must not be smaller than its real one. Resolved by the instance rather than left
 	#: to the caller, since a client would otherwise pay a second call to read back what it
 	#: has just set (§13.1) — and one of the two transports has no endpoint to ask.
-	project_scope_keys: list[str] | None
+	#:
+	#: **Defaulted, because this model reads a response from a server that may be older**
+	#: (`#345`). Every instance sends it; the default is what lets a client one commit ahead
+	#: still parse an instance one commit behind, which is the ordinary state of a fleet with
+	#: more than one machine in it. Sending null and omitting it mean the same thing here, and
+	#: a caller that wants certainty reads ``project_scope``, which has always been sent.
+	project_scope_keys: list[str] | None = None
 
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None

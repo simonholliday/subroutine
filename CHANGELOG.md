@@ -160,6 +160,17 @@ upgrade involves.
 
 ### Fixed
 
+- **A client can read an instance that is a release behind it.** `GET /v1/me` grew two new
+  fields in this cycle, and both went in as *required* — so a CLI updated before the server it
+  talks to refused the server outright, reporting that it "answered, but not as a Subroutine
+  instance". A machine on one release and a server on another is the ordinary state of anything
+  with more than one machine in it, not an edge case.
+
+  Fields added to a response are now defaulted, and there is a test holding the exact body an
+  older instance sends, captured from one rather than written by hand. Nothing else in the
+  suite could have caught it: every test builds both halves from the same source, which is
+  precisely the arrangement that cannot produce a version mismatch.
+
 - **`subroutine list --project` works on an instance with more than one workspace.** The
   listing asks every workspace and passed the project key to each; a project belongs to one, so
   the others refused, the fan-out read that as the *connection* failing, and the rows the right
