@@ -201,16 +201,20 @@ def project (
 def token_projects (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
-	wanted: typing.Sequence[str],
+	wanted: typing.Sequence[str] | None,
 	*,
 	workspace: subroutine.db.models.identity.Workspace | None = None,
 ) -> list[subroutine.db.models.project.Project] | None:
 	"""Resolve what somebody typed into the projects a credential is restricted to — `#216`.
 
 	``None`` when nothing was named, which is a credential not restricted by project at all.
-	Never an empty list: the service refuses one outright, because empty could mean every
-	project or none and choosing on the caller's behalf gets a security control wrong in
-	silence (§7.3).
+
+	**An empty sequence is passed through as an empty list rather than folded into ``None``**,
+	and the difference is the whole of §7.3's sentinel: not given means every project, given as
+	empty means something the caller has not said clearly enough to act on, and
+	``authentication`` refuses it by name. Folding them here would answer that question on the
+	caller's behalf — and in the widening direction, which is the one that matters. The
+	existing endpoint test caught exactly that when this function first took the argument.
 
 	**Keys in, ids out.** ``api_token.project_scope`` holds ids, because a key can be renamed
 	(`#176`) and a credential must not quietly follow it onto whatever takes the old name; a
@@ -233,10 +237,13 @@ def token_projects (
 	is not one they can scope a credential to.
 	"""
 
+	if wanted is None:
+		return None
+
 	asked = [item.strip() for item in wanted if item.strip()]
 
 	if not asked:
-		return None
+		return []
 
 	places = (
 		[workspace]

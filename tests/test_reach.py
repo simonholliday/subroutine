@@ -98,6 +98,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("PATCH", "/v1/workspaces/{id_or_slug}"): "rename_workspace",
 	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
 	("POST", "/v1/projects"): "create_project",
+	("POST", "/v1/tokens"): "issue_token",
+	("DELETE", "/v1/tokens/{id_or_prefix}"): "revoke_token",
 	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
 	("POST", "/v1/projects/{id_or_key}/move"): "move_project",
 	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
@@ -136,6 +138,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	# and it cannot, because the local client uses no paths at all. `#340` is that gap.
 	("GET", "/v1/me"): "me",
 	("GET", "/v1/meta"): "identity",
+	("GET", "/v1/tokens"): "tokens",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 }
@@ -152,26 +155,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"administrative",
 		"The catalogue beside the backup itself, and `subroutine db backups` reads it "
 		"without a running service, which is the whole of §12.4.",
-	),
-	("POST", "/v1/tokens"): (
-		"administrative",
-		"`#208`. The capability reaches the CLI and HTTP; what it does not reach is the "
-		"*client protocol*, which is what this file measures. `subroutine token create` opens "
-		"the database directly, as §12.4 requires of the administrative commands — the first "
-		"credential on an instance has to be mintable before there is a credential to "
-		"authenticate a client with, so routing it through one would be a bootstrap that "
-		"cannot complete. Same shape as `/v1/admin/backups`.",
-	),
-	("GET", "/v1/tokens"): (
-		"administrative",
-		"The inventory beside the issuing, and `subroutine token list` reads it without a "
-		"running service, which is the whole of §12.4.",
-	),
-	("DELETE", "/v1/tokens/{id_or_prefix}"): (
-		"administrative",
-		"Revoking, and the one of the three that most has to work when the service is the "
-		"thing that has gone wrong (§12.4): `subroutine token revoke` is the answer to a leak, "
-		"and a client method for it would need the credential you are trying to burn.",
 	),
 	("GET", "/healthz"): (
 		"protocol",
@@ -322,6 +305,25 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	# already implies, and a shared connection name does not imply a shared principal. The
 	# entry is gone rather than reworded, because deleting it is what closes the item — and
 	# `subroutine_whoami` is what `test_mcp` now argues the budget for.
+	"tokens": (
+		"budget",
+		"The credential inventory (`#348`). An agent reading which credentials exist is one "
+		"question away from asking which of them can write, and that is a question for the "
+		"person who issued them — `subroutine_whoami` answers the one an agent actually has, "
+		"which is what *its own* credential may do.",
+	),
+	"issue_token": (
+		"budget",
+		"Minting a credential (`#348`). An agent that can issue one can issue one for a "
+		"session nobody is watching, and §7.4's whole story is that a credential is narrower "
+		"than the person who asked for it — an agent handing them out unprompted is the write "
+		"most worth making somebody ask for, which is `discard`'s argument at a higher stake.",
+	),
+	"revoke_token": (
+		"budget",
+		"Revoking (`#348`). The undo of a write this surface cannot do, and the one whose "
+		"mistake locks a person out of their own instance.",
+	),
 	"users": (
 		"budget",
 		"Who is on this instance (`#174`). An agent needs a name to attribute or assign work "

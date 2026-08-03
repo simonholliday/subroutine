@@ -35,6 +35,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.db.migrate
 import subroutine.db.models.activity
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.session
@@ -58,6 +59,7 @@ import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
+import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -776,6 +778,72 @@ class Client:
 
 			return subroutine.views.project(
 				created, subroutine.views.Vocabulary.for_projects(session, [created])
+			)
+
+	def tokens (self) -> list[subroutine.views.Token]:
+		"""List the credentials this caller may act on, newest first (`#348`)."""
+
+		with self._opened() as (session, actor):
+			found = subroutine.domain.tokens.issued_tokens(session, actor=actor)
+			owners = subroutine.domain.tokens.owners(session, found)
+
+			return [
+				subroutine.views.token(
+					row, owner=owners.get(row.user_id), session=session, principal=actor
+				)
+				for row in found
+			]
+
+	def issue_token (
+		self,
+		*,
+		title: str | None = None,
+		username: str | None = None,
+		service_account: str | None = None,
+		workspace: str | None = None,
+		scopes: typing.Sequence[str] = (),
+		projects: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedToken:
+		"""Mint a credential and return it once, secret included (`#348`)."""
+
+		with self._writing() as (session, actor):
+			row, owner, issued, created = subroutine.domain.tokens.issue(
+				session,
+				actor=actor,
+				title=title,
+				username=username,
+				service_account=service_account,
+				workspace=workspace,
+				scopes=scopes,
+				projects=projects,
+				expires=expires,
+			)
+			rendered = subroutine.views.token(
+				row,
+				owner=owner,
+				secret=issued.value.get_secret_value(),
+				account_created=created,
+				session=session,
+				principal=actor,
+			)
+
+		# The type the protocol promises. `views.token` answers with the base type when no
+		# secret was asked for, and a cast here would be a claim rather than a check.
+		assert isinstance(rendered, subroutine.views.IssuedToken)
+
+		return rendered
+
+	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
+		"""Stop a credential working, now (`#348`)."""
+
+		with self._writing() as (session, actor):
+			found = subroutine.domain.tokens.mine(session, actor, id_or_prefix)
+			stopped = subroutine.domain.tokens.revoke(session, found, actor=actor)
+			owner = session.get(subroutine.db.models.identity.User, stopped.user_id)
+
+			return subroutine.views.token(
+				stopped, owner=owner, session=session, principal=actor
 			)
 
 	def users (self) -> list[subroutine.views.User]:

@@ -514,6 +514,17 @@ either.
 A credential is never issued for an account that could not use it: a deactivated account is
 refused here rather than given a token that fails the first time it is presented.
 
+**These commands run from wherever you are.** `token create`, `token list` and `token revoke`
+go through whichever connection your next write would go to, so `subroutine -c work token list`
+administers the server's credentials from a laptop that holds no database of its own. That
+matters because setting an agent up is something you do on the machine the agent runs on, and
+until 0.3 these were the three commands that could only be run while sitting on the server.
+
+They still open a database *directly* when the connection is local — which, on the server, it
+is. That is not a leftover: §12.4 requires the commands that administer credentials to work
+when the service is the thing that has gone wrong, and reaching a local database never involved
+the service. The route follows the connection precisely so that both remain true.
+
 **Roles belong to a workspace.** `member` in one is not `member` in another; each workspace is
 seeded with its own, and `subroutine user list --workspace <slug>` says who holds which.
 Deciding membership needs `workspace:admin`, which is a different thing from being able to work

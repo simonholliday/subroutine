@@ -403,6 +403,55 @@ class Client(typing.Protocol):
 		somebody exists and deciding where they may work are different decisions.
 		"""
 
+	def tokens (self) -> list[subroutine.views.Token]:
+		"""List the credentials this caller may act on, newest first — item `#348`.
+
+		**Here at all because §12.4's local-database rule assumed a local database.** `token`,
+		`db` and `user` open one directly so that recovery works when the service will not
+		start, which is right and is why `subroutine token list` never went through a
+		connection. On a machine whose work lives on a *served* instance there is no local
+		database to open, so the three commands that administer credentials could only be run
+		while sitting on the server — and setting an agent up is something you do on the
+		machine the agent runs on.
+
+		Never a secret: only a hash is stored (§7.4), so there is nothing in a listing to leak.
+		"""
+
+	def issue_token (
+		self,
+		*,
+		title: str | None = None,
+		username: str | None = None,
+		service_account: str | None = None,
+		workspace: str | None = None,
+		scopes: typing.Sequence[str] = (),
+		projects: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedToken:
+		"""Mint a credential and return it once, secret included — item `#348`.
+
+		**The only moment the secret exists outside the caller.** Only a hash is stored, so
+		nothing recovers it afterwards, including the instance that issued it.
+
+		``projects`` restricts it to those projects and everything under them, by key or by id.
+		Keys are resolved by the instance rather than by whichever client asked, so ``SR``
+		means one project whichever transport carried it and a second resolver cannot drift
+		from the first (`#216`).
+
+		A credential may never be wider than the one asking for it: wider scopes, more
+		projects, an unpinned workspace where the caller's own is pinned, or issuing for
+		somebody else without ``instance:user_create`` are all refused by the service, so both
+		transports refuse identically.
+		"""
+
+	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
+		"""Stop a credential working, now, and return it as it now is — item `#348`.
+
+		Addressed by the public prefix a listing prints, or by id. Idempotent, and it keeps the
+		*first* revocation time: when a credential stopped being trusted is a fact worth not
+		overwriting, and a caller retrying a request it is unsure landed should not move it.
+		"""
+
 	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
 		"""List who belongs to one workspace, and with what role."""
 

@@ -30,8 +30,11 @@ import subroutine
 import subroutine.auth
 import subroutine.cli.personal
 import subroutine.cli.topics
+import subroutine.clients.base
+import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
+import subroutine.context
 import subroutine.credentials
 import subroutine.db.backup
 import subroutine.db.migrate
@@ -39,16 +42,15 @@ import subroutine.db.models.identity
 import subroutine.db.session
 import subroutine.db.transfer
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local
-import subroutine.domain.projects
 import subroutine.domain.schedule
-import subroutine.domain.selection
 import subroutine.domain.tokens
-import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.views
 
 app = typer.Typer(
 	name="subroutine",
@@ -1288,7 +1290,6 @@ def _profile_is_protected (name: str) -> bool:
 #: reads everything and writes tasks and comments, and cannot restructure projects — which is
 #: the right starting authority for an agent, and is narrowable further by the token's own
 #: scopes (SPEC.md §7.3).
-SERVICE_ACCOUNT_ROLE = "contributor"
 
 
 @token_app.command("create")
@@ -1364,11 +1365,6 @@ def token_create (
 	worse than one you have to paste somewhere.
 	"""
 
-	settings = _settings()
-
-	if _database_is_absent(settings):
-		_refuse_absent_database(settings)
-
 	# Checked *before* anything is issued, so a credential is never minted and then
 	# stranded. `store` reads the existing file (which refuses unparseable TOML) and writes
 	# a new one; both can fail, and doing that after the commit left a live token whose
@@ -1378,55 +1374,37 @@ def token_create (
 	if target:
 		_refuse_unusable_credentials_file(target)
 
-	with _database(settings) as engine:
-		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+	with _administering() as client:
+		try:
+			minted = client.issue_token(
+				title=title.strip() or None,
+				username=username.strip() or None,
+				service_account=service_account.strip() or None,
+				workspace=workspace.strip() or None,
+				scopes=[item.strip() for item in (scope or []) if item.strip()],
+				projects=[item.strip() for item in (project or []) if item.strip()] or None,
+				expires=expires.strip() or None,
+			)
 
-		with factory() as session:
-			try:
-				operator = _operator(session, settings)
-				owner, created = _token_owner(
-					session, operator, username, service_account, workspace
-				)
-				pinned = _pinned_workspace(session, owner, workspace)
-				restricted = subroutine.domain.selection.token_projects(
-					session, operator, project or [], workspace=pinned
-				)
-				_row, issued = subroutine.domain.authentication.issue_token(
-					session,
-					user=owner,
-					title=title.strip() or f"{owner.username}'s token",
-					workspace_id=None if pinned is None else pinned.id,
-					scopes=[item.strip() for item in (scope or []) if item.strip()],
-					project_scope=None if restricted is None else [
-						str(found.id) for found in restricted
-					],
-					expires_at=_expiry(expires, settings),
-					created_by=operator.user.id,
-					# The actor, so a credential cannot mint a wider one. Omitting this was
-					# the privilege escalation: `task:read` could issue itself no-restriction.
-					actor=operator,
-				)
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
-			except subroutine.errors.SubroutineError as error:
-				session.rollback()
-				_fail(error)
-
-			session.commit()
-
-			secret = issued.value.get_secret_value()
+	secret = minted.token
 
 	# Printed before it is stored. If the write fails now, the secret is at least on screen.
-	if created:
-		_say(f"Created service account {owner.username}, with the {SERVICE_ACCOUNT_ROLE} role.")
+	if minted.account_created:
+		_say(
+			f"Created service account {minted.username}, with the "
+			f"{subroutine.domain.tokens.SERVICE_ACCOUNT_ROLE} role."
+		)
 
 	# **Said back, because the subtree is the part nobody would guess.** A restriction to `SR`
 	# also reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a
 	# tree deeper than one level and is not visible in what was typed.
-	if restricted:
-		_say(
-			f"Restricted to {', '.join(found.key for found in restricted)} and anything "
-			f"filed underneath."
-		)
+	if minted.project_scope:
+		named = minted.project_scope_keys or minted.project_scope
+
+		_say(f"Restricted to {', '.join(named)} and anything filed underneath.")
 
 	_say("")
 	_say(secret)
@@ -1494,35 +1472,19 @@ def token_list () -> None:
 	database. A credential narrowed to nothing in particular says so in one word.
 	"""
 
-	settings = _settings()
+	with _administering() as client:
+		try:
+			listed = client.tokens()
 
-	if _database_is_absent(settings):
-		_refuse_absent_database(settings)
+			# One call, and the only thing it is for: a pin is stored as an id and a listing
+			# that printed one would be sending its reader to look something up. The workspaces
+			# a connection reaches come back with both, so this is a lookup rather than a query.
+			places = {
+				workspace.id: workspace.slug for workspace in client.identity().workspaces
+			}
 
-	with _database(settings) as engine:
-		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
-
-		with factory() as session:
-			try:
-				operator = _operator(session, settings)
-				rows = subroutine.domain.tokens.issued_tokens(session, actor=operator)
-
-			except subroutine.errors.SubroutineError as error:
-				_fail(error)
-
-			# The workspace pin and the project scope are both resolved to their names here,
-			# while there is a session: a UUID in a listing is something to go and look up,
-			# which is the opposite of what a listing is for. The pin was; the scope on the
-			# very next line was not (`#203`) — same output, same argument, applied once.
-			listed = [
-				(
-					row,
-					session.get(subroutine.db.models.identity.User, row.user_id),
-					_pin_of(session, row),
-					_scope_of(session, operator, row),
-				)
-				for row in rows
-			]
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
 	if not listed:
 		_say("No credentials have been issued.")
@@ -1530,54 +1492,16 @@ def token_list () -> None:
 
 		return
 
-	width = max(len(row.token_prefix) for row, _owner, _pin, _scope in listed)
+	width = max(len(row.prefix) for row in listed)
 
-	for row, owner, pin, scope in listed:
-		who = "someone since deleted" if owner is None else owner.username
+	for row in listed:
+		pin = None if row.workspace_id is None else places.get(row.workspace_id)
 
-		_say(f"  {row.token_prefix.ljust(width)}  {who}  {row.title}  {_credential_state(row)}")
-		_say(f"  {' ' * width}  {_credential_reach(row, pin, scope)}")
-
-
-def _pin_of (
-	session: sqlalchemy.orm.Session, token: subroutine.db.models.identity.ApiToken
-) -> str | None:
-	"""Return the short name of the workspace a credential is pinned to, if it is.
-
-	Not `_pinned_workspace`, which already exists and answers the *other* direction — what a
-	credential being issued should be pinned to. Two functions of the same name in one module
-	is a shadowing nobody sees until one of them is called.
-	"""
-
-	if token.workspace_id is None:
-		return None
-
-	found = session.get(subroutine.db.models.identity.Workspace, token.workspace_id)
-
-	return None if found is None else found.slug
+		_say(f"  {row.prefix.ljust(width)}  {row.username}  {row.title}  {_credential_state(row)}")
+		_say(f"  {' ' * width}  {_credential_reach(row, pin)}")
 
 
-def _scope_of (
-	session: sqlalchemy.orm.Session,
-	operator: subroutine.domain.authentication.Principal,
-	token: subroutine.db.models.identity.ApiToken,
-) -> list[str]:
-	"""Return the keys of the projects a credential is restricted to, in the stored order.
-
-	Through the domain, which narrows (`#203`). A key discloses more than an id, so this is not
-	a lookup — it is a scoped read, and it lives beside every other scoped read.
-	"""
-
-	return subroutine.domain.projects.keys_for(
-		session, operator, token.project_scope or []
-	)
-
-
-def _credential_reach (
-	token: subroutine.db.models.identity.ApiToken,
-	pinned: str | None,
-	scope: typing.Sequence[str],
-) -> str:
+def _credential_reach (token: subroutine.views.Token, pinned: str | None) -> str:
 	"""Say what a credential can reach, and when it was last used.
 
 	**"Which of my tokens can write?" had no answer** (`#175`). The listing showed a prefix, an
@@ -1594,8 +1518,12 @@ def _credential_reach (
 	if pinned is not None:
 		parts.append(f"in {pinned} only")
 
-	if scope:
-		parts.append(f"projects {', '.join(scope)}")
+	# Keys where the instance could resolve them, ids where it could not — never a shorter
+	# list than the credential actually reaches (`#203`).
+	named = token.project_scope_keys or token.project_scope
+
+	if named:
+		parts.append(f"projects {', '.join(named)}")
 
 	# A credential issued and never presented is the interesting case here — it is either
 	# unused or was pasted somewhere that has not run yet — so it is stated rather than left
@@ -1609,7 +1537,7 @@ def _credential_reach (
 	return " · ".join(parts)
 
 
-def _credential_state (token: subroutine.db.models.identity.ApiToken) -> str:
+def _credential_state (token: subroutine.views.Token) -> str:
 	"""Say whether a credential still works, and until when.
 
 	**Reported rather than left to be worked out from two nullable columns.** A listing whose
@@ -1644,47 +1572,32 @@ def token_revoke (
 	or a piece of work has ended.
 	"""
 
-	settings = _settings()
-
-	if _database_is_absent(settings):
-		_refuse_absent_database(settings)
-
 	named = _named_prefix(prefix)
 
-	with _database(settings) as engine:
-		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+	with _administering() as client:
+		# **Asked before, so "already revoked" can be said.** Revoking keeps the *first*
+		# instant, so the response alone cannot tell a first call from a repeat — and which of
+		# the two it was is the fact somebody re-running this wants.
+		try:
+			before = next(
+				(row for row in client.tokens() if row.prefix == named), None
+			)
 
-		with factory() as session:
-			model = subroutine.db.models.identity.ApiToken
-			found = session.scalars(
-				sqlalchemy.select(model).where(model.token_prefix == named)
-			).first()
-
-			if found is None:
+			if before is None:
 				_stop(
 					f"There is no credential with the prefix {named!r}.",
 					"Run 'subroutine token list' to see them.",
 				)
 
-			already = found.revoked_at is not None
+			stopped = client.revoke_token(id_or_prefix=named)
 
-			try:
-				operator = _operator(session, settings)
-				subroutine.domain.tokens.revoke(session, found, actor=operator)
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
-			except subroutine.errors.SubroutineError as error:
-				session.rollback()
-				_fail(error)
+	when = "?" if stopped.revoked_at is None else stopped.revoked_at.date().isoformat()
 
-			session.commit()
-
-			# Read inside the session and after the commit: `revoke_token` leaves an existing
-			# instant alone, so on the second call this is when it *actually* stopped rather
-			# than now — which is the fact somebody re-running this wants.
-			stopped = found.revoked_at.date().isoformat() if found.revoked_at else "?"
-
-	if already:
-		_say(f"{named} was already revoked, on {stopped}.")
+	if before.revoked_at is not None:
+		_say(f"{named} was already revoked, on {when}.")
 
 		return
 
@@ -1741,6 +1654,60 @@ def _refuse_unusable_credentials_file (name: str) -> None:
 		_fail(error)
 
 
+@contextlib.contextmanager
+def _administering () -> typing.Iterator[subroutine.clients.base.Client]:
+	"""Yield the client a credential command should act through — item `#348`.
+
+	**Which one is decided by the connection, not by a flag.** A flag would leave the bare
+	command still failing on every machine whose work is on a served instance, which is the
+	whole complaint: `token list`, `create` and `revoke` opened a local database because §12.4
+	requires the administrative commands to work when the service will not start, and where
+	there is no local database they simply refused.
+
+	So: a remote connection goes over the wire, and a local one opens the database directly as
+	it always has. That falls out correctly on both sides of the case this was found in. On a
+	laptop the direct path would target whatever ``database_url`` names, which after a
+	migration is a file nobody uses — the wrong answer, silently. On the server, the service
+	account's own connection *is* local, so §12.4's recovery path is exactly where it was: the
+	database is reachable with the service stopped, because reaching it never involved the
+	service.
+
+	The connection is the one a write would go to, so `-c` chooses it for one command the same
+	way it chooses where `add` lands.
+	"""
+
+	settings = _settings()
+
+	try:
+		roster = subroutine.connections.roster(settings)
+
+		# **Where a write would go, not the configured default.** `subroutine use` and a
+		# `.subroutine` marker both move that, and a credential command that ignored them would
+		# put `token create` and `add` on different instances from one directory — which is the
+		# shape `#278` found and is worse here, because the thing that lands in the wrong place
+		# is authority. Resolved exactly as the personal commands resolve it.
+		current = subroutine.context.resolve(
+			roster,
+			connection=_selected.connection,
+			workspace=_selected.workspace,
+			marker=subroutine.directory.find(),
+		)
+		connection = roster.require(current.connection)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+	if connection.is_local and _database_is_absent(settings):
+		_refuse_absent_database(settings)
+
+	try:
+		with subroutine.clients.opening.for_connection(connection, roster, settings) as client:
+			yield client
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+
 def _operator (
 	session: sqlalchemy.orm.Session, settings: subroutine.config.Settings
 ) -> subroutine.domain.authentication.Principal:
@@ -1781,134 +1748,6 @@ def _operator (
 		local_user=settings.local_user,
 		token_source=resolved.source,
 	)
-
-
-def _token_owner (
-	session: sqlalchemy.orm.Session,
-	operator: subroutine.domain.authentication.Principal,
-	username: str,
-	service_account: str,
-	workspace: str,
-) -> tuple[subroutine.db.models.identity.User, bool]:
-	"""Return whose token this is, and whether an account had to be made for it.
-
-	**Two flags, because these are two decisions** (`#207`). ``--username`` says *who*;
-	``--service-account`` says who *and* that a machine identity may be created for the name.
-	One word answering both is what this was, and it got each of them wrong at an edge: a
-	``--service-account`` naming a person issued that person's credential and said nothing,
-	under a flag whose stated subject is machines, and either spelling would mint a token for a
-	deactivated account — accepted here and refused the first time anybody used it.
-
-	Returns ``(user, created)``. Naming an existing service account twice reuses it rather than
-	refusing: issuing a second token for one agent is an ordinary thing to want, and "that name
-	is taken" would be a strange thing to say about the account you asked for.
-	"""
-
-	wanted = username.strip()
-	machine = service_account.strip()
-
-	if wanted and machine:
-		_stop(
-			"Say either --username or --service-account, not both.",
-			"--username issues for an account that already exists; --service-account issues "
-			"for a machine identity and creates one if there is none.",
-		)
-
-	if not wanted and not machine:
-		return operator.user, False
-
-	existing = _live_account(session, wanted or machine)
-
-	if wanted:
-		if existing is None:
-			# **"Absent" and "deactivated" get different sentences**, because they have
-			# different remedies and the wrong one wastes somebody's time in a way they cannot
-			# see: telling the holder of a deactivated account to create it sends them at a
-			# name that is already taken.
-			if _any_account(session, wanted) is not None:
-				_stop(
-					f"{wanted!r} is deactivated, so a credential issued for it would be "
-					f"refused the first time it was used.",
-					"Reactivate the account first, or issue the credential for somebody else.",
-				)
-
-			_stop(
-				f"There is no account called {wanted!r} here.",
-				f"Run 'subroutine user list' to see who there is, or 'subroutine user create "
-				f"{wanted}' to add them. To create a machine identity instead, use "
-				f"--service-account.",
-			)
-
-		return existing, False
-
-	if existing is not None:
-		# **A person is not a machine identity, and this used to hand out their credential.**
-		# Refused rather than reused: the flag says what it is for, somebody typing it meant
-		# it, and issuing a human's authority under it is a thing they would not have chosen.
-		if not existing.is_service_account:
-			_stop(
-				f"{existing.username!r} is a person's account, not a machine identity.",
-				f"Use '--username {existing.username}' to issue a credential for them, or "
-				f"choose another name for the service account.",
-			)
-
-		return existing, False
-
-	account = subroutine.domain.users.create(
-		session, username=machine, is_service_account=True, actor=operator
-	)
-	home = _pinned_workspace(session, account, workspace) or _sole_workspace(session)
-
-	# An account with no role can authenticate and do nothing, which reads as a broken token
-	# rather than as a missing membership. Given the narrowest role that can actually work.
-	subroutine.domain.workspaces.add_member(
-		session, home, account, role_key=SERVICE_ACCOUNT_ROLE, actor=operator
-	)
-
-	return account, True
-
-
-def _live_account (
-	session: sqlalchemy.orm.Session, username: str
-) -> subroutine.db.models.identity.User | None:
-	"""Return the account of that name that a credential could actually be used with.
-
-	**Inactive is as good as absent here** (`#207`). ``authenticate`` refuses a token whose
-	owner is not active, so issuing one for a deactivated account produces a credential that is
-	dead on arrival — accepted, printed, stored, and then refused the first time somebody tries
-	it, with a message about the account rather than about the command that made it. The same
-	filter every other way of becoming a principal uses (``domain.local._named``).
-	"""
-
-	model = subroutine.db.models.identity.User
-
-	return session.scalars(
-		sqlalchemy.select(model).where(
-			model.username_normalized == subroutine.domain.users.normalize(username),
-			model.deleted_at.is_(None),
-			model.is_active.is_(True),
-		)
-	).one_or_none()
-
-
-def _any_account (
-	session: sqlalchemy.orm.Session, username: str
-) -> subroutine.db.models.identity.User | None:
-	"""Return the account of that name whether or not it is active, for wording a refusal.
-
-	Only ever asked *after* :func:`_live_account` has said no, and only to tell "there is no
-	such person" from "there is, and they have been switched off" — which are the same failure
-	and different remedies.
-	"""
-
-	model = subroutine.db.models.identity.User
-
-	return session.scalars(
-		sqlalchemy.select(model).where(
-			model.username_normalized == subroutine.domain.users.normalize(username),
-			model.deleted_at.is_(None),
-		)
-	).one_or_none()
 
 
 def _pinned_workspace (

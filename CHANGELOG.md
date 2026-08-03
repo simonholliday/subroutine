@@ -16,6 +16,22 @@ upgrade involves.
 
 ### Added
 
+- **Credentials can be administered from a machine that holds no database.** `token create`,
+  `token list` and `token revoke` opened a local database directly, because the commands that
+  administer credentials have to work when the service will not start. Where the work lives on
+  a served instance there is no local database to open, so the three commands you need in order
+  to set an agent up were the three that refused — on the machine you were setting the agent up
+  on.
+
+  They now go through whichever connection your next write would go to, and open a database
+  directly only when that connection is local. Both properties survive: administering a server
+  from a laptop works, and so does administering a server whose service is down, because
+  reaching a local database never involved the service.
+
+  `token create` also gained the whole of setting an agent up in one call — the account, its
+  membership and the credential, in one transaction rather than three requests with a
+  half-finished agent if the second failed.
+
 - **An agent session can be told which workspace it works in.** On an instance with more than
   one, every read from an agent was refused as ambiguous — correctly, and with both names in
   the message, but there was no way to answer it: the command line carries a workspace and a

@@ -685,6 +685,13 @@ class Token(pydantic.BaseModel):
 	#: Null means every project, for the same reason.
 	project_scope: list[str] | None
 
+	#: The same restriction with each id resolved to its key, where the caller can see it —
+	#: `#203`, `#348`. **Defaulted**, so a client can read a response from an instance that
+	#: predates the field (`#345`), and never a *narrower* list than ``project_scope``: an id
+	#: that resolves to nothing visible is passed through as it was stored, because a
+	#: credential's reported reach must not be smaller than its real one.
+	project_scope_keys: list[str] | None = None
+
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None
 
@@ -730,6 +737,14 @@ class IssuedToken(Token):
 
 	#: Show it once and let it go.
 	token: str
+
+	#: Whether a machine identity had to be created to hold this — item `#348`. Reported
+	#: because "created service account claude" is worth saying and cannot be worked out
+	#: afterwards without a second call and a race with anybody else creating accounts.
+	#:
+	#: **Defaulted**, so a client one release ahead of its instance can still read this
+	#: response (`#345`). False and absent mean the same thing: nothing was created.
+	account_created: bool = False
 
 
 class Member(pydantic.BaseModel):
@@ -1390,6 +1405,9 @@ def token (
 	owner: subroutine.db.models.identity.User | None,
 	now: datetime.datetime | None = None,
 	secret: str | None = None,
+	account_created: bool = False,
+	session: sqlalchemy.orm.Session | None = None,
+	principal: subroutine.domain.authentication.Principal | None = None,
 ) -> Token:
 	"""Render one credential, with its secret only when it has just been minted.
 
@@ -1407,6 +1425,14 @@ def token (
 		"username": "someone since deleted" if owner is None else owner.username,
 		"scopes": list(row.scopes),
 		"project_scope": None if row.project_scope is None else list(row.project_scope),
+		# **Resolved here rather than by whoever prints it** (`#348`). `token list` did it at
+		# print time through a session, which the HTTP client has not got — so a credential
+		# read over a connection would have reported ids where the same command reported keys.
+		"project_scope_keys": (
+			None
+			if row.project_scope is None or session is None or principal is None
+			else subroutine.domain.projects.keys_for(session, principal, row.project_scope)
+		),
 		"workspace_id": row.workspace_id,
 		"narrows": bool(row.scopes)
 		or row.project_scope is not None
@@ -1422,7 +1448,7 @@ def token (
 	if secret is None:
 		return Token(**fields)
 
-	return IssuedToken(**fields, token=secret)
+	return IssuedToken(**fields, token=secret, account_created=account_created)
 
 
 def member (

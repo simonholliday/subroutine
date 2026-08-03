@@ -30,6 +30,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.credentials
+import subroutine.domain.tokens
 
 #: The zone every instance in this file is created in, named once because a test that asks
 #: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
@@ -696,7 +697,7 @@ def test_a_service_account_is_created_with_a_role_it_can_work_with (
 	result = run("token", "create", "--service-account", "claude")
 
 	assert "Created service account claude" in result.output
-	assert subroutine.cli.main.SERVICE_ACCOUNT_ROLE in result.output
+	assert subroutine.domain.tokens.SERVICE_ACCOUNT_ROLE in result.output
 
 
 def test_creating_a_service_account_does_not_break_the_local_to_do_list (
@@ -766,6 +767,53 @@ def test_a_scoped_token_cannot_mint_itself_a_wider_one (
 	narrower = run("token", "create", "--title", "fine", "--scope", "task:read")
 
 	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
+
+
+def test_credentials_can_be_administered_on_a_machine_that_holds_no_database (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#348`, end to end over a real socket: the case both of our machines are in.
+
+	The three commands that set an agent up opened a local database, because §12.4 requires
+	the administrative commands to work when the service will not start. Where the work lives
+	on a *served* instance there is no local database to open, so they refused by name — on
+	the machine somebody is setting the agent up on.
+	"""
+
+	issued = run("-c", "work", "token", "create", "--title", "Minted from here").output
+	prefix = re.search(r"sr_([0-9a-f]{8})_", issued)
+
+	assert prefix is not None, "a credential was issued against the remote instance"
+
+	listed = run("-c", "work", "token", "list").output
+
+	assert "Minted from here" in listed
+	assert prefix.group(1) in listed
+
+	revoked = run("-c", "work", "token", "revoke", prefix.group(1)).output
+
+	assert "stops working immediately" in revoked
+
+	# And the local instance is untouched by any of it, which is what makes `-c` meaningful.
+	assert "Minted from here" not in run("token", "list").output
+
+
+def test_administering_credentials_goes_where_writes_go (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""No flag decides the route — the connection does, the same one `add` would write to.
+
+	A flag would have left the bare command still failing on every machine whose work is on a
+	served instance, which is the complaint this fixes.
+	"""
+
+	# The whole address, because `use` names a place to work rather than a server — the remote
+	# instance's workspace is `acme`, and a bare connection name leaves the other half unsaid.
+	run("use", "work/acme")
+	run("token", "create", "--title", "Minted after use")
+
+	assert "Minted after use" in run("token", "list").output
+	assert "Minted after use" not in run("-c", "local", "token", "list").output
 
 
 def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (

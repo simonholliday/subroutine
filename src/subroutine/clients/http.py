@@ -418,6 +418,54 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def tokens (self) -> list[subroutine.views.Token]:
+		"""List the credentials this caller may act on, newest first (`#348`)."""
+
+		return self._collected(
+			subroutine.views.Token, self._json("GET", "/v1/tokens"), endpoint="tokens"
+		)
+
+	def issue_token (
+		self,
+		*,
+		title: str | None = None,
+		username: str | None = None,
+		service_account: str | None = None,
+		workspace: str | None = None,
+		scopes: typing.Sequence[str] = (),
+		projects: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedToken:
+		"""Mint a credential and return it once, secret included (`#348`)."""
+
+		return self._parsed(
+			subroutine.views.IssuedToken,
+			self._json(
+				"POST",
+				"/v1/tokens",
+				json=_given(
+					title=title,
+					username=username,
+					service_account=service_account,
+					workspace=workspace,
+					# **Sent only when they narrow something.** `[]` and null both mean "no
+					# narrowing" for scopes, and an empty `project_scope` is refused outright
+					# rather than guessed at — so a client that sent either would be asking a
+					# question the caller did not ask.
+					scopes=list(scopes) or None,
+					project_scope=None if projects is None else list(projects),
+					expires=expires,
+				),
+			),
+		)
+
+	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
+		"""Stop a credential working, now (`#348`)."""
+
+		return self._parsed(
+			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{id_or_prefix}")
+		)
+
 	def users (self) -> list[subroutine.views.User]:
 		"""List the accounts on this instance."""
 

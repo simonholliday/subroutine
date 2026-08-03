@@ -21,6 +21,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.errors
 import subroutine.permissions
+import subroutine.views
 
 
 def _make_user (
@@ -383,11 +384,18 @@ def test_a_credentials_project_scope_is_listed_by_name (
 	)
 	session.flush()
 
-	named = subroutine.cli.main._scope_of(
-		session, subroutine.domain.authentication.Principal(user=setup.user), token
+	# **The resolution moved into the view on `#348`** and the claim is unchanged. It had to:
+	# `token list` resolved the ids at print time through a session, which the HTTP client has
+	# not got, so a credential read over a connection would have shown ids where the same
+	# command showed keys.
+	rendered = subroutine.views.token(
+		token,
+		owner=setup.user,
+		session=session,
+		principal=subroutine.domain.authentication.Principal(user=setup.user),
 	)
 
-	assert named == [setup.inbox.key, str(gone)]
+	assert rendered.project_scope_keys == [setup.inbox.key, str(gone)]
 	assert f"projects {setup.inbox.key}" in subroutine.cli.main._credential_reach(
-		token, None, named
+		rendered, None
 	)

@@ -25,11 +25,8 @@ level down.
 """
 
 import typing
-import uuid
 
 import fastapi
-import sqlalchemy
-import sqlalchemy.orm
 
 import subroutine.api.dependencies
 import subroutine.api.query
@@ -38,13 +35,7 @@ import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.db.models.identity
-import subroutine.domain.authentication
-import subroutine.domain.instances
-import subroutine.domain.schedule
-import subroutine.domain.selection
 import subroutine.domain.tokens
-import subroutine.domain.users
-import subroutine.errors
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -65,13 +56,18 @@ class Create(subroutine.api.schemas.RequestModel):
 	for it, which ``issue_token`` enforces rather than this model.
 	"""
 
-	title: str
+	title: str | None = None
 
 	#: Who it is for, by the name ``GET /v1/users`` shows. Omitted means the caller themselves,
 	#: which is the ordinary case and needs no permission beyond having authenticated. Naming
 	#: somebody else needs ``instance:user_create`` — the same authority as creating the
 	#: account, since an account plus a credential for it is one act in two steps.
 	username: str | None = None
+
+	#: Name a machine identity, creating one if there is none. Distinct from ``username``,
+	#: which never creates: naming a person here is refused rather than quietly issuing their
+	#: credential under an argument whose stated subject is machines (`#207`).
+	service_account: str | None = None
 
 	#: Pin it to one workspace, by id or slug. Null means every workspace its owner belongs to.
 	#: **Never pinned by default** (§7.4, §13.7): narrowing a credential to shorten an address,
@@ -112,32 +108,25 @@ def create (
 	refused, as is issuing for somebody else without ``instance:user_create``.
 	"""
 
-	owner = actor.user if body.username is None else _account(session, body.username)
-	pinned = (
-		None
-		if body.workspace is None
-		else subroutine.domain.selection.workspace(session, actor, requested=body.workspace)
-	)
-
-	_row, issued = subroutine.domain.authentication.issue_token(
+	_row, owner, issued, created = subroutine.domain.tokens.issue(
 		session,
-		user=owner,
-		title=body.title,
-		workspace_id=None if pinned is None else pinned.id,
-		scopes=body.scopes or (),
-		project_scope=body.project_scope,
-		expires_at=subroutine.domain.tokens.expires_on(
-			body.expires,
-			timezone=subroutine.domain.schedule.zone_for(
-				user=actor.user, instance=subroutine.domain.instances.get(session)
-			),
-		),
-		created_by=actor.user.id,
 		actor=actor,
+		title=body.title,
+		username=body.username,
+		service_account=body.service_account,
+		workspace=body.workspace,
+		scopes=body.scopes or (),
+		projects=body.project_scope,
+		expires=body.expires,
 	)
 
 	rendered = subroutine.views.token(
-		_row, owner=owner, secret=issued.value.get_secret_value()
+		_row,
+		owner=owner,
+		secret=issued.value.get_secret_value(),
+		account_created=created,
+		session=session,
+		principal=actor,
 	)
 
 	# Narrowed to the type the endpoint promises. `views.token` answers with the base type when
@@ -173,10 +162,15 @@ def listing (
 		format=format, fields=fields, available=SELECTABLE, entity="token"
 	)
 	found = subroutine.domain.tokens.issued_tokens(session, actor=actor)
-	owners = _owners(session, found)
+	owners = subroutine.domain.tokens.owners(session, found)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.token(row, owner=owners.get(row.user_id)) for row in found],
+		[
+			subroutine.views.token(
+				row, owner=owners.get(row.user_id), session=session, principal=actor
+			)
+			for row in found
+		],
 		subroutine.views.Page(
 			limit=len(found), has_more=False, next_cursor=None, total=len(found)
 		),
@@ -204,95 +198,8 @@ def revoke (
 	what somebody has in front of them when a token turns up in a log.
 	"""
 
-	found = _mine(session, actor, id_or_prefix)
+	found = subroutine.domain.tokens.mine(session, actor, id_or_prefix)
 	stopped = subroutine.domain.tokens.revoke(session, found, actor=actor)
 	owner = session.get(subroutine.db.models.identity.User, stopped.user_id)
 
-	return subroutine.views.token(stopped, owner=owner)
-
-
-def _account (
-	session: sqlalchemy.orm.Session, username: str
-) -> subroutine.db.models.identity.User:
-	"""Return the account a credential is being issued for, or say why there is none.
-
-	**Inactive is as good as absent**, the same rule the CLI applies (`#207`): authentication
-	refuses a token whose owner is not active, so issuing one for a deactivated account mints a
-	credential that is accepted here and refused the first time it is presented.
-	"""
-
-	model = subroutine.db.models.identity.User
-	found = session.scalars(
-		sqlalchemy.select(model).where(
-			model.username_normalized == subroutine.domain.users.normalize(username),
-			model.deleted_at.is_(None),
-			model.is_active.is_(True),
-		)
-	).one_or_none()
-
-	if found is not None:
-		return found
-
-	raise subroutine.errors.NotFound(
-		f"There is no active account called {username!r} here.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="username",
-				code="not_found",
-				message=f"No usable account is called {username!r}.",
-				hint="GET /v1/users lists them. A deactivated account cannot hold a working "
-				"credential, so one is not issued for it.",
-			)
-		],
-	)
-
-
-def _mine (
-	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal,
-	id_or_prefix: str,
-) -> subroutine.db.models.identity.ApiToken:
-	"""Find a credential this caller may act on, or report that there is no such thing.
-
-	Resolved out of :func:`subroutine.domain.tokens.issued_tokens`, which is the set they may
-	already read — so a credential belonging to somebody else is *absent* rather than
-	forbidden, and this endpoint discloses nothing a listing would not.
-	"""
-
-	wanted = id_or_prefix.strip()
-
-	for candidate in subroutine.domain.tokens.issued_tokens(session, actor=actor):
-		if candidate.token_prefix == wanted or str(candidate.id) == wanted:
-			return candidate
-
-	raise subroutine.errors.NotFound(
-		f"There is no credential {id_or_prefix!r} you can act on.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="id_or_prefix",
-				code="not_found",
-				message=f"No credential answers to {id_or_prefix!r}.",
-				hint="GET /v1/tokens lists the ones you can see, with the prefix this takes. "
-				"Never send a whole token here — the prefix is the public half.",
-			)
-		],
-	)
-
-
-def _owners (
-	session: sqlalchemy.orm.Session,
-	rows: typing.Sequence[subroutine.db.models.identity.ApiToken],
-) -> dict[uuid.UUID, subroutine.db.models.identity.User]:
-	"""Return the accounts these credentials belong to, in one query rather than per row."""
-
-	wanted = {row.user_id for row in rows}
-
-	if not wanted:
-		return {}
-
-	model = subroutine.db.models.identity.User
-
-	return {
-		found.id: found
-		for found in session.scalars(sqlalchemy.select(model).where(model.id.in_(wanted)))
-	}
+	return subroutine.views.token(stopped, owner=owner, session=session, principal=actor)

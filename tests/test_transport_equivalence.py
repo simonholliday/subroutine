@@ -17,6 +17,7 @@ NULL ordering and datetime awareness — are invisible on one of them.
 """
 
 import datetime
+import json
 import subprocess
 import sys
 import typing
@@ -222,6 +223,98 @@ def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
 		[subroutine.permissions.TASK_READ]
 	]
 	assert all(workspace.narrowed_by_credential for workspace in mine.workspaces)
+
+
+def test_both_administer_credentials_the_same_way (pair: Pair) -> None:
+	"""`#348`: the three commands that set an agent up now go through a connection.
+
+	They opened a local database directly, because §12.4 requires the administrative commands
+	to work when the service will not start. That is right and it assumed there *is* a local
+	database — so on a machine whose work lives on a served instance, the three commands you
+	need in order to set an agent up were the three that could not run.
+	"""
+
+	local, remote = pair.both()
+
+	issued = remote.issue_token(title="Over the wire", scopes=["task:read"])
+
+	assert issued.token.startswith("sr_")
+	assert issued.title == "Over the wire"
+	assert issued.scopes == ["task:read"]
+	assert issued.narrows is True
+
+	# Read back through the *other* transport, which is the whole claim: one inventory, two
+	# ways of asking.
+	mine = {row.prefix: row for row in local.tokens()}
+
+	assert issued.prefix in mine
+	assert mine[issued.prefix].title == "Over the wire"
+	assert mine[issued.prefix].usable is True
+
+	# **The secret is in the issuing response and in nothing else, ever** (§7.4).
+	assert issued.token not in json.dumps(
+		[row.model_dump(mode="json") for row in local.tokens()]
+	)
+
+	stopped = local.revoke_token(id_or_prefix=issued.prefix)
+
+	assert stopped.revoked_at is not None
+	assert {row.prefix: row.usable for row in remote.tokens()}[issued.prefix] is False
+
+
+def test_both_keep_the_first_revocation_time (pair: Pair) -> None:
+	"""Revoking twice is not an error and does not move the instant.
+
+	When a credential stopped being trusted is a fact worth not overwriting, and a caller
+	retrying a request it is unsure landed should not change it.
+	"""
+
+	local, remote = pair.both()
+	issued = local.issue_token(title="Twice")
+
+	first = local.revoke_token(id_or_prefix=issued.prefix)
+	again = remote.revoke_token(id_or_prefix=issued.prefix)
+
+	assert first.revoked_at is not None
+	assert again.revoked_at == first.revoked_at
+
+
+def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
+	"""Three writes — an account, a membership, a credential — as one call and one transaction.
+
+	Over a network the alternative is three requests and a half-finished agent if the second
+	fails: an account that authenticates and can do nothing, which reads as a broken token
+	rather than as a missing membership.
+	"""
+
+	local, remote = pair.both()
+	issued = remote.issue_token(service_account="claude", title="An agent")
+
+	assert issued.account_created is True
+	assert issued.username == "claude"
+
+	# It is a machine identity on both sides of the socket, and it can actually work.
+	assert [row.is_service_account for row in local.users() if row.username == "claude"] == [
+		True
+	]
+
+	# Naming it again reuses the account rather than refusing: a second token for one agent is
+	# an ordinary thing to want.
+	assert remote.issue_token(service_account="claude").account_created is False
+
+
+def test_both_refuse_to_hand_out_a_persons_credential_under_a_machine_argument (
+	pair: Pair,
+) -> None:
+	"""`#207`, now enforced in the service so both transports refuse identically."""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.issue_token(service_account=pair.user.username)
+
+		assert "not a machine identity" in str(refused.value)
 
 
 def test_both_render_a_task_identically (pair: Pair) -> None:
