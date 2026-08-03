@@ -15,6 +15,7 @@ import datetime
 import json
 import os
 import pathlib
+import sqlite3
 import re
 import socket
 import subprocess
@@ -1588,3 +1589,62 @@ def test_a_marker_records_its_connection_even_when_there_is_only_one (
 	# The whole point: one connection here, and it is still named. Written with the `two`
 	# fixture this passed without testing anything the title claims.
 	assert "connection =" in marker
+
+
+def test_db_upgrade_refuses_a_database_that_is_not_there (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#394`. It created one, migrated it to head, and reported a schema as though all was well.
+
+	The empty instance then sat at the default path and shadowed the real one for every command
+	run without the right configuration — on the machine this was found on it absorbed four
+	backups, each reporting a plausible size and a correct schema.
+
+	**§12.4's blunt-tool licence does not stretch to this.** `db upgrade` is deliberately
+	without confirmation, a backup or a version report, so that recovery works when everything
+	else refuses. That is about skipping ceremony; there is nothing to recover from a database
+	that does not exist. The three commands beside it — `subroutine upgrade`, `db backup` and
+	`db current` — all refused properly, which is what made this one's silence read as house
+	style rather than as a gap.
+	"""
+
+	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "upgrade"])
+
+	assert result.exit_code != 0, result.output
+	assert "There is no database" in result.output
+	assert result.exception is None or isinstance(result.exception, SystemExit), (
+		f"a refusal, not a crash: {result.exception!r}"
+	)
+
+	# The whole point: nothing was created on the way to refusing.
+	assert not list((tmp_path / "data").rglob("*.db")), (
+		"db upgrade built a database while declining to upgrade one"
+	)
+
+
+def test_db_upgrade_still_migrates_a_database_that_exists_unstamped (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The property `#394`'s fix must not take away, and the reason it checks the *file*.
+
+	A restored dump or an old instance has no `alembic_version` row, and migrating it is
+	exactly what §12.4 keeps this command blunt for. The distinction is whether the database is
+	there, never whether it has been stamped.
+	"""
+
+	data = tmp_path / "data" / "subroutine"
+	data.mkdir(parents=True)
+	sqlite3.connect(data / "subroutine.db").close()
+
+	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "upgrade"])
+
+	assert result.exit_code == 0, result.output
+	assert "Schema is at" in result.output

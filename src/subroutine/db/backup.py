@@ -77,6 +77,17 @@ class Backup:
 	size_bytes: int
 	profile: str | None
 
+	#: How many rows of *work* the source held when this was taken — item `#395`. ``None`` for
+	#: a backup found on disk, where nothing recorded it and opening the file to count would
+	#: turn listing a directory into reading every file in it.
+	#:
+	#: **A backup of an empty instance passed every check there was.** Size, and the schema head
+	#: read back from inside the copy — both correct, because an empty database is a *valid*
+	#: database. §12.6's verification asks whether the file arrived intact and never asked
+	#: whether it holds anything, so four hollow backups reported "458,752 bytes, schema
+	#: d5d0458f5ad5" and nothing about that sentence was false.
+	holdings: dict[str, int] | None = None
+
 	#: What taking this one *deleted*, when ``--keep`` asked for it. Carried back rather than
 	#: discarded because ``hosting.md`` recommends running the backup from a timer, and a timer's
 	#: log is the only record there will ever be of what went (`#175`). A deletion nothing
@@ -654,9 +665,45 @@ def take (
 		taken_at=taken_at,
 		schema_head=head,
 		size_bytes=size,
+		holdings=_holdings(engine),
 		profile=active,
 		removed=() if keep is None else tuple(prune(settings, keep=keep)),
 	)
+
+
+#: What is counted to say whether a backup holds anything — item `#395`. The tables that carry
+#: *work* rather than vocabulary: a seeded but unused instance has statuses and roles in it, so
+#: counting those would report every empty instance as full.
+COUNTED = ("workspace", "project", "task", "document")
+
+
+def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
+	"""Count what the source held, so an empty backup cannot read as a successful one.
+
+	**Counted on the source rather than on the copy**, which is the cheaper half of the same
+	question and the one that is always answerable: the copy may be a `pg_dump` script, which
+	is not a database anything can open without restoring it somewhere first.
+
+	Failures are swallowed to an empty mapping on purpose. This exists to make a backup
+	*legible*, and a backup that succeeded must not be reported as failed because a count
+	afterwards did — that would be this check causing the loss it was written to prevent.
+	"""
+
+	counted: dict[str, int] = {}
+
+	for table in COUNTED:
+		try:
+			with engine.connect() as connection:
+				found = connection.execute(
+					sqlalchemy.text(f"select count(*) from {table}")  # noqa: S608 — a literal
+				).scalar_one()
+
+		except sqlalchemy.exc.SQLAlchemyError:
+			return {}
+
+		counted[table] = int(found)
+
+	return counted
 
 
 def _delivered (

@@ -775,6 +775,23 @@ def database_upgrade () -> None:
 
 	_refuse_unusable_storage(settings)
 
+	# **A database that is not there is not one to migrate** (`#394`). Alembic will happily
+	# create it, run every migration into it and leave an empty instance behind — and this then
+	# reported a schema head as though all was well. The empty file sits at the default path
+	# and shadows the real instance for every later command run without the right
+	# configuration; on this machine it absorbed four backups, each reporting a plausible size
+	# and a correct schema.
+	#
+	# **§12.4's blunt-tool licence does not stretch to this.** It is deliberately without
+	# confirmation, a backup or a version report, so that recovery works when everything else
+	# refuses — that is about skipping ceremony. There is nothing to recover from a database
+	# that does not exist.
+	#
+	# The three commands beside it already refuse this way, which is what made the silence
+	# here read as house style rather than as a gap.
+	if _database_is_absent(settings):
+		_refuse_absent_database(settings)
+
 	try:
 		subroutine.db.migrate.upgrade(settings.database_url)
 
@@ -1071,10 +1088,42 @@ def database_backup (
 	_say(f"Backed up {_instance_label()} to {written.path}")
 	_say(f"{written.size_bytes:,} bytes, schema {written.schema_head}.")
 
+	# **Says what it copied, because a hollow backup passed every check there was** (`#395`).
+	# Size and schema were both correct for four backups of an empty instance — an empty
+	# database is a valid one — and the sentence gave an operator nothing to be suspicious of.
+	# A count is the one fact that distinguishes them.
+	_say(_what_it_held(written))
+
 	# Named, not counted. This is recommended for a timer, and the timer's log is the only
 	# record there will ever be of which backups stopped existing.
 	for gone in written.removed:
 		_say(f"Deleted {gone.path} to keep {keep}.")
+
+
+def _what_it_held (written: subroutine.db.backup.Backup) -> str:
+	"""Say how much work the backup contains, in the terms somebody would recognise it by.
+
+	**An empty instance is stated rather than left to be inferred from four zeroes.** Somebody
+	reading a backup line is looking for a reason to stop worrying, so the one case worth
+	spending a whole sentence on is the case where they should not.
+	"""
+
+	held = written.holdings
+
+	if not held:
+		return "  Could not count what it holds; check the copy before relying on it."
+
+	if not any(held.values()):
+		return (
+			"  It holds nothing — no workspaces, no projects, no tasks and no documents. "
+			"That is a backup of an empty instance, not of your work."
+		)
+
+	return "  " + ", ".join(
+		f"{count:,} {name}{'' if count == 1 else 's'}"
+		for name, count in held.items()
+		if count
+	) + "."
 
 
 @database_app.command("backups")

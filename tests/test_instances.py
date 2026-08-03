@@ -1163,3 +1163,90 @@ def test_the_database_and_its_backups_are_owner_only (
 	copy = subroutine.db.backup.directory(_settings()) / taken
 
 	assert copy.stat().st_mode & 0o077 == 0, oct(copy.stat().st_mode)
+
+
+def test_a_backup_says_how_much_it_copied (
+	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#395`. A backup of an empty instance passed every check there was.
+
+	Size, and the schema head read back from inside the copy — both correct, because an empty
+	database is a *valid* database. §12.6's verification asks whether the file arrived intact
+	and never asked whether it held anything.
+
+	**Measured on the machine this was found on: the empty backup and a real one were the same
+	size, 458,752 bytes, at the same schema.** So neither figure in the reported line could
+	have told them apart, and four hollow backups reported success over a day.
+
+	Counted on the *source*, which is the half that is always answerable — a PostgreSQL backup
+	is a `pg_dump` script, not a database anything can open without restoring it first.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path))
+	subroutine.db.migrate.upgrade(own_database)
+
+	settings = subroutine.config.Settings(
+		database_url=own_database, backup_directory=str(tmp_path)
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		empty = subroutine.db.backup.take(engine, settings)
+
+		assert empty.holdings is not None
+		assert not any(empty.holdings.values()), (
+			"a migrated but unused instance holds no work, and must say so"
+		)
+
+		# A workspace rather than `_seed_instance`, which writes only the `instance` row —
+		# that is configuration, not work, and counting it would report an empty instance as
+		# full. Which is the distinction this whole check exists to make.
+		factory = subroutine.db.session.create_session_factory(engine)
+
+		with subroutine.db.session.session_scope(factory) as session:
+			session.add(
+				subroutine.db.models.identity.Workspace(
+					slug=f"ws-{uuid.uuid4().hex[:8]}", title="Something to back up"
+				)
+			)
+
+		filled = subroutine.db.backup.take(engine, settings)
+
+		assert filled.holdings is not None
+		assert filled.holdings["workspace"] >= 1, "and a real one reports what it copied"
+
+	finally:
+		engine.dispose()
+
+
+def test_counting_a_backup_never_turns_a_good_one_into_a_failure (
+	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The check must not become the thing that loses the data.
+
+	A backup that succeeded and then could not be *described* is still a backup. Reporting it
+	as failed would make a legibility feature into the loss it was written to prevent — so an
+	unreadable count is an empty mapping and a sentence telling the operator to look, never an
+	exception.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path))
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+
+	settings = subroutine.config.Settings(
+		database_url=own_database, backup_directory=str(tmp_path)
+	)
+	engine = subroutine.db.session.create_engine(own_database)
+
+	monkeypatch.setattr(subroutine.db.backup, "COUNTED", ("no_such_table",))
+
+	try:
+		written = subroutine.db.backup.take(engine, settings)
+
+	finally:
+		engine.dispose()
+
+	assert written.path.exists(), "the backup itself must still have been taken"
+	assert written.holdings == {}, "an uncountable backup is described as unknown, not refused"
+	assert "check the copy" in subroutine.cli.main._what_it_held(written)
