@@ -23,6 +23,7 @@ started has not claimed.
 """
 
 import datetime
+import typing
 import uuid
 
 import sqlalchemy
@@ -36,6 +37,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
+import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.permissions
 
@@ -92,33 +94,74 @@ def claim (
 	**Needs ``task:write``.** Claiming is a statement about work in progress and reserves the
 	right to do it, so the permission that lets somebody change the task is the one that lets
 	them take it — anything narrower would let a reader park work they cannot then do.
+
+	**Taken in one statement, because reading and then writing is not taking it** (`#354`).
+	The first version of this read the holder, decided in Python, and then wrote — so two
+	workers both saw nobody holding it, both wrote, and both were told they had it. Reproduced
+	with two connections: 2 of 2 succeeded, and the row held the first. The second worker then
+	does the work it believes it reserved, which is precisely the collision this whole module
+	exists to prevent, arriving only under the contention that is the reason for it.
+
+	So the condition lives in the ``WHERE`` clause and the answer is the row count. On
+	PostgreSQL the second statement blocks on the row and re-evaluates against what the first
+	committed; on SQLite the writers are serialised and the same re-evaluation happens. Neither
+	needs ``FOR UPDATE``, which is why this shape was chosen over one.
 	"""
 
 	moment = now or subroutine.db.types.utcnow()
-	holder = held_by(task, now=moment)
 
+	# **Before the conflict is reported, not after.** Whether somebody else is working on this
+	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
 	_permitted(session, actor, task)
 
-	if holder is not None and holder != actor.user.id:
+	model = subroutine.db.models.work.Task
+	mine = sqlalchemy.and_(
+		subroutine.domain.readiness.held(model, now=moment),
+		model.claimed_by_id == actor.user.id,
+	)
+	statement = (
+		sqlalchemy.update(model)
+		.where(
+			model.id == task.id,
+			# The listing's own predicate, rather than a second copy of it. What a worker is
+			# shown as free to start and what it is allowed to take are then one rule.
+			subroutine.domain.readiness.unclaimed(model, now=moment, by=actor.user.id),
+		)
+		.values(
+			claimed_by_id=actor.user.id,
+			# **Renewing keeps the instant it was first taken**, so how long this has been in
+			# hand is not lost by saying so again. Decided in SQL because the alternative is a
+			# read taken before the update, which is the thing that was wrong here.
+			claimed_at=sqlalchemy.case((mine, model.claimed_at), else_=moment),
+			claim_expires_at=moment + datetime.timedelta(
+				minutes=_lease(minutes, settings)
+			),
+			# **The version moves, for `delete`'s reason.** A claim changes what a caller may
+			# safely do next, so a version that stood still across one would let somebody edit
+			# on the strength of a read taken before the work was taken.
+			version=model.version + 1,
+		)
+	)
+
+	# Typed as a plain Result, but DML always yields a cursor result and only that carries the
+	# row count — which here is the whole answer.
+	taken = typing.cast(
+		"sqlalchemy.CursorResult[typing.Any]", session.execute(statement)
+	)
+
+	# The statement went round the ORM, so the loaded object is stale until it is told so.
+	session.expire(task)
+
+	if taken.rowcount != 1:
 		raise subroutine.errors.Conflict(
 			"Somebody else is working on this.",
 			hint=_who_holds_it(session, task),
 		)
 
-	renewed = holder == actor.user.id
-	task.claimed_by_id = actor.user.id
-	task.claim_expires_at = moment + datetime.timedelta(
-		minutes=_lease(minutes, settings)
-	)
-
-	if not renewed:
-		task.claimed_at = moment
-
-	# **The version moves, for `delete`'s reason.** A claim changes what a caller may safely do
-	# next, so a version that stood still across one would let somebody edit on the strength of
-	# a read taken before the work was taken.
-	task.version += 1
-	session.flush()
+	# Read back rather than assumed: the statement decided both of these, and reconstructing
+	# them here would be the same read-then-believe that #354 was.
+	renewed = task.claimed_at != moment
+	expires = task.claim_expires_at
 
 	subroutine.domain.events.record(
 		session,
@@ -128,7 +171,7 @@ def claim (
 		action=subroutine.domain.events.EventAction.CLAIMED,
 		changes={
 			"renewed": renewed,
-			"expires_at": task.claim_expires_at.isoformat(),
+			"expires_at": None if expires is None else expires.isoformat(),
 		},
 		actor=actor,
 	)
@@ -220,6 +263,13 @@ def _who_holds_it (
 
 	**Both facts, because either alone leaves the caller stuck.** A name without a time gives
 	them nobody to wait for; a time without a name gives them nothing to ask.
+
+	**"Somebody since deleted" describes a state the schema forbids**, and that is worth saying
+	rather than leaving as an apparent case. ``claimed_by_id`` carries ``ondelete="SET NULL"``,
+	so a hard delete clears the column and every other kind of leaving is a soft delete that
+	keeps the name readable — the branch exists because ``session.get`` is typed ``User | None``
+	and the type checker is owed an answer, not because anybody can reach it. Found by writing
+	the test for it (`#360`), which the foreign key refused outright.
 	"""
 
 	holder = session.get(subroutine.db.models.identity.User, task.claimed_by_id)

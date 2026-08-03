@@ -142,6 +142,33 @@ def refuse_unknown_deferral (choice: str) -> str:
 	return chosen
 
 
+def held (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items somebody currently holds a live lease on.
+
+	The SQL form of :func:`subroutine.domain.claims.held_by`, and deliberately the only one:
+	:func:`subroutine.domain.claims.claim` narrows its own conditional update with
+	:func:`unclaimed` rather than writing a second copy, so the rule that decides whether a
+	listing hides a task *is* the rule that decides whether a claim is refused. §6.3a's warning
+	about a predicate and a row-reader disagreeing applies to this pair with the stakes raised —
+	a disagreement here is two workers on one task rather than a page boundary.
+
+	**Null-safe in both columns, and it was not** (`#362`). A row carrying a holder and no
+	expiry is not reachable through any endpoint, but ``NOT (a AND b)`` is *null* rather than
+	true when ``b`` is null — so without the explicit test that row vanished from every listing
+	while ``held_by`` said nobody held it. The two readings have to agree about a state neither
+	of them can produce, because the thing that produces it will be something nobody is thinking
+	about at the time.
+	"""
+
+	return sqlalchemy.and_(
+		model.claimed_by_id.is_not(None),
+		model.claim_expires_at.is_not(None),
+		model.claim_expires_at > now,
+	)
+
+
 def unclaimed (
 	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
 ) -> sqlalchemy.ColumnElement[bool]:
@@ -152,17 +179,13 @@ def unclaimed (
 	that would make claiming a trap rather than a tool.
 
 	An expired lease matches, with no cleanup: a claim nobody renewed simply stops counting,
-	which is what makes a lease a lease. ``claims.held_by`` is the row-level form of the same
-	rule, and the two are the pair §6.3a warns about — a predicate the database sorts by and a
-	function that reads a loaded row have to agree, so they are tested against each other.
+	which is what makes a lease a lease.
 
 	``by`` is ``None`` for a caller with no principal, where every live claim belongs to
 	somebody else.
 	"""
 
-	live = sqlalchemy.and_(
-		model.claimed_by_id.is_not(None), model.claim_expires_at > now
-	)
+	live = held(model, now=now)
 
 	if by is None:
 		return sqlalchemy.not_(live)
