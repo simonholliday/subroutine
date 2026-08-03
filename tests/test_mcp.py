@@ -1704,3 +1704,37 @@ def test_a_session_default_is_not_filled_into_a_tool_that_cannot_take_it (
 		answer, failed = _called(server, "subroutine_whoami")
 
 	assert not failed, answer
+
+
+def test_an_agent_can_write_the_description_its_skill_tells_it_to_use (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#392`, reported by an agent while filing its first real work.
+
+	**The skill's own argument depended on this and it was false.** It tells an agent to write
+	an outcome-shaped title, and justifies it: "your motivation is not lost by an outcome-shaped
+	title, because it belongs in the description — which is one field away". From this surface
+	it was unreachable, so the skill asked an agent to give up its reasoning and pointed at a
+	shelf it could not put anything on. It used comments instead and said itself that a comment
+	is what happened and a description is what the task is (§5.10).
+
+	Third instance of `#149`'s blind spot: a capability present on one surface, missing as an
+	*argument* on a method both surfaces already call, which a per-method reach test cannot see.
+	"""
+
+	ref = _added(bound, "Filed with a title that says the outcome")
+	answer, failed = _called(
+		bound,
+		"subroutine_update",
+		ref=ref,
+		description="Why this is worth doing, which is what the title deliberately omits.",
+	)
+
+	assert not failed, answer
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed
+	assert "which is what the title deliberately omits" in shown, (
+		"a description that cannot be read back is not one that was written"
+	)

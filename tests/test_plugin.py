@@ -424,3 +424,45 @@ def test_the_skill_frontmatter_parses_as_yaml () -> None:
 	# block still parses, and would leave exactly the fields that matter missing.
 	assert parsed.get("name") == "subroutine"
 	assert parsed.get("description"), "a skill with no description is one nothing will load"
+
+
+def test_the_skill_does_not_promise_a_field_no_tool_can_write () -> None:
+	"""`#392`. The skill argued for outcome-shaped titles from a field agents could not reach.
+
+	    "your motivation is not lost … because it belongs in the description — which is one
+	     field away and is where somebody looks next"
+
+	It was not one field away from MCP; it was unreachable, and an agent that took the advice
+	had nowhere to put the reasoning it had just been told to leave out of the title. It used
+	comments, which is the wrong shelf by the skill's own §5.10 distinction.
+
+	**This is the shape a per-method reach test cannot see** (`#149`, third instance): the
+	capability is an *argument* on `update`, a method both surfaces already call, so nothing
+	comparing method names notices it missing. So the check here is not "does a method exist"
+	but "does the field this prose promises actually appear in a tool's schema".
+
+	Deliberately narrow. It asserts the one promise the skill makes about a *field* rather than
+	trying to parse every claim — a check that tried to would fail on every rewording and be
+	switched off, which is the rule `tests/test_documentation.py` opens with.
+	"""
+
+	text = SKILL.read_text(encoding="utf-8")
+
+	if "one field away" not in text:
+		pytest.skip("the skill no longer makes that promise")
+
+	class Fake:
+		"""A client that opens nothing — only the schemas are being read."""
+
+		connection = subroutine.connections.Connection(name="local")
+
+	writable = {
+		name
+		for tool in subroutine.mcp.tools.catalogue(typing.cast(typing.Any, Fake()))
+		for name in tool.schema.get("properties", {})
+	}
+
+	assert "description" in writable, (
+		"the skill tells an agent its motivation belongs in the description, 'one field away' "
+		"— and no tool takes one. Either a tool gains the field or the skill stops promising it."
+	)

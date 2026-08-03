@@ -288,6 +288,13 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
 					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
 					"title": {"type": "string", "description": "A new title."},
+					"description": {
+						"type": "string",
+						"description": (
+							"What it is about, in full. This is where the reasoning behind an "
+							"outcome-shaped title goes."
+						),
+					},
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
 					"defer": {
 						"type": "string",
@@ -1091,7 +1098,14 @@ def _updated (
 
 	changes: dict[str, typing.Any] = {}
 
-	for name in ("importance", "urgency", "status", "type", "title"):
+	# **`description` is here because the skill's own argument depends on it** (`#392`). It
+	# tells an agent to write an outcome-shaped title on the grounds that "your motivation is
+	# not lost, because it belongs in the description — which is one field away". From this
+	# surface it was not one field away, it was unreachable, so the skill asked an agent to
+	# give up its reasoning and pointed at a shelf it could not put anything on. Reported by
+	# an agent that met it and put the context in comments instead — the wrong shelf, and it
+	# said so (§5.10).
+	for name in ("importance", "urgency", "status", "type", "title", "description"):
 		if name in arguments:
 			changes[name] = arguments[name]
 
@@ -1107,7 +1121,7 @@ def _updated (
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
-			"plan or defer."
+			"description, plan or defer."
 		)
 
 	ref = _ref(arguments)
