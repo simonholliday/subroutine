@@ -110,9 +110,21 @@ def _instructions (
 		)
 	)
 
+	# **The pointer comes first, and it is here because this text is the problem** (`#378`).
+	# These instructions are in context for every session and they *teach* — refs, and the
+	# comment-versus-document rule below. An agent on its first contact said exactly what that
+	# costs: "a paragraph of correct guidance in context makes the skill feel redundant". It
+	# then listed, searched and recommended what to file, all without opening the skill, and
+	# called a bare `list()` where `ready=true` is the whole point.
+	#
+	# **Conditional, because the server runs without the plugin.** `subroutine mcp` started by
+	# hand has no skill to read, and an instruction naming one that is not there is the kind of
+	# confident wrongness §13.1 exists to prevent. Phrased as a condition the reader can check.
 	return (
 		f"Shared project management for people and agents, on connection "
 		f"'{connection.label}'. {where}{others}"
+		f"If a 'subroutine' skill is available, read it before your first call — it carries "
+		f"the conventions these tool descriptions do not. "
 		f"Items are addressed by a number written #42, unique per "
 		f"workspace and never reused, shared between tasks and documents. "
 		f"A comment is what happened; a document is what you concluded — if the next "

@@ -47,7 +47,13 @@ def _adding (name: str = "add") -> subroutine.mcp.protocol.Tool:
 		name=name,
 		title="Add",
 		description="Add two numbers.",
-		schema={"type": "object", "properties": {"a": {"type": "integer"}}},
+		# Both, because `#379` refuses an argument a tool does not declare — and this fixture
+		# declared `a` while being called with `a` and `b`. It passed for as long as nothing
+		# looked, which is the defect it now helps test.
+		schema={
+			"type": "object",
+			"properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+		},
 		call=lambda arguments: str(arguments["a"] + arguments["b"]),
 	)
 
@@ -492,7 +498,11 @@ def test_an_agent_can_find_something_by_its_words (
 	_added(bound, "Fix the date parser")
 	_added(bound, "Paint the shed")
 
-	found, failed = _called(bound, "subroutine_list", q="parser")
+	# **`subroutine_search`, which is the tool that declares `q`.** This asked
+	# `subroutine_list`, which shares the same reader and honoured it — so the behaviour was
+	# real and undiscoverable, since that tool advertises no such argument. `#379` refuses it
+	# now, and the test was the thing depending on the swallow.
+	found, failed = _called(bound, "subroutine_search", q="parser")
 
 	assert not failed, found
 	assert "Fix the date parser" in found
@@ -1587,3 +1597,110 @@ def test_a_listing_can_be_narrowed_to_one_project (
 	assert not failed
 	assert "Work in this project" in found
 	assert "Work in the other one" not in found, "and on search too, which shares the reader"
+
+
+def test_the_instructions_send_a_session_to_the_skill_before_its_first_call (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#378`. An agent on its first contact had to be *told* to read the skill.
+
+	It answered a capability question, then listed, searched, read an item and recommended what
+	to file — all without opening it — and called a bare ``list()`` where ``ready=true`` is the
+	whole point. Its own diagnosis of why is the reason this test exists rather than a reworded
+	description alone:
+
+	    "a paragraph of correct guidance in context makes the skill feel redundant"
+
+	These instructions are in context for every session and they teach — refs, and the
+	comment-versus-document rule. So the text best placed to point at the skill was the text
+	making it look unnecessary. This is the one place a pointer is guaranteed to be read, which
+	is why losing it silently would matter.
+
+	**Phrased as a condition on purpose.** ``subroutine mcp`` started by hand has no skill, and
+	naming one that is not there is confident wrongness of exactly the kind §13.1 forbids.
+	"""
+
+	roster = subroutine.connections.Roster(
+		(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	instructions = _standing_up(monkeypatch, roster)
+
+	assert "skill" in instructions, "nothing sends a session to the skill any more"
+	assert "before your first call" in instructions, (
+		"the pointer no longer says *when*, which is the half that changes behaviour — an "
+		"agent backs into this territory sideways rather than being asked to enter it"
+	)
+	assert "if a" in instructions.lower(), (
+		"the pointer must stay conditional: a bare 'mcp' session has no skill to read"
+	)
+
+
+def test_an_argument_a_tool_does_not_declare_is_refused (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#379`, reported by an agent that met it in its first session.
+
+	It passed ``project`` to a listing on an installation whose schema had no such argument.
+	It was neither honoured nor refused, so it received a plausible, complete, wrong answer and
+	believed it had narrowed a list it had not.
+
+	**It survives every upgrade**, which is the part that makes it worth a guard: what it needs
+	is a client newer than the server it is talking to, which is the ordinary state of a fleet
+	and the family `#345` belongs to. And it bites hardest on the feature that surfaced it —
+	`#367` exists to stop an agent spending context on a whole workspace, and a silent no-op
+	means it spends the context *and does not know*.
+
+	The refusal names what the tool does accept, so the correction costs one call rather than a
+	guess. It is a tool failure rather than a protocol error for `protocol.py`'s own reason: a
+	JSON-RPC error is handled by the client and may never reach the model, and the model is who
+	needs to learn.
+	"""
+
+	answer, failed = _called(bound, "subroutine_list", nonesuch="SUBSAMPLE")
+
+	assert failed, "an argument the tool does not declare must not be silently dropped"
+	assert "nonesuch" in answer
+	assert "workspace" in answer, "and the refusal names what it does accept"
+
+	# The ordinary call still works, which is what stops this being a guard that refuses
+	# everything and passes its own test.
+	fine, failed = _called(bound, "subroutine_list")
+
+	assert not failed, fine
+
+
+def test_a_session_default_is_not_filled_into_a_tool_that_cannot_take_it (
+	monkeypatch: pytest.MonkeyPatch, session: sqlalchemy.orm.Session
+) -> None:
+	"""The half of `#379` that would have broken a session on its first call.
+
+	`_within` filled the session's workspace into *every* tool, including `subroutine_whoami`,
+	which declares no properties at all. That was harmless for exactly as long as nothing
+	checked — the `#353` review looked at it and said so, on the grounds that doing it
+	uniformly is the point.
+
+	Refusing undeclared arguments ends that, and the layer meant to be helping would have been
+	the thing refusing. Asserted through `catalogue` with a workspace bound, because that is
+	the arrangement the plugin actually ships.
+	"""
+
+	subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client, workspace="projects"),
+			name="subroutine",
+			version="0",
+		)
+		answer, failed = _called(server, "subroutine_whoami")
+
+	assert not failed, answer

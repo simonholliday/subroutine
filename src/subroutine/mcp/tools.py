@@ -107,7 +107,17 @@ def _within (
 	def bound (
 		tool: subroutine.mcp.protocol.Tool,
 	) -> subroutine.mcp.protocol.Tool:
-		"""Return one tool with the session's workspace filled in when none was given."""
+		"""Return one tool with the session's workspace filled in when none was given.
+
+		**Only where the tool declares the argument** (`#379`). This used to fill it in
+		everywhere, including `subroutine_whoami`, which declares no properties at all — and
+		that was harmless exactly as long as nothing checked. Now that an undeclared argument
+		is refused, filling one in would refuse the tool on its first call, in the layer meant
+		to be helping.
+		"""
+
+		if "workspace" not in tool.schema.get("properties", {}):
+			return tool
 
 		call = tool.call
 

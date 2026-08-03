@@ -173,6 +173,23 @@ class Server:
 		if not isinstance(arguments, dict):
 			return _failure(identifier, INVALID_PARAMS, "'arguments' must be an object.")
 
+		unknown = _undeclared(tool, arguments)
+
+		if unknown:
+			accepted = ", ".join(sorted(tool.schema.get("properties", {}))) or "no arguments"
+
+			# **A result rather than a protocol error, for this method's own reason.** A
+			# JSON-RPC error is handled by the client and may never reach the model, and the
+			# whole value here is the *model* learning that what it asked for did not happen.
+			return _result(
+				identifier,
+				_content(
+					f"{tool.name} does not take {', '.join(unknown)}. "
+					f"It accepts: {accepted}.",
+					failed=True,
+				),
+			)
+
 		try:
 			return _result(identifier, _content(tool.call(arguments)))
 
@@ -187,6 +204,31 @@ def _result (identifier: typing.Any, payload: dict[str, typing.Any]) -> dict[str
 	"""Wrap a successful answer."""
 
 	return {"jsonrpc": "2.0", "id": identifier, "result": payload}
+
+
+def _undeclared (tool: "Tool", arguments: dict[str, typing.Any]) -> list[str]:
+	"""Return the argument names this tool does not declare — item ``#379``.
+
+	**Refused rather than dropped**, which is the rule ``api/query.py`` already settled for a
+	listing's query parameters: one that ignores a name it does not know returns a complete,
+	plausible, wrong answer and charges the caller for it. This surface was the odd one out.
+
+	Reported by an agent that met it: it narrowed a listing to a project on an installation
+	whose schema had no such argument, was neither honoured nor refused, and believed the
+	answer. **It survives every upgrade**, because what it needs is a client newer than its
+	server — the ordinary state of a fleet, and the family `#345` belongs to.
+
+	Names only, deliberately. Validating *types* would mean a JSON Schema implementation in a
+	module whose whole argument is that it is small, and the failure it would catch is one the
+	tool itself reports perfectly well.
+	"""
+
+	declared = tool.schema.get("properties")
+
+	if not isinstance(declared, dict):
+		return []
+
+	return sorted(name for name in arguments if name not in declared)
 
 
 def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typing.Any]:
