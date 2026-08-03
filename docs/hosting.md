@@ -225,12 +225,20 @@ not another `init`.
 **4. Check before starting anything**, as the service account:
 
 ```console
-# sudo -u subroutine env XDG_CONFIG_HOME=/var/lib/subroutine/config \
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db current
 ```
 
 A schema revision means the configuration and the data agree. If it names a path ending
 `.db`, step 3 has not taken effect.
+
+**All three variables, even though this only reads.** Left off, the SQLite default resolves
+against *your* data directory rather than the service's — so a check written to catch "it is
+using the SQLite default" can report a perfectly healthy schema from the wrong file, which is
+the confusion the paragraph above is warning about.
 
 ### Switching an instance you already have
 
@@ -928,9 +936,25 @@ installed it, cannot do it safely while running, and is worse at it than your pa
 ```console
 # systemctl stop subroutine
 # /opt/subroutine/bin/pip install --upgrade subroutine
-# sudo -u subroutine … /opt/subroutine/bin/subroutine upgrade
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine upgrade
 # systemctl start subroutine
 ```
+
+**Those three variables are not decoration, and this step is the one place leaving them off
+fails quietly.** `upgrade` acts on a *database*, and it finds that database through
+configuration — so without them it reads *your* `config.toml` rather than the service's, finds
+whatever database that names, and reports on the wrong one. It will look like it worked. They
+are the same three the unit sets and the same three [`init`](#first-run-and-what-it-writes) was
+run with; a test fails the build if the two lists stop matching.
+
+**Stop the service before upgrading, not after.** The order above is deliberate: install first
+and start last, so there is never a moment where new code is serving an old database. If there
+is, `/readyz` returns 503 saying exactly that — and ordinary requests fail too, because the
+code is querying columns the database has not got yet.
 
 `subroutine upgrade` is the whole of the second step, and its value is the ordering rather than
 any one part of it: report both versions, back up and verify the copy where it landed, migrate,

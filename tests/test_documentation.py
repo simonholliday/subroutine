@@ -323,3 +323,110 @@ def test_every_published_credential_is_one_a_reader_would_recognise () -> None:
 		f"excuse outliving the thing it excused is how an allow-list stops meaning anything — "
 		f"delete them: {[entry.rsplit('_', 1)[0] for entry in orphaned]}"
 	)
+
+
+#: The XDG variables the service runs with. Every step a `docs/hosting.md` reader performs *as
+#: the service account* has to carry all three, because each is what points the command at the
+#: service's own files rather than at the reader's.
+SERVICE_ENVIRONMENT = ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+
+
+def _console_blocks (text: str) -> list[str]:
+	"""Return the ```console fenced blocks in a document, in order."""
+
+	return [block.split("```", 1)[0] for block in text.split("```console\n")[1:]]
+
+
+def _commands (block: str) -> list[str]:
+	"""Return each command in a console block, with its continuation lines joined.
+
+	A prompt line starts a command and a trailing backslash continues it, which is how the
+	multi-line ``sudo -u subroutine env …`` invocations are written. Splitting on lines alone
+	would see the environment and the program as separate commands and check neither.
+	"""
+
+	found: list[str] = []
+
+	for line in block.splitlines():
+		stripped = line.strip()
+
+		if stripped.startswith(("#", "$")):
+			found.append(stripped)
+
+		elif found and found[-1].endswith("\\"):
+			found[-1] = f"{found[-1][:-1].rstrip()} {stripped}"
+
+	return found
+
+
+def test_every_step_running_subroutine_as_the_service_account_names_its_environment () -> None:
+	"""`#376`. The upgrade step elided them behind a `…`, and it cost a broken instance.
+
+	`subroutine upgrade` acts on a *database* and finds it through configuration, so run
+	without these it reads the operator's own `config.toml` — which on the machine this
+	happened on still named a retired SQLite file. It reported on that one and looked like it
+	had worked, while the served instance sat on the old schema under new code.
+
+	Fifty lines earlier the same document spells all three out for `init`. So the page knew
+	they mattered and dropped them at the one step where getting it wrong is silent, which is
+	how a runbook fails: a written procedure has code's failure modes and none of its
+	verification.
+
+	**The rule is about what reads Subroutine's configuration, not about `sudo`.** The first
+	version of this checked every `sudo -u subroutine` command and failed on
+	`sudo -u subroutine psql -c '\\conninfo'`, which is correct as written — psql has no
+	reason to know where a config file is. A guard that fires on a command it has no claim
+	over is one somebody switches off.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	checked = 0
+
+	for block in _console_blocks(page):
+		for command in _commands(block):
+			if "sudo -u subroutine" not in command:
+				continue
+
+			if "/opt/subroutine/bin/subroutine" not in command:
+				continue
+
+			checked += 1
+			missing = [name for name in SERVICE_ENVIRONMENT if name not in command]
+
+			assert not missing, (
+				f"this step runs Subroutine as the service account and omits "
+				f"{', '.join(missing)}, so it would read the reader's own configuration and "
+				f"act on the wrong database:\n\n    {command}"
+			)
+
+	# Otherwise this passes just as happily on a page where those steps have been rewritten
+	# some other way, which is the failure mode a check like this cannot notice about itself.
+	assert checked >= 2, (
+		f"found only {checked} steps running Subroutine as the service account — has this "
+		f"stopped reaching them?"
+	)
+
+
+def test_the_upgrade_walkthrough_stops_the_service_before_it_migrates () -> None:
+	"""The ordering is the part that has to survive an edit, and it is invisible in a diff.
+
+	Installing first and starting last is what keeps the window shut where new code serves an
+	old database. That window is not theoretical — it is what a `503` from `/readyz` and a
+	`500` from every listing looked like on 2026-08-03.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	upgrading = page[page.index("## Upgrading") :]
+	block = next(
+		block for block in _console_blocks(upgrading) if "pip install --upgrade" in block
+	)
+
+	steps = [line.strip() for line in block.splitlines() if line.strip().startswith("#")]
+	ordered = " → ".join(steps)
+
+	assert steps[0].endswith("systemctl stop subroutine"), (
+		f"the upgrade walkthrough no longer stops the service first: {ordered}"
+	)
+	assert steps[-1].endswith("systemctl start subroutine"), (
+		f"the upgrade walkthrough no longer starts it last: {ordered}"
+	)
