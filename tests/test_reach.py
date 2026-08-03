@@ -127,7 +127,15 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
 	("GET", "/v1/changes"): "changes",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
-	("GET", "/v1/me"): "identity",
+	# **These two were swapped, and swapped consistently, so every check here passed** (`#336`).
+	# `identity()` calls `/v1/meta` and says so in writing; `/v1/me` was mapped to it and
+	# `/v1/meta` sat in NOT_REACHED. Nothing was unclassified and nothing was both reached and
+	# excused, so the guard reported a capability that did not exist and hid the whole of "who
+	# am I and what may I do". **The mapping itself is still unverified** — this file checks
+	# that a method of that *name* exists, never that it calls the route it is written beside,
+	# and it cannot, because the local client uses no paths at all. `#340` is that gap.
+	("GET", "/v1/me"): "me",
+	("GET", "/v1/meta"): "identity",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 }
@@ -187,12 +195,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"§13.3's worked calls, executed by `tests/test_api_examples.py`. They are HTTP by "
 		"construction — that is what they are examples of, and a client wrapping them "
 		"would be documentation nobody could run.",
-	),
-	("GET", "/v1/meta"): (
-		"protocol",
-		"What this build can do, in machine-readable form, for a client discovering an "
-		"instance over HTTP. §12.2a's `subroutine help` is the same question asked by a "
-		"person, and `--help` lists the commands.",
 	),
 	("GET", "/v1/projects/{id_or_key}"): (
 		"tracked",
@@ -311,9 +313,19 @@ NOT_IN_MCP: dict[str, Excuse] = {
 	),
 	"identity": (
 		"budget",
-		"Who this credential is. §21.3's server instructions already name the connection "
-		"an agent is on, so a tool for this would spend schema restating a fact every "
-		"session already carries.",
+		"Which instance this is and what workspaces it holds. §21.3's server instructions "
+		"already name the connection an agent is on, so a tool for this would spend schema "
+		"restating a fact every session already carries.",
+	),
+	"me": (
+		"budget",
+		"Who this credential is (`#336`), and the one excuse here that is not really about "
+		"the budget. An agent with a shell holds two credentials — the one this server was "
+		"started with, and the one the shell resolves — and `#335` is what happens when they "
+		"differ. A tool would report this server's, which is the half already implied by the "
+		"connection §21.3 names; `subroutine whoami` reports the shell's, which is the half "
+		"nothing could ask. Adding one would answer the question that was never in doubt. An "
+		"agent with no shell at all is the case that would change this answer.",
 	),
 	"users": (
 		"budget",
@@ -607,7 +619,13 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# a ceiling test silently, which is the failure this comment exists because of.
 	assert commands, "found no CLI commands in the skill — has this stopped reaching them?"
 
-	assert len(commands) <= 3, (
+	# **Four since `#336`, and the fourth was argued for rather than absorbed.** `whoami` is a
+	# route-around by this test's definition and is the right one: an agent that can run a shell
+	# has two credentials available to it — the one this server was given and the one the shell
+	# resolves — and the *only* way to find out which the shell will use is to ask the shell.
+	# A tool here would answer for the server, which is the half that was never in doubt. The
+	# reason is written out in NOT_IN_MCP under `me`.
+	assert len(commands) <= 4, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

@@ -115,6 +115,18 @@ class Client:
 				),
 			)
 
+	def me (self) -> subroutine.views.Me:
+		"""Report who this installation thinks the caller is, and what they may do (`#336`).
+
+		``credential`` comes back null unless a token was presented, which locally is the
+		ordinary case: §12.1a says the filesystem permission is the authentication here. A
+		token in the environment still narrows, through the same principal every other read
+		goes through, so a scoped agent gets a scoped answer whichever transport it uses.
+		"""
+
+		with self._opened() as (session, actor):
+			return subroutine.views.me(session, actor)
+
 	def agenda (
 		self,
 		*,

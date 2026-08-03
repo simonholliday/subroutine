@@ -16,6 +16,20 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine whoami` — which account this machine is acting as, and what it may do.** One
+  machine can hold more than one credential: yours in `credentials.toml`, an agent's in the
+  environment. Nothing could ask which of them a command was about to act under, so an agent
+  set up carefully could be writing as its operator and neither of them would see it.
+
+  Prints the account, the credential by its title, what the credential is narrowed to, and the
+  workspaces it reaches with the role held in each. Where a credential narrows what can be done
+  in a workspace, that row says exactly what is left. `--json` carries the whole answer,
+  including the permission list an agent acts on.
+
+  `GET /v1/me` has answered this since the first release and no client could reach it — the
+  guard that measures which endpoints the clients can call had two entries transposed, so it
+  reported the capability as present. Both halves are fixed.
+
 - **`POST /v1/projects/{key}/restore` — take a project back out of the trash.** Deleting one has
   always said its tasks "come back with it", and nothing brought them back: the restore added
   for tasks and documents was never given to the container both of them hang off. So deleting a

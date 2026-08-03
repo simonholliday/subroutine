@@ -35,6 +35,7 @@ import pydantic
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -43,12 +44,15 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.agenda
+import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
+import subroutine.domain.workspaces
 
 Item = typing.TypeVar("Item")
 
@@ -526,6 +530,116 @@ class User(pydantic.BaseModel):
 			"" if self.is_active else "inactive",
 			self.display_name or "",
 		)
+
+
+class Caller(pydantic.BaseModel):
+	"""The account somebody is acting as, told to that somebody — item ``#336``.
+
+	**Not :class:`User`, and it was written as a subclass of one first.** Decision ``#161``'s
+	line is where the two part: an email is personal data that no caller needs a colleague's,
+	and everybody is entitled to their own — so this carries one and a directory entry does
+	not. What a directory carries and this does not is ``is_active`` and ``created_at``, facts
+	about an account *as an administrator sees it* rather than about the authority being
+	exercised.
+
+	Inheriting looked tidier and was wrong for a reason worth keeping: it would have added two
+	required fields to a response that has been shipping without them, so a client built from
+	this tree could not read ``/v1/me`` from a server one release behind — and the failure it
+	produced said the server was "not a Subroutine instance". Found by running the command
+	against the live instance, which is a release behind, in the first minute of its existence.
+	"""
+
+	id: uuid.UUID
+	username: str
+	display_name: str | None
+
+	#: Null when the account has none. Reported only about oneself.
+	email: str | None
+
+	#: Null means "not stated", so the workspace's zone and then the instance's show through
+	#: (§12.3).
+	timezone: str | None
+
+	is_superuser: bool
+	is_service_account: bool
+
+
+class Credential(pydantic.BaseModel):
+	"""The credential a caller presented, and how far it narrows their authority.
+
+	**Not :class:`Token`, which answers a different question.** That one describes a credential
+	in an inventory — whose it is, whether it still works, when it was revoked — and every one
+	of those facts is settled here by the fact that this request was answered at all. What is
+	left is the part a caller acts on: what it lets them do.
+
+	Never the secret, and never anything from which one could be rebuilt: ``prefix`` is the
+	public half a token is looked up by and is safe to quote in a log (§7.4).
+	"""
+
+	kind: str
+	id: uuid.UUID
+	title: str
+	prefix: str
+
+	#: Empty means **no narrowing**, not "no permissions" (SPEC.md §7.3).
+	scopes: list[str]
+
+	#: Null means every project, for the same reason.
+	project_scope: list[str] | None
+
+	#: Set when the credential may only be used in one workspace.
+	workspace_id: uuid.UUID | None
+
+	#: Whether this credential restricts its owner at all. Spelled out so that reading
+	#: ``scopes: []`` the wrong way round is not the only thing standing between an agent and a
+	#: wrong conclusion.
+	narrows: bool
+
+	expires_at: datetime.datetime | None
+	last_used_at: datetime.datetime | None
+
+
+class WorkspaceAccess(WorkspaceRef):
+	"""One workspace a caller can reach, and what they may actually do in it.
+
+	:class:`WorkspaceRef` is how a client *addresses* a workspace; this adds what the caller
+	may do once they are there. Extending it rather than repeating three fields keeps a slug
+	meaning one thing in both.
+	"""
+
+	#: Null means "not stated", so the instance's own zone shows through (§12.3).
+	timezone: str | None
+
+	#: The role held here, before the credential narrowed anything.
+	role: str | None
+
+	#: What they may actually do, after every narrowing in §7.3 has been applied. **This is
+	#: the field to act on**; the others explain how it came out this way.
+	permissions: list[str]
+
+	narrowed_by_credential: bool
+
+
+class Me(pydantic.BaseModel):
+	"""Who the caller is and exactly what they may do, in one round trip.
+
+	The answer :func:`me` assembles, reported by ``GET /v1/me`` and by the local client alike.
+	An agent should not have to discover its own authority by being refused things (§13.1),
+	and — since ``#336`` — should not have to infer its own *identity* from a side effect
+	either.
+	"""
+
+	api_version: str
+	user: Caller
+
+	#: Absent in local mode, where the CLI acts as a user with no credential at all.
+	credential: Credential | None
+
+	#: Permissions over the installation itself — creating workspaces and accounts. Held only
+	#: by a superuser, and narrowed by the credential even then (SPEC.md §7.1).
+	instance_permissions: list[str]
+
+	workspaces: list[WorkspaceAccess]
 
 
 class Token(pydantic.BaseModel):
@@ -1151,6 +1265,101 @@ def user (row: subroutine.db.models.identity.User) -> User:
 		is_active=row.is_active,
 		timezone=row.timezone,
 		created_at=row.created_at,
+	)
+
+
+def me (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+) -> Me:
+	"""Assemble the answer to "who am I, and what may I do here?" — item ``#336``.
+
+	**Here rather than in the router**, because both transports have to answer it identically
+	and one of them has no router: ``GET /v1/me`` and ``Client.me()`` are two ways of asking
+	the same question and the answer is built once (§13.7).
+
+	It reports the *answer* rather than the inputs to it. Each workspace carries the
+	permissions that actually apply there, already intersected with the role, the credential's
+	scopes and its project scope, so nothing here asks the caller to reproduce §7.3's
+	resolution for itself.
+	"""
+
+	return Me(
+		api_version=subroutine.API_VERSION,
+		user=caller(principal.user),
+		credential=credential(principal),
+		instance_permissions=sorted(
+			subroutine.domain.authorization.instance_permissions(principal)
+		),
+		workspaces=[
+			workspace_access(session, principal, workspace)
+			for workspace in subroutine.domain.workspaces.readable(session, principal)
+		],
+	)
+
+
+def caller (row: subroutine.db.models.identity.User) -> Caller:
+	"""Render the account somebody is acting as, without anything that authenticates it."""
+
+	return Caller(
+		id=row.id,
+		username=row.username,
+		display_name=row.display_name,
+		email=row.email,
+		timezone=row.timezone,
+		is_superuser=row.is_superuser,
+		is_service_account=row.is_service_account,
+	)
+
+
+def credential (
+	principal: subroutine.domain.authentication.Principal,
+) -> Credential | None:
+	"""Describe the credential presented, or ``None`` when there was none.
+
+	``None`` is local mode (§12.1a), where the filesystem permission is the authentication
+	and there is no credential to describe — not a caller whose credential failed, who never
+	reaches this.
+	"""
+
+	row = principal.token
+
+	if row is None:
+		return None
+
+	return Credential(
+		kind="api_token",
+		id=row.id,
+		title=row.title,
+		prefix=row.token_prefix,
+		scopes=sorted(row.scopes),
+		project_scope=None if row.project_scope is None else list(row.project_scope),
+		workspace_id=row.workspace_id,
+		narrows=bool(row.scopes)
+		or row.project_scope is not None
+		or row.workspace_id is not None,
+		expires_at=row.expires_at,
+		last_used_at=row.last_used_at,
+	)
+
+
+def workspace_access (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.identity.Workspace,
+) -> WorkspaceAccess:
+	"""Describe what one caller may do in one workspace."""
+
+	grant = subroutine.domain.authorization.explain(session, principal, row.id)
+
+	return WorkspaceAccess(
+		id=row.id,
+		slug=row.slug,
+		title=row.title,
+		timezone=row.timezone,
+		role=grant.from_role,
+		permissions=sorted(grant.permissions),
+		narrowed_by_credential=grant.narrowed_by_token,
 	)
 
 

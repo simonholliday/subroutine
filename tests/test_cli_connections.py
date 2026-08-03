@@ -768,6 +768,111 @@ def test_a_scoped_token_cannot_mint_itself_a_wider_one (
 	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
 
 
+def test_whoami_names_the_account_and_where_its_authority_comes_from (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The plain case: one person, one installation, no credential in sight (`#336`).
+
+	Local mode has no token by design (§12.1a), so "via the local database" is the honest
+	answer rather than a missing field — and it is the sentence that tells somebody reading
+	this on a machine where an agent also works that *they* are the one asking.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	answer = run("whoami").output
+
+	assert "si (person)" in answer
+	assert "via the local database" in answer
+	assert "personal" in answer, "and where that authority reaches"
+
+
+def test_whoami_tells_two_principals_on_one_machine_apart (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""**The question `#338` rests on**: which of the machine's credentials is this command.
+
+	An agent and its operator share a machine, a shell and a connection, and differ only in
+	which credential the process holds (`#337`). Until `#336` nothing could be asked — the
+	nuc14 agent inferred its own identity by watching a token's ``last_used_at`` move, which
+	is ingenious and is a statement about what was missing.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	issued = run("token", "create", "--service-account", "claude", "--title", "the agent")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	assert "si (person)" in run("whoami").output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+
+	agent = run("whoami").output
+
+	assert "claude (agent)" in agent
+	assert "the agent" in agent, "named by the title, which is what `token list` shows"
+	assert "si (person)" not in agent
+
+
+def test_whoami_says_what_a_narrowed_credential_is_limited_to (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""What a credential *withholds* is the part worth printing (§13.1).
+
+	An agent should not have to discover its own authority by being refused things, and the
+	permissions are stated on the row where the credential narrowed them rather than on every
+	row — an unnarrowed owner would otherwise be handed twenty keys they already hold.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	issued = run(
+		"token",
+		"create",
+		"--service-account",
+		"claude",
+		"--workspace",
+		"personal",
+		"--scope",
+		"task:read",
+	)
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
+	)
+
+	answer = run("whoami").output
+
+	assert "Narrowed to" in answer
+	assert "workspace 'personal'" in answer
+	assert "scopes task:read" in answer
+	assert "may: task:read" in answer
+
+
+def test_whoami_hands_a_script_the_permissions_it_has_to_act_on (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The scripted path reports the whole answer, including what the printed one condenses."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	issued = run("token", "create", "--service-account", "claude", "--scope", "task:read")
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
+	)
+
+	answer = json.loads(run("whoami", "--json").output)
+
+	assert [entry["user"]["username"] for entry in answer] == ["claude"]
+	assert answer[0]["credential"]["scopes"] == ["task:read"]
+	assert answer[0]["credential"]["narrows"] is True
+	assert answer[0]["workspaces"][0]["permissions"] == ["task:read"]
+
+	# The secret is never in it, in any form.
+	assert "sr_" not in run("whoami", "--json").output
+
+
 def test_a_service_account_token_actually_works_over_http (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,

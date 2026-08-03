@@ -90,6 +90,24 @@ class Client(typing.Protocol):
 	def identity (self) -> Identity:
 		"""Report which instance this is and which workspaces the credential reaches."""
 
+	def me (self) -> subroutine.views.Me:
+		"""Report who this connection thinks the caller is, and what they may do — `#336`.
+
+		**Not :meth:`identity`, and the pair is worth keeping straight.** That one asks about
+		the *instance* — which installation this is, and which workspaces are reachable — and
+		is what resolves ``acme/#42`` and notices one server configured twice. This asks about
+		the *principal*: which account, on which credential, holding what.
+
+		They come apart precisely where it matters. Several agents on one machine reach one
+		instance through one connection, so :meth:`identity` answers the same for all of them
+		while this answers differently for each — and an agent that cannot tell them apart has
+		no way to check it is not writing as its operator (`#335`).
+
+		``credential`` is null in local mode, where the filesystem permission is the
+		authentication and there is nothing to describe (§12.1a). It is never null over HTTP,
+		which is why a null one is a fact about the connection rather than a missing field.
+		"""
+
 	def agenda (
 		self,
 		*,

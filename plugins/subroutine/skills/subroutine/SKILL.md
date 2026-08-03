@@ -118,6 +118,24 @@ Keep the `seq` it prints last and pass it back as `since` next time. It is inclu
 will see that one again; ignore what you already have. `mine=true` narrows it to what your own
 credential did, which is how you pick up your own unfinished work rather than everybody's.
 
+**Know whose credential you are writing with, before you write anything.** If you can run shell
+commands, ask once at the start of a session:
+
+```
+subroutine whoami
+```
+
+It names the account, the credential by its title, and what that credential is limited to. One
+machine commonly holds more than one — the person's own, and one per agent — so the answer is
+not obvious and is not something to assume. Two answers are worth acting on:
+
+- **A person's name where you expected an agent's** means your work is being recorded as
+  theirs. Say so rather than carrying on: attribution is the reason a person hands over work
+  they would otherwise supervise, and it is silent when it is wrong.
+- **`No workspace here can be read with this credential`** means the credential reaches
+  nothing. Every other command will report that as an empty instance, which reads as "there is
+  no work" rather than "you cannot see it".
+
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:
 

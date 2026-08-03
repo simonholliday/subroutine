@@ -3344,6 +3344,162 @@ def register (
 
 		return subroutine.directory.resolve(marker, found)
 
+	# **Visible on a one-connection install, unlike `use` and `connections`.** Those answer
+	# *where* work goes, which is a question nobody has until there are two answers. This
+	# answers *who is asking* — and the case that most needs it is precisely the one
+	# `_worth_showing` would hide: a single connection with an agent's token in the environment,
+	# where two principals share one machine and nothing else in the program says which of them
+	# the next command acts as (`#335`).
+	@app.command()
+	def whoami (
+		json_output: bool = typer.Option(False, "--json", help="Print the answer as JSON."),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""Which account this machine is acting as, and what it is allowed to do.
+
+		Examples:
+
+		  subroutine whoami
+
+		  subroutine whoami --json
+
+		Worth asking before the first change of a session. One machine can hold more than one
+		credential — yours in the credentials file, an agent's in the environment — and the one
+		that answers here is the one your next command will act under.
+		"""
+
+		with opened(strict=strict) as world:
+			gathered = subroutine.fanout.gather(
+				world.clients, lambda client: client.me(), strict=strict
+			)
+
+			if json_output:
+				say(
+					json.dumps(
+						[
+							{
+								"connection": answer.connection.name,
+								**answer.value.model_dump(mode="json"),
+							}
+							for answer in gathered.answers
+						],
+						indent=2,
+					)
+				)
+
+				return
+
+			for index, answer in enumerate(gathered.answers):
+				if index:
+					say("")
+
+				if world.qualifies_connection:
+					console.print(rich.text.Text(answer.connection.label, style=HEADING))
+
+				for line in _whoami_lines(answer.value):
+					console.print(line)
+
+			_report(world, gathered.failures)
+
+	def _whoami_lines (me: subroutine.views.Me) -> list[str]:
+		"""Describe one connection's answer to "who am I": the account, the credential, the room.
+
+		**What the credential withholds is stated; what it grants is not enumerated.** An
+		unnarrowed owner would otherwise get twenty permission keys they already have, and the
+		one reader who needs the list — an agent working under a deliberately small credential —
+		is exactly the one whose list is short. Same rule as every other column here: what is
+		true of every row says nothing, and it is the exception that has to be visible.
+		"""
+
+		kind = "agent" if me.user.is_service_account else "person"
+		credential = me.credential
+		how = (
+			"the local database"
+			if credential is None
+			else f"token {credential.title!r} ({credential.prefix}…)"
+		)
+		lines = [f"{me.user.username} ({kind}), via {how}."]
+
+		if credential is not None and credential.narrows:
+			lines.append(f"Narrowed to {_narrowing(credential, me.workspaces)}.")
+
+		if me.instance_permissions:
+			lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")
+
+		if not me.workspaces:
+			# **The failure this command exists to make legible.** A credential pinned to a
+			# workspace it has no membership of reaches nothing, and every *other* command
+			# reports that as an empty list — which reads as an empty instance rather than as
+			# a credential that cannot see it.
+			lines.append("No workspace here can be read with this credential.")
+
+			return lines
+
+		# **Not `_tabulated`, and that is the one place this output departs from every other
+		# listing here.** Its rule is that a column saying the same thing on every row says
+		# nothing — true of a backlog, false of this: two workspaces both answering "Owner" is
+		# not a column with nothing to say, it is the answer to the question that was asked.
+		# Dropped silently, the command printed two slugs and no statement of authority at all.
+		names = max(len(workspace.slug) for workspace in me.workspaces)
+		roles = max(len(_role(workspace)) for workspace in me.workspaces)
+		rows = []
+
+		for workspace in me.workspaces:
+			cells = [workspace.slug.ljust(names), _role(workspace).ljust(roles)]
+
+			# **Per row rather than per column.** One credential can be narrowed in one
+			# workspace and not in another, and the row where it is narrowed is the row whose
+			# permissions somebody has to read.
+			if workspace.narrowed_by_credential:
+				cells.append(f"may: {', '.join(workspace.permissions)}")
+
+			rows.append(f"  {'  '.join(cells)}".rstrip())
+
+		return [*lines, "", *rows]
+
+	def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
+		"""Return the role held in one workspace, or say that none is.
+
+		A superuser reaches every workspace whether or not they are a member of one (§7.1), so
+		"no role" is a real answer here rather than a missing value — and it is the answer that
+		explains why somebody with every permission is not on the members list.
+		"""
+
+		return workspace.role or "no role"
+
+	def _narrowing (
+		credential: subroutine.views.Credential,
+		workspaces: typing.Sequence[subroutine.views.WorkspaceAccess],
+	) -> str:
+		"""Say what a credential has been limited to, in the words it was limited with."""
+
+		parts = []
+
+		if credential.workspace_id is not None:
+			named = [
+				workspace.slug
+				for workspace in workspaces
+				if workspace.id == credential.workspace_id
+			]
+
+			# A pin naming a workspace this credential cannot read leaves nothing to name it
+			# by, and that is the case worth printing the raw id for rather than hiding.
+			parts.append(f"workspace {named[0]!r}" if named else f"workspace {credential.workspace_id}")
+
+		if credential.project_scope is not None:
+			parts.append(
+				f"projects {', '.join(credential.project_scope)}"
+				if credential.project_scope
+				else "no project at all"
+			)
+
+		if credential.scopes:
+			parts.append(f"scopes {', '.join(credential.scopes)}")
+
+		return "; ".join(parts)
+
 	# **This docstring is published as `--help`**, so the reasoning lives out here. `#278`:
 	# the listing marks the connection being written to as well as the one that is merely the
 	# fallback. Those are different questions, and only the second used to be answered — under

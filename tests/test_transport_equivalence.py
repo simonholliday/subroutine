@@ -46,6 +46,7 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import subroutine.views
 
 
@@ -120,6 +121,96 @@ def test_both_report_the_same_instance_and_workspaces (pair: Pair) -> None:
 	assert [workspace.slug for workspace in local.identity().workspaces] == [
 		pair.workspace.slug
 	]
+
+
+def test_both_answer_who_is_asking (pair: Pair) -> None:
+	"""``me`` is the other identity question, and the two must not be confused (`#336`).
+
+	``identity`` describes the *instance*; this describes the *principal*. They come apart
+	exactly where several agents share one machine: one connection, one instance, and a
+	different answer here for each of them.
+
+	The credential is the one field that legitimately differs between these two clients,
+	because the local one was opened without a token — §12.1a says the filesystem permission
+	is the authentication there. Everything about *who* is asking has to agree.
+	"""
+
+	local, remote = pair.both()
+	mine, theirs = local.me(), remote.me()
+
+	assert mine.user == theirs.user
+	assert mine.api_version == theirs.api_version
+	assert mine.instance_permissions == theirs.instance_permissions
+	assert mine.workspaces == theirs.workspaces
+
+	assert mine.credential is None
+	assert theirs.credential is not None
+	assert theirs.credential.title == "Equivalence"
+
+
+def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
+	pair: Pair, session: sqlalchemy.orm.Session
+) -> None:
+	"""The claim the whole agent-identity milestone rests on, asserted rather than assumed.
+
+	An agent is told what it may do so that it does not have to find out by being refused
+	(§13.1). That is only worth anything if the answer is the same whichever transport it
+	asked through — a local client reporting an unnarrowed principal for a scoped token would
+	tell an agent it may write, and the write would then be refused by the same installation.
+	"""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=pair.user,
+		title="Narrow",
+		scopes=[subroutine.permissions.TASK_READ],
+		workspace_id=pair.workspace.id,
+	)
+	session.flush()
+
+	secret = issued.value.get_secret_value()
+	factory = api_support.factory_for(session)
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
+	)
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(api_support.build_app(factory)),
+		base_url=api_support.BASE_URL,
+	)
+
+	with local, remote:
+		mine, theirs = local.me(), remote.me()
+
+	# **Everything but ``last_used_at``, which cannot agree and should not.** Presenting a
+	# credential stamps it, so the second of these two calls always reports a later moment than
+	# the first. That field is not noise: watching it move is how the nuc14 agent worked out
+	# which principal its MCP server was using, before anything could be asked directly
+	# (`#335`) — which is the gap this method closes.
+	assert mine.user == theirs.user
+	assert mine.workspaces == theirs.workspaces
+	assert mine.instance_permissions == theirs.instance_permissions
+	assert theirs.credential is not None
+	assert mine.credential == theirs.credential.model_copy(
+		update={"last_used_at": None if mine.credential is None else mine.credential.last_used_at}
+	)
+
+	assert mine.credential is not None
+	assert mine.credential.narrows is True
+	assert mine.credential.scopes == [subroutine.permissions.TASK_READ]
+	assert mine.credential.workspace_id == pair.workspace.id
+
+	# The permissions are the field a caller acts on, and they are the *intersection* rather
+	# than the role — a contributor who may write is reported as unable to, because the
+	# credential says so (§7.3).
+	assert [workspace.permissions for workspace in mine.workspaces] == [
+		[subroutine.permissions.TASK_READ]
+	]
+	assert all(workspace.narrowed_by_credential for workspace in mine.workspaces)
 
 
 def test_both_render_a_task_identically (pair: Pair) -> None:

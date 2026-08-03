@@ -109,6 +109,11 @@ class Client:
 			),
 		)
 
+	def me (self) -> subroutine.views.Me:
+		"""Report who this instance thinks the caller is, and what they may do (`#336`)."""
+
+		return self._parsed(subroutine.views.Me, self._json("GET", "/v1/me"))
+
 	def agenda (
 		self,
 		*,
