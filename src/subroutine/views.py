@@ -1480,6 +1480,23 @@ def workspace_access (
 	)
 
 
+def writable (credential: Credential | Token) -> list[str]:
+	"""Name the projects a credential may *change* things in, as somebody would type them.
+
+	The write half of :func:`reach`, and it follows the same rule for the same reason: keys
+	where the instance could resolve them, ids where it could not, and never a shorter list
+	than the credential really has.
+
+	Empty means null — its whole reach — which is what every credential issued before ``#371``
+	means and is a different statement from a list with nothing in it.
+	"""
+
+	if credential.project_write_scope is None:
+		return []
+
+	return list(credential.project_write_scope_keys or credential.project_write_scope)
+
+
 def reach (credential: Credential | Token) -> list[str]:
 	"""Name the projects a credential is restricted to, as somebody would type them.
 
@@ -1537,6 +1554,22 @@ def narrowing (
 		within = reach(credential)
 
 		parts.append(f"projects {', '.join(within)}" if within else "no project at all")
+
+	# **The clause `#371` shipped without, found by `#372` driving the command** (`#403`).
+	# A credential that reads a tree and writes one project reported only the tree, so the
+	# whole of what `#370` was decided for was invisible on the three surfaces that describe
+	# a credential — and a credential narrowed *only* this way printed "Narrowed to ." with
+	# nothing in it, which claims a boundary and refuses to name it.
+	#
+	# Said as "writing in …" rather than as a second list of projects, because the two lists
+	# are answers to different questions and a reader seeing two comma-separated sets of keys
+	# has to work out which is which.
+	if credential.project_write_scope is not None:
+		changing = writable(credential)
+
+		parts.append(
+			f"writing in {', '.join(changing)}" if changing else "writing nowhere at all"
+		)
 
 	if credential.scopes:
 		parts.append(f"scopes {', '.join(credential.scopes)}")

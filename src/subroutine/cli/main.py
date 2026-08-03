@@ -46,6 +46,7 @@ import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.local
+import subroutine.domain.profiles
 import subroutine.domain.schedule
 import subroutine.domain.tokens
 import subroutine.domain.workspaces
@@ -1346,6 +1347,48 @@ def _profile_is_protected (name: str) -> bool:
 #: scopes (SPEC.md §7.3).
 
 
+def _shaped_by_profile (
+	profile: str,
+	*,
+	project: list[str] | None,
+	write: list[str] | None,
+	scope: list[str] | None,
+	workspace: str,
+) -> subroutine.domain.profiles.Shape:
+	"""Turn what was typed into the arguments a credential is issued with — item ``#372``.
+
+	**One helper for both commands**, because ``token create`` and ``agent create`` are two
+	ways of taking the same decision and a profile that behaved differently between them would
+	be the divergence this codebase keeps meeting. The tidying of whitespace happens here too,
+	so the two cannot part company over whether ``--project ' SR'`` names a project.
+
+	No profile means exactly what it meant before profiles existed: whatever was typed, and no
+	narrowing that nobody asked for.
+	"""
+
+	projects = [item.strip() for item in (project or []) if item.strip()]
+	writes = [item.strip() for item in (write or []) if item.strip()]
+	scopes = [item.strip() for item in (scope or []) if item.strip()]
+	chosen = profile.strip()
+
+	if not chosen:
+		return subroutine.domain.profiles.Shape(
+			scopes=scopes, projects=projects or None, writes=writes or None
+		)
+
+	try:
+		return subroutine.domain.profiles.expand(
+			subroutine.domain.profiles.named(chosen),
+			projects=projects,
+			writes=writes,
+			scopes=scopes,
+			workspace=workspace.strip() or None,
+		)
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+
 @token_app.command("create")
 def token_create (
 	title: str = typer.Option("", "--title", help="What this credential is for."),
@@ -1374,6 +1417,9 @@ def token_create (
 		None,
 		"--write",
 		help="Only let it change things in this project. Must be one it can reach.",
+	),
+	profile: str = typer.Option(
+		"", "--profile", help=subroutine.domain.profiles.catalogue_help()
 	),
 	expires: str = typer.Option(
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
@@ -1418,11 +1464,20 @@ def token_create (
 	agent one project and nothing else is what makes it a bounded worker rather than a
 	trusted one.
 
+	'--profile' names a scenario instead, and expands into exactly those flags: 'worker' for
+	an agent that owns one project, 'collaborator' to read several and write one, 'observer'
+	to report on work and change nothing, 'colleague' for a second person in one workspace.
+	It refuses a combination that means two things at once rather than picking one.
+
 	'--store' is opt-in rather than the default, and that is a deliberate choice. Writing a
 	narrow token into credentials.toml under the local connection would silently narrow your
 	own CLI to whatever the agent was given — a token that quietly takes authority away is
 	worse than one you have to paste somewhere.
 	"""
+
+	shaped = _shaped_by_profile(
+		profile, project=project, write=write, scope=scope, workspace=workspace
+	)
 
 	# Checked *before* anything is issued, so a credential is never minted and then
 	# stranded. `store` reads the existing file (which refuses unparseable TOML) and writes
@@ -1440,9 +1495,9 @@ def token_create (
 				username=username.strip() or None,
 				service_account=service_account.strip() or None,
 				workspace=workspace.strip() or None,
-				scopes=[item.strip() for item in (scope or []) if item.strip()],
-				projects=[item.strip() for item in (project or []) if item.strip()] or None,
-				writes=[item.strip() for item in (write or []) if item.strip()] or None,
+				scopes=shaped.scopes,
+				projects=shaped.projects,
+				writes=shaped.writes,
 				expires=expires.strip() or None,
 			)
 
@@ -1634,6 +1689,9 @@ def agent_create (
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow it to these permissions. Repeatable."
 	),
+	profile: str = typer.Option(
+		"", "--profile", help=subroutine.domain.profiles.catalogue_help()
+	),
 	expires: str = typer.Option(
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
 	),
@@ -1643,11 +1701,13 @@ def agent_create (
 
 	Examples:
 
-	  subroutine agent create claude --project WEB
+	  subroutine agent create claude --profile worker --project WEB
+
+	  subroutine agent create sam --profile collaborator --project SR --write SUBSAMPLE
+
+	  subroutine agent create reporter --profile observer --expires now+30d
 
 	  subroutine agent create subsample --workspace projects --project SUBSAMPLE
-
-	  subroutine agent create reporter --scope task:read --expires now+30d
 
 	This is 'user create', 'user add' and 'token create' as one act, because they are one
 	decision: an account with no membership authenticates and can do nothing, which reads as a
@@ -1662,10 +1722,18 @@ def agent_create (
 
 	Setting the variable in the environment the agent's session starts from covers both halves.
 
+	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
+	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
+	and changes nothing. A combination that means two things at once is refused rather than
+	resolved — '--profile observer --write WEB' is not a narrower observer.
+
 	The credential is checked by being presented, not by being described: what it can actually
 	do is read back from the instance before this command claims anything.
 	"""
 
+	shaped = _shaped_by_profile(
+		profile, project=project, write=write, scope=scope, workspace=workspace
+	)
 	wanted = name.strip()
 
 	if not wanted:
@@ -1684,9 +1752,9 @@ def agent_create (
 				service_account=wanted,
 				title=title.strip() or f"{wanted} agent",
 				workspace=workspace.strip() or None,
-				scopes=[item.strip() for item in (scope or []) if item.strip()],
-				projects=[item.strip() for item in (project or []) if item.strip()] or None,
-				writes=[item.strip() for item in (write or []) if item.strip()] or None,
+				scopes=shaped.scopes,
+				projects=shaped.projects,
+				writes=shaped.writes,
 				expires=expires.strip() or None,
 			)
 
@@ -1770,10 +1838,17 @@ def _what_the_credential_can_do (
 	# A scope decides which verbs; a workspace pin decides where — a project decides which
 	# *items* exist at all for this credential, which is what `#216` exists for and what makes
 	# an agent bounded rather than merely named.
+	#
+	# Not `views.narrowing()`, deliberately: this sentence already carries the workspace and
+	# the effective permissions in `where`, so that renderer would say both twice. The *rule*
+	# it shares — reach and write set are two answers and both get named (`#403`) — is what
+	# has to stay in step, and a test drives this command to check it.
 	named = subroutine.views.reach(credential)
 	within = f", and only within {', '.join(named)}" if named else ""
+	changing = subroutine.views.writable(credential)
+	writes = f", writing only in {', '.join(changing)}" if changing else ""
 
-	return f"{answer.user.username} ({kind}), in {where}{within}"
+	return f"{answer.user.username} ({kind}), in {where}{within}{writes}"
 
 
 @token_app.command("revoke")

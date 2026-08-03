@@ -79,6 +79,23 @@ WORKSPACE_LEVEL: frozenset[str] = frozenset(
 	}
 )
 
+#: Everything a credential may do without changing anything — the ``viewer`` role's whole
+#: grant, and what the ``observer`` profile narrows a credential to (decision `#370`).
+#:
+#: **Named explicitly, for the same reason as the set below.** "Anything ending in `:read`"
+#: would be a convention deciding a security control, and it happens to be right today only
+#: because nobody has yet added a verb that reads without saying so — `changes:read` and a
+#: feed subscription are both plausible, and either would join this set by somebody deciding
+#: it does rather than by how it was spelled.
+READS: frozenset[str] = frozenset(
+	{
+		WORKSPACE_READ,
+		PROJECT_READ,
+		TASK_READ,
+		COMMENT_READ,
+	}
+)
+
 #: The verbs whose effect lands *inside a project*, which is what makes them the ones a
 #: credential's write set narrows (§7.3, decision `#370`, item `#371`).
 #:

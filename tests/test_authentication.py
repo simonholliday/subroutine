@@ -19,6 +19,7 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.projects
 import subroutine.errors
 import subroutine.permissions
 import subroutine.views
@@ -541,3 +542,80 @@ def test_a_credentials_project_scope_is_listed_by_name (
 	assert f"projects {setup.inbox.key}" in subroutine.cli.main._credential_reach(
 		rendered, None
 	)
+
+
+def test_the_narrowing_sentence_names_a_write_set (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Item ``#403``. `#371` shipped the column and nothing taught this sentence about it.
+
+	The clause order is asserted whole rather than by substring, for the same reason its
+	neighbour above is: three surfaces render this one string, and "reach, then writes, then
+	scopes" is a decision about what a reader meets first — the widest boundary, then the
+	narrower one inside it.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	inside = subroutine.domain.projects.create(
+		session,
+		workspace_id=setup.workspace.id,
+		key="WEB",
+		title="Website",
+		actor=subroutine.domain.authentication.Principal(user=setup.user),
+	)
+	session.flush()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="Collaborator",
+		project_scope=[str(setup.inbox.id), str(inside.id)],
+		project_write_scope=[str(inside.id)],
+	)
+	session.flush()
+
+	credential = subroutine.views.credential(
+		session, subroutine.domain.authentication.Principal(user=setup.user, token=token)
+	)
+
+	assert credential is not None
+	assert subroutine.views.narrowing(credential) == (
+		f"projects {setup.inbox.key}, {inside.key}; writing in {inside.key}"
+	)
+
+
+def test_a_credential_narrowed_only_by_a_write_set_still_says_something (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The defect exactly: ``narrows`` was true and the sentence was empty — "Narrowed to ."
+
+	Worth its own test rather than being folded into the one above, because the two failures
+	are different. That one omits a fact beside others; this one asserts that there *is* a
+	boundary and then names nothing, which reads as a bug in the program rather than as a
+	property of the credential.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="Writes in one place",
+		project_write_scope=[str(setup.inbox.id)],
+	)
+	session.flush()
+
+	credential = subroutine.views.credential(
+		session, subroutine.domain.authentication.Principal(user=setup.user, token=token)
+	)
+
+	assert credential is not None
+	assert credential.narrows, "the flag has always counted the write set"
+	assert subroutine.views.narrowing(credential) == f"writing in {setup.inbox.key}"

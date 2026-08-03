@@ -32,6 +32,7 @@ import typer.testing
 import subroutine
 import subroutine.cli.main
 import subroutine.credentials
+import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.installations
 
@@ -1719,3 +1720,130 @@ def test_whoami_json_carries_the_versions_of_the_process_that_asked (
 	assert answered["plugin_version"] is None, "no plugin started a command line"
 	assert answered["instance_version"] == subroutine.__version__
 	assert answered["schema_revision"]
+
+
+def test_a_worker_profile_bounds_an_agent_to_one_project (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#372``. The credential is described by presenting it, not by what was asked for.
+
+	`agent create`'s closing line is read back from the instance, so this asserts what the
+	instance decided rather than what the command intended — the two differ exactly where the
+	interesting failures are.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+
+	made = run("agent", "create", "claude", "--profile", "worker", "--project", "WEB").output
+
+	assert "only within WEB" in made
+	assert "writing only in" not in made, "a worker writes everywhere it reaches"
+
+
+def test_a_collaborator_reads_a_tree_and_writes_one_part_of_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Decision ``#370``'s whole purpose, and `#403` is why the second half is asserted.
+
+	The reach was reported and the write set was not, so a collaborator read back exactly like
+	a worker with two projects — the distinction the credential exists for, invisible on the
+	one line somebody reads immediately after minting it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+	run("project", "create", "API", "Public API")
+
+	made = run(
+		"agent", "create", "sam",
+		"--profile", "collaborator",
+		"--project", "WEB", "--project", "API",
+		"--write", "API",
+	).output
+
+	assert "only within WEB, API" in made
+	assert "writing only in API" in made
+
+
+def test_an_observer_can_read_and_is_refused_a_write (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The profile is checked by *using* the credential, which is the only version worth having.
+
+	A test asserting that `observer` sets four scopes would pass on a profile whose scopes
+	named verbs nothing checks. This presents the credential and asks the instance.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something already here")
+
+	issued = run("token", "create", "--service-account", "watcher", "--profile", "observer")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)
+
+	assert "Something already here" in run("list").output
+
+	refused = run("add", "This must not be filed", expect=1).output
+
+	assert "task:write" in refused
+	assert "scoped to a narrower set" in refused
+
+
+def test_a_profile_that_means_two_things_is_refused_rather_than_resolved (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``--profile observer --write WEB`` is not a narrower observer — item ``#372``.
+
+	**The feature is this refusal.** Either half is a reasonable thing to want and the
+	combination is not one intention, so a program that quietly picked one would hand somebody
+	a credential that does not do what they just said and tell them it had worked.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+
+	refused = run(
+		"agent", "create", "nosy", "--profile", "observer", "--write", "WEB", expect=1
+	).output
+
+	assert "does not go with the 'observer' profile" in refused
+	assert "collaborator" in refused, "and it names the profile that does mean this"
+	assert "sr_" not in refused, "nothing was minted"
+
+
+def test_an_unknown_profile_lists_the_ones_that_exist (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Four items is a short enough list to print rather than to send somebody looking for."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	refused = run("agent", "create", "x", "--profile", "supervisor", expect=1).output
+
+	for profile in subroutine.domain.profiles.CATALOGUE:
+		assert profile.key in refused
+
+
+def test_whoami_names_a_credentials_write_set (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Item ``#403``. A credential narrowed only this way used to say "Narrowed to ."
+
+	`narrows` counts the write scope, so the sentence was printed; `narrowing()` had no clause
+	to put in it. A sentence asserting a boundary and naming none is worse than no sentence at
+	all — it tells the reader there is something to know and refuses to say what.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "API", "Public API")
+
+	issued = run(
+		"token", "create", "--service-account", "narrow", "--title", "probe", "--write", "API"
+	)
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)
+
+	answer = run("whoami").output
+
+	assert "Narrowed to writing in API." in answer

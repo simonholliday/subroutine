@@ -586,6 +586,37 @@ call.
 the agent's shell resolves whatever the command line resolves — normally your own credential —
 so the restriction above bounds the tools and nothing else.
 
+### Saying what the credential is for
+
+`--profile` names a scenario instead of assembling one out of flags. It works on both
+`agent create` and `token create`, and it expands into exactly the flags below — there is
+nothing a profile can express that you could not have typed.
+
+| Profile | Reaches | Writes in | For |
+| --- | --- | --- | --- |
+| `worker` | one project and everything under it | the same | an agent that owns a project |
+| `collaborator` | the projects named | the ones named with `--write` | reads related work for context, writes only its own |
+| `observer` | the projects named, or the whole workspace | nothing | a reporting or reviewing agent |
+| `colleague` | one workspace | the same | a second person, working as they would in their own |
+
+```console
+$ subroutine agent create sam --profile collaborator --project SR --project WEB --write WEB
+```
+
+**The refusals are the point.** A combination that means two things at once is turned down
+rather than resolved, because a credential that quietly does something other than what you
+just described is one nobody checks again:
+
+```console
+$ subroutine agent create nosy --profile observer --write WEB
+  '--write' does not go with the 'observer' profile.
+    write: 'observer' changes nothing at all.
+      Either drop '--write', or use '--profile collaborator' for an agent that reads widely and writes in one place.
+```
+
+Naming one that does not exist prints all four, because four is short enough to read here
+rather than go and look up.
+
 The rest of this section is the same work done piece by piece, which is worth reading once
 because it says what each piece is for.
 

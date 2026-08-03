@@ -259,7 +259,30 @@ upgrade involves.
   and that case is reported as *"instance too old to say"* rather than left blank, because it
   is usually the answer somebody has come looking for.
 
+- **`--profile` says what a credential is for.** `worker` owns one project; `collaborator`
+  reads a related tree and writes one part of it; `observer` reports and changes nothing;
+  `colleague` is a second person in one workspace. On `subroutine token create` and
+  `subroutine agent create` alike.
+
+  **The refusals are the feature, not the shorthand.** `--profile observer --write WEB` is not
+  a narrower observer, it is two intentions in one command — so it is turned down by name,
+  pointing at the profile that does mean that, rather than resolved in favour of one of them.
+  A credential that quietly does something other than what you just described is one nobody
+  checks a second time.
+
+  A profile expands into flags you could have typed yourself, and can express nothing they
+  cannot. Leaving `--profile` off behaves exactly as before.
+
 ### Fixed
+
+- **A credential says where it may write, not only what it can see.** The reach was reported
+  everywhere and the write set nowhere, so an agent bounded to read a tree and write one
+  project read back exactly like one that could write all of it — the whole point of the
+  credential, invisible on the three surfaces that describe it, including the line printed
+  immediately after minting one.
+
+  A credential narrowed *only* that way was worse: it printed `Narrowed to .` — a sentence
+  asserting a boundary and naming none.
 
 - **A client can read an instance that is a release behind it.** `GET /v1/me` grew two new
   fields in this cycle, and both went in as *required* — so a CLI updated before the server it

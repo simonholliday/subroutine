@@ -107,11 +107,12 @@ class SeedReport:
 		return self.roles + self.statuses + self.item_types + self.link_types
 
 
-_READ_EVERYTHING = (
-	subroutine.permissions.WORKSPACE_READ,
-	subroutine.permissions.PROJECT_READ,
-	subroutine.permissions.TASK_READ,
-	subroutine.permissions.COMMENT_READ,
+#: The ``viewer`` role's whole grant, and the floor under ``member`` and ``contributor``.
+#: Lives in :mod:`subroutine.permissions` because a *credential* can be narrowed to the same
+#: set — decision `#370`'s ``observer`` profile — and two copies of "what reading is" would
+#: be one more instance of this codebase's signature defect.
+_READ_EVERYTHING = tuple(
+	subroutine.permissions.sorted_permissions(subroutine.permissions.READS)
 )
 
 #: An admin differs from an owner in exactly one thing, and this is it.
