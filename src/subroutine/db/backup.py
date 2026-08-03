@@ -695,7 +695,10 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 		try:
 			with engine.connect() as connection:
 				found = connection.execute(
-					sqlalchemy.text(f"select count(*) from {table}")  # noqa: S608 — a literal
+					# `table` is never user input: it comes from `COUNTED`, a literal tuple in
+					# this module, and an interpolation is needed because a table name cannot
+					# be a bound parameter.
+					sqlalchemy.text(f"select count(*) from {table}")
 				).scalar_one()
 
 		except sqlalchemy.exc.SQLAlchemyError:
