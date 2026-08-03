@@ -89,17 +89,22 @@ REACHES_DIRECTLY: dict[str, str] = {
 }
 
 
-def _modules_touching_work () -> dict[str, str]:
-	"""Return every module under ``src`` that both selects and names a scoped entity.
+def _modules_touching_work (root: pathlib.Path = SOURCE) -> dict[str, str]:
+	"""Return every module under ``root`` that both selects and names a scoped entity.
 
 	Documents joined the list when S3-04 built them: they live in projects and inherit the
 	same visibility, so a document listing that forgets to narrow leaks a private project's
 	specifications exactly as a task listing leaks its work.
+
+	**The tree is an argument so that the guard can be shown a defect** (`#405`). The pair of
+	tests below already catch a walk that reads nothing — an empty scan makes every exemption
+	look stale — but they cannot say the *rule* still matches, which is the half that quietly
+	stops working when somebody renames a model.
 	"""
 
 	found: dict[str, str] = {}
 
-	for path in sorted(SOURCE.rglob("*.py")):
+	for path in sorted(root.rglob("*.py")):
 		if "migrations" in path.parts:
 			continue
 
@@ -111,7 +116,7 @@ def _modules_touching_work () -> dict[str, str]:
 		}
 
 		if "select" in names and {"Task", "Project", "Document"} & names:
-			found[str(path.relative_to(SOURCE))] = text
+			found[str(path.relative_to(root))] = text
 
 	return found
 
@@ -733,3 +738,48 @@ def test_a_captured_key_still_wins_over_the_default (
 	)
 
 	assert created.project_id == world.private.id, "the key the author typed still decides"
+
+
+def test_the_scoping_guard_catches_a_query_it_has_not_been_told_about (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Item ``#405``. The rule, shown a module that reaches the tables directly.
+
+	**The pair above already covers a walk that reads nothing** — an empty scan makes every
+	entry in ``REACHES_DIRECTLY`` look stale, and the second test says so. What neither can
+	say is whether the *match* still works: it looks for a ``select`` beside a ``Task``,
+	``Project`` or ``Document`` attribute, and a model renamed or a query written another way
+	would leave it reporting a clean tree for ever.
+	"""
+
+	(tmp_path / "leaky.py").write_text(
+		"import sqlalchemy\n"
+		"import subroutine.db.models.work\n"
+		"def everything (session):\n"
+		"\treturn session.scalars(\n"
+		"\t\tsqlalchemy.select(subroutine.db.models.work.Task)\n"
+		"\t).all()\n",
+		encoding="utf-8",
+	)
+
+	assert set(_modules_touching_work(tmp_path)) == {"leaky.py"}
+
+
+def test_the_scoping_guard_leaves_alone_a_module_that_queries_nothing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""And the other half: a matcher that flagged every file would pass the test above.
+
+	Without this, "reports the offender" and "reports everything" are the same green — and the
+	second, combined with a broken walk, is a guard that has stopped measuring anything while
+	looking exactly like one that works.
+	"""
+
+	(tmp_path / "quiet.py").write_text(
+		"import subroutine.domain.scoping\n"
+		"def readable (session, actor):\n"
+		"\treturn subroutine.domain.scoping.readable_tasks(session, actor)\n",
+		encoding="utf-8",
+	)
+
+	assert _modules_touching_work(tmp_path) == {}

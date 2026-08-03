@@ -182,3 +182,38 @@ def test_the_suite_is_told_to_fail_rather_than_skip () -> None:
 	assert dict(suite.env)["SUBROUTINE_TEST_REQUIRE_POSTGRES"] == str(
 		declared["SUBROUTINE_TEST_REQUIRE_POSTGRES"]
 	)
+
+
+def test_the_comparison_notices_a_command_that_has_drifted () -> None:
+	"""Item ``#405``: the falsification that was done by hand, left as a test.
+
+	When this file was written the command check compared by *containment*, and it passed with
+	``mypy src`` standing in for ``mypy src tests scripts`` — a substring of the workflow's
+	command, and the exact failure its own docstring claimed to catch. That was found by
+	editing the script, running the suite and putting it back; the finding lived in a commit
+	message afterwards, where nothing can reach it.
+
+	A hand-falsification proves the guard fired **once**. This proves it fires.
+	"""
+
+	step = _steps()[("Lint and types", "Mypy")]
+	commands = [line.strip() for line in step.splitlines()]
+
+	assert "mypy src tests scripts" in commands, "the workflow still runs the full check"
+	assert "mypy src" not in commands, (
+		"a prefix of the workflow's command must not count as the workflow's command"
+	)
+
+
+def test_the_workflow_is_actually_read () -> None:
+	"""And the half every check here rests on: that ``ci.yml`` was parsed at all.
+
+	Each test above compares two sets, and an empty one on the workflow side makes three of
+	them vacuously true — the "reads nothing and passes" shape this repository has met twice.
+	The floor is deliberately well under what is there; the point is that it is not zero.
+	"""
+
+	steps = _steps()
+
+	assert len(steps) > 8, f"only {len(steps)} run-steps parsed out of {WORKFLOW}"
+	assert ("Lint and types", "Ruff") in steps, "and the one every commit depends on is there"

@@ -94,13 +94,22 @@ def _module_of (node: ast.Call) -> tuple[str, str] | None:
 	return parent.attr, node.func.attr
 
 
-def _offenders () -> list[str]:
-	"""Return every guarded call in ``src`` that does not pass ``actor=``."""
+def _offenders (root: pathlib.Path = ROOT) -> list[str]:
+	"""Return every guarded call under ``root`` that does not pass ``actor=``.
+
+	**The tree is an argument so that the guard can be shown a defect** — item ``#405``. A
+	scanner with the path baked in has two ways to be worthless and the suite notices only
+	one: its rule can be wrong, which a synthetic offender catches, or its *walk* can return
+	nothing, which is indistinguishable from a clean tree. This project has met the second
+	twice, and the second is the one that leaves four documents claiming a check runs.
+
+	Defaulted, so every caller but the can-fire tests reads as it did before.
+	"""
 
 	found: list[str] = []
 
-	for path in sorted(ROOT.rglob("*.py")):
-		relative = path.relative_to(ROOT).as_posix()
+	for path in sorted(root.rglob("*.py")):
+		relative = path.relative_to(root).as_posix()
 
 		if relative in EXEMPT or "migrations/" in relative:
 			continue
@@ -152,22 +161,25 @@ def test_every_mutating_service_call_names_an_actor () -> None:
 def test_the_check_itself_catches_a_missing_actor (tmp_path: pathlib.Path) -> None:
 	"""The guard is only worth having if it fails on the thing it is guarding against.
 
-	A static check that cannot fail is indistinguishable from one that always passes, and
-	this one has no natural failing case in a healthy tree — so it is given one.
+	A static check that cannot fail is indistinguishable from one that always passes, and this
+	one has no natural failing case in a healthy tree — so it is given one.
+
+	**Driven through ``_offenders`` rather than by repeating its rule** (`#405`). This test
+	used to walk the sample itself and assert what ``ast`` found in it, which proved the two
+	helpers worked on one file and said nothing about the guard: it would have passed
+	unchanged with the ``rglob`` reading an empty directory, which is the failure that leaves
+	a check documented, believed and inert.
 	"""
 
-	sample = tmp_path / "offender.py"
-	sample.write_text(
+	(tmp_path / "offender.py").write_text(
 		"import subroutine.domain.tasks\n"
 		"subroutine.domain.tasks.create(session, project=p, title='x')\n",
 		encoding="utf-8",
 	)
 
-	tree = ast.parse(sample.read_text(encoding="utf-8"))
-	calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+	reported = _offenders(tmp_path)
 
-	assert [_module_of(call) for call in calls] == [("tasks", "create")]
-	assert not any(keyword.arg == "actor" for keyword in calls[0].keywords)
+	assert reported == ["offender.py:2 calls tasks.create()"]
 
 
 def test_the_check_rejects_an_explicit_actor_of_none (tmp_path: pathlib.Path) -> None:
@@ -178,22 +190,47 @@ def test_the_check_rejects_an_explicit_actor_of_none (tmp_path: pathlib.Path) ->
 	spelling that proved the check was running.
 	"""
 
-	sample = tmp_path / "offender.py"
-	sample.write_text(
+	(tmp_path / "offender.py").write_text(
 		"import subroutine.domain.tasks\n"
 		"subroutine.domain.tasks.complete(session, task, actor=None)\n",
 		encoding="utf-8",
 	)
 
-	tree = ast.parse(sample.read_text(encoding="utf-8"))
-	call = next(node for node in ast.walk(tree) if isinstance(node, ast.Call))
-	supplied = [keyword for keyword in call.keywords if keyword.arg == "actor"]
+	reported = _offenders(tmp_path)
 
-	assert supplied, "the keyword is there"
-	assert all(
-		isinstance(keyword.value, ast.Constant) and keyword.value.value is None
-		for keyword in supplied
-	), "and it is the value the check now refuses"
+	assert reported == ["offender.py:2 passes actor=None to tasks.complete()"]
+
+
+def test_the_check_is_satisfied_by_a_real_principal (tmp_path: pathlib.Path) -> None:
+	"""And the other half, without which the two above pass on a guard that reports every call.
+
+	A scanner that flagged everything would satisfy both offender tests and fail the tree —
+	which is loud. One that flagged everything *and* had its walk broken would satisfy both and
+	pass the tree, which is not. This is the case that tells those apart.
+	"""
+
+	(tmp_path / "fine.py").write_text(
+		"import subroutine.domain.tasks\n"
+		"subroutine.domain.tasks.create(session, project=p, title='x', actor=actor)\n",
+		encoding="utf-8",
+	)
+
+	assert _offenders(tmp_path) == []
+
+
+def test_the_check_reaches_the_whole_tree () -> None:
+	"""The walk itself, which is the half a synthetic offender cannot speak for.
+
+	``ROOT`` was once relative to the working directory elsewhere in this suite, and when
+	``conftest`` began moving every test somewhere with no marker above it, three checks
+	turned from reading the source into reading nothing and passing. A floor is what says the
+	scan happened at all; the exact number is not the point and is deliberately well below
+	what is there.
+	"""
+
+	reached = [path for path in ROOT.rglob("*.py") if "migrations/" not in path.as_posix()]
+
+	assert len(reached) > 90, f"only {len(reached)} files under {ROOT}"
 
 
 def test_the_guarded_set_covers_every_service_that_takes_an_actor () -> None:

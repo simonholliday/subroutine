@@ -121,3 +121,33 @@ def test_no_command_advertises_a_sentinel_as_a_default () -> None:
 		assert "not given" not in rendered, path
 		assert "[default: -1]" not in rendered, path
 		assert "[default: 0]" not in rendered, path
+
+
+def test_the_walk_reaches_every_command_the_app_registers () -> None:
+	"""The half a parametrised test cannot assert about itself — item ``#405``.
+
+	**This file's first version walked the tree with ``isinstance(x, click.Group)``.** Typer
+	vendors its own click shim, so a ``TyperGroup`` is not one: the walk visited the root,
+	yielded a single command, and every check below passed. It was testing one command out of
+	forty-eight and reporting a clean run.
+
+	A parametrisation is structurally unable to notice that, because "no cases failed" and "one
+	case ran" read the same. So the walk is compared against what the app says it registers —
+	derived rather than counted, so a command added tomorrow is covered without anybody
+	remembering.
+	"""
+
+	walked = {path for path, _ in _commands()}
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
+	missing = {name for name in registered if f"subroutine {name}" not in walked}
+
+	assert not missing, f"the walk never reached {sorted(missing)}"
+
+	# And a floor, because every name above could be reached while the *groups* went
+	# unopened — which is a smaller version of the same defect, and the one that would hide
+	# `token create` and `db backup`.
+	assert len(walked) > 40, f"the walk reached {len(walked)} commands, which is too few"
