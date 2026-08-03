@@ -131,6 +131,16 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine list --project` works on an instance with more than one workspace.** The
+  listing asks every workspace and passed the project key to each; a project belongs to one, so
+  the others refused, the fan-out read that as the *connection* failing, and the rows the right
+  workspace had already returned were discarded with them. Every key failed except one that
+  happened to exist in both.
+
+  Latent since projects and workspaces both existed and invisible until an instance had two.
+  A key that exists nowhere is still refused by name, so a typo does not quietly become an
+  empty list.
+
 - **A project listing includes the sub-projects underneath it.** `subroutine project list`
   drew a tree and `subroutine list --project PARENT` returned only what was filed directly in
   the parent, so a hierarchy answered for none of its own contents — which is most of what a

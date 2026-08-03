@@ -3676,10 +3676,23 @@ def register (
 
 			parked = 0
 
+			# **A project belongs to one workspace, and this asks them all** (`#332`). Until
+			# 2026-08-03 every instance had exactly one, so the loop ran once and could not
+			# disagree with itself; `#288` created a second and `--project` stopped working
+			# the same afternoon — the workspace that does not hold the key raised, the
+			# fan-out read that as the connection failing, and the rows the *right* workspace
+			# returned were discarded with it.
+			#
+			# So a key that resolves nowhere on this connection is still refused by name, and
+			# a key that resolves somewhere is simply absent from the workspaces it is not in.
+			# Suppressing unconditionally would turn a typo into "nothing on your list", which
+			# is the same answer as a project that exists and is empty.
+			missing: subroutine.errors.NotFound | None = None
+			reached = False
+
 			for workspace in () if item is None else item.identity.workspaces:
-				rows.extend(
-					(client.connection.name, found)
-					for found in client.tasks(
+				try:
+					found_here = client.tasks(
 						workspace=workspace.slug,
 						limit=asked,
 						order=order,
@@ -3689,7 +3702,20 @@ def register (
 						ready=ready,
 						deleted=trash,
 					)
-				)
+
+				except subroutine.errors.NotFound as absent:
+					# Only a named project can legitimately be absent from a workspace the
+					# caller can otherwise read. Anything else is this connection failing.
+					if project is None:
+						raise
+
+					missing = absent
+
+					continue
+
+				reached = True
+
+				rows.extend((client.connection.name, found) for found in found_here)
 
 				# **`--ready` is about work you could start, so a document is not an answer to
 				# it** (`#136`). §6.14 says a document is not scheduled and nothing blocks one,
@@ -3728,6 +3754,15 @@ def register (
 						deleted=trash,
 					)
 				)
+
+			# **Refused by name when the key is nowhere on this connection.** A project that
+			# exists and holds nothing answers "nothing on your list"; a project that does not
+			# exist has to say so, or a mistyped `--project` is indistinguishable from an
+			# empty one. Raised rather than returned so `fanout` reports it per connection —
+			# a key on one instance and not another is a fact about that instance, and the
+			# other one's rows still arrive.
+			if missing is not None and not reached:
+				raise missing
 
 			# Re-sorted after the merge, because a merged result is a merge of pages and not
 			# one ordered page — the limit is per workspace and has to be applied again here.

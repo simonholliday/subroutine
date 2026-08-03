@@ -3816,3 +3816,47 @@ def test_nothing_is_marked_when_no_search_was_made (
 
 	assert line.plain == "cursor jumps"
 	assert line.spans == []
+
+
+def test_a_project_listing_survives_a_second_workspace (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#332``. A project belongs to one workspace, and the listing asks them all.
+
+	Latent from the day projects and workspaces both existed, and invisible until an instance
+	had two: the loop ran once and could not disagree with itself. The migration in `#288`
+	created the second, and `--project` stopped working the same afternoon — the workspace
+	without the key raised, the fan-out read that as the *connection* failing, and the rows the
+	right workspace had already returned went with it.
+
+	The second workspace is the whole fixture. Everything else here is ordinary.
+	"""
+
+	run("init", "--workspace", "Projects")
+	run("project", "create", "WEB", "Website")
+	run("add", "Fix the header +WEB")
+	run("workspace", "create", "personal", "Personal")
+
+	listed = run("list", "--project", "WEB").output
+
+	assert "Fix the header" in listed, listed
+
+
+def test_a_project_that_is_nowhere_is_still_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the refusal has to survive the fix, or a typo becomes an empty list.
+
+	Suppressing the per-workspace refusal unconditionally would answer `--project WBE` with
+	"nothing on your list" — the same words as a project that exists and holds nothing, which
+	is the one thing the reader is trying to tell apart.
+	"""
+
+	run("init", "--workspace", "Projects")
+	run("project", "create", "WEB", "Website")
+	run("workspace", "create", "personal", "Personal")
+
+	refused = run("list", "--project", "WBE")
+
+	assert "WBE" in refused.output, refused.output
+	assert "no project" in refused.output
