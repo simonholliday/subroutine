@@ -1138,6 +1138,45 @@ class Client:
 				)
 			)
 
+	def uncomment (
+		self,
+		*,
+		ref: int,
+		comment_id: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> None:
+		"""Withdraw a comment from an item's record."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			model = subroutine.db.models.activity.Comment
+			found = session.scalars(
+				sqlalchemy.select(model).where(
+					model.id == uuid.UUID(comment_id),
+					model.workspace_id == chosen.id,
+					model.deleted_at.is_(None),
+					# **Narrowed to the item named, like `unlink`.** A comment id alone would
+					# let a caller withdraw one from something it never mentioned — and the
+					# ids are handed out by a listing, so "the one I just read" is the only
+					# provenance a caller has for them.
+					model.entity_type == entity_type,
+					model.entity_id == subject,
+				)
+			).first()
+
+			if found is None:
+				raise subroutine.errors.NotFound(
+					"There is no such comment on that item.",
+					hint=f"Run 'subroutine show {ref}' to see what is recorded against it.",
+				)
+
+			subroutine.domain.comments.delete(session, found, actor=actor)
+
 	def discard (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> subroutine.views.Task | subroutine.views.Document:

@@ -2038,3 +2038,38 @@ def test_both_include_a_sub_projects_items_under_its_parent (pair: Pair) -> None
 	# everything, it is the branch somebody named.
 	assert {task.title for task in local.tasks(project="CHILD")} == {"lives in the child"}
 	assert local.count_tasks(project="PARENT") == 2
+
+
+def test_both_withdraw_a_comment_the_same_way (pair: Pair) -> None:
+	"""Item ``#400``, and the reason the HTTP client does a lookup before its delete.
+
+	``DELETE /v1/comments/{id}`` addresses a comment by its own id, so unlike ``unlink`` —
+	whose ref is in the path — the route cannot refuse a caller that named the wrong item.
+	The local client narrows in SQL. Without the matching lookup over HTTP the two transports
+	would enforce different things, and a caller could delete across items on one of them.
+	"""
+
+	local, remote = pair.both()
+	one = make(pair, "Commented on over both transports")
+	other = make(pair, "Somebody else's item")
+
+	written = local.remark(ref=one.ref, body="what happened here")
+	elsewhere = local.remark(ref=other.ref, body="what happened there")
+
+	# Naming the wrong item is refused, identically, on both.
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.uncomment(ref=one.ref, comment_id=str(elsewhere.id))
+
+	assert [one.body for one in remote.comments(ref=other.ref)] == ["what happened there"]
+
+	remote.uncomment(ref=one.ref, comment_id=str(written.id))
+
+	assert local.comments(ref=one.ref) == []
+	assert remote.comments(ref=one.ref) == []
+
+	# And withdrawing what is already gone is refused rather than silently succeeding, because
+	# the id no longer resolves to a live comment on that item.
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.uncomment(ref=one.ref, comment_id=str(written.id))

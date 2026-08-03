@@ -273,6 +273,20 @@ upgrade involves.
   A profile expands into flags you could have typed yourself, and can express nothing they
   cannot. Leaving `--profile` off behaves exactly as before.
 
+- **A comment can be taken back out.** `subroutine uncomment 42 "some of its words"`, and
+  `remove=true` on the agent's `subroutine_comment`. Named by what it says, because a comment
+  has no number of its own and its id appears in nothing anybody reads — the same reason
+  `unlink` names two items rather than a link.
+
+  Matching more than one is refused rather than guessed at, and the several are deliberately
+  not listed back: choosing from a printed list means choosing by position, which is the one
+  way of naming things this program does not have.
+
+  **Deleting rather than editing, and that is the decision.** A comment is attributed prose,
+  so rewriting somebody's words under their name is not a permission anyone should hold.
+  Withdrawal is soft, and the mentions in a withdrawn comment stop pointing at anything — a
+  backlink to a sentence nobody can read is worse than none.
+
 ### Fixed
 
 - **A credential says where it may write, not only what it can see.** The reach was reported

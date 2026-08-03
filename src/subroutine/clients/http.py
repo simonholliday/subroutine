@@ -314,6 +314,38 @@ class Client:
 			params=_given(workspace_id=workspace),
 		)
 
+	def uncomment (
+		self,
+		*,
+		ref: int,
+		comment_id: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> None:
+		"""Withdraw a comment from an item's record.
+
+		**The item is checked here rather than by the route**, and that is the one thing this
+		method does beyond a single request. ``DELETE /v1/comments/{id}`` addresses a comment
+		by its own id, so unlike ``unlink`` — whose ref is in the path — the server cannot
+		refuse a caller naming the wrong item. The local client narrows in SQL; without the
+		lookup below the two transports would enforce different things, which is the
+		divergence ``views.py`` sits outside ``api/`` to prevent.
+
+		A round trip on a rare operation, for a refusal that reads the same either way.
+		"""
+
+		self._refuse_if_read_only()
+
+		recorded = self.comments(ref=ref, entity_type=entity_type, workspace=workspace)
+
+		if not any(str(one.id) == comment_id for one in recorded):
+			raise subroutine.errors.NotFound(
+				"There is no such comment on that item.",
+				hint=f"Run 'subroutine show {ref}' to see what is recorded against it.",
+			)
+
+		self._json("DELETE", f"/v1/comments/{comment_id}")
+
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:

@@ -234,13 +234,15 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"Add to an item's record of what happened — what you did, what you found, "
 				"what failed. A '#42' in the body becomes a link on item 42. For a "
-				"conclusion the next session needs, write a document instead."
+				"conclusion the next session needs, write a document instead. Pass "
+				"remove=true with words from a comment to take it back out."
 			),
 			schema={
 				"type": "object",
 				"properties": {
 					"ref": {"type": "integer", "description": "The item's number."},
 					"body": {"type": "string", "description": "What happened."},
+					"remove": {"type": "boolean", "description": "Withdraw it instead."},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref", "body"],
@@ -909,20 +911,49 @@ def _wrote (
 def _remarked (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
-	"""Add one entry to an item's record, whether it is a task or a document."""
+	"""Add one entry to an item's record, or withdraw one — whether task or document.
+
+	**One tool for both directions**, which is the shape ``subroutine_link`` already
+	established (`#141`): withdrawing ships with making, and a second tool would spend a name
+	and a schema in every session's context on the inverse of a verb the caller has already
+	found. §21.2's budget is at its cap, and a boolean is about ninety bytes where a tool is
+	four hundred.
+
+	**Named by its words, never by an id** (`#400`), for the same reason the CLI is: a comment
+	has no number of its own, and its id appears in nothing a caller has necessarily read.
+	Matching more than one is refused rather than guessed at, because the alternative is
+	deleting somebody's prose on a coin toss.
+	"""
 
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
+	body = _text(arguments, "body") or ""
 	_, kind = _item(client, ref, workspace)
 
-	client.remark(
-		ref=ref,
-		body=_text(arguments, "body") or "",
-		entity_type=kind,
-		workspace=workspace,
+	if not arguments.get("remove"):
+		client.remark(ref=ref, body=body, entity_type=kind, workspace=workspace)
+
+		return f"Recorded on #{ref}."
+
+	recorded = [
+		one
+		for one in client.comments(ref=ref, entity_type=kind, workspace=workspace)
+		if body.casefold() in one.body.casefold()
+	]
+
+	if not recorded:
+		raise ValueError(f"Nothing recorded on #{ref} says that.")
+
+	if len(recorded) > 1:
+		raise ValueError(
+			f"{len(recorded)} comments on #{ref} say that. Pass more of the one you mean."
+		)
+
+	client.uncomment(
+		ref=ref, comment_id=str(recorded[0].id), entity_type=kind, workspace=workspace
 	)
 
-	return f"Recorded on #{ref}."
+	return f"Taken out of #{ref}."
 
 
 def _completed (

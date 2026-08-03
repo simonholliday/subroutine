@@ -259,6 +259,13 @@ subroutine_comment(ref=42, body="Reproduced on 3.11 only. The fix in #38 does no
 
 A `#38` in the body becomes a link on item 38, so the two find each other later.
 
+If you wrote one you should not have, `subroutine_comment(ref=42, body="…", remove=true)` takes
+it back out — named by some of its words, because a comment has no number of its own. Matching
+more than one is refused rather than guessed at. **Do not use it to tidy history**: a comment
+that turned out to be wrong is worth more standing beside the correction than removed, because
+"we thought X" is half of why the next session should not think X. Withdraw duplication and
+mistakes, not the record of having been wrong.
+
 **Write a document when you conclude something.** A comment is what happened; a document is
 what you concluded — and the test is simple: *would the next person need to read it?* Decisions,
 findings, designs and dead ends are all worth more than the hour they cost.

@@ -290,6 +290,28 @@ class Client(typing.Protocol):
 		nothing about having done so.
 		"""
 
+	def uncomment (
+		self,
+		*,
+		ref: int,
+		comment_id: str,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> None:
+		"""Withdraw a comment from an item's record — item ``#400``.
+
+		**Deleting rather than editing, and that is a decision** (§5.10). A comment is
+		attributed prose, so an administrator rewriting somebody's words under their name is
+		not a permission anybody should hold; taking it out is the honest alternative and is
+		the half worth reaching. Editing stays HTTP-only.
+
+		Narrowed to the item as well as to the id, exactly as :meth:`unlink` is, so a caller
+		cannot withdraw a comment from something it never named.
+
+		Soft, like every other delete here — and the text stops mentioning anything, because a
+		backlink pointing at a sentence nobody can read is worse than none.
+		"""
+
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Comment]:

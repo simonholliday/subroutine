@@ -2224,6 +2224,76 @@ def register (
 				f"subroutine show {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
 			)
 
+	@app.command("uncomment")
+	def withdraw_comment (
+		which: str = typer.Argument("", help="An item number, as shown by 'subroutine list'."),
+		words: str = typer.Argument("", help="Words from the comment you want taken out."),
+	) -> None:
+		"""Take a comment back out of an item's record.
+
+		Examples:
+
+		  subroutine uncomment 42 "two failures in the date parser"
+
+		Named by what it says, because that is what you are looking at. A comment has no
+		number of its own and its id is a UUID that appears in nothing a person reads — so
+		asking for one would make this a command only a script could run.
+
+		Matching more than one is refused rather than guessed at: say more of the sentence.
+		Deleting rather than editing is deliberate. A comment is attributed prose, and
+		rewriting somebody's words under their name is not a thing to be able to do.
+		"""
+
+		with opened() as world:
+			located = _locate(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				kinds=ANY_ITEM,
+				verb="uncomment",
+			)
+			client = _require_connection(world, located.connection)
+			wanted = _asked(words, "Which comment? (some of its words)")
+
+			recorded = [
+				one
+				for one in client.comments(
+					ref=located.ref,
+					entity_type=located.entity_type,
+					workspace=located.workspace,
+				)
+				if wanted.casefold() in one.body.casefold()
+			]
+
+			if not recorded:
+				stop(
+					f"Nothing recorded on {world.address_of_located(located)} says that.",
+					f"Run 'subroutine show {located.ref}' to see what is there.",
+				)
+
+			# **Refused rather than resolved, and the several are not listed back.** Printing
+			# them would put the reader in the position of choosing by position, which is the
+			# one way of naming things this program does not have (§12.2a) — so the answer is
+			# to be more specific, and the count is what says how much more.
+			if len(recorded) > 1:
+				stop(
+					f"{len(recorded)} comments there say that.",
+					"Say more of the one you mean.",
+				)
+
+			client.uncomment(
+				ref=located.ref,
+				comment_id=str(recorded[0].id),
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+
+			say(_acted(world, located, "Taken out of"))
+			_suggest(
+				console,
+				f"subroutine show "
+				f"{world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
+			)
+
 	def _in_an_editor (current: str) -> str:
 		"""Open text in the reader's editor and return what they saved.
 

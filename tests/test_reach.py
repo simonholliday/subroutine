@@ -94,6 +94,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
+	("DELETE", "/v1/comments/{comment_id}"): "uncomment",
 	("POST", "/v1/workspaces"): "create_workspace",
 	("PATCH", "/v1/workspaces/{id_or_slug}"): "rename_workspace",
 	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
@@ -202,13 +203,9 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 	),
 	("PATCH", "/v1/comments/{comment_id}"): (
 		"tracked",
-		"Only the author may edit a comment, and the honest alternative to editing attributed "
-		"prose is deleting it. Low value from a CLI; nobody has asked. `#141`.",
-	),
-	("DELETE", "/v1/comments/{comment_id}"): (
-		"tracked",
-		"`#141`, alongside editing one — and the more useful of the pair, since deleting is "
-		"the honest alternative to rewriting somebody's attributed words.",
+		"Only the author may edit a comment, and deleting is the honest alternative to "
+		"rewriting attributed prose — which `#400` built, so this half stays HTTP-only "
+		"deliberately rather than for want of asking. `#141` if somebody wants it.",
 	),
 	("DELETE", "/v1/projects/{id_or_key}"): (
 		"disclosure",

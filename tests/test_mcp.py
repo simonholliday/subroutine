@@ -14,6 +14,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import typing
 import uuid
 
@@ -826,7 +827,34 @@ def test_the_whole_tool_surface_stays_small (
 	  the theatre the paragraph below warns about — a cap you edit prose to satisfy has
 	  stopped measuring anything. Raised deliberately instead.
 
-	The slack above the current total is deliberate and small — **227 bytes** as of 2026-08-03,
+	* **`#400`, to 8,800** — ``remove`` on ``subroutine_comment``, so that a comment can be
+	  taken back out. Asked for by the agent working in ``SUBSAMPLE``, which had written four
+	  comments before descriptions worked and could not remove the three that were now pure
+	  duplication: *"I'd have removed them if I could."*
+
+	  **A boolean rather than a tool, and that is ``subroutine_link``'s precedent rather than a
+	  saving.** ``#141`` settled that withdrawing ships with making and that a second tool
+	  would spend a name and a schema on the inverse of a verb the caller has already found;
+	  ``link(remove=true)`` has read that way since. Measured at about ninety bytes against
+	  four hundred for a tool.
+
+	  **The argument that decided it: a comment is the only thing these tools write that
+	  cannot be taken back.** ``link`` withdraws, ``update`` sets any field to anything, a
+	  claim is released. An agent that cannot correct its own record either leaves the
+	  duplication in — which is what happened — or writes fewer comments, and the second is
+	  the expensive failure, because the record of what happened is most of what makes an
+	  agent's work auditable.
+
+	  **Fat was read for first and none was taken, for the fifth time running** — and this
+	  time the temptation was concrete. ``update``'s ``description`` field carries the sentence
+	  *"This is where the reasoning behind an outcome-shaped title goes"*, about sixty bytes,
+	  and `CLAUDE.md` says reasoning belongs in the skill rather than in a schema. Cutting it
+	  would have fitted this under the old cap exactly. That is the theatre named above,
+	  wearing a rule as a disguise: the edit would have been made *because* the number was 52
+	  over, and the sentence is teaching at the point of use for the one field an agent was
+	  measured getting wrong (`#392`).
+
+	The slack above the current total is deliberate and small — **248 bytes** as of 2026-08-03,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -844,7 +872,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 8500, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 8800, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -1804,3 +1832,82 @@ def test_the_versions_are_reported_even_when_nothing_can_be_read (
 	assert not failed
 	assert "No workspace here can be read with this credential." in text
 	assert f"Program {subroutine.__version__}" in text
+
+
+def test_a_comment_can_be_taken_back_out (bound: subroutine.mcp.protocol.Server) -> None:
+	"""Item ``#400``, asked for by the agent working in ``SUBSAMPLE``.
+
+	**Named by its words, not by an id.** A comment has no number of its own, and its id
+	appears in nothing a caller has necessarily read — the same reason ``subroutine_link``
+	withdraws by two refs rather than by a link id.
+	"""
+
+	made, failed = _called(bound, "subroutine_add", text="A thing to do")
+
+	assert not failed, made
+
+	ref = _numbered(made)
+
+	_called(bound, "subroutine_comment", ref=ref, body="ran the suite, all green")
+	_called(bound, "subroutine_comment", ref=ref, body="and then deployed it")
+
+	gone, failed = _called(bound, "subroutine_comment", ref=ref, body="deployed", remove=True)
+
+	assert not failed, gone
+
+	left, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "ran the suite" in left
+	assert "deployed" not in left
+
+
+def test_withdrawing_a_comment_refuses_rather_than_guessing (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Two matches is refused, and so is none.
+
+	**The alternative is deleting somebody's prose on a coin toss.** A comment is attributed
+	and nothing here hard-deletes, but a withdrawal that silently took the wrong one would be
+	discovered by the person whose sentence went missing, which is the worst way to find it.
+	"""
+
+	made, _ = _called(bound, "subroutine_add", text="Another thing")
+	ref = _numbered(made)
+
+	_called(bound, "subroutine_comment", ref=ref, body="the parser is wrong")
+	_called(bound, "subroutine_comment", ref=ref, body="the parser is fixed")
+
+	several, failed = _called(
+		bound, "subroutine_comment", ref=ref, body="the parser", remove=True
+	)
+
+	assert failed
+	assert "2 comments" in several
+
+	missing, failed = _called(
+		bound, "subroutine_comment", ref=ref, body="nothing says this", remove=True
+	)
+
+	assert failed
+	assert "Nothing recorded" in missing
+
+	# Neither refusal took anything with it — the state is the one the caller left.
+	left, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "the parser is wrong" in left
+	assert "the parser is fixed" in left
+
+
+def _numbered (answer: str) -> int:
+	"""Read the ref out of what a tool printed, refusing rather than returning nothing.
+
+	``re.search`` gives ``None`` when nothing matched, and a test that reached for ``.group``
+	on it would fail with an ``AttributeError`` about the regex rather than saying that the
+	tool answered without a number in it.
+	"""
+
+	found = re.search(r"#(\d+)", answer)
+
+	assert found is not None, f"no item number in: {answer}"
+
+	return int(found.group(1))

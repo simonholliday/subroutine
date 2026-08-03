@@ -3894,3 +3894,59 @@ def test_a_project_that_is_nowhere_is_still_refused_by_name (
 
 	assert "WBE" in refused.output, refused.output
 	assert "no project" in refused.output
+
+
+def test_a_comment_can_be_taken_back_out (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#400``. Named by its words, because that is what somebody is looking at.
+
+	A comment has no number of its own and its id is a UUID that appears in nothing a person
+	reads — the same reason ``unlink`` names two refs rather than a link id. Requiring one
+	would make this a command only a script could run.
+	"""
+
+	run("init")
+	run("add", "Call the dentist")
+	run("comment", "1", "rang, they are closed on Mondays")
+	run("comment", "1", "rang again, booked for Thursday")
+
+	gone = run("uncomment", "1", "closed on Mondays")
+
+	assert "Taken out of" in gone.output
+
+	left = run("show", "1").output
+
+	assert "booked for Thursday" in left
+	assert "closed on Mondays" not in left
+
+
+def test_taking_a_comment_out_refuses_rather_than_guessing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Several matches is refused, and the several are deliberately not listed back.
+
+	Listing them would put the reader in the position of choosing by *position*, which is the
+	one way of naming things this program does not have — ``done 1`` means ref 1, never the
+	first row (§12.2a). So the answer is to be more specific, and the count says how much.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+	run("comment", "1", "the parser is wrong")
+	run("comment", "1", "the parser is fixed")
+
+	several = run("uncomment", "1", "the parser", expect=1)
+
+	assert "2 comments" in several.output
+	assert "Say more of the one you mean" in several.output
+
+	missing = run("uncomment", "1", "nothing says this", expect=1)
+
+	assert "says that" in missing.output
+
+	# Neither refusal took anything with it.
+	left = run("show", "1").output
+
+	assert "the parser is wrong" in left
+	assert "the parser is fixed" in left
