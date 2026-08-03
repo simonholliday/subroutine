@@ -87,6 +87,11 @@ app.add_typer(database_app, name="db")
 token_app = typer.Typer(help="Issue credentials for agents and other machines.", no_args_is_help=True)
 app.add_typer(token_app, name="token")
 
+agent_app = typer.Typer(
+	help="Set an AI agent up as a principal of its own.", no_args_is_help=True
+)
+app.add_typer(agent_app, name="agent")
+
 # **No `create` here, deliberately.** Every writer makes its own parent directories, so
 # `subroutine --profile scratch init` already brings a new instance into being (SPEC.md §12.5).
 # A `profile create` would be a second way to do the same thing, and the two would drift.
@@ -1555,6 +1560,161 @@ def _credential_state (token: subroutine.views.Token) -> str:
 		return f"expired {token.expires_at.date().isoformat()}"
 
 	return f"until {token.expires_at.date().isoformat()}"
+
+
+@agent_app.command("create")
+def agent_create (
+	name: str = typer.Argument("", help="What to call the agent, e.g. 'claude'."),
+	project: list[str] = typer.Option(
+		None,
+		"--project",
+		help="Restrict it to this project and everything under it. Repeatable.",
+	),
+	workspace: str = typer.Option(
+		"", "--workspace", help="Which workspace it works in. Pins the credential to it."
+	),
+	scope: list[str] = typer.Option(
+		None, "--scope", help="Narrow it to these permissions. Repeatable."
+	),
+	expires: str = typer.Option(
+		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
+	),
+	title: str = typer.Option("", "--title", help="What this credential is for."),
+) -> None:
+	"""Give an agent an identity of its own, and say how to hand it over.
+
+	Examples:
+
+	  subroutine agent create claude --project WEB
+
+	  subroutine agent create subsample --workspace projects --project SUBSAMPLE
+
+	  subroutine agent create reporter --scope task:read --expires now+30d
+
+	This is 'user create', 'user add' and 'token create' as one act, because they are one
+	decision: an account with no membership authenticates and can do nothing, which reads as a
+	broken token rather than as a missing role.
+
+	It prints an environment line, and that line is half the work. An agent that can run
+	shell commands reaches this instance two ways — through the tools its editor wired up, and
+	by running 'subroutine' itself — and those resolve credentials separately. Give the token
+	only to the editor and the agent is itself over the tools and *you* in its shell, which is
+	worse than plainly acting as you: half its work is correctly attributed, so a spot check
+	finds its name and concludes the setup worked.
+
+	Setting the variable in the environment the agent's session starts from covers both halves.
+
+	The credential is checked by being presented, not by being described: what it can actually
+	do is read back from the instance before this command claims anything.
+	"""
+
+	wanted = name.strip()
+
+	if not wanted:
+		_stop(
+			"Say what to call the agent.",
+			"For example: subroutine agent create claude --project WEB",
+		)
+
+	with _administering() as client:
+		try:
+			# **Who this machine acts as *now*, asked before anything is minted.** It is the
+			# comparison the closing sentence needs, and asking afterwards would report the
+			# same thing while being one step further from the truth.
+			operator = client.me()
+			minted = client.issue_token(
+				service_account=wanted,
+				title=title.strip() or f"{wanted} agent",
+				workspace=workspace.strip() or None,
+				scopes=[item.strip() for item in (scope or []) if item.strip()],
+				projects=[item.strip() for item in (project or []) if item.strip()] or None,
+				expires=expires.strip() or None,
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+		variable = subroutine.credentials.variable_for(client.connection.name)
+		checked = _what_the_credential_can_do(client, minted.token)
+
+	if minted.account_created:
+		_say(
+			f"Created service account {minted.username}, with the "
+			f"{subroutine.domain.tokens.SERVICE_ACCOUNT_ROLE} role."
+		)
+
+	_say("")
+	_say("Set this in the environment the agent's session starts from:")
+	_say("")
+	_say(f"  {variable}={minted.token}")
+	_say("")
+	_say("That is the only time the credential is shown. Nothing recovers it afterwards.")
+
+	if checked is not None:
+		_say("")
+		_say(f"Checked, by presenting it: {checked}")
+
+	# **The sentence that stops this looking finished when it is not.** Until the variable is
+	# set, the agent's shell keeps resolving whatever the command line resolves — normally the
+	# operator's own credential, which on this machine is the *unbounded* one. Naming who that
+	# is makes the gap concrete rather than theoretical.
+	_say("")
+	_say(
+		f"Until then its shell acts as {operator.user.username}, and nothing above bounds "
+		f"what it does there."
+	)
+
+
+def _what_the_credential_can_do (
+	client: subroutine.clients.base.Client, secret: str
+) -> str | None:
+	"""Present a freshly minted credential and describe what the instance says it may do.
+
+	**Checked rather than described.** A report assembled from what was *asked for* agrees with
+	itself whatever the instance decided — and the interesting failures are exactly the ones
+	where those differ: a scope that names a permission the owner's role does not carry, a
+	workspace pin on a workspace the account was never added to. Presenting the credential is
+	the only version of this check worth printing.
+
+	``None`` when the check itself could not be made, which is reported as silence rather than
+	as a claim: the credential exists either way and the secret is on screen.
+	"""
+
+	try:
+		settings = _settings()
+		roster = subroutine.connections.roster(settings)
+
+		with subroutine.clients.opening.for_connection(
+			client.connection, roster, settings, token=secret
+		) as presented:
+			answer = presented.me()
+
+	except subroutine.errors.SubroutineError:
+		return None
+
+	credential = answer.credential
+	kind = "agent" if answer.user.is_service_account else "person"
+	where = ", ".join(
+		f"{workspace.slug} ({', '.join(workspace.permissions)})"
+		for workspace in answer.workspaces
+	)
+
+	if not where:
+		# The failure this check exists to catch: a credential that authenticates and reaches
+		# nothing reads, from every other command, as an instance with no work in it.
+		return f"{answer.user.username} ({kind}), and it can read no workspace at all"
+
+	if credential is None or not credential.narrows:
+		return f"{answer.user.username} ({kind}), unnarrowed, in {where}"
+
+	# **The project restriction is stated separately because it is the only real boundary.**
+	# A scope decides which verbs; a workspace pin decides where — a project decides which
+	# *items* exist at all for this credential, which is what `#216` exists for and what makes
+	# an agent bounded rather than merely named.
+	named = credential.project_scope_keys or credential.project_scope
+	within = f", and only within {', '.join(named)}" if named else ""
+
+	return f"{answer.user.username} ({kind}), in {where}{within}"
 
 
 @token_app.command("revoke")

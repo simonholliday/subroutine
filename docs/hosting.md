@@ -542,6 +542,42 @@ there and says so. Setting somebody up should not take something away from you.
 
 ## Giving an agent a token
 
+**One command does all of it**, and it is the one to reach for:
+
+```console
+$ subroutine agent create claude --project WEB --scope task:read --scope task:write
+  Created service account claude, with the contributor role.
+
+  Set this in the environment the agent's session starts from:
+
+    SUBROUTINE_TOKEN_WORK=sr_7e6abdce_S2MRP1ehbK3imO9G5hPlGw3ABblhxSi6KUh0Xi4Zv24
+
+  That is the only time the credential is shown. Nothing recovers it afterwards.
+
+  Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within WEB
+
+  Until then its shell acts as si, and nothing above bounds what it does there.
+```
+
+Three things it does that doing it by hand does not.
+
+**The account, its membership and its credential are one act**, in one transaction. An account
+with no membership authenticates and can do nothing, which reads as a broken token rather than
+as a missing role — and over a network the alternative is three requests with a half-finished
+agent if the second fails.
+
+**The credential is checked by being presented.** What it can do is read back from the instance
+before the command claims anything, so a scope naming a permission the role does not carry, or
+a pin on a workspace the account cannot reach, is visible here rather than on the agent's first
+call.
+
+**The last line is not a warning, it is the other half of the job.** Until that variable is set,
+the agent's shell resolves whatever the command line resolves — normally your own credential —
+so the restriction above bounds the tools and nothing else.
+
+The rest of this section is the same work done piece by piece, which is worth reading once
+because it says what each piece is for.
+
 A token may be narrower than the person who issued it, and this is where that earns its keep.
 Give an agent a machine identity of its own and only the permissions it needs:
 

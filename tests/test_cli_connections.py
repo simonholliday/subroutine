@@ -769,6 +769,64 @@ def test_a_scoped_token_cannot_mint_itself_a_wider_one (
 	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
 
 
+def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#339`, and the whole of `#338` in one test: the printed line is the deliverable.
+
+	Not "a token was issued" — that was already true. The claim is that following this
+	command's output produces a shell that acts as the agent and is bounded to one project,
+	which is what `#346` measured was *not* happening.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Projects")
+	run("project", "create", "WEB", "Website")
+	run("project", "create", "OPS", "Operations")
+	run("add", "Fix the header +WEB")
+	run("add", "Rotate the certificates +OPS")
+
+	made = run(
+		"agent", "create", "claude", "--project", "WEB", "--scope", "task:read"
+	).output
+
+	assert "Created service account claude" in made
+
+	line = re.search(r"(SUBROUTINE_TOKEN_[A-Z0-9_]+)=(sr_\S+)", made)
+
+	assert line is not None, "the environment line is the deliverable, not a nicety"
+
+	assert "claude (agent)" in made, "checked by presenting it, not by describing it"
+	assert "only within WEB" in made
+	assert "its shell acts as si" in made, "and it says what is not yet bounded"
+
+	# **Follow the instruction and see what happens** — the only version of this check worth
+	# anything. Both halves of the claim: the shell is the agent, and it is bounded.
+	monkeypatch.setenv(line.group(1), line.group(2))
+
+	assert "claude (agent)" in run("whoami").output
+	assert "si (person)" not in run("whoami").output
+
+	listed = run("list").output
+
+	assert "Fix the header" in listed
+	assert "Rotate the certificates" not in listed, "the other project is out of reach"
+
+
+def test_setting_an_agent_up_reaches_a_served_instance (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The case it exists for: the machine an agent runs on holds no database of its own."""
+
+	made = run("-c", "work", "agent", "create", "claude").output
+
+	assert "Created service account claude" in made
+	assert "SUBROUTINE_TOKEN_WORK=" in made, "named for the connection it was minted against"
+	assert "claude (agent)" in made
+
+	assert "claude" in run("-c", "work", "token", "list").output
+	assert "claude" not in run("-c", "local", "token", "list").output
+
+
 def test_credentials_can_be_administered_on_a_machine_that_holds_no_database (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

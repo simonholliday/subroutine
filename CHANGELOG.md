@@ -16,6 +16,23 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine agent create` — one command sets an AI agent up as a principal of its own.**
+  The account, its membership and its credential in one act, because they are one decision: an
+  account with no membership authenticates and can do nothing, which reads as a broken token
+  rather than as a missing role.
+
+  It then prints the environment line to set, and **that line is half the work rather than a
+  convenience at the end**. An agent that can run shell commands reaches an instance two ways —
+  through the tools its editor wired up, and by running `subroutine` itself — and those resolve
+  credentials separately. Give the token only to the editor and the agent is itself over the
+  tools and *you* in its shell, which is worse than plainly acting as you: half its work is
+  correctly attributed, so a spot check finds its name and concludes the setup worked.
+
+  The credential is checked by being presented rather than described, so a scope naming a
+  permission the role does not carry shows up here instead of on the agent's first call. And
+  the closing line says who the agent's shell still acts as until the variable is set, because
+  a setup that looks finished and is not is this project's most expensive shape.
+
 - **Credentials can be administered from a machine that holds no database.** `token create`,
   `token list` and `token revoke` opened a local database directly, because the commands that
   administer credentials have to work when the service will not start. Where the work lives on
