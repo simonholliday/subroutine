@@ -170,16 +170,23 @@ def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
 		assert anchor == expected, f"{heading!r} links to #{anchor}, but its anchor is #{expected}"
 
 
-#: The two published transcripts that quote a whole credential, from before the rule against
-#: it existed. `#189` found them, measured them inert, and leaving them was Simon's call at the
-#: time; `#363` is the item to revisit that, and **deleting an entry here is what closes it**.
+#: The credentials the published transcripts quote, each **verified dead**.
 #:
-#: Grandfathered by exact line rather than by file, so a *new* whole credential in either of
-#: these documents still fails.
-PUBLISHED_BEFORE_THE_RULE = frozenset(
+#: `docs/hosting.md` promises that every quoted output is what the program actually printed,
+#: and a credential is output — a reader who has just run `agent create` needs to recognise
+#: what came back, and `sr_<prefix>_…` is a shape the program never prints. So the rule here is
+#: not "no credential in a document"; it is that every credential in one is a credential that
+#: cannot be used, and that anything *else* full-length is an accident.
+#:
+#: **Verified on 2026-08-03 rather than assumed**: each was presented to the served instance
+#: and refused with a 401, and each is absent from the retired SQLite database — they were
+#: issued on throwaway instances that no longer exist. `#363` records how that was checked, and
+#: adding an entry here means doing it again. Nothing about "it looks old" is evidence.
+PUBLISHED_CREDENTIALS = frozenset(
 	{
 		"sr_d78d5d93_hU5ak4GqR_E2GyX2lC0Zq8Mz5JA1kbm-byrlb5hXEfY",
 		"sr_d9fb02fa_UxzFqMe7i_NGb_eXRbOAsVhcm5_O-4pphVO6JhPe494",
+		"sr_7e6abdce_S2MRP1ehbK3imO9G5hPlGw3ABblhxSi6KUh0Xi4Zv24",
 	}
 )
 
@@ -238,16 +245,17 @@ def test_no_published_page_quotes_a_whole_credential () -> None:
 		quoted = [
 			match
 			for match in WHOLE_CREDENTIAL.findall(text)
-			if match not in PUBLISHED_BEFORE_THE_RULE
+			if match not in PUBLISHED_CREDENTIALS
 		]
 
 		if quoted:
 			found[name] = quoted
 
 	assert not found, (
-		f"a whole credential is committed in {sorted(found)}. Cut it back to the prefix it is "
-		f"looked up by — 'sr_<eight characters>_…' — which is the public half and is what the "
-		f"transcripts quote."
+		f"a whole credential is committed in {sorted(found)} and is not one of the published "
+		f"transcripts' own. If it belongs in a document, revoke it, check it is refused, and "
+		f"add it to PUBLISHED_CREDENTIALS with the date. Otherwise take it out — and revoke it "
+		f"anyway, because it has been in a repository."
 	)
 
 
@@ -264,16 +272,54 @@ def test_the_credential_guard_can_actually_fire () -> None:
 	minted = subroutine.auth.generate_token().value.get_secret_value()
 
 	assert WHOLE_CREDENTIAL.search(f"  {minted}\n")
-	assert not WHOLE_CREDENTIAL.search(
-		f"  SUBROUTINE_TOKEN_WORK={minted.rsplit('_', 1)[0]}_…\n"
-	), "the redaction this test exists to permit"
 	assert not WHOLE_CREDENTIAL.search("give it to a client as SUBROUTINE_TOKEN")
 	assert not WHOLE_CREDENTIAL.search("sr_deadbeef_nonesuch"), (
 		"the suite's own spelling for a credential that was never issued"
 	)
 
-	for grandfathered in PUBLISHED_BEFORE_THE_RULE:
-		assert WHOLE_CREDENTIAL.fullmatch(grandfathered), (
-			"an excused string that the pattern would not have caught anyway is an excuse "
-			"for nothing"
+	for published in PUBLISHED_CREDENTIALS:
+		assert WHOLE_CREDENTIAL.fullmatch(published), (
+			"an excused string the pattern would not have caught anyway excuses nothing"
 		)
+
+
+def test_every_published_credential_is_one_a_reader_would_recognise () -> None:
+	"""The registry is not a place to park a redaction.
+
+	`docs/hosting.md` promises every quoted output is what the program actually printed, and
+	an entry here is a claim that some transcript prints this. So each one has to be a
+	credential this program could have minted — same scheme, same prefix width, same secret
+	length — rather than something shortened, masked or invented.
+
+	Written after the opposite was tried. The first fix for `#359` cut the published credential
+	back to `sr_<prefix>_…`, which is safe and is a shape the program never prints: it made the
+	page's opening promise carry an exception, to protect strings that turned out to be dead
+	anyway. Quoting a dead credential whole is the honest version, and this is what keeps
+	"dead" from quietly becoming "abbreviated".
+	"""
+
+	assert PUBLISHED_CREDENTIALS, "the registry is empty — has the guard stopped being used?"
+
+	for published in PUBLISHED_CREDENTIALS:
+		scheme, prefix, secret = published.split("_", 2)
+
+		assert scheme == subroutine.auth.TOKEN_SCHEME
+		assert len(prefix) == subroutine.auth.TOKEN_PREFIX_LENGTH
+		assert subroutine.auth.parse_token(published) == (prefix, secret), (
+			"a published credential that this program would not even parse is not output"
+		)
+
+	pages = "\n".join(
+		path.read_text(encoding="utf-8") for path in (HOSTING, README, CHANGELOG)
+	)
+	orphaned = sorted(
+		published
+		for published in PUBLISHED_CREDENTIALS
+		if published not in pages
+	)
+
+	assert not orphaned, (
+		f"{len(orphaned)} entries in PUBLISHED_CREDENTIALS appear in no published page. An "
+		f"excuse outliving the thing it excused is how an allow-list stops meaning anything — "
+		f"delete them: {[entry.rsplit('_', 1)[0] for entry in orphaned]}"
+	)
