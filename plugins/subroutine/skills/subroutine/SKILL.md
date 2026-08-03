@@ -136,6 +136,18 @@ not obvious and is not something to assume. Two answers are worth acting on:
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
 
+**And the shell and the tools can be two different principals.** They resolve credentials
+independently: the `subroutine_*` tools use whatever the plugin was configured with, the shell
+uses what the command line finds, and nothing reconciles them. So an agent given its own
+identity can still be its operator every time it shells out — correctly attributed half the
+time, which is worse than plainly wrong, because a spot check finds the right name.
+
+`whoami` answers for the **shell**. If the person you are working with set you up with a
+credential of your own, and that command names them rather than you, tell them. The fix is
+theirs and it is one line — a `SUBROUTINE_TOKEN_<CONNECTION>` in the environment their editor
+starts from, which both halves read — but they cannot fix a split they have not been told
+about, and you are the only one positioned to notice it.
+
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:
 

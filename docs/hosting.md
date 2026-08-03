@@ -589,6 +589,57 @@ and never read from `config.toml`. `--store <connection>` writes it to `credenti
 instead, and is deliberately opt-in: storing a narrow agent token under your own connection
 name would quietly narrow your own CLI.
 
+### An agent that can also run a shell
+
+This is the part that catches people out, and it is worth understanding before you conclude an
+agent is bounded.
+
+**A credential is resolved per process, not per agent.** An AI agent typically reaches an
+instance two ways at once: through tools its editor wired up, and by running `subroutine` in a
+shell. Those are separate processes and they resolve credentials separately — so configuring
+the agent's tools with its own token does *nothing* about the shell, which finds whatever the
+command line finds, normally yours.
+
+The result is an agent that is itself half the time and you the other half. That is worse than
+plainly acting as you, because it is partial: check the event log and the agent's own name is
+there, on the half that went through its tools.
+
+**One variable settles it.** Credentials are looked for in this order:
+
+1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment — the connection name upper-cased, with
+   anything that is not a letter or a digit as an underscore
+2. `SUBROUTINE_TOKEN`, for the default connection only
+3. whatever the connection's own `token_env` or `token_command` names
+4. `credentials.toml`
+
+The first wins, and **both the shell and the editor's tools inherit it** from the environment
+the session was started in. So set it where you launch the agent, and leave the token field in
+your editor's plugin settings empty:
+
+```console
+$ SUBROUTINE_TOKEN_WORK=sr_… claude
+```
+
+`credentials.toml` then holds *you*, which is the right default: the person is who is there
+when no session has claimed the terminal.
+
+**Check it rather than assuming it**, from inside the agent's own shell:
+
+```console
+$ subroutine whoami
+  claude (agent), via token 'web agent' (24148201…).
+  Narrowed to workspace 'projects'; projects WEB; scopes task:read, task:write.
+
+    projects  Contributor  may: task:read, task:write
+```
+
+A person's name on that line is the split, and it is the only place it is visible.
+
+**The cheaper answer, where it fits:** your own token does not have to be on a machine an agent
+uses. If you work from your laptop and only agents work on the build box, then
+`credentials.toml` there should hold the *agent's* credential and nothing else — and the split
+stops mattering, because both halves are the agent.
+
 ## Reaching it from your own machine
 
 Everything above set up a server. This is the other end: your own account, on your own laptop
