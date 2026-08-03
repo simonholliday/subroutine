@@ -163,11 +163,15 @@ jobs:
       # models against the migration head is one of those tests, and it is the reason this
       # job matters more than it looks: portability breaks are caught on the day they are
       # introduced rather than at the first PostgreSQL deployment.
+      #
+      # No `-q`. `addopts` in pyproject.toml already carries one, so a second made this `-qq`
+      # — which suppresses the "N passed" line, leaving a log of dots where a collection error
+      # reducing the suite to five tests would look exactly like success (`SR#402`).
       - name: Tests on SQLite and PostgreSQL
         env:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
-        run: pytest -q
+        run: pytest
 
   # Proves the thing a new user actually does, on a clean machine with nothing configured:
   # install the package, run one command, get a working database. It is separate from the
