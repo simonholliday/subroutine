@@ -430,3 +430,105 @@ def test_the_upgrade_walkthrough_stops_the_service_before_it_migrates () -> None
 	assert steps[-1].endswith("systemctl start subroutine"), (
 		f"the upgrade walkthrough no longer starts it last: {ordered}"
 	)
+
+
+#: A fenced ``console`` block, with its body captured. The README quotes commands the reader
+#: is meant to type and output the program is meant to have printed, and only the first of
+#: those is what the tests below reach for — a ``$`` prefix is what separates them.
+_CONSOLE = re.compile(r"```console\n(.*?)```", re.DOTALL)
+
+#: What the README says after ``subroutine`` without naming a command. Kept separate from
+#: ``tests/test_plugin.py``'s list rather than shared: that one reads the skill's prose and
+#: this one reads shell lines, so the two collect different noise and merging them would make
+#: each carry the other's exceptions.
+_NOT_A_COMMAND = frozenset({"add", "today", "done", "help", "explain"})
+
+
+def _typed (block: str) -> list[str]:
+	"""Return the commands a reader would type from one console block, without the ``$``."""
+
+	return [
+		line.removeprefix("$").strip()
+		for line in block.splitlines()
+		if line.startswith("$")
+	]
+
+
+def _blocks (page: pathlib.Path) -> list[str]:
+	"""Return every fenced console block on a page."""
+
+	return _CONSOLE.findall(page.read_text(encoding="utf-8"))
+
+
+def test_the_readme_only_shows_commands_that_exist () -> None:
+	"""Every ``subroutine <command>`` the README tells somebody to type is a real one.
+
+	The same guard ``tests/test_plugin.py`` puts on the skill, pointed at the page a stranger
+	reads first. A README naming a command that was renamed is worse than one saying less: the
+	reader has no way to tell a typo of theirs from a promise of ours.
+	"""
+
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
+	shown = {
+		typed.split()[1]
+		for block in _blocks(README)
+		for typed in _typed(block)
+		if typed.startswith("subroutine ") and len(typed.split()) > 1
+	}
+
+	assert shown, "found no commands at all — has this test stopped reaching the blocks?"
+	assert shown <= registered | _NOT_A_COMMAND, (
+		f"the README shows {sorted(shown - registered - _NOT_A_COMMAND)}, which do not exist"
+	)
+
+
+#: The line that identifies the block a reader follows to set an agent up. Matched on rather
+#: than counted to, so that reordering the page does not silently point this at another block.
+_THE_AGENT_PATH = "claude plugin install"
+
+
+def test_the_documented_agent_path_produces_a_working_agent (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Item ``#399``. Follow the README's plugin block and the first tool call must work.
+
+	**The block omitted `subroutine init`**, so somebody who took *"You never have to learn the
+	CLI"* literally had their first interaction fail. It failed *well* — the tool says which
+	command to run — and an agent with a shell recovers by itself, which is exactly why nobody
+	would have found this from inside.
+
+	What is checked here is the claim the page makes: run these, and an agent can read. The
+	``uv``/``claude`` lines are somebody else's programs and are skipped by name; everything
+	the README asks of *this* one is run, in order, against an empty XDG home.
+	"""
+
+	home = tmp_path / "fresh"
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(home / variable.lower()))
+
+	block = next(one for one in _blocks(README) if _THE_AGENT_PATH in one)
+	ours = [line for line in _typed(block) if line.startswith("subroutine ")]
+
+	assert ours, (
+		"the agent block asks nothing of subroutine itself, so a reader following it has no "
+		"instance — which is what `#399` was"
+	)
+
+	runner = typer.testing.CliRunner()
+
+	for line in ours:
+		done = runner.invoke(subroutine.cli.main.app, line.split()[1:])
+
+		assert done.exit_code == 0, f"'{line}' exited {done.exit_code}:\n{done.output}"
+
+	# The claim the block is making, asked of the surface it hands over to. `list` rather than
+	# a write, because reading is what an agent does first and is the call `#399` was found by.
+	listed = runner.invoke(subroutine.cli.main.app, ["list"])
+
+	assert listed.exit_code == 0, listed.output
+	assert "no Subroutine instance" not in listed.output
