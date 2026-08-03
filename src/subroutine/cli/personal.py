@@ -3489,10 +3489,14 @@ def register (
 			parts.append(f"workspace {named[0]!r}" if named else f"workspace {credential.workspace_id}")
 
 		if credential.project_scope is not None:
+			# **Keys, not ids.** Somebody wrote `--project WEB` and reading it back as a UUID
+			# makes them go and look up what they just typed. The instance resolves them, and
+			# passes an id through unchanged when it names nothing visible — so this never
+			# reports a *narrower* reach than the credential has (`#203`).
+			named = credential.project_scope_keys or credential.project_scope
+
 			parts.append(
-				f"projects {', '.join(credential.project_scope)}"
-				if credential.project_scope
-				else "no project at all"
+				f"projects {', '.join(named)}" if named else "no project at all"
 			)
 
 		if credential.scopes:

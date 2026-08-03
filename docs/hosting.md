@@ -565,6 +565,25 @@ not. An agent reading that knows it has been deliberately bounded rather than mi
 that issued it — `token create` presented with a narrow token will not mint a broad one, which
 is what stops an agent quietly promoting itself.
 
+`--project` is the other axis, and the one to reach for when an agent works on one thing.
+`--scope` decides which *verbs* a credential carries; `--project` decides which *items* it can
+reach at all:
+
+```console
+$ subroutine token create --service-account web --workspace projects --project WEB
+  Created service account web, with the contributor role.
+  Restricted to WEB and anything filed underneath.
+```
+
+**It brings the sub-projects with it**, which is why the command says so rather than echoing
+what you typed: a restriction that stopped at one level would be useless on any tree deeper
+than one. Everything outside it is not merely absent from a listing — the project does not
+resolve at all, so the agent is told there is no such project rather than that it may not look.
+
+Name the project by its key. Keys are unique per workspace rather than per instance, so if two
+workspaces both hold a `WEB` the command refuses and asks which, rather than picking one — an
+agent pointed at the wrong tree works perfectly, against the wrong tree.
+
 **Give the token to the client as `SUBROUTINE_TOKEN`.** It is never accepted in a query string
 and never read from `config.toml`. `--store <connection>` writes it to `credentials.toml`
 instead, and is deliberately opt-in: storing a narrow agent token under your own connection

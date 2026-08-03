@@ -196,3 +196,104 @@ def project (
 		)
 
 	return found
+
+
+def token_projects (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	wanted: typing.Sequence[str],
+	*,
+	workspace: subroutine.db.models.identity.Workspace | None = None,
+) -> list[subroutine.db.models.project.Project] | None:
+	"""Resolve what somebody typed into the projects a credential is restricted to — `#216`.
+
+	``None`` when nothing was named, which is a credential not restricted by project at all.
+	Never an empty list: the service refuses one outright, because empty could mean every
+	project or none and choosing on the caller's behalf gets a security control wrong in
+	silence (§7.3).
+
+	**Keys in, ids out.** ``api_token.project_scope`` holds ids, because a key can be renamed
+	(`#176`) and a credential must not quietly follow it onto whatever takes the old name; a
+	person setting an agent up types ``SR``. Resolving one to the other is the whole of this
+	function — and it means the CLI insists the project *exists*, where ``POST /v1/tokens``
+	deliberately does not. The API's permissiveness is for a caller naming a project it cannot
+	see or one that does not exist yet; a mistyped key typed by a person is a credential
+	silently refused everywhere it is presented, which is the worse failure of the two.
+
+	``workspace`` narrows where each name is looked for. Without one, every workspace this
+	actor can read is a candidate and an ambiguous name is refused rather than picked —
+	a key is unique per workspace, not per instance (§5.2), so two of them may each hold a
+	``WEB``, and handing an agent authority over the wrong tree is a mistake nothing
+	downstream could notice: the credential works.
+
+	**Here rather than in the CLI, for the reason ``expires_on`` is in the domain**: the
+	grammar has to be the same grammar whichever surface took it, and this is where a project
+	name is already turned into a project. It also keeps the resolution narrowed through
+	:func:`subroutine.domain.scoping.readable_projects`, so a project the operator cannot see
+	is not one they can scope a credential to.
+	"""
+
+	asked = [item.strip() for item in wanted if item.strip()]
+
+	if not asked:
+		return None
+
+	places = (
+		[workspace]
+		if workspace is not None
+		else subroutine.domain.workspaces.readable(session, actor)
+	)
+
+	return [_sole_project(session, actor, places, item) for item in asked]
+
+
+def _sole_project (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	places: typing.Sequence[subroutine.db.models.identity.Workspace],
+	wanted: str,
+) -> subroutine.db.models.project.Project:
+	"""Find the one project a name refers to, refusing an unknown or an ambiguous one."""
+
+	found: list[tuple[subroutine.db.models.identity.Workspace, typing.Any]] = []
+
+	for place in places:
+		try:
+			found.append((place, project(session, actor, place, wanted)))
+
+		except subroutine.errors.NotFound:
+			continue
+
+	if not found:
+		raise subroutine.errors.NotFound(
+			f"There is no project {wanted!r} here.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="not_found",
+					message=f"No workspace you can read holds a project called {wanted!r}.",
+					hint="Run 'subroutine project list' to see the keys, and check you are "
+					"naming a project rather than a workspace.",
+				)
+			],
+		)
+
+	if len(found) > 1:
+		where = ", ".join(sorted(place.slug for place, _found in found))
+
+		raise subroutine.errors.ValidationError(
+			f"More than one workspace here has a project called {wanted!r}: {where}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="invalid_field_value",
+					message=f"{wanted!r} names a project in each of: {where}.",
+					hint="Say which workspace the credential is for — 'token create "
+					"--workspace <name>'.",
+				)
+			],
+		)
+
+	single: subroutine.db.models.project.Project = found[0][1]
+
+	return single

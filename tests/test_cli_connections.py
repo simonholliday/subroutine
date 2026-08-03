@@ -768,6 +768,140 @@ def test_a_scoped_token_cannot_mint_itself_a_wider_one (
 	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
 
 
+def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#216`: the narrowest credential the CLI could issue was wider than the API's.
+
+	This is the only *enforcement* in the agent-identity milestone. Everything else records
+	who did something; this is what stops an agent set up for one project touching another —
+	and until now the surface people actually use to set an agent up could not ask for it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+	run("project", "create", "OPS", "Operations")
+	run("add", "Fix the header +WEB")
+	run("add", "Rotate the certificates +OPS")
+
+	issued = run("token", "create", "--service-account", "web", "--project", "WEB")
+
+	assert "Restricted to WEB and anything filed underneath" in issued.output, (
+		"the subtree is the part nobody would guess from what they typed"
+	)
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
+	)
+
+	listed = run("list").output
+
+	assert "Fix the header" in listed
+	assert "Rotate the certificates" not in listed, "the other project is not reachable"
+
+	# Not merely absent from a listing: the project itself does not resolve, which is what
+	# §7.3a means by a restriction hiding rather than forbidding.
+	assert "no project 'OPS'" in run("list", "--project", "OPS").output
+
+
+def test_a_project_restriction_reaches_everything_under_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A restriction that stopped at one level would be useless on any real tree (§7.3).
+
+	**The sibling is what makes this test able to fail.** Asserting only that the child's work
+	is visible passes just as well against a credential restricted to nothing at all — which
+	is exactly what it did when the restriction was falsified, while the other three tests
+	caught it. A subtree claim needs something outside the subtree.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "SR", "Subroutine")
+	run("project", "create", "WEB", "Web UI", "--parent", "SR")
+	run("project", "create", "OPS", "Operations")
+	run("add", "Build the login page +WEB")
+	run("add", "Rotate the certificates +OPS")
+
+	issued = run("token", "create", "--service-account", "core", "--project", "SR")
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
+	)
+
+	listed = run("list").output
+
+	assert "Build the login page" in listed, "a sub-project comes with its parent"
+	assert "Rotate the certificates" not in listed, "and a sibling of the parent does not"
+
+
+def test_a_restricted_credential_reads_back_the_key_that_was_typed (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`project_scope` stores ids, and a person who typed `WEB` is owed `WEB` back (`#203`)."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+
+	issued = run("token", "create", "--service-account", "web", "--project", "WEB")
+
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
+	)
+
+	assert "Narrowed to projects WEB" in run("whoami").output
+
+	scoped = json.loads(run("whoami", "--json").output)[0]["credential"]
+
+	# The id is still reported, because it is what is stored and what the API takes.
+	assert scoped["project_scope_keys"] == ["WEB"]
+	assert scoped["project_scope"] != ["WEB"]
+
+
+def test_a_project_named_in_two_workspaces_is_refused_rather_than_picked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A key is unique per workspace, not per instance (§5.2).
+
+	Guessing would hand an agent authority over the wrong tree, and nothing downstream could
+	notice — the credential works, against the wrong project.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "WEB", "Website")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "project", "create", "WEB", "Acme website")
+
+	refused = run("token", "create", "--username", "si", "--project", "WEB", expect=1)
+
+	assert "More than one workspace" in refused.output
+	assert "acme, personal" in refused.output
+	assert "--workspace" in refused.output, "and it says how to settle it"
+
+	# Named, it resolves — and the two are different projects, so this is the whole fix.
+	assert "Restricted to WEB" in run(
+		"token", "create", "--username", "si", "--workspace", "acme", "--project", "WEB"
+	).output
+
+
+def test_a_mistyped_project_is_refused_before_a_credential_exists (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The API takes ids it cannot check; a key typed by a person can be checked, so it is.
+
+	A credential naming a project that does not exist is refused everywhere it is presented,
+	for a reason nobody can see — and the secret has already been shown once and cannot be
+	recovered, so minting it and finding out later is the expensive order.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	refused = run("token", "create", "--username", "si", "--project", "NOPE", expect=1)
+
+	assert "no project 'NOPE'" in refused.output
+	assert "sr_" not in refused.output, "nothing was minted"
+	assert "NOPE" not in run("token", "list").output
+
+
 def test_whoami_names_the_account_and_where_its_authority_comes_from (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

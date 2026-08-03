@@ -159,11 +159,16 @@ def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
 	tell an agent it may write, and the write would then be refused by the same installation.
 	"""
 
+	inbox = subroutine.domain.bootstrap.inbox_for(session, pair.workspace)
+
+	assert inbox is not None
+
 	_row, issued = subroutine.domain.authentication.issue_token(
 		session,
 		user=pair.user,
 		title="Narrow",
 		scopes=[subroutine.permissions.TASK_READ],
+		project_scope=[str(inbox.id)],
 		workspace_id=pair.workspace.id,
 	)
 	session.flush()
@@ -203,6 +208,12 @@ def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
 	assert mine.credential.narrows is True
 	assert mine.credential.scopes == [subroutine.permissions.TASK_READ]
 	assert mine.credential.workspace_id == pair.workspace.id
+
+	# **The key is resolved by the instance, so both transports report it** (`#216`). The ids
+	# are what is stored and what the API takes; the key is what somebody typed, and a client
+	# that had to ask separately would pay a second call to read back what it just set.
+	assert mine.credential.project_scope == [str(inbox.id)]
+	assert mine.credential.project_scope_keys == [inbox.key]
 
 	# The permissions are the field a caller acts on, and they are the *intersection* rather
 	# than the role — a contributor who may write is reported as unable to, because the

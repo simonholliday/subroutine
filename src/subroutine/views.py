@@ -49,6 +49,7 @@ import subroutine.domain.authorization
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.links
+import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -586,6 +587,14 @@ class Credential(pydantic.BaseModel):
 
 	#: Null means every project, for the same reason.
 	project_scope: list[str] | None
+
+	#: The same restriction, with each id resolved to the key a person types — `#216`. Null
+	#: alongside ``project_scope``, and never a *narrower* list than it: an id resolving to
+	#: nothing visible is passed through as it was stored, because a credential's reported
+	#: reach must not be smaller than its real one. Resolved by the instance rather than left
+	#: to the caller, since a client would otherwise pay a second call to read back what it
+	#: has just set (§13.1) — and one of the two transports has no endpoint to ask.
+	project_scope_keys: list[str] | None
 
 	#: Set when the credential may only be used in one workspace.
 	workspace_id: uuid.UUID | None
@@ -1287,7 +1296,7 @@ def me (
 	return Me(
 		api_version=subroutine.API_VERSION,
 		user=caller(principal.user),
-		credential=credential(principal),
+		credential=credential(session, principal),
 		instance_permissions=sorted(
 			subroutine.domain.authorization.instance_permissions(principal)
 		),
@@ -1313,6 +1322,7 @@ def caller (row: subroutine.db.models.identity.User) -> Caller:
 
 
 def credential (
+	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 ) -> Credential | None:
 	"""Describe the credential presented, or ``None`` when there was none.
@@ -1334,6 +1344,11 @@ def credential (
 		prefix=row.token_prefix,
 		scopes=sorted(row.scopes),
 		project_scope=None if row.project_scope is None else list(row.project_scope),
+		project_scope_keys=(
+			None
+			if row.project_scope is None
+			else subroutine.domain.projects.keys_for(session, principal, row.project_scope)
+		),
 		workspace_id=row.workspace_id,
 		narrows=bool(row.scopes)
 		or row.project_scope is not None

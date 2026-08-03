@@ -44,6 +44,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.local
 import subroutine.domain.projects
 import subroutine.domain.schedule
+import subroutine.domain.selection
 import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -1295,6 +1296,11 @@ def token_create (
 	scope: list[str] = typer.Option(
 		None, "--scope", help="Narrow the token to these permissions. Repeatable."
 	),
+	project: list[str] = typer.Option(
+		None,
+		"--project",
+		help="Restrict it to this project and everything under it. Repeatable.",
+	),
 	expires: str = typer.Option(
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
 	),
@@ -1311,6 +1317,8 @@ def token_create (
 	  subroutine token create --username thomas --title "Thomas's laptop"
 
 	  subroutine token create --service-account claude --scope task:read --scope task:write
+
+	  subroutine token create --service-account claude --workspace projects --project WEB
 
 	  subroutine token create --title "Acme, this month" --expires now+30d
 
@@ -1329,6 +1337,12 @@ def token_create (
 	The secret is readable exactly once, here. Nothing recovers it afterwards, including
 	this program: what is stored is a hash. It is never passed as an argument to anything,
 	because that would put it in 'ps' output and shell history.
+
+	'--scope' and '--project' narrow different things and are both worth saying for an agent.
+	A scope decides which *verbs* the credential carries; a project decides which *items* it
+	can reach at all, and it brings everything underneath that project with it. Giving an
+	agent one project and nothing else is what makes it a bounded worker rather than a
+	trusted one.
 
 	'--store' is opt-in rather than the default, and that is a deliberate choice. Writing a
 	narrow token into credentials.toml under the local connection would silently narrow your
@@ -1360,12 +1374,18 @@ def token_create (
 					session, operator, username, service_account, workspace
 				)
 				pinned = _pinned_workspace(session, owner, workspace)
+				restricted = subroutine.domain.selection.token_projects(
+					session, operator, project or [], workspace=pinned
+				)
 				_row, issued = subroutine.domain.authentication.issue_token(
 					session,
 					user=owner,
 					title=title.strip() or f"{owner.username}'s token",
 					workspace_id=None if pinned is None else pinned.id,
 					scopes=[item.strip() for item in (scope or []) if item.strip()],
+					project_scope=None if restricted is None else [
+						str(found.id) for found in restricted
+					],
 					expires_at=_expiry(expires, settings),
 					created_by=operator.user.id,
 					# The actor, so a credential cannot mint a wider one. Omitting this was
@@ -1384,6 +1404,15 @@ def token_create (
 	# Printed before it is stored. If the write fails now, the secret is at least on screen.
 	if created:
 		_say(f"Created service account {owner.username}, with the {SERVICE_ACCOUNT_ROLE} role.")
+
+	# **Said back, because the subtree is the part nobody would guess.** A restriction to `SR`
+	# also reaches `SR/WEB` and everything under it (§7.3), which is what makes it usable on a
+	# tree deeper than one level and is not visible in what was typed.
+	if restricted:
+		_say(
+			f"Restricted to {', '.join(found.key for found in restricted)} and anything "
+			f"filed underneath."
+		)
 
 	_say("")
 	_say(secret)

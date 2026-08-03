@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine token create --project KEY` — a credential that reaches one project and
+  nothing else.** `POST /v1/tokens` has taken a project restriction since the first release and
+  the service has enforced it; the command line, which is where somebody actually sets an agent
+  up, could only narrow to a whole workspace. So the narrowest credential the surface people
+  use could issue was wider than the narrowest the product supports, at exactly the moment
+  somebody is deciding how far to trust an agent.
+
+  Name the project by its key; the restriction is stored as an id, so renaming the project does
+  not quietly move the credential onto whatever takes the old name. It reaches everything filed
+  underneath, which the command says out loud because it is not visible in what you typed.
+
+  A key that names a project in two workspaces is refused rather than picked, and a key that
+  names nothing is refused before anything is minted — a credential scoped to a project that
+  does not exist is turned down everywhere it is presented, for a reason nobody can see.
+
 - **`subroutine whoami` — which account this machine is acting as, and what it may do.** One
   machine can hold more than one credential: yours in `credentials.toml`, an agent's in the
   environment. Nothing could ask which of them a command was about to act under, so an agent
