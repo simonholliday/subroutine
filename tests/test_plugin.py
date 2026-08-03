@@ -330,3 +330,53 @@ def test_every_command_the_skill_shows_exists () -> None:
 	# somebody gets a `subroutine` to run at all.
 	assert shown, "found no commands at all in the skill — has this test stopped reaching them?"
 	assert shown <= registered, f"the skill shows {sorted(shown - registered)}, which do not exist"
+
+
+def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
+	"""`#380`. A manifest edited without a bump can never reach anybody.
+
+	Claude Code caches an installed plugin under its **version**, so an install at a version
+	already present is a no-op. `#333` added the `workspace` field, the version stayed at the
+	tag's, and three sessions on another machine went on meeting the refusal it was built to
+	remove — while the fix sat in the repository and every test passed.
+
+	**The guards in this repository stop at its edge**, which is the family this belongs to:
+	`#236` is that installing a plugin says nothing about whether its server starts. The code
+	was right, the suite was green, and the artefact a user installs did not contain the change.
+
+	So: if anything under `plugins/` differs from the newest tag, the manifest must not still
+	name that tag's version. Deliberately *not* an equality check against the next version —
+	nobody knows what that will be — only that the two cannot be the same while the contents
+	differ.
+
+	**Silent with no tags at all**, for the reason the version test skips: a fresh clone with
+	no release history has nothing to compare against, and a guard that fails there fails for
+	everybody who has just cloned.
+	"""
+
+	tags = subprocess.run(
+		["git", "tag", "--list", "v*", "--sort=-v:refname"],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+	names = [line for line in tags.stdout.split() if line.startswith("v")]
+
+	if tags.returncode != 0 or not names:
+		pytest.skip("no release tags to compare against")
+
+	newest = names[0]
+	changed = subprocess.run(
+		["git", "diff", "--name-only", newest, "--", "plugins/"],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+
+	if changed.returncode != 0 or not changed.stdout.strip():
+		return
+
+	declared = _read(PLUGIN)["version"]
+	touched = ", ".join(sorted(changed.stdout.split()))
+
+	assert declared != newest.removeprefix("v"), (
+		f"the plugin has changed since {newest} ({touched}) and its manifest still says "
+		f"{declared}. Claude Code caches by version, so nobody who installs it would get "
+		f"these changes — bump the version in {PLUGIN.name}."
+	)
