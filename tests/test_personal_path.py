@@ -28,6 +28,7 @@ import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
+import subroutine.domain.events
 import subroutine.errors
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
@@ -2981,28 +2982,61 @@ def test_a_type_that_does_not_exist_is_refused_by_name (
 	assert "banana" in refused.output
 
 
-def test_changes_says_what_moved_and_how_to_carry_on (
-	run: typing.Callable[..., typer.testing.Result],
+def test_changes_withholds_what_was_only_just_written (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-	"""`#253`. The feed reaching a person, which is half of what made `#13` worth building.
+	"""`#253`. An empty feed is the first thing somebody meets, so it says so in words.
 
-	Two things are asserted rather than the output as a whole. That an item is named **by its
-	ref and title** — the view carries those so that no client has to resolve ids, and a feed
-	of UUIDs is one nobody reads twice. And that the **resume number** is printed, because a
-	feed you cannot carry on from is one you have to read from the beginning every time.
+	**The watermark is set rather than raced** (`#404`). This test used to run `init`, `add`
+	and `changes` and assert the feed was empty, which is true only when all three land inside
+	one second. It does on a developer's machine. On a loaded CI runner the `init` events fall
+	the other side of the boundary and are reported — so the test failed on Python 3.11 and
+	passed on 3.12 and 3.13 in the same run, having measured the runner rather than the feed.
 
-	The watermark is not waited out. Everything here was written in the same second, so the
-	feed is legitimately empty — and *that* is the assertion worth having, since it is the
-	behaviour somebody will meet first and mistake for a broken command.
+	Widening the watermark to an hour makes "everything here is too recent to report" true by
+	construction instead of by luck.
 	"""
+
+	monkeypatch.setattr(
+		subroutine.domain.events, "WATERMARK", datetime.timedelta(hours=1)
+	)
 
 	run("init")
 	run("add", "Call the dentist before Sunday")
 
 	fresh = run("changes")
 
-	# Under a second old, so withheld — and it says so rather than printing an empty screen.
+	# Withheld — and it says so rather than printing an empty screen.
 	assert "Nothing new." in fresh.output
+
+
+def test_changes_names_what_moved_and_how_to_carry_on (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The feed as a person actually reads it — the coverage `#404` found missing.
+
+	Two things, and the old test's docstring claimed both while asserting neither. That an
+	item is named **by its ref and title**, because the view carries those so that no client
+	has to resolve ids and a feed of UUIDs is one nobody reads twice. And that the **resume
+	number** is printed, because a feed you cannot carry on from is one you read from the
+	beginning every time.
+
+	Neither was reachable while the watermark was being waited out rather than set: everything
+	a test writes is by definition too recent to appear.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.domain.events, "WATERMARK", datetime.timedelta(0)
+	)
+
+	run("init")
+	run("add", "Call the dentist before Sunday")
+
+	moved = run("changes").output
+
+	assert "#1" in moved, "named by its ref"
+	assert "Call the dentist" in moved, "and by its title"
+	assert "subroutine changes --since" in moved, "and how to carry on from here"
 
 
 def test_changes_refuses_a_resume_number_it_cannot_honour (

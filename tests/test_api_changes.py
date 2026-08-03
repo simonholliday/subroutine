@@ -581,3 +581,21 @@ def test_an_event_committed_late_is_never_skipped (own_database: str) -> None:
 
 	finally:
 		engine.dispose()
+
+
+def test_the_shipped_watermark_is_more_than_nothing () -> None:
+	"""§5.11 fixes this value, and it is now the only thing that says so — item ``#404``.
+
+	**The hole a monkeypatch opens.** The tests that exercise the feed's withholding set
+	``WATERMARK`` rather than racing the clock, which is what makes them deterministic — and
+	means none of them would notice the shipped value going to zero. A guard that can be
+	switched off by the thing it guards is no guard, so the constant itself is asserted here.
+
+	Zero is the value that would actually be reached: it is what somebody sets while debugging
+	"why does my event not appear", and it is the state the feed's whole resumability argument
+	depends on not being in. `seq` is allocated at insert and becomes visible at commit, so a
+	feed with no watermark hands out a cursor past rows that were still uncommitted when it
+	was read, and those rows are never reported to anybody.
+	"""
+
+	assert datetime.timedelta(0) < subroutine.domain.events.WATERMARK
