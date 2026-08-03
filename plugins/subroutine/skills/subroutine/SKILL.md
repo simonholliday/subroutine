@@ -118,11 +118,11 @@ Keep the `seq` it prints last and pass it back as `since` next time. It is inclu
 will see that one again; ignore what you already have. `mine=true` narrows it to what your own
 credential did, which is how you pick up your own unfinished work rather than everybody's.
 
-**Know whose credential you are writing with, before you write anything.** If you can run shell
-commands, ask once at the start of a session:
+**Know whose credential you are writing with, before you write anything.** Ask once at the
+start of a session:
 
 ```
-subroutine whoami
+subroutine_whoami()
 ```
 
 It names the account, the credential by its title, and what that credential is limited to. One
@@ -136,17 +136,24 @@ not obvious and is not something to assume. Two answers are worth acting on:
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
 
-**And the shell and the tools can be two different principals.** They resolve credentials
-independently: the `subroutine_*` tools use whatever the plugin was configured with, the shell
-uses what the command line finds, and nothing reconciles them. So an agent given its own
-identity can still be its operator every time it shells out — correctly attributed half the
-time, which is worse than plainly wrong, because a spot check finds the right name.
+**And if you can also run shell commands, ask twice.** The tools and the shell resolve
+credentials independently — the tools use whatever the plugin was configured with, the shell
+uses what the command line finds, and nothing reconciles them. So run this as well:
 
-`whoami` answers for the **shell**. If the person you are working with set you up with a
-credential of your own, and that command names them rather than you, tell them. The fix is
-theirs and it is one line — a `SUBROUTINE_TOKEN_<CONNECTION>` in the environment their editor
-starts from, which both halves read — but they cannot fix a split they have not been told
-about, and you are the only one positioned to notice it.
+```
+subroutine whoami
+```
+
+**Two different answers is a real and common misconfiguration.** It has been measured: one
+agent, one session, one connection, writing as a bounded service account through its tools and
+as a superuser through its shell. It is worse than plainly acting as the operator, because it
+is partial — anyone spot-checking finds the agent's own name on the half that went through the
+tools, and concludes the setup worked.
+
+If the two disagree, say so rather than picking one. The fix is the person's and it is one
+line — a `SUBROUTINE_TOKEN_<CONNECTION>` in the environment their editor starts from, which
+both halves read — but they cannot fix a split nobody has told them about, and you are the only
+one positioned to see it.
 
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:

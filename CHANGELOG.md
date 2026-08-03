@@ -16,6 +16,17 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine_whoami` — an agent can ask which principal it is.** An agent commonly reaches an
+  instance two ways at once: through these tools, and by running `subroutine` in a shell. They
+  resolve credentials separately, so they can be two different accounts — and until now the only
+  way to find out which one the tools were using was to write to a real item and read the author
+  back. An identity check whose method is a write to production is one nobody performs before
+  their first write, which is when it is worth anything.
+
+  It reports the account, the credential by its title, what that credential is limited to, and
+  the workspaces it reaches. The twelfth tool, and the surface is a budget: the argument for it
+  is written into the test that holds the ceiling.
+
 - **`subroutine token create --project KEY` — a credential that reaches one project and
   nothing else.** `POST /v1/tokens` has taken a project restriction since the first release and
   the service has enforced it; the command line, which is where somebody actually sets an agent

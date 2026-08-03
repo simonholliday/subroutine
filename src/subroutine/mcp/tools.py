@@ -278,6 +278,17 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _changed(client, arguments),
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_whoami",
+			title="Who am I",
+			description=(
+				"The account these tools act as, and what it may do. Worth asking before your "
+				"first write: a shell you run resolves its own credential and can be a "
+				"different principal, which is silent when it is wrong."
+			),
+			schema={"type": "object", "properties": {}},
+			call=lambda arguments: _whoami(client),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
 			title="Finish a task",
 			description="Mark a task complete by its ref number.",
@@ -292,6 +303,92 @@ def catalogue (client: subroutine.clients.base.Client) -> list[subroutine.mcp.pr
 			call=lambda arguments: _completed(client, arguments),
 		),
 	]
+
+
+def _whoami (client: subroutine.clients.base.Client) -> str:
+	"""Return which principal these tools act as, and what it may do — item ``#347``.
+
+	**A tool rather than a line in the server instructions**, and the reason is that the two
+	answer different questions. The instructions name the *connection*, which is an endpoint;
+	this names the *principal*, which is not implied by it. That was measured rather than
+	assumed (`#346`): an agent on one machine, in one session, on one connection, wrote as a
+	bounded service account through these tools and as a superuser through its shell.
+
+	It is also why this exists at all. Before it, the only way for an agent to learn its own
+	identity here was to write to a real item and read the author back — an identity check
+	whose method is a side effect on production data is one nobody runs before their first
+	write, which is when it matters.
+
+	Terse like everything else in this module: the fields are the ones that change what an
+	agent should do, and the permissions are printed only where the credential narrowed them,
+	because an unnarrowed owner would otherwise be handed twenty keys it already holds.
+	"""
+
+	me = client.me()
+	credential = me.credential
+	kind = "agent" if me.user.is_service_account else "person"
+	how = (
+		"the local database"
+		if credential is None
+		else f"token {credential.title!r} ({credential.prefix})"
+	)
+	lines = [f"{me.user.username} ({kind}), via {how}."]
+
+	if credential is not None and credential.narrows:
+		lines.append(f"Narrowed to {_narrowed_to(credential, me.workspaces)}.")
+
+	if me.instance_permissions:
+		lines.append(f"Over the installation: {', '.join(me.instance_permissions)}.")
+
+	if not me.workspaces:
+		# The failure worth naming rather than rendering as an empty list: every other tool
+		# would report this credential's reach as an instance with nothing in it.
+		lines.append("No workspace here can be read with this credential.")
+
+		return "\n".join(lines)
+
+	lines.append("")
+	lines.extend(
+		f"{workspace.slug}  {workspace.role or 'no role'}"
+		+ (
+			f"  may: {', '.join(workspace.permissions)}"
+			if workspace.narrowed_by_credential
+			else ""
+		)
+		for workspace in me.workspaces
+	)
+
+	return "\n".join(lines)
+
+
+def _narrowed_to (
+	credential: subroutine.views.Credential,
+	workspaces: typing.Sequence[subroutine.views.WorkspaceAccess],
+) -> str:
+	"""Say what a credential is limited to, naming projects by key where they resolve."""
+
+	parts = []
+
+	if credential.workspace_id is not None:
+		named = [
+			workspace.slug
+			for workspace in workspaces
+			if workspace.id == credential.workspace_id
+		]
+
+		parts.append(f"workspace {named[0]!r}" if named else "one workspace")
+
+	if credential.project_scope is not None:
+		# Keys where the instance could resolve them, ids where it could not — never a
+		# shorter list than the credential actually reaches (`#203`).
+		named = credential.project_scope_keys or credential.project_scope
+
+		parts.append(f"projects {', '.join(named)}" if named else "no project at all")
+
+	if credential.scopes:
+		parts.append(f"scopes {', '.join(credential.scopes)}")
+
+	return "; ".join(parts)
 
 
 def _changed (

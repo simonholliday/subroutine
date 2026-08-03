@@ -317,16 +317,11 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"already name the connection an agent is on, so a tool for this would spend schema "
 		"restating a fact every session already carries.",
 	),
-	"me": (
-		"budget",
-		"Who this credential is (`#336`), and the one excuse here that is not really about "
-		"the budget. An agent with a shell holds two credentials — the one this server was "
-		"started with, and the one the shell resolves — and `#335` is what happens when they "
-		"differ. A tool would report this server's, which is the half already implied by the "
-		"connection §21.3 names; `subroutine whoami` reports the shell's, which is the half "
-		"nothing could ask. Adding one would answer the question that was never in doubt. An "
-		"agent with no shell at all is the case that would change this answer.",
-	),
+	# `me` was excused here on 2026-08-03 and the excuse was measured false the same day
+	# (`#346`, `#347`): it claimed a tool would only restate the principal the connection
+	# already implies, and a shared connection name does not imply a shared principal. The
+	# entry is gone rather than reworded, because deleting it is what closes the item — and
+	# `subroutine_whoami` is what `test_mcp` now argues the budget for.
 	"users": (
 		"budget",
 		"Who is on this instance (`#174`). An agent needs a name to attribute or assign work "

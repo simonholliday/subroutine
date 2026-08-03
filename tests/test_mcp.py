@@ -29,12 +29,14 @@ import subroutine.connections
 import subroutine.context
 import subroutine.db.models.project
 import subroutine.directory
+import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.mcp.protocol
 import subroutine.mcp.session
 import subroutine.mcp.tools
+import subroutine.permissions
 
 
 def _adding (name: str = "add") -> subroutine.mcp.protocol.Tool:
@@ -752,7 +754,35 @@ def test_the_whole_tool_surface_stays_small (
 	  teaching; cutting those trades context for a worse call, which is the trade this budget
 	  exists to avoid making by accident.
 
-	The slack above the current total is deliberate and small — **252 bytes** as of 2026-08-02,
+	* ``subroutine_whoami`` (`#347`), 2026-08-03, **323 bytes** — the twelfth, and the only one
+	  of the five admitted after being argued *against* in writing. `#336` excused it from
+	  this surface that morning on the grounds that a tool would report the credential the
+	  connection already implies, so it would spend budget restating a fact every session
+	  carries.
+
+	  **That reason was measured false the same day** (`#346`). An agent on `nuc14` predicted
+	  the same thing on the same reasoning — one connection, one command, one credentials file
+	  — and then wrote two comments, one through each transport, which carried two different
+	  *accounts*: a bounded service account through the tools, a superuser through its shell.
+	  Its correction is the sentence this tool exists for: **a shared connection name does not
+	  imply a shared principal.**
+
+	  **What the bytes buy is that the question is answerable without a side effect.** Before
+	  this, an agent could learn its own identity here only by writing to a real item and
+	  reading the author back. An identity check whose method is a write to production is one
+	  nobody performs before their first write, which is the moment it is worth anything —
+	  and the half that turns out to be misattributed is the *privileged* half, so the failure
+	  is silent and looks like a correctly bounded agent.
+
+	  Considered instead and rejected: putting it in §21.3's server instructions, which cost
+	  the same bytes and arrive unasked. They are built at startup, so reporting identity there
+	  means a round trip before the server can serve — an instance that is down would stop the
+	  server starting rather than stopping one call.
+
+	  **Fat was read for first and none was taken, for the third time running.** ``update`` is
+	  still the largest and is still argument descriptions doing work.
+
+	The slack above the current total is deliberate and small — **253 bytes** as of 2026-08-03,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -766,11 +796,73 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 11, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 12, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 7424, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 7750, f"the tool schemas are {size} bytes of every session's context"
+
+
+def test_an_agent_can_ask_which_principal_it_is (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#347`. Before this the only method was writing to a real item and reading it back.
+
+	The local client here holds no credential, which is §12.1a's ordinary case and is the
+	answer worth being able to *state*: "the local database" rather than a token is a fact
+	about how this session is authenticated, not a missing field.
+	"""
+
+	text, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed
+	assert "si-" in text, "the account it acts as"
+	assert "(person)" in text
+	assert "the local database" in text, "and how, which is what tells two sessions apart"
+
+
+def test_asking_who_you_are_says_what_a_narrow_credential_cannot_do (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The case the tool exists for: an agent bounded on purpose, told so before it writes.
+
+	Built with its own server rather than the shared fixture, because the credential *is* the
+	variable — a client with no token cannot show that scopes are reported, and the fixture
+	deliberately has none.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=setup.user,
+		title="the agent",
+		scopes=[subroutine.permissions.TASK_READ],
+		workspace_id=setup.workspace.id,
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed
+	assert "the agent" in text, "named by its title, which is what `token list` shows"
+	assert "Narrowed to" in text
+	assert subroutine.permissions.TASK_READ in text
+
+	# The secret never appears, in any form — the same rule every other surface keeps.
+	assert issued.value.get_secret_value() not in text
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:
