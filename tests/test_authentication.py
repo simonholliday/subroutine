@@ -340,6 +340,99 @@ def test_a_malformed_project_scope_is_refused (session: sqlalchemy.orm.Session) 
 	assert "SR" in error.value.detail, "and it quotes what was actually sent"
 
 
+def _presenting (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	**kwargs: typing.Any,
+) -> subroutine.domain.authentication.Principal:
+	"""Return the principal that presenting a token with this narrowing produces."""
+
+	token, _secret = _issue(session, user, **kwargs)
+
+	return subroutine.domain.authentication.Principal(user=user, token=token)
+
+
+def test_a_credential_that_expires_cannot_mint_one_that_does_not (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#356`. Time was the fourth way to amplify, and nothing looked at it.
+
+	The docstring on `_refuse_amplification` said there were three ways and that all three were
+	refused — a completeness claim nothing checked, which is how it stayed true-sounding while
+	being false. Reproduced before it was fixed: a credential expiring tomorrow issued a
+	permanent one, same scopes, same account, no refusal.
+
+	Not an edge case. `--expires now+30d` is how "a month's work on somebody else's instance" is
+	bounded, and this let the credential undo its own bound on day one.
+	"""
+
+	user = _make_user(session)
+	tomorrow = subroutine.db.types.utcnow() + datetime.timedelta(days=1)
+	agent = _presenting(session, user, expires_at=tomorrow)
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authentication.issue_token(
+			session, user=user, title="Never expires", actor=agent
+		)
+
+	assert refused.value.errors[0].field == "expires_at"
+	assert tomorrow.date().isoformat() in str(refused.value.errors[0].hint)
+
+	# And the same refusal for one that merely outlives it, which is the case somebody would
+	# reach for after meeting the first.
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=user,
+			title="Outlives it",
+			expires_at=tomorrow + datetime.timedelta(seconds=1),
+			actor=agent,
+		)
+
+
+def test_a_credential_that_expires_may_mint_a_shorter_one (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The rule is one-sided, because issuing something narrower than yourself is the point.
+
+	Written because the obvious over-correction — refusing unless the expiries match — would
+	stop an agent handing a colleague a credential for the afternoon, which is the ordinary use
+	of the feature and not amplification in any direction.
+	"""
+
+	user = _make_user(session)
+	tomorrow = subroutine.db.types.utcnow() + datetime.timedelta(days=1)
+	agent = _presenting(session, user, expires_at=tomorrow)
+
+	sooner = tomorrow - datetime.timedelta(hours=1)
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session, user=user, title="Shorter", expires_at=sooner, actor=agent
+	)
+
+	assert token.expires_at == sooner
+
+	same, _also = subroutine.domain.authentication.issue_token(
+		session, user=user, title="The same", expires_at=tomorrow, actor=agent
+	)
+
+	assert same.expires_at == tomorrow, "equal is not longer"
+
+
+def test_a_credential_with_no_expiry_may_mint_any_expiry (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The unbounded case, which the new rule must leave exactly as it was."""
+
+	user = _make_user(session)
+	forever = _presenting(session, user)
+
+	unbounded, _issued = subroutine.domain.authentication.issue_token(
+		session, user=user, title="Also unbounded", actor=forever
+	)
+
+	assert unbounded.expires_at is None
+
+
 def test_an_empty_project_scope_is_refused_rather_than_guessed (
 	session: sqlalchemy.orm.Session,
 ) -> None:

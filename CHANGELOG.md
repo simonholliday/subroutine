@@ -421,6 +421,22 @@ upgrade involves.
 
 ### Security
 
+- **A credential can no longer outlive the one that issued it.** A token may already not be
+  given wider permissions, more projects, or a different workspace than the credential asking
+  for it. Its *expiry* was not checked — so an agent holding a credential that stopped working
+  tomorrow could issue itself one that never stops, with the same permissions and under the
+  same account, and nothing refused it.
+
+  That matters most where the expiry is the whole point. `--expires now+30d` is how a month's
+  work on somebody else's instance is bounded, and the credential being bounded could undo it
+  on the first day.
+
+  **If you have issued a credential with an expiry, check what it has issued** —
+  `subroutine token list` shows every one, when it stops working, and when it was last used.
+  Anything you did not intend can be revoked by its prefix. Issuing a *shorter*-lived
+  credential is unaffected, which is the ordinary case: the rule only refuses one that outlives
+  its issuer or never expires at all.
+
 - **An instance served through a reverse proxy is now rate limited by default.** The default
   was "on unless the bind is loopback", and the deployment these documents recommend is a
   TLS-terminating proxy in front of an application listening on `127.0.0.1` — so the socket

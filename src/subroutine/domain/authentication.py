@@ -157,6 +157,7 @@ def issue_token (
 			workspace_id=workspace_id,
 			scopes=scopes,
 			project_scope=project_scope,
+			expires_at=expires_at,
 		)
 
 	unknown = subroutine.permissions.unknown(scopes)
@@ -209,10 +210,11 @@ def _refuse_amplification (
 	workspace_id: uuid.UUID | None,
 	scopes: typing.Sequence[str],
 	project_scope: typing.Sequence[str] | None,
+	expires_at: datetime.datetime | None,
 ) -> None:
 	"""Refuse a token that would grant more than the credential asking for it.
 
-	Three separate ways to amplify, and all three are refused:
+	Four separate ways to amplify, and all four are refused:
 
 	* **Issuing for somebody else.** That is minting authority you do not hold, and it needs
 	  the instance permission that creating an account needs — the same authority, since a
@@ -224,6 +226,16 @@ def _refuse_amplification (
 	* **Widening the project scope, or unpinning a pinned workspace.** ``None`` means *every
 	  project* for the same reason, and a token pinned to one workspace may not hand out one
 	  that reaches them all.
+	* **Outliving the credential that asked** (`#356`). This one was missing, and the docstring
+	  above it said there were three — a completeness claim nothing checked. An agent holding a
+	  credential that expired tomorrow issued itself a permanent one, same scopes, same account,
+	  no refusal. That is not an edge: ``--expires now+30d`` is exactly how "a month's work on
+	  somebody else's instance" is bounded, and it could be undone on the first day by the
+	  credential it bounds.
+
+	**The expiry rule is one-sided, and that is deliberate.** A presenter with no expiry may
+	issue any expiry, because issuing something *narrower* than yourself is the whole point.
+	Only the absent-or-later direction is amplification.
 
 	A presenter with no credential at all — a person at a terminal with the database file — is
 	not narrowed by any of this, which is §12.1a's position: the filesystem permission is the
@@ -283,6 +295,23 @@ def _refuse_amplification (
 					code="forbidden",
 					message="The credential you presented is pinned to "
 					f"{actor.pinned_workspace_id}.",
+				)
+			],
+		)
+
+	if actor.token.expires_at is not None and (
+		expires_at is None or expires_at > actor.token.expires_at
+	):
+		until = actor.token.expires_at.date().isoformat()
+
+		raise subroutine.errors.Forbidden(
+			"A token cannot outlive the one that asked for it.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="expires_at",
+					code="forbidden",
+					message=f"The credential you presented stops working on {until}.",
+					hint=f"Issue one that expires on {until} or sooner.",
 				)
 			],
 		)
