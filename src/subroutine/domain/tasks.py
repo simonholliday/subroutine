@@ -30,6 +30,7 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.selection
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.users
@@ -319,16 +320,38 @@ def create_from_text (
 	captured = subroutine.domain.capture.parse(text, now=instant, timezone=zone)
 
 	if project is None:
+		# **The default is asked for rather than assumed, and that is the whole of `#374`.**
+		# This reached for the Inbox itself, which was a second copy of a rule `selection` also
+		# holds — and the two came apart the moment `#369` taught one of them that a bounded
+		# credential cannot file there. The captured line is the path a person and an agent
+		# both actually use, so the copy that stayed wrong was the one that mattered.
+		# `actor=None` is the unauthenticated internal caller — bootstrap and the tests — which
+		# holds no credential and so has no scope to be narrowed by (§12.1a). The Inbox is what
+		# `selection` would answer for it anyway; asking would just mean passing a principal
+		# that does not exist.
 		project = (
-			subroutine.domain.bootstrap.inbox_for(session, workspace)
+			(
+				subroutine.domain.selection.project(session, actor, workspace, None)
+				if actor is not None
+				else subroutine.domain.bootstrap.inbox_for(session, workspace)
+			)
 			if captured.project_key is None
 			else _project_by_key(session, workspace.id, captured.project_key)
 		)
 
 	if project is None:
-		raise subroutine.errors.InternalError(
-			"This workspace has no Inbox to file a task in.",
-			hint="It was interrupted part-way through setup; run 'subroutine init' again.",
+		raise subroutine.errors.NotFound(
+			f"There is no project {captured.project_key!r} in this workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="text",
+					code="not_found",
+					message=f"The captured line files this under "
+					f"{captured.project_key!r}, and no project here answers to it.",
+					hint="Use a project key that exists, or leave the +KEY off to file it "
+					"where this credential ordinarily would.",
+				)
+			],
 		)
 
 	fields: dict[str, typing.Any] = {

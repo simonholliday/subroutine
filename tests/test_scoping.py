@@ -690,3 +690,46 @@ def test_a_credential_cannot_issue_one_that_writes_more_widely (
 	)
 
 	assert allowed.project_write_scope == [str(world.public.id)]
+
+
+def test_a_captured_line_files_where_the_credential_can_reach (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#374`. `#369` fixed one of two copies of the Inbox default, and I called it fixed.
+
+	`domain.tasks.create_from_text` reached for the Inbox itself rather than asking
+	`selection`, so the *captured line* path — the one `subroutine add` and `subroutine_add`
+	both use, which is to say the one anybody actually uses — still walked into a project the
+	credential cannot reach and was refused.
+
+	Found end-to-end against the deployed instance, minutes after it came back up, and not by
+	the suite: two copies of a rule that agreed until one of them was taught something.
+	"""
+
+	bounded = _scoped_to(session, world, world.public)
+	created, _capture = subroutine.domain.tasks.create_from_text(
+		session, workspace=world.workspace, text="filed by a bounded agent", actor=bounded
+	)
+
+	assert created.project_id == world.public.id
+
+
+def test_a_captured_key_still_wins_over_the_default (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The ordering that had to survive the fix.
+
+	A `+KEY` in the line is the author saying where it goes, and it beat the Inbox before —
+	so it must beat whatever replaced the Inbox, or `#374`'s fix would have quietly taken
+	something away while giving something else.
+	"""
+
+	bounded = _scoped_to(session, world, world.public, world.private)
+	created, _capture = subroutine.domain.tasks.create_from_text(
+		session,
+		workspace=world.workspace,
+		text=f"filed deliberately +{world.private.key}",
+		actor=bounded,
+	)
+
+	assert created.project_id == world.private.id, "the key the author typed still decides"
