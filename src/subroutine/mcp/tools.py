@@ -222,6 +222,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"properties": {
 					"text": {"type": "string", "description": "The line to capture."},
 					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
+					"description": {
+						"type": "string",
+						"description": "Why it matters, in full. The title stays one line.",
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["text"],
@@ -863,6 +867,12 @@ def _added (
 		workspace=workspace,
 		type=_text(arguments, "type"),
 		project=filed,
+		# **The second call an agent was measured skipping** (`#424`). `#392` put this on
+		# `subroutine_update`, which made a described item two calls on two tools — and the
+		# agent that reported this one said plainly why that loses: "an agent weighing calls
+		# will systematically skip an optional second write, and the moment you have the most
+		# context about an item is when you file it".
+		description=_text(arguments, "description"),
 	)
 	answer = "Added " + _line(captured.task)
 

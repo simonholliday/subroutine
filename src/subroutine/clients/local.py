@@ -1061,6 +1061,7 @@ class Client:
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		description: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text."""
 
@@ -1084,6 +1085,15 @@ class Client:
 				# `Any` because the signature ends in `**overrides`, which mypy cannot match
 				# against a mapping it has not seen the keys of.
 				**typing.cast(dict[str, typing.Any], {} if type is None else {"type_key": type}),
+				# **Left out entirely when nobody said one** (`#424`), for the reason above:
+				# `fields.update(overrides)` is what decides §6.13's "structured wins over
+				# parsed", so a null passed through would be a caller overriding with nothing.
+				# The grammar has no sigil for a description and is not getting one — this is
+				# reasoning about the sentence rather than part of it.
+				**typing.cast(
+					dict[str, typing.Any],
+					{} if description is None else {"description": description},
+				),
 				# **A named parameter and not an override**, because `create_from_text` derives
 				# a project of its own and an override of that name collides with the argument
 				# — which is a `TypeError` rather than anything useful, and is exactly what the

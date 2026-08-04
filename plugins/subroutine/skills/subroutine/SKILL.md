@@ -233,6 +233,20 @@ subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops +WEB")
 `#ops` a tag, `+WEB` the project. Whatever it read is echoed back, so check that line — it is
 the only confirmation that `+WEB` was understood rather than left in the title.
 
+**The line is the title. Everything you know that the title cannot hold goes in
+`description`, in the same call:**
+
+```
+subroutine_add(
+    text="Cache the connection roster !3/2 +WEB",
+    description="Measured at 400ms a call, four calls a listing. The roster changes only when config.toml does.",
+)
+```
+
+Write it while you are filing, not afterwards. You have the most context about a piece of work
+at the moment you decide it exists, and a title alone is rarely enough for the next reader —
+who is usually you, without any of the session this came from.
+
 **The type is a promise about what the title says.** Get these two agreeing or a listing
 stops being scannable — the type is the column somebody reads to know whether a line describes
 a fault or a plan.

@@ -2184,6 +2184,53 @@ def test_the_project_listing_shows_what_is_inside_what (
 	assert where("OUTER") < where("INNER"), printed
 
 
+def test_add_files_a_description_in_the_same_call (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#424``. A described item used to be two commands, and the second got skipped.
+
+	The skill argues for titles that say the outcome rather than the problem, on the grounds
+	that the motivation "belongs in the description — which is one field away". It was not one
+	field away on any surface: `#392` gave `subroutine_update` one, which made it a second call
+	after the item existed, and `add` had none at all. An agent on a fresh install followed the
+	titling advice, skipped the second call six times, and reported that its own titles were
+	meaningless without the document it had put everything in.
+
+	**Fixing the surface is what makes that sentence true**, which is why it beat rewording it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Cache the connection roster !3/2", "--description", "Measured at 400ms a call.")
+
+	shown = run("show", "1").output
+
+	assert "Cache the connection roster" in shown
+	assert "Measured at 400ms a call." in shown
+
+	# The grammar is untouched by it: a description sits beside the line, never inside it, so
+	# the line's own tokens are still read and the title still ends where it did.
+	filed = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert filed["title"] == "Cache the connection roster"
+	assert (filed["importance"], filed["urgency"]) == (3, 2)
+
+
+def test_add_without_a_description_sets_none (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Saying nothing means nothing, which is not the same as saying "".
+
+	`create_from_text` merges overrides over the parsed fields, so an empty string passed
+	through would be a caller overriding a field they never mentioned — the shape that made
+	`estimate` and `tags` unoverridable for a while, one direction reversed.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Buy milk")
+
+	assert json.loads(run("show", "1", "--json").output)["item"]["description"] is None
+
+
 def test_add_says_what_it_read_out_of_the_line (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

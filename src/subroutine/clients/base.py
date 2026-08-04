@@ -616,18 +616,35 @@ class Client(typing.Protocol):
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		description: str | None = None,
 	) -> Captured:
 		"""Create a task from a line of text (§6.13).
 
 		``project`` is where it goes when the *line* does not say — a `+KEY` in the text wins,
 		because that is somebody being explicit about this one item (§13.7a, `#159`).
 
-		``type`` is the one field here that the *grammar* cannot carry, and it is passed
-		separately rather than given a sigil: §6.13's sigils are for things a person types
-		mid-sentence, and "this is a bug" is a classification made about the sentence rather
-		than part of it. Filing with the right type matters because the type is a promise
-		about what the title says — a bug's title states what is wrong, everything else states
-		what will be true when it is done — and until `#42` it could not be corrected later.
+		``type`` and ``description`` are the two fields the *grammar* cannot carry, and both are
+		passed separately rather than given a sigil: §6.13's sigils are for things a person
+		types mid-sentence, and neither "this is a bug" nor three paragraphs of reasoning is
+		part of the sentence.
+
+		Filing with the right type matters because the type is a promise about what the title
+		says — a bug's title states what is wrong, everything else states what will be true when
+		it is done — and until `#42` it could not be corrected later.
+
+		**``description`` is here because the skill's argument for those titles depends on it**
+		(item ``#424``). It tells a filer to leave the motivation out of the title *"because it
+		belongs in the description — which is one field away"*, and from here it was not one
+		field away: it was a second call, to a different method, after the item existed. An
+		agent weighing calls skips an optional second write, so what the sentence actually
+		bought was outcome-shaped titles with the reasoning nowhere. Reported by an agent that
+		did exactly that on a fresh install and then explained why its own titles were
+		unreadable.
+
+		**``POST /v1/tasks`` has taken ``text`` and ``description`` together since M1** — this
+		method dropped it. A capability on a route, missing as an *argument* on a method both
+		surfaces already call, is `#149`'s blind spot: `test_reach` compares method names, so it
+		cannot see one. Fourth instance, after `#178`, `#367` and `#392`.
 		"""
 
 	def remark (

@@ -666,6 +666,7 @@ class Client:
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		description: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text.
 
@@ -692,6 +693,10 @@ class Client:
 				workspace_id=workspace,
 				timezone=timezone,
 				type=type,
+				# **The endpoint has taken this beside `text` since M1** (`#424`). Nothing new
+				# is being asked of the server; what was missing was any way to say it from
+				# here, which is why no test of the route could have found it.
+				description=description,
 				# **Only when the line did not say.** A `+KEY` in the text is somebody being
 				# explicit about this item and must beat a default that came from a file three
 				# directories up, which they may not have known was there.

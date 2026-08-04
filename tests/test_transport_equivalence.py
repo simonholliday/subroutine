@@ -590,6 +590,40 @@ def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	assert from_local.task.title == from_remote.task.title == "Water the plants every monday"
 
 
+def test_both_carry_a_description_beside_the_captured_line (pair: Pair) -> None:
+	"""Item ``#424``. The endpoint took this beside ``text`` since M1; neither client did.
+
+	**A capability on a route, missing as an argument on a method both surfaces already call.**
+	``test_reach`` compares method *names*, so a gap of this shape is invisible to it — the
+	fourth time (`#178`, `#367`, `#392`), and every one was found by somebody using the
+	product rather than by the suite. This one by an agent asked why the six items it had just
+	filed had no descriptions; it checked, found the option genuinely absent, and said the
+	skill's argument for outcome-shaped titles depends on a field it could not reach.
+
+	Both transports, because the local client passes it as an override into
+	``create_from_text`` and the remote one puts it in the body — two mechanisms for one
+	promise, which is what this file exists to hold together.
+	"""
+
+	local, remote = pair.both()
+	reasoning = "Measured at 400ms a call, four calls a listing."
+
+	from_local = local.capture(text="Cache the roster !3/2", description=reasoning)
+	from_remote = remote.capture(text="Cache the roster !3/2", description=reasoning)
+
+	assert from_local.task.description == from_remote.task.description == reasoning
+
+	# The line is still parsed as it always was: a description is beside the grammar, never
+	# part of it, so nothing about the sentence changes by supplying one.
+	assert from_local.task.title == from_remote.task.title == "Cache the roster"
+	assert from_local.task.importance == from_remote.task.importance == 3
+
+	# And saying nothing still means nothing — not an empty description, which is a different
+	# claim and would be a caller overriding a field they never mentioned.
+	assert local.capture(text="Buy milk").task.description is None
+	assert remote.capture(text="Buy milk").task.description is None
+
+
 def test_both_report_what_the_grammar_read_the_same_way (pair: Pair) -> None:
 	"""``#135``, and the mirror of the test above.
 

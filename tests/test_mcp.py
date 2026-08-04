@@ -854,9 +854,16 @@ def test_the_whole_tool_surface_stays_small (
 	  over, and the sentence is teaching at the point of use for the one field an agent was
 	  measured getting wrong (`#392`).
 
-	The slack above the current total is deliberate and small — **248 bytes** as of 2026-08-03,
+	The slack above the current total is deliberate and small — **144 bytes** as of 2026-08-04,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
+
+	**`#424` spent 104 of it and the cap did not move, which is the slack doing its job.**
+	``subroutine_add`` gained a ``description``, because `#392` had put one on
+	``subroutine_update`` and thereby made a described item two calls on two tools — an agent
+	reported that it had simply skipped the second, six times, and that its own titles were
+	unreadable as a result. Worth recording that no fat was read for this time: the addition
+	fitted, so looking would have been a ritual rather than a check.
 
 	**That number is now stated as of a date, because the last one rotted.** It said 33 bytes,
 	which was true when it was written and was 7 by the time anybody read it again — a title
@@ -1371,6 +1378,36 @@ def test_the_comment_tool_still_points_at_something_that_exists (
 	assert "subroutine_document" in tools, (
 		"subroutine_comment tells an agent to write a document; there must be a tool for it"
 	)
+
+
+def test_add_carries_a_description_in_one_call (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Item ``#424``, on the surface it was reported from.
+
+	`#392` put a description on ``subroutine_update``, which left a described item as two calls
+	on two tools. An agent filing its first real work on a fresh install skipped the second one
+	six times and, asked why, gave the reason worth keeping: *"an agent weighing calls will
+	systematically skip an optional second write, and the moment you have the most context
+	about an item is when you file it."*
+
+	The tool schema is a budget (§21.2) and this fitted inside it — 104 of the 248 bytes of
+	slack, cap unmoved. That is what the slack is for.
+	"""
+
+	made, failed = _called(
+		bound,
+		"subroutine_add",
+		text="Cache the connection roster !3/2",
+		description="Measured at 400ms a call, four calls a listing.",
+	)
+
+	assert not failed, made
+
+	shown, _ = _called(bound, "subroutine_show", ref=_numbered(made))
+
+	assert "Cache the connection roster" in shown
+	assert "Measured at 400ms a call" in shown
 
 
 def test_a_marker_for_another_instance_is_ignored_rather_than_refused (

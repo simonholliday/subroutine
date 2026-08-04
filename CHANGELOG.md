@@ -12,6 +12,26 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **`subroutine add --description`, and `description` on the agent's `subroutine_add`.** A task
+  filed with its reasoning, in one call, on the surface where you have the most context about it
+  — the moment you decided it was worth filing.
+
+  It had been reachable only afterwards, by updating an item that already existed, and only from
+  an agent's tools at that. `POST /v1/tasks` has accepted a description beside a captured line
+  since the first release; neither client passed one, so nothing that read a line could supply
+  it and no test of the endpoint could have noticed.
+
+  **This matters more than one missing flag, because the guidance depended on it.** The agent
+  skill argues for titles that say what will be true when the work is done rather than what is
+  wrong today — on the grounds that the reasoning is not lost, since it "belongs in the
+  description, which is one field away". It was not one field away, so following that advice
+  meant filing a title with the reasoning nowhere. Reported by a coding agent on a fresh install
+  that had done exactly that, six times, and explained why its own titles had become unreadable.
+
 ## 0.3.0 — 2026-08-04
 
 > **This release changes the database schema**, to `d5d0458f5ad5`.

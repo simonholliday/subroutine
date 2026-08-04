@@ -1160,6 +1160,9 @@ def register (
 		kind: str = typer.Option(
 			"", "--type", help="task, bug, feature, chore, spike. Defaults to task."
 		),
+		description: str = typer.Option(
+			"", "--description", help="What it is about, in full. The title stays one line."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Add something to your list.
@@ -1171,6 +1174,12 @@ def register (
 		  subroutine add "Write the report by friday !3 ~2h #work"
 
 		  subroutine add "Dates render as if this year" --type bug
+
+		  subroutine add "Cache the roster" --description "Measured at 400ms a call."
+
+		'--description' is where the reasoning goes, so the title can say what will be true
+		when the work is done rather than what is wrong today. A title stating a condition
+		becomes false when the condition changes; one stating an outcome cannot.
 		"""
 
 		text = " ".join(words or [])
@@ -1195,6 +1204,12 @@ def register (
 				workspace=_writing_workspace(world),
 				project=filed,
 				type=kind.strip() or None,
+				# **The same argument as `--type`, and it was missing for the same reason**
+				# (`#424`): the grammar cannot carry it, so nothing that reads the line could
+				# supply it, and the endpoint's ability to take one beside `text` went
+				# unreachable from every client. Reported by an agent asked why the six items
+				# it had just filed had no descriptions.
+				description=description.strip() or None,
 			)
 
 			if json_output:
