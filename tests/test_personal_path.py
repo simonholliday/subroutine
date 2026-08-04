@@ -2243,6 +2243,28 @@ def test_a_listing_with_nothing_blocked_shows_no_such_column (
 	assert "blocked" not in run("list").output
 
 
+def test_add_marks_off_what_it_read_from_the_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#426``, and nothing pinned this format before — so it could regress in silence.
+
+	The echo is `#135`'s confirmation that a sigil was *understood* rather than left in the
+	title, and a double space was the whole of what separated the two. An agent reported it as
+	genuinely useful and genuinely unreadable, which is a fair description.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	added = run("add", "Fix the header !4/2 ~2h").output
+	line = next(row for row in added.splitlines() if row.startswith("Added"))
+
+	assert line.endswith("(read !4/2 ~2h)"), line
+	assert "Fix the header  (read" in line, line
+
+	# §1.4's ordinary case gains nothing: no sigils, no echo, no parentheses.
+	assert "(read" not in run("add", "Buy milk").output
+
+
 def test_add_files_a_description_in_the_same_call (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

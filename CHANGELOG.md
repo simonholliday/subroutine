@@ -48,6 +48,18 @@ upgrade involves.
   The column disappears entirely when nothing on the page is blocked, so a to-do list that has
   never linked two items looks exactly as it did.
 
+### Fixed
+
+- **The line `add` echoes back cannot be mistaken for part of the title.** It confirms which
+  parts of what you typed were understood as shorthand rather than left as words — the only way
+  to tell that `+WEB` filed something rather than becoming part of its name — and a double space
+  was all that separated the two. Worse for an agent, whose listing already shows the priority,
+  so `!4/3` could appear twice on one line with two different meanings and nothing to tell them
+  apart. It now reads `(read +WEB !4/3)`.
+
+  Reported by the same agent, which called the echo genuinely useful and genuinely ambiguous.
+  Both are fair.
+
 ## 0.3.0 — 2026-08-04
 
 > **This release changes the database schema**, to `d5d0458f5ad5`.

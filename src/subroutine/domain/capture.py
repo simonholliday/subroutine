@@ -226,6 +226,35 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	)
 
 
+def read_back (summary: str | None) -> str | None:
+	"""Return :func:`summarise`'s tokens as something that cannot be read as a title — `#426`.
+
+	**The tokens alone were ambiguous, and a double space was the whole of the separator.**
+	``Added: Stop the stamp brokering an introduction  +TERENCE !4/3 #prompt`` gives a reader
+	no way to tell where the title ends, which defeats the confirmation `#135` added this for:
+	the question being answered is precisely *"was `+TERENCE` understood or left in the
+	title?"*, and the answer was rendered so that both readings look the same.
+
+	**Worse on the agent's surface**, where the line already carries the rank: ``!4/3``
+	appeared twice, once as the item's priority and once as an echoed token, separated by
+	nothing. Reported by an agent that liked the echo and could not parse it.
+
+	Parentheses because the CLI already renders ``(due Sun 2 Aug)`` that way, so this is the
+	idiom a reader has met one field earlier rather than a second convention. The word
+	``read`` because a group of sigils needs a noun to be a confirmation of anything — and it
+	is one of the few available, since §13.5b forbids naming what ``+WEB`` *means* on exactly
+	the path that most needs this.
+
+	Beside :func:`explain` and for its reason: three callers, one obligation, and the summary
+	half had drifted into two spellings already.
+	"""
+
+	if summary is None:
+		return None
+
+	return f"(read {summary})"
+
+
 def summarise (capture: Capture) -> str | None:
 	"""Return the sigils the grammar *did* read, or ``None`` if it read none.
 

@@ -600,6 +600,41 @@ def test_each_sigil_is_written_back_as_it_was_typed (text: str, expected: str) -
 	assert subroutine.domain.capture.summarise(read) == expected
 
 
+def test_the_read_back_line_cannot_be_mistaken_for_the_title () -> None:
+	"""Item ``#426``. The tokens alone had a double space for a separator and nothing else.
+
+	``Added: Stop the stamp brokering an introduction  +TERENCE !4/3 #prompt`` gives a reader
+	no way to tell where the title stops — which defeats the confirmation `#135` exists for,
+	since the question being answered is exactly *"was `+TERENCE` understood, or left in the
+	title?"* and both readings rendered identically.
+
+	Reported by an agent that liked the echo and could not parse it.
+	"""
+
+	read = subroutine.domain.capture.parse("Fix the header !4/2 +WEB", now=NOW)
+	echoed = subroutine.domain.capture.read_back(subroutine.domain.capture.summarise(read))
+
+	assert echoed == "(read +WEB !4/2)"
+
+	# The tokens themselves are untouched — this wraps `summarise`, it does not re-spell it,
+	# so `--json`'s `read` field and every test above still describe the same thing.
+	tokens = subroutine.domain.capture.summarise(read)
+
+	assert tokens is not None
+	assert tokens in echoed
+
+
+def test_nothing_read_says_nothing_at_all () -> None:
+	"""``None`` in, ``None`` out, so §1.4's "Buy milk" gains no machinery it did not ask for.
+
+	The mirror of ``explain``'s contract, and the reason both are functions rather than
+	f-strings at three call sites: an empty confirmation is a line, and a line about nothing
+	is what `#135` was careful not to add.
+	"""
+
+	assert subroutine.domain.capture.read_back(None) is None
+
+
 def test_the_summary_never_claims_a_field_the_grammar_did_not_set () -> None:
 	"""The direction that would be worse: telling somebody it filed work somewhere it did not.
 

@@ -1265,7 +1265,11 @@ def register (
 			# echoing "by friday" back, because the useful part is which day that turned out
 			# to be. Everything else is written back as the sigil that was typed, which needs
 			# no vocabulary and is what somebody would type again.
-			read = "" if captured.summary is None else f"  {captured.summary}"
+			# Wrapped by `capture.read_back` rather than here, so this surface and the MCP
+			# adapter cannot come to render it differently — the same argument the `unparsed`
+			# half already runs on, and the half that had drifted (`#426`).
+			echoed = subroutine.domain.capture.read_back(captured.summary)
+			read = "" if echoed is None else f"  {echoed}"
 
 			# **Where it landed** (`#279`). Every other acting command says this through
 			# `_acted`; `add` said only the title, so a write that went to the wrong

@@ -1380,6 +1380,35 @@ def test_the_comment_tool_still_points_at_something_that_exists (
 	)
 
 
+def test_the_echo_is_told_apart_from_the_rank_beside_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Item ``#426``, in its sharpest form — this surface prints the rank as well.
+
+	``Added #2  task  !4/3  Stop the stamp...  !4/3`` put ``!4/3`` on the line twice, once as
+	the item's priority and once as the token that set it, separated from the title and from
+	each other by nothing but a double space. An agent reported that it liked the echo and
+	could not read it.
+
+	Asserted on the *whole* line rather than by substring, because the defect is entirely
+	about what sits next to what — a containment check passes on both spellings.
+	"""
+
+	made, failed = _called(bound, "subroutine_add", text="Fix the header !4/2 ~2h")
+
+	assert not failed, made
+
+	head, separator, echoed = made.partition("  (read ")
+
+	assert separator, f"the echo is not marked off at all: {made}"
+	assert echoed == "!4/2 ~2h)", made
+	assert head.endswith("Fix the header"), head
+
+	# Both readings of the old line are now distinguishable: the rank is a bare cell, the
+	# echo is named. Nothing else on the line looks like either.
+	assert "!4/2" in head, "the rank is still rendered as a cell"
+
+
 def test_add_carries_a_description_in_one_call (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

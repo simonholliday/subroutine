@@ -901,8 +901,13 @@ def _added (
 	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
 	# the caller most likely to have written something it believes was understood, and telling
 	# it only what was *left* answers the rarer question.
-	if captured.summary is not None:
-		answer = f"{answer}  {captured.summary}"
+	# **And parenthesised, because this line already carries a rank** (`#426`). `!4/3` appeared
+	# twice with two meanings — the item's priority and the token that set it — with nothing but
+	# a double space between the title and either of them.
+	echoed = subroutine.domain.capture.read_back(captured.summary)
+
+	if echoed is not None:
+		answer = f"{answer}  {echoed}"
 
 	left = subroutine.domain.capture.explain(captured.unparsed)
 
