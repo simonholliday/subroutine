@@ -205,6 +205,31 @@ def resolve (
 	)
 
 
+def stored_workspace (connection: str) -> str | None:
+	"""Return the workspace ``subroutine use`` stored for this connection, if any.
+
+	**The step after the marker in §13.7's order, callable on its own** — item ``#324``. A
+	marker that names somewhere the connection has never heard of is dropped, and what should
+	follow is the *next* source rather than nothing: dropping to nothing turned a stale marker
+	from advisory context into something that broke commands which would otherwise have
+	worked, which is precisely what `#166` says a marker must never do.
+
+	Narrowed to the connection it was stored with, exactly as :func:`resolve` narrows it, and
+	for the same reason: a slug means nothing on an instance that has never heard of it. Two
+	copies of that condition would be one more place for the chain to disagree with itself,
+	so this is the function ``resolve`` should eventually read too.
+	"""
+
+	stored = read()
+
+	if stored.get("connection") != connection:
+		return None
+
+	wanted = stored.get("workspace")
+
+	return None if wanted is None or not wanted.strip() else wanted.strip()
+
+
 def _first (*candidates: tuple[str | None, str]) -> tuple[str | None, str]:
 	"""Return the first candidate that has a value, with where it came from."""
 

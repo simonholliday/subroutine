@@ -772,12 +772,40 @@ def register (
 			)
 
 			if here is not None and resolved is None:
+				# **Dropped to the next source in the chain, not to nothing** (`#324`). This
+				# assigned `workspace=None` and fell straight through to the sole-workspace
+				# default — so on an instance with two, a stale marker *erased* a perfectly
+				# good stored context and turned `use --here --project SR` into a refusal
+				# immediately after `use projects` had succeeded. The warning said "Ignoring
+				# it", and ignoring it is the one thing it did not do.
+				#
+				# Only the stored context can be the fallback, and that is not a choice: the
+				# marker won in the first place because the flag and the environment were
+				# empty, so §13.7's order has exactly one step left.
+				instead = subroutine.context.stored_workspace(current.connection)
+				usable = instead is not None and any(
+					workspace.slug == instead for workspace in here.identity.workspaces
+				)
+
 				warn(
 					f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
-					f"{current.connection}. Ignoring it."
+					f"{current.connection}. "
+					+ (
+						f"Using {instead!r} instead."
+						if usable
+						else "Ignoring it."
+					)
 				)
-				current = dataclasses.replace(
-					current, workspace=None, workspace_source=subroutine.context.FROM_NOTHING
+				current = (
+					current.with_workspace(
+						typing.cast("str", instead), subroutine.context.FROM_STORED
+					)
+					if usable
+					else dataclasses.replace(
+						current,
+						workspace=None,
+						workspace_source=subroutine.context.FROM_NOTHING,
+					)
 				)
 
 			elif resolved is not None and resolved != current.workspace:

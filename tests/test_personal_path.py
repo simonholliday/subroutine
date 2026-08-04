@@ -24,6 +24,7 @@ import typer.testing
 import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.config
+import subroutine.context
 import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
@@ -3950,3 +3951,109 @@ def test_taking_a_comment_out_refuses_rather_than_guessing (
 
 	assert "the parser is wrong" in left
 	assert "the parser is fixed" in left
+
+
+def test_a_stale_marker_falls_back_to_the_stored_context (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Item ``#324``, hit live mid-migration and reproduced here.
+
+	**Its neighbour above passes on a one-workspace instance and that is why nothing caught
+	this.** There, dropping the marker's workspace is harmless — the sole-workspace default
+	answers immediately after. With two, the drop went all the way to nothing, and a stale
+	marker *erased* a perfectly good stored context: ``use --here`` refused, on the line after
+	``use projects`` had succeeded.
+
+	The warning said "Ignoring it", and ignoring it is the one thing it did not do. §13.7's
+	order has exactly one step left below the marker, and that step is what should answer.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "projects", "Projects")
+	run("-w", "projects", "project", "create", "SR", "Subroutine")
+	run("use", "projects")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+
+	# Written by hand rather than through `directory.write`, because a marker made today
+	# carries `workspace_id` and is followed through a rename (`#317`). The ones that reach
+	# this path are older than that, which is what made the failure look arbitrary.
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "local"\nworkspace = "si"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	settled = run("use", "--here", "--project", "SR")
+
+	assert "which is not on local" in settled.output, "it still says the marker is stale"
+	assert "Using 'projects' instead" in settled.output, "and what it used in its place"
+	assert "several workspaces" not in settled.output, "which is what it used to refuse with"
+
+
+def test_a_stale_marker_with_nothing_to_fall_back_to_still_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The other half, without which the fallback could quietly become unconditional.
+
+	A guard that only ever sees a usable stored context cannot tell "fell back correctly" from
+	"reported a fallback it did not make". Here there is no stored workspace at all, so the
+	old wording is still the right one and the refusal that follows is the honest answer.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "projects", "Projects")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "local"\nworkspace = "si"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	# `add`, not `list`: reads span every reachable workspace by design (§13.7), so only a
+	# command that has to choose *where to write* meets this at all.
+	refused = run("add", "Something", expect=1)
+
+	assert "Ignoring it" in refused.output
+	assert "several workspaces" in refused.output
+
+
+def test_a_stored_workspace_that_is_also_gone_is_not_used_as_a_fallback (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""And the fallback is checked against the instance rather than trusted.
+
+	Falling back to a stored slug the connection has never heard of would move the failure one
+	step along and change nothing — the same defect wearing the next source's name. So the
+	replacement is looked up before it is announced, and when it does not resolve the command
+	says what it always said.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "projects", "Projects")
+	run("use", "projects")
+
+	# The stored context now names a workspace that is not there either.
+	stored = subroutine.context.file_path()
+	stored.write_text(
+		'connection = "local"\nworkspace = "long-gone"\n', encoding="utf-8"
+	)
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "local"\nworkspace = "si"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	refused = run("add", "Something", expect=1)
+
+	assert "Using 'long-gone'" not in refused.output
+	assert "Ignoring it" in refused.output

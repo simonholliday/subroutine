@@ -289,6 +289,16 @@ upgrade involves.
 
 ### Fixed
 
+- **A `.subroutine` marker that has gone stale no longer breaks the command.** It named a
+  workspace the connection had never heard of, and instead of being ignored it *erased* the
+  context `subroutine use` had stored — so on an instance with more than one workspace, a
+  command refused on the line after the one that set it up. The warning said "Ignoring it",
+  which is the one thing it did not do.
+
+  It now falls to the next thing that can answer, and says which: *"…which is not on local.
+  Using 'projects' instead."* A stored workspace that is also gone is checked before it is
+  offered, so the failure cannot simply move one step along.
+
 - **A credential says where it may write, not only what it can see.** The reach was reported
   everywhere and the write set nowhere, so an agent bounded to read a tree and write one
   project read back exactly like one that could write all of it — the whole point of the
