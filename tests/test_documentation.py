@@ -14,10 +14,13 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 
 import pathlib
 import re
+import shlex
 import subprocess
 import typing
 
+import click
 import pytest
+import typer.main
 import typer.testing
 
 import subroutine.auth
@@ -448,9 +451,9 @@ def _typed (block: str) -> list[str]:
 	"""Return the commands a reader would type from one console block, without the ``$``."""
 
 	return [
-		line.removeprefix("$").strip()
+		line.strip().removeprefix("$").strip()
 		for line in block.splitlines()
-		if line.startswith("$")
+		if line.strip().startswith("$")
 	]
 
 
@@ -532,3 +535,361 @@ def test_the_documented_agent_path_produces_a_working_agent (
 
 	assert listed.exit_code == 0, listed.output
 	assert "no Subroutine instance" not in listed.output
+
+
+#: The pages whose console blocks are read as commands somebody will type — item ``#406``.
+#: ``docs/errors.md`` is generated and quotes no shell; the changelog quotes commands as
+#: prose about a release rather than as instructions, and holds ones that no longer exist on
+#: purpose.
+PUBLISHED = (README, HOSTING)
+
+#: Shell metacharacters that make a line more than one invocation. A line carrying any of
+#: these is skipped rather than guessed at: the guard's value is that it is quiet, and a
+#: parser inventing failures on a pipeline would spend that immediately.
+_SHELL = ("|", ">", "<", "$(", "`", "&&", ";")
+
+#: A stand-in the reader is meant to replace — ``<file>``, ``<connection>``. Substituted
+#: before the check above, and **that ordering is the whole of it**: ``<`` is also a redirect,
+#: so a placeholder read as one made every line carrying a stand-in vanish from the scan.
+#:
+#: Found by falsifying rather than by reading. Renaming ``--as-clone`` on the page produced no
+#: failure at all, because ``subroutine db restore <file> --as-clone`` was being skipped — a
+#: guard reporting a clean page it had never looked at, which is the exact shape this file's
+#: floors exist for and which the floor did not catch, since thirty other lines still passed.
+_PLACEHOLDER = re.compile(r"<[A-Za-z][\w-]*>")
+
+
+class Invocation(typing.NamedTuple):
+	"""One line of a published page that runs this program."""
+
+	page: str
+	line: str
+
+	#: Everything after the program's own name, as a shell would split it.
+	words: list[str]
+
+
+def _invocations (pages: typing.Sequence[pathlib.Path] = PUBLISHED) -> list[Invocation]:
+	"""Return every published line that invokes ``subroutine``, split into arguments.
+
+	**The pages are an argument so that the guard can be shown a defect** (`#405`). Feeding it
+	a synthetic page reaches this scanner rather than a copy of its rule — and a scanner that
+	quietly stopped parsing would report no findings in exactly the same way as a correct
+	page, which is the failure mode this project has met twice.
+
+	``sudo -u subroutine …`` and a leading ``NAME=value`` are stepped over, because the page
+	uses both and the program being run is what decides whether a line is ours. A line whose
+	program is something else — ``claude mcp add subroutine -- subroutine mcp`` — is not.
+	"""
+
+	found: list[Invocation] = []
+
+	for page in pages:
+		for block in _blocks(page):
+			for typed in _typed(block):
+				# A trailing `# …` on the page is a note to the reader, not an argument.
+				line = re.sub(r"\s+#\s.*$", "", typed)
+
+				# **Before the shell check, never after.** A `<file>` stand-in is an argument
+				# and a `<` is a redirect, and reading the first as the second removed every
+				# line carrying a placeholder from the scan without changing a single result.
+				if any(character in _PLACEHOLDER.sub("_", line) for character in _SHELL):
+					continue
+
+				try:
+					words = _program(shlex.split(line))
+
+				except ValueError:
+					# Unbalanced quotes: prose in a console block, not a command.
+					continue
+
+				if not words or not words[0].endswith("subroutine"):
+					continue
+
+				found.append(Invocation(page=page.name, line=line, words=words[1:]))
+
+	return found
+
+
+def _program (words: list[str]) -> list[str]:
+	"""Return the command being run, stepping over ``sudo`` and environment assignments."""
+
+	rest = list(words)
+
+	while rest:
+		if rest[0] == "sudo":
+			rest.pop(0)
+
+			while rest and rest[0].startswith("-"):
+				flag = rest.pop(0)
+
+				if flag in ("-u", "-g") and rest:
+					rest.pop(0)
+
+			continue
+
+		if re.fullmatch(r"[A-Z_][A-Z0-9_]*=.*", rest[0]):
+			rest.pop(0)
+
+			continue
+
+		break
+
+	return rest
+
+
+def _resolved (words: list[str]) -> tuple[typing.Any, list[str], list[str]]:
+	"""Walk the command tree as click would, returning the command, its path and the rest.
+
+	Stops at the first word that is not a subcommand, which is how a positional argument —
+	``show 42``, ``token revoke a1b2c3d4`` — is told from a mistyped command: the first
+	resolves to a leaf that takes arguments, the second leaves a group holding a word it does
+	not know.
+	"""
+
+	command: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	path = ["subroutine"]
+	rest = list(words)
+
+	while rest and not rest[0].startswith("-"):
+		if not hasattr(command, "get_command"):
+			break
+
+		child = command.get_command(
+			click.Context(command, info_name=" ".join(path)), rest[0]
+		)
+
+		if child is None:
+			break
+
+		command = child
+		path.append(rest.pop(0))
+
+	return command, path, rest
+
+
+def _declared_options (command: typing.Any) -> set[str]:
+	"""Return every option spelling a command accepts, including a ``--no-x`` counterpart."""
+
+	found: set[str] = set()
+
+	for parameter in command.params:
+		found.update(getattr(parameter, "opts", ()) or ())
+		found.update(getattr(parameter, "secondary_opts", ()) or ())
+
+	return found
+
+
+def test_every_flag_the_published_pages_type_is_one_the_command_declares () -> None:
+	"""Item ``#406``. A renamed option is the commonest way a page like this goes wrong.
+
+	``--scope``, ``--project``, ``--write``, ``--profile``, ``--as-clone`` and ``--recover``
+	are all quoted in ``docs/hosting.md``, and until now nothing compared any of them against
+	what the commands actually declare. The reader is on a server, following instructions,
+	and a flag that no longer exists is a refusal in the middle of setting something up.
+	"""
+
+	wrong = []
+
+	for invocation in _invocations():
+		command, path, rest = _resolved(invocation.words)
+		declared = _declared_options(command)
+
+		for token in rest:
+			# **Long options only, and that is a limit rather than an oversight.** A value can
+			# look exactly like a short flag — `--order -priority_score` is the page's own
+			# example, and reading that `-priority_score` as an option produced this guard's
+			# first and only false failure. Telling the two apart needs each option's arity,
+			# which is knowable but buys nothing here: these pages use long spellings
+			# throughout, and a wrong *value* is not what a renamed flag looks like.
+			#
+			# A bare `--` ends the options; it is POSIX punctuation, not a flag.
+			if token == "--" or not token.startswith("--"):
+				continue
+
+			name = token.split("=")[0]
+
+			if name not in declared:
+				wrong.append(
+					f"{invocation.page}: '{' '.join(path)}' has no {name} — {invocation.line}"
+				)
+
+	assert not wrong, "\n".join(wrong)
+
+
+def test_every_command_the_published_pages_type_exists () -> None:
+	"""And the subcommand, which the README's word-level check cannot see.
+
+	That one reads the first word after ``subroutine``, so ``db backupz`` passes it — ``db``
+	is real and the mistake is one word further along. A group left holding a word it does not
+	know is the signal, and a leaf holding one is an ordinary positional argument.
+	"""
+
+	wrong = []
+
+	for invocation in _invocations():
+		command, path, rest = _resolved(invocation.words)
+		leftover = [word for word in rest if not word.startswith("-")]
+
+		if not leftover or not hasattr(command, "list_commands"):
+			continue
+
+		context = click.Context(command, info_name=" ".join(path))
+
+		if command.list_commands(context):
+			wrong.append(
+				f"{invocation.page}: '{' '.join(path)}' has no {leftover[0]!r} command "
+				f"— {invocation.line}"
+			)
+
+	assert not wrong, "\n".join(wrong)
+
+
+def test_the_scan_reaches_the_commands_on_the_page () -> None:
+	"""The half the two tests above cannot assert about themselves.
+
+	Both are satisfied by finding nothing wrong, and a scanner that stopped parsing finds
+	nothing wrong too. The floor is deliberately well under what is there — 43 invocations
+	across the two pages when this was written — because the number is not the point.
+	"""
+
+	found = _invocations()
+
+	assert len(found) > 30, f"only {len(found)} invocations read from {len(PUBLISHED)} pages"
+	assert {invocation.page for invocation in found} == {page.name for page in PUBLISHED}, (
+		"one of the published pages contributed nothing"
+	)
+
+
+def _page (tmp_path: pathlib.Path, *lines: str) -> pathlib.Path:
+	"""Write a page holding one console block, for showing the scanner a defect."""
+
+	written = tmp_path / "sample.md"
+	body = "\n".join(f"$ {line}" for line in lines)
+	written.write_text(f"Some prose.\n\n```console\n{body}\n```\n", encoding="utf-8")
+
+	return written
+
+
+def test_the_scan_reports_a_flag_the_command_does_not_have (tmp_path: pathlib.Path) -> None:
+	"""Item ``#406``, checked the way ``#405`` says a guard has to be.
+
+	The pages this reads are clean today, so both tests above pass by finding nothing — which
+	is the same green a scanner that stopped parsing would produce. A synthetic page is the
+	only thing that tells those apart, and it goes through ``_invocations`` rather than
+	through a copy of its rule.
+	"""
+
+	found = _invocations([_page(tmp_path, "subroutine token create --stealth")])
+
+	assert len(found) == 1
+
+	command, _path, rest = _resolved(found[0].words)
+
+	assert "--stealth" not in _declared_options(command)
+	assert "--title" in _declared_options(command), "and the real ones are found"
+	assert rest == ["--stealth"]
+
+
+def test_the_scan_reports_a_subcommand_that_does_not_exist (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""``db backupz`` is the case the README's word-level check structurally cannot see."""
+
+	found = _invocations([_page(tmp_path, "subroutine db backupz")])
+	command, path, rest = _resolved(found[0].words)
+
+	assert path == ["subroutine", "db"], "it stopped at the group"
+	assert rest == ["backupz"]
+	assert command.list_commands(click.Context(command)), "which is a group, so this is wrong"
+
+
+def test_the_scan_leaves_a_correct_line_alone (tmp_path: pathlib.Path) -> None:
+	"""The other half, without which a scanner that flagged everything would pass the two above.
+
+	It would also fail the real pages, which is loud — but a scanner that flagged everything
+	*and* had its reader broken would pass all four, and that is the combination this whole
+	family of defects is made of.
+	"""
+
+	found = _invocations(
+		[_page(tmp_path, "subroutine db backup", "subroutine token create --title 'A laptop'")]
+	)
+
+	assert len(found) == 2
+
+	for invocation in found:
+		command, _path, rest = _resolved(invocation.words)
+		declared = _declared_options(command)
+
+		assert not [
+			token for token in rest if token.startswith("--") and token not in declared
+		]
+		assert not hasattr(command, "list_commands"), "both reached a leaf command"
+
+
+def test_the_scan_ignores_a_line_that_runs_something_else (tmp_path: pathlib.Path) -> None:
+	"""``claude mcp add subroutine -- subroutine mcp`` is not this program being run.
+
+	The README's real line, and the reason ``_program`` decides by what is being *executed*
+	rather than by whether the word appears: read the other way, this guard would have
+	checked ``claude``'s arguments against our command tree from its first run.
+	"""
+
+	found = _invocations(
+		[_page(tmp_path, "claude mcp add subroutine -- subroutine mcp", "subroutine today")]
+	)
+
+	assert [invocation.line for invocation in found] == ["subroutine today"]
+
+
+def test_the_scan_steps_over_sudo_and_an_environment_prefix (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Both spellings the hosting page uses to run this as the service account.
+
+	A page that ran every command through ``sudo -u subroutine`` would otherwise be skipped
+	entirely, and the guard would report a clean scan of nothing — on the half of the page
+	written for the machine where mistakes cost the most.
+	"""
+
+	found = _invocations(
+		[
+			_page(
+				tmp_path,
+				"sudo -u subroutine /opt/subroutine/bin/subroutine db current",
+				"SUBROUTINE_PROFILE=scratch subroutine init",
+			)
+		]
+	)
+
+	assert [invocation.words for invocation in found] == [["db", "current"], ["init"]]
+
+
+def test_the_scan_reads_a_line_carrying_a_placeholder (tmp_path: pathlib.Path) -> None:
+	"""``<file>`` is an argument the reader replaces, not a redirect — item ``#406``.
+
+	**This was a real hole and falsification is what found it.** Renaming ``--as-clone`` on
+	``docs/hosting.md`` produced no failure, because ``subroutine db restore <file>
+	--as-clone`` was being skipped: ``<`` is in the shell list, and the placeholder tripped it.
+	Every line on the page carrying a stand-in was invisible, and the floor did not notice
+	because thirty other lines still passed — a guard reporting a clean page it had never
+	fully read.
+
+	The two are told apart by *order*: placeholders are substituted, then the line is judged.
+	A genuine redirect still has its ``<``.
+	"""
+
+	found = _invocations(
+		[
+			_page(
+				tmp_path,
+				"subroutine db restore <file> --recover",
+				"subroutine serve < somefile",
+			)
+		]
+	)
+
+	assert [invocation.words for invocation in found] == [
+		["db", "restore", "<file>", "--recover"]
+	], "the placeholder is read and the redirect is not"
