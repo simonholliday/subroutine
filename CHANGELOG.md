@@ -315,6 +315,15 @@ upgrade involves.
 
 ### Fixed
 
+- **A `.subroutine` marker naming a connection that is gone no longer stops every command.**
+  Rename a connection in `config.toml`, or switch one off with `enabled = false`, and any
+  checkout marked for it refused outright — including `subroutine list`, which is meant to
+  span everything you can reach whatever your context says.
+
+  It now falls to the next thing that can answer and says so. A connection named with `-c`,
+  or one you set with `subroutine use`, still refuses loudly: those are somebody speaking,
+  and a marker is a file that arrived with a checkout.
+
 - **A `.subroutine` marker that has gone stale no longer breaks the command.** It named a
   workspace the connection had never heard of, and instead of being ignored it *erased* the
   context `subroutine use` had stored — so on an instance with more than one workspace, a

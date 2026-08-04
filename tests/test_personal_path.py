@@ -4057,3 +4057,53 @@ def test_a_stored_workspace_that_is_also_gone_is_not_used_as_a_fallback (
 
 	assert "Using 'long-gone'" not in refused.output
 	assert "Ignoring it" in refused.output
+
+
+def test_a_marker_naming_a_connection_that_is_gone_does_not_stop_the_program (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Item ``#409``, end to end. `#166`'s rule, for the half that had no implementation.
+
+	**The neighbour that guards `#166` could not have found this**, and the reason is the one
+	`#324` taught: it writes a marker naming an unknown *workspace* on an instance with one
+	connection, where the connection half is never in doubt. Reproducing this needs a marker
+	whose connection is not in the roster — and with a single connection configured there is
+	nothing to fall back *to*, so the interesting case needs two.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "gone"\nworkspace = "personal"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	listed = run("list")
+
+	assert "which is not configured" in listed.output
+	assert "Using 'local' instead" in listed.output
+
+	# The point of the whole thing: the commands still work in that directory.
+	assert run("add", "Still possible").exit_code == 0
+	assert run("show", "1").exit_code == 0
+
+
+def test_a_connection_named_on_the_command_line_is_still_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the line that keeps `#409`'s leniency where it belongs.
+
+	A typo in ``-c`` acting quietly somewhere else is a worse failure than the one being
+	fixed, so the difference between a file and somebody speaking now is asserted on the
+	surface as well as in ``context.resolve``.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	refused = run("-c", "gone", "list", expect=1)
+
+	assert "There is no connection called 'gone'" in refused.output

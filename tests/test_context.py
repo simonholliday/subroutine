@@ -19,6 +19,7 @@ import pytest
 import subroutine.config
 import subroutine.connections
 import subroutine.context
+import subroutine.directory
 import subroutine.errors
 
 
@@ -227,3 +228,84 @@ def test_an_unsettled_workspace_says_so_rather_than_printing_nothing (
 	described = subroutine.context.resolve(roster()).describe(qualified=False)
 
 	assert "not chosen yet" in described
+
+
+def test_a_marker_naming_a_connection_that_is_gone_is_dropped () -> None:
+	"""Item ``#409``. `#166`'s rule, which was implemented for one half of the marker.
+
+	**It broke reading, which makes it worse than `#324`.** §13.7's load-bearing rule is that
+	reads span everything reachable — forgetting your context must never cost you something —
+	and before this a `subroutine list` in a marked directory could not run at all.
+
+	Two ordinary ways in: a connection renamed in `config.toml`, and one set ``enabled =
+	false``, which the roster drops so it is indistinguishable from a missing one.
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	marker = subroutine.directory.Marker(
+		path=pathlib.Path(".subroutine"), connection="gone", workspace="personal"
+	)
+
+	current = subroutine.context.resolve(roster, marker=marker)
+
+	assert current.connection == "local"
+	assert current.unusable_marker_connection == "gone"
+
+
+def test_dropping_the_marker_takes_its_workspace_with_it () -> None:
+	"""A slug means nothing on an instance that has never heard of it.
+
+	The condition that governs this was already written for the case where a marker names a
+	*different* connection from the one in force, and it covers this one without a second
+	rule — which is worth pinning, because the alternative is a workspace from one instance
+	being applied to another and refused much later, about the wrong thing.
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	marker = subroutine.directory.Marker(
+		path=pathlib.Path(".subroutine"), connection="gone", workspace="somewhere-else"
+	)
+
+	current = subroutine.context.resolve(roster, marker=marker)
+
+	assert current.workspace is None
+
+
+def test_a_connection_named_on_the_command_line_still_refuses () -> None:
+	"""The line this draws: a marker is a file, a flag is somebody speaking now.
+
+	Without this the leniency above would spread to everything, and a typo in ``-c`` would
+	quietly act somewhere the person did not name — which is the failure `roster.require`
+	exists to prevent and is far worse than the one being fixed.
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(subroutine.connections.Connection(name="local"),), default="local"
+	)
+
+	with pytest.raises(subroutine.errors.SubroutineError):
+		subroutine.context.resolve(roster, connection="gone")
+
+
+def test_a_stored_connection_that_is_gone_still_refuses () -> None:
+	"""And ``subroutine use`` is also somebody speaking, so it is told rather than overruled.
+
+	The stored context is a decision somebody took on this machine; a marker is a file that
+	arrived with a checkout. Being quiet about the second and loud about the first is the
+	whole of the distinction, and it is asserted here so that "be lenient" cannot creep down
+	the chain.
+	"""
+
+	roster = subroutine.connections.Roster(
+		connections=(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	written = subroutine.context.file_path()
+	written.parent.mkdir(parents=True, exist_ok=True)
+	written.write_text('connection = "gone"\n', encoding="utf-8")
+
+	with pytest.raises(subroutine.errors.SubroutineError):
+		subroutine.context.resolve(roster)

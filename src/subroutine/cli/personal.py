@@ -645,6 +645,17 @@ def register (
 		except subroutine.errors.SubroutineError as error:
 			fail(error)
 
+		# **Said here, because `context.resolve` has no output and must not grow any** (`#409`).
+		# Its workspace twin is warned about further down, in `_settled`, for the same reason
+		# and in the same words: a marker is advisory, so it is ignored aloud rather than
+		# obeyed silently or allowed to stop the program.
+		if current.unusable_marker_connection is not None:
+			warn(
+				f"{FILE_NAME} here names connection "
+				f"{current.unusable_marker_connection!r}, which is not configured. "
+				f"Using {current.connection!r} instead."
+			)
+
 		with contextlib.ExitStack() as stack:
 			clients = []
 

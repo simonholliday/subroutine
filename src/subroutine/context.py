@@ -88,6 +88,11 @@ class Current:
 	connection: str
 	connection_source: str
 
+	#: What a ``.subroutine`` marker asked for and could not have — item `#409`. Carried back
+	#: rather than warned about here, because this module has no output and the CLI already
+	#: owns the sentence its workspace twin prints. ``None`` is the ordinary case.
+	unusable_marker_connection: str | None = None
+
 	#: ``None`` when nothing has said which workspace, which is not yet a problem: a
 	#: connection reaching exactly one workspace answers it, and only a connection reaching
 	#: several turns it into a refusal.
@@ -157,13 +162,36 @@ def resolve (
 	"""
 
 	stored = read()
-
-	chosen, source = _first(
+	candidates = (
 		(connection, FROM_FLAG),
 		(os.environ.get(CONNECTION_VARIABLE), CONNECTION_VARIABLE),
 		(None if marker is None else marker.connection, FROM_DIRECTORY),
 		(stored.get("connection"), FROM_STORED),
 	)
+	chosen, source = _first(*candidates)
+	unusable = None
+
+	# **A marker naming a connection that is not there is dropped, not obeyed** (`#409`).
+	# `#166`'s rule is that the one thing a marker must not do is break the program, and it
+	# was implemented for the *workspace* half only: `cli/personal._settled` runs after the
+	# connections have been asked, and this runs before, so `require` below raised and nothing
+	# downstream ever got the chance to be lenient.
+	#
+	# It broke *reading*, which makes it worse than `#324`. §13.7's load-bearing rule is that
+	# reads span everything reachable — forgetting your context must never cost you something
+	# — and a `subroutine list` that cannot run at all is the strongest possible version of
+	# that failure. Two ordinary ways in: a connection renamed in `config.toml`, and one set
+	# `enabled = false`, which `roster` drops so it is indistinguishable from a missing one.
+	#
+	# **Only the marker.** A flag or an environment variable is somebody speaking now and
+	# still refuses loudly; the stored context is refused too, because `use` is a thing
+	# somebody typed and a name that has since gone is worth being told about. The same line
+	# `_settled` draws, one field over.
+	if chosen is not None and source == FROM_DIRECTORY and roster.find(chosen) is None:
+		unusable = chosen
+		chosen, source = _first(
+			*(pair for pair in candidates if pair[1] != FROM_DIRECTORY)
+		)
 
 	if chosen is None:
 		chosen, source = roster.default, (
@@ -200,6 +228,7 @@ def resolve (
 	return Current(
 		connection=roster.require(chosen).name,
 		connection_source=source,
+		unusable_marker_connection=unusable,
 		workspace=None if wanted is None else subroutine.domain.workspaces.normalize_slug(wanted),
 		workspace_source=workspace_source if wanted is not None else FROM_NOTHING,
 	)
