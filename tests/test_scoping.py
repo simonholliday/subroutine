@@ -44,6 +44,14 @@ SOURCE = pathlib.Path(subroutine.__file__).parent
 REACHES_DIRECTLY: dict[str, str] = {
 	"domain/scoping.py": "the helper itself",
 	"domain/authorization.py": "defines the visibility predicate the helper applies",
+	"domain/authentication.py": "reads a project's `path` while issuing a credential, to place "
+	"the write set inside the reach (`#413`). **Deliberately not narrowed by visibility**, and "
+	"that is the point rather than an oversight: the question is the shape of the tree, not who "
+	"may look at it, and `_canonical_project_scope` has always allowed a credential to name a "
+	"project its issuer cannot see or one created later. Narrowing here would turn 'is this "
+	"under that' into 'can you see this', refusing a legitimate credential for the wrong "
+	"reason. Nothing is reported back but the key of a project the caller itself named, and "
+	"`_refuse_amplification` has already bounded the caller to its own reach before it runs",
 	"domain/mentions.py": "rewrites refs inside text it was already given",
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
@@ -655,7 +663,108 @@ def test_a_write_set_outside_the_reach_is_refused_at_issue (
 		)
 
 	assert refused.value.errors[0].field == "project_write_scope"
-	assert str(world.private.id) in str(refused.value.errors[0].message)
+
+	# **By its key** (`#413`, `#203`). Somebody typed a key; reading it back as a UUID sends
+	# them to look up what they just wrote, in the one message they meet while still holding
+	# the command they meant to type.
+	assert world.private.key in str(refused.value.errors[0].message)
+	assert str(world.private.id) not in str(refused.value.errors[0].message)
+
+
+def test_a_write_set_may_name_a_project_under_the_reach (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The shape `#370` exists for, refused for a year of afternoons — item ``#413``.
+
+	*"Read the related tree, write only my own project"* is a parent and a child on any real
+	tree, and this was the flat set subset that turned it down — with the sentence *"a project
+	it cannot read"*, about a project the credential reads and writes perfectly well.
+
+	**Falsified against the original code**, not against a mutation of the fix: restore
+	``set(project_write_scope) - set(project_scope)`` in
+	``authentication._refuse_a_write_set_outside_the_reach`` and this raises. The test beside
+	it, ``test_a_write_set_reaches_the_subtree_under_it``, stayed green throughout — it issues
+	its credential with the reach and the write set naming the *same* project, so it exercises
+	the enforcement's view of the tree and never the issuer's. The guard for the rule, sitting
+	green beside the defect in it.
+	"""
+
+	child = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="BENEATH",
+		title="Beneath",
+		parent=world.public,
+	)
+	session.flush()
+
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=world.owner,
+		title="Reads the tree, writes one part of it",
+		project_scope=[str(world.public.id)],
+		project_write_scope=[str(child.id)],
+	)
+	session.flush()
+
+	assert token.project_write_scope == [str(child.id)]
+
+	bounded = subroutine.domain.authentication.Principal(user=world.owner, token=token)
+
+	# And it behaves as the pair says: writes in the child, refused in the parent it reads.
+	subroutine.domain.authorization.authorize(
+		session,
+		bounded,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=world.workspace.id,
+		project=child,
+	)
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.authorization.authorize(
+			session,
+			bounded,
+			subroutine.permissions.TASK_WRITE,
+			workspace_id=world.workspace.id,
+			project=world.public,
+		)
+
+
+def test_a_write_set_naming_a_project_nobody_can_place_is_still_refused (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""Unknown means unplaceable, never unwelcome — the conservative half of ``#413``.
+
+	The ids are still not validated for *existence*: a credential may name a project its issuer
+	cannot see, or one created later. What changed is that a project with a row can be placed in
+	the tree. One without a row cannot, so it is covered only by being named outright — which is
+	exactly the behaviour that was there before, kept rather than widened.
+	"""
+
+	absent = uuid.uuid4()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=world.owner,
+			title="Writes somewhere nobody can find",
+			project_scope=[str(world.public.id)],
+			project_write_scope=[str(absent)],
+		)
+
+	# Named by its id, because there is no key to name it by — which is the honest answer.
+	assert str(absent) in str(refused.value.errors[0].message)
+
+	# Named outright in the reach, it is accepted, unplaceable or not.
+	allowed, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=world.owner,
+		title="Writes where it says it reaches",
+		project_scope=[str(world.public.id), str(absent)],
+		project_write_scope=[str(absent)],
+	)
+
+	assert allowed.project_write_scope == [str(absent)]
 
 
 def test_a_credential_cannot_issue_one_that_writes_more_widely (

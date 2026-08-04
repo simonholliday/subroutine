@@ -21,7 +21,9 @@ import sqlalchemy.orm
 
 import subroutine.auth
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.types
+import subroutine.domain.hierarchy
 import subroutine.errors
 import subroutine.permissions
 
@@ -206,7 +208,7 @@ def issue_token (
 		else _canonical_project_scope(project_write_scope, field="project_write_scope")
 	)
 
-	_refuse_a_write_set_outside_the_reach(project_scope, project_write_scope)
+	_refuse_a_write_set_outside_the_reach(session, project_scope, project_write_scope)
 
 	issued = _mint_unused_token(session)
 
@@ -498,7 +500,9 @@ def _canonical_project_scope (
 
 
 def _refuse_a_write_set_outside_the_reach (
-	project_scope: list[str] | None, project_write_scope: list[str] | None
+	session: sqlalchemy.orm.Session,
+	project_scope: list[str] | None,
+	project_write_scope: list[str] | None,
 ) -> None:
 	"""Refuse a write set naming a project the credential cannot even see — item ``#371``.
 
@@ -507,15 +511,41 @@ def _refuse_a_write_set_outside_the_reach (
 	itself as able to write in a project every read of which returns nothing — a control that
 	is present, exercised and meaningless, which is this codebase's second signature defect.
 
-	Nothing here checks against *real* projects, for :func:`_canonical_project_scope`'s reason:
-	a credential may name a project its issuer cannot see, or one created later. This is the
-	relationship between the two fields, which is knowable without asking the database.
+	**"Inside the reach" means what it means everywhere else, which took a second attempt**
+	(`#413`). This was a flat set subset, and the reach it was guarding is subtree-inclusive:
+	``--project SR --write WEB``, with ``WEB`` filed under ``SR``, was refused by the sentence
+	*"a project it cannot read"* — about a project it reads and writes perfectly well. That is
+	the ordinary shape of decision `#370`'s ``collaborator``, so the profile built for it could
+	not express it on any tree deeper than one level. :func:`subroutine.domain.hierarchy.within`
+	is now the one implementation, shared with ``authorization._covers``.
+
+	**So this does ask the database, and only about the write set.** The ids are not validated
+	for *existence* — :func:`_canonical_project_scope`'s reason still holds, and a credential
+	may name a project its issuer cannot see or one created later. What is fetched is the
+	``path`` needed to place a project in the tree, and a project with no row is covered only by
+	being named outright: unknown means unplaceable, never unwelcome. It is deliberately not
+	narrowed by visibility, because this is a question about the shape of the tree rather than
+	about who may look at it — and ``_refuse_amplification`` has already bounded the caller to
+	its own reach before this runs.
 	"""
 
 	if project_scope is None or project_write_scope is None:
 		return
 
-	outside = sorted(set(project_write_scope) - set(project_scope))
+	reach = set(project_scope)
+	placed = _projects_by_id(session, project_write_scope)
+	outside = []
+
+	for identifier in project_write_scope:
+		found = placed.get(identifier)
+
+		if not subroutine.domain.hierarchy.within(
+			reach, identifier=identifier, path=None if found is None else found.path
+		):
+			# **The key where there is one** (`#203`). Somebody typed `WEB`; reading it back as
+			# a UUID sends them to look up what they just wrote, in the one message they meet
+			# while still holding the command they meant to type.
+			outside.append(identifier if found is None else found.key)
 
 	if not outside:
 		return
@@ -526,12 +556,33 @@ def _refuse_a_write_set_outside_the_reach (
 			subroutine.errors.FieldError(
 				field="project_write_scope",
 				code="invalid_field_value",
-				message=f"Not inside this credential's reach: {', '.join(outside)}.",
-				hint="The write set is a subset of the projects the credential can reach. "
-				"Widen project_scope, or drop these from the write set.",
+				message=f"Not inside this credential's reach: {', '.join(sorted(outside))}.",
+				hint="The write set has to be inside the projects the credential can reach — "
+				"each one named there, or filed under something that is. Widen project_scope, "
+				"or drop these from the write set.",
 			)
 		],
 	)
+
+
+def _projects_by_id (
+	session: sqlalchemy.orm.Session, identifiers: typing.Sequence[str]
+) -> dict[str, subroutine.db.models.project.Project]:
+	"""Return the projects among these ids that exist, keyed by the id as it was written.
+
+	Keyed by the string rather than by the :class:`uuid.UUID` so that the caller compares the
+	same values it was handed — :func:`_canonical_project_scope` has already settled what a
+	canonical id looks like, and re-deriving it here would be a second opinion on it.
+	"""
+
+	model = subroutine.db.models.project.Project
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.id.in_([uuid.UUID(identifier) for identifier in identifiers])
+		)
+	)
+
+	return {str(row.id): row for row in found}
 
 
 def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.IssuedToken:

@@ -66,6 +66,32 @@ def depth_of (path: str) -> int:
 	return max(len(path_segments(path)) - 1, 0)
 
 
+def within (allowed: typing.Collection[str], *, identifier: str, path: str | None) -> bool:
+	"""Report whether a node is one of ``allowed``, or filed anywhere under one of them.
+
+	**"This project and everything under it" is one rule, and it now has one implementation**
+	(item ``#413``). A credential's reach reads it against a loaded row; the check that refuses
+	a write set outside that reach reads it against ids and a path fetched for the purpose. They
+	disagreed: the reach was subtree-inclusive and the issue-time check was a flat set subset,
+	so a credential reaching ``SR`` was refused a write set of ``SR/WEB`` — for a project it
+	could read perfectly well, in a refusal that said it could not.
+
+	``path`` is ``None`` for a node whose row could not be found, which is a legitimate state
+	rather than an error: a credential may name a project its issuer cannot see, or one created
+	later. Such a node is covered only by being named outright, because nothing here can place
+	it in a tree — the conservative direction, and the one that keeps this from becoming a
+	question about what exists.
+	"""
+
+	if identifier in allowed:
+		return True
+
+	if path is None:
+		return False
+
+	return any(segment in allowed for segment in path_segments(path))
+
+
 def is_ancestor_of (candidate: Node, node: Node) -> bool:
 	"""Report whether one node lies on another's path.
 

@@ -32,11 +32,9 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
+import subroutine.domain.hierarchy
 import subroutine.errors
 import subroutine.permissions
-
-#: Separates the segments of a project's materialised path.
-PATH_SEPARATOR = "/"
 
 
 class AuthorizationFailure(enum.StrEnum):
@@ -639,15 +637,17 @@ def _covers (
 	Shared by the two restrictions above so that "reaches" and "may write in" cannot come to
 	mean subtly different things about the same tree — which is the divergence this codebase
 	finds more often than any other.
+
+	**And the rule itself lives in `hierarchy`, one level further out** (`#413`). Two copies
+	were not enough: the check that refuses a write set outside the reach was a third reader of
+	"is this project inside that one", written as a flat set subset, and it refused a child of a
+	project the credential could read. A rule with one implementation cannot do that.
 	"""
 
 	# The sentinel again: no list means no restriction.
 	if allowed is None:
 		return True
 
-	if str(project.id) in allowed:
-		return True
-
-	ancestors = {segment for segment in project.path.split(PATH_SEPARATOR) if segment}
-
-	return any(str(identifier) in ancestors for identifier in allowed)
+	return subroutine.domain.hierarchy.within(
+		allowed, identifier=str(project.id), path=project.path
+	)
