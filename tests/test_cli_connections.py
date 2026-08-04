@@ -1688,19 +1688,61 @@ def test_whoami_reports_the_plugin_that_started_it (
 	The failure this closes was met twice on 2026-08-03 (`#380`, `#393`): an editor's cached
 	copy of the plugin predating the feature it had been installed for, reporting success on
 	install and changing nothing a session could see.
+
+	**The fixture used to be ``9.9.9``, which is the opposite of what the docstring says**
+	(`#417`). A plugin *ahead* of the program is the state decision `#396` requires, so this
+	asserted the warning in the one case that is not a fault — and passed, because the old
+	clause fired on any difference at all. Now it is behind, which is what `#380` and `#393`
+	actually were.
+
+	``program`` is pinned because a checkout reports a development version, which
+	:func:`subroutine.installations.ordered` declines to compare — so on this machine the
+	clause could never fire and the assertion would be untestable rather than merely wrong.
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
 
+	monkeypatch.setattr(subroutine.installations, "program", lambda: "1.0.0")
+
 	manifest = tmp_path / ".claude-plugin" / "plugin.json"
 	manifest.parent.mkdir(parents=True)
-	manifest.write_text(json.dumps({"version": "9.9.9"}), encoding="utf-8")
+	manifest.write_text(json.dumps({"version": "0.9.0"}), encoding="utf-8")
 	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(tmp_path))
 
 	answer = run("whoami").output
 
-	assert "Plugin 9.9.9" in answer
-	assert "The plugin and the program disagree" in answer
+	assert "Plugin 0.9.0" in answer
+	assert "The plugin is older than the program" in answer
+
+
+def test_whoami_says_nothing_about_a_plugin_that_is_merely_newer (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Item ``#417``, end to end on the surface a person reads.
+
+	The manifest's version is a cache key and has to move on any change under ``plugins/``, so
+	it leads between releases by design. Warning about it put a line on every ``whoami`` in the
+	healthy state — and the skill tells an agent to act on that line.
+
+	The versions are still all printed; what is withheld is a claim that something is wrong.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	monkeypatch.setattr(subroutine.installations, "program", lambda: "1.0.0")
+
+	manifest = tmp_path / ".claude-plugin" / "plugin.json"
+	manifest.parent.mkdir(parents=True)
+	manifest.write_text(json.dumps({"version": "1.1.0"}), encoding="utf-8")
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(tmp_path))
+
+	answer = run("whoami").output
+
+	assert "Plugin 1.1.0, program 1.0.0" in answer
+	assert "older than" not in answer
+	assert "disagree" not in answer
 
 
 def test_whoami_json_carries_the_versions_of_the_process_that_asked (

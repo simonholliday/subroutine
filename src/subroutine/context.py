@@ -247,6 +247,14 @@ def stored_workspace (connection: str) -> str | None:
 	for the same reason: a slug means nothing on an instance that has never heard of it. Two
 	copies of that condition would be one more place for the chain to disagree with itself,
 	so this is the function ``resolve`` should eventually read too.
+
+	**Normalised, which it was not** (`#418`). ``resolve`` puts both halves through
+	``workspaces.normalize_slug`` and says why three lines above: not doing so was a §13.5b
+	regression, where a capitalisation turned on labelling that had nothing to disambiguate.
+	This was written beside that comment and omitted it — and ``use`` stores what was typed, so
+	``subroutine use PROJECTS`` left the caller comparing ``'PROJECTS'`` against the canonical
+	``'projects'``. `#324`'s fallback then silently did not apply, degrading to the *old*
+	behaviour with the *old* message, which is the hardest kind of failure to notice.
 	"""
 
 	stored = read()
@@ -256,7 +264,10 @@ def stored_workspace (connection: str) -> str | None:
 
 	wanted = stored.get("workspace")
 
-	return None if wanted is None or not wanted.strip() else wanted.strip()
+	if wanted is None or not wanted.strip():
+		return None
+
+	return subroutine.domain.workspaces.normalize_slug(wanted.strip())
 
 
 def _first (*candidates: tuple[str | None, str]) -> tuple[str | None, str]:

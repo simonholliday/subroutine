@@ -3993,6 +3993,46 @@ def test_a_stale_marker_falls_back_to_the_stored_context (
 	assert "several workspaces" not in settled.output, "which is what it used to refuse with"
 
 
+def test_the_fallback_does_not_turn_on_how_the_workspace_was_capitalised (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Item ``#418``. `#324`'s fallback applied or did not depending on one keystroke.
+
+	``subroutine use`` stores what was typed — verified: ``context.toml`` holds
+	``workspace = "PROJECTS"`` — and ``context.resolve`` normalises both halves before
+	anything compares them, with a comment three lines up saying why. ``stored_workspace`` was
+	written beside that comment and omitted it, so ``_settled`` compared ``'PROJECTS'`` against
+	the canonical ``'projects'``, found no match, and fell back to *"Ignoring it"* — the
+	behaviour `#324` had just replaced, with the message `#324` had just replaced.
+
+	**A fix that silently half-applies is worse than no fix**, because the failure is the old
+	one and nothing distinguishes them. The test beside this one passes either way: it types
+	the slug in lower case, which is what anybody writing the test would do.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "projects", "Projects")
+	run("-w", "projects", "project", "create", "SR", "Subroutine")
+
+	# Capitalised on purpose. `Roster.find` and `Identity.workspace` both match
+	# case-insensitively, so this resolves and is stored verbatim.
+	run("use", "PROJECTS")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "local"\nworkspace = "si"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	settled = run("use", "--here", "--project", "SR")
+
+	assert "Using 'projects' instead" in settled.output
+	assert "Ignoring it" not in settled.output
+
+
 def test_a_stale_marker_with_nothing_to_fall_back_to_still_says_so (
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,
