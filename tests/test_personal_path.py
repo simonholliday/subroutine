@@ -2184,6 +2184,65 @@ def test_the_project_listing_shows_what_is_inside_what (
 	assert where("OUTER") < where("INNER"), printed
 
 
+def test_a_listing_marks_work_that_cannot_be_started_yet (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#425``. The default listing put a blocked item above its blocker, unmarked.
+
+	Reported by an agent on a fresh install: *"list default-orders a blocked item above its
+	blocker with no marker that it is blocked. ready=true filters correctly, but the default
+	listing is the one you would hand to a person, and it reads as start with #2."*
+
+	The ordering is not the bug and is not changed — newest first is what was asked for. What
+	was missing is a row that says why the top one is not the one to start.
+
+	**Neither title contains the word, and that is not incidental.** The first version of this
+	test used "The thing that is blocked" and passed with the field removed from the view
+	entirely — it was matching the title, not the marker. Falsifying caught it; reading it
+	would not have.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Land the migration")
+	run("add", "Ship the release")
+	run("link", "1", "blocks", "2")
+
+	listed = run("list").output
+	rows = {
+		row.split()[0].lstrip("#"): row
+		for row in listed.splitlines()
+		if row.strip().startswith("#")
+	}
+
+	assert set(rows) == {"1", "2"}, listed
+	assert "blocked" not in rows["1"], rows["1"]
+
+	# The marker is its own cell between the address and the title, not part of either.
+	address, marker, title = rows["2"].split(maxsplit=2)
+
+	assert (address, marker, title) == ("#2", "blocked", "Ship the release"), rows["2"]
+
+	# --ready still filters rather than marks, which is the half that already worked.
+	assert "#2" not in run("list", "--ready").output
+
+
+def test_a_listing_with_nothing_blocked_shows_no_such_column (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4: a person who has never linked two items never meets the word.
+
+	The column is measured across the page and dropped when every row is empty — the rule the
+	kind, started and priority columns already follow. Without this the marker would be a
+	permanent extra column on a to-do list, which is exactly what §13.5b exists to prevent.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Buy milk")
+	run("add", "Call the dentist")
+
+	assert "blocked" not in run("list").output
+
+
 def test_add_files_a_description_in_the_same_call (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

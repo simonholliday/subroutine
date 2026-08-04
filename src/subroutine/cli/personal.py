@@ -379,6 +379,7 @@ class Columns:
 	address: int = 0
 	kind: int = 0
 	started: int = 0
+	blocked: int = 0
 	priority: int = 0
 	estimate: int = 0
 	matched: int = 0
@@ -403,6 +404,7 @@ class Columns:
 			),
 			kind=_column(item.type for _name, item in rows),
 			started=_column(_started_cell(item) for _name, item in rows),
+			blocked=_column(_blocked_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
 		)
@@ -433,6 +435,39 @@ def _started_cell (item: Item) -> str:
 		return ""
 
 	return STARTED_MARK if item.status_category == "in_progress" else ""
+
+
+#: Marks work something unfinished is in the way of — item `#425`. **A word, for
+#: `STARTED_MARK`'s reason**: decision `#102` says no information exists only in a colour, and
+#: the same argument retires a bare glyph.
+#:
+#: Not a §13.5b word — a person who has never linked two items never sees this, because the
+#: column is dropped when no row on the page carries it.
+BLOCKED_MARK = "blocked"
+
+
+def _blocked_cell (item: Item) -> str:
+	"""Return the marker for work that cannot be started yet, or nothing (`#425`).
+
+	**A filter is not a signal, and the default listing is the one somebody reads.**
+	``--ready`` has excluded blocked work since `#69`; the list you get by typing nothing
+	showed a blocked item above the thing blocking it with no way to tell. Reported by an agent
+	that read a default listing as "start with #2" — and `#69` itself recorded the same
+	observation about `#57` and `#58` a week before shipping only the filter half.
+
+	**The marker rather than the ordering**, which is what was asked for and is also right: the
+	default order is newest-first, and reordering by readiness would make the list answer a
+	question it was not asked. A row that says why it is not first costs nothing and stays true
+	under every order.
+
+	Empty on every row of an ordinary list, which drops the column entirely — the same rule the
+	kind, started and priority columns follow (§1.4, §14.10).
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	return BLOCKED_MARK if item.blocked else ""
 
 
 def _priority_cell (item: Item) -> str:
@@ -4531,6 +4566,12 @@ def _item_line (
 	# is what somebody scanning for "where was I" is looking for.
 	if columns.started:
 		line.append(f"{_started_cell(item):<{columns.started}}  ", style=DETAIL)
+
+	# Beside `started` because it answers the same kind of question — not what an item *is*,
+	# but whether you can act on it now. `started` first: "I am in the middle of this" outranks
+	# "something is in the way", and an item can carry both.
+	if columns.blocked:
+		line.append(f"{_blocked_cell(item):<{columns.blocked}}  ", style=DETAIL)
 
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)

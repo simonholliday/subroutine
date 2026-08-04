@@ -51,6 +51,7 @@ import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.projects
+import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -195,6 +196,20 @@ class Task(pydantic.BaseModel):
 	claimed_by_id: uuid.UUID | None = None
 	claimed_at: datetime.datetime | None = None
 	claim_expires_at: datetime.datetime | None = None
+
+	#: Whether something unfinished is blocking this — item `#425`, and **one query for the
+	#: page** rather than one per row (`#39`'s N+1, which is what kept it unreported).
+	#:
+	#: **Only the `blocks` half of readiness, deliberately.** ``?ready=true`` also excludes work
+	#: that is deferred or claimed by somebody else, and those two are already visible: a defer
+	#: renders as its date and a claim as its holder. A blocker was the one that could not be
+	#: seen at all, so a listing put a blocked item above the thing blocking it with nothing to
+	#: say so — reported by an agent reading a default listing as "start with #2".
+	#:
+	#: A fact about the *work*, not about the viewer, so unlike a claim it reads the same for
+	#: everybody. Defaulted, so a client can read an instance that predates it (`#345`) — and
+	#: ``False`` there means "nothing says so", which is the honest reading of silence.
+	blocked: bool = False
 
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
@@ -1008,6 +1023,10 @@ class Vocabulary:
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
+		# Materialised because two loads read it, and a caller passing a generator would give
+		# the second one nothing — silently, and only for the field added later.
+		wanted = set(task_ids)
+
 		self.statuses = _by_id(
 			session,
 			subroutine.db.models.vocabulary.Status,
@@ -1020,7 +1039,14 @@ class Vocabulary:
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
 		)
-		self.tags = subroutine.domain.tags.names_for_tasks(session, task_ids)
+		self.tags = subroutine.domain.tags.names_for_tasks(session, wanted)
+
+		# **One query for the whole page, which is the only reason this is affordable**
+		# (`#425`). Readiness is a filter by design (`#69`), so asking it per row is `#39`'s
+		# N+1 — and that was the recorded obstacle to marking blocked work for as long as
+		# anybody wanted it marked. Loaded here because this class is already the answer to
+		# "what does a page of rows need that a row cannot know on its own".
+		self.blocked = subroutine.domain.readiness.blocked_among(session, wanted)
 
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
@@ -1099,6 +1125,7 @@ def task (
 		claimed_by_id=row.claimed_by_id,
 		claimed_at=row.claimed_at,
 		claim_expires_at=row.claim_expires_at,
+		blocked=row.id in vocabulary.blocked,
 		importance=row.importance,
 		urgency=row.urgency,
 		# Computed here rather than read from the database: §6.3 calls it derived, and a

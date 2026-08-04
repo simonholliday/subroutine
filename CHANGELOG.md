@@ -32,6 +32,22 @@ upgrade involves.
   meant filing a title with the reasoning nowhere. Reported by a coding agent on a fresh install
   that had done exactly that, six times, and explained why its own titles had become unreadable.
 
+- **A listing says which work is blocked.** `subroutine list` and the agent's
+  `subroutine_list` now mark an item something unfinished is in the way of, and `blocked` is on
+  the task in the API.
+
+  `--ready` has filtered blocked work out since the first release, but the listing you get by
+  typing nothing is the one you actually read — and it would show a blocked item above the very
+  task blocking it, with no way to tell. Reported by an agent that read its own backlog as
+  "start with #2".
+
+  **The ordering is unchanged**, which is what was asked for and is also right: newest-first is
+  what the default listing promises, and re-sorting it by readiness would answer a question
+  nobody asked. A row that says why it is not the one to start stays true under every order.
+
+  The column disappears entirely when nothing on the page is blocked, so a to-do list that has
+  never linked two items looks exactly as it did.
+
 ## 0.3.0 — 2026-08-04
 
 > **This release changes the database schema**, to `d5d0458f5ad5`.

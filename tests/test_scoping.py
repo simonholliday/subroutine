@@ -74,12 +74,16 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"link lookup, which is keyed to a link already resolved from a visible item",
 	"domain/documents.py": "single-row reads by id, each after an authorize() call; the "
 	"vocabulary lookups are workspace-scoped and hold no work",
-	"domain/readiness.py": "builds a *predicate*, never a row set — the caller applies it to "
-	"a statement that already started at readable_tasks. Its own correlated subquery reads "
-	"blocker tasks **without narrowing by visibility, deliberately**: readiness is a fact "
-	"about the work, not about the viewer, and counting only the blockers a caller can see "
-	"would report an item as startable when it is not. The alternative leaks less and lies, "
-	"and what this discloses is bounded — that something unseen blocks an item, never what",
+	"domain/readiness.py": "builds *predicates* the caller applies to a statement that already "
+	"started at readable_tasks — and, since `#425`, one row set: `blocked_among` answers "
+	"'which of these are blocked' for a page whose ids the caller has already fetched through "
+	"the helper, so it narrows a set that was narrowed, and can only ever return a subset of "
+	"what it was given. **This entry said 'never a row set' until then**, which is the kind of "
+	"excuse that outlives its own reason. Both paths read blocker tasks **without narrowing by "
+	"visibility, deliberately**: readiness is a fact about the work, not about the viewer, and "
+	"counting only the blockers a caller can see would report an item as startable when it is "
+	"not. The alternative leaks less and lies, and what this discloses is bounded — that "
+	"something unseen blocks an item, never what",
 	"domain/links.py": "resolves each end through scoping.readable_tasks/_documents and "
 	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
 	"content of their own",

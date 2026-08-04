@@ -590,6 +590,43 @@ def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	assert from_local.task.title == from_remote.task.title == "Water the plants every monday"
 
 
+def test_both_report_which_work_is_blocked (pair: Pair) -> None:
+	"""Item ``#425``. The listing said nothing, so a blocked item sorted above its blocker.
+
+	``?ready=true`` has excluded blocked work since `#69` — but a *filter* is not a signal, and
+	the default listing is the one somebody reads. An agent on a fresh install reported it as
+	"start with #2", and `#69` itself had recorded the same observation about `#57` and `#58`
+	before shipping only the filter half.
+
+	Both transports, because the field is loaded per page by ``Vocabulary`` — one query for the
+	whole page (`#39`'s N+1 was the recorded obstacle) — and a marker that appeared on one
+	transport and not the other would be worse than none.
+	"""
+
+	local, remote = pair.both()
+
+	blocker = local.capture(text="Fix the thing that blocks the other").task
+	blocked = local.capture(text="The thing that is blocked").task
+
+	local.link(ref=blocker.ref, link_type="blocks", target=blocked.ref)
+
+	def seen (client: subroutine.clients.base.Client) -> dict[int, bool]:
+		"""Return which refs each transport reports as blocked."""
+
+		return {row.ref: row.blocked for row in client.tasks(limit=50)}
+
+	assert seen(local) == seen(remote)
+	assert seen(local)[blocked.ref] is True
+	assert seen(local)[blocker.ref] is False
+
+	# **It follows the links rather than a stored flag**, which is why it is not writable:
+	# finishing the blocker changes it without anybody touching the blocked item.
+	local.complete(ref=blocker.ref)
+
+	assert seen(local)[blocked.ref] is False
+	assert seen(remote)[blocked.ref] is False
+
+
 def test_both_carry_a_description_beside_the_captured_line (pair: Pair) -> None:
 	"""Item ``#424``. The endpoint took this beside ``text`` since M1; neither client did.
 

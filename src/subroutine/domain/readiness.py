@@ -69,6 +69,44 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 	)
 
 
+def blocked_among (
+	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+	"""Return which of these tasks something unfinished is blocking — item ``#425``.
+
+	**The row-level form of :func:`unblocked`, and built from it rather than beside it.** The
+	pair `claims.held_by` and `readiness.held` are the precedent, and §6.3a's warning is the
+	reason: a predicate the database filters by and a reader that labels a loaded row have to
+	agree, or a listing marks one set of rows and ``?ready=true`` hides another.
+
+	**One query for a page, which is what made this affordable at all.** Readiness is a filter
+	by design (`#69`), so asking it per row is `#39`'s N+1 — the recorded obstacle to marking a
+	blocked item for as long as the marking was wanted. Asking it once for every id on the page
+	costs a single ``EXISTS`` scan and is what :class:`subroutine.views.Vocabulary` already does
+	for statuses, types and parents.
+
+	Deliberately not narrowed by visibility, for :func:`unblocked`'s reason: whether work is
+	blocked is a fact about the work rather than about the viewer, and counting only the
+	blockers a caller can see would mark an item startable when it is not. What that discloses
+	is bounded — that something unseen blocks an item, never what.
+	"""
+
+	wanted = set(identifiers)
+
+	if not wanted:
+		return set()
+
+	model = subroutine.db.models.work.Task
+
+	return set(
+		session.scalars(
+			sqlalchemy.select(model.id).where(
+				model.id.in_(wanted), sqlalchemy.not_(unblocked(model))
+			)
+		)
+	)
+
+
 def undeferred (
 	model: type[typing.Any], *, now: datetime.datetime
 ) -> sqlalchemy.ColumnElement[bool]:

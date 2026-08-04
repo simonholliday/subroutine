@@ -704,6 +704,13 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 	cells = [subroutine.domain.refs.format_ref(item.ref), item.type]
 
 	if isinstance(item, subroutine.views.Task):
+		# **Before the rank, because it changes what the rank means** (`#425`). A default
+		# listing put a blocked item above the thing blocking it with nothing to say so, and an
+		# agent reading one reported it as "start with #2". `ready=true` filters correctly; the
+		# listing an agent gets by asking for the backlog is the one that could not tell it.
+		if item.blocked:
+			cells.append("blocked")
+
 		if item.importance is not None or item.urgency is not None:
 			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")
 

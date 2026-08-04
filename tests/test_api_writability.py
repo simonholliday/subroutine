@@ -77,6 +77,12 @@ DERIVED: dict[str, str] = {
 	),
 	"type_id": "The id of the type named by `type`.",
 	"priority_score": "importance x urgency (§6.3). Derived, and null unless both are set.",
+	"blocked": (
+		"Whether an unfinished task blocks this one, read off the `blocks` links rather than "
+		"stored (`#425`). Writing it would mean two answers to one question — the links and a "
+		"flag — and the flag would be the one that went stale, since it changes when *another* "
+		"item completes. Make it true or false by linking or by finishing the blocker."
+	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
 	"completed_at": "Follows the status category (§10.7 invariant 5), never set directly.",
 	"archived_at": "Archiving is its own operation, not a field to assign a timestamp to.",
