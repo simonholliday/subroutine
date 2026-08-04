@@ -322,6 +322,17 @@ document for anything you decided, and mark done what is done. `subroutine_done(
 
 - **A number means one item, for ever.** `#42` is allocated once and never reused, and it names
   a task *or* a document. Never address anything by its position in a list.
+
+  **The number space is Subroutine's, so do not mint your own.** When you write anything else —
+  a review, a design note, a summary in chat — do not number its sections and call them findings
+  or items. A reader holding "finding 3" and `#3` cannot tell them apart, and you will not be
+  there to explain. Name the sections, and cite the real ref wherever one exists.
+
+  **You usually cannot cite the refs on the first pass**, because you do not know what is worth
+  filing until you have written it up. So write it with names, file from it, then go back once
+  and put the refs in. That pass is what turns a write-up into the index into the tracker, which
+  is what somebody reading it in six months actually wants — and it is the pass that shows you
+  which findings you never filed.
 - **Blocked is a link, not a status.** Say it with a link rather than by setting a status — a
   link resolves itself when the other side finishes, and it is what `ready` reads.
 
