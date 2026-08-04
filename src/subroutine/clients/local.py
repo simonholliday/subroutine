@@ -922,6 +922,20 @@ class Client:
 				membership, account=account, role=held, within=chosen
 			)
 
+	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
+		"""Mark somebody as having left, or bring them back."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			account = subroutine.domain.users.by_username(session, username)
+
+			subroutine.domain.users.set_active(
+				session, account, active=active, actor=actor
+			)
+
+			return subroutine.views.user(account)
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
 

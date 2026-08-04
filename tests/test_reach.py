@@ -91,6 +91,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/tasks/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/documents"): "create_document",
 	("POST", "/v1/users"): "create_user",
+	("PATCH", "/v1/users/{username}"): "set_active",
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
@@ -241,6 +242,16 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"and confirmed at a terminal. An agent wanting a count asks `subroutine_list` and "
 		"reads what came back; a whole tool schema in every session to save it that is the "
 		"trade §21's budget exists to refuse.",
+	),
+	"set_active": (
+		"administrative",
+		"`#475`. Marking a person as having left is an instance-tier administrative act, and "
+		"§12.4 keeps those on the CLI where they work when the service does not. It is also the "
+		"one act that can stop *the agent making the call* — every agent answers to a person, "
+		"so an agent that could deactivate one could revoke itself and its siblings in a single "
+		"call it cannot undo. Not a budget decision: this is a capability an agent should not "
+		"have, and deleting this entry needs an argument about authority rather than about "
+		"tool count. **Deleting this entry is what would close that.**"
 	),
 	"update_document": (
 		"tracked",

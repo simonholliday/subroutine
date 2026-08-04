@@ -22,6 +22,24 @@ upgrade involves.
 
 ### Added
 
+- **Somebody can be marked as having left, and the agents answerable to them stop.**
+  `subroutine user deactivate thomas`, and `reactivate` to bring them back.
+
+  Their account stays and so does everything they wrote, still attributed to them. What stops is
+  their credentials and every agent that answers to them — because somebody gave those agents
+  permission to work, and that permission was this person's to give.
+
+  **It names what it will stop before doing it**, including agents created by other agents,
+  because a deactivation that silently kills a shared worker is how people learn to stop
+  deactivating leavers at all.
+
+  The last person who can administer the instance is refused: one nobody can administer cannot
+  be repaired from inside, and under the accountability model it would stop every agent at once.
+
+  `is_active` had been enforced in four places and settable in none, so *this person has left*
+  was a state the product could not reach while several code paths were written as though it
+  could.
+
 - **A task records who assigned it.** `assigned_by_id` answers the plain question a person asks
   of their own list — *who put this in my queue* — and it is what a hand-back reads when an agent
   cannot finish something and needs to send it to whoever asked for it.
@@ -40,10 +58,14 @@ upgrade involves.
   account, and following that chain from any agent reaches a person.
 
   Two rules make it worth having. The chain must **terminate at a person**, so one that loops or
-  ends at another agent is refused rather than stored. And it is **inherited, never chosen**: an
-  agent creating a sub-agent produces one answerable to the same person it is, because letting
-  the creator name somebody else would let an agent make work traceable to a person who
+  never reaches one is refused rather than stored. And it is **inherited, never chosen**: an
+  agent that creates a sub-agent becomes the link that sub-agent answers to, and letting the
+  creator name somebody else instead would let an agent make work traceable to a person who
   authorised none of it.
+
+  The chain records the delegation *path* rather than collapsing it, so deactivating an agent
+  partway along stops everything it created, and walking to the end still says who is
+  ultimately accountable.
 
   Existing service accounts are adopted by the migration where the answer is unambiguous — the
   sole active superuser. Where an installation has several administrators there is no unambiguous

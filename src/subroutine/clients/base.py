@@ -491,6 +491,15 @@ class Client(typing.Protocol):
 		the decision being taken, and a default would be this method taking it quietly.
 		"""
 
+	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
+		"""Mark somebody as having left, or bring them back — `#475`.
+
+		Deactivating stops every agent answerable to them (decision `#473`), so a caller that
+		can name them first should. The last person able to administer the instance is refused.
+		"""
+
+		raise NotImplementedError
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace.
 

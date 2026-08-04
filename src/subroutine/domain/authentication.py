@@ -23,6 +23,7 @@ import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.hierarchy
 import subroutine.errors
 import subroutine.permissions
@@ -416,9 +417,53 @@ def authenticate (
 	if user is None or not user.is_active or user.deleted_at is not None:
 		raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
 
+	_refuse_an_agent_nobody_answers_for(session, user, prefix=prefix)
+
 	_record_use(token, moment)
 
 	return Principal(user=user, token=token)
+
+
+def _refuse_an_agent_nobody_answers_for (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	prefix: str | None,
+) -> None:
+	"""Refuse an agent whose accountability chain does not reach an *active* person — `#479`.
+
+	Decision `#473`: somebody gave an agent permission to work, and when that somebody leaves,
+	so does the permission. The check above asks whether *this* account is active; this asks the
+	same question of everybody it answers to, which is the half that makes marking a leaver
+	inactive mean anything.
+
+	**Fails safe, and that is the whole argument.** An agent acting with nobody on the hook is
+	what the model exists to prevent, so a chain that cannot be resolved — broken, circular, or
+	naming nobody — is a refusal rather than a shrug. `domain.accountability` already refuses
+	those on the way in; reaching one here means a database somebody edited, or the row a
+	migration deliberately left when it declined to guess between two administrators.
+
+	A person is not walked at all: they answer for themselves, and the check above has already
+	asked whether they are active.
+	"""
+
+	if not user.is_service_account:
+		return
+
+	try:
+		walked = subroutine.domain.accountability.chain(session, user)
+
+	except subroutine.errors.ValidationError as broken:
+		raise AuthenticationError(
+			AuthenticationFailure.USER_INACTIVE, prefix=prefix
+		) from broken
+
+	# Everybody in the chain, not only the person at the end: an intermediate agent that has
+	# been deactivated is a link somebody deliberately cut, and honouring only the far end
+	# would walk straight past it.
+	for entry in walked[1:]:
+		if not entry.is_active or entry.deleted_at is not None:
+			raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
 
 
 def revoke_token (

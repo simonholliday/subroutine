@@ -13,9 +13,10 @@ reaches somebody who answers for themselves, in finite steps and without a cycle
 loops, or that ends at an agent, is an accountability gap that looks exactly like a working one
 — every row is populated and every foreign key resolves.
 
-**It is inherited, never chosen.** An agent creating a sub-agent produces one answerable to the
-same person it is answerable to. Letting the creator *name* somebody would launder
-accountability in a single call: the sub-agent does something wrong and the trace terminates at
+**It is inherited, never chosen.** An agent that creates a sub-agent becomes the link that
+sub-agent answers to, so the chain records the delegation *path* — sub-agent to agent to person
+— rather than collapsing to whoever is ultimately on the hook. Letting the creator *name*
+somebody instead would launder accountability in a single call: the sub-agent does something wrong and the trace terminates at
 a person who authorised none of it. That is the shape ``_refuse_amplification`` exists for —
 ``#356`` found expiry was a fourth way to widen a credential, under a docstring asserting there
 were three and all three were refused — and a creation path that improves the creator's own
@@ -96,20 +97,67 @@ def answers_for (
 	return chain(session, user)[-1]
 
 
-def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
-	"""Return who a *new* account created by ``actor`` must be answerable to.
+def agents_answering_to (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> list[subroutine.db.models.identity.User]:
+	"""Return the live service accounts this person answers for, directly or through another.
 
-	An agent passes on its own answer rather than choosing one, which is what stops
-	accountability being laundered through a sub-agent. A person is the answer for anything they
-	create, including themselves as the obvious case.
+	Used to say *what will stop* before somebody is marked as having left — `project rename`'s
+	precedent, which counts the items and names the three things that stop working before doing
+	any of it. A deactivation that silently kills a shared agent is how a governance control
+	comes to be routed around.
 
-	Returns ``None`` only when ``actor`` is an agent with no chain, which :func:`chain` refuses
-	elsewhere — the caller creating an account is not the right place to discover it, but it is
-	the right place not to invent one.
+	Walks outward level by level rather than recursively, because the chain is a tree and the
+	depth is small; :data:`MAX_DEPTH` bounds it for the same reason :func:`chain` does.
 	"""
 
-	if actor.is_service_account:
-		return actor.responsible_user_id
+	model = subroutine.db.models.identity.User
+	found: dict[uuid.UUID, subroutine.db.models.identity.User] = {}
+	frontier = [user.id]
+
+	for _step in range(MAX_DEPTH):
+		if not frontier:
+			break
+
+		rows = list(
+			session.scalars(
+				sqlalchemy.select(model).where(
+					model.responsible_user_id.in_(frontier),
+					model.is_service_account.is_(True),
+					model.deleted_at.is_(None),
+				)
+			)
+		)
+
+		# A cycle would otherwise walk for ever here. `chain` refuses one on the way in, so
+		# reaching this is a database somebody edited — worth surviving rather than trusting.
+		fresh = [row for row in rows if row.id not in found]
+
+		for row in fresh:
+			found[row.id] = row
+
+		frontier = [row.id for row in fresh]
+
+	return sorted(found.values(), key=lambda row: row.username)
+
+
+def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
+	"""Return who a *new* account created by ``actor`` must be answerable to: ``actor`` itself.
+
+	**The creator, not the creator's person.** An agent that spawns a sub-agent becomes the link
+	the sub-agent answers to, so the chain records the delegation *path* — sub-agent to agent to
+	person — rather than collapsing it to whoever is ultimately on the hook. Both answer "who is
+	accountable", because :func:`answers_for` walks to the end either way; only the nested form
+	also answers "who handed this down", and that is the question decision `#473` is about.
+
+	Written flat first — returning ``actor.responsible_user_id`` for an agent — and that was
+	wrong in a way no unit test noticed: every chain was two links long, so deactivating an
+	intermediate agent left everything it had created working, with nobody having decided that.
+	Found by a test asserting the opposite and failing.
+
+	It is still inherited rather than chosen, which is the property that matters: the creator is
+	the creator, and nothing about this is settable.
+	"""
 
 	return actor.id
 

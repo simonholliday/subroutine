@@ -27,6 +27,7 @@ an agent that has to do that on every listing pays for it in context on every li
 asked for, because an exact count is a second full scan for a number most callers ignore.
 """
 
+import collections.abc
 import datetime
 import typing
 import uuid
@@ -1667,6 +1668,49 @@ def narrowing (
 		parts.append(f"scopes {', '.join(credential.scopes)}")
 
 	return "; ".join(parts)
+
+
+def answering_to (
+	rows: collections.abc.Sequence[User], username: str
+) -> list[str]:
+	"""Return the agents that answer to ``username``, directly or through another — `#475`.
+
+	**Here rather than in the domain, and both exist on purpose.**
+	``domain.accountability.agents_answering_to`` is a SQL query for the server, which has a
+	session; this walks rows a *client* already holds, because a CLI talking to a remote
+	instance has no session and must not gain one. Same reason ``views.py`` sits outside
+	``api/`` at all — the alternative is the CLI asking a question the HTTP client cannot.
+
+	Level by level rather than recursively, and bounded: a cycle is refused on the way in, so
+	meeting one here means a database somebody edited, and looping for ever while somebody waits
+	at a prompt is the worse failure.
+	"""
+
+	by_name = {row.username: row for row in rows}
+	start = by_name.get(username)
+
+	if start is None:
+		return []
+
+	found: dict[uuid.UUID, str] = {}
+	frontier = {start.id}
+
+	for _step in range(16):
+		if not frontier:
+			break
+
+		fresh = {
+			row.id: row.username
+			for row in rows
+			if row.is_service_account
+			and row.responsible_user_id in frontier
+			and row.id not in found
+		}
+
+		found.update(fresh)
+		frontier = set(fresh)
+
+	return sorted(found.values())
 
 
 def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:

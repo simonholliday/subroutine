@@ -130,6 +130,89 @@ def create (
 	return user
 
 
+def set_active (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	active: bool,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> list[subroutine.db.models.identity.User]:
+	"""Mark somebody as having left, or bring them back. Returns the agents this affects.
+
+	**`is_active` was enforced and unsettable until now** (`#475`): four code paths refused an
+	inactive account and nothing could produce one, so "this person has left" was a state the
+	product could not reach. Decision `#473` rests on it — when a person goes, the agents
+	answerable to them stop — so it had to become an act somebody can perform.
+
+	**Reactivation is the same operation.** A separate command would be a second copy of the
+	last-administrator rule and the same accounting in reverse, and the two would eventually
+	disagree about what counts as an administrator.
+
+	The affected agents are returned rather than merely counted, so a caller can name them
+	before doing it — `project rename`'s precedent. A deactivation that silently stops a shared
+	agent is how a control like this comes to be worked around.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_USER_CREATE
+		)
+
+	if not active:
+		_refuse_deactivating_the_last_administrator(session, user)
+
+	stopping = subroutine.domain.accountability.agents_answering_to(session, user)
+
+	# Written only when it changes, so that re-running this does not move `updated_at` and
+	# make a no-op look like an act. `VersionMixin` is a plain column here — nothing
+	# increments it for us — so §8.9 would compare a number that never moved otherwise.
+	if user.is_active != active:
+		user.is_active = active
+		user.version += 1
+		session.flush()
+
+	return stopping
+
+
+def _refuse_deactivating_the_last_administrator (
+	session: sqlalchemy.orm.Session, going: subroutine.db.models.identity.User
+) -> None:
+	"""Refuse a deactivation that would leave the instance with nobody able to administer it.
+
+	The same argument as ``workspaces._refuse_removing_the_last_administrator`` one tier up: an
+	instance with no active superuser cannot be repaired from inside, and under decision
+	`#473` it would stop every agent as well — because every chain terminates at a person, and
+	an inactive person ends it. §12.4's direct-database recovery exists so that is survivable,
+	not so that it is the plan.
+	"""
+
+	if not going.is_superuser or not going.is_active:
+		return
+
+	model = subroutine.db.models.identity.User
+	others = session.scalars(
+		sqlalchemy.select(model.id).where(
+			model.is_superuser.is_(True),
+			model.is_active.is_(True),
+			model.is_service_account.is_(False),
+			model.deleted_at.is_(None),
+			model.id != going.id,
+		)
+	).first()
+
+	if others is not None:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{going.username} is the only person who can administer this instance.",
+		hint=(
+			"Make somebody else a superuser first. An instance with nobody able to administer "
+			"it cannot be repaired from inside, and every agent here answers to a person who "
+			"is still here."
+		),
+	)
+
+
 def listed (
 	session: sqlalchemy.orm.Session,
 	*,

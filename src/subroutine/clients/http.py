@@ -565,6 +565,15 @@ class Client:
 
 		return subroutine.views.Member.model_validate(body)
 
+	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
+		"""Mark somebody as having left, or bring them back."""
+
+		self._refuse_if_read_only()
+
+		answer = self._json("PATCH", f"/v1/users/{username}", body={"is_active": active})
+
+		return subroutine.views.User.model_validate(answer)
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
 

@@ -3321,6 +3321,68 @@ def register (
 
 			say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
 
+	@user_app.command("deactivate")
+	def user_deactivate (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Mark somebody as having left, stopping the agents that answer to them.
+
+		Examples:
+
+		  subroutine user deactivate thomas
+
+		Their account stays and so does everything they wrote, still attributed to them. What
+		stops is their credentials and every agent answerable to them — because somebody gave
+		those agents permission to work, and that permission was this person's to give.
+
+		The last person who can administer this instance cannot leave: an instance nobody can
+		administer cannot be repaired from inside, and it would stop every agent at once.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+			stopping = subroutine.views.answering_to(where.client.users(), username)
+
+			# **Named before it happens, not counted** — `project rename`'s rule. A deactivation
+			# that silently stops a shared agent is how somebody learns to stop deactivating
+			# leavers, which costs more than the thing it was protecting.
+			if stopping and not yes:
+				say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
+
+				if not typer.confirm(f"Mark {username} as having left?"):
+					say("Left as they were.")
+
+					return
+
+			where.client.set_active(username=username, active=False)
+
+			say(f"{username} is marked as having left")
+
+			for name in stopping:
+				say(f"  {name} has stopped")
+
+	@user_app.command("reactivate")
+	def user_reactivate (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+	) -> None:
+		"""Bring somebody back, and with them the agents that answer to them.
+
+		Examples:
+
+		  subroutine user reactivate thomas
+
+		The same operation as 'deactivate' in reverse, deliberately: two commands with their own
+		rules would be two places for those rules to disagree.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			where.client.set_active(username=username, active=True)
+
+			say(f"{username} is active again")
+
 	@user_app.command("remove")
 	def user_remove (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),

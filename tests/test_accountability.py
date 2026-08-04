@@ -77,7 +77,12 @@ def test_an_agent_is_answerable_to_whoever_created_it (session: sqlalchemy.orm.S
 def test_an_agents_own_agent_inherits_rather_than_choosing (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A sub-agent answers to the person its creator answers to, however deep it goes.
+	"""A sub-agent answers to *its creator*, and walking on from there reaches the person.
+
+	The chain records the delegation path rather than collapsing it. Both forms answer "who is
+	accountable" — ``answers_for`` walks to the end either way — but only this one also answers
+	"who handed this down", and it is what makes deactivating an intermediate agent stop
+	everything below it.
 
 	The creating agent is a superuser because **creating an account needs
 	``instance:user_create`` and no role may carry an instance verb** (§7.1) — so an agent that
@@ -96,8 +101,9 @@ def test_an_agents_own_agent_inherits_rather_than_choosing (
 		is_service_account=True, actor=_acting(agent),
 	)
 
-	assert sub.responsible_user_id == person.id
+	assert sub.responsible_user_id == agent.id
 	assert subroutine.domain.accountability.answers_for(session, sub) is person
+	assert subroutine.domain.accountability.chain(session, sub) == [sub, agent, person]
 
 
 def test_an_agent_cannot_name_someone_else_as_answerable (

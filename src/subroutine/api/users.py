@@ -90,6 +90,46 @@ def create (
 	return subroutine.views.user(created)
 
 
+class Update(subroutine.api.schemas.RequestModel):
+	"""What ``PATCH /v1/users/{username}`` accepts.
+
+	Only ``is_active`` for now, and that is the whole of `#475`: the column was enforced in four
+	places and written in none, so *this person has left* was a state the product could not
+	reach while four code paths were written as though it could.
+	"""
+
+	#: False marks somebody as having left. Every agent answerable to them stops working, which
+	#: is decision `#473` and is the point rather than a side effect.
+	is_active: bool
+
+
+@router.patch("/{username}", summary="Mark somebody as having left, or bring them back")
+def update (
+	username: str,
+	body: Update,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.User:
+	"""Change whether an account is active.
+
+	Needs ``instance:user_create`` — the same grant as making an account, because deciding
+	somebody works here and deciding they no longer do are the same decision twice.
+
+	**Deactivating stops every agent answerable to that person**, at their next call, wherever
+	they are running. Ask for the list first with ``GET /v1/users`` and
+	``responsible_user_id``: the CLI names them before it does it, and a caller here should
+	too. The last person who can administer the instance is refused, because an instance
+	nobody can administer cannot be repaired from inside and would have stopped every agent on
+	it.
+	"""
+
+	account = subroutine.domain.users.by_username(session, username)
+
+	subroutine.domain.users.set_active(session, account, active=body.is_active, actor=actor)
+
+	return subroutine.views.user(account)
+
+
 @router.get(
 	"",
 	summary="List the accounts on this instance",
