@@ -64,8 +64,43 @@ class Tool:
 		}
 
 
+@dataclasses.dataclass(frozen=True)
+class Resource:
+	"""One document an agent may read when it wants it — `#483`.
+
+	**A second channel, and the difference from a tool is the whole reason this exists.** A
+	tool's schema is context every session carries whether it is called or not, which is why
+	§21.2 caps the surface at thirteen and why this server has no room for a documentation
+	tool. A resource costs a name and a line in ``resources/list``; the *content* is fetched
+	only when a model asks for it.
+
+	``read`` is a callable rather than a string so nothing is captured at start-up. The guide,
+	the worked examples and this installation's vocabulary all live on the instance and change
+	without this process restarting — a resource holding a copy would be the fourth edition of
+	a document, which is the duplication `#47` forbids.
+	"""
+
+	uri: str
+	name: str
+	title: str
+	description: str
+	mime_type: str
+	read: typing.Callable[[], str]
+
+	def described (self) -> dict[str, typing.Any]:
+		"""Return this resource as ``resources/list`` reports it."""
+
+		return {
+			"uri": self.uri,
+			"name": self.name,
+			"title": self.title,
+			"description": self.description,
+			"mimeType": self.mime_type,
+		}
+
+
 class Server:
-	"""Answers MCP methods for a fixed set of tools.
+	"""Answers MCP methods for a fixed set of tools and resources.
 
 	Holds no connection and no session of its own: the tools close over whatever they need,
 	so this class is testable with tools that do arithmetic.
@@ -78,10 +113,12 @@ class Server:
 		name: str,
 		version: str,
 		instructions: str | None = None,
+		resources: typing.Sequence[Resource] = (),
 	) -> None:
-		"""Build a server over these tools."""
+		"""Build a server over these tools and resources."""
 
 		self.tools = {tool.name: tool for tool in tools}
+		self.resources = {resource.uri: resource for resource in resources}
 		self.name = name
 		self.version = version
 		self.instructions = instructions
@@ -126,7 +163,57 @@ class Server:
 		if method == "tools/call":
 			return self._call(identifier, message.get("params") or {})
 
+		if method == "resources/list":
+			return _result(
+				identifier,
+				{"resources": [found.described() for found in self.resources.values()]},
+			)
+
+		if method == "resources/read":
+			return self._read(identifier, message.get("params") or {})
+
 		return _failure(identifier, METHOD_NOT_FOUND, f"Unknown method: {method}")
+
+	def _read (
+		self, identifier: typing.Any, params: dict[str, typing.Any]
+	) -> dict[str, typing.Any]:
+		"""Return one resource's content, or say why not.
+
+		**A failure here is a protocol error rather than a result**, unlike ``tools/call``,
+		which reports a refusal *inside* a successful response so the model can read it and try
+		something else. A resource has no such conversation: the client asked for a document by
+		uri and either got it or did not, and a client is the only thing that ever composes one
+		of these — so a wrong uri is a bug in the client rather than something a model should
+		be handed to reason about.
+		"""
+
+		uri = params.get("uri")
+		found = self.resources.get(uri) if isinstance(uri, str) else None
+
+		if found is None:
+			known = ", ".join(sorted(self.resources)) or "none"
+
+			return _failure(
+				identifier, INVALID_PARAMS, f"No such resource: {uri!r}. There is {known}."
+			)
+
+		try:
+			text = found.read()
+
+		except Exception as unreachable:
+			# The instance is on the far end of a network for every resource here, so this is
+			# the ordinary case rather than the exceptional one — an unreachable server must
+			# read as "could not fetch it" and not as this process falling over.
+			return _failure(
+				identifier,
+				INTERNAL_ERROR,
+				f"{found.uri} could not be read from the instance: {unreachable}",
+			)
+
+		return _result(
+			identifier,
+			{"contents": [{"uri": found.uri, "mimeType": found.mime_type, "text": text}]},
+		)
 
 	def _initialize (self, params: dict[str, typing.Any]) -> dict[str, typing.Any]:
 		"""Return what this server is and what it can do.
@@ -143,7 +230,10 @@ class Server:
 			"protocolVersion": agreed,
 			# `listChanged` is false and stated rather than omitted: this server's tools are
 			# fixed at startup, so promising notifications would be a promise nothing keeps.
-			"capabilities": {"tools": {"listChanged": False}},
+			# **Declared from what this server actually has**, not from what the class can do:
+			# a server built with no resources must not advertise the capability, or a client
+			# calls `resources/list` and is told about an empty channel it was promised.
+			"capabilities": _capabilities(bool(self.resources)),
 			"serverInfo": {"name": self.name, "version": self.version},
 		}
 
@@ -198,6 +288,22 @@ class Server:
 			# readable answer: an exception escaping here would take the whole session down
 			# over one bad argument, and the model would learn nothing from the silence.
 			return _result(identifier, _content(_explained(failure), failed=True))
+
+
+def _capabilities (has_resources: bool) -> dict[str, typing.Any]:
+	"""Return what this server says it can do.
+
+	``listChanged`` is false and *stated* rather than omitted, for both channels: the tools and
+	the resources are fixed at start-up, so promising notifications would be a promise nothing
+	keeps.
+	"""
+
+	described: dict[str, typing.Any] = {"tools": {"listChanged": False}}
+
+	if has_resources:
+		described["resources"] = {"listChanged": False, "subscribe": False}
+
+	return described
 
 
 def _result (identifier: typing.Any, payload: dict[str, typing.Any]) -> dict[str, typing.Any]:

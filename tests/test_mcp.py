@@ -226,11 +226,17 @@ def test_an_unknown_tool_is_a_protocol_error (
 def test_an_unknown_method_is_refused_and_the_session_continues (
 	server: subroutine.mcp.protocol.Server,
 ) -> None:
-	"""One bad message must not end the session — the next one is answered normally."""
+	"""One bad message must not end the session — the next one is answered normally.
+
+	**The method named here is deliberately fictional.** This asked for ``resources/list`` until
+	`#483` implemented it, at which point the test was asserting that a method we now support is
+	refused — it failed, correctly, and said so. A name from the protocol is a name that may
+	become real; one that never can is what this test actually needs.
+	"""
 
 	answered = _exchange(
 		server,
-		{"jsonrpc": "2.0", "id": 1, "method": "resources/list"},
+		{"jsonrpc": "2.0", "id": 1, "method": "subroutine/not-a-method"},
 		{"jsonrpc": "2.0", "id": 2, "method": "ping"},
 	)
 

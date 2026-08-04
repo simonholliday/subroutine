@@ -321,6 +321,12 @@ def _unbuilt () -> str:
 
 @router.get("/docs/agent", summary="A guide written for an agent", response_class=fastapi.responses.PlainTextResponse)
 def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
+	"""Serve §13.3's guide. The text is :func:`guide_text`, so a client can reach it too."""
+
+	return guide_text()
+
+
+def guide_text () -> str:
 	"""Return the agent guide as Markdown.
 
 	Authenticated, though it discloses nothing about the installation: §8.6 marks only
@@ -849,6 +855,12 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	response_class=fastapi.responses.PlainTextResponse,
 )
 def agent_examples (actor: subroutine.api.security.PrincipalDep) -> str:
+	"""Serve the worked calls. The text is :func:`examples_text`, so a client can reach it."""
+
+	return examples_text()
+
+
+def examples_text () -> str:
 	"""Return a worked request for each thing an agent most often needs to do.
 
 	Requests only, deliberately. A recorded *response* is a second copy of the view models and

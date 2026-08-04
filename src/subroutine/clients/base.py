@@ -90,6 +90,23 @@ class Client(typing.Protocol):
 	def identity (self) -> Identity:
 		"""Report which instance this is and which workspaces the credential reaches."""
 
+	def reference (self, name: str) -> str:
+		"""Return one of the instance's reference documents, as text — `#483`.
+
+		``name`` is ``"agent"`` or ``"examples"``. Named rather than given a path, because a
+		client's job is to know where things are and a caller's is not — and because the local
+		client reaches these without HTTP at all.
+
+		**Not this installation's vocabulary**, which would be the obvious third: ``/v1/meta``
+		is built inside ``api`` against a request, so a local client would have to rebuild it,
+		and that is the same extraction `#483` declined to do in a hurry.
+
+		These are what an agent over MCP has no other way to read: it holds a client, so §13.3's
+		guide assumed it had already got past the problem the guide solves, and it has not.
+		"""
+
+		raise NotImplementedError
+
 	def me (self) -> subroutine.views.Me:
 		"""Report who this connection thinks the caller is, and what they may do — `#336`.
 

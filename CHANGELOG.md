@@ -22,6 +22,20 @@ upgrade involves.
 
 ### Added
 
+- **An agent working over MCP can read the guide written for it.** The agent guide and its
+  worked examples are offered as MCP *resources*, so a client with no shell and no HTTP of its
+  own can open them.
+
+  They were reachable only over HTTP, which an agent using the tools may have no way to call —
+  so §13.3's guide, written specifically for a caller arriving with a base URL and a token, was
+  the one thing that reader could not get. It says what a ref is, what to read first, and what
+  is not built yet.
+
+  **Resources rather than another tool**, because a tool's schema is context every session
+  carries whether it is used or not, and the surface is already at its budget. A resource costs
+  a line in a list and its content only when something asks for it — nothing is fetched until it
+  is opened.
+
 - **An agent can be handed to somebody else.** `subroutine user transfer deploy-bot --to jo`.
 
   Agents stop when the person answerable for them leaves, so this is how one is kept when

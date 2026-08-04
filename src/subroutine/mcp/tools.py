@@ -72,6 +72,52 @@ WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 PROJECT = {"type": "string", "description": "Narrow to this project and everything under it."}
 
 
+def references (
+	client: subroutine.clients.base.Client,
+) -> list[subroutine.mcp.protocol.Resource]:
+	"""Return the documents an agent may read when it wants them — `#483`.
+
+	**Resources rather than tools, and the difference is the budget.** §21.2 caps the tool
+	surface because a schema is context every session carries whether the tool is called or
+	not; a resource costs one line in ``resources/list`` and its content only when a model asks.
+	The surface was 13/13 tools and 7,916 of 8,800 bytes when this was written, so a
+	documentation *tool* was not affordable and this is free.
+
+	The gap it closes: an agent over MCP alone — no shell, no HTTP of its own — had no way to
+	read §13.3's guide, which is the document written for precisely that reader. The reach
+	guard excused it on the grounds that "somebody holding a client has already got past the
+	problem it solves", which was written from the CLI and is untrue here.
+
+	Fetched at read time rather than captured, so this is a route to the instance's copy and
+	not a fourth edition of it (`#47`).
+	"""
+
+	return [
+		subroutine.mcp.protocol.Resource(
+			uri="subroutine://docs/agent",
+			name="agent-guide",
+			title="Working with this instance",
+			description=(
+				"What this is for, how a ref works, what to read first, and what is not built "
+				"yet. Written for an agent rather than adapted from a person's manual."
+			),
+			mime_type="text/markdown",
+			read=lambda: client.reference("agent"),
+		),
+		subroutine.mcp.protocol.Resource(
+			uri="subroutine://docs/examples",
+			name="worked-examples",
+			title="Worked calls, in the order they are usually needed",
+			description=(
+				"A real request for each common act, every one executed by this project's own "
+				"test suite so an example that stopped working fails the build."
+			),
+			mime_type="text/markdown",
+			read=lambda: client.reference("examples"),
+		),
+	]
+
+
 def catalogue (
 	client: subroutine.clients.base.Client, *, workspace: str | None = None
 ) -> list[subroutine.mcp.protocol.Tool]:

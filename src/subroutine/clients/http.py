@@ -79,6 +79,11 @@ class Client:
 
 	# --- The protocol ------------------------------------------------------------------
 
+	def reference (self, name: str) -> str:
+		"""Return one of the instance's reference documents, as text."""
+
+		return self._text("GET", f"/v1/docs/{name}")
+
 	def identity (self) -> subroutine.clients.base.Identity:
 		"""Report which instance this is and which workspaces the credential reaches.
 
@@ -1077,6 +1082,28 @@ class Client:
 		"""Make one request and return the object it answered with."""
 
 		return self._read(self._call(method, path, **options))
+
+	def _text (self, method: str, path: str, **options: typing.Any) -> str:
+		"""Make one request and return what it answered, as text.
+
+		Beside :meth:`_json` rather than inside it because the two failures differ: a plain-text
+		endpoint answering JSON is a proxy, and a JSON endpoint answering text is the same thing
+		— but only the JSON path can read a problem document out of the body, so sharing one
+		reader would make a refusal here unreadable.
+		"""
+
+		response = self._call(method, path, **options)
+
+		if response.is_success:
+			return response.text
+
+		# Refusals are JSON even from a text endpoint (§8.8), so the ordinary reader still
+		# applies and gives the caller the sentence the instance actually wrote.
+		self._read(response)
+
+		raise subroutine.errors.ServiceUnavailable(
+			f"{self.connection.name} answered {response.status_code} for {path}."
+		)
 
 	def _call (self, method: str, path: str, **options: typing.Any) -> httpx.Response:
 		"""Make one request, turning a transport failure into a sentence."""

@@ -142,6 +142,12 @@ READ_BY: dict[tuple[str, str], str] = {
 	# and it cannot, because the local client uses no paths at all. `#340` is that gap.
 	("GET", "/v1/me"): "me",
 	("GET", "/v1/meta"): "identity",
+	# **Both were excused until `#483`**, on the grounds that "somebody holding a client has
+	# already got past the problem it solves". That was written from the CLI, which has `--help`
+	# and `explain`; an agent over MCP holds a client and has neither, so it could not read the
+	# guide written for it. `reference()` is what an MCP resource fetches.
+	("GET", "/v1/docs/agent"): "reference",
+	("GET", "/v1/docs/examples"): "reference",
 	("GET", "/v1/tokens"): "tokens",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
@@ -171,17 +177,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"A client that could reach it would be asking whether the thing it is already "
 		"talking to is up; `#89` is that question asked properly, by the CLI, before it "
 		"connects at all.",
-	),
-	("GET", "/v1/docs/agent"): (
-		"protocol",
-		"§13.3's guide, written for an agent arriving with a base URL and a token and no "
-		"other source. Somebody holding a client has already got past the problem it solves.",
-	),
-	("GET", "/v1/docs/examples"): (
-		"protocol",
-		"§13.3's worked calls, executed by `tests/test_api_examples.py`. They are HTTP by "
-		"construction — that is what they are examples of, and a client wrapping them "
-		"would be documentation nobody could run.",
 	),
 	("GET", "/v1/projects/{id_or_key}"): (
 		"tracked",
@@ -225,6 +220,15 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"reference": (
+		"protocol",
+		"`#483`. §13.3's guide is written *for an agent* — it opens with what a caller with a "
+		"base URL and a token gets, and names what is unbuilt. A person at a terminal has a "
+		"better answer to the same question already: `--help` at every level, and `explain` "
+		"for the concepts a command cannot carry (`#154`). Printing the agent's guide beside "
+		"those would be a third answer to a question that already has two, which is the defect "
+		"`#154` closed. **Deleting this entry is what would close that.**",
+	),
 	"close": (
 		"protocol",
 		"Resource lifetime, not a capability §13.7 could deny anybody. `cli/personal.py` "

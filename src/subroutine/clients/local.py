@@ -104,6 +104,31 @@ class Client:
 
 	# --- The protocol ------------------------------------------------------------------
 
+	def reference (self, name: str) -> str:
+		"""Return one of the instance's reference documents, as text.
+
+		**A late import, using the house style's documented exception** — the same one ``serve``
+		takes. ``api`` pulls in FastAPI, measured at 0.3s of the CLI's 0.8s start, and paying
+		that on every command so that a rarely-read document is available is the wrong trade.
+		The nested form is ``from … import … as …`` deliberately: a nested
+		``import subroutine.api.meta`` binds ``subroutine`` as a *local* name and shadows every
+		other use of it in this method.
+
+		The text belongs outside ``api`` on ``views.py``'s argument and is not there yet — it
+		reaches ``UNBUILT``, ``GUIDE_TOPICS`` and ``EXAMPLES``, the last guarded by its own test
+		file, so moving it is its own piece of work rather than a detail of `#483`.
+		"""
+
+		from subroutine.api import meta as documents
+
+		if name == "agent":
+			return documents.guide_text()
+
+		if name == "examples":
+			return documents.examples_text()
+
+		raise subroutine.errors.NotFound(f"There is no reference document called {name!r}.")
+
 	def identity (self) -> subroutine.clients.base.Identity:
 		"""Report this installation's identity and the workspaces the credential reaches."""
 
