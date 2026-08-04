@@ -243,6 +243,17 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"reads what came back; a whole tool schema in every session to save it that is the "
 		"trade §21's budget exists to refuse.",
 	),
+	"transfer_agent": (
+		"administrative",
+		"`#478`. Deciding who answers for an agent is a person agreeing to be accountable, and "
+		"an agent cannot agree on anybody's behalf — the service refuses it outright, so a tool "
+		"for it would be a schema in every session for a call that always fails. Same tier as "
+		"`set_active` beside it, and the same §12.4 argument. **Deleting this entry is what "
+		"would close that.**\n\n"
+		"Worth noting for `#427`: this arrives as a *second* capability on a route "
+		"`REACHED_BY` already maps to one method, so the route-to-method map cannot express it "
+		"and only this list records that it was considered."
+	),
 	"set_active": (
 		"administrative",
 		"`#475`. Marking a person as having left is an instance-tier administrative act, and "

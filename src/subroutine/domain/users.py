@@ -43,10 +43,10 @@ def create (
 	"""Create a person or a machine identity.
 
 	``responsible_user_id`` names who answers for an agent (decision `#473`). Omitted, it is
-	*inherited* from whoever is creating it rather than defaulted to nobody — an agent passes on
-	its own answer, a person is their own. Naming somebody else is a person's act and needs
-	``instance:user_create``; see :mod:`subroutine.domain.accountability` for why an agent may
-	never do it.
+	*inherited* from whoever is creating it rather than defaulted to nobody: the creator becomes
+	the link, so an agent that spawns a sub-agent is what that sub-agent answers to, and walking
+	on from there reaches a person. Naming somebody else is a person's act; see
+	:mod:`subroutine.domain.accountability` for why an agent may never do it.
 	"""
 
 	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
@@ -172,6 +172,69 @@ def set_active (
 		session.flush()
 
 	return stopping
+
+
+def transfer (
+	session: sqlalchemy.orm.Session,
+	agent: subroutine.db.models.identity.User,
+	*,
+	to: subroutine.db.models.identity.User,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> None:
+	"""Hand an agent to somebody else, who becomes answerable for what it does — `#478`.
+
+	**The other half of the leaver path.** Agents stop when the person answerable for them goes
+	(`#479`), so handing one over is the only way to keep it running — which makes this part of
+	somebody leaving rather than a refinement of it. Without it, marking a leaver inactive means
+	losing their agents, and a control that costs that much is one people route around.
+
+	**Only a person may take it on, and only a person may hand it over.** Both halves of that
+	are the same rule as creation: an agent that could move accountability could move it *off*
+	itself, which is the laundering :mod:`subroutine.domain.accountability` refuses one step
+	earlier. A person doing it is the act being modelled — somebody agreeing to answer for a
+	thing — and it is not an act anything can perform on their behalf.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_USER_CREATE
+		)
+
+		if actor.user.is_service_account:
+			raise subroutine.errors.Forbidden(
+				"An agent cannot decide who answers for another agent. Somebody has to agree "
+				"to be accountable, and that is a person's act."
+			)
+
+	if not agent.is_service_account:
+		raise subroutine.errors.ValidationError(
+			f"{agent.username} is a person, and a person answers for themselves.",
+			hint="Only an agent has somebody else accountable for it.",
+		)
+
+	previous = agent.responsible_user_id
+	agent.responsible_user_id = to.id
+
+	# Proved against the tree as it will be, not as it was: assigning first and walking after is
+	# what catches handing an agent to something below itself, which is a cycle every foreign key
+	# resolves happily. Put back on refusal so a refused transfer changes nothing.
+	try:
+		subroutine.domain.accountability.chain(session, agent)
+
+	except subroutine.errors.ValidationError as looped:
+		agent.responsible_user_id = previous
+
+		# The chain's own message names the cycle, which is right where it is raised and wrong
+		# here: somebody handing an agent over asked a different question and wants it answered
+		# in those terms.
+		raise subroutine.errors.ValidationError(
+			f"{to.username} already answers to {agent.username}, directly or through another "
+			f"agent, so this would leave neither of them answering to a person.",
+			hint="Hand it to somebody outside the chain below it.",
+		) from looped
+
+	agent.version += 1
+	session.flush()
 
 
 def _refuse_deactivating_the_last_administrator (

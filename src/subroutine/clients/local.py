@@ -936,6 +936,23 @@ class Client:
 
 			return subroutine.views.user(account)
 
+	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
+		"""Hand an agent to somebody else, who becomes answerable for it."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			agent = subroutine.domain.users.by_username(session, username)
+
+			subroutine.domain.users.transfer(
+				session,
+				agent,
+				to=subroutine.domain.users.by_username(session, to),
+				actor=actor,
+			)
+
+			return subroutine.views.user(agent)
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
 

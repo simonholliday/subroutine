@@ -500,6 +500,15 @@ class Client(typing.Protocol):
 
 		raise NotImplementedError
 
+	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
+		"""Hand an agent to somebody else, who becomes answerable for it — `#478`.
+
+		The other half of the leaver path: agents stop when their person goes, so this is how
+		one is kept. Only a person may hand an agent over or take one on.
+		"""
+
+		raise NotImplementedError
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace.
 

@@ -3383,6 +3383,29 @@ def register (
 
 			say(f"{username} is active again")
 
+	@user_app.command("transfer")
+	def user_transfer (
+		username: str = typer.Argument(..., help="Which agent, by the name 'user list' shows."),
+		to: str = typer.Option(..., "--to", help="Who becomes answerable for it."),
+	) -> None:
+		"""Hand an agent to somebody else, who becomes answerable for what it does.
+
+		Examples:
+
+		  subroutine user transfer deploy-bot --to jo
+
+		Agents stop when the person answerable for them leaves, so this is how one is kept when
+		somebody goes. Only a person can take an agent on — being accountable is something
+		somebody agrees to, and an agent cannot agree on anybody's behalf.
+		"""
+
+		with opened() as world:
+			where = world.writing_to()
+
+			where.client.transfer_agent(username=username, to=to)
+
+			say(f"{to} now answers for {username}")
+
 	@user_app.command("remove")
 	def user_remove (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),

@@ -93,24 +93,34 @@ def create (
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/users/{username}`` accepts.
 
-	Only ``is_active`` for now, and that is the whole of `#475`: the column was enforced in four
-	places and written in none, so *this person has left* was a state the product could not
-	reach while four code paths were written as though it could.
+	The two halves of somebody leaving, and they belong together: `#475` records that they have
+	gone, `#478` keeps the agents that would otherwise stop with them. Either alone is a control
+	people work around — losing an agent is a price nobody pays willingly, so a leaver simply
+	does not get marked as one.
 	"""
 
 	#: False marks somebody as having left. Every agent answerable to them stops working, which
 	#: is decision `#473` and is the point rather than a side effect.
-	is_active: bool
+	is_active: bool | None = None
+
+	#: Hand this agent to somebody else, who becomes answerable for it (`#478`). Named by
+	#: username, like everything else a person types here. Only a person may take one on, and
+	#: only a person may hand one over.
+	responsible: str | None = None
 
 
-@router.patch("/{username}", summary="Mark somebody as having left, or bring them back")
+@router.patch("/{username}", summary="Mark somebody as having left, or hand an agent over")
 def update (
 	username: str,
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.User:
-	"""Change whether an account is active.
+	"""Mark somebody as having left or brought back, or hand an agent to somebody else.
+
+	**Both in one call, and the order is deliberate**: handing the agents over happens before the
+	deactivation, so somebody clearing up after a leaver in a single request keeps what they
+	meant to keep.
 
 	Needs ``instance:user_create`` — the same grant as making an account, because deciding
 	somebody works here and deciding they no longer do are the same decision twice.
@@ -125,7 +135,18 @@ def update (
 
 	account = subroutine.domain.users.by_username(session, username)
 
-	subroutine.domain.users.set_active(session, account, active=body.is_active, actor=actor)
+	if body.responsible is not None:
+		subroutine.domain.users.transfer(
+			session,
+			account,
+			to=subroutine.domain.users.by_username(session, body.responsible),
+			actor=actor,
+		)
+
+	if body.is_active is not None:
+		subroutine.domain.users.set_active(
+			session, account, active=body.is_active, actor=actor
+		)
 
 	return subroutine.views.user(account)
 

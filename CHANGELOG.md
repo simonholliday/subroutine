@@ -22,6 +22,16 @@ upgrade involves.
 
 ### Added
 
+- **An agent can be handed to somebody else.** `subroutine user transfer deploy-bot --to jo`.
+
+  Agents stop when the person answerable for them leaves, so this is how one is kept when
+  somebody goes — which makes it part of the leaver story rather than a separate feature. Only a
+  person can take an agent on: being accountable is something somebody agrees to, and an agent
+  cannot agree on anybody's behalf.
+
+  Handing an agent to something that already answers to it is refused, because that is a circle
+  where every record resolves and nobody answers for anything.
+
 - **Somebody can be marked as having left, and the agents answerable to them stop.**
   `subroutine user deactivate thomas`, and `reactivate` to bring them back.
 

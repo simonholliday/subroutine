@@ -574,6 +574,15 @@ class Client:
 
 		return subroutine.views.User.model_validate(answer)
 
+	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
+		"""Hand an agent to somebody else, who becomes answerable for it."""
+
+		self._refuse_if_read_only()
+
+		answer = self._json("PATCH", f"/v1/users/{username}", body={"responsible": to})
+
+		return subroutine.views.User.model_validate(answer)
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
 
