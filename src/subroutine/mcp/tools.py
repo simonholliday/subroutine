@@ -1131,11 +1131,20 @@ def _linked (
 
 	if not arguments.get("remove"):
 		link_type = _text(arguments, "type") or "blocks"
+
+		# **Both ends are looked up, not just the near one** (`#491`). A ref names a task *or* a
+		# document (§6.2), and `client.link` defaults `target_type` to "task" — so naming a
+		# document here reported that there was no such task, about an item the caller had just
+		# listed. The CLI passes `target_type=far.entity_type` and this did not: one rule carried
+		# to one side of a pair, which `#412` found three times in one review.
+		_, other_kind = _item(client, other, workspace)
+
 		made = client.link(
 			ref=ref,
 			link_type=link_type,
 			target=other,
 			entity_type=kind,
+			target_type=other_kind,
 			workspace=workspace,
 		)
 

@@ -27,6 +27,7 @@ import typing
 import uuid
 
 import sqlalchemy
+import sqlalchemy.orm
 
 import subroutine.db.models.activity
 import subroutine.db.models.project
@@ -252,6 +253,57 @@ def readable_tasks (
 		statement = statement.where(task.is_template.is_(False))
 
 	return statement
+
+
+def the_other_kind (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	ref: int | None,
+	asked_for: str,
+) -> subroutine.db.models.work.Task | subroutine.db.models.work.Document | None:
+	"""Return the item of the *other* kind answering to this ref, so a refusal can name it.
+
+	One counter per workspace serves tasks and documents (§6.2), so a ref that names no task
+	may name a document perfectly well — and *"there is no task 480"* about something the
+	caller has just read in a listing is a refusal asserting a cause it has not established.
+	§12.2c settled this for the command line on 2026-07-30, where ``done 4`` answered "there is
+	no task #4" about an item printed directly above it; `#488` is the same defect on the API,
+	inherited by every caller over HTTP and by the whole agent surface.
+
+	**Both directions, from one function.** Asking a document endpoint about a task's ref was
+	wrong in exactly the same way and had exactly the same message, and two mirror-image
+	helpers would be two places for the rule to drift — which is the second-copy defect this
+	codebase spends most of its time on.
+
+	Searched through the same scoping the caller's own lookup used, so an item they may not see
+	stays absent rather than being named by the refusal. Naming it would turn a helpful message
+	into a way of asking whether a private project holds a given number (§7.3a).
+	"""
+
+	if ref is None:
+		return None
+
+	if asked_for == "task":
+		return session.scalars(
+			readable_documents(
+				principal,
+				workspace_ids=[workspace_id],
+				include_deleted=True,
+				include_archived=True,
+			).where(subroutine.db.models.work.Document.ref == ref)
+		).first()
+
+	return session.scalars(
+		readable_tasks(
+			principal,
+			workspace_ids=[workspace_id],
+			include_deleted=True,
+			include_archived=True,
+			include_templates=True,
+		).where(subroutine.db.models.work.Task.ref == ref)
+	).first()
 
 
 #: Narrowed by the workspace and nothing further, because belonging to the workspace is the

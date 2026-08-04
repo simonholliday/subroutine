@@ -1357,13 +1357,73 @@ def test_a_ref_means_the_same_thing_to_every_tool_that_takes_one (
 
 	ref = int(written.split()[1].lstrip("#"))
 
+	beside = _added(bound, "Something to point at")
+
 	for tool, arguments in (
 		("subroutine_show", {}),
 		("subroutine_comment", {"body": "Something happened."}),
+		# Added for `#491`. This loop asserted a document's ref is accepted as the *subject* of
+		# every tool that takes one, which `subroutine_link` passed all along — its defect was
+		# in the argument naming the other end, and a guard shaped around `ref` could not see it.
+		("subroutine_link", {"type": "relates_to", "other": beside}),
 	):
 		_, failed = _called(bound, tool, ref=ref, **arguments)
 
 		assert not failed, f"{tool} does not accept a document's ref"
+
+
+def test_a_document_can_be_named_at_either_end_of_a_link (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#491`. The near end was resolved and the far end was assumed to be a task.
+
+	``_linked`` asked ``_item`` which kind the *subject* was and passed it as ``entity_type``,
+	then let ``client.link`` default ``target_type`` to ``"task"``. So naming a document as the
+	other end answered *"There is no task '484' here"* — about an item the caller had just read
+	in a listing. The CLI passes ``target_type=far.entity_type``; this surface did not.
+
+	**One rule carried to one side of a pair**, which report `#412` found three times in one
+	review, and `#149`'s blind spot on top: the capability is an *argument* on a method both
+	surfaces already call, so ``test_reach`` compares the names, finds ``link`` on both, and is
+	structurally unable to notice.
+
+    Found by hitting it — filing an item that related to a decision document, which is the
+    ordinary act in this workspace rather than an exotic one.
+	"""
+
+	task = _added(bound, "Build the endpoint")
+	another = _added(bound, "Write the client")
+	written, failed = _called(bound, "subroutine_document", title="Why we chose the queue")
+
+	assert not failed, written
+
+	document = int(written.split()[1].lstrip("#"))
+
+	# The far end, which is the direction that was broken.
+	made, failed = _called(
+		bound, "subroutine_link", ref=task, type="relates_to", other=document
+	)
+
+	assert not failed, made
+	assert f"#{document}" in made, "the answer names what it joined to"
+
+	# The near end, which already worked. Asserted so that a fix resolving the far end *instead*
+	# of the near one — rather than as well as — cannot pass this.
+	made, failed = _called(
+		bound, "subroutine_link", ref=document, type="relates_to", other=another
+	)
+
+	assert not failed, made
+
+	# And withdrawing one, which goes through a different path: `links()` around the near end,
+	# filtered by the far ref. Refs are unique per workspace across both kinds (§6.2), so that
+	# filter needs no target type — verified rather than assumed, since assuming is what put
+	# `target_type` wrong in the first place.
+	withdrawn, failed = _called(
+		bound, "subroutine_link", ref=task, other=document, remove=True
+	)
+
+	assert not failed, withdrawn
 
 
 def test_the_comment_tool_still_points_at_something_that_exists (

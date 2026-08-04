@@ -713,6 +713,29 @@ def _resolve (
 			found = None
 
 	if found is None:
+		instead = subroutine.domain.scoping.the_other_kind(
+			session, actor, workspace_id=workspace.id, ref=ref, asked_for="task"
+		)
+
+		if instead is not None:
+			# `#488`. Saying "there is no task 480" about a document the caller has just listed
+			# is a refusal naming a cause it has not established, and it is the one an agent
+			# meets when it tries to revise a conclusion — which is how `#293`'s reporter came
+			# to believe documents were immutable and stopped filing them at all.
+			raise subroutine.errors.NotFound(
+				f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a task "
+				f"— {instead.title}",
+				errors=[
+					subroutine.errors.FieldError(
+						field="id_or_ref",
+						code="not_found",
+						message=f"{id_or_ref!r} names a document in {workspace.slug}.",
+						hint=f"Read it at GET /v1/documents/{instead.ref}, or revise it with "
+						f"PATCH /v1/documents/{instead.ref}.",
+					)
+				],
+			)
+
 		raise subroutine.errors.NotFound(
 			f"There is no task {id_or_ref!r} here.",
 			errors=[

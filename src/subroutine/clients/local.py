@@ -1618,12 +1618,31 @@ class Client:
 		ref: int,
 		workspace: str | None,
 	) -> subroutine.db.models.work.Task:
-		"""Return the task this ref names here, or refuse the way the API does."""
+		"""Return the task this ref names here, or refuse the way the API does.
+
+		**"The way the API does" is a claim, and it was false for a day** (`#488`). The API
+		learned to say *"#480 is a document, not a task"* and this did not, so the same request
+		got a different answer depending on whether the connection was local — and the local one
+		is what a standalone SQLite install uses, which is the zero-configuration machine an
+		agent meets first. A docstring asserting a correspondence is not one.
+		"""
 
 		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 		row = self._row(session, actor, chosen.id, ref)
 
 		if row is None:
+			instead = subroutine.domain.scoping.the_other_kind(
+				session, actor, workspace_id=chosen.id, ref=ref, asked_for="task"
+			)
+
+			if instead is not None:
+				raise subroutine.errors.NotFound(
+					f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a "
+					f"task — {instead.title}",
+					hint="Revise it with 'subroutine doc edit "
+					f"{instead.ref}', or read it with 'subroutine show {instead.ref}'.",
+				)
+
 			raise subroutine.errors.NotFound(
 				f"There is no task {subroutine.domain.refs.format_ref(ref)} in "
 				f"{chosen.slug}.",

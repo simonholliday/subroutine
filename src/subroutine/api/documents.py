@@ -647,6 +647,28 @@ def _resolve (
 			found = None
 
 	if found is None:
+		instead = subroutine.domain.scoping.the_other_kind(
+			session, actor, workspace_id=workspace.id, ref=ref, asked_for="document"
+		)
+
+		if instead is not None:
+			# `#488`, the mirror. This hint already *said* a ref might name a task instead —
+			# which is a hedge, and a hedge is what a refusal offers when it has not looked.
+			# Having looked, it can say which.
+			raise subroutine.errors.NotFound(
+				f"{subroutine.domain.refs.format_ref(instead.ref)} is a task, not a document "
+				f"— {instead.title}",
+				errors=[
+					subroutine.errors.FieldError(
+						field="id_or_ref",
+						code="not_found",
+						message=f"{id_or_ref!r} names a task in {workspace.slug}.",
+						hint=f"Read it at GET /v1/tasks/{instead.ref}, or change it with "
+						f"PATCH /v1/tasks/{instead.ref}.",
+					)
+				],
+			)
+
 		raise subroutine.errors.NotFound(
 			f"There is no document {id_or_ref!r} here.",
 			errors=[
