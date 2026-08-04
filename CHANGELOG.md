@@ -313,6 +313,56 @@ upgrade involves.
   Withdrawal is soft, and the mentions in a withdrawn comment stop pointing at anything — a
   backlink to a sentence nobody can read is worse than none.
 
+- **An agent can narrow a listing to one project.** `project` on `subroutine_list` and
+  `subroutine_search`. `subroutine list --project` has existed since the project tree did and
+  no tool could ask, so an agent that wanted to spend its context on one part of a backlog had
+  no way to say so.
+
+  It is an argument and deliberately not a default: a `.subroutine` marker decides where work
+  is *filed* and never what a listing shows, because an agent silently blind to work filed next
+  door finds out by not finding something.
+
+- **An agent can write a description.** `description` on `subroutine_update`. The skill argues
+  for titles that say the outcome rather than the problem, on the grounds that your reasoning
+  is not lost because it belongs in the description — *"which is one field away"*. From the
+  tools it was not one field away, it was unreachable, so the advice asked an agent to leave
+  its reasoning out and pointed at a shelf it could not put anything on. Reported by an agent
+  that met it and put the context in comments instead, which is the wrong shelf, and said so.
+
+### Changed
+
+- **The plugin's MCP server is called `tools`, not `subroutine`.** The plugin and the server
+  shared a name, so a call rendered as *"Plugin Subroutine Subroutine"*.
+
+  **This changes the fully-qualified tool identifiers**, from `mcp__plugin_subroutine_subroutine__*`
+  to `mcp__plugin_subroutine_tools__*`. If you have written the old names down anywhere your
+  editor reads them — a permission rule, a hook, an allowed-tools list — they will stop matching
+  silently, and the fix is to update the name. Everything else is unaffected; the tools
+  themselves are unchanged.
+
+  Done now rather than later on the grounds that it only gets more expensive: every install
+  between here and whenever it would otherwise happen is one more that has to be re-approved.
+
+- **An agent tool refuses an argument it does not recognise, instead of ignoring it.** Passing
+  a name a tool does not declare used to be silently dropped, so a call that narrowed nothing
+  came back looking exactly like one that had — *"a plausible, complete, wrong answer"*, in the
+  words of the agent that reported it.
+
+  **You are most likely to meet this while upgrading**, because all it takes is a plugin newer
+  than the program it launches: the tool offers an argument the program has never heard of. The
+  refusal names what was passed and what the tool accepts, so the answer is in the message
+  rather than in a version comparison. `subroutine whoami` ends with the versions of all three
+  installations if you need to check which half is behind.
+
+  Query parameters on the HTTP API have refused unknown names for some time; this surface was
+  the odd one out.
+
+- **The server's instructions point an agent at the skill.** They are in context every session
+  and they *teach* — refs, and the comment-versus-document rule — and an agent's report was
+  that "a paragraph of correct guidance in context makes the skill feel redundant". It then
+  listed, searched and recommended what to file without ever opening the skill. The pointer is
+  conditional, because `subroutine mcp` started by hand has no skill to read.
+
 ### Fixed
 
 - **A `.subroutine` marker naming a connection that is gone no longer stops every command.**
@@ -323,6 +373,13 @@ upgrade involves.
   It now falls to the next thing that can answer and says so. A connection named with `-c`,
   or one you set with `subroutine use`, still refuses loudly: those are somebody speaking,
   and a marker is a file that arrived with a checkout.
+
+  **What the marker names does not come along with it.** A marker describes one instance, so
+  its workspace and its project are true only there — and its project is matched by key where
+  the id does not resolve, which is what keeps markers written before project ids working. Put
+  together, a checkout marked for one instance would have filed work into a *different*
+  instance's project of the same name, which `SR`, `WEB`, `API` and `DOCS` are exactly the kind
+  of key for. It says which of the two things it ignored, and why.
 
 - **A `.subroutine` marker that has gone stale no longer breaks the command.** It named a
   workspace the connection had never heard of, and instead of being ignored it *erased* the
