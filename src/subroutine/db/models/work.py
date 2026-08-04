@@ -142,6 +142,20 @@ class Task(
 		nullable=True,
 	)
 
+	# Who put this in that person's queue (decision `#473`, `#476`). Derived from whoever made
+	# the change rather than accepted from the caller — "who assigned this to me" is a fact
+	# about an act, and a field the assigner could type would be a claim instead.
+	#
+	# **Not the history**: the event log already carries every assignment change with its actor
+	# and its sequence, and decision `#473` settled that the log is the record. This is the
+	# current answer, which is what a hand-back reads and what a person asks of their own list.
+	# It goes null with the assignee, because an assigner with no assignee names nobody.
+	assigned_by_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
+		nullable=True,
+	)
+
 	# **A lease, not a lock** (§14.11). Agents die mid-task routinely, and a hard lock would
 	# strand the work permanently — so a claim carries an expiry and an expired one is ignored
 	# rather than needing anybody to clean it up. All three move together or none of them do.

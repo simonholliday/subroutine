@@ -237,6 +237,11 @@ class Task(pydantic.BaseModel):
 
 	assignee_id: uuid.UUID | None
 
+	#: Who put it in that person's queue (`#477`). Derived from whoever made the change, so it
+	#: is reported and never accepted — an assigner a caller could type would be a claim rather
+	#: than a record. Null with the assignee, and null for a change nobody was acting for.
+	assigned_by_id: uuid.UUID | None
+
 	#: §6.3's two independent axes, 1-5 where 5 is highest, and the product of them.
 	#: Null means *not assessed* and is distinct from 1. ``priority_score`` is derived and
 	#: read-only — null unless both axes are set — and exists so that an agent sorting by
@@ -1127,6 +1132,7 @@ def task (
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
+		assigned_by_id=row.assigned_by_id,
 		claimed_by_id=row.claimed_by_id,
 		claimed_at=row.claimed_at,
 		claim_expires_at=row.claim_expires_at,

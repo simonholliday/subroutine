@@ -65,6 +65,10 @@ WRITTEN_AS: dict[str, str] = {
 #: client does not decide them.
 DERIVED: dict[str, str] = {
 	"id": "Allocated by the service.",
+	"assigned_by_id": (
+		"Who assigned it, taken from whoever made the change (`#477`). A caller supplying one "
+		"would be making a claim about an act rather than recording it."
+	),
 	"ref": "Allocated once per workspace and never reused (§6.2).",
 	"project_key": "The key of project_id, resolved for display.",
 	"status_category": "The fixed category of the status (§5.5); an installation names statuses, not categories.",

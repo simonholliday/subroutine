@@ -14,13 +14,26 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `59c627e98f2d`.
+> **This release changes the database schema**, to `243497ffc330`.
 >
 > Install it, then run `subroutine upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **A task records who assigned it.** `assigned_by_id` answers the plain question a person asks
+  of their own list — *who put this in my queue* — and it is what a hand-back reads when an agent
+  cannot finish something and needs to send it to whoever asked for it.
+
+  Taken from whoever made the change rather than accepted from the caller, because an assigner a
+  client could set would be a claim about an act rather than a record of one. It moves only when
+  the assignee actually changes, so a `PATCH` that happens to carry the same assignee alongside
+  an unrelated edit cannot quietly replace somebody else's name; and it clears with the assignee,
+  because an assigner with no assignee names nobody.
+
+  **It is not a history.** The event log already carries every assignment change with its actor
+  and its order, and that stays the record.
 
 - **An agent records the person answerable for it.** Somebody gave an agent permission to work,
   and that somebody answers for the result — so a service account now names a responsible

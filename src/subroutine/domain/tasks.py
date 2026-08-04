@@ -56,6 +56,24 @@ MAX_TITLE_LENGTH = 512
 PRIORITY_RANGE = (1, 5)
 
 
+def _assigner (
+	actor: subroutine.domain.authentication.Principal | None,
+	assignee_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+	"""Return who to record as having assigned this, given who is acting (`#477`).
+
+	Null when nobody is assigned, because an assigner with no assignee names nobody — and null
+	when there is no actor, which is an internal caller with no principal to credit. Neither is
+	a gap to be filled in later: an unattributed assignment is better than one attributed to
+	whoever happened to be convenient.
+	"""
+
+	if assignee_id is None or actor is None:
+		return None
+
+	return actor.user.id
+
+
 def _priority (value: int | None, *, field: str) -> int | None:
 	"""Return a priority axis unchanged, or refuse with the range it has to be inside.
 
@@ -231,6 +249,7 @@ def create (
 		description=description,
 		status_id=status.id,
 		assignee_id=assignee_id,
+		assigned_by_id=_assigner(actor, assignee_id),
 		importance=_priority(importance, field="importance"),
 		urgency=_priority(urgency, field="urgency"),
 		estimate_minutes=estimated,
@@ -751,6 +770,12 @@ def update (
 		touches_content = True
 
 	if assignee_id is not subroutine.domain.patch.UNSET:
+		# **Only when it actually changes.** Re-sending the same assignee is not a fresh act of
+		# delegation, and rewriting the assigner on it would let a passing `PATCH` quietly take
+		# somebody else's name off the record.
+		if assignee_id != task.assignee_id:
+			task.assigned_by_id = _assigner(actor, assignee_id)
+
 		task.assignee_id = assignee_id
 
 	if importance is not subroutine.domain.patch.UNSET:
