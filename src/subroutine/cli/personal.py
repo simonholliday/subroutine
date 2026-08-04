@@ -2293,15 +2293,21 @@ def register (
 			client = _require_connection(world, located.connection)
 			wanted = _asked(words, "Which comment? (some of its words)")
 
-			recorded = [
-				one
-				for one in client.comments(
-					ref=located.ref,
-					entity_type=located.entity_type,
-					workspace=located.workspace,
+			# **The matching is shared with the agent's tool** (`#415`). Both surfaces filtered
+			# for themselves, and only this one — which prompts, so a person is asked — happened
+			# to be safe against words that name every comment rather than one.
+			try:
+				recorded = subroutine.views.comments_saying(
+					client.comments(
+						ref=located.ref,
+						entity_type=located.entity_type,
+						workspace=located.workspace,
+					),
+					wanted,
 				)
-				if wanted.casefold() in one.body.casefold()
-			]
+
+			except subroutine.errors.SubroutineError as error:
+				fail(error)
 
 			if not recorded:
 				stop(

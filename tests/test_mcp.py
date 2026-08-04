@@ -1932,6 +1932,50 @@ def test_withdrawing_a_comment_refuses_rather_than_guessing (
 	assert "the parser is fixed" in left
 
 
+def test_withdrawing_a_comment_without_saying_which_is_refused (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Item ``#415``. The degenerate match the "more than one" refusal above cannot catch.
+
+	``"" in anything`` is true, so an absent or empty ``body`` named **every** comment on the
+	item — and with exactly one there, the refusal beside it had nothing to refuse. Measured
+	over the real surface before this closed: ``{"ref":1,"remove":true}`` answered *"Taken out
+	of #1."*
+
+	**One comment, deliberately.** The test above has two, so it meets the "several" refusal
+	whatever the words are and passes against this defect — which is how the case survived: a
+	guard for "too many" reads exactly like a guard for "not enough said".
+
+	The schema marks ``body`` required and the server does not enforce that, so the absent case
+	is reachable by anything that does not honour it. Both spellings are checked because they
+	arrive by different routes: an empty string is a caller being unhelpful, a missing key is a
+	client not validating.
+	"""
+
+	made, _ = _called(bound, "subroutine_add", text="One comment only")
+	ref = _numbered(made)
+
+	_called(bound, "subroutine_comment", ref=ref, body="the only thing recorded here")
+
+	for arguments in ({"remove": True}, {"body": "", "remove": True}):
+		refused, failed = _called(bound, "subroutine_comment", ref=ref, **arguments)
+
+		assert failed, arguments
+		assert "words" in refused, refused
+
+	# And the comment is still there, which is the whole of what was at risk.
+	left, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "the only thing recorded here" in left
+
+	# Naming it still works, so this narrowed nothing anybody wanted.
+	taken, failed = _called(
+		bound, "subroutine_comment", ref=ref, body="only thing recorded", remove=True
+	)
+
+	assert not failed, taken
+
+
 def _numbered (answer: str) -> int:
 	"""Read the ref out of what a tool printed, refusing rather than returning nothing.
 

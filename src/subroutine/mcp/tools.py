@@ -941,11 +941,13 @@ def _remarked (
 
 		return f"Recorded on #{ref}."
 
-	recorded = [
-		one
-		for one in client.comments(ref=ref, entity_type=kind, workspace=workspace)
-		if body.casefold() in one.body.casefold()
-	]
+	# **The words are the address, so an empty one is refused rather than matched** (`#415`).
+	# `"" in anything` is true, so this used to name every comment on the item — and with one
+	# comment there, "more than one says that" had nothing to catch. `remove=true` and no
+	# `body` at all answered "Taken out of #1."
+	recorded = subroutine.views.comments_saying(
+		client.comments(ref=ref, entity_type=kind, workspace=workspace), body
+	)
 
 	if not recorded:
 		raise ValueError(f"Nothing recorded on #{ref} says that.")

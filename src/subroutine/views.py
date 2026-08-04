@@ -55,6 +55,7 @@ import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.workspaces
+import subroutine.errors
 import subroutine.installations
 
 Item = typing.TypeVar("Item")
@@ -1495,6 +1496,51 @@ def writable (credential: Credential | Token) -> list[str]:
 		return []
 
 	return list(credential.project_write_scope_keys or credential.project_write_scope)
+
+
+def comments_saying (recorded: typing.Sequence[Comment], words: str) -> list[Comment]:
+	"""Return the comments whose text contains these words — item ``#415``.
+
+	**A comment is named by what it says, because it has no number of its own** (`#400`), and
+	that makes the words the whole of the addressing. So the one thing they may not be is
+	*nothing*: ``"" in anything`` is true, so an empty search names every comment on the item —
+	and the refusal beside this ("more than one says that") is then the only thing standing
+	between a caller and a deletion nobody described. On an item with exactly one comment there
+	is nothing standing there at all.
+
+	**Measured over the real tool surface** before it was closed:
+	``subroutine_comment(ref=1, remove=true)``, with no ``body`` at all, answered
+	*"Taken out of #1."* The schema marks ``body`` required and the server does not enforce
+	that, so a required field is whatever the client chooses to honour.
+
+	Here rather than in each caller because both surfaces do this filtering themselves, and the
+	one that had a person in front of it — the CLI, which prompts for the words — was the one
+	that happened to be safe. A rule that holds on one of two surfaces is the shape this
+	codebase finds most often.
+
+	Withdrawal is soft but has no restore on any surface, unlike a task, a project or a
+	document, so this is as close to a last check as a comment gets.
+	"""
+
+	wanted = words.strip()
+
+	if not wanted:
+		raise subroutine.errors.ValidationError(
+			"Some of the comment's own words are needed to say which one you mean.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="body",
+					code="missing_field",
+					message="An empty search matches every comment on the item, which names "
+					"none of them.",
+					hint="Quote a few words from the comment you want taken out.",
+				)
+			],
+		)
+
+	folded = wanted.casefold()
+
+	return [one for one in recorded if folded in one.body.casefold()]
 
 
 def reach (credential: Credential | Token) -> list[str]:
