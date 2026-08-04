@@ -1745,10 +1745,18 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 	editable install — it says nothing at all, because
 	:func:`subroutine.installations.ordered` declines rather than guesses.
 
-	**The program and the instance is still a bare disagreement, and that is not an
-	inconsistency.** Nothing establishes a direction there: the instance's version arrives over
-	the wire from a machine somebody else may run, and neither being ahead is designed. `#345`
-	is what it costs — a field one side has and the other does not — and that is symmetrical.
+	**The program and the instance has no *direction*, and that part is not an inconsistency.**
+	The instance's version arrives over the wire from a machine somebody else may run, and
+	neither being ahead is designed, so this clause asks whether they differ rather than which
+	leads. `#345` is what it costs — a field one side has and the other does not — and that is
+	symmetrical.
+
+	**What it does share with the clause below is the silence** (`#481`). It compared the two
+	*strings*, so on an editable install — every development machine — it fired permanently
+	against an instance built from the same commit, because a development build's version is
+	fixed at whatever tag its last install saw while the code it runs is the working tree. That
+	is not evidence about the code, so there is nothing to say. An instance reporting no version
+	at all still warns: predating the field is a fact rather than a comparison.
 	"""
 
 	# **A null here is a fact, not a gap.** An instance that sends no version is one that
@@ -1767,7 +1775,26 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 	# Each disagreement names the failure it actually produced, on 2026-08-03, rather than
 	# advising a refresh in general terms: `#345` was a field one side had and the other did
 	# not, and `#379` was an argument a tool offered that its program had never heard of.
-	if me.instance_version != program:
+	running = subroutine.installations.ordered(program)
+	served = (
+		None
+		if me.instance_version is None
+		else subroutine.installations.ordered(me.instance_version)
+	)
+
+	# **Only when both can actually be compared** (`#481`), which is the half of `#417` the
+	# clause below learned and this one did not — eight lines apart, one rule applied to one
+	# side of a pair. An editable install's version string is fixed at whatever tag its last
+	# `pip install -e .` saw while the code it runs is the working tree, so a plain `!=` fired
+	# permanently on every development machine, including the one the skill points an agent at,
+	# and said nothing true. Measured against an instance built from the same commit, with
+	# `doctor` reporting the machine coherent in the same minute.
+	#
+	# An instance reporting *no* version still warns: that is a fact rather than a comparison —
+	# it predates the field, so it is genuinely older than anything asking.
+	if me.instance_version is None or (
+		running is not None and served is not None and running != served
+	):
 		lines.append(
 			"The program and the instance disagree, so a call may be refused for a field "
 			"one of them does not have."
@@ -1777,7 +1804,6 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 	# about it trains the reader — and the agent the skill points here — to ignore the line.
 	# Either version being unorderable means no answer rather than a guessed one.
 	carried = None if plugin is None else subroutine.installations.ordered(plugin)
-	running = subroutine.installations.ordered(program)
 
 	if carried is not None and running is not None and carried < running:
 		lines.append(

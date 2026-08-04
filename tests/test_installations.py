@@ -500,3 +500,78 @@ def _write_manifest (root: pathlib.Path, body: str) -> None:
 	manifest = root / subroutine.installations.MANIFEST
 	manifest.parent.mkdir(parents=True, exist_ok=True)
 	manifest.write_text(body, encoding="utf-8")
+
+
+class TestTheProgramAndTheInstance:
+	"""`#481`. The clause beside the plugin one, which never learned `#417`'s rule."""
+
+	def test_two_released_versions_that_differ_still_warn (self) -> None:
+		"""The case the warning exists for, kept intact — `#345` is what it costs."""
+
+		lines = subroutine.views.versions(_me(instance_version="0.9.0"), program="1.0.0")
+
+		assert len(lines) == 2
+		assert "refused for a field one of them does not have" in lines[1]
+
+	@pytest.mark.parametrize(
+		"program, instance",
+		[
+			("0.2.1.dev73+g29ddffa34", "0.3.1.dev8+gfd2f40694"),
+			("0.2.1.dev73+g29ddffa34", "1.0.0"),
+			("1.0.0", "0.3.1.dev8+gfd2f40694"),
+		],
+	)
+	def test_a_development_build_says_nothing (self, program: str, instance: str) -> None:
+		"""The measured defect, in the three shapes it can take.
+
+		The first pair is what this machine actually printed on 2026-08-04, immediately after
+		the `59c627e98f2d` upgrade, with both ends built from the same commit — while `doctor`
+		reported the machine coherent in the same minute. An editable install's version string
+		is fixed at whatever tag its last ``pip install -e .`` saw; the code it runs is the
+		working tree. So the string is not evidence about the code, in either direction.
+		"""
+
+		lines = subroutine.views.versions(_me(instance_version=instance), program=program)
+
+		assert len(lines) == 1, f"warned about {program} against {instance}: {lines}"
+
+	def test_an_instance_too_old_to_say_still_warns (self) -> None:
+		"""A fact rather than a comparison, so silence would lose real signal.
+
+		An instance sending no version predates the field, which makes it older than anything
+		asking — and ``test_compatibility`` records that this null is *"itself the answer
+		somebody wants"*. The rule is "do not guess from an unorderable string", not "say
+		nothing when unsure".
+		"""
+
+		lines = subroutine.views.versions(_me(instance_version=None), program="1.0.0")
+
+		assert len(lines) == 2
+		assert "refused for a field one of them does not have" in lines[1]
+
+	def test_the_plugin_clause_is_unaffected (self) -> None:
+		"""The neighbour this borrows from must keep behaving exactly as `#417` left it."""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="1.0.0"), program="1.0.0", plugin="0.1.1"
+		)
+
+		assert len(lines) == 2
+		assert "plugin is older than the program" in lines[1]
+
+	def test_a_development_build_still_reports_the_plugin_being_behind (self) -> None:
+		"""The two clauses are independent, and silencing one must not silence the other.
+
+		Worth asserting because both now consult ``ordered(program)``: a fix that returned
+		early on an unorderable program would take the plugin warning with it, and the plugin
+		being behind is the failure that has actually happened twice (`#380`, `#393`).
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="1.0.0.dev4+gabc"),
+			program="1.0.0",
+			plugin="0.1.1",
+		)
+
+		assert len(lines) == 2
+		assert "plugin is older than the program" in lines[1]
