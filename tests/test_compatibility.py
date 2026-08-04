@@ -22,6 +22,13 @@ carry a default, so that a body without it still parses. Nothing else in the sui
 the problem — every test builds both halves from the same tree, which is exactly the
 arrangement that cannot produce skew.
 
+**The structural half of this rule lives in ``tests/test_response_compatibility.py``** (`#482`),
+which diffs every view against the same view at the last tag. It exists because this file's rule
+is general and its fixtures are one endpoint, and the difference let the same defect through a
+third time on 2026-08-04. The two are not duplicates: that one asks *what changed since the
+release*, this one holds a real body an older instance actually sent, which is the only thing
+that can catch a field this build reads in a way no diff would notice.
+
 The bodies below were **captured from a running instance one release behind** rather than
 written by hand. That distinction is the point: a fixture written from the current models
 agrees with them by construction and would have passed on both of the days above. Identifiers
