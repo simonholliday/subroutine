@@ -238,8 +238,15 @@ def test_a_claim_hides_the_work_from_everybody_but_its_holder (
 	"""
 
 	task = make(pair, "Something two agents would both pick up")
+
+	# `responsible_user_id` is named explicitly rather than inherited, because this fixture has
+	# no acting principal to inherit from and an agent nobody answers for is refused outright
+	# (decision `#473`). The workspace's own owner is the honest answer here.
 	other = subroutine.domain.users.create(
-		session, username=f"other-{uuid.uuid4().hex[:8]}", is_service_account=True
+		session,
+		username=f"other-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=pair.user.id,
 	)
 	subroutine.domain.workspaces.add_member(
 		session, pair.workspace, other, role_key="contributor"

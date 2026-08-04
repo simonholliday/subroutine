@@ -1,0 +1,180 @@
+"""Who answers for what an agent does, and the rule that the answer is always a person.
+
+An agent is not a principal anybody can blame. Somebody gave it permission to work, and that
+somebody is accountable for the result — which is decision ``#473``, and the reason
+``user.responsible_user_id`` exists. **Accountability is a property of the agent rather than of
+any task**: "Simon is responsible for this agent" does not vary per ticket, so it is one column
+on the account and not a field every item has to carry.
+
+Two rules make it worth anything, and the second is the one that fails quietly if it is missing.
+
+**The chain terminates at a person.** Following ``responsible_user_id`` from any service account
+reaches somebody who answers for themselves, in finite steps and without a cycle. A chain that
+loops, or that ends at an agent, is an accountability gap that looks exactly like a working one
+— every row is populated and every foreign key resolves.
+
+**It is inherited, never chosen.** An agent creating a sub-agent produces one answerable to the
+same person it is answerable to. Letting the creator *name* somebody would launder
+accountability in a single call: the sub-agent does something wrong and the trace terminates at
+a person who authorised none of it. That is the shape ``_refuse_amplification`` exists for —
+``#356`` found expiry was a fourth way to widen a credential, under a docstring asserting there
+were three and all three were refused — and a creation path that improves the creator's own
+position is an amplification whether what moves is a scope, an expiry, or a name on this chain.
+
+A **person** with ``instance:user_create`` may name somebody else, because that is a person
+taking responsibility for a delegation, which is the thing this models.
+"""
+
+import uuid
+
+import sqlalchemy
+import sqlalchemy.orm
+
+import subroutine.db.models.identity
+import subroutine.errors
+
+#: How far a chain may be walked before it is treated as broken rather than long. A real one is
+#: one or two links; anything approaching this is a cycle the write-time guard failed to stop,
+#: and looping forever inside an authentication path is the worse of the two failures.
+MAX_DEPTH = 16
+
+
+def chain (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> list[subroutine.db.models.identity.User]:
+	"""Return the accountability chain from ``user`` to the person who answers for it.
+
+	The first entry is ``user`` itself and the last is a person. Raises when the chain does not
+	reach one — because it loops, because a link is missing, or because it runs longer than
+	:data:`MAX_DEPTH`.
+
+	A person answers for themselves, so their chain is one entry long whatever
+	``responsible_user_id`` happens to say.
+	"""
+
+	walked: list[subroutine.db.models.identity.User] = [user]
+	seen: set[uuid.UUID] = {user.id}
+	current = user
+
+	while current.is_service_account:
+		if current.responsible_user_id is None:
+			raise subroutine.errors.ValidationError(
+				f"No one is accountable for the agent '{current.username}'. An agent works on "
+				f"somebody's behalf, so it needs a person who answers for it."
+			)
+
+		following = session.get(
+			subroutine.db.models.identity.User, current.responsible_user_id
+		)
+
+		if following is None:
+			raise subroutine.errors.ValidationError(
+				f"The account answerable for the agent '{current.username}' no longer exists, "
+				f"so nothing it does can be traced to a person."
+			)
+
+		if following.id in seen or len(walked) >= MAX_DEPTH:
+			named = " → ".join(entry.username for entry in walked)
+
+			raise subroutine.errors.ValidationError(
+				f"Responsibility for '{user.username}' runs in a circle and never reaches a "
+				f"person: {named} → {following.username}."
+			)
+
+		walked.append(following)
+		seen.add(following.id)
+		current = following
+
+	return walked
+
+
+def answers_for (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> subroutine.db.models.identity.User:
+	"""Return the person accountable for ``user``, which is ``user`` itself for a person."""
+
+	return chain(session, user)[-1]
+
+
+def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
+	"""Return who a *new* account created by ``actor`` must be answerable to.
+
+	An agent passes on its own answer rather than choosing one, which is what stops
+	accountability being laundered through a sub-agent. A person is the answer for anything they
+	create, including themselves as the obvious case.
+
+	Returns ``None`` only when ``actor`` is an agent with no chain, which :func:`chain` refuses
+	elsewhere — the caller creating an account is not the right place to discover it, but it is
+	the right place not to invent one.
+	"""
+
+	if actor.is_service_account:
+		return actor.responsible_user_id
+
+	return actor.id
+
+
+def refuse_an_unaccountable_agent (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.db.models.identity.User | None,
+	is_service_account: bool,
+	responsible_user_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+	"""Return the responsible account for a new agent, refusing anything unaccountable.
+
+	``actor`` is ``None`` for :mod:`subroutine.domain.bootstrap`, which runs before any principal
+	exists and creates the first person — who is accountable for themselves and needs nothing
+	here.
+
+	**There is deliberately no permission check.** Creating any account already requires
+	``instance:user_create``, so a caller who has reached this has it, and a second check against
+	the same verb would be a branch nothing could ever take — which is the defect this repository
+	keeps finding rather than a belt beside a brace. What remains is the rule a permission cannot
+	express: an *agent* may not choose, however privileged its credential.
+	"""
+
+	if not is_service_account:
+		# A person answers for themselves. Storing anybody else here would say otherwise, and
+		# nothing reads it for a person, so a value would be a claim nothing enforces.
+		return None
+
+	# **The requirement is that somebody answers, not that somebody was authenticated.** An
+	# explicit name satisfies it whoever is asking — which is what lets a fixture, an importer
+	# or a migration create an accountable agent without inventing a principal to do it as.
+	wanted = responsible_user_id
+
+	if wanted is None:
+		if actor is None:
+			raise subroutine.errors.ValidationError(
+				"An agent cannot be created without a person to answer for it. Say who is "
+				"responsible for it, or create it as somebody."
+			)
+
+		wanted = inherited(actor)
+
+		if wanted is None:
+			raise subroutine.errors.ValidationError(
+				f"No one is accountable for '{actor.username}', so it cannot create an agent "
+				f"that would be answerable to nobody."
+			)
+
+	elif actor is not None and actor.is_service_account and wanted != inherited(actor):
+		raise subroutine.errors.ValidationError(
+			f"An agent cannot choose who answers for the agents it creates. "
+			f"'{actor.username}' answers to somebody, and so does anything it makes."
+		)
+
+	named = session.get(subroutine.db.models.identity.User, wanted)
+
+	if named is None:
+		raise subroutine.errors.ValidationError(
+			"The account named as answerable for this agent does not exist."
+		)
+
+	# Walking from the *named* account proves the new agent's chain before it is written: if the
+	# person named is themselves an agent, their chain has to reach somebody, and this is the
+	# only moment where refusing costs nothing.
+	chain(session, named)
+
+	return wanted

@@ -6,11 +6,14 @@ cannot be named cannot be audited, which is why they are users here rather than 
 a token.
 """
 
+import uuid
+
 import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.auth
 import subroutine.db.models.identity
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.text
@@ -34,9 +37,17 @@ def create (
 	is_service_account: bool = False,
 	is_superuser: bool = False,
 	timezone: str | None = None,
+	responsible_user_id: uuid.UUID | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.User:
-	"""Create a person or a machine identity."""
+	"""Create a person or a machine identity.
+
+	``responsible_user_id`` names who answers for an agent (decision `#473`). Omitted, it is
+	*inherited* from whoever is creating it rather than defaulted to nobody — an agent passes on
+	its own answer, a person is their own. Naming somebody else is a person's act and needs
+	``instance:user_create``; see :mod:`subroutine.domain.accountability` for why an agent may
+	never do it.
+	"""
 
 	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
 	# checked against the installation rather than against one — and `authorize_instance`
@@ -86,6 +97,16 @@ def create (
 			session, "email", subroutine.db.models.identity.User.email_normalized, normalized_email
 		)
 
+	# Settled before the row is built, so an unaccountable agent is refused rather than written
+	# and corrected. `actor is None` is bootstrap creating the first person, who answers for
+	# themselves; the rule refuses that combination for an *agent* rather than inventing one.
+	answerable = subroutine.domain.accountability.refuse_an_unaccountable_agent(
+		session,
+		actor=None if actor is None else actor.user,
+		is_service_account=is_service_account,
+		responsible_user_id=responsible_user_id,
+	)
+
 	user = subroutine.db.models.identity.User(
 		username=name,
 		username_normalized=normalize(name),
@@ -95,6 +116,7 @@ def create (
 		password_hash=None if password is None else _hash(password),
 		is_service_account=is_service_account,
 		is_superuser=is_superuser,
+		responsible_user_id=answerable,
 		timezone=timezone,
 	)
 	session.add(user)

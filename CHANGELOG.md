@@ -14,7 +14,28 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `59c627e98f2d`.
+>
+> Install it, then run `subroutine upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
+
+- **An agent records the person answerable for it.** Somebody gave an agent permission to work,
+  and that somebody answers for the result — so a service account now names a responsible
+  account, and following that chain from any agent reaches a person.
+
+  Two rules make it worth having. The chain must **terminate at a person**, so one that loops or
+  ends at another agent is refused rather than stored. And it is **inherited, never chosen**: an
+  agent creating a sub-agent produces one answerable to the same person it is, because letting
+  the creator name somebody else would let an agent make work traceable to a person who
+  authorised none of it.
+
+  Existing service accounts are adopted by the migration where the answer is unambiguous — the
+  sole active superuser. Where an installation has several administrators there is no unambiguous
+  answer, the migration says so by name rather than guessing, and those agents need one set
+  before they next authenticate.
 
 - **`subroutine add --description`, and `description` on the agent's `subroutine_add`.** A task
   filed with its reasoning, in one call, on the surface where you have the most context about it

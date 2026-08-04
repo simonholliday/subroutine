@@ -280,7 +280,7 @@ before starting the service:
 
 ```console
 $ subroutine db current
-  Schema is at d5d0458f5ad5.
+  Schema is at 59c627e98f2d.
 ```
 
 An empty database says so and tells you to run `init`. It is never silently created underneath
@@ -418,7 +418,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"d5d0458f5ad5"}
+  {"status":"ready","api_version":"1.0","schema_revision":"59c627e98f2d"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database *and* that the
@@ -970,7 +970,7 @@ $ subroutine doctor
   config   /var/lib/subroutine/config
   data     /var/lib/subroutine/data
   state    /var/lib/subroutine/state
-  local    0.2.1, schema d5d0458f5ad5, as si (person)
+  local    0.2.1, schema 59c627e98f2d, as si (person)
   backups  19 in /srv/backups/subroutine, newest subroutine-default-20260803T053711Z-d5d0458f5ad5.sql (4,046,848 bytes, today)
 
   Nothing here needs attention.
@@ -1032,11 +1032,11 @@ then read the schema back rather than assuming.
 
 ```console
 $ subroutine upgrade
-  This version expects schema d5d0458f5ad5.
+  This version expects schema 59c627e98f2d.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
-  Upgraded from 547fe53b263c to d5d0458f5ad5.
+  Upgraded from 547fe53b263c to 59c627e98f2d.
 ```
 
 It is safe to run when there is nothing to do — it prints both numbers and stops, which is also
@@ -1044,8 +1044,8 @@ the cheapest way to ask the question:
 
 ```console
 $ subroutine upgrade
-  This version expects schema d5d0458f5ad5.
-  The database is at d5d0458f5ad5.
+  This version expects schema 59c627e98f2d.
+  The database is at 59c627e98f2d.
   Nothing to do.
 ```
 
@@ -1065,7 +1065,7 @@ deciding the remedy:
 ```console
 $ subroutine today
   Nothing could be read.
-  Local: This database is at schema 233f898a2bee, and this build expects d5d0458f5ad5.
+  Local: This database is at schema 233f898a2bee, and this build expects 59c627e98f2d.
     Run 'subroutine upgrade' — it backs up first, then migrates.
 ```
 

@@ -126,6 +126,24 @@ class User(
 	is_service_account: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False
 	)
+
+	# Who answers for what this account does (SPEC §7.1, decision `#473`). An agent is not a
+	# principal anybody can blame: somebody gave it permission to work, and that somebody is
+	# accountable for the result. **Accountability is a property of the agent rather than of
+	# any task**, which is why it lives here and not on `task` — it does not vary per ticket.
+	#
+	# Null on a person, who answers for themselves. Null on a service account means nobody is
+	# accountable, which is a reason to refuse rather than a default to tolerate.
+	#
+	# `ondelete="SET NULL"` fails safe on purpose: deleting the responsible person leaves the
+	# agent with no chain, and an agent with no chain stops.
+	responsible_user_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
+		nullable=True,
+		index=True,
+	)
+
 	is_superuser: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False
 	)

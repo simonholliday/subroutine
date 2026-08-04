@@ -533,6 +533,11 @@ class User(pydantic.BaseModel):
 	is_superuser: bool
 	is_active: bool
 
+	#: Who answers for this agent (decision `#473`). Null on a person, who answers for
+	#: themselves. **Null on a service account means nobody does**, which is a state the
+	#: instance refuses to act on rather than a value still to be filled in.
+	responsible_user_id: uuid.UUID | None
+
 	#: Null means "not stated", so the workspace's zone and then the instance's show through
 	#: (§12.3). It is not a missing value to be helpfully defaulted.
 	timezone: str | None
@@ -1384,6 +1389,7 @@ def user (row: subroutine.db.models.identity.User) -> User:
 		is_service_account=row.is_service_account,
 		is_superuser=row.is_superuser,
 		is_active=row.is_active,
+		responsible_user_id=row.responsible_user_id,
 		timezone=row.timezone,
 		created_at=row.created_at,
 	)
