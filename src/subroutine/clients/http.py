@@ -575,7 +575,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		answer = self._json("PATCH", f"/v1/users/{username}", body={"is_active": active})
+		answer = self._json("PATCH", f"/v1/users/{username}", json={"is_active": active})
 
 		return subroutine.views.User.model_validate(answer)
 
@@ -584,7 +584,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		answer = self._json("PATCH", f"/v1/users/{username}", body={"responsible": to})
+		answer = self._json("PATCH", f"/v1/users/{username}", json={"responsible": to})
 
 		return subroutine.views.User.model_validate(answer)
 

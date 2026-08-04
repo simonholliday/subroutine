@@ -266,7 +266,14 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"so an agent that could deactivate one could revoke itself and its siblings in a single "
 		"call it cannot undo. Not a budget decision: this is a capability an agent should not "
 		"have, and deleting this entry needs an argument about authority rather than about "
-		"tool count. **Deleting this entry is what would close that.**"
+		"tool count. **Deleting this entry is what would close that.**\n\n"
+		"**Since `#487` the service refuses it outright for any service account**, which is "
+		"`transfer_agent`'s position beside it: a tool would be a schema in every session for a "
+		"call that always fails. That is what this entry *asserted* when it was written and "
+		"nothing enforced — it read as a considered exclusion while the act stood open on the "
+		"two surfaces that already reached it. Reading it as a design record is what found that "
+		"(decision `#484`), so it is worth saying which half is now load-bearing: the refusal "
+		"is, and this entry is the note explaining why no tool is coming."
 	),
 	"update_document": (
 		"tracked",

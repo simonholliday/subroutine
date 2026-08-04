@@ -151,12 +151,32 @@ def set_active (
 	The affected agents are returned rather than merely counted, so a caller can name them
 	before doing it — `project rename`'s precedent. A deactivation that silently stops a shared
 	agent is how a control like this comes to be worked around.
+
+	**Only a person may do it** (`#487`), which is :func:`transfer`'s rule one function down and
+	is written to read as the same one. It checked only ``instance:user_create`` until
+	2026-08-04, so an agent holding that could mark a person as having left — and under `#473`
+	every agent answers to a person, so it could revoke itself and its siblings in a single call
+	nothing undoes.
+
+	**Any service account is refused, not only one acting on a person.** The narrower rule would
+	still let an agent stop its siblings, which is the same harm by a shorter route, and it would
+	make the refusal depend on the target where :func:`transfer`'s depends on the caller — two
+	rules that happen to agree rather than one rule. An agent retiring a sub-agent it answers for
+	is the plausible thing this forbids; it has no caller today, and it wants a decision about
+	authority rather than an exception inherited from this one.
 	"""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize_instance(
 			actor, subroutine.permissions.INSTANCE_USER_CREATE
 		)
+
+		if actor.user.is_service_account:
+			raise subroutine.errors.Forbidden(
+				"An agent cannot mark an account as having left, or bring one back. "
+				"Somebody's standing here is a person's act.",
+				hint="Ask the person accountable for this agent to do it.",
+			)
 
 	if not active:
 		_refuse_deactivating_the_last_administrator(session, user)

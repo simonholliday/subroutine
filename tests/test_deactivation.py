@@ -15,9 +15,16 @@ import uuid
 import pytest
 import sqlalchemy.orm
 
+import api_support
+import subroutine.clients.base
+import subroutine.clients.http
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.users
 import subroutine.errors
 
@@ -51,6 +58,29 @@ def _agent (
 		session,
 		username=f"{name}-{uuid.uuid4().hex[:8]}",
 		is_service_account=True,
+		actor=_acting(answering_to),
+	)
+
+
+def _agent_holding_the_permission (
+	session: sqlalchemy.orm.Session,
+	answering_to: subroutine.db.models.identity.User,
+	name: str = "wide",
+) -> subroutine.db.models.identity.User:
+	"""Create an agent that gets *past* the permission check, so the refusal under test is `#487`.
+
+	Instance verbs are carried by ``is_superuser`` alone — a role may never hold one, since
+	``seed.py`` builds roles from ``permissions.WORKSPACE_LEVEL`` — so an agent that can reach
+	``set_active`` at all is a superuser service account. Anything narrower is refused by
+	``authorize_instance`` first, and a test built on one would pass against the original code
+	while measuring authorisation instead of this rule.
+	"""
+
+	return subroutine.domain.users.create(
+		session,
+		username=f"{name}-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		is_superuser=True,
 		actor=_acting(answering_to),
 	)
 
@@ -195,3 +225,116 @@ def test_deactivating_twice_does_not_move_the_version (
 	subroutine.domain.users.set_active(session, leaver, active=False, actor=_acting(admin))
 
 	assert leaver.version == after
+
+
+def test_an_agent_cannot_mark_a_person_as_having_left (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#487`. The permission was the only check, and an agent can hold it.
+
+	Found by reading `#484`'s deny-list rather than the code: ``transfer`` refuses a service
+	account outright and this, the same rule, did not. Under decision `#473` every agent answers
+	to a person, which makes this the one act that can stop *the caller* — an agent deactivating
+	the person it answers to revokes itself and its siblings in a call nothing undoes.
+	"""
+
+	person = _superuser(session)
+	agent = _agent_holding_the_permission(session, person)
+	leaver = _superuser(session, "leaver")
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.users.set_active(
+			session, leaver, active=False, actor=_acting(agent)
+		)
+
+	assert "person's act" in str(refused.value)
+	assert leaver.is_active, "the refusal has to come before the write, not instead of a commit"
+
+
+def test_an_agent_cannot_bring_somebody_back (session: sqlalchemy.orm.Session) -> None:
+	"""Reactivation is the same act, so it is the same rule.
+
+	``set_active`` is deliberately one function for both directions, and a check written on the
+	deactivating branch alone would leave the other open — restoring an account is how a
+	deactivated one becomes useful again, so it is no less a decision about somebody's standing.
+	"""
+
+	person = _superuser(session)
+	agent = _agent_holding_the_permission(session, person)
+	away = _superuser(session, "away")
+
+	subroutine.domain.users.set_active(session, away, active=False, actor=_acting(person))
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.users.set_active(session, away, active=True, actor=_acting(agent))
+
+	assert not away.is_active
+
+
+def test_an_agent_cannot_stop_another_agent (session: sqlalchemy.orm.Session) -> None:
+	"""Why the refusal reads the *caller* and not the target.
+
+	The narrower rule — refuse only when the target is a person — protects the headline case and
+	still lets an agent stop its siblings, which is the same harm by a shorter route. It would
+	also make this refusal depend on the target where ``transfer``'s depends on the caller: two
+	rules that happen to agree rather than one rule, which is what `#487` was filed to avoid.
+	"""
+
+	person = _superuser(session)
+	agent = _agent_holding_the_permission(session, person)
+	sibling = _agent(session, person, "sibling")
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.users.set_active(
+			session, sibling, active=False, actor=_acting(agent)
+		)
+
+	assert sibling.is_active
+
+
+@pytest.mark.parametrize("transport", ["local", "remote"])
+def test_neither_transport_lets_an_agent_do_it (
+	session: sqlalchemy.orm.Session, transport: str
+) -> None:
+	"""Proved on both surfaces rather than reasoned about from where the check sits.
+
+	The precedent is ``read_only``, which was enforced in the local client for weeks while a
+	test named for the remote one passed. A rule below both surfaces *should* be inherited by
+	both, and that is exactly the sentence nobody re-checks — §13.7's whole argument for
+	parameterising this kind of test rather than trusting the layering.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	agent = _agent_holding_the_permission(session, setup.user)
+	leaver = _superuser(session, "leaver")
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=agent, title="The agent's own"
+	)
+	session.flush()
+
+	factory = api_support.factory_for(session)
+	client: subroutine.clients.base.Client
+
+	if transport == "local":
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=factory,
+			token=issued.value.get_secret_value(),
+		)
+
+	else:
+		client = subroutine.clients.http.Client(
+			subroutine.connections.Connection(name="work", url="https://employer.example.com"),
+			token=issued.value.get_secret_value(),
+			transport=api_support.SyncTransport(api_support.build_app(factory)),
+			base_url=api_support.BASE_URL,
+		)
+
+	with client, pytest.raises(subroutine.errors.Forbidden):
+		client.set_active(username=leaver.username, active=False)
+
+	assert leaver.is_active
