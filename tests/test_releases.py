@@ -14,6 +14,7 @@ written by a later release than the one reading it.
 import json
 import pathlib
 import typing
+import unittest.mock
 
 import httpx
 import pytest
@@ -41,6 +42,59 @@ def _answering (body: typing.Any, status: int = 200) -> httpx.Client:
 	return httpx.Client(
 		transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body))
 	)
+
+
+def test_a_client_handed_in_is_left_open (
+) -> None:
+	"""Item ``#422``. It was closed, so a caller reusing one got it shut underneath them.
+
+	Only the tests pass a client today, which is exactly why this went unnoticed: each builds
+	its own and throws it away. The second caller is the one who finds it, and by then the
+	failure is a closed-transport error a long way from here.
+	"""
+
+	shared = _answering(RECORD)
+
+	first = subroutine.releases.published("https://example.invalid/r.json", client=shared)
+
+	assert not shared.is_closed, "a borrowed client is not this function's to close"
+
+	# Still usable, which is the property somebody reusing one actually wants — and compared
+	# against the first answer rather than a written-out list, so the fixture stays the one
+	# place that says what is in it.
+	again = subroutine.releases.published("https://example.invalid/r.json", client=shared)
+
+	assert again == first
+	assert first, "an empty record would make the comparison above prove nothing"
+
+	shared.close()
+
+
+def test_a_client_it_made_itself_is_closed () -> None:
+	"""The other half, without which the fix could quietly leak one per call.
+
+	``filterwarnings = ["error"]`` turns a leaked transport into a test failure eventually,
+	but not reliably at the site — so the ownership rule is asserted in both directions here.
+	"""
+
+	made: list[httpx.Client] = []
+	real = httpx.Client
+
+	def recorded (**kwargs: typing.Any) -> httpx.Client:
+		"""Build the client the module would, and keep a handle on it."""
+
+		client = real(transport=httpx.MockTransport(
+			lambda request: httpx.Response(200, json=RECORD)
+		))
+		made.append(client)
+
+		return client
+
+	with unittest.mock.patch.object(httpx, "Client", recorded):
+		subroutine.releases.published("https://example.invalid/r.json")
+
+	assert len(made) == 1
+	assert made[0].is_closed, "one it opened is one it owns"
 
 
 def _rows () -> tuple[subroutine.releases.Release, ...]:

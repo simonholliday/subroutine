@@ -45,7 +45,8 @@ $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-Two commands to install, one to make the database, and from then on it is your agent's job.
+One command to install Subroutine, one to make the database, two to add the plugin — and from
+then on it is your agent's job.
 
 **A shared instance over HTTP**, for a team or for agents on other machines. Loopback by default;
 it refuses a wider bind without TLS in front of it.

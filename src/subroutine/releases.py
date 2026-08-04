@@ -16,7 +16,10 @@ has three instances (`#247`, `#251`, `#303`). It arrives with the thing that rea
 and nothing about a schema — measured, 2026-08-04: its JSON carries name, version, summary,
 classifiers and URLs, with nowhere a migration head could live. So the project publishes
 :data:`DEFAULT_URL`, a small file ``scripts/release.py`` writes from the derivation ``#100``
-already makes. A fork points the setting elsewhere, or never asks.
+already makes. A fork changes that constant, or never asks — **there is deliberately no
+setting for it** (`#420`). This paragraph said "a fork points the setting elsewhere" for a
+day, two paragraphs below the note that a switch nothing reads is this codebase's second
+signature defect, which is a decent measure of how easily one gets written.
 
 **No version arithmetic.** Ordering ``0.2.1.dev57`` against ``0.3.0`` correctly needs
 ``packaging``, which is not a declared dependency, so nothing here compares two version
@@ -26,6 +29,7 @@ needs neither is the interesting one — a build that is not a published release
 is what `#321` was reported from.
 """
 
+import contextlib
 import dataclasses
 import typing
 
@@ -148,12 +152,17 @@ def published (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) ->
 	an entry missing a field. A reader wants to know that the check could not be made, and
 	distinguishing a DNS failure from a truncated file helps nobody standing at a terminal
 	about to upgrade something.
+
+	**A client handed in is borrowed, not taken** (`#422`). This closed whatever it was given,
+	so a caller reusing one got it shut underneath them — invisible today because only the tests
+	pass one, and exactly the kind of thing the second caller discovers rather than the first.
 	"""
 
 	try:
-		opened = client or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True)
-
-		with opened:
+		with contextlib.ExitStack() as closing:
+			opened = client or closing.enter_context(
+				httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True)
+			)
 			answered = opened.get(url)
 			answered.raise_for_status()
 			body = answered.json()
