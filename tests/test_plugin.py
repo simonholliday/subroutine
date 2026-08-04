@@ -59,6 +59,26 @@ def test_the_plugin_version_matches_the_tag_it_is_released_under () -> None:
 
 	The release workflow makes the same comparison independently, because a test can be skipped
 	by not running it and a published artefact cannot be recalled.
+
+	**The manifest is read out of the tagged commit, not off disk** (`#428`). It used to decide
+	*whether* to run from the tag on ``HEAD`` and then read the working tree — two different
+	states the moment anything is uncommitted. So the ordinary next act after a release, editing
+	something under ``plugins/`` before committing, turned the whole suite red over a
+	disagreement between a tree that had moved and a tag that had not. Met exactly that way, and
+	the claim being made is about a *release*, which is a commit.
+
+	It fails safe either way and could never miss — reading the tree can only be stricter — but
+	a guard that cries wolf once per release cycle, on the commit hardest to be confident about,
+	is one somebody learns to run past.
+
+	**It still checks only the tag on ``HEAD``, and widening it to every tag was considered and
+	declined.** Doing so would run on every commit rather than one in fifty, and would have
+	caught `#238` — 0.1.2 tagged with the manifest reading 0.1.1 — for ever rather than on the
+	day. But a tag is published history: a mistake found later cannot be corrected without
+	retagging something people have installed, so the suite would go permanently red over
+	something nobody may fix. The check belongs at the moment it can still change the outcome,
+	which is the tagged commit in CI, before the artefact is built. Measured 2026-08-04: all
+	seven tags carry a manifest and all seven agree.
 	"""
 
 	tagged = subprocess.run(
@@ -71,7 +91,17 @@ def test_the_plugin_version_matches_the_tag_it_is_released_under () -> None:
 	if tagged.returncode != 0 or not names:
 		pytest.skip("HEAD carries no release tag, so there is nothing yet to agree with")
 
-	assert _read(PLUGIN)["version"] in {name.removeprefix("v") for name in names}
+	shown = subprocess.run(
+		["git", "show", f"{names[0]}:{PLUGIN.relative_to(ROOT).as_posix()}"],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+
+	if shown.returncode != 0:
+		pytest.skip(f"{names[0]} does not carry a plugin manifest to compare")
+
+	declared = json.loads(shown.stdout)["version"]
+
+	assert declared in {name.removeprefix("v") for name in names}
 
 
 def test_the_marketplace_points_at_the_plugin_that_is_here () -> None:
