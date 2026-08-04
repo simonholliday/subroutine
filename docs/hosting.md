@@ -960,6 +960,30 @@ write.
 
 ## Upgrading
 
+**Before and after, `subroutine doctor` says whether this machine is coherent.** One command:
+what is running and where it came from, which configuration it is reading, what each connection
+answers, and when a backup was last taken.
+
+```console
+$ subroutine doctor
+  program  0.2.1, at /opt/subroutine/bin/subroutine
+  config   /var/lib/subroutine/config
+  data     /var/lib/subroutine/data
+  state    /var/lib/subroutine/state
+  local    0.2.1, schema d5d0458f5ad5, as si (person)
+  backups  19 in /srv/backups/subroutine, newest subroutine-default-20260803T053711Z-d5d0458f5ad5.sql (4,046,848 bytes, today)
+
+  Nothing here needs attention.
+```
+
+Run it **as the service account, with the same three variables** as everything else in this
+section — that is the whole point of the `config`, `data` and `state` lines. If they are not
+the ones the unit sets, you are looking at a different installation from the one that serves
+requests, and everything below them is true about the wrong machine.
+
+It exits non-zero when something needs attention, so it can be the last line of an update
+script. It talks only to the instances you have configured.
+
 **Subroutine never checks for updates on its own.** There is no setting that makes it, and an
 instance can run for years without making an outbound request. Asking is something you do:
 

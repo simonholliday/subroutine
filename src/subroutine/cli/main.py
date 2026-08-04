@@ -20,6 +20,7 @@ import typing
 
 import pydantic
 import rich.console
+import rich.text
 import sqlalchemy
 import sqlalchemy.engine
 import sqlalchemy.exc
@@ -42,6 +43,7 @@ import subroutine.db.models.identity
 import subroutine.db.session
 import subroutine.db.transfer
 import subroutine.db.types
+import subroutine.diagnosis
 import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -907,6 +909,52 @@ def _schema_now (settings: subroutine.config.Settings) -> str:
 
 	except Exception:
 		return "a revision that could not be read"
+
+
+@app.command("doctor")
+def doctor () -> None:
+	"""Say whether this machine's installation is coherent, and change nothing.
+
+	Examples:
+
+	  subroutine doctor
+
+	What is running and where it came from, which configuration it is reading, what each
+	connection answers, and when a backup was last taken. One command because getting it wrong
+	is nearly always the same mistake: running something without the environment the service
+	uses, which acts on a different database and looks exactly like success.
+
+	It exits non-zero if anything needs attention, so it can be the last line of an update
+	script rather than something a person reads and forgets.
+
+	It talks to the instances you have configured and to nothing else. Whether a newer release
+	exists is a different question, asked with 'subroutine upgrade --check'.
+	"""
+
+	findings = subroutine.diagnosis.examine(_settings())
+	width = max(len(finding.area) for finding in findings)
+
+	for finding in findings:
+		line = f"  {finding.area.ljust(width)}  {finding.detail}"
+
+		# **Colour marks the exception and never carries the meaning** (decision `#102`). A
+		# failing line says so in a word as well, because a reader piping this into a log, or
+		# one who cannot distinguish red, has to get the same answer.
+		if finding.ok:
+			_say(line)
+
+		else:
+			_out.print(
+				rich.text.Text(f"{line}  — needs attention", style="red"),
+				markup=False,
+				highlight=False,
+			)
+
+	_say("")
+	_say(f"  {subroutine.diagnosis.verdict(findings)}")
+
+	if any(not finding.ok for finding in findings):
+		raise typer.Exit(1)
 
 
 @app.command("upgrade")

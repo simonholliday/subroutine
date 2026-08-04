@@ -273,6 +273,20 @@ upgrade involves.
   A profile expands into flags you could have typed yourself, and can express nothing they
   cannot. Leaving `--profile` off behaves exactly as before.
 
+- **`subroutine doctor` says whether a machine's installation is coherent.** What is running
+  and where it came from, which configuration it is reading, what each connection answers, and
+  when a backup was last taken — in one command, exiting non-zero if anything needs attention
+  so it can end an update script.
+
+  **The configuration lines are the point.** Nearly every confusing failure in a self-hosted
+  setup is the same one: a command run without the environment the service uses, acting on a
+  different database and looking exactly like success. Printing which config, data and state
+  directories are in force is what makes every other line mean something.
+
+  It survives what it is examining — an unreachable instance, a credential that is refused, a
+  configuration that will not parse all become lines, and the rest of the report still prints.
+  It talks only to the instances you have configured.
+
 - **`subroutine upgrade --check` says whether a newer release exists, and whether it changes
   the database schema.** The second half is the point: a version number is something `pip
   index` prints, and what you cannot get anywhere else is whether upgrading will ask you to
