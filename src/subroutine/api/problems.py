@@ -303,20 +303,20 @@ def _field_name (location: tuple[typing.Any, ...]) -> str:
 	return ".".join(parts) if parts else "body"
 
 
-def _accepted_field_names (request: starlette.requests.Request) -> tuple[str, ...]:
-	"""Return the body field names the matched endpoint accepts, if it has a body model.
+def body_fields (route: typing.Any) -> tuple[str, ...]:
+	"""Return the body field names a route accepts, or nothing if it takes no body.
 
-	Read from the route FastAPI has already resolved rather than from a list maintained
-	alongside it, so the hint cannot name a field the endpoint stopped accepting.
+	**One reader of an interface FastAPI does not document.** It has kept the body's model in
+	two different places across versions — ``field_info.annotation`` now, ``type_`` before it —
+	so both are tried and neither is required. A second copy of that lookup would be a second
+	thing to fix on the day it moves again, which is why ``tests/test_reach.py`` calls this
+	rather than reaching into a route itself (item ``#427``).
+
+	Failing to find one is never an error. Here it costs a caller a hint; there it means a
+	route is not classified, which the guard reports in its own words.
 	"""
 
-	route = request.scope.get("route")
 	body_field = getattr(route, "body_field", None)
-
-	# FastAPI has kept the body's model in two different places across versions —
-	# ``field_info.annotation`` now, ``type_`` before it. Neither is a documented
-	# interface, so both are tried and neither is required: without one the caller loses a
-	# hint, which is a far better outcome than an error handler that raises.
 	model = getattr(getattr(body_field, "field_info", None), "annotation", None) or getattr(
 		body_field, "type_", None
 	)
@@ -326,3 +326,13 @@ def _accepted_field_names (request: starlette.requests.Request) -> tuple[str, ..
 		return ()
 
 	return tuple(sorted(str(name) for name in fields))
+
+
+def _accepted_field_names (request: starlette.requests.Request) -> tuple[str, ...]:
+	"""Return the body field names the matched endpoint accepts, if it has a body model.
+
+	Read from the route FastAPI has already resolved rather than from a list maintained
+	alongside it, so the hint cannot name a field the endpoint stopped accepting.
+	"""
+
+	return body_fields(request.scope.get("route"))

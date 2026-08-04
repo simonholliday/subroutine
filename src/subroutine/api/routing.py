@@ -75,18 +75,27 @@ class Transactional(fastapi.routing.APIRoute):
 #: One route, reduced to what deciding reachability needs.
 Declaration = tuple[str, frozenset[str]]
 
+#: The same, with the route object itself — for a caller that has to ask it something.
+Mount = tuple[str, frozenset[str], typing.Any]
+
 _PARAMETER = re.compile(r"\{([^{}:]+)(?::([^{}]+))?\}")
 
 
-def declarations (routers: typing.Sequence[Mounting]) -> list[Declaration]:
-	"""Return every route these routers will register, in the order they will register it.
+def mounted (routers: typing.Sequence[Mounting]) -> list[Mount]:
+	"""Return every route these routers will register, with the route object itself.
 
 	Read from the routers themselves rather than from the built application: FastAPI keeps
 	an included router as an opaque object whose paths are composed at match time, and
-	reaching into that would be a check written against a private shape.
+	reaching into that would be a check written against a private shape. **Measured, and it
+	is not a theoretical hazard**: walking ``app.routes`` finds eight routes where these
+	routers declare more than sixty, and a guard built on it passes by looking at almost
+	nothing (item ``#427``).
+
+	:func:`declarations` is this without the route, which is all that deciding reachability
+	needs. Both exist because one walk is what keeps them agreeing about what a route is.
 	"""
 
-	found: list[Declaration] = []
+	found: list[Mount] = []
 
 	for prefix, router in routers:
 		for route in router.routes:
@@ -100,9 +109,15 @@ def declarations (routers: typing.Sequence[Mounting]) -> list[Declaration]:
 					f"not checked; mount them on the application instead."
 				)
 
-			found.append((prefix + path, frozenset(methods or ())))
+			found.append((prefix + path, frozenset(methods or ()), route))
 
 	return found
+
+
+def declarations (routers: typing.Sequence[Mounting]) -> list[Declaration]:
+	"""Return every route these routers will register, in the order they will register it."""
+
+	return [(path, methods) for path, methods, _route in mounted(routers)]
 
 
 def shadowed (routes: typing.Sequence[Declaration]) -> list[str]:
