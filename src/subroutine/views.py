@@ -240,7 +240,11 @@ class Task(pydantic.BaseModel):
 	#: Who put it in that person's queue (`#477`). Derived from whoever made the change, so it
 	#: is reported and never accepted — an assigner a caller could type would be a claim rather
 	#: than a record. Null with the assignee, and null for a change nobody was acting for.
-	assigned_by_id: uuid.UUID | None
+	#:
+	#: **Defaulted because it was added after this model shipped** (`#345`): an instance one
+	#: release behind sends a body without it, and a required field here makes this client
+	#: refuse that instance outright rather than read the rest of what it said.
+	assigned_by_id: uuid.UUID | None = None
 
 	#: §6.3's two independent axes, 1-5 where 5 is highest, and the product of them.
 	#: Null means *not assessed* and is distinct from 1. ``priority_score`` is derived and
@@ -541,7 +545,10 @@ class User(pydantic.BaseModel):
 	#: Who answers for this agent (decision `#473`). Null on a person, who answers for
 	#: themselves. **Null on a service account means nobody does**, which is a state the
 	#: instance refuses to act on rather than a value still to be filled in.
-	responsible_user_id: uuid.UUID | None
+	#:
+	#: Defaulted for `#345`'s reason: added after this model shipped, so an older instance's
+	#: body must still parse.
+	responsible_user_id: uuid.UUID | None = None
 
 	#: Null means "not stated", so the workspace's zone and then the instance's show through
 	#: (§12.3). It is not a missing value to be helpfully defaulted.
