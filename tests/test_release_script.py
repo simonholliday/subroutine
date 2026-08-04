@@ -21,6 +21,8 @@ import typing
 
 import pytest
 
+import subroutine.db.migrate
+
 REPOSITORY = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPOSITORY / "scripts" / "release.py"
 
@@ -326,3 +328,83 @@ def test_a_release_matching_the_plugin_manifest_is_allowed (
 	done = cut("0.1.1")
 
 	assert done.returncode == 0, done.stderr
+
+
+def test_the_release_is_recorded_with_the_schema_it_expects (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""Item ``#321``. The fact only knowable at the moment of release.
+
+	PyPI publishes a version and nothing about a database, so if this is not written here an
+	operator can be told a release exists and not whether taking it means stopping the service.
+	Derived from the migration directory rather than typed, for the reason `#100` derives the
+	changelog notice the same way: at release time nobody remembers.
+	"""
+
+	done = cut("0.1.1", "--date", "2026-08-02")
+
+	assert done.returncode == 0, done.stderr
+
+	record = json.loads((repository / "docs" / "releases.json").read_text(encoding="utf-8"))
+	newest = record["releases"][0]
+
+	assert newest["version"] == "0.1.1"
+	assert newest["date"] == "2026-08-02"
+	assert newest["schema"] == subroutine.db.migrate.head_revision()
+
+
+def test_the_record_is_committed_with_everything_else (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""One commit, or the tag names a state where the record and the version disagree.
+
+	The whole point of this script is that every place a release names itself agrees on a
+	single commit. A record written and left unstaged would be the newest thing in the working
+	tree and absent from the tag — so a reader fetching it from the repository would be told
+	about a release the tag does not contain.
+	"""
+
+	cut("0.1.1", "--date", "2026-08-02")
+
+	changed = _git(repository, "status", "--porcelain")
+
+	assert changed.strip() == "", f"the release left something uncommitted: {changed!r}"
+
+	listed = _git(repository, "show", "--name-only", "--format=", "HEAD")
+
+	assert "docs/releases.json" in listed
+
+
+def test_a_release_already_in_the_record_is_refused (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""Two entries for one version would make "how far behind" count it twice.
+
+	It cannot happen through the ordinary path — a released tag is refused before this — but
+	the record is a file somebody can edit, and the check costs one line.
+	"""
+
+	(repository / "docs").mkdir(exist_ok=True)
+	(repository / "docs" / "releases.json").write_text(
+		json.dumps({"releases": [{"version": "0.1.1", "schema": "aaaaaaaaaaaa", "date": "x"}]}),
+		encoding="utf-8",
+	)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a record naming it already")
+
+	done = cut("0.1.1", "--date", "2026-08-02")
+
+	assert done.returncode != 0, done.stdout
+
+	assert "already records 0.1.1" in done.stderr + done.stdout
+
+
+def test_a_dry_run_says_what_the_record_would_gain (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""And touches nothing, which is the half worth asserting."""
+
+	done = cut("0.1.1", "--dry-run")
+
+	assert "releases.json" in done.stdout
+	assert not (repository / "docs" / "releases.json").exists()

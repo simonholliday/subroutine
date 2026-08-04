@@ -960,6 +960,21 @@ write.
 
 ## Upgrading
 
+**Subroutine never checks for updates on its own.** There is no setting that makes it, and an
+instance can run for years without making an outbound request. Asking is something you do:
+
+```console
+$ subroutine upgrade --check
+```
+
+It answers in two or three lines — what is running, what has been released, and **whether
+taking it changes the database schema**. That last line is the reason the command exists: it
+is the difference between planning a short outage and meeting one halfway through an install.
+
+It reports what is *running*, which is not always what a package manager thinks is installed —
+an editable install carries the version it was made at. And it changes nothing at all, so it is
+safe on a machine you have not decided about yet.
+
 The package manager moves the code. Subroutine moves the database. In that order, and it will
 not try to do the first for you — a tool that installs software over itself fights whatever
 installed it, cannot do it safely while running, and is worse at it than your package manager.

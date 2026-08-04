@@ -31,6 +31,8 @@ import re
 import subprocess
 import sys
 
+import subroutine.db.migrate
+
 #: The repository, resolved from this file rather than from the working directory — the script
 #: is run from wherever somebody happens to be standing.
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -39,6 +41,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: tag is made rather than written, and `pyproject.toml` no longer has one at all (`#234`).
 CHANGELOG = ROOT / "CHANGELOG.md"
 PLUGIN = ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
+
+#: The record `subroutine upgrade --check` reads — item `#321`. **Written here rather than
+#: derived by whoever asks**, because the fact it carries is only knowable at the moment of
+#: release: the schema head this version expects. PyPI publishes a version and nothing about a
+#: database, so without this an operator can be told a release exists and not whether taking it
+#: means stopping the service.
+#:
+#: Newest first, matching the changelog, so the file *is* the ordering and nothing that reads
+#: it has to compare version strings.
+RELEASES = ROOT / "docs" / "releases.json"
 
 #: What a version may look like. Deliberately narrow: three numbers, optionally a pre-release
 #: suffix. A tag is not the place to discover that somebody typed `v0.1.3` or `0.1` — the first
@@ -69,23 +81,31 @@ def main (argv: list[str] | None = None) -> int:
 	on = parsed.date or datetime.date.today().isoformat()
 	changelog = UNRELEASED.sub(f"## {version} — {on}", CHANGELOG.read_text(encoding="utf-8"), 1)
 
+	head = subroutine.db.migrate.head_revision()
+
+	if head is None:
+		return _refuse("no migration head could be read, so the release record cannot say what "
+		               "schema this version expects.")
+
 	if parsed.dry_run:
 		print(f"Would release {version} ({on}):")
 		print(f"  {CHANGELOG.name}: the Unreleased heading becomes '## {version} — {on}'")
 		print(f"  {PLUGIN.name}: version becomes {version}")
-		print(f"  commit both, then tag v{version}")
+		print(f"  {RELEASES.name}: {version} recorded at schema {head}")
+		print(f"  commit all three, then tag v{version}")
 
 		return 0
 
 	CHANGELOG.write_text(changelog, encoding="utf-8")
 	_write_plugin_version(version)
+	_record_release(version, head, on)
 
 	# **`check_release_notes.py` is deliberately not run here.** It compares this commit's
 	# migration head against the head at the most recent tag — which is the same comparison CI
 	# makes on every push to main, against the same previous tag. So a missing migration notice
 	# is already refused before anybody reaches this script, and running it again would couple
 	# two scripts for an answer that has been available since the commit that moved the head.
-	_git("add", str(CHANGELOG), str(PLUGIN))
+	_git("add", str(CHANGELOG), str(PLUGIN), str(RELEASES))
 	_git("commit", "-m", f"Release {version}", "-m", f"See CHANGELOG.md for what {version} contains.")
 	_git("tag", "-a", f"v{version}", "-m", f"Subroutine {version}")
 
@@ -219,6 +239,29 @@ def _latest_version () -> str | None:
 		return None
 
 	return found.stdout.strip().removeprefix("v")
+
+
+def _record_release (version: str, head: str, on: str) -> None:
+	"""Put this release at the top of the published record.
+
+	**At the top rather than sorted in**, because the file is read as an ordering and a
+	release is always the newest thing in it — `_reasons_to_stop` has already refused anything
+	that is not ahead of the most recent tag. Sorting would mean parsing versions, which is
+	the arithmetic `subroutine.releases` exists without.
+	"""
+
+	record = json.loads(RELEASES.read_text(encoding="utf-8")) if RELEASES.is_file() else {}
+	rows = record.get("releases", [])
+
+	if any(row.get("version") == version for row in rows):
+		raise SystemExit(f"{RELEASES.name} already records {version}.")
+
+	record["releases"] = [{"version": version, "schema": head, "date": on}, *rows]
+
+	# The directory may not be there on a fork cutting its first release, and refusing for
+	# that would be a release tool stopping on something it can fix.
+	RELEASES.parent.mkdir(parents=True, exist_ok=True)
+	RELEASES.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 def _write_plugin_version (version: str) -> None:

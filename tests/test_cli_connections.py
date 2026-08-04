@@ -35,6 +35,7 @@ import subroutine.credentials
 import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.installations
+import subroutine.releases
 
 #: The zone every instance in this file is created in, named once because a test that asks
 #: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
@@ -1847,3 +1848,75 @@ def test_whoami_names_a_credentials_write_set (
 	answer = run("whoami").output
 
 	assert "Narrowed to writing in API." in answer
+
+
+def test_upgrade_check_asks_nothing_of_the_database (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Item ``#321``. ``--check`` reports and touches nothing, including on a bare machine.
+
+	Asserted on a machine with **no instance at all**, because that is where somebody deciding
+	whether to install stands. The ordinary path refuses there — ``upgrade`` needs a database
+	to migrate — and a check that inherited that refusal would be unreachable exactly when it
+	is most useful.
+
+	The fetch is replaced, because a test that reached the network would be measuring GitHub.
+	"""
+
+	def answer (url: str = "", **_kwargs: typing.Any) -> list[subroutine.releases.Release]:
+		"""Stand in for the published record."""
+
+		return [subroutine.releases.Release(version="9.9.9", schema="abc", date="2026-09-01")]
+
+	monkeypatch.setattr(subroutine.releases, "published", answer)
+
+	said = run("upgrade", "--check").output
+
+	assert "9.9.9" in said
+	assert subroutine.__version__ in said
+
+
+def test_upgrade_check_says_when_it_could_not_ask (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A machine with no route out is the ordinary case for a server, not an exception.
+
+	It has to read as "the check could not be made" rather than as "you are up to date" — the
+	second is the answer that would let somebody skip a migration they needed.
+	"""
+
+	def refuse (url: str = "", **_kwargs: typing.Any) -> list[subroutine.releases.Release]:
+		"""Fail the way an unreachable host does."""
+
+		raise subroutine.errors.ServiceUnavailable(
+			"Could not read the list of releases.", hint="Check the machine's network."
+		)
+
+	monkeypatch.setattr(subroutine.releases, "published", refuse)
+
+	refused = run("upgrade", "--check", expect=1).output
+
+	assert "Could not read the list of releases" in refused
+	assert "up to date" not in refused
+
+
+def test_upgrade_without_check_reaches_no_network (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""§12.4a, asserted rather than promised: nothing phones home uninvited.
+
+	The rule is that it must be possible to run an instance that never makes an outbound
+	request, and the way this would break is somebody adding a courtesy check to the ordinary
+	path. So the fetch is replaced with something that fails the test if it is called at all.
+	"""
+
+	def forbidden (url: str = "", **_kwargs: typing.Any) -> list[subroutine.releases.Release]:
+		"""Fail loudly rather than answering."""
+
+		raise AssertionError("upgrade asked the network without being told to")
+
+	monkeypatch.setattr(subroutine.releases, "published", forbidden)
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	assert "Nothing to do" in run("upgrade").output

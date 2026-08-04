@@ -51,6 +51,8 @@ import subroutine.domain.schedule
 import subroutine.domain.tokens
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.installations
+import subroutine.releases
 import subroutine.views
 
 app = typer.Typer(
@@ -910,6 +912,9 @@ def _schema_now (settings: subroutine.config.Settings) -> str:
 @app.command("upgrade")
 def upgrade (
 	yes: bool = typer.Option(False, "--yes", help="Do not ask, even if protected."),
+	check: bool = typer.Option(
+		False, "--check", help="Ask whether a newer release exists, and change nothing."
+	),
 ) -> None:
 	"""Bring the database up to the schema this version needs, backing it up first.
 
@@ -917,10 +922,24 @@ def upgrade (
 
 	  subroutine upgrade
 
+	  subroutine upgrade --check
+
 	This does not install anything, and will not try to. Update Subroutine itself with
 	whatever you installed it with — pip, pipx, uv, your package manager, a new container —
 	and then run this to bring the database along.
+
+	'--check' asks whether a newer release exists and whether it changes the database schema,
+	which is the part worth knowing in advance: it is the difference between planning a short
+	outage and meeting one halfway through an install. It touches nothing.
+
+	Nothing else here ever reaches the network. Subroutine does not check for updates on its
+	own, and there is no setting that makes it — asking is a thing you do, not a thing it does.
 	"""
+
+	if check:
+		_report_the_newest_release()
+
+		return
 
 	settings = _settings()
 
@@ -2154,6 +2173,41 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 		return
 
 	_say(f"The database being replaced was saved to {kept.path}")
+
+
+def _report_the_newest_release () -> None:
+	"""Say what is running, what has been released, and whether the gap moves the schema.
+
+	**The only outbound request this program makes**, and only when somebody typed
+	``--check``. §12.4a's rule is that a self-hosted tool must never phone home uninvited; a
+	command is the invitation, and an instance that never runs this never talks to anybody.
+
+	The version reported is what is *running* rather than what a package index thinks is
+	installed — `#321` was found on an instance reporting ``0.1.5.dev7`` while running
+	something thirty-four commits later, with a laptop beside it reporting a third number.
+	"""
+
+	try:
+		record = subroutine.releases.published()
+
+	except subroutine.errors.SubroutineError as error:
+		_fail(error)
+
+	newest = record[0] if record else None
+	standing = subroutine.releases.Standing(
+		running=subroutine.installations.program(),
+		schema=subroutine.db.migrate.head_revision(),
+		published=tuple(record),
+		# **Asked of the migration history, not of the version strings.** A revision this
+		# build knows is one it could migrate forward from, so the release is behind it; one
+		# it has never seen was written by a later release. That is the whole direction.
+		knows_the_newest_schema=(
+			newest is not None and subroutine.db.migrate.knows_revision(newest.schema)
+		),
+	)
+
+	for line in subroutine.releases.describe(standing):
+		_say(line)
 
 
 def _database_is_absent (settings: subroutine.config.Settings) -> bool:

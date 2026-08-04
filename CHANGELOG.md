@@ -273,6 +273,18 @@ upgrade involves.
   A profile expands into flags you could have typed yourself, and can express nothing they
   cannot. Leaving `--profile` off behaves exactly as before.
 
+- **`subroutine upgrade --check` says whether a newer release exists, and whether it changes
+  the database schema.** The second half is the point: a version number is something `pip
+  index` prints, and what you cannot get anywhere else is whether upgrading will ask you to
+  stop the service.
+
+  **Nothing checks on its own, and there is no setting that makes it.** Asking is a thing you
+  do. An instance can run for years without an outbound request.
+
+  It reports what is *running* rather than what was installed — an editable install carries
+  the version it was made at — and it knows which way a schema difference points, so a build
+  ahead of the newest release is told so rather than being sent to install something older.
+
 - **A comment can be taken back out.** `subroutine uncomment 42 "some of its words"`, and
   `remove=true` on the agent's `subroutine_comment`. Named by what it says, because a comment
   has no number of its own and its id appears in nothing anybody reads — the same reason
