@@ -836,6 +836,12 @@ def _added (
 
 	consulted = (
 		marker is not None
+		# **And only where the marker speaks for the connection this session is on** (`#414`).
+		# A marker names one instance; its project is a fact about that instance and nothing
+		# else. Without this, `directory.resolve`'s match-by-key fallback — which exists for
+		# markers written before `#177` gave them ids — filed work into a same-named project on
+		# whichever instance happened to answer.
+		and marker.speaks_for(client.connection.name)
 		and (marker.project is not None or marker.project_id is not None)
 		and not subroutine.domain.capture.names_a_project(line)
 	)

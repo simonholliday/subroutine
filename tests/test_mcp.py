@@ -1407,6 +1407,40 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 	assert "Ignoring it" in text
 
 
+def test_a_marker_for_another_connection_does_not_file_by_key (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""Item ``#414``. The marker names one instance; a same-named project here is not it.
+
+	The test above covers a marker whose project is simply absent. This is the harder half, and
+	the one that files work in the wrong place rather than merely ignoring the file: the marker
+	names another connection, and **the project key it carries exists here too** — which is what
+	``SR``, ``WEB`` and ``DOCS`` are like, and is the whole reason the defect bites. So this
+	makes the project first; a marker naming one that is not here could not tell the two
+	behaviours apart, and would pass against the defect.
+
+	**Falsified against the original code**: drop ``marker.speaks_for(...)`` from ``_added``'s
+	``consulted`` and this fails, reporting the task filed ``in WEB``.
+	"""
+
+	_called(bound, "subroutine_project", key="WEB", title="Website")
+
+	(tmp_path / subroutine.directory.FILE_NAME).write_text(
+		'connection = "somewhere-else"\nproject = "WEB"\n', encoding="utf-8"
+	)
+	os.chdir(tmp_path)
+
+	text, failed = _called(bound, "subroutine_add", text="Filed where this session points")
+
+	assert not failed, text
+	assert "Added" in text
+
+	# Not "in WEB, from .subroutine" — the marker was never consulted, so nothing about it is
+	# reported as having decided anything.
+	assert subroutine.directory.FILE_NAME not in text
+	assert "in WEB" not in text
+
+
 # --- Which instance a session is bound to ------------------------------------------------
 
 

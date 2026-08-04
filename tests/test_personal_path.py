@@ -4092,6 +4092,52 @@ def test_a_marker_naming_a_connection_that_is_gone_does_not_stop_the_program (
 	assert run("show", "1").exit_code == 0
 
 
+def test_a_marker_for_another_connection_does_not_file_by_project_key (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Item ``#414``. `#409` let the connection fall through; the project came along with it.
+
+	``context.resolve`` drops the marker's *workspace* when its connection is not the one that
+	answered. Nothing did the same for the project — so ``directory.resolve``'s match-by-key
+	fallback, which exists for markers written before `#177` gave them ids, answered with **this
+	instance's** project of the same name. Measured live: a checkout marked for one instance
+	filed a task into a different one's ``SR``, printing ``Using 'local' instead`` and ``in SR,
+	from .subroutine`` one line apart.
+
+	**The project has to exist here for this to test anything.** A marker naming one that is
+	absent produces the same output either way, because the fallback then has nothing to find —
+	which is exactly why the case went unnoticed: the neighbours above all use a key that is
+	not here.
+
+	**Falsified against the original code**: remove ``marker.speaks_for(...)`` from
+	``_project_named_by`` and the task is filed ``in SR``.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("project", "create", "SR", "Subroutine")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "gone"\nproject = "SR"\n', encoding="utf-8"
+	)
+	monkeypatch.chdir(checkout)
+
+	added = run("add", "Filed where this connection says")
+
+	assert added.exit_code == 0
+	assert "in SR" not in added.output, "the marker names another instance's SR"
+
+	# **And it says which of the two reasons applied** (`#414`). "SR is not on local" would be
+	# a refusal asserting a cause the program has not established, and here a false one — SR is
+	# on local. It was simply never looked for.
+	assert "on gone" in added.output
+	assert "going to local" in added.output
+	assert "which is not on local" not in added.output
+
+
 def test_a_connection_named_on_the_command_line_is_still_refused (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

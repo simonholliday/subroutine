@@ -3500,10 +3500,24 @@ def register (
 			# against another.
 			shown = world.marker.project or world.marker.project_id
 
-			warn(
-				f"{FILE_NAME} here names project {shown!r}, which is not on "
-				f"{world.current.connection}. Ignoring it."
-			)
+			# **Two reasons, and only one of them is "there is no such project"** (`#414`).
+			# Where the marker names another connection, its project was never looked for —
+			# saying it "is not on local" would assert something the program has not checked
+			# and is often false, since a key like SR is exactly the kind two instances share.
+			# The whole marker applies somewhere else, which is a different thing to be told
+			# and a different thing to do about it.
+			if world.marker.speaks_for(world.current.connection):
+				warn(
+					f"{FILE_NAME} here names project {shown!r}, which is not on "
+					f"{world.current.connection}. Ignoring it."
+				)
+
+			else:
+				warn(
+					f"{FILE_NAME} here names project {shown!r} on "
+					f"{world.marker.connection}, and this is going to "
+					f"{world.current.connection}. Ignoring it."
+				)
 
 			return None
 
@@ -3525,9 +3539,20 @@ def register (
 		server — this half is only the fetching, because that is the part that needs a world
 		to fetch through. It was one function here until `#232` found the other surface had no
 		equivalent at all.
+
+		**Nothing is fetched at all unless the marker speaks for the connection being written
+		to** (`#414`). `context.resolve` has always applied that test to the marker's workspace;
+		without it here, a marker whose connection was dropped (`#409`) or overridden by `-c`
+		still matched its project **by key** on whichever instance answered instead — filing
+		work into a same-named project somewhere else entirely, one line under a warning saying
+		the connection had been ignored.
 		"""
 
 		where = world.writing_to()
+
+		if not marker.speaks_for(where.name):
+			return None
+
 		found = where.client.projects(workspace=_writing_workspace(world))
 
 		return subroutine.directory.resolve(marker, found)

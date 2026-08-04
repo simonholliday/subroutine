@@ -230,6 +230,37 @@ def test_a_marker_written_before_ids_still_resolves_by_key (tmp_path: pathlib.Pa
 	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) == "WEB"
 
 
+def test_a_marker_speaks_only_for_the_connection_it_names (tmp_path: pathlib.Path) -> None:
+	"""Item ``#414``. A marker names one instance, and its project is true only there.
+
+	The defect this closes needed two things that are both ordinary: a marker whose connection
+	is gone or overridden, and a project key two instances share — ``SR``, ``WEB``, ``API``,
+	``DOCS`` are exactly the kind. ``resolve``'s match-by-key fallback then filed work into a
+	*different* instance's project of the same name, under a warning saying the connection had
+	been ignored.
+
+	A marker naming no connection speaks for whichever one answers, which is every marker
+	written before §13.7 and is what keeps them working.
+	"""
+
+	named = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, connection="work", project="SR"
+	)
+
+	assert named.speaks_for("work")
+	assert not named.speaks_for("local")
+
+	# Case-insensitively, because `Roster.find` matches that way — otherwise one connection
+	# spelled two ways would be two connections here and one everywhere else.
+	assert named.speaks_for("WORK")
+
+	silent = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="SR"
+	)
+
+	assert silent.speaks_for("anything at all")
+
+
 def test_a_marker_naming_nothing_here_resolves_to_nothing (tmp_path: pathlib.Path) -> None:
 	"""`#166`: ``None`` is an answer, and the caller's job is to carry on having heard it.
 

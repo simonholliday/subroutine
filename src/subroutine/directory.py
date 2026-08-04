@@ -88,6 +88,28 @@ class Marker(typing.NamedTuple):
 
 		return f"{named or 'nothing'}, from {self.path}"
 
+	def speaks_for (self, connection: str) -> bool:
+		"""Report whether what this marker names applies to the connection that answered.
+
+		**A marker names one instance, and its workspace and project are only true there** —
+		item ``#414``. ``context.resolve`` has always applied this to the workspace half; the
+		project half had no such test, so when `#409` taught the program to fall through to
+		another connection rather than stop, the project came along and was matched **by key**
+		— ``directory.resolve``'s fallback for markers written before `#177` gave them ids.
+
+		Measured: a checkout marked for one instance filed a task into a *different* instance's
+		project of the same name, printing ``Using 'local' instead`` and ``in SR, from
+		.subroutine`` one line apart. Two lines of one act disagreeing about how much of the
+		marker was honoured, and the second reads as confirmation.
+
+		A marker naming no connection speaks for whichever one answers, which is every marker
+		written before §13.7 existed and is what keeps them working. Compared case-insensitively
+		because :meth:`subroutine.connections.Roster.find` matches that way, so two spellings of
+		one connection are one connection everywhere or the answer depends on capitalisation.
+		"""
+
+		return self.connection is None or self.connection.casefold() == connection.casefold()
+
 
 class Named(typing.Protocol):
 	"""The two fields a marker is resolved against, on whatever a client hands back."""
