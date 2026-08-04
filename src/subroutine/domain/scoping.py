@@ -254,23 +254,6 @@ def readable_tasks (
 	return statement
 
 
-#: Which ``entity_type`` values the change feed knows how to narrow. **A value absent from
-#: here is invisible**, which is the only safe default: a kind of event added by a later
-#: feature must not become public because nobody remembered this file.
-#:
-#: ``link`` was absent until `#252` gave link events a subject. They are scoped through the
-#: item the link hangs off, exactly as a comment is — so a link on a task in a private project
-#: is invisible to anybody who cannot see that task, and no rule here knows what a link is.
-#:
-#: **What that does not check is the far end** (`#302`). A link's visibility is really the
-#: conjunction of two items', and one subject can only express one of them, so an event whose
-#: source is visible reports the *ref* of a target that may not be. A number rather than a
-#: title, and a workspace's refs are close to guessable anyway — but it is a narrower version
-#: of the leak this exclusion existed to prevent, and it is recorded rather than assumed away.
-FEED_ENTITY_TYPES = frozenset(
-	{"task", "project", "document", "comment", "workspace", "workspace_member", "link"}
-)
-
 #: Narrowed by the workspace and nothing further, because belonging to the workspace is the
 #: whole of the test — there is no project standing between the caller and the fact that
 #: somebody was added to one.
@@ -310,10 +293,26 @@ def visible_events (
 	comment carries the item the comment was written on, so it is visible exactly when that
 	item is.
 
-	**Everything unlisted is excluded.** ``tests/test_events_scoping.py`` fails the build when
-	a module emits an ``entity_type`` this file has no rule for — the allow-list is a shape
-	assumption, and a guard sharing the assumption of the thing it guards is how this project
-	has shipped every hole it has found.
+	**A link is matched through its subject too**, since ``#252`` gave link events one: a link
+	on a task in a private project is exactly as visible as that task. **What that does not
+	check is the far end** (`#302`) — a link's visibility is really the conjunction of two
+	items', and one subject can only express one of them, so an event whose source is visible
+	reports the *ref* of a target that may not be. A number rather than a title, and a
+	workspace's refs are close to guessable anyway, but it is recorded rather than assumed
+	away.
+
+	**Everything unlisted is excluded, and the clauses below are the whole of that rule**
+	(`#303`). A kind nobody wrote a clause for matches none of them and is invisible — to
+	everybody, including whoever caused it. There is deliberately no second declaration of
+	the list: ``FEED_ENTITY_TYPES`` used to be one, it was read by nothing, it had been wrong
+	once, and a constraint restating these clauses would be one more place for the two to
+	disagree.
+
+	``tests/test_events_scoping.py`` is what makes adding a kind a deliberate act. It reads
+	the ``entity_type`` out of every call that emits one, requires each to be classified, and
+	**measures** the classification against a real feed rather than trusting it. Both this
+	docstring and ``api/changes.py`` cited that file for weeks before it existed, which is the
+	defect `#303` is.
 	"""
 
 	model = subroutine.db.models.activity.Event

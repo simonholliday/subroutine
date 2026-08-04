@@ -25,10 +25,13 @@ back the last ``seq`` it saw and receives it again, which costs one row per poll
 client that persists its cursor before it finishes processing a page correct rather than
 lossy. Every event carries a stable ``id`` to dedupe on.
 
-*Excluded by default.* The scoping allow-list lives in
-:data:`subroutine.domain.scoping.FEED_ENTITY_TYPES`, and an ``entity_type`` absent from it is
-invisible here. A feed is the one place in this API where forgetting to add a rule would
-publish something rather than hide it.
+*Excluded by default.* :func:`subroutine.domain.scoping.visible_events` composes one clause
+per kind of event it knows how to narrow, so a kind nobody wrote a clause for matches none of
+them and is invisible here. A feed is the one place in this API where forgetting to add a rule
+would publish something rather than hide it, and this is the arrangement that means it cannot.
+
+There is no list to keep in step — ``tests/test_events_scoping.py`` reads the kinds out of the
+calls that emit them and measures each one against a real feed (`#303`).
 """
 
 import typing

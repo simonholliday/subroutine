@@ -81,7 +81,10 @@ def record (
 	happened to run the command.
 
 	``subject_*`` names what the event happened *on* when that is something other than the
-	entity itself, and only comments pass it today — see ``selected`` for what reads it.
+	entity itself. Comments and links pass it — a comment's subject is the item it was written
+	on, a link's is the item it hangs off (`#252`) — and it is what makes both visible exactly
+	when that item is. See ``selected`` for what reads it, and ``scoping.visible_events`` for
+	why a kind without either a clause or a subject reaches nobody.
 	"""
 
 	event = subroutine.db.models.activity.Event(
