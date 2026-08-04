@@ -24,6 +24,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.hierarchy
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.workspaces
@@ -210,12 +211,24 @@ def _files_where (
 	more is ambiguous and is refused with them named, for the reason :func:`workspace` refuses
 	an unspecified choice between two — a task filed somewhere the author did not look is found
 	days later, if at all.
+
+	**Where it may *write*, not merely where it can see** (`#416`). `#369` fixed this by the
+	reach, which was the only list there was; `#371` then added a narrower one and this went on
+	asking the wider question. A ``collaborator`` reaching ``SR`` and ``WEB`` but writing only in
+	``WEB`` was told its task "could be filed under any of several projects" — with exactly one
+	of them legal, and the answer sitting unread in the credential. That is `#369` again on
+	§1.4's primary path, for the shape decision `#370` was taken for.
+
+	The same correction one line up: a credential that can *reach* the Inbox and not write there
+	filed into it and met a ``403`` on the write, which is the original defect with an extra
+	step.
 	"""
 
 	inbox = subroutine.domain.bootstrap.inbox_for(session, workspace)
-	reachable = _reach_within(session, actor, workspace)
 
-	if actor.project_scope is None:
+	# The unrestricted caller, unchanged and by far the commonest: §1.4's reader, who has not
+	# heard of a project and must not have to.
+	if actor.project_scope is None and actor.project_write_scope is None:
 		if inbox is None:
 			raise subroutine.errors.InternalError(
 				"This workspace has no Inbox to file a task in.",
@@ -224,27 +237,39 @@ def _files_where (
 
 		return inbox
 
-	if inbox is not None and any(found.id == inbox.id for found in reachable):
+	if inbox is not None and _may_file_in(actor, inbox):
 		return inbox
 
-	if len(reachable) == 1:
-		return reachable[0]
+	# **Its write set where it has one, its reach where it does not** — the same fallback
+	# `authorization._within_write_scope` makes, so what a credential is *offered* here and what
+	# it is *allowed* at the check cannot come apart.
+	writes = actor.project_write_scope
+	pointed = writes if writes is not None else actor.project_scope
+	candidates = _named_within(session, actor, workspace, pointed)
 
-	if not reachable:
+	if len(candidates) == 1:
+		return candidates[0]
+
+	# Says which of the two restrictions left nowhere to file, because they have different
+	# remedies and only one of them is about what the credential can see.
+	bounded = "write in" if writes is not None else "reach"
+
+	if not candidates:
 		raise subroutine.errors.Forbidden(
-			"This credential cannot reach any project in this workspace, so there is nowhere "
-			"to file it.",
+			f"This credential cannot {bounded} any project in this workspace, so there is "
+			f"nowhere to file it.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="project",
 					code="forbidden",
-					message="The credential is restricted to projects that are not here.",
+					message=f"The credential is restricted to projects it can {bounded} "
+					f"elsewhere.",
 					hint="Ask whoever issued it to widen it, or name a workspace it reaches.",
 				)
 			],
 		)
 
-	named = ", ".join(sorted(found.key for found in reachable))
+	named = ", ".join(sorted(found.key for found in candidates))
 
 	raise subroutine.errors.ValidationError(
 		"This could be filed under any of several projects, so it needs to say which.",
@@ -252,30 +277,62 @@ def _files_where (
 			subroutine.errors.FieldError(
 				field="project",
 				code="missing_field",
-				message=f"This credential reaches {named}, and this request named none.",
+				message=f"This credential can {bounded} {named}, and this request named none.",
 				hint=f"Name one of: {named}.",
 			)
 		],
 	)
 
 
-def _reach_within (
+def _may_file_in (
+	actor: subroutine.domain.authentication.Principal,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether a credential could put a new item in this project at all.
+
+	Both restrictions, in the one implementation ``authorization`` applies — a null on either
+	means no narrowing on that axis, and a list is subtree-inclusive (`#413`). Deliberately
+	**not** the role or the scopes: those decide whether this caller may write *anything*, and
+	the permission check answers that a moment later with a message about the verb. This
+	answers only "which project did they mean", where a place they could never write to is not
+	a candidate.
+	"""
+
+	for allowed in (actor.project_scope, actor.project_write_scope):
+		# The sentinel both restrictions share: no list means no narrowing on that axis.
+		if allowed is None:
+			continue
+
+		if not subroutine.domain.hierarchy.within(
+			allowed, identifier=str(project.id), path=project.path
+		):
+			return False
+
+	return True
+
+
+def _named_within (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
+	identifiers: typing.Sequence[str] | None,
 ) -> list[typing.Any]:
 	"""Return the projects a restricted credential is pointed at inside one workspace.
 
-	**The projects it was *scoped to*, not everything that scope reaches.** A scope of ``SR``
-	reaches ``SR/WEB`` as well, and answering "which project did you mean" with the whole
-	subtree would make a one-project credential look ambiguous.
+	**The projects it was *named* with, not everything those reach.** A scope of ``SR`` reaches
+	``SR/WEB`` as well, and answering "which project did you mean" with the whole subtree would
+	make a one-project credential look ambiguous.
+
+	Still narrowed through :func:`subroutine.domain.scoping.readable_projects`, so a credential
+	is never offered somewhere it cannot see — the write set is a subset of the reach, but that
+	is enforced at issue and this is not the place to assume it held.
 	"""
 
-	if actor.project_scope is None:
+	if identifiers is None:
 		return []
 
 	model = subroutine.db.models.project.Project
-	wanted = [uuid.UUID(item) for item in actor.project_scope]
+	wanted = [uuid.UUID(item) for item in identifiers]
 
 	return list(
 		session.scalars(

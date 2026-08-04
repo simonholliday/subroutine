@@ -460,6 +460,109 @@ def test_a_credential_reaching_the_inbox_still_files_there (
 	assert filed.id == inbox.id, "an explicitly reachable Inbox wins over the one-project rule"
 
 
+def test_a_credential_with_one_writable_project_files_there (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""Item ``#416``. `#369` again, on the list `#371` added and this had not been taught.
+
+	The ``collaborator`` shape — reach two, write one — is what decision `#370` was taken for,
+	and its first ``subroutine add "something"`` was refused as *"could be filed under any of
+	several projects"*, with exactly one of them legal and the answer sitting unread in the
+	credential's own write set.
+
+	The rule is the one this function has always applied and nothing more: **the default is the
+	only place the caller could have meant.** What changed is which list answers "could".
+
+	**Falsified against the original code**: narrow by ``actor.project_scope`` again and this
+	raises. Its neighbours all pass either way — they use credentials with no write set, where
+	the reach *is* the answer, which is why the case survived `#371` shipping.
+	"""
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public, world.private], writes=[world.public]
+	)
+	filed = subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert filed.id == world.public.id
+
+	# The captured line is the path anybody actually uses, and `#374` is what happens when only
+	# one of the two is taught something.
+	created, _capture = subroutine.domain.tasks.create_from_text(
+		session, workspace=world.workspace, text="filed by a collaborator", actor=bounded
+	)
+
+	assert created.project_id == world.public.id
+
+
+def test_an_inbox_it_can_reach_but_not_write_in_is_not_the_default (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The same omission one line up — the original defect with an extra step (``#416``).
+
+	``test_a_credential_reaching_the_inbox_still_files_there`` is right and stays right; this
+	is the case it does not cover. A reach naming the Inbox and a write set that does not meant
+	the task was filed there and *then* refused on the write — a `403` one layer later than
+	`#369`'s, which is the shape that reads as a bug in the program rather than in the
+	credential.
+	"""
+
+	inbox = subroutine.domain.bootstrap.inbox_for(session, world.workspace)
+
+	assert inbox is not None
+
+	bounded = _reaching_writing(
+		session, world, reach=[inbox, world.public], writes=[world.public]
+	)
+	filed = subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert filed.id == world.public.id, "the Inbox is reachable and unwritable, so not a default"
+
+	# And it is genuinely writable there, which is the half that makes this an answer rather
+	# than a different refusal.
+	subroutine.domain.authorization.authorize(
+		session,
+		bounded,
+		subroutine.permissions.TASK_WRITE,
+		workspace_id=world.workspace.id,
+		project=filed,
+	)
+
+
+def test_a_credential_that_writes_nowhere_here_is_refused_in_those_terms (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""Which of the two restrictions bit, because they have different remedies (``#416``).
+
+	"Cannot reach any project in this workspace" is the wrong sentence for a credential that
+	reads this workspace perfectly well and writes in another — it sends the reader to widen
+	the wrong list.
+	"""
+
+	elsewhere = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="OTHERWHERE",
+		title="Otherwhere",
+		actor=subroutine.domain.authentication.Principal(user=world.owner),
+	)
+	session.flush()
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public, elsewhere], writes=[elsewhere]
+	)
+
+	# Its write set is real, so the refusal is not about having none — it is about this
+	# workspace. Archive the one place it can write and there is nowhere left.
+	elsewhere.archived_at = subroutine.db.types.utcnow()
+	elsewhere.deleted_at = subroutine.db.types.utcnow()
+	session.flush()
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.selection.project(session, bounded, world.workspace, None)
+
+	assert "write in" in str(refused.value)
+
+
 def test_a_credential_reaching_two_projects_is_asked_which (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
