@@ -55,6 +55,30 @@ def program () -> str:
 	return subroutine.__version__
 
 
+def ordered (version: str) -> tuple[int, ...] | None:
+	"""Return a version as numbers to compare, or ``None`` when it cannot be compared.
+
+	**Compare when it is unambiguous, decline when it is not** — item ``#417``. Three plain
+	numbers order exactly one way; anything else does not, and a pre-release suffix is where
+	the defensible answers multiply. ``0.2.1.dev73+g29ddffa34`` against ``0.2.4`` needs
+	``packaging`` to get right, which is not a declared dependency and would be a fourteenth
+	one bought for a single diagnostic line — so this returns ``None`` and every caller says
+	nothing rather than guessing.
+
+	``scripts/release.py`` has run on this rule since `#396` and now reads it from here.
+	Two orderings of one thing is how the reach and the write set came apart in `#413`, and a
+	release refusal disagreeing with a diagnostic about which version leads would be the same
+	shape with worse consequences.
+	"""
+
+	parts = version.split(".")
+
+	if len(parts) != 3 or not all(part.isdigit() for part in parts):
+		return None
+
+	return tuple(int(part) for part in parts)
+
+
 def plugin () -> str | None:
 	"""Report the version of the plugin that started this process, if one did.
 

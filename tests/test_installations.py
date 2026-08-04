@@ -240,6 +240,62 @@ class TestThePlugin:
 		assert subroutine.installations.plugin() == declared["version"]
 
 
+class TestOrderingTwoVersions:
+	"""``installations.ordered`` — item ``#417``, and the release script's rule since `#396`."""
+
+	@pytest.mark.parametrize(
+		"version, expected",
+		[
+			("0.2.4", (0, 2, 4)),
+			("1.0.0", (1, 0, 0)),
+			("10.20.30", (10, 20, 30)),
+		],
+	)
+	def test_three_plain_numbers_order (
+		self, version: str, expected: tuple[int, ...]
+	) -> None:
+		"""The unambiguous case, which is every released version this project has cut."""
+
+		assert subroutine.installations.ordered(version) == expected
+
+	@pytest.mark.parametrize(
+		"version",
+		[
+			"0.2.1.dev73+g29ddffa34",
+			"0.2.1.dev51",
+			"1.0.0rc1",
+			"1.0",
+			"1.0.0.0",
+			"",
+			"not a version",
+			"1.0.x",
+		],
+	)
+	def test_anything_else_declines (self, version: str) -> None:
+		"""**Declining is the feature.** A guess dressed as a finding is the thing to avoid.
+
+		A pre-release suffix is where the defensible answers multiply, and getting
+		``0.2.1.dev73`` right against ``0.2.4`` needs ``packaging`` — undeclared, and a
+		fourteenth runtime dependency bought for one diagnostic line.
+		"""
+
+		assert subroutine.installations.ordered(version) is None
+
+	def test_the_release_script_reads_this_one (self) -> None:
+		"""One ordering, not two — the divergence `#413` was, applied to version strings.
+
+		A release refusal and a diagnostic disagreeing about which version leads would be the
+		same shape with worse consequences: the script exists to stop a release being cut below
+		the plugin manifest, and the renderer exists to say when the manifest is behind. They
+		are two readings of one order.
+		"""
+
+		script = (ROOT / "scripts" / "release.py").read_text(encoding="utf-8")
+
+		assert "subroutine.installations.ordered(" in script
+		assert "def _ordered (" not in script, "the script kept a second copy"
+
+
 class TestTheRenderedLine:
 	"""What ``views.versions`` says, and what it refuses to say."""
 
@@ -268,15 +324,61 @@ class TestTheRenderedLine:
 		assert len(lines) == 2
 		assert "refused for a field one of them does not have" in lines[1]
 
-	def test_the_plugin_and_the_program_disagree (self) -> None:
-		"""`#379`: a tool offering an argument its program had never heard of."""
+	def test_the_plugin_is_older_than_the_program (self) -> None:
+		"""`#380` and `#393`: a cached copy older than what it launches."""
 
 		lines = subroutine.views.versions(
 			_me(instance_version="1.0.0"), program="1.0.0", plugin="0.1.1"
 		)
 
 		assert len(lines) == 2
-		assert "argument the program does not accept" in lines[1]
+		assert "plugin is older than the program" in lines[1]
+
+	def test_a_plugin_ahead_of_the_program_says_nothing (self) -> None:
+		"""Item ``#417``. This is the state decision `#396` requires, not a fault.
+
+		The manifest's version is a *cache key* and has to move on any change under
+		``plugins/``, so it leads between releases. Warning about it fired in the healthy
+		steady state — always on a development install, and on a released one from the first
+		plugin change until the next release. A warning that is usually wrong is one nobody
+		reads, and the skill tells an agent to act on this one.
+
+		**Falsified against the original code**: restore ``plugin != program`` and this fails.
+		The test above it passes either way, because a plugin that is behind disagrees under
+		both rules — which is exactly why the noise was invisible from inside the guard.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="1.0.0"), program="1.0.0", plugin="1.1.0"
+		)
+
+		assert lines == ["Plugin 1.1.0, program 1.0.0, instance 1.0.0, schema abcdef123456."]
+
+	@pytest.mark.parametrize(
+		"program, plugin",
+		[
+			("1.0.0.dev73+g29ddffa34", "1.0.0"),
+			("1.0.0", "1.0.0.dev1"),
+			("1.0", "1.0.0"),
+			("not a version", "1.0.0"),
+		],
+	)
+	def test_a_version_that_cannot_be_ordered_is_not_guessed_about (
+		self, program: str, plugin: str
+	) -> None:
+		"""Silence, rather than a comparison with more than one defensible answer.
+
+		A development build is the ordinary case here — every editable install has one — and
+		ordering ``1.0.0.dev73+g29ddffa34`` against ``1.0.0`` correctly needs ``packaging``,
+		which stays undeclared. The numbers are still printed, so the reader who can work it
+		out is not deprived of anything; what is withheld is a claim.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version=program), program=program, plugin=plugin
+		)
+
+		assert len(lines) == 1, lines
 
 	def test_both_disagreements_are_reported_separately (self) -> None:
 		"""They are different failures with different fixes, so neither stands for the other."""
@@ -316,18 +418,22 @@ class TestTheRenderedLine:
 		assert lines == ["Program 1.0.0, instance 1.0.0."]
 
 	@pytest.mark.parametrize("word", DIRECTIONAL)
-	def test_it_never_claims_which_one_is_newer (self, word: str) -> None:
-		"""No wording here may assert a direction it has not established.
+	def test_the_instance_clause_never_claims_which_one_is_newer (self, word: str) -> None:
+		"""No wording about the *instance* may assert a direction, because none is established.
 
-		Comparing ``0.2.1`` against ``0.2.1.dev51`` correctly needs ``packaging``, which is
-		not a declared dependency — so a sentence saying "the plugin is older" would be a
-		guess dressed as a finding. Naming the disagreement is what a reader can act on.
+		**This used to cover the plugin clause too, and `#417` narrowed it deliberately.** The
+		plugin and the program are now compared — by :func:`subroutine.installations.ordered`,
+		which declines whenever the answer is not unambiguous — so "older" there is a finding
+		rather than a guess, and the test above asserts it.
+
+		Nothing of the kind exists here. The instance's version arrives over the wire from a
+		machine somebody else may run, neither direction is designed, and `#345` costs the same
+		either way: a field one side has and the other does not. So this clause stays
+		symmetrical, and the rule it is held to stays exactly as strict as it was.
 		"""
 
 		rendered = " ".join(
-			subroutine.views.versions(
-				_me(instance_version="0.9.0"), program="1.0.0", plugin="0.1.1"
-			)
+			subroutine.views.versions(_me(instance_version="0.9.0"), program="1.0.0")
 		).lower()
 
 		assert word not in rendered

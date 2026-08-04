@@ -32,6 +32,7 @@ import subprocess
 import sys
 
 import subroutine.db.migrate
+import subroutine.installations
 
 #: The repository, resolved from this file rather than from the working directory — the script
 #: is run from wherever somebody happens to be standing.
@@ -160,8 +161,8 @@ def _reasons_to_stop (version: str) -> str | None:
 		)
 
 	latest = _latest_version()
-	proposed = _ordered(version)
-	previous = _ordered(latest) if latest is not None else None
+	proposed = subroutine.installations.ordered(version)
+	previous = subroutine.installations.ordered(latest) if latest is not None else None
 
 	# **Only when both parse as plain numbers.** A pre-release suffix makes ordering a question
 	# with more than one defensible answer, and guessing it here would refuse a release
@@ -185,7 +186,7 @@ def _reasons_to_stop (version: str) -> str | None:
 	# Equal is the ordinary case and is fine: the manifest reaching the number first is exactly
 	# how this is meant to work.
 	declared = json.loads(PLUGIN.read_text(encoding="utf-8"))["version"]
-	carried = _ordered(declared)
+	carried = subroutine.installations.ordered(declared)
 
 	if proposed is not None and carried is not None and proposed < carried:
 		return (
@@ -214,17 +215,6 @@ def _unreleased (text: str) -> str | None:
 	following = re.search(r"^##\s", rest, re.MULTILINE)
 
 	return rest[: following.start()] if following else rest
-
-
-def _ordered (version: str) -> tuple[int, ...] | None:
-	"""Return a version as numbers for comparison, or ``None`` if it is not purely numeric."""
-
-	parts = version.split(".")
-
-	if len(parts) != 3 or not all(part.isdigit() for part in parts):
-		return None
-
-	return tuple(int(part) for part in parts)
 
 
 def _latest_version () -> str | None:

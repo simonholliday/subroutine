@@ -1641,10 +1641,24 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 	number *because* it matched would make the reader reason about the omission. The *second*
 	line is the exception-shaped half, and it appears only when there is something to act on.
 
-	**It never says which is newer.** Ordering two version strings correctly needs
-	``packaging``, which is not one of this project's declared dependencies, and a comparison
-	that is right for ``0.2.1`` and wrong for ``0.2.1.dev51`` would be a diagnostic asserting
-	a cause it has not established. Naming the disagreement is what the reader can act on.
+	**The plugin and the program are meant to differ, and only one direction is a fault**
+	(item ``#417``, decision `#396`). The manifest's version is a *cache key* that has to move
+	on any change under ``plugins/``, so it leads between releases — which means a plain
+	"these disagree" fired in the designed steady state: always on a development install, and
+	on a released one from the first plugin change until the next release. A warning that is
+	usually wrong is one nobody reads, and the skill tells an agent to act on this one.
+
+	So the clause speaks only when the plugin is **behind**, which is the failure that has
+	actually happened twice (`#380`, and `#393` when `#380`'s guard was too weak): a cached
+	copy older than the program, carrying a skill and configuration fields that describe
+	something else. When either version cannot be ordered — a development build, which is every
+	editable install — it says nothing at all, because
+	:func:`subroutine.installations.ordered` declines rather than guesses.
+
+	**The program and the instance is still a bare disagreement, and that is not an
+	inconsistency.** Nothing establishes a direction there: the instance's version arrives over
+	the wire from a machine somebody else may run, and neither being ahead is designed. `#345`
+	is what it costs — a field one side has and the other does not — and that is symmetrical.
 	"""
 
 	# **A null here is a fact, not a gap.** An instance that sends no version is one that
@@ -1669,10 +1683,16 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 			"one of them does not have."
 		)
 
-	if plugin is not None and plugin != program:
+	# **Behind, not merely different** (`#417`). Ahead is what `#396` designs for, so warning
+	# about it trains the reader — and the agent the skill points here — to ignore the line.
+	# Either version being unorderable means no answer rather than a guessed one.
+	carried = None if plugin is None else subroutine.installations.ordered(plugin)
+	running = subroutine.installations.ordered(program)
+
+	if carried is not None and running is not None and carried < running:
 		lines.append(
-			"The plugin and the program disagree, so a tool may offer an argument the "
-			"program does not accept, or lack one it does."
+			"The plugin is older than the program, so its skill and its configuration "
+			"describe an earlier version of these tools. Refreshing the plugin is the fix."
 		)
 
 	return lines

@@ -247,7 +247,15 @@ upgrade involves.
   through as many as three installations that upgrade separately — the editor's cached copy of
   the plugin, the program on your machine, and the instance on the far end — and nothing
   reported any of them. `subroutine whoami` and `subroutine_whoami` now end with a line naming
-  each, plus the migration the database is at, and a second line when two of them disagree.
+  each, plus the migration the database is at, and a further line when one of them is a problem.
+
+  **Three numbers that differ is not itself a problem, and nothing says it is.** The plugin's
+  version moves whenever the plugin's own contents change, so it runs ahead of the package
+  between releases by design. What gets a line is the program and the instance disagreeing —
+  a field one of them does not have — or the plugin being *older* than the program, which
+  means its skill and its settings describe an earlier version of the tools. Where the versions
+  cannot be ordered, which includes every development build, it says nothing rather than
+  guessing.
 
   **The cost of not having it is an hour, every time.** A tool that ignores an argument, a
   field that is missing, a capability you have read about that does not appear: from inside a
