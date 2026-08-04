@@ -23,6 +23,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.cli.main
 import subroutine.clients.local
 import subroutine.clients.opening
 import subroutine.config
@@ -2121,3 +2122,56 @@ def _numbered (answer: str) -> int:
 	assert found is not None, f"no item number in: {answer}"
 
 	return int(found.group(1))
+
+
+def test_the_document_tool_says_how_to_revise_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#293`, resolved by decision `#484` as a pointer rather than a `ref` argument.
+
+	**The failure was a belief, not a missing route.** A third-party agent met this surface,
+	concluded *"documents look immutable through these tools"*, declined to file a draft it
+	meant to revise later, and gave one-item-in-one-place — decision `#47`, which is ours — as
+	the reason. The workaround was invisible *as* a workaround: it reads as good judgement, and
+	nothing in any log, test or listing would have shown it as a defect.
+
+	An escape hatch does not correct a belief, so `call_api` (`#485`) would have left an agent
+	reaching the same wrong conclusion. `#488` fixed the refusal it met; this is the other half,
+	correcting the belief *before* it forms rather than at the moment it does.
+
+	**Not a `ref` argument on this tool**, which was the leading option. The CLI has `doc create`
+	and `doc edit` as two commands, so create-or-update here would make the surfaces disagree
+	about whether writing and revising are one act or two — and it carries two silent failures a
+	pointer does not: omit the `ref` and you get a duplicate document, pass a stale one and you
+	overwrite somebody's conclusion.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
+	described = tools["subroutine_document"]["description"]
+
+	assert "doc edit" in described, (
+		"the only tool that writes a document must say how one is revised, or an agent "
+		"reasonably concludes it cannot be"
+	)
+
+	# **The command it names has to exist**, which is `#134`/`#136`/`#138`'s lesson: prose in a
+	# schema is context every session carries and nothing had ever asked whether it named
+	# something callable. `test_plugin` asks this of the skill; a tool description is the surface
+	# with no delivery failure at all, so it is the one that must not lie.
+	groups = {
+		group.name: group for group in subroutine.cli.main.app.registered_groups if group.name
+	}
+
+	assert "doc" in groups, "the description names 'subroutine doc', which must be a command"
+
+	nested = groups["doc"].typer_instance
+
+	assert nested is not None, "'doc' is a group with nothing registered under it"
+
+	within = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in nested.registered_commands
+	}
+
+	assert "edit" in within, f"'doc edit' is named by a tool description and is not real: {within}"

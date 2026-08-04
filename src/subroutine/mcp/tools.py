@@ -305,7 +305,8 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"Record a conclusion the next session needs — a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
-				"concluded. A '#42' in the body becomes a link on item 42."
+				"concluded. A '#42' in the body becomes a link on item 42. Revise one with "
+				"'subroutine doc edit 42' — a conclusion is not immutable."
 			),
 			schema={
 				"type": "object",
