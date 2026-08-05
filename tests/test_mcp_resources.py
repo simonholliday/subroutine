@@ -26,7 +26,22 @@ import subroutine.mcp.tools
 
 
 class _NothingInParticular:
-	"""Stands in for a :class:`subroutine.views.Meta` without naming its fields."""
+	"""Stands in for a :class:`subroutine.views.Meta`, naming as few of its fields as it can.
+
+	**Two, since `#496`, and they had to be named.** This began as a stub with only
+	``model_dump_json``, on the argument that these tests are about wiring and the vocabulary is
+	proved against a real database in ``test_mcp``. That stopped being possible when the
+	resources started deciding what to publish from *whether a workspace was chosen* — the
+	condition is now part of the wiring, so a double that cannot express it can only be silent
+	about the branch.
+
+	An unambiguous installation, which is what every test in this file is about: one workspace
+	or none, so both resources take their ordinary path and the `#496` branch belongs to the
+	two-workspace tests in ``test_mcp`` where a real database can show it.
+	"""
+
+	workspace = None
+	workspaces: typing.ClassVar[list[typing.Any]] = []
 
 	def model_dump_json (self, **options: typing.Any) -> str:
 		"""Serialise the way the real model does."""

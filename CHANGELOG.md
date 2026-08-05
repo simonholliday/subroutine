@@ -204,6 +204,17 @@ upgrade involves.
 
 ### Fixed
 
+- **The MCP documentation resources say which workspace they are describing.** On an
+  installation with more than one workspace and no workspace configured — the state an agent
+  arrives in — `subroutine://meta` published `statuses: {}` and `item_types: {}`, from the one
+  document whose job is publishing them, and `subroutine://conventions` refused with advice to
+  pass `workspace_id`. A resource takes no arguments, so neither reader could act.
+
+  The vocabulary sections are now left out rather than reported as empty, with a line naming
+  the workspaces and how to ask for one; the rest of that document is the same in every
+  workspace and is still there. The conventions index says the same thing in prose. Set the
+  plugin's `workspace` and both answer in full as before.
+
 - **A project listing can be sorted from a client, not only over raw HTTP.**
   `GET /v1/projects` had accepted `?order=` since it was written, and no client could pass it,
   because the sort vocabulary was declared inside the HTTP layer where one transport could see

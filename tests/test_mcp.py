@@ -2479,6 +2479,112 @@ def test_an_agent_can_read_this_workspace_s_vocabulary (
 	assert published["error_codes"]
 
 
+def _resource (client: subroutine.clients.local.Client, uri: str) -> str:
+	"""Return what one resource publishes, through the real ``resources/read`` exchange."""
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client),
+			name="subroutine",
+			version="0",
+			resources=subroutine.mcp.tools.references(client),
+		)
+		answered = _exchange(
+			server,
+			{"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": uri}},
+		)
+
+	assert "error" not in answered[0], answered[0]
+
+	text: str = answered[0]["result"]["contents"][0]["text"]
+
+	return text
+
+
+def test_the_vocabulary_resource_removes_what_it_cannot_know_rather_than_emptying_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#496`, and it needs two workspaces to happen at all — `#177`'s lesson.
+
+	Measured against a real instance: this returned ``statuses: {}``, ``item_types: {}``,
+	``link_types: []`` and no tags, from the one document whose stated job is publishing them.
+	``/v1/meta`` answers an unbound request that way on purpose and is right to, because an HTTP
+	caller can read ``workspaces`` and ask again — **a resource has no second call**, so here the
+	emptiness is terminal and reads as a claim that this workspace has no vocabulary.
+
+	The fix is a subtraction, not a refusal: most of this document is instance-wide and correct,
+	and an absent key makes no claim where an empty one does.
+	"""
+
+	client, _first, _second = _two_workspaces(session)
+
+	published = json.loads(_resource(client, "subroutine://meta"))
+
+	for section in subroutine.mcp.tools.PER_WORKSPACE:
+		assert section not in published, (
+			f"{section!r} is per workspace and no workspace was chosen, so publishing it at all "
+			f"— even empty — tells an agent something false about this installation"
+		)
+
+	assert "acme" in published["vocabulary_not_shown"], "it must name what to choose between"
+	assert "workspace_id" in published["vocabulary_not_shown"], "and how to ask for one"
+
+	# The rest is instance-wide and is exactly what `call_api` needs, so refusing the whole read
+	# would have thrown away the majority of a document that was mostly right.
+	assert published["listings"]["task"]["filters"]
+	assert published["error_codes"]
+	assert published["grammars"]
+
+
+def test_the_conventions_resource_answers_an_unbound_session_rather_than_refusing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#496`'s other half, which the item did not know about and reading found.
+
+	Two resources, one unset workspace, opposite failures: the vocabulary published an empty
+	vocabulary, and this one raised the ordinary ambiguity refusal — *"it needs to say which"*,
+	whose remedy is to pass ``workspace_id``. **A resource takes no arguments**, so that is
+	advice its reader cannot act on, and the refusal is as much a dead end as the false answer.
+	"""
+
+	client, _first, _second = _two_workspaces(session)
+
+	published = _resource(client, "subroutine://conventions")
+
+	assert "acme" in published
+	assert "workspace" in published
+
+
+def test_a_bound_session_still_gets_the_whole_vocabulary (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other side of it, so the fix above cannot be "always leave the vocabulary out"."""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client, workspace=first),
+			name="subroutine",
+			version="0",
+			resources=subroutine.mcp.tools.references(client, workspace=first),
+		)
+		answered = _exchange(
+			server,
+			{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "resources/read",
+				"params": {"uri": "subroutine://meta"},
+			},
+		)
+
+	published = json.loads(answered[0]["result"]["contents"][0]["text"])
+
+	assert published["statuses"], "a session that named a workspace must get its keys"
+	assert "vocabulary_not_shown" not in published
+
+
 def test_an_agent_can_reach_a_route_no_tool_covers (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

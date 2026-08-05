@@ -24,6 +24,7 @@ nobody asked for.
 
 import dataclasses
 import datetime
+import json
 import re
 import typing
 
@@ -206,6 +207,46 @@ def references (
 	]
 
 
+#: The four sections of ``/v1/meta`` that belong to a *workspace* rather than to the instance.
+#: Everything else it reports — the listings and their filters, the grammars, the limits, the
+#: error codes — is the same whichever workspace you are in, which is what makes `#496`'s answer
+#: a subtraction rather than a refusal.
+PER_WORKSPACE = ("statuses", "item_types", "link_types", "tags")
+
+
+def _unbound (meta: subroutine.views.Meta) -> list[str]:
+	"""Return the workspaces a caller must choose between, or nothing when there is no choice.
+
+	**A resource cannot be asked again with an argument**, which is the whole of `#496`. The
+	tools beside it may reasonably answer an ambiguous request by refusing and inviting a second
+	call naming a workspace; these documents take no arguments, so for them "say which" is
+	advice the reader cannot act on. Both therefore have to detect the condition themselves and
+	answer it in their own content.
+
+	Asked of a :class:`~subroutine.views.Meta` already in hand rather than fetching one, so the
+	resource that has it pays nothing — ``/v1/meta`` is the largest response this server makes
+	and a second copy of it to answer a yes-or-no question is the cost that would have made
+	this check something to be careful about using.
+	"""
+
+	if meta.workspace is not None or len(meta.workspaces) < 2:
+		return []
+
+	return [one.slug for one in meta.workspaces]
+
+
+def _choose_a_workspace (names: typing.Sequence[str]) -> str:
+	"""Return what to do about it, in the terms of a reader with no arguments to pass."""
+
+	return (
+		f"This installation has more than one workspace — {', '.join(names)} — and this "
+		f"session is not bound to one, so nothing here can tell which you mean. Ask for one by "
+		f"name with subroutine_call_api, for example GET /v1/meta?workspace_id={names[0]}; or "
+		f"ask the person running this session to set the plugin's 'workspace' setting, which "
+		f"binds every call including these documents."
+	)
+
+
 def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) -> str:
 	"""Return this installation's vocabulary as JSON — `#486`.
 
@@ -217,9 +258,31 @@ def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) 
 
 	Serialised through pydantic rather than by hand so that a field added to
 	:class:`subroutine.views.Meta` appears here without being listed anywhere twice.
+
+	**With no workspace chosen the four per-workspace sections are removed, not emptied**
+	(`#496`). ``/v1/meta`` answers an unbound request with `200` and empty sections, which is
+	right over HTTP because the caller can read ``workspaces`` and ask again — but here it made
+	the one document whose job is preventing a guess say this workspace has no statuses, no
+	types, no link types and no tags. That is `api/meta.py`'s own warning, one surface along:
+	*discover by being refused* inverted into *discover by being told something false*.
+
+	Removing them rather than refusing the read, because the rest of this document is
+	instance-wide and correct — the listings, the grammars, the limits and the error codes are
+	most of it and are exactly what "before constructing a request by hand" means. An absent key
+	makes no claim; an empty one does.
 	"""
 
-	return client.meta(workspace=workspace).model_dump_json(indent=1)
+	meta = client.meta(workspace=workspace)
+	names = _unbound(meta)
+
+	if not names:
+		return meta.model_dump_json(indent=1)
+
+	payload = meta.model_dump(mode="json")
+	published = {key: value for key, value in payload.items() if key not in PER_WORKSPACE}
+	published["vocabulary_not_shown"] = _choose_a_workspace(names)
+
+	return json.dumps(published, indent=1)
 
 
 def _conventions (client: subroutine.clients.base.Client, workspace: str | None) -> str:
@@ -243,6 +306,18 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	whole of §14's context economy. A resource that inlined 26 documents would be the thing it
 	is trying to prevent.
 	"""
+
+	names = _unbound(client.meta(workspace=workspace))
+
+	if names:
+		# **It refused, where the vocabulary resource lied, and neither was usable** (`#496`).
+		# Left alone this raised the ordinary ambiguity refusal — whose remedy is "pass
+		# 'workspace_id'", an argument a resource has no way to pass. Answered here instead, in
+		# the same shape as the empty case below, because a document explaining why it is empty
+		# is worth more than an error explaining nothing the reader can act on.
+		return "\n".join(
+			["# What this workspace has decided", "", _choose_a_workspace(names)]
+		)
 
 	found = client.documents(workspace=workspace, type="decision", status="active")
 	lines = [
