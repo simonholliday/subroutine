@@ -814,6 +814,12 @@ class Client(typing.Protocol):
 		urgency: int | None = UNSET,
 		estimate: int | str | None = UNSET,
 		project: str = UNSET,
+		assignee: str | None = UNSET,
+		tags: typing.Sequence[str] | None = UNSET,
+		due: str | None = UNSET,
+		due_is_all_day: bool | None = UNSET,
+		start_is_all_day: bool | None = UNSET,
+		timezone: str | None = UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
 

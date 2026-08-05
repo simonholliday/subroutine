@@ -328,7 +328,11 @@ class Task(pydantic.BaseModel):
 
 		``@assignee`` still appears in §14.10's example and not here. It needs a username
 		rather than an ``assignee_id``, which is a lookup this view does not carry — view
-		*enrichment* rather than shaping, and filed as such rather than half-done.
+		*enrichment* rather than shaping, and **`#511`** rather than half-done.
+
+		**That ref is new and the sentence used to end "filed as such".** Nothing had been
+		filed, and an excuse naming no item reads as tracked to anybody who does not go and
+		check — `#500`'s failure from the other side, where the ref was present and closed.
 		"""
 
 		return (

@@ -458,6 +458,57 @@ def _project_by_key (
 	)
 
 
+def assignee_for (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, given: str
+) -> subroutine.db.models.identity.User:
+	"""Return the member this names, whether it was named by username or by id — `#493`.
+
+	**Workspace-scoped, and deliberately not the same function as
+	:func:`subroutine.domain.selection.user`.** That one resolves across the instance because a
+	*filter* must not refuse in the workspaces somebody is not a member of — asking what is
+	assigned to Jo is a fair question everywhere. Assigning work to Jo is only a fair act where
+	Jo is a member, so this narrows and :func:`_user_by_name` already refuses by name with the
+	members listed. **The same grammar, two questions**, and collapsing them would let a task be
+	handed to somebody who cannot see it.
+
+	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
+	and :func:`subroutine.domain.selection.user`; anything else is a username.
+	"""
+
+	try:
+		identifier = uuid.UUID(given)
+
+	except ValueError:
+		return _user_by_name(session, workspace_id, given)
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	user = subroutine.db.models.identity.User
+	found = session.scalars(
+		sqlalchemy.select(user)
+		.join(member, member.user_id == user.id)
+		.where(
+			member.workspace_id == workspace_id,
+			user.id == identifier,
+			user.deleted_at.is_(None),
+		)
+	).one_or_none()
+
+	if found is not None:
+		return found
+
+	raise subroutine.errors.ValidationError(
+		f"There is nobody with the id {given!r} in this workspace.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="assignee",
+				code="not_found",
+				message=f"No member of this workspace has the id {given!r}.",
+				hint="Name them by username instead — 'subroutine user list' shows them.",
+			)
+		],
+	)
+
+
 def _user_by_name (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, username: str
 ) -> subroutine.db.models.identity.User:

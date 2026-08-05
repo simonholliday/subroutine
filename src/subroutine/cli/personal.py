@@ -2224,6 +2224,27 @@ def register (
 		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		assignee: str = typer.Option(
+			UNGIVEN,
+			"--assignee",
+			show_default=False,
+			help="Who is to do it, by username. Pass '' to leave it with nobody.",
+		),
+		tags: str = typer.Option(
+			UNGIVEN,
+			"--tags",
+			show_default=False,
+			help="Replace its tags, comma-separated. Pass '' to remove them all.",
+		),
+		due: str = typer.Option(
+			UNGIVEN,
+			"--due",
+			show_default=False,
+			help="When it is due, like 'friday' or '2026-08-20'. Pass '' to clear it.",
+		),
+		timezone: str = typer.Option(
+			UNGIVEN, "--timezone", show_default=False, help="The zone the deadline is read in."
+		),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -2236,6 +2257,8 @@ def register (
 		  subroutine update 42 --importance 4 --urgency 3
 
 		  subroutine update 42 --estimate 2h --type bug
+
+		  subroutine update 42 --assignee jo --due friday
 
 		  subroutine update 42 --title "Fix the parser, not the tokeniser"
 		"""
@@ -2265,6 +2288,29 @@ def register (
 
 		if status:
 			changes["status"] = status
+
+		# **Handing work over, which is the whole of `#493` and the reason it ranked where it
+		# did.** A task could be assigned when it was filed — §6.13's `@name` has always worked
+		# — and never afterwards, so work could not be passed between two people or two agents
+		# once it was under way. An empty string leaves it with nobody, which is how something
+		# is handed back without being handed to anybody in particular.
+		if assignee is not UNGIVEN:
+			changes["assignee"] = assignee or None
+
+		# Comma-separated, because a repeated option would make "no tags" impossible to say —
+		# and replacing rather than adding is what §8.3 means by a field, here and in the API.
+		if tags is not UNGIVEN:
+			changes["tags"] = [
+				word.strip() for word in tags.split(",") if word.strip()
+			]
+
+		if due is not UNGIVEN:
+			changes["due"] = due or None
+
+		# Sent on its own as well as beside a date: the zone a deadline is *read* in can be
+		# wrong while the date is right, and §6.4 keeps the two separate for that reason.
+		if timezone is not UNGIVEN:
+			changes["timezone"] = timezone or None
 
 		# **Moving between projects, which `update` could not do until `#169`.** The endpoint
 		# has taken it since `#43`; I added this command without it, and the sequence a new

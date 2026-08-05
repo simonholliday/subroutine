@@ -915,6 +915,12 @@ class Client:
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
+		assignee: str | None = subroutine.clients.base.UNSET,
+		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		due: str | None = subroutine.clients.base.UNSET,
+		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		start_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
 
@@ -937,6 +943,14 @@ class Client:
 			"urgency": urgency,
 			"estimate": estimate,
 			"project": project,
+			"assignee": assignee,
+			"tags": None if tags is None else (
+				tags if tags is subroutine.clients.base.UNSET else list(tags)
+			),
+			"due": due,
+			"due_is_all_day": due_is_all_day,
+			"start_is_all_day": start_is_all_day,
+			"timezone": timezone,
 		}
 		body = self._json(
 			"PATCH",

@@ -825,7 +825,7 @@ SPELLED_DIFFERENTLY = {
 BY_THE_CAPTURE_GRAMMAR = frozenset({
 	"title", "importance", "urgency", "estimate", "tags", "due", "start", "status",
 	"planned_for", "due_is_all_day", "start_is_all_day", "timezone",
-	"assignee_id",
+	"assignee",
 })
 
 #: A request field no client passes, and why. Same discipline as every list here: a written
@@ -850,23 +850,6 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"because 'opt-in by design' explains why a *person* never meets it and not why a "
 		"*client* cannot offer it. **Deleting this entry is what closes `#494`.**",
 	),
-	"assignee_id": (
-		"tracked",
-		"`#493`, and **on `PATCH /v1/tasks` alone**. Filing with an assignee works on every "
-		"surface — §6.13's `@` sigil is implemented, verified against the served instance — so "
-		"the gap is *reassignment*: `update` takes no such keyword and `subroutine_update` "
-		"omits it deliberately, leaving a task assignable when it is filed and never "
-		"afterwards. `#41` for tags and `#431` for a deadline are the same shape.\n\n"
-		"The first version of this entry said no surface could assign at all, which was this "
-		"guard reporting a gap it had manufactured by leaving `assignee_id` out of "
-		"`BY_THE_CAPTURE_GRAMMAR`. Corrected by running the grammar rather than by reading the "
-		"models again. **Deleting this entry closes `#493`.**",
-	),
-	"due": (
-		"tracked",
-		"`#493`, into which `#431` was merged. `PATCH` accepts a deadline and no client passes "
-		"one, so a date can be set at capture and never changed.",
-	),
 	"title": (
 		"tracked",
 		"`#434`, which now covers both: `rename_project` "
@@ -884,30 +867,13 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"worse direction: somebody who realises a project should not have been public cannot "
 		"act on it without raw HTTP.",
 	),
-	"tags": (
-		"tracked",
-		"`#493`. **Not `#41`, which is closed** — that fixed the *API*, and this guard reads the "
-		"other side of the same wall: no client passes tags, so they are settable by the `#home` "
-		"sigil in a capture line at creation and never afterwards. An excuse naming a closed item "
-		"reads as tracked and is not, which is why this list is re-read rather than trusted.",
-	),
 	"timezone": (
 		"tracked",
-		"`#493`, which `#431` was merged into. A deadline's zone, meaningless while the "
-		"deadline itself cannot be changed. Fixing that carries this: "
-		"a client gaining `due` and not the zone it is read in would set a date in whichever "
-		"zone the chain in `schedule.zone_for` happened to resolve.",
-	),
-	"due_is_all_day": (
-		"tracked",
-		"`#493`, with `start_is_all_day`. The pair says whether a date carries a "
-		"time of day, and §6.4 keeps them separate from the date so \"Friday\" and \"Friday at "
-		"four\" are different claims rather than one with a zero time. Reachable when `due` is.",
-	),
-	"start_is_all_day": (
-		"tracked",
-		"`#493`, with `due_is_all_day` above. `schedule` passes `start` and not "
-		"its precision, so a deferral is always read as a whole day.",
+		"`#434`, and **on `PATCH /v1/workspaces` alone** now — a task's zone reaches a client "
+		"since `#493`. A workspace's timezone is the third step of the chain "
+		"`schedule.zone_for` walks (explicit, user, workspace, instance), so an instance that "
+		"cannot change it has a step nothing can reach. Grouped with that item because it is "
+		"the same request model and the same command as the title and description beside it.",
 	),
 	"owner_id": (
 		"unbuilt",

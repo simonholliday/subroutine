@@ -1525,6 +1525,12 @@ class Client:
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
+		assignee: str | None = subroutine.clients.base.UNSET,
+		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		due: str | None = subroutine.clients.base.UNSET,
+		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		start_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
 
@@ -1541,6 +1547,11 @@ class Client:
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,
+			"tags": tags,
+			"due": due,
+			"due_is_all_day": due_is_all_day,
+			"start_is_all_day": start_is_all_day,
+			"timezone": timezone,
 		}
 		changes: dict[str, typing.Any] = {
 			name: value
@@ -1563,6 +1574,19 @@ class Client:
 					actor,
 					subroutine.domain.selection.workspace(session, actor, requested=workspace),
 					project,
+				)
+
+			# **The same resolution the endpoint makes, and workspace-scoped** (`#493`). A task
+			# cannot be handed to somebody who is not a member here, so this is
+			# `tasks.assignee_for` and *not* `selection.user`, which spans the instance because
+			# a listing filter must. Same grammar, two questions.
+			if assignee is not subroutine.clients.base.UNSET:
+				changes["assignee_id"] = (
+					None
+					if assignee is None
+					else subroutine.domain.tasks.assignee_for(
+						session, row.workspace_id, assignee
+					).id
 				)
 
 			subroutine.domain.tasks.update(

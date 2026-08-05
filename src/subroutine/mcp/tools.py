@@ -516,6 +516,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 							"outcome-shaped title goes."
 						),
 					},
+					"assignee": {
+						"type": "string",
+						"description": "Hand it to somebody, by username. '' for nobody.",
+					},
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
 					"defer": {
 						"type": "string",
@@ -1483,14 +1487,27 @@ def _updated (
 
 	**Only the fields an agent actually re-decides**, not everything ``PATCH /v1/tasks``
 	accepts. Every property here is schema carried by every session of every agent, including
-	the ones that never call this, so the dates and the assignee stay off it — those are
-	``schedule``'s and a person's respectively.
+	the ones that never call this, so the dates stay off it — those are ``schedule``'s.
+
+	**The assignee was off it too, and `#493` re-weighed that under §21.2.** The reason given
+	was that an assignee is *a person's* concern, which was decided when no surface could
+	reassign at all — so it described a gap rather than a boundary. The test §21.2 actually
+	sets is *what would an agent get wrong without it*, and the answer is the whole of the
+	hand-back move: an agent that cannot finish something has no way to give it back to
+	whoever asked, which is the loop `#507` is designed around. Measured at 99 bytes against
+	418 spare, so it needed no cap raise — and the dates, tags and timezone stay off because
+	nothing an agent does goes wrong for want of them.
 
 	Nothing given is a refusal rather than a no-op: an agent that meant to change something
 	and named no field has made a mistake, and a cheerful "unchanged" would hide it.
 	"""
 
 	changes: dict[str, typing.Any] = {}
+
+	# `''` clears it, matching `plan` and `defer` below rather than inventing a third way to
+	# say "no longer set" on one surface.
+	if "assignee" in arguments:
+		changes["assignee"] = arguments["assignee"] or None
 
 	# **`description` is here because the skill's own argument depends on it** (`#392`). It
 	# tells an agent to write an outcome-shaped title on the grounds that "your motivation is

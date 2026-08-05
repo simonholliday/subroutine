@@ -143,6 +143,20 @@ upgrade involves.
   decisions is how you find the rules you are working under. Projects gained `parent`,
   `visibility` and `include_archived`.
 
+- **Work can be handed over after it is filed.** `subroutine update 42 --assignee jo`, and
+  `assignee` on the agent's `subroutine_update`. A deadline, tags and a timezone can be
+  changed too — all four were accepted by the API since the first release and passed by no
+  client.
+
+  A task could be assigned *when it was filed* — `@jo` in a captured line has always worked —
+  and never afterwards, so work could not be passed between two people or two agents once it
+  was under way.
+
+  **By username, not by id**, on `POST` and `PATCH` alike: a caller holding a UUID for a
+  person has already made a request they should not have had to. Somebody who is not a member
+  of the workspace is refused by name, with the members listed, because they could not see the
+  work you were handing them. `--assignee ''` hands it back to nobody.
+
 - **An agent is told what this workspace has decided, before its first write.** A new
   `subroutine://conventions` resource lists the decisions in force here — how work is filed,
   what a title has to say, what needs an item first — and the server instructions every

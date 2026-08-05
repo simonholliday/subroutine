@@ -2443,3 +2443,80 @@ def test_both_narrow_projects_the_same_way (pair: Pair) -> None:
 
 	assert private == {project.key for project in remote.projects(visibility="private")}
 	assert private == {"HIDDEN"}
+
+
+def test_both_hand_a_task_over_after_it_was_filed (pair: Pair) -> None:
+	"""`#493`. **The delegation move, and no surface could make it.**
+
+	`@name` in a captured line has always worked, so a task could be assigned *when it was
+	filed* and never afterwards — which means work could not be passed between two people or
+	two agents once it was under way. That is the whole of decision `#473`'s model, unusable.
+
+	`assigned_by_id` moves with it, because who handed it over is the question a person asks of
+	their own list, and it is what a hand-back reads.
+	"""
+
+	task = make(pair, "Something to pass on")
+	local, remote = pair.both()
+
+	handed = local.update(ref=task.ref, assignee=pair.user.username)
+
+	assert handed.assignee_id == pair.user.id
+	assert handed.assigned_by_id == pair.user.id, "the assigner is taken, never accepted"
+
+	# And the other transport reads back what the first one wrote, which is the equivalence
+	# that matters here: two clients disagreeing about who holds a task is worse than neither
+	# being able to say.
+	read_back = remote.task(ref=task.ref)
+
+	assert read_back is not None and read_back.assignee_id == pair.user.id
+
+	given_back = remote.update(ref=task.ref, assignee=None)
+
+	assert given_back.assignee_id is None
+	assert given_back.assigned_by_id is None, (
+		"an assigner with no assignee names nobody, so clearing one clears both"
+	)
+
+
+def test_both_refuse_to_hand_work_to_somebody_who_is_not_here (pair: Pair) -> None:
+	"""`#493`. Refused by name, on both, with the members listed.
+
+	**Workspace-scoped, deliberately unlike the listing filter.** Asking what is assigned to
+	Jo is a fair question in a workspace Jo has never joined; *giving* Jo work there is not —
+	they could not see it. `tasks.assignee_for` narrows and `selection.user` does not, and the
+	two answer different questions with the same grammar.
+	"""
+
+	task = make(pair, "Something to pass on")
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			client.update(ref=task.ref, assignee="nobody-by-that-name")
+
+		assert "nobody-by-that-name" in str(refused.value)
+
+
+def test_both_change_a_deadline_and_its_tags_after_the_fact (pair: Pair) -> None:
+	"""`#493`, which `#431` was merged into. Set at capture and never changeable.
+
+	A deadline that cannot move is not a deadline, it is a note about what somebody once
+	intended; and a mistyped tag could not be taken off. Both were accepted by `PATCH
+	/v1/tasks` since M1 and passed by no client.
+	"""
+
+	task = make(pair, "Renew the domain #admin")
+	local, remote = pair.both()
+
+	moved = local.update(ref=task.ref, due="2026-12-25", tags=["admin", "money"])
+
+	assert moved.due_at is not None and moved.due_at.date().isoformat() == "2026-12-25"
+	assert set(moved.tags) == {"admin", "money"}
+
+	# Replaced rather than added to, which is what §8.3 means by a field — and `[]` is how a
+	# tag somebody mistyped comes off at all.
+	cleared = remote.update(ref=task.ref, tags=[])
+
+	assert cleared.tags == []
+	assert cleared.due_at is not None, "clearing tags must not disturb the deadline"

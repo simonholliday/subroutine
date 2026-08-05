@@ -59,6 +59,13 @@ WRITTEN_AS: dict[str, str] = {
 	"estimate_minutes": "estimate",
 	"project_id": "project",
 	"body": "body",
+
+	#: §8.5 reports a relation as an id and `#493` accepts it as a **name** — so this is the
+	#: one entry here where the two spellings differ in *kind* rather than in wording. A caller
+	#: holding a UUID for a person is a caller who has already made a request they should not
+	#: have had to; a reader wanting the person's details has the id and one call. Both are
+	#: right, which is why the mismatch is recorded rather than resolved.
+	"assignee_id": "assignee",
 }
 
 #: Computed, allocated or maintained by the system. A client cannot supply these because a

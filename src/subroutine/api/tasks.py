@@ -89,7 +89,10 @@ class Create(subroutine.api.schemas.RequestModel):
 
 	type: str | None = None
 	status: str | None = None
-	assignee_id: uuid.UUID | None = None
+	#: Who is to do this, by username or id (`#493`). **Not `assignee_id`**: a caller holding
+	#: a UUID for a person is a caller who has already made a request they should not have had
+	#: to, and §6.13's capture line has always taken `@name`. One grammar, both routes in.
+	assignee: str | None = None
 	importance: int | None = None
 	urgency: int | None = None
 
@@ -122,7 +125,10 @@ class Update(subroutine.api.schemas.RequestModel):
 	description: str | None = None
 	status: str | None = None
 	type: str | None = None
-	assignee_id: uuid.UUID | None = None
+	#: Who is to do this, by username or id (`#493`). **Not `assignee_id`**: a caller holding
+	#: a UUID for a person is a caller who has already made a request they should not have had
+	#: to, and §6.13's capture line has always taken `@name`. One grammar, both routes in.
+	assignee: str | None = None
 	importance: int | None = None
 	urgency: int | None = None
 	estimate: int | str | None = None
@@ -163,7 +169,6 @@ def create (
 		name: getattr(body, name)
 		for name in (
 			"description",
-			"assignee_id",
 			"importance",
 			"urgency",
 			"estimate",
@@ -176,6 +181,13 @@ def create (
 		)
 		if name in supplied
 	}
+
+	if "assignee" in supplied:
+		structured["assignee_id"] = (
+			None
+			if body.assignee is None
+			else subroutine.domain.tasks.assignee_for(session, workspace.id, body.assignee).id
+		)
 
 	if body.title is not None:
 		structured["title"] = body.title
@@ -484,7 +496,6 @@ def change (
 		for name in (
 			"title",
 			"description",
-			"assignee_id",
 			"importance",
 			"urgency",
 			"estimate",
@@ -495,6 +506,16 @@ def change (
 		)
 		if name in supplied
 	}
+
+	if "assignee" in supplied:
+		# **Null clears it**, which is how work is handed back to nobody in particular — and it
+		# clears `assigned_by_id` with it, because an assigner with no assignee names nobody
+		# (`#473`). The service owns that pairing; this only says which of the two was meant.
+		changes["assignee_id"] = (
+			None
+			if body.assignee is None
+			else subroutine.domain.tasks.assignee_for(session, workspace.id, body.assignee).id
+		)
 
 	# None of these four is patchable-to-null: a status and a type are required, and the two
 	# all-day flags are booleans on a NOT NULL column, so `null` has nothing to mean. Passed
