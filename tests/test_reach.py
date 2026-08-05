@@ -804,6 +804,12 @@ SPELLED_DIFFERENTLY = {
 	"project_scope": {"projects"},
 	"project_write_scope": {"writes"},
 	"planned_for": {"planned_for", "plan"},
+
+	#: `GET /v1/changes` declares `actor_filter` and the client spells it `mine`. Checked on
+	#: both sides rather than assumed: `api/changes.py` compares it against `ACTOR_ME` and
+	#: passes `mine=actor_filter == ACTOR_ME`, and the client sends `actor="me" if mine`.
+	#: One capability, and the only filter `#501`'s guard reported that is not a gap.
+	"actor_filter": {"mine"},
 }
 
 #: Fields `POST /v1/tasks` accepts that §6.13's capture line sets instead.
@@ -1128,4 +1134,149 @@ def test_a_field_nothing_passes_would_be_caught () -> None:
 	# parser works on three lines of synthetic source.
 	assert unreached_fields(), (
 		"the field scan reports nothing at all, which would make the excuse list vacuous"
+	)
+
+
+# --- Filters, which are the third question (`#501`) -------------------------------------
+#
+# **Reach has three questions and this repository was asking two.** Does a client call the
+# route at all — the guard at the top of this file, and `#141`. Does it pass every field the
+# *body* accepts — `#427`, above. **Does it pass every filter the *query* accepts** — nothing
+# asked, and the answer was fifteen.
+#
+# The shape is `#427`'s exactly, and deliberately so: the same derived route map, the same
+# `SPELLED_DIFFERENTLY`, the same discipline of a written reason that has something making it
+# go away. What differs is where the names come from — a route's `dependant.query_params`
+# rather than its body model — and that listing filters have a shared vocabulary of their own
+# which is nobody's capability.
+
+#: Query parameters that are not filters and are excluded before anything is compared.
+#:
+#: **Paging and shaping, which belong to the transport rather than to the caller's question.**
+#: `limit` and `workspace` reach the clients under their own names and are handled by
+#: `SPELLED_DIFFERENTLY`; `cursor`, `fields`, `format` and `include_total` are §8.4's and
+#: §14.10's machinery, deliberately not offered as client arguments — a client returns a list
+#: and pages for you. Listing them as gaps would measure the HTTP surface rather than the
+#: product's.
+NOT_A_FILTER = frozenset({"cursor", "fields", "format", "include_total", "limit"})
+
+#: A listing filter no client passes, and why.
+UNREACHED_FILTERS: dict[str, Excuse] = {
+	"include": (
+		"deliberate",
+		"§8.5's relation loader — `?include=backlinks` and friends — which decides how much of "
+		"a *response* is assembled, not which rows are in it. A client that wanted backlinks "
+		"would grow a method for them rather than a keyword here, the way `links` already did. "
+		"Nothing tracks it because there is nothing missing.",
+	),
+}
+
+#: The filters `#501` is about: reachable only over raw HTTP, and each one a real question
+#: somebody would ask. Kept as its own list rather than folded into the one above, because
+#: these go away by being *built* and the entry above goes away by the API changing shape.
+UNREACHED_FILTERS.update({
+	name: (
+		"tracked",
+		f"`#501`. `{name}` is declared by a listing this client already calls and no method "
+		f"passes it, so the question it answers is reachable only over raw HTTP — through "
+		f"`subroutine_call_api` for an agent, and not at all for a person. **Deleting this "
+		f"entry is part of closing `#501`.**",
+	)
+	for name in (
+		"assignee_id", "status", "type", "subtree", "due_before", "due_after",
+		"parent", "visibility", "include_archived", "order",
+	)
+})
+
+
+def _query_names (route: typing.Any) -> set[str]:
+	"""Return the filter names one route declares, with paging and shaping removed."""
+
+	dependant = getattr(route, "dependant", None)
+
+	if dependant is None:
+		return set()
+
+	return {field.name for field in dependant.query_params} - NOT_A_FILTER
+
+
+def unreached_filters () -> dict[str, set[tuple[str, str]]]:
+	"""Return each listing filter no client method can pass, and the routes accepting it."""
+
+	source = pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	reached = reached_routes(source)
+	found: dict[str, set[tuple[str, str]]] = {}
+
+	for path, verbs, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		if "GET" not in verbs:
+			continue
+
+		names = _query_names(route)
+
+		if not names:
+			continue
+
+		methods = reached.get(("GET", _shaped(path)), set())
+
+		if not methods:
+			continue
+
+		accepted: set[str] = set()
+
+		for method in methods:
+			accepted |= _accepted_by(method)
+
+		for name in names:
+			if name in accepted or SPELLED_DIFFERENTLY.get(name, set()) & accepted:
+				continue
+
+			found.setdefault(name, set()).add(("GET", path))
+
+	return found
+
+
+def test_every_listing_filter_is_reachable_or_excused () -> None:
+	"""`#501`. A filter the endpoint declares and no client offers is a capability, not a feature.
+
+	The failure it is written for: `GET /v1/tasks?assignee_id=` has existed since M1, so *"what
+	is assigned to whom"* — the question decision `#473`'s whole delegation model exists to
+	answer — was reachable only by an agent that knew the filter existed, held a UUID rather
+	than a username, and passed an explicit workspace. A person had no route at all.
+	"""
+
+	found = unreached_filters()
+	unexplained = sorted(name for name in found if name not in UNREACHED_FILTERS)
+
+	assert not unexplained, (
+		f"{unexplained} is declared by a listing a client already calls and no client method "
+		f"passes it. Give the method the keyword, or add an entry to UNREACHED_FILTERS with a "
+		f"written reason — and if it is a gap somebody should fix, file it and say so here. "
+		f"Where it reaches: { {name: sorted(found[name]) for name in unexplained} }"
+	)
+
+
+def test_the_filter_scan_actually_read_the_routes () -> None:
+	"""A floor, because a scan that reads nothing makes every excuse above look considered."""
+
+	listings = [
+		path
+		for path, verbs, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+		if "GET" in verbs and _query_names(route)
+	]
+
+	assert len(listings) > 5, (
+		f"only {len(listings)} routes were found to declare any filter, which means this scan is "
+		f"reading almost nothing and every entry in UNREACHED_FILTERS is vacuous"
+	)
+
+
+def test_no_filter_is_both_reachable_and_excused () -> None:
+	"""What makes an entry go away, asked of this list like every other one here (`#405`)."""
+
+	found = unreached_filters()
+	stale = sorted(name for name in UNREACHED_FILTERS if name not in found)
+
+	assert not stale, (
+		f"{stale} is excused and no longer unreachable — a client can pass it now, so delete "
+		f"the entry and close whatever it names"
 	)
