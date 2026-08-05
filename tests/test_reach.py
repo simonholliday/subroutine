@@ -37,14 +37,17 @@ and declaring it would be a third copy of the matrix in ``#146``.
 """
 
 import ast
+import inspect
 import pathlib
 import re
 import typing
 
 import subroutine.api.app
+import subroutine.api.problems
 import subroutine.api.routing
 import subroutine.cli.main
 import subroutine.clients.base
+import subroutine.clients.http
 import subroutine.mcp.tools
 
 #: The repository root, resolved from this file rather than from the working directory.
@@ -768,3 +771,349 @@ def test_every_denied_route_is_one_that_exists () -> None:
 			f"so it guards nothing"
 		)
 		assert instead, f"{verb} {pattern} refuses without naming what to do instead"
+
+
+# --- Fields, not only methods (`#427`) --------------------------------------------------
+#
+# **The guard above answers "can a client call this route", and cannot answer "can a client
+# pass this argument".** A capability arriving as a field on a route both surfaces already
+# reach is invisible to it by construction — which `#149` recorded in July and which has since
+# cost `#178`, `#367`, `#392`, `#424` and `#491`. Every one was found by somebody using the
+# product; none by the suite.
+#
+# **The map is derived, not maintained.** `clients/http.py` names the paths it calls, so
+# reading its own `_json("VERB", "/path")` calls gives route -> {methods} with nothing to keep
+# in step. That removes the naming-mismatch hazard the design note worried about, and it is
+# what `#336` should have had: a hand-written map was transposed there, consistently, so every
+# check passed.
+#
+# It also corrects an assumption in `REACHED_BY`: `PATCH /v1/tasks` is reached by **both**
+# `update` and `schedule`, and that map records one method per route. The union is what a field
+# check needs, or it reports gaps that are not there.
+
+#: Where a request field and a client keyword are the same capability under two names.
+#:
+#: **Unavoidable and deliberately small.** The API is explicit where a client is conversational
+#: — `workspace_id` against `workspace` — and each entry here is a claim that two spellings mean
+#: one thing. Every one was checked by reading both sides; a wrong entry hides a real gap, which
+#: is the failure mode of a map rather than of a scan.
+SPELLED_DIFFERENTLY = {
+	"workspace_id": {"workspace"},
+	"is_active": {"active"},
+	"responsible": {"to"},
+	"project_scope": {"projects"},
+	"project_write_scope": {"writes"},
+	"planned_for": {"planned_for", "plan"},
+}
+
+#: Fields `POST /v1/tasks` accepts that §6.13's capture line sets instead.
+#:
+#: **Not a gap and not an excuse: a different way in.** `capture(text=…)` parses these out of one
+#: string, which is the documented primary path (§1.4) and the grammar the skill teaches. Listing
+#: them as unreachable would be measuring the API's shape rather than the product's.
+BY_THE_CAPTURE_GRAMMAR = frozenset({
+	"title", "importance", "urgency", "estimate", "tags", "due", "start", "status",
+	"planned_for", "due_is_all_day", "start_is_all_day", "timezone", "parent_task_id",
+})
+
+#: A request field no client passes, and why. Same discipline as every list here: a written
+#: reason, and something that makes the entry go away.
+UNREACHED_FIELDS: dict[str, Excuse] = {
+	"expected_version": (
+		"tracked",
+		"`#494`. §8.9's concurrency check is built, tested and reachable only over raw HTTP — "
+		"five routes accept it and no client method passes it. Filed rather than excused, "
+		"because 'opt-in by design' explains why a *person* never meets it and not why a "
+		"*client* cannot offer it. **Deleting this entry is what closes `#494`.**",
+	),
+	"assignee_id": (
+		"tracked",
+		"`#493`. The centre of decision `#473` — its own table opens with \"who is working on "
+		"this now\" — and no surface can perform the act. Found by this guard on its first "
+		"real run, which is the argument for the guard. **Deleting this entry closes `#493`.**",
+	),
+	"due": (
+		"tracked",
+		"`#431`. `PATCH` accepts a deadline and no client passes one, so a date can be set at "
+		"capture and never changed. Found by this guard while it was still a spike.",
+	),
+	"title": (
+		"tracked",
+		"`#434` for a project and `#295`'s neighbourhood for a workspace: `rename_project` "
+		"takes only `key` and `rename_workspace` only `slug`, so the human-readable name of "
+		"both is set at creation and never afterwards.",
+	),
+	"description": (
+		"tracked",
+		"`#434`. Same shape as `title` above and filed with it — a project's and a workspace's "
+		"description are accepted by `PATCH` and reachable from nothing.",
+	),
+	"visibility": (
+		"tracked",
+		"`#434`. A project can be made private at creation and never afterwards, which is the "
+		"worse direction: somebody who realises a project should not have been public cannot "
+		"act on it without raw HTTP.",
+	),
+	"tags": (
+		"tracked",
+		"`#41`, open since 2026-07-30 and found by `test_api_writability` from the other side: "
+		"a tag is *reported* on a task and settable only by the `#home` sigil in a capture line "
+		"at creation. So a task can be tagged when it is filed and never afterwards, on any "
+		"surface. This guard reaches it from the writing side and agrees.",
+	),
+	"timezone": (
+		"tracked",
+		"`#431`'s neighbourhood. A deadline's zone, on `PATCH /v1/tasks` — meaningless while the "
+		"deadline itself cannot be changed, which is what `#431` is. Fixing that carries this: "
+		"a client gaining `due` and not the zone it is read in would set a date in whichever "
+		"zone the chain in `schedule.zone_for` happened to resolve.",
+	),
+	"due_is_all_day": (
+		"tracked",
+		"`#431`'s neighbourhood, with `start_is_all_day`. The pair says whether a date carries a "
+		"time of day, and §6.4 keeps them separate from the date so \"Friday\" and \"Friday at "
+		"four\" are different claims rather than one with a zero time. Reachable when `due` is.",
+	),
+	"start_is_all_day": (
+		"tracked",
+		"`#431`'s neighbourhood, with `due_is_all_day` above. `schedule` passes `start` and not "
+		"its precision, so a deferral is always read as a whole day.",
+	),
+	"owner_id": (
+		"unbuilt",
+		"Reassigning what somebody owns is not a capability any surface offers, on purpose: "
+		"§7.3a hangs private-project membership on ownership, so moving it silently changes "
+		"who can see a tree. It wants the same shape as `users.transfer` — a person agreeing "
+		"to take it on — rather than a field. No item: nobody has asked, and filing one would "
+		"be inventing a requirement.",
+	),
+	"supersedes": (
+		"unbuilt",
+		"§5.10's document supersession. The column exists and the route accepts it; nothing "
+		"reads it and no surface writes it. The inert-control family (`#247`, `#251`, `#303`) "
+		"one step earlier — declared and unwired — and `#303`'s lesson was that deleting beat "
+		"wiring. Which of the two this is has not been decided.",
+	),
+	"parent": (
+		"unbuilt",
+		"Filing a document under another document. `create_project` takes a `parent` and this "
+		"is the document equivalent; nothing has ever asked for a document tree, and §5.6a "
+		"says a feature is just a parent *item*, which is a link rather than a field.",
+	),
+	"status": (
+		"disclosure",
+		"Setting a document's status at creation. `create_document` deliberately does not, so "
+		"a new document is a draft and becomes something else by an act somebody took — which "
+		"is `#84`'s argument about a parent never auto-completing, one entity along. "
+		"`update_document` takes `status`, so this is the *creation* path only.",
+	),
+	"template": (
+		"unbuilt",
+		"Project templates (§6.7's neighbourhood). Accepted by the route and implemented "
+		"nowhere below it.",
+	),
+	"settings": (
+		"disclosure",
+		"A workspace's settings blob. Deliberately not a client argument: it is a JSON column "
+		"whose keys are undocumented and whose validation is per key, so offering it as an "
+		"opaque dictionary would be a surface nobody can use correctly. A named setting gets a "
+		"named argument when there is one worth having.",
+	),
+}
+
+
+def _shaped (path: str) -> str:
+	"""Return a path with every parameter flattened, so two spellings of one route compare.
+
+	``/v1/tasks/{id_or_ref}`` and the client's ``f"/v1/tasks/{ref}"`` are the same route under
+	two names for the same segment, and an f-string carrying a call — ``{_plural(entity_type)}``
+	— is a segment this cannot know either. Flattening both sides is what lets them meet.
+	"""
+
+	out: list[str] = []
+	depth = 0
+
+	for character in path:
+		if character == "{":
+			depth += 1
+
+			if depth == 1:
+				out.append("*")
+
+		elif character == "}":
+			depth -= 1
+
+		elif depth == 0:
+			out.append(character)
+
+	return "".join(out)
+
+
+def reached_routes (source: str) -> dict[tuple[str, str], set[str]]:
+	"""Return route -> client methods, read out of the HTTP client's own calls.
+
+	Takes the source as an argument for `#405`'s reason: a scanner that cannot be handed a
+	subject can only be tested against itself, and this one is satisfied most comfortably by
+	reading nothing at all.
+	"""
+
+	found: dict[tuple[str, str], set[str]] = {}
+
+	for node in ast.walk(ast.parse(source)):
+		if not isinstance(node, ast.FunctionDef):
+			continue
+
+		for inner in ast.walk(node):
+			if not isinstance(inner, ast.Call) or not isinstance(inner.func, ast.Attribute):
+				continue
+
+			if inner.func.attr not in {"_json", "_text", "_call"} or len(inner.args) < 2:
+				continue
+
+			verb, path = inner.args[0], inner.args[1]
+
+			if not isinstance(verb, ast.Constant) or not isinstance(verb.value, str):
+				continue
+
+			if isinstance(path, ast.Constant):
+				literal = str(path.value)
+
+			elif isinstance(path, ast.JoinedStr):
+				literal = "".join(
+					str(piece.value) if isinstance(piece, ast.Constant) else "{x}"
+					for piece in path.values
+				)
+
+			else:
+				continue
+
+			found.setdefault((verb.value, _shaped(literal)), set()).add(node.name)
+
+	return found
+
+
+def _accepted_by (method: str) -> set[str]:
+	"""Return the keyword arguments one client method takes."""
+
+	declared = getattr(subroutine.clients.base.Client, method, None)
+
+	if declared is None:
+		return set()
+
+	return {
+		name
+		for name, parameter in inspect.signature(declared).parameters.items()
+		if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+	}
+
+
+def unreached_fields () -> dict[str, set[tuple[str, str]]]:
+	"""Return each request field no client method can pass, and the routes accepting it."""
+
+	source = pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	reached = reached_routes(source)
+	found: dict[str, set[tuple[str, str]]] = {}
+
+	for path, verbs, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		fields = subroutine.api.problems.body_fields(route)
+
+		if not fields:
+			continue
+
+		for verb in verbs:
+			methods = reached.get((verb, _shaped(path)), set())
+
+			if not methods:
+				continue
+
+			accepted: set[str] = set()
+
+			for method in methods:
+				accepted |= _accepted_by(method)
+
+			for field in fields:
+				if field in accepted or field in SPELLED_DIFFERENTLY.get(field, set()):
+					continue
+
+				if SPELLED_DIFFERENTLY.get(field, set()) & accepted:
+					continue
+
+				if path == "/v1/tasks" and field in BY_THE_CAPTURE_GRAMMAR:
+					continue
+
+				found.setdefault(field, set()).add((verb, path))
+
+	return found
+
+
+def test_every_request_field_is_reachable_or_excused () -> None:
+	"""`#427`. A field a route accepts and no client can pass is a capability nobody has.
+
+	Five defects of this exact shape in six weeks, every one found by somebody using the
+	product: `#178`, `#367`, `#392`, `#424`, `#491`. The guard beside this one cannot see them,
+	because it asks whether a *route* is reached and these are all routes reached richly.
+
+	On its first real run this found `#493` — no surface can assign a task, which is the centre
+	of decision `#473` — and `#494`, §8.9's concurrency check reachable only over raw HTTP.
+	"""
+
+	found = unreached_fields()
+	unexplained = sorted(field for field in found if field not in UNREACHED_FIELDS)
+
+	assert not unexplained, (
+		f"no client method passes {unexplained}, and nothing says why. Give a client the "
+		f"argument, or add an entry to UNREACHED_FIELDS with a written reason — and if it is a "
+		f"gap rather than a decision, file it and say so."
+	)
+
+
+def test_the_field_scan_actually_read_the_client () -> None:
+	"""A scan that reaches nothing reports no gaps and passes, which is the failure to prevent.
+
+	Falsified by breaking the walk rather than by trusting it: this is the floor `#405` asks
+	for, and it is what the design note's own first measurement failed — walking ``app.routes``
+	found 8 routes against 61 declared, so the first run said "zero excuses needed".
+	"""
+
+	source = pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	reached = reached_routes(source)
+
+	assert len(reached) >= 30, (
+		f"read {len(reached)} route/method pairs out of clients/http.py — has the walk stopped "
+		f"reaching them?"
+	)
+	assert ("PATCH", "/v1/tasks/*") in reached, "the route this guard was written for is missing"
+	assert reached[("PATCH", "/v1/tasks/*")] >= {"update", "schedule"}, (
+		"the union is the point: one method per route is what REACHED_BY records and what "
+		"makes a field check report gaps that are not there"
+	)
+
+
+def test_no_field_is_both_reachable_and_excused () -> None:
+	"""What makes an entry go away, asked of this list like every other one here (`#405`)."""
+
+	found = unreached_fields()
+	stale = sorted(field for field in UNREACHED_FIELDS if field not in found)
+
+	assert not stale, (
+		f"{stale} is excused and no longer unreachable — a client can pass it now, so delete "
+		f"the entry and close whatever it names"
+	)
+
+
+def test_a_field_nothing_passes_would_be_caught () -> None:
+	"""Feed the real comparison a defect through its own entry point, not a copy of its rule."""
+
+	planted = reached_routes(
+		'class Client:\n'
+		'\tdef update (self, *, ref, title):\n'
+		'\t\treturn self._json("PATCH", f"/v1/tasks/{ref}", json={})\n'
+	)
+
+	assert planted == {("PATCH", "/v1/tasks/*"): {"update"}}, planted
+
+	# And the real one must be reporting something, or the assertion above proves only that the
+	# parser works on three lines of synthetic source.
+	assert unreached_fields(), (
+		"the field scan reports nothing at all, which would make the excuse list vacuous"
+	)
