@@ -2744,8 +2744,11 @@ def test_the_instructions_name_every_document_a_session_might_not_find (
 			f"so only a client that lists resources will ever find it"
 		)
 
-		# The same document as an ordinary route, for a client that cannot read resources.
-		route = "/v1/" + resource.uri.removeprefix("subroutine://")
+		# **The route the resource declares, not one composed from its URI** (`#506`). The
+		# derivation worked while every resource was a document under `/v1/docs/`, and would
+		# have asserted `/v1/conventions` — which does not exist — for the first one that was
+		# an index assembled from a listing instead.
+		route = resource.also_at
 
 		assert route in instructions, (
 			f"{resource.uri} is named only as a resource; {route} is how a client without them "

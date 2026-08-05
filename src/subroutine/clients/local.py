@@ -1243,6 +1243,7 @@ class Client:
 		title: str,
 		body: str | None = None,
 		type: str | None = None,
+		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
 	) -> subroutine.views.Document:
@@ -1259,6 +1260,7 @@ class Client:
 				title=title,
 				body=body,
 				type_key=type or "note",
+				status_key=status,
 				# The writer owns what they write, as `projects.create` does — and for a
 				# document it is the attribution that makes §5.10's "what you concluded" mean
 				# anything, since a conclusion with no author is a rumour.

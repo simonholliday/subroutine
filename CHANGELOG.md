@@ -143,6 +143,30 @@ upgrade involves.
   decisions is how you find the rules you are working under. Projects gained `parent`,
   `visibility` and `include_archived`.
 
+- **An agent is told what this workspace has decided, before its first write.** A new
+  `subroutine://conventions` resource lists the decisions in force here — how work is filed,
+  what a title has to say, what needs an item first — and the server instructions every
+  session receives now name it.
+
+  The problem it closes, measured on this project's own instance: 57 governing documents open,
+  and the one file a session is guaranteed to read named 24 of them. Ten decisions were
+  reachable only by searching, and nothing prompted a search.
+
+  **Titles and refs, never bodies**, so it costs about two kilobytes and only when something
+  opens it.
+
+- **A decision, a finding and a dead end are in force the moment you write them.** They now
+  start as `active` rather than `draft`; a specification or a design still starts as `draft`,
+  because that is a document's life and not a conclusion's.
+
+  A decision that has been taken is in force, and calling it a draft is wrong the second the
+  conversation ends. One lifecycle had been applied to all six document types, and the result
+  was that nothing had ever been marked active — the status vocabulary was specified, seeded,
+  published and used by nothing.
+
+  `subroutine doc create --status draft` for a decision you are still thinking about, which
+  is now reachable from a client for the first time.
+
   **`subroutine list --assignee`, `--status` and `--type`**, on `ls` as well. A status and a
   type belong to one kind of item and one workspace, so `--type bug` returns no documents
   rather than all of them, and `--status active` — which no task has — returns the documents

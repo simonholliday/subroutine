@@ -930,13 +930,6 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"is the document equivalent; nothing has ever asked for a document tree, and §5.6a "
 		"says a feature is just a parent *item*, which is a link rather than a field.",
 	),
-	"status": (
-		"disclosure",
-		"Setting a document's status at creation. `create_document` deliberately does not, so "
-		"a new document is a draft and becomes something else by an act somebody took — which "
-		"is `#84`'s argument about a parent never auto-completing, one entity along. "
-		"`update_document` takes `status`, so this is the *creation* path only.",
-	),
 	"template": (
 		"unbuilt",
 		"Project templates (§6.7's neighbourhood). Accepted by the route and implemented "

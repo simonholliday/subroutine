@@ -697,10 +697,16 @@ class Client(typing.Protocol):
 		title: str,
 		body: str | None = None,
 		type: str | None = None,
+		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document — a conclusion the next reader needs (§5.10).
+
+		``status`` is how somebody says a decision is **not** settled yet (`#506`). A decision,
+		a finding and a dead end are in force the moment they are written, so they start
+		``active`` and everything else starts ``draft`` — which makes drafting one the case that
+		needs saying out loud, and it had no way to be said from a client at all.
 
 		**The half of the comment/document distinction that could not be reached** until
 		`#138`. `POST /v1/documents` was its only caller, so on a default install — where

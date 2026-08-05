@@ -103,6 +103,20 @@ class Resource:
 	mime_type: str
 	read: typing.Callable[[], str]
 
+	#: How a client that cannot read resources reaches the same thing — `#506`.
+	#:
+	#: **Declared rather than derived.** Decision `#499`'s guard used to compose this by string
+	#: surgery on the URI, which worked while every resource happened to be a document under
+	#: ``/v1/docs/``. The first one that was not — an index assembled from a listing — would
+	#: have been asserted against ``/v1/conventions``, a route that does not exist. A resource
+	#: knows its own second route; a test guessing it is a map, and this repository has been
+	#: bitten by every map it has written (`#336`, `#427`).
+	#:
+	#: Not optional, so a fifth resource cannot quietly have only one way in. That is the
+	#: half of `#499` about a channel being client-dependent: a ``subroutine://`` URI is
+	#: useless to a client that does not read resources.
+	also_at: str
+
 	def described (self) -> dict[str, typing.Any]:
 		"""Return this resource as ``resources/list`` reports it."""
 

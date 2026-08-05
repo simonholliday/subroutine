@@ -162,6 +162,7 @@ def references (
 			),
 			mime_type="text/markdown",
 			read=lambda: client.reference("agent"),
+			also_at="/v1/docs/agent",
 		),
 		subroutine.mcp.protocol.Resource(
 			uri="subroutine://docs/examples",
@@ -173,6 +174,7 @@ def references (
 			),
 			mime_type="text/markdown",
 			read=lambda: client.reference("examples"),
+			also_at="/v1/docs/examples",
 		),
 		subroutine.mcp.protocol.Resource(
 			uri="subroutine://meta",
@@ -186,6 +188,20 @@ def references (
 			),
 			mime_type="application/json",
 			read=lambda: _vocabulary(client, workspace),
+			also_at="/v1/meta",
+		),
+		subroutine.mcp.protocol.Resource(
+			uri="subroutine://conventions",
+			name="conventions",
+			title="What this workspace has decided",
+			description=(
+				"The decisions in force here — how work is filed, what a title has to say, what "
+				"needs an item first. Written by the people and agents already working in this "
+				"workspace, and binding on the next one. Read it before your first write."
+			),
+			mime_type="text/markdown",
+			read=lambda: _conventions(client, workspace),
+			also_at="/v1/documents?type=decision&status=active",
 		),
 	]
 
@@ -204,6 +220,63 @@ def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) 
 	"""
 
 	return client.meta(workspace=workspace).model_dump_json(indent=1)
+
+
+def _conventions (client: subroutine.clients.base.Client, workspace: str | None) -> str:
+	"""Return the decisions in force in this workspace, as a readable index — `#506`.
+
+	**The problem it closes, measured on this project's own instance**: 57 governing documents
+	open, and the one file a session is guaranteed to read named 24 of them. Ten decisions were
+	reachable only by searching, and nothing prompted a search — so the rules an agent is
+	expected to follow arrived, if at all, because somebody happened to restate them somewhere
+	else. Decision `#499` one level up: the channel that is guaranteed must name every channel
+	that is not.
+
+	**A mechanism rather than a list, because these instructions ship with the program.** The
+	server instructions are identical on every installation, so they cannot say "read `#506`" —
+	a ref belongs to one instance. They name this resource, and the resource asks *this*
+	workspace what it has decided. `#486`'s shape exactly, applied to conclusions rather than
+	to vocabulary.
+
+	**Titles and refs, never bodies.** §6.14 makes a decision's title state its conclusion, so
+	the index is readable on its own and an agent fetches only the one it needs — which is the
+	whole of §14's context economy. A resource that inlined 26 documents would be the thing it
+	is trying to prevent.
+	"""
+
+	found = client.documents(workspace=workspace, type="decision", status="active")
+	lines = [
+		"# What this workspace has decided",
+		"",
+		"Each line is a decision that is **in force**, newest first. The title states the",
+		"conclusion; read the one you need with `subroutine_show`, by its number.",
+		"",
+	]
+
+	if not found:
+		# **A resource with nothing in it must say why**, or it reads as "there are no rules
+		# here" — which is a claim, and a false one on any instance that has been used. `#496`
+		# is the same failure on the vocabulary resource, found by a stranger's agent meeting
+		# an unset workspace.
+		lines += [
+			"Nothing is marked as in force here yet, which is not the same as nothing having",
+			"been decided. A document written before this workspace started marking them, or",
+			"one still being drafted, will not appear.",
+			"",
+			"`subroutine_list` with `type=decision` shows every decision whatever its status,",
+			"and `subroutine_document` records a new one.",
+		]
+
+		return "\n".join(lines)
+
+	lines += [f"- **#{document.ref}** — {document.title}" for document in found]
+	lines += [
+		"",
+		f"{len(found)} in force. Specifications, designs and findings are not listed here:",
+		"they describe rather than bind. `subroutine_list` with a `type` finds those.",
+	]
+
+	return "\n".join(lines)
 
 
 def catalogue (

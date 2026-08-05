@@ -15,8 +15,12 @@ import typing
 import unittest.mock
 
 import pytest
+import sqlalchemy.orm
 
 import subroutine.clients.base
+import subroutine.db.models.vocabulary
+import subroutine.domain.bootstrap
+import subroutine.domain.documents
 import subroutine.mcp.protocol
 import subroutine.mcp.tools
 
@@ -92,8 +96,8 @@ def test_a_server_with_no_resources_does_not_claim_the_capability () -> None:
 	assert "resources" not in described["result"]["capabilities"]
 
 
-def test_the_guide_the_examples_and_the_vocabulary_are_offered () -> None:
-	"""The two documents §13.3 writes for this reader, and what `#486` added beside them."""
+def test_the_guide_the_examples_the_vocabulary_and_the_conventions_are_offered () -> None:
+	"""The two documents §13.3 writes for this reader, and what `#486` and `#506` added."""
 
 	listed = _ask(_server(_client()), "resources/list")["result"]["resources"]
 
@@ -101,6 +105,7 @@ def test_the_guide_the_examples_and_the_vocabulary_are_offered () -> None:
 		"subroutine://docs/agent",
 		"subroutine://docs/examples",
 		"subroutine://meta",
+		"subroutine://conventions",
 	]
 
 	for row in listed:
@@ -113,6 +118,8 @@ def test_the_guide_the_examples_and_the_vocabulary_are_offered () -> None:
 		# and this is a document it looks keys up in. A client that renders by media type
 		# would otherwise show a wall of JSON as if it were something to read through.
 		"application/json",
+		# Markdown again: an index of conclusions is read, not looked up in.
+		"text/markdown",
 	]
 
 
@@ -206,3 +213,125 @@ def test_the_instance_really_serves_what_the_resource_asks_for (name: str) -> No
 	}[name]
 
 	assert built(), f"{name} is named by a resource and the instance builds nothing for it"
+
+
+def test_a_decision_is_in_force_the_moment_it_is_written (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#506`. §6.14's lifecycle fits a specification and was applied to six types.
+
+	A spec is drafted, agreed, replaced — so ``draft`` is honest for it. A decision that has
+	been taken is already in force, and calling it a draft is wrong the second the conversation
+	ends. **Measured before this changed**: all 72 open documents on this project's own instance
+	sat in ``draft``, including 26 decisions that plainly govern.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username="si", instance_name="Test Instance"
+	)
+	inbox = subroutine.domain.bootstrap.inbox_for(session, setup.workspace)
+
+	assert inbox is not None
+
+	written = {
+		kind: subroutine.domain.documents.create(
+			session, project=inbox, title=f"A {kind}", type_key=kind, actor=None
+		)
+		for kind in ("decision", "finding", "dead_end", "spec", "design", "note")
+	}
+	session.flush()
+
+	def category (kind: str) -> str:
+		"""Return the status category a document of this type started in."""
+
+		found = session.get(
+			subroutine.db.models.vocabulary.Status, written[kind].status_id
+		)
+
+		assert found is not None, f"a {kind} was written with no status at all"
+
+		return found.category
+
+	for kind in ("decision", "finding", "dead_end"):
+		assert category(kind) == "current", f"a {kind} is true when it is written"
+
+	for kind in ("spec", "design", "note"):
+		assert category(kind) == "draft", f"a {kind} is drafted before it is agreed"
+
+
+def test_a_status_somebody_asked_for_still_wins (session: sqlalchemy.orm.Session) -> None:
+	"""`#506`. The default is a default, not a rule about what a decision may be.
+
+	Somebody drafting a decision they have not taken yet must be able to say so, or the
+	convenience becomes a constraint — and this is the half a default-by-type most easily
+	breaks, because the type now carries an opinion the caller did not express.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username="si", instance_name="Test Instance"
+	)
+	inbox = subroutine.domain.bootstrap.inbox_for(session, setup.workspace)
+
+	assert inbox is not None
+
+	drafting = subroutine.domain.documents.create(
+		session,
+		project=inbox,
+		title="Not settled yet",
+		type_key="decision",
+		status_key="draft",
+		actor=None,
+	)
+	session.flush()
+
+	found = session.get(subroutine.db.models.vocabulary.Status, drafting.status_id)
+
+	assert found is not None and found.category == "draft"
+
+
+def test_the_conventions_resource_lists_what_is_in_force_and_nothing_else () -> None:
+	"""`#506`. The rules an agent must follow, from a channel it is told about.
+
+	57 governing documents were open on this project's instance and the one file a session is
+	guaranteed to read named 24 — so ten decisions were reachable only by searching, and
+	nothing prompted a search. Decision `#499` one level up.
+	"""
+
+	client = _client()
+	client.documents.return_value = [
+		unittest.mock.MagicMock(ref=47, title="No work without an item first"),
+		unittest.mock.MagicMock(ref=102, title="Colour marks exceptions"),
+	]
+
+	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
+	text = answer["result"]["contents"][0]["text"]
+
+	client.documents.assert_called_once_with(
+		workspace=None, type="decision", status="active"
+	)
+
+	assert "#47" in text and "No work without an item first" in text
+	assert "#102" in text
+
+	# **Titles, never bodies** (§14). An index that inlined every decision would be the
+	# context cost this whole resource arrangement exists to avoid.
+	assert len(text) < 1_000, "an index, not the documents themselves"
+
+
+def test_an_empty_conventions_resource_says_why_rather_than_nothing () -> None:
+	"""`#506`, on `#496`'s lesson. **A resource has no second call.**
+
+	An empty index reads as "there are no rules here", which is a claim and a false one on any
+	instance that has been used. It has to say what it did not look at and how to look wider —
+	which `#496` found the vocabulary resource failing to do, on the workspace state a
+	stranger's agent actually arrives in.
+	"""
+
+	client = _client()
+	client.documents.return_value = []
+
+	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
+	text = answer["result"]["contents"][0]["text"]
+
+	assert "not the same as nothing having" in text
+	assert "subroutine_list" in text, "an empty answer must name the wider question"

@@ -48,6 +48,40 @@ MAX_TITLE_LENGTH = 512
 #: them freely.
 SUPERSEDED_CATEGORY = "superseded"
 
+#: The status of a document that is in force — ``active``, by category (`#506`).
+CURRENT_CATEGORY = "current"
+
+#: The types that are true the moment they are written, and so start *active* rather than
+#: *draft* (`#506`, Simon 2026-08-05).
+#:
+#: **§6.14's lifecycle fits a specification and not a conclusion.** A spec is drafted, agreed
+#: and later replaced, so ``draft`` is the honest first state for it. A decision that has been
+#: taken is already in force; a finding is already true; a dead end already records that a
+#: route does not work. Calling any of those a draft is wrong the second the conversation
+#: ends, and one lifecycle was applied to six types without anybody asking which it suited.
+#:
+#: **Measured before it was changed**: all 72 open documents on this project's own instance
+#: sat in ``draft``, including 26 decisions that plainly govern. A vocabulary that is
+#: specified, seeded, published in ``/v1/meta`` and used by nothing is `#247`'s defect in a
+#: fourth disguise, and the first one in *data* rather than in code.
+#:
+#: ``dead_end`` reads oddly here and is right: *this way does not work* is a conclusion in
+#: force, not a draft of anything, and it is not superseded until somebody shows it was wrong.
+#:
+#: **This reverses a recorded decision, so here is the answer to it.** ``test_reach`` excused
+#: setting a status at creation as *deliberate*, arguing that "a new document is a draft and
+#: becomes something else by an act somebody took" — `#84`'s rule that a parent never
+#: auto-completes, one entity along. That rule is about the system **inferring** a judgement
+#: nobody made: completing the last child credits somebody with deciding the parent is done,
+#: and it cannot reverse when a child is added later.
+#:
+#: Writing a decision is not an inference. **The act somebody took is the writing**, and the
+#: status records it rather than concluding anything from it — so `#84`'s argument does not
+#: reach this, and applying it here made the product unable to say the one thing a decision
+#: document exists to say. A caller who *is* still drafting says so with ``status_key``, which
+#: is why that had to become reachable from a client in the same change.
+IN_FORCE_WHEN_WRITTEN = frozenset({"decision", "finding", "dead_end"})
+
 
 def create (
 	session: sqlalchemy.orm.Session,
@@ -84,7 +118,11 @@ def create (
 	_permitted(session, actor, subroutine.permissions.TASK_WRITE, project=project)
 
 	item_type = item_type_for(session, workspace_id, type_key)
-	status = status_for(session, workspace_id, status_key)
+	status = (
+		status_for(session, workspace_id, status_key)
+		if status_key is not None
+		else _first_status(session, workspace_id, type_key)
+	)
 
 	if supersedes is not None and supersedes.workspace_id != workspace_id:
 		raise subroutine.errors.ValidationError(
@@ -572,6 +610,38 @@ def _vocabulary (
 			)
 		],
 	)
+
+
+def _first_status (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, type_key: str
+) -> subroutine.db.models.vocabulary.Status:
+	"""Return the status a new document of this type starts in (`#506`).
+
+	:data:`IN_FORCE_WHEN_WRITTEN` says which types are true as soon as somebody writes them;
+	everything else starts wherever the workspace's default is, which is ``draft`` as seeded.
+
+	**By category, and falling back rather than refusing.** An installation may rename or
+	remove its statuses (§5.5), so this asks for the one meaning *in force* rather than for a
+	key — and a workspace that has removed it gets the ordinary default instead of a refusal.
+	Writing a decision must not fail because somebody edited a vocabulary; that is :func:`_retire`'s
+	reasoning applied to the other end of the same lifecycle.
+	"""
+
+	if type_key not in IN_FORCE_WHEN_WRITTEN:
+		return status_for(session, workspace_id, None)
+
+	model = subroutine.db.models.vocabulary.Status
+	found = session.scalars(
+		sqlalchemy.select(model)
+		.where(
+			model.workspace_id == workspace_id,
+			model.entity_type == "document",
+			model.category == CURRENT_CATEGORY,
+		)
+		.order_by(model.position)
+	).first()
+
+	return found if found is not None else status_for(session, workspace_id, None)
 
 
 def _retire (

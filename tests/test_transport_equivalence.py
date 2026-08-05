@@ -2406,10 +2406,15 @@ def test_both_narrow_documents_to_the_ones_still_in_force (pair: Pair) -> None:
 	local, remote = pair.both()
 
 	settled = local.create_document(title="A decision taken", type="decision")
-	drafting = local.create_document(title="Still being written", type="decision")
 	unrelated = local.create_document(title="A note", type="note")
 
-	local.update_document(ref=settled.ref, status="active")
+	# **Said explicitly, because a decision is now in force the moment it is written** (`#506`).
+	# This test was written before that and passed by accident: both decisions were drafts, so
+	# marking one active was what separated them. Somebody drafting a decision they have not
+	# taken has to be able to say so, and that is what this row is here to prove.
+	drafting = local.create_document(
+		title="Still being written", type="decision", status="draft"
+	)
 
 	in_force = {found.ref for found in local.documents(type="decision", status="active")}
 

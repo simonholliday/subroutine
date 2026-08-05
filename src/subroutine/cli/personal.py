@@ -2480,10 +2480,17 @@ def register (
 		kind: str = typer.Option(
 			"", "--type", help="note, spec, design, decision, finding or dead_end."
 		),
+		status: str = typer.Option(
+			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
+		),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Write a document — a decision, a finding, a design, a dead end.
+
+		A decision, a finding and a dead end are in force the moment you write them, so they
+		start as 'active'; a specification or a design starts as 'draft'. Pass '--status draft'
+		for a decision you are still thinking about.
 
 		Examples:
 
@@ -2508,6 +2515,7 @@ def register (
 				title=title,
 				body=written or None,
 				type=kind.strip() or None,
+				status=status.strip() or None,
 				project=project.strip() or None,
 				workspace=_writing_workspace(world),
 			)

@@ -722,6 +722,7 @@ class Client:
 		title: str,
 		body: str | None = None,
 		type: str | None = None,
+		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
 	) -> subroutine.views.Document:
@@ -733,7 +734,12 @@ class Client:
 			"POST",
 			"/v1/documents",
 			json=_given(
-				title=title, body=body, type=type, project=project, workspace_id=workspace
+				title=title,
+				body=body,
+				type=type,
+				status=status,
+				project=project,
+				workspace_id=workspace,
 			),
 		)
 
