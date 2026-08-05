@@ -128,6 +128,21 @@ upgrade involves.
   The column disappears entirely when nothing on the page is blocked, so a to-do list that has
   never linked two items looks exactly as it did.
 
+- **A listing can be narrowed by the things it already accepted.** `GET /v1/tasks` has taken
+  an assignee, a status, a type, a subtree and a deadline range since M1, and no client passed
+  any of them — so from the CLI, from an agent's tools, or from a script, the only way to ask
+  *"what is assigned to Simon"* was to fetch everything and sift it yourself.
+
+  **The assignee filter takes a username**, not an id: `?assignee=simon`. It was `assignee_id`
+  and took a UUID only, which made the question one you had to already know part of the answer
+  to. Renamed rather than widened, because a parameter called `_id` that takes a name is a
+  third thing to learn — and nothing could pass the old spelling anyway.
+
+  Documents gained `status` and `type`, which is what makes §6.14's lifecycle usable: a
+  document is *draft*, then *active*, then *superseded*, and asking a workspace for its active
+  decisions is how you find the rules you are working under. Projects gained `parent`,
+  `visibility` and `include_archived`.
+
 ### Fixed
 
 - **A backup written to a network volume is no longer reported as having failed.** If your

@@ -256,7 +256,9 @@ def listing (
 	),
 	project: str | None = fastapi.Query(None, description="Restrict to one project, by key or id."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
-	assignee_id: uuid.UUID | None = fastapi.Query(None, description="Restrict to one assignee."),
+	assignee: str | None = fastapi.Query(
+		None, description="Restrict to one assignee, by username or id."
+	),
 	type: str | None = fastapi.Query(None, description="Restrict to one item type key."),
 	parent: str | None = fastapi.Query(
 		None,
@@ -400,8 +402,15 @@ def listing (
 			)
 		)
 
-	if assignee_id is not None:
-		statement = statement.where(model.assignee_id == assignee_id)
+	# **A username or an id, resolved the way every other identifier here is** (`#501`). This
+	# was `assignee_id` and took a UUID only, which made "what is Simon working on" a question
+	# you had to already know the answer to part of. Renamed rather than widened, because a
+	# parameter called `_id` that takes a name is a third thing to learn — and the rename costs
+	# nobody anything, since no client could pass the old one at all.
+	if assignee is not None:
+		statement = statement.where(
+			model.assignee_id == subroutine.domain.selection.user(session, assignee).id
+		)
 
 	if q:
 		# **Title and description, which is what §9.4 always said.** It was the title alone

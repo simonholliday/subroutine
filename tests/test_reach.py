@@ -824,13 +824,25 @@ SPELLED_DIFFERENTLY = {
 #: one, and both read identically from inside.
 BY_THE_CAPTURE_GRAMMAR = frozenset({
 	"title", "importance", "urgency", "estimate", "tags", "due", "start", "status",
-	"planned_for", "due_is_all_day", "start_is_all_day", "timezone", "parent_task_id",
+	"planned_for", "due_is_all_day", "start_is_all_day", "timezone",
 	"assignee_id",
 })
 
 #: A request field no client passes, and why. Same discipline as every list here: a written
 #: reason, and something that makes the entry go away.
 UNREACHED_FIELDS: dict[str, Excuse] = {
+	"parent_task_id": (
+		"tracked",
+		"`#510`. **This entry replaces a wrong one and that is the point of it.** The field sat "
+		"in `BY_THE_CAPTURE_GRAMMAR`, excused because §6.13's line was said to set it instead — "
+		"and the line has no parent sigil at all: `grep -c parent domain/capture.py` is 0, and "
+		"`/v1/meta` publishes the grammar's whole vocabulary without one. So a client cannot "
+		"file a task underneath another one, and the guard was told not to look.\n\n"
+		"The inverse of `assignee_id`'s failure below: that one was *missing* and the guard "
+		"manufactured a gap; this one was *present* and hid a real one. Both read identically "
+		"from inside the list, and only running the grammar tells them apart. Found by writing "
+		"`#501`'s subtree test and having nothing that could build a subtree.",
+	),
 	"expected_version": (
 		"tracked",
 		"`#494`. §8.9's concurrency check is built, tested and reachable only over raw HTTP — "
@@ -1174,19 +1186,17 @@ UNREACHED_FILTERS: dict[str, Excuse] = {
 #: The filters `#501` is about: reachable only over raw HTTP, and each one a real question
 #: somebody would ask. Kept as its own list rather than folded into the one above, because
 #: these go away by being *built* and the entry above goes away by the API changing shape.
-UNREACHED_FILTERS.update({
-	name: (
-		"tracked",
-		f"`#501`. `{name}` is declared by a listing this client already calls and no method "
-		f"passes it, so the question it answers is reachable only over raw HTTP — through "
-		f"`subroutine_call_api` for an agent, and not at all for a person. **Deleting this "
-		f"entry is part of closing `#501`.**",
-	)
-	for name in (
-		"assignee_id", "status", "type", "subtree", "due_before", "due_after",
-		"parent", "visibility", "include_archived", "order",
-	)
-})
+UNREACHED_FILTERS["order"] = (
+	"tracked",
+	"`#501`, and **on `GET /v1/projects` alone** — the other listings reach it. A client "
+	"cannot offer this one until the project sort vocabulary moves out of `api/projects.py` "
+	"into `domain/ordering.py`, where `TASK_FIELDS` and `DOCUMENT_FIELDS` already live and "
+	"where both transports can share it. Projects are the odd one out rather than a special "
+	"case, so this is a move rather than a design question — and doing it inside `#501` would "
+	"have been a refactor of the ordering layer wearing a filter's hat.\n\n"
+	"Until then the local client orders by `path`, which is `DEFAULT_ORDER` and the tree "
+	"reading order §8.4 wants — so nothing is wrong, one question just cannot be asked.",
+)
 
 
 def _query_names (route: typing.Any) -> set[str]:

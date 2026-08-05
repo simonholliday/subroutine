@@ -2270,3 +2270,171 @@ def test_a_read_only_connection_refuses_a_raw_write_too (
 
 		# And a read still works, so the rule is `read_only` rather than `no_api`.
 		assert client.call_api(method="GET", path="/v1/tasks").status == 200
+
+
+# --- Listing filters, which nothing could pass until `#501` ------------------------------
+
+
+def test_both_narrow_to_one_assignee_by_username (pair: Pair) -> None:
+	"""`#501`. *"What is assigned to whom"* — the question `#473`'s delegation model is for.
+
+	`GET /v1/tasks?assignee_id=` has existed since M1 and no client passed it, so this was
+	reachable only by an agent holding a **UUID**. It takes a username now, resolved by the
+	service so that one refusal covers both transports, and this is what says the two of them
+	resolve the same name to the same rows.
+	"""
+
+	mine = make(pair, f"Mine to do @{pair.user.username}")
+	nobodys = make(pair, "Unassigned on purpose")
+
+	local, remote = pair.both()
+	here = {task.ref for task in local.tasks(assignee=pair.user.username)}
+
+	assert here == {task.ref for task in remote.tasks(assignee=pair.user.username)}
+	assert mine.ref in here
+	assert nobodys.ref not in here, "an unassigned task belongs to nobody, not to everybody"
+
+
+def test_both_refuse_an_assignee_who_is_not_here_the_same_way (pair: Pair) -> None:
+	"""`#501`. **The refusal is the half that matters**, which is why it is resolved once.
+
+	Filtering by a name nobody has is a typo, and the alternative — an empty list — reads
+	exactly like a person who happens to have nothing on. Both transports must say so, and
+	must say it the same way, or a client fanning out gets two vocabularies of failure.
+	"""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound) as refused:
+			client.tasks(assignee="nobody-by-that-name")
+
+		assert "nobody-by-that-name" in str(refused.value)
+
+
+def test_both_narrow_to_one_status_and_one_type (pair: Pair) -> None:
+	"""`#501`. The everyday pair: an agent triaging cannot ask for open bugs without them.
+
+	Both are **per-workspace vocabulary** (§5.5), so each side resolves the key through the
+	domain rather than comparing a string to a column — an unknown one is refused by name on
+	both, rather than matching nothing on one and raising on the other.
+	"""
+
+	bug = make(pair, "Something is broken")
+	local, remote = pair.both()
+
+	local.update(ref=bug.ref, type="bug")
+	ordinary = make(pair, "Something ordinary")
+
+	bugs = {task.ref for task in local.tasks(type="bug")}
+
+	assert bugs == {task.ref for task in remote.tasks(type="bug")}
+	assert bugs == {bug.ref}, "the ordinary task is not a bug"
+
+	open_now = {task.ref for task in local.tasks(status="open")}
+
+	assert open_now == {task.ref for task in remote.tasks(status="open")}
+	assert {bug.ref, ordinary.ref} <= open_now
+
+
+def test_both_read_a_whole_subtree_rather_than_one_generation (pair: Pair) -> None:
+	"""`#501`. A delegated piece of work broken up is a tree, and its children are not it.
+
+	`parent` alone answers "what did I split this into"; `subtree` answers "how is it going",
+	which is the question somebody who handed the work over is actually asking.
+	"""
+
+	local, remote = pair.both()
+
+	top = make(pair, "The whole job")
+
+	# Built through the domain because **no client can file a task under another one** —
+	# `#510`, found by writing this test and having nothing that could make a subtree.
+	above = pair.session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.ref == top.ref,
+			subroutine.db.models.work.Task.workspace_id == pair.workspace.id,
+		)
+	).one()
+	inbox = pair.session.get(
+		subroutine.db.models.project.Project, above.project_id
+	)
+	assert inbox is not None
+
+	middle = subroutine.domain.tasks.create(
+		pair.session, project=inbox, title="A part of it", parent=above, actor=None
+	)
+	bottom = subroutine.domain.tasks.create(
+		pair.session, project=inbox, title="A part of the part", parent=middle, actor=None
+	)
+	pair.session.flush()
+
+	direct = {task.ref for task in local.tasks(parent=top.ref)}
+	whole = {task.ref for task in local.tasks(parent=top.ref, subtree=True)}
+
+	assert direct == {task.ref for task in remote.tasks(parent=top.ref)}
+	assert whole == {task.ref for task in remote.tasks(parent=top.ref, subtree=True)}
+
+	assert direct == {middle.ref}, "one generation"
+	assert whole == {middle.ref, bottom.ref}, "the tree, and never the parent itself"
+
+
+def test_both_refuse_a_subtree_with_no_parent_to_be_under (pair: Pair) -> None:
+	"""`#501`. `subtree` is a widening of `parent`, so alone it is a caller who meant something.
+
+	Ignoring it would answer a different question than the one asked and look like an answer,
+	which is `#379`'s rule — an unrecognised argument is refused rather than swallowed.
+	"""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			client.tasks(subtree=True)
+
+		assert "parent" in str(refused.value)
+
+
+def test_both_narrow_documents_to_the_ones_still_in_force (pair: Pair) -> None:
+	"""`#501`, and what `#506` needs. §6.14's lifecycle was unreachable from any client.
+
+	A document is *draft*, then *active*, then *superseded*. Asking a workspace for its
+	**active decisions** is how a reader finds the rules it is working under without being
+	told each one by name — and until this, nothing but raw HTTP could ask.
+	"""
+
+	local, remote = pair.both()
+
+	settled = local.create_document(title="A decision taken", type="decision")
+	drafting = local.create_document(title="Still being written", type="decision")
+	unrelated = local.create_document(title="A note", type="note")
+
+	local.update_document(ref=settled.ref, status="active")
+
+	in_force = {found.ref for found in local.documents(type="decision", status="active")}
+
+	assert in_force == {
+		found.ref for found in remote.documents(type="decision", status="active")
+	}
+	assert in_force == {settled.ref}
+	assert drafting.ref not in in_force and unrelated.ref not in in_force
+
+
+def test_both_narrow_projects_the_same_way (pair: Pair) -> None:
+	"""`#501`. `parent`, `visibility` and `include_archived` reached no client either."""
+
+	local, remote = pair.both()
+
+	top = local.create_project(key="TOP", title="A tree")
+	local.create_project(key="UNDER", title="Beneath it", parent=top.key)
+	local.create_project(key="HIDDEN", title="Not for everyone", visibility="private")
+
+	children = {project.key for project in local.projects(parent=top.key)}
+
+	assert children == {project.key for project in remote.projects(parent=top.key)}
+	assert children == {"UNDER"}
+
+	private = {project.key for project in local.projects(visibility="private")}
+
+	assert private == {project.key for project in remote.projects(visibility="private")}
+	assert private == {"HIDDEN"}

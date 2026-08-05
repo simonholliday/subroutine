@@ -47,6 +47,7 @@ import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.local
@@ -303,8 +304,14 @@ class Client:
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
 		parent: int | None = None,
+		subtree: bool = False,
 		ready: bool = False,
 		deleted: bool = False,
+		assignee: str | None = None,
+		status: str | None = None,
+		type: str | None = None,
+		due_before: datetime.datetime | None = None,
+		due_after: datetime.datetime | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -382,7 +389,62 @@ class Client:
 						hint="Run 'subroutine list' to see what there is.",
 					)
 
-				statement = statement.where(model.parent_task_id == above.id)
+				# Widened to the whole tree when asked, exactly as `GET /v1/tasks?subtree=`
+				# does it — a delegated piece of work broken into parts is a tree, and its
+				# direct children alone are not the answer to "how is it going".
+				statement = (
+					statement.where(
+						subroutine.domain.hierarchy.subtree(model, above), model.id != above.id
+					)
+					if subtree
+					else statement.where(model.parent_task_id == above.id)
+				)
+
+			elif subtree:
+				raise subroutine.errors.ValidationError(
+					"'subtree' says how much of a parent's tree to return, so it needs a parent.",
+					errors=[
+						subroutine.errors.FieldError(
+							field="subtree",
+							code="invalid_field_value",
+							message="'subtree' has no meaning without 'parent'.",
+							hint="Pass parent=<ref> as well, or drop subtree.",
+						)
+					],
+				)
+
+			# **The same three lookups the endpoint makes, in the same order** (`#501`). Each
+			# resolves through the domain rather than comparing a string to a column, so an
+			# unknown status, type or account is refused by name here exactly as it is over
+			# HTTP — which is what `tests/test_transport_equivalence.py` is for, and why these
+			# read as duplication rather than being one.
+			if status is not None:
+				statement = statement.where(
+					model.status_id
+					== subroutine.domain.tasks.status_for(session, chosen.id, status).id
+				)
+
+			if type is not None:
+				statement = statement.where(
+					model.type_id
+					== subroutine.domain.tasks.item_type_for(session, chosen.id, type).id
+				)
+
+			if assignee is not None:
+				statement = statement.where(
+					model.assignee_id
+					== subroutine.domain.selection.user(session, assignee).id
+				)
+
+			if due_before is not None:
+				statement = statement.where(
+					model.due_at < due_before
+				)
+
+			if due_after is not None:
+				statement = statement.where(
+					model.due_at > due_after
+				)
 
 			rows = list(
 				session.scalars(
@@ -430,6 +492,8 @@ class Client:
 		project: str | None = None,
 		q: str | None = None,
 		deleted: bool = False,
+		status: str | None = None,
+		type: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -445,6 +509,19 @@ class Client:
 				else subroutine.domain.selection.project(session, actor, chosen, project)
 			)
 
+			# Resolved through the domain in the same order `GET /v1/documents` resolves them,
+			# so an unknown key is refused by name rather than matching nothing quietly (`#501`).
+			wanted_type = (
+				None
+				if type is None
+				else subroutine.domain.documents.item_type_for(session, chosen.id, type).id
+			)
+			wanted_status = (
+				None
+				if status is None
+				else subroutine.domain.documents.status_for(session, chosen.id, status).id
+			)
+
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
@@ -457,6 +534,14 @@ class Client:
 						sqlalchemy.true()
 						if narrowed is None
 						else subroutine.domain.scoping.within_project(narrowed)
+					)
+					.where(
+						sqlalchemy.true() if wanted_type is None else model.type_id == wanted_type
+					)
+					.where(
+						sqlalchemy.true()
+						if wanted_status is None
+						else model.status_id == wanted_status
 					)
 					.where(
 						sqlalchemy.true()
@@ -796,11 +881,18 @@ class Client:
 			return [subroutine.views.event(row, described) for row in rows]
 
 	def projects (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		parent: str | None = None,
+		visibility: str | None = None,
+		include_archived: bool = False,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
 		size = subroutine.domain.paging.size(limit, self.settings)
+		model = subroutine.db.models.project.Project
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -809,13 +901,24 @@ class Client:
 			# the privacy inheritance of §7.3a and the token's own `project_scope` together,
 			# and narrowing by hand is what left `subroutine ls` listing private projects to
 			# non-members in shipped code.
+			statement = subroutine.domain.scoping.readable_projects(
+				actor, workspace_ids=[chosen.id], include_archived=include_archived
+			)
+
+			# Resolved through the same function `GET /v1/projects` uses, so a parent this
+			# caller cannot see is not found rather than an empty list (`#501`).
+			if parent is not None:
+				statement = statement.where(
+					model.parent_id
+					== subroutine.domain.selection.project(session, actor, chosen, parent).id
+				)
+
+			if visibility is not None:
+				statement = statement.where(model.visibility == visibility)
+
 			rows = list(
 				session.scalars(
-					subroutine.domain.scoping.readable_projects(
-						actor, workspace_ids=[chosen.id]
-					)
-					.order_by(subroutine.db.models.project.Project.path)
-					.limit(size)
+					statement.order_by(model.path).limit(size)
 				)
 			)
 

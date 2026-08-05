@@ -240,10 +240,27 @@ class Client(typing.Protocol):
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
 		parent: int | None = None,
+		subtree: bool = False,
 		ready: bool = False,
 		deleted: bool = False,
+		assignee: str | None = None,
+		status: str | None = None,
+		type: str | None = None,
+		due_before: datetime.datetime | None = None,
+		due_after: datetime.datetime | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
+
+		``assignee``, ``status``, ``type``, ``subtree``, ``due_before`` and ``due_after`` were
+		declared by ``GET /v1/tasks`` and passed by nothing until `#501`. **The one that was
+		costing something is ``assignee``**: it is how *"what is assigned to whom"* is asked,
+		which is the question decision `#473`'s whole delegation model exists to answer, and
+		until this it was reachable only by an agent that knew the filter was there and was
+		holding a UUID. It takes a **username** — resolved by the service, so an unknown name is
+		refused once and identically on both transports.
+
+		``subtree`` widens ``parent`` from direct children to the whole tree, which is the shape
+		a delegated piece of work takes once somebody has broken it up.
 
 		``order`` is §8.4's spelling — comma-separated field names, a leading ``-`` to
 		reverse one — and its vocabulary is ``domain.ordering.TASK_FIELDS``, shared with the
@@ -297,8 +314,15 @@ class Client(typing.Protocol):
 		project: str | None = None,
 		q: str | None = None,
 		deleted: bool = False,
+		status: str | None = None,
+		type: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
+
+		``status`` and ``type`` are what make §6.14's lifecycle usable from a client (`#501`).
+		A document is *draft*, then *active*, then *superseded*, and asking for this
+		workspace's **active decisions** is how somebody — or something — finds the rules it is
+		supposed to be working under without being told each one by name.
 
 		The counterpart to :meth:`tasks`, and ordered the same way by default, so a caller
 		showing both in one list can merge them on ``created_at`` without either side having
@@ -446,12 +470,24 @@ class Client(typing.Protocol):
 		"""
 
 	def projects (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		parent: str | None = None,
+		visibility: str | None = None,
+		include_archived: bool = False,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children.
 
 		Ordered by materialised path rather than by name, so a child follows its parent and
-		the tree can be printed without the caller reassembling it (§8.4).
+		the tree can be printed without the caller reassembling it (§8.4). ``order`` overrides
+		that, and is the one argument here that will make a listing *harder* to read — a tree
+		sorted by title is a list of names whose indentation lies.
+
+		``parent`` narrows to one project's children by key or id, ``visibility`` to public or
+		private, and ``include_archived`` widens to projects somebody has finished with. All
+		four were declared by ``GET /v1/projects`` and reachable from no client (`#501`).
 		"""
 
 	def create_project (

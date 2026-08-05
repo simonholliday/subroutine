@@ -27,6 +27,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.hierarchy
 import subroutine.domain.projects
 import subroutine.domain.scoping
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 
@@ -55,6 +56,45 @@ def workspace (
 		return _only(reachable, "The workspace this token is pinned to is no longer readable.")
 
 	return _only(reachable, "You are not a member of any workspace.")
+
+
+def user (
+	session: sqlalchemy.orm.Session, given: str
+) -> subroutine.db.models.identity.User:
+	"""Return the account this names, whether it was named by username or by id.
+
+	**The house pattern for an identifier a person types** (`#501`). ``/v1/tasks/{id_or_ref}``
+	and ``/v1/projects/{id_or_key}`` both take either form, and an assignee should not be the
+	one place a caller has to be holding a UUID — asking *"what is Simon working on"* needs
+	the word ``simon``, which is what somebody has.
+
+	**Resolved here rather than in each client, deliberately.** Two clients resolving a
+	username would be two copies of one rule, which is this codebase's recorded signature
+	defect; and the refusal is the half that matters — ``users.by_username`` names the account
+	it could not find and points at the command that lists them, so both transports inherit
+	one sentence rather than inventing two.
+
+	A value that parses as a UUID is taken as an id. A username cannot collide with one in
+	practice — :func:`subroutine.domain.users.normalize` requires a leading letter and a UUID's
+	first group is eight characters of hex — but the order is stated rather than left to be
+	inferred, because "which wins" is exactly the question a reader of this will have.
+	"""
+
+	try:
+		identifier = uuid.UUID(given)
+
+	except ValueError:
+		return subroutine.domain.users.by_username(session, given)
+
+	found = session.get(subroutine.db.models.identity.User, identifier)
+
+	if found is None or found.deleted_at is not None:
+		raise subroutine.errors.NotFound(
+			f"There is no account with the id {given!r} here.",
+			hint="Name the account by its username instead — 'subroutine user list' shows them.",
+		)
+
+	return found
 
 
 def _named (

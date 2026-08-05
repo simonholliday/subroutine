@@ -205,8 +205,14 @@ class Client:
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		q: str | None = None,
 		parent: int | None = None,
+		subtree: bool = False,
 		ready: bool = False,
 		deleted: bool = False,
+		assignee: str | None = None,
+		status: str | None = None,
+		type: str | None = None,
+		due_before: datetime.datetime | None = None,
+		due_after: datetime.datetime | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -219,6 +225,15 @@ class Client:
 				include_completed="true" if include_completed else None,
 				order=order,
 				project=project,
+				# Sent as written and resolved at the far end (`#501`). A username looked up
+				# here would be a second copy of the rule and a second refusal to keep in step
+				# with the local client's.
+				assignee=assignee,
+				status=status,
+				type=type,
+				due_before=None if due_before is None else due_before.isoformat(),
+				due_after=None if due_after is None else due_after.isoformat(),
+				subtree="true" if subtree else None,
 				# Refused here as well as at the far end, so a typo costs no round trip and
 				# is named the same way whether or not a server was reachable.
 				deferred=(
@@ -263,6 +278,8 @@ class Client:
 		project: str | None = None,
 		q: str | None = None,
 		deleted: bool = False,
+		status: str | None = None,
+		type: str | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -276,6 +293,8 @@ class Client:
 				project=project,
 				q=q,
 				deleted="true" if deleted else None,
+				status=status,
+				type=type,
 			),
 		)
 
@@ -435,12 +454,26 @@ class Client:
 		return self._collected(subroutine.views.Event, body, endpoint="changes")
 
 	def projects (
-		self, *, workspace: str | None = None, limit: int | None = None
+		self,
+		*,
+		workspace: str | None = None,
+		limit: int | None = None,
+		parent: str | None = None,
+		visibility: str | None = None,
+		include_archived: bool = False,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
 		body = self._json(
-			"GET", "/v1/projects", params=_given(workspace_id=workspace, limit=limit)
+			"GET",
+			"/v1/projects",
+			params=_given(
+				workspace_id=workspace,
+				limit=limit,
+				parent=parent,
+				visibility=visibility,
+				include_archived="true" if include_archived else None,
+			),
 		)
 
 		return self._collected(subroutine.views.Project, body, endpoint="projects")
