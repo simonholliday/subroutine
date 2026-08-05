@@ -1374,6 +1374,9 @@ def register (
 		q: str | None = None,
 		ready: bool = False,
 		trash: bool = False,
+		assignee: str | None = None,
+		status: str | None = None,
+		type: str | None = None,
 	) -> None:
 		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
@@ -1399,6 +1402,9 @@ def register (
 				q=q,
 				ready=ready,
 				trash=trash,
+				assignee=assignee,
+				status=status,
+				type=type,
 			)
 
 			_report(world, gathered.failures)
@@ -1614,6 +1620,11 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
+		assignee: str = typer.Option(
+			"", "--assignee", help="Only what is assigned to somebody, by username."
+		),
+		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
+		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
 		),
@@ -1632,6 +1643,8 @@ def register (
 		  subroutine list --order -priority_score
 
 		  subroutine list --project SR --order due_at
+
+		  subroutine list --assignee si --status blocked
 		"""
 
 		_refuse_words(words, looking_for)
@@ -1646,6 +1659,12 @@ def register (
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
+			assignee=assignee or None,
+			status=status or None,
+			# **`kind` locally, `--type` to the user, `type=` to the client.** `type` is a
+			# builtin and shadowing it inside a function that also annotates with `str | None`
+			# is how a signature comes to mean something it does not.
+			type=kind or None,
 		)
 
 	@app.command()
@@ -1784,6 +1803,11 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
+		assignee: str = typer.Option(
+			"", "--assignee", help="Only what is assigned to somebody, by username."
+		),
+		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
+		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
 		),
@@ -1810,6 +1834,9 @@ def register (
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
+			assignee=assignee or None,
+			status=status or None,
+			type=kind or None,
 		)
 
 	@app.command()
@@ -4144,6 +4171,9 @@ def register (
 		q: str | None = None,
 		ready: bool = False,
 		trash: bool = False,
+		assignee: str | None = None,
+		status: str | None = None,
+		type: str | None = None,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -4193,7 +4223,7 @@ def register (
 			# a key that resolves somewhere is simply absent from the workspaces it is not in.
 			# Suppressing unconditionally would turn a typo into "nothing on your list", which
 			# is the same answer as a project that exists and is empty.
-			missing: subroutine.errors.NotFound | None = None
+			missing: subroutine.errors.SubroutineError | None = None
 			reached = False
 
 			for workspace in () if item is None else item.identity.workspaces:
@@ -4207,11 +4237,19 @@ def register (
 						q=q,
 						ready=ready,
 						deleted=trash,
+						assignee=assignee,
+						status=status,
+						type=type,
 					)
 
 				except subroutine.errors.NotFound as absent:
 					# Only a named project can legitimately be absent from a workspace the
 					# caller can otherwise read. Anything else is this connection failing.
+					#
+					# **An assignee is deliberately not in this list.** An account belongs to
+					# the instance rather than to a workspace, so a name that resolves nowhere
+					# is a typo wherever it was asked — and tolerating it here would turn one
+					# into "nothing on your list" across every workspace at once.
 					if project is None:
 						raise
 
@@ -4219,7 +4257,38 @@ def register (
 
 					continue
 
-				reached = True
+				except subroutine.errors.ValidationError as unknown:
+					# **A status and a type are per-entity, per-workspace vocabulary** (§5.5),
+					# so `blocked` existing in one workspace and not the next is ordinary
+					# rather than an error — the same shape as `--project`, and the same
+					# tolerance. What is not ordinary is a key that is nowhere, which is a typo
+					# and is raised below by the `reached` check.
+					#
+					# **It falls through to documents rather than skipping the workspace**, and
+					# that is the whole subtlety: a task status and a document status are
+					# different vocabularies, so `--status active` misses every task and is
+					# exactly the question somebody asking for documents in force is putting.
+					# `continue` here answered it with the refusal instead.
+					#
+					# `#332` is why this is here at all: every instance had one workspace until
+					# 2026-08-03, so this loop ran once and could not disagree with itself, and
+					# `--project` broke the same afternoon a second one existed.
+					#
+					# **Identified by the field it names rather than by its code**, because the
+					# two lookups disagree about the code: `status_for` raises `invalid_status`
+					# and `item_type_for` takes the default. The field is what actually says
+					# "a vocabulary key this workspace has not got", and matching on it means
+					# a genuine refusal about something else is still raised.
+					if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+						raise
+
+					missing = unknown
+					found_here = []
+					answered = False
+
+				else:
+					reached = True
+					answered = True
 
 				rows.extend((client.connection.name, found) for found in found_here)
 
@@ -4232,7 +4301,14 @@ def register (
 				if ready or trash:
 					continue
 
-				if not deferred:
+				# **Counted before the assignee check below, not after.** A list narrowed to
+				# one person still hides that person's deferred work, and hiding without
+				# saying how much is the silence `#33` was about — the narrowing does not
+				# change which half of the rule applies.
+				#
+				# Skipped when the task call did not answer, because the count would ask the
+				# same question with the same key and be refused the same way.
+				if not deferred and answered:
 					# **A second request, and it buys the difference between narrowing a
 					# list and truncating one in silence** — the failure `#33` was about.
 					# Counted rather than flagged, unlike `…and more`: that declines a count
@@ -4247,19 +4323,61 @@ def register (
 							project=project,
 							deferred="only",
 							q=q,
+							assignee=assignee,
+							status=status,
+							type=type,
 						)
 					)
-				rows.extend(
-					(client.connection.name, found)
-					for found in client.documents(
+				# **A document has no assignee, so a list narrowed to one is a list of tasks**
+				# (§6.14 — a document has an owner rather than a worker). The same argument
+				# `ready` makes above: including them would answer a question nobody asked,
+				# and "everything Simon is working on" ending in every specification in the
+				# workspace is worse than useless.
+				if assignee is not None:
+					continue
+
+				# **Asked of documents as well, and a kind without that key contributes
+				# nothing.** `--type bug` must not return every decision in the workspace,
+				# which is what it did until this was driven against the real instance: the
+				# filter reached tasks and the documents call below ignored it, so narrowing
+				# the list *widened* the part of it nobody had filtered. A status and a type
+				# are separate vocabularies per entity (§5.5), so `bug` being absent from the
+				# document types is the ordinary answer — no documents — rather than an error.
+				try:
+					found_documents = client.documents(
 						workspace=workspace.slug,
 						limit=asked,
 						order=order if shared else None,
 						project=project,
 						q=q,
 						deleted=trash,
+						status=status,
+						type=type,
 					)
-				)
+
+				except subroutine.errors.ValidationError as unknown:
+					if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+						raise
+
+					# **The first refusal wins.** Both vocabularies rejecting the key is what
+					# makes it a typo, and somebody typing `--status` means a task's status far
+					# more often than a document's — so reporting the document one, purely
+					# because it was asked second, names the less likely of two right answers.
+					missing = missing or unknown
+					found_documents = []
+
+				else:
+					# **Documents answering is reaching this workspace too.** Without this,
+					# `--status active` — which no *task* status matches — would collect every
+					# document in force and then throw them away, because the task half had
+					# refused in every workspace and `missing` would be raised below.
+					#
+					# *Answering*, not *matching*: a key both vocabularies reject is a typo and
+					# must still be refused by name, which is the difference between this and
+					# "a filter was asked for".
+					reached = True
+
+				rows.extend((client.connection.name, found) for found in found_documents)
 
 			# **Refused by name when the key is nowhere on this connection.** A project that
 			# exists and holds nothing answers "nothing on your list"; a project that does not

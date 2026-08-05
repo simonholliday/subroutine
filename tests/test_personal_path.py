@@ -4321,3 +4321,96 @@ def test_a_connection_named_on_the_command_line_is_still_refused (
 	refused = run("-c", "gone", "list", expect=1)
 
 	assert "There is no connection called 'gone'" in refused.output
+
+
+def test_a_type_filter_narrows_both_kinds_rather_than_only_the_tasks (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#501`. **Found by driving the real instance, minutes after the filter was written.**
+
+	The listing spans tasks *and* documents (§6.2), and the first version of `--type` reached
+	only the task half — so `--type bug` returned every bug **and every decision, note and
+	specification in the workspace**. Narrowing the list widened the part of it nobody had
+	filtered, which is worse than not having the flag: the rows that arrive look like an
+	answer to the question asked.
+
+	A type is per-entity vocabulary (§5.5), so `bug` is not a document type at all. The right
+	answer to "which documents are bugs" is none, not all of them.
+	"""
+
+	run("init")
+	run("add", "Something broken")
+	run("doc", "create", "A conclusion", "--body", "Why", "--type", "decision")
+
+	bugs = run("list", "--type", "bug").output
+
+	assert "Something broken" not in bugs, "nothing was typed as a bug"
+	assert "A conclusion" not in bugs, "a decision is not a bug, and must not ride along"
+
+	decisions = run("list", "--type", "decision").output
+
+	assert "A conclusion" in decisions
+	assert "Something broken" not in decisions
+
+
+def test_a_status_only_one_kind_has_still_answers_for_the_other (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#501`. A task status and a document status are different vocabularies (§5.5).
+
+	`active` is a *document* status and no task has one, so asking for it must return the
+	documents in force rather than the refusal the task half raised. The first version of this
+	skipped the rest of the workspace as soon as tasks refused, which answered a perfectly good
+	question with an error.
+	"""
+
+	run("init")
+	run("add", "An ordinary task")
+	run("doc", "create", "Settled", "--body", "Why", "--type", "decision")
+	run("doc", "edit", "2", "--status", "active")
+
+	shown = run("list", "--status", "active").output
+
+	assert "Settled" in shown
+	assert "An ordinary task" not in shown
+
+
+def test_a_status_neither_kind_has_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#501`. **A typo must not read as an empty list**, which is the whole hazard here.
+
+	Tolerating a key one vocabulary has not got is what makes the test above work; tolerating
+	one *neither* has would turn `--status blockd` into "nothing on your list" — the same
+	answer as a backlog with nothing in it. `#332`'s lesson, on a second axis.
+	"""
+
+	run("init")
+	run("add", "An ordinary task")
+
+	refused = run("list", "--status", "blockd")
+
+	assert "blockd" in refused.output
+	assert "Nothing on your list" not in refused.output
+
+
+def test_an_assignee_filter_returns_no_documents_at_all (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#501`. §6.14: a document has an owner rather than a worker, so it has no assignee.
+
+	The same argument `--ready` makes. Including documents would end "everything Simon is
+	working on" with every specification in the workspace, which is a longer way of saying the
+	filter did not apply.
+	"""
+
+	# Named rather than inherited from `getpass.getuser()`: a test that asserts on this
+	# machine's login passes here and fails everywhere else, which this suite has paid for.
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Mine to do @si")
+	run("doc", "create", "A conclusion", "--body", "Why", "--type", "decision")
+
+	shown = run("list", "--assignee", "si").output
+
+	assert "Mine to do" in shown, "the filter must find the task it was given"
+	assert "A conclusion" not in shown

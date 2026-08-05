@@ -143,6 +143,12 @@ upgrade involves.
   decisions is how you find the rules you are working under. Projects gained `parent`,
   `visibility` and `include_archived`.
 
+  **`subroutine list --assignee`, `--status` and `--type`**, on `ls` as well. A status and a
+  type belong to one kind of item and one workspace, so `--type bug` returns no documents
+  rather than all of them, and `--status active` — which no task has — returns the documents
+  in force rather than a refusal. A key *neither* kind has is still refused by name, because a
+  typo that reads as an empty list is indistinguishable from having nothing to do.
+
 ### Fixed
 
 - **A backup written to a network volume is no longer reported as having failed.** If your
