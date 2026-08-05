@@ -15,7 +15,7 @@ including a check that could not be made, and one failing never stops the rest โ
 report that stops at the first problem is how you fix one thing and meet the next tomorrow.
 
 *Nothing reaches the network except a connection somebody configured.* ยง12.4a. Asking whether
-a release exists is ``subroutine upgrade --check`` and stays there; a health command that
+a release exists is ``subroutine db upgrade --check`` and stays there; a health command that
 reached PyPI would go red when PyPI did, which is a report about somebody else's morning.
 
 *What is not knowable is not guessed.* The plugin's version is knowable only when a plugin

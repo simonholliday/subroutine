@@ -298,6 +298,6 @@ def test_the_notice_names_the_command_that_does_it_safely (check: types.ModuleTy
 
 	notice = check._notice("aaaaaaaaaaaa", "bbbbbbbbbbbb")
 
-	assert "subroutine upgrade" in notice
+	assert "subroutine db upgrade" in notice
 	assert "backup" in notice
 	assert "down for the length of the migration" in notice

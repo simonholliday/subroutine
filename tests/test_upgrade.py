@@ -2,7 +2,7 @@
 
 Two halves that have to hold together. **A command run against a database this build does not
 match is refused with the remedy**, rather than failing somewhere inside SQLAlchemy with a
-message about a missing column; and **``subroutine upgrade`` is the safe sequence** — report
+message about a missing column; and **``subroutine db upgrade`` is the safe sequence** — report
 both versions, back up and verify, migrate, read it back — over machinery that already existed.
 
 The third property is the one worth naming, because it is the one that is easy to break by
@@ -142,7 +142,7 @@ def test_a_database_behind_this_build_is_refused_with_the_remedy (
 
 	assert previous_revision() in result.output, "it says where the database is"
 	assert head_revision() in result.output, "and what is expected"
-	assert "subroutine upgrade" in result.output, "and what to do about it"
+	assert "subroutine db upgrade" in result.output, "and what to do about it"
 
 
 def test_a_database_ahead_of_this_build_says_to_update_the_software (
@@ -161,7 +161,7 @@ def test_a_database_ahead_of_this_build_says_to_update_the_software (
 
 	assert FROM_THE_FUTURE in result.output
 	assert "no downgrade" in result.output
-	assert "subroutine upgrade" not in result.output, "the wrong remedy is worse than none"
+	assert "subroutine db upgrade" not in result.output, "the wrong remedy is worse than none"
 
 
 def test_the_administrative_commands_still_work_while_the_check_is_firing (
@@ -187,7 +187,7 @@ def test_the_administrative_commands_still_work_while_the_check_is_firing (
 	assert "schema" in run("db", "backups").output
 
 	# And the way out, which is the one command that must never be refused for being needed.
-	assert "Upgraded from" in run("upgrade").output
+	assert "Upgraded from" in run("db", "upgrade").output
 
 
 def test_upgrade_reports_both_versions_before_it_does_anything (
@@ -201,7 +201,7 @@ def test_upgrade_reports_both_versions_before_it_does_anything (
 
 	run("init", "--workspace", "Personal")
 
-	result = run("upgrade")
+	result = run("db", "upgrade")
 
 	assert head_revision() in result.output
 	assert "Nothing to do." in result.output
@@ -224,7 +224,7 @@ def test_upgrade_takes_a_backup_before_it_migrates (
 	older = previous_revision()
 	subroutine.db.migrate.downgrade(f"sqlite:///{database}", older)
 
-	result = run("upgrade")
+	result = run("db", "upgrade")
 
 	assert "Backed up to" in result.output
 	assert f"Upgraded from {older} to {head_revision()}" in result.output
@@ -248,9 +248,44 @@ def test_upgrade_refuses_a_database_from_the_future_without_touching_it (
 	run("init", "--workspace", "Personal")
 	stamp(database, FROM_THE_FUTURE)
 
-	result = run("upgrade", expect=1)
+	result = run("db", "upgrade", expect=1)
 
 	assert "newer than this software" in result.output
 	assert not list((home / "xdg_data_home" / "subroutine" / "backups").glob("*")), (
 		"a refusal that backs up first has done work nobody asked for"
 	)
+
+
+def test_the_old_upgrade_spelling_says_where_it_went (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#509`. **Not an alias** — Simon turned that down, and it refuses rather than acting.
+
+	The distinction is the point. An alias would *do the upgrade* under a name whose sibling
+	``db upgrade`` used to mean the blunt migrator, so one spelling would mean two things
+	depending on when somebody learned it — and the two differ by whether the database is
+	backed up first.
+
+	**Removing it outright was worse than either option, which only driving it showed.** Typer
+	offers the nearest command it can find, and the nearest to ``upgrade`` is ``update`` — so
+	an operator migrating a database was pointed at the one that edits a task.
+	"""
+
+	result = run("upgrade", expect=2)
+
+	assert "subroutine db upgrade" in result.output, "it has to name where the command went"
+	assert "db migrate" in result.output, "and what took its old name, since that one is blunt"
+	assert "update" not in result.output, "the suggestion this exists to prevent"
+
+
+def test_the_signpost_stays_out_of_the_help (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a's rule for ``ls``: a synonym you can see is a second thing to choose between.
+
+	It is worth having where somebody types the old name from memory or from a runbook, and
+	worth nothing in a list of what this can do — where it would read as a command rather than
+	as a redirection.
+	"""
+
+	assert "upgrade" not in run("--help").output

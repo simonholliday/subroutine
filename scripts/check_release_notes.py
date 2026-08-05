@@ -51,7 +51,7 @@ _DOWN = re.compile(r"^down_revision(?:\s*:[^=]+)?\s*=\s*['\"]([^'\"]+)['\"]", re
 #: warning that does not say what to do, and the new revision catches a notice copied forward
 #: from the previous release and left stale — which is the one a human review would miss.
 REQUIRED_PHRASE = "changes the database schema"
-REQUIRED_COMMAND = "subroutine upgrade"
+REQUIRED_COMMAND = "subroutine db upgrade"
 
 
 def main (argv: list[str] | None = None) -> int:
@@ -144,7 +144,7 @@ def _notice (before: str | None, now: str) -> str:
 
 	The three things somebody needs in order to *plan* rather than react: that it happens at
 	all, what it costs, and the one command that does it safely. The revisions are in it
-	because they are what ``subroutine upgrade`` and ``subroutine --version`` print, so the
+	because they are what ``subroutine db upgrade`` and ``subroutine --version`` print, so the
 	notice and the program say the same words.
 	"""
 

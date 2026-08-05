@@ -74,7 +74,7 @@ def copy_into (source_url: str, target_url: str) -> Copied:
 		if not subroutine.db.migrate.is_up_to_date(source):
 			raise subroutine.errors.ValidationError(
 				"This database is not at the schema this build expects.",
-				hint="Run 'subroutine upgrade' first, then copy.",
+				hint="Run 'subroutine db upgrade' first, then copy.",
 			)
 
 		target = subroutine.db.session.create_engine(target_url)
@@ -125,7 +125,7 @@ def _prepare (target_url: str, target: sqlalchemy.engine.Engine) -> None:
 	answerable without writing anything.
 
 	**Migrated rather than built with ``create_all``.** A database this leaves behind has to
-	be one ``subroutine upgrade`` will accept later, and that means an ``alembic_version`` row
+	be one ``subroutine db upgrade`` will accept later, and that means an ``alembic_version`` row
 	saying which revision it is — which `create_all` does not write. It is the same reason
 	§10.3 keeps the migration path and the model path separate everywhere else.
 	"""

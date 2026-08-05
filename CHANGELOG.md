@@ -16,7 +16,7 @@ upgrade involves.
 
 > **This release changes the database schema**, to `c858f2942244`.
 >
-> Install it, then run `subroutine upgrade`. That reports both versions, takes a
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
@@ -203,6 +203,21 @@ upgrade involves.
   typo that reads as an empty list is indistinguishable from having nothing to do.
 
 ### Changed
+
+- **`subroutine upgrade` is now `subroutine db upgrade`, and the old spelling is gone.** If you
+  have it in a script or a runbook, change it — there is no alias, deliberately.
+
+  The reason there is no alias is that `db upgrade` used to mean something else: the raw
+  migrator, with no backup, no confirmation and no version report. That is now
+  `subroutine db migrate`. Keeping `subroutine upgrade` working would have left one spelling
+  meaning two different things depending on when you learned it, and the two differ by whether
+  your database is backed up first.
+
+  Everything to do with the database is now under `db`, with no exception to explain — and a
+  top-level `upgrade` stops reading as *upgrade the software*, which is the one thing it has
+  never done.
+
+  Typing the old spelling tells you where it went rather than running anything.
 
 - **The package says it runs on Linux, where it used to say "OS Independent".** Nothing had
   ever been run anywhere else — every CI job on both workflows is Ubuntu — so the claim was a

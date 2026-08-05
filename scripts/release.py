@@ -43,7 +43,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHANGELOG = ROOT / "CHANGELOG.md"
 PLUGIN = ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
 
-#: The record `subroutine upgrade --check` reads — item `#321`. **Written here rather than
+#: The record `subroutine db upgrade --check` reads — item `#321`. **Written here rather than
 #: derived by whoever asks**, because the fact it carries is only knowable at the moment of
 #: release: the schema head this version expects. PyPI publishes a version and nothing about a
 #: database, so without this an operator can be told a release exists and not whether taking it

@@ -249,7 +249,7 @@ def test_a_source_behind_this_build_is_refused (
 def test_the_target_is_left_migrated_rather_than_merely_built (
 	sqlite_url: str, postgres_database: str
 ) -> None:
-	"""A database this leaves behind has to be one ``subroutine upgrade`` will accept later.
+	"""A database this leaves behind has to be one ``subroutine db upgrade`` will accept later.
 
 	``create_all`` would produce the right tables and no ``alembic_version`` row, so the next
 	release's migration would try to build what is already there.

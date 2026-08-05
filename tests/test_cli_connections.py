@@ -1595,7 +1595,7 @@ def test_a_marker_records_its_connection_even_when_there_is_only_one (
 	assert "connection =" in marker
 
 
-def test_db_upgrade_refuses_a_database_that_is_not_there (
+def test_db_migrate_refuses_a_database_that_is_not_there (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""`#394`. It created one, migrated it to head, and reported a schema as though all was well.
@@ -1604,19 +1604,22 @@ def test_db_upgrade_refuses_a_database_that_is_not_there (
 	run without the right configuration — on the machine this was found on it absorbed four
 	backups, each reporting a plausible size and a correct schema.
 
-	**§12.4's blunt-tool licence does not stretch to this.** `db upgrade` is deliberately
+	**§12.4's blunt-tool licence does not stretch to this.** `db migrate` is deliberately
 	without confirmation, a backup or a version report, so that recovery works when everything
 	else refuses. That is about skipping ceremony; there is nothing to recover from a database
-	that does not exist. The three commands beside it — `subroutine upgrade`, `db backup` and
+	that does not exist. The three commands beside it — `db upgrade`, `db backup` and
 	`db current` — all refused properly, which is what made this one's silence read as house
 	style rather than as a gap.
+
+	It was `db upgrade` when `#394` was filed; `#509` renamed it, and the name it gave up now
+	belongs to the safe procedure — so this docstring names the blunt one and nothing else.
 	"""
 
 	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
 	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
 
-	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "upgrade"])
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "migrate"])
 
 	assert result.exit_code != 0, result.output
 	assert "There is no database" in result.output
@@ -1626,11 +1629,11 @@ def test_db_upgrade_refuses_a_database_that_is_not_there (
 
 	# The whole point: nothing was created on the way to refusing.
 	assert not list((tmp_path / "data").rglob("*.db")), (
-		"db upgrade built a database while declining to upgrade one"
+		"db migrate built a database while declining to migrate one"
 	)
 
 
-def test_db_upgrade_still_migrates_a_database_that_exists_unstamped (
+def test_db_migrate_still_migrates_a_database_that_exists_unstamped (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""The property `#394`'s fix must not take away, and the reason it checks the *file*.
@@ -1648,7 +1651,7 @@ def test_db_upgrade_still_migrates_a_database_that_exists_unstamped (
 	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
 
-	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "upgrade"])
+	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["db", "migrate"])
 
 	assert result.exit_code == 0, result.output
 	assert "Schema is at" in result.output
@@ -1912,7 +1915,7 @@ def test_upgrade_check_asks_nothing_of_the_database (
 
 	monkeypatch.setattr(subroutine.releases, "published", answer)
 
-	said = run("upgrade", "--check").output
+	said = run("db", "upgrade", "--check").output
 
 	assert "9.9.9" in said
 	assert subroutine.__version__ in said
@@ -1936,7 +1939,7 @@ def test_upgrade_check_says_when_it_could_not_ask (
 
 	monkeypatch.setattr(subroutine.releases, "published", refuse)
 
-	refused = run("upgrade", "--check", expect=1).output
+	refused = run("db", "upgrade", "--check", expect=1).output
 
 	assert "Could not read the list of releases" in refused
 	assert "up to date" not in refused
@@ -1961,4 +1964,4 @@ def test_upgrade_without_check_reaches_no_network (
 
 	run("init", "--username", "si", "--workspace", "Personal")
 
-	assert "Nothing to do" in run("upgrade").output
+	assert "Nothing to do" in run("db", "upgrade").output

@@ -6,7 +6,7 @@ difference between planning ten minutes and discovering them halfway through an 
 version string on its own is something ``pip index`` already prints.
 
 **Nothing here happens unasked.** §12.4a: a self-hosted tool that phones home uninvited is one
-people stop trusting, so this module is reached only by ``subroutine upgrade --check`` — a
+people stop trusting, so this module is reached only by ``subroutine db upgrade --check`` — a
 command somebody typed, which is the invitation. There is deliberately **no setting** yet: a
 switch governing an automatic check that does not exist would be a control that is declared,
 documented and read by nothing, which is this codebase's second signature defect and already

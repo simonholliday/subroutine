@@ -417,7 +417,7 @@ def _commands (block: str) -> list[str]:
 def test_every_step_running_subroutine_as_the_service_account_names_its_environment () -> None:
 	"""`#376`. The upgrade step elided them behind a `…`, and it cost a broken instance.
 
-	`subroutine upgrade` acts on a *database* and finds it through configuration, so run
+	`subroutine db upgrade` acts on a *database* and finds it through configuration, so run
 	without these it reads the operator's own `config.toml` — which on the machine this
 	happened on still named a retired SQLite file. It reported on that one and looked like it
 	had worked, while the served instance sat on the old schema under new code.

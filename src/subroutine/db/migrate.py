@@ -124,11 +124,17 @@ def mismatch_reason (
 	``None`` means the two agree and there is nothing to say.
 
 	**One decision, two surfaces** (`#175`). ``/readyz`` had a single message for all three
-	cases and it was wrong in two of them: it said ``subroutine db upgrade`` — the raw
-	migrator, no backup, no version report — where the CLI says ``subroutine upgrade``, and it
-	said the same thing about a database *newer* than the software, which is advice that
-	cannot be followed. A monitoring alert quotes the endpoint, so the wrong sentence is the
-	one somebody wakes up to.
+	cases and it was wrong in two of them: it named the raw migrator — no backup, no version
+	report — where the CLI named the safe procedure, and it said the same thing about a
+	database *newer* than the software, which is advice that cannot be followed. A monitoring
+	alert quotes the endpoint, so the wrong sentence is the one somebody wakes up to.
+
+	**Both commands have since been renamed and this paragraph deliberately names neither**
+	(`#509`). The safe procedure is ``subroutine db upgrade`` and the blunt one is
+	``subroutine db migrate``; before that they were ``subroutine upgrade`` and ``subroutine db
+	upgrade``, so the *old* name of the safe one and the *new* name of the blunt one are two
+	different commands with one spelling. A sentence about the history that used either name
+	would be read as being about the present.
 
 	The detail and hint are shared rather than the exception, deliberately: the CLI refuses
 	with ``schema_mismatch``, which is a 409, and ``/readyz`` must go on answering 503 or every
@@ -147,7 +153,7 @@ def mismatch_reason (
 	if expected is not None and knows_revision(current):
 		return (
 			f"This database is at schema {current}, and this build expects {expected}.",
-			"Run 'subroutine upgrade' — it backs up first, then migrates.",
+			"Run 'subroutine db upgrade' — it backs up first, then migrates.",
 		)
 
 	return (
@@ -163,7 +169,7 @@ def knows_revision (revision: str) -> bool:
 
 	The question behind it is *which direction* a mismatch goes, and that decides which of two
 	opposite remedies to offer. A revision this build knows about is one it can migrate
-	*forward* from, so the answer is ``subroutine upgrade``. One it has never seen was written
+	*forward* from, so the answer is ``subroutine db upgrade``. One it has never seen was written
 	by a later release — or by a fork — and no amount of migrating here will produce it, so the
 	answer is to update the software instead. Telling somebody to upgrade a database that is
 	already ahead of the code would be a confident instruction to do nothing.

@@ -1043,7 +1043,7 @@ script. It talks only to the instances you have configured.
 instance can run for years without making an outbound request. Asking is something you do:
 
 ```console
-$ subroutine upgrade --check
+$ subroutine db upgrade --check
 ```
 
 It answers in two or three lines — what is running, what has been released, and **whether
@@ -1065,7 +1065,7 @@ installed it, cannot do it safely while running, and is worse at it than your pa
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine upgrade
+    /opt/subroutine/bin/subroutine db upgrade
 # systemctl start subroutine
 ```
 
@@ -1081,12 +1081,12 @@ and start last, so there is never a moment where new code is serving an old data
 is, `/readyz` returns 503 saying exactly that — and ordinary requests fail too, because the
 code is querying columns the database has not got yet.
 
-`subroutine upgrade` is the whole of the second step, and its value is the ordering rather than
+`subroutine db upgrade` is the whole of the second step, and its value is the ordering rather than
 any one part of it: report both versions, back up and verify the copy where it landed, migrate,
 then read the schema back rather than assuming.
 
 ```console
-$ subroutine upgrade
+$ subroutine db upgrade
   This version expects schema c858f2942244.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
@@ -1098,7 +1098,7 @@ It is safe to run when there is nothing to do — it prints both numbers and sto
 the cheapest way to ask the question:
 
 ```console
-$ subroutine upgrade
+$ subroutine db upgrade
   This version expects schema c858f2942244.
   The database is at c858f2942244.
   Nothing to do.
@@ -1121,7 +1121,7 @@ deciding the remedy:
 $ subroutine today
   Nothing could be read.
   Local: This database is at schema 233f898a2bee, and this build expects c858f2942244.
-    Run 'subroutine upgrade' — it backs up first, then migrates.
+    Run 'subroutine db upgrade' — it backs up first, then migrates.
 ```
 
 A database *newer* than the software is refused the other way — update the software, because

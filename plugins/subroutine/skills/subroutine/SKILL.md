@@ -45,7 +45,7 @@ itself is not installed or is disabled.
 remedy.** This is the ordinary case on a fresh install and it is not the one above: the MCP
 server starts perfectly well against an instance nobody has created yet, so the tools appear
 and then refuse. `no Subroutine instance has been set up here yet.` means the user needs to run
-`subroutine init` once; a schema message means `subroutine upgrade`. Pass the failure on
+`subroutine init` once; a schema message means `subroutine db upgrade`. Pass the failure on
 verbatim rather than diagnosing it — the sentence is written for them.
 
 **Whichever of these it is, do not work around it by writing to a file instead.** A tracker

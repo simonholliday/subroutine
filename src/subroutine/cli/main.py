@@ -684,6 +684,29 @@ def _refuse_public_bind (
 	)
 
 
+@app.command("upgrade", hidden=True)
+def upgrade_moved () -> None:
+	"""Say where this went. It is not an alias and does not upgrade anything.
+
+	'subroutine db upgrade' is the command now.
+	"""
+
+	# **Not the alias Simon turned down** (`#509`), and the distinction is the whole reason this
+	# exists: an alias would *do the upgrade* under a name whose sibling `db upgrade` used to
+	# mean the blunt migrator, so one spelling would mean two things depending on when somebody
+	# learned it. This refuses, which is what a removed command should do.
+	#
+	# **Without it the removal misdirects.** Typer offers the nearest command it can find, and
+	# for `upgrade` that is `update` — so an operator migrating a database was pointed at the
+	# one that edits a task. A bare removal was worse than either option on the table.
+	_say("'subroutine upgrade' is now 'subroutine db upgrade'.")
+	_say("")
+	_say("Everything that acts on the database is under 'db'. The blunt migrator that used")
+	_say("to be 'db upgrade' — no backup, no confirmation — is now 'db migrate'.")
+
+	raise typer.Exit(2)
+
+
 @app.command("help")
 def help_command (context: typer.Context) -> None:
 	"""Show what this can do — the same as 'subroutine --help'.
@@ -764,7 +787,7 @@ def config_show () -> None:
 		# printed `None [default]`, which says where backups go only to somebody who already
 		# knows — and the thing it does not say is the one that matters: unset means beside the
 		# database, which is the arrangement this project's own hosting page opens by calling
-		# "not a backup". `subroutine upgrade` takes one automatically, so an operator who never
+		# "not a backup". `subroutine db upgrade` takes one automatically, so an operator who never
 		# set the value has their pre-upgrade copy on the disk they are worried about.
 		elif name == "backup_directory" and not value:
 			value = f"(unset — beside the database, in {subroutine.db.backup.directory(settings)})"
@@ -772,9 +795,29 @@ def config_show () -> None:
 		_say(f"{name.ljust(width)}  {value}  [{sources[name]}]")
 
 
-@database_app.command("upgrade")
-def database_upgrade () -> None:
-	"""Bring the database up to the newest schema."""
+@database_app.command("migrate")
+def database_migrate () -> None:
+	"""Migrate the database, with none of the ceremony.
+
+	No backup, no confirmation and no version report. That is deliberate: this has to work
+	when everything else refuses, which is what makes it the thing to reach for during a
+	recovery and the wrong thing to reach for otherwise.
+
+	Use 'subroutine db upgrade' unless you know why you are here. It runs this, after
+	reporting both versions and taking a backup it has verified.
+	"""
+
+	# **Renamed by `#509`. This was `db upgrade`, and the safe procedure was a top-level
+	# `upgrade`** — two commands one word apart, wildly different safety, and nothing in either
+	# name saying which was which. The dangerous one sat in the namespace where a careful reader
+	# would look for the safe one; the safe one sat where `upgrade` reads as *upgrade the
+	# software*, which §12.4a says it must never do, so its help had to spend a paragraph
+	# denying it.
+	#
+	# **The old spelling is gone rather than kept as an alias** (Simon, 2026-08-05): `db
+	# upgrade` now means very nearly the opposite of what it meant, so an alias would answer to
+	# a name whose meaning had changed underneath it. A removed command refuses; a repurposed
+	# one does the other thing and says nothing.
 
 	settings = _settings()
 
@@ -928,7 +971,7 @@ def doctor () -> None:
 	script rather than something a person reads and forgets.
 
 	It talks to the instances you have configured and to nothing else. Whether a newer release
-	exists is a different question, asked with 'subroutine upgrade --check'.
+	exists is a different question, asked with 'subroutine db upgrade --check'.
 	"""
 
 	findings = subroutine.diagnosis.examine(_settings())
@@ -957,7 +1000,7 @@ def doctor () -> None:
 		raise typer.Exit(1)
 
 
-@app.command("upgrade")
+@database_app.command("upgrade")
 def upgrade (
 	yes: bool = typer.Option(False, "--yes", help="Do not ask, even if protected."),
 	check: bool = typer.Option(
@@ -968,9 +1011,9 @@ def upgrade (
 
 	Examples:
 
-	  subroutine upgrade
+	  subroutine db upgrade
 
-	  subroutine upgrade --check
+	  subroutine db upgrade --check
 
 	This does not install anything, and will not try to. Update Subroutine itself with
 	whatever you installed it with — pip, pipx, uv, your package manager, a new container —
