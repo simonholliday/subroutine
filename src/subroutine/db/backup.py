@@ -20,6 +20,7 @@ because a filename can be renamed and a table cannot.
 import contextlib
 import dataclasses
 import datetime
+import json
 import os
 import pathlib
 import re
@@ -215,6 +216,65 @@ def _free_name (
 	)
 
 
+#: What a backup's own record of itself is called. **Beside the copy rather than inside it**:
+#: a `pg_dump` script is not a database anything can open without restoring it somewhere first,
+#: and writing into a SQLite copy would break the property §12.6 verifies — that the file on
+#: disk is byte-for-byte what was taken.
+RECORD_SUFFIX = ".counts.json"
+
+
+def _record_beside (path: pathlib.Path) -> pathlib.Path:
+	"""Return where one backup's record of what it held lives."""
+
+	return path.with_name(path.name + RECORD_SUFFIX)
+
+
+def _record (target: pathlib.Path, holdings: dict[str, int]) -> None:
+	"""Write what the source held, so the listing can say it without opening every copy.
+
+	**Failure is swallowed, for `#505`'s reason.** The bytes have already landed by the time
+	this runs; a backup that arrived intact must never be reported as failed because a note
+	about it could not be written. The listing degrades to *not recorded*, which is what every
+	backup taken before this existed says anyway.
+	"""
+
+	with contextlib.suppress(OSError, TypeError, ValueError):
+		_record_beside(target).write_text(
+			json.dumps({"holdings": holdings}, indent=1), encoding="utf-8"
+		)
+
+
+def _recorded (path: pathlib.Path) -> dict[str, int] | None:
+	"""Return what a backup recorded holding, or ``None`` when nothing recorded it.
+
+	**``None`` is *not recorded*, and it is not *empty*** — the distinction `#432` is about.
+	Every backup taken before this existed has no record, and reporting those as holding
+	nothing would be the same false confidence in the opposite direction.
+	"""
+
+	record = _record_beside(path)
+
+	if not record.is_file():
+		return None
+
+	try:
+		loaded = json.loads(record.read_text(encoding="utf-8"))
+
+	except (OSError, ValueError):
+		return None
+
+	held = loaded.get("holdings") if isinstance(loaded, dict) else None
+
+	if not isinstance(held, dict):
+		return None
+
+	return {
+		str(name): int(count)
+		for name, count in held.items()
+		if isinstance(count, int)
+	}
+
+
 def _described (path: pathlib.Path) -> Backup | None:
 	"""Describe a file if its name is one of ours, or return ``None`` if it is not.
 
@@ -243,6 +303,7 @@ def _described (path: pathlib.Path) -> Backup | None:
 		schema_head=parts[-1],
 		size_bytes=path.stat().st_size,
 		profile=None if label == DEFAULT_LABEL else label,
+		holdings=_recorded(path),
 	)
 
 
@@ -660,12 +721,20 @@ def take (
 	finally:
 		staged.unlink(missing_ok=True)
 
+	held = _holdings(engine)
+
+	# **Written now, because now is the only moment anything knows** (`#432`). The counts come
+	# off the *source*, and by the time somebody lists this directory the source may have moved
+	# on or gone. A listing that derived them instead would have to open every copy, which turns
+	# a directory scan into reading every file in it — and cannot do it at all for a `pg_dump`.
+	_record(target, held)
+
 	return Backup(
 		path=target,
 		taken_at=taken_at,
 		schema_head=head,
 		size_bytes=size,
-		holdings=_holdings(engine),
+		holdings=held,
 		profile=active,
 		removed=() if keep is None else tuple(prune(settings, keep=keep)),
 	)
@@ -900,6 +969,11 @@ def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
 
 	for backup in removed:
 		backup.path.unlink(missing_ok=True)
+
+		# The record goes with the copy it describes. Left behind it would accumulate one file
+		# per deleted backup for ever, and — worse — a later backup that happened to be given
+		# the same name would inherit somebody else's counts.
+		_record_beside(backup.path).unlink(missing_ok=True)
 
 	return removed
 

@@ -979,6 +979,86 @@ def test_backups_go_where_they_are_configured_to (
 	]
 
 
+def test_a_listed_backup_says_what_it_holds (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#432`. `#395` made the *taking* say what it copied and left the *listing* saying size.
+
+	Both facts in that line are correct for a backup of an empty instance — an empty database is
+	a valid one — so four hollow copies sat at the top of the list, newest first, with nothing
+	to be suspicious of. The counts are known only at the moment the backup is taken, off the
+	source, so they are written beside the copy and read back here.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path / "volume"))
+
+	written = subroutine.db.backup.take(engine, _settings())
+
+	assert written.holdings is not None
+
+	[listed] = subroutine.db.backup.catalogue(_settings())
+
+	assert listed.holdings == written.holdings, (
+		"a backup listed from disk reports what it recorded, not what a fresh count says — "
+		"the source may have moved on or gone by the time anybody lists it"
+	)
+
+
+def test_a_backup_with_no_record_is_unknown_rather_than_empty (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#432`'s third state, and the reason this is not a boolean.
+
+	Every backup taken before the counts were written beside them has no record. Reporting
+	those as holding nothing would be the same false confidence pointing the other way — and
+	they are exactly the backups an operator is most likely to be reaching for.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path / "volume"))
+
+	written = subroutine.db.backup.take(engine, _settings())
+	beside = written.path.with_name(written.path.name + subroutine.db.backup.RECORD_SUFFIX)
+
+	assert beside.is_file(), "the record is written beside the copy it describes"
+
+	beside.unlink()
+
+	[listed] = subroutine.db.backup.catalogue(_settings())
+
+	assert listed.holdings is None, "no record must not read as a count of zero"
+
+
+def test_pruning_takes_a_backups_record_with_it (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Or a directory accumulates one orphan per deleted backup, for ever.
+
+	Worse than clutter: `_free_name` walks a colliding instant forward, so a later backup could
+	be given a name a deleted one had — and would inherit its counts.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(tmp_path / "volume"))
+
+	first = subroutine.db.backup.take(engine, _settings())
+	subroutine.db.backup.take(engine, _settings())
+
+	subroutine.db.backup.prune(_settings(), keep=1)
+
+	assert not first.path.exists()
+	assert not first.path.with_name(
+		first.path.name + subroutine.db.backup.RECORD_SUFFIX
+	).exists()
+
+
 def test_the_database_never_gets_written_to_the_backup_volume (
 	engine: sqlalchemy.engine.Engine,
 	home: pathlib.Path,

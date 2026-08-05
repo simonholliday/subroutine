@@ -204,6 +204,16 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine db backups` says what each backup holds.** A backup of an empty instance has a
+  correct size and a correct schema head, so a listing showing those gave you nothing to be
+  suspicious of — and hollow copies sort to the top, because they are newest. Restoring "the
+  latest backup" could get you an empty database.
+
+  Each backup now records what the source held at the moment it was taken, beside the copy,
+  and the listing reads it back. Backups taken before this say **holdings not recorded**
+  rather than claiming to hold nothing — those are different facts and only one of them is
+  known.
+
 - **The MCP documentation resources say which workspace they are describing.** On an
   installation with more than one workspace and no workspace configured — the state an agent
   arrives in — `subroutine://meta` published `statuses: {}` and `item_types: {}`, from the one

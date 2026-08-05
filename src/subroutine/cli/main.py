@@ -1194,6 +1194,38 @@ def _what_it_held (written: subroutine.db.backup.Backup) -> str:
 	) + "."
 
 
+def _holdings_cell (backup: subroutine.db.backup.Backup) -> str:
+	"""Say what one backup in a listing holds, in one line under it — item `#432`.
+
+	**The surface an operator actually reads on the day they need one**, and the one `#395` did
+	not change. It made ``db backup`` say what it had copied; the listing beside it went on
+	reporting a size and a schema head, both of which are *correct* for a backup of an empty
+	instance — so four hollow copies sat at the top of the list, newest first, with nothing in
+	the line to be suspicious of. Restoring "the latest backup" got an empty database.
+
+	**Three states, and the third is why this is not a boolean.** Not recorded is not the same
+	as empty: every backup taken before the counts were written beside them has no record, and
+	saying those hold nothing would be the same false confidence pointing the other way.
+	"""
+
+	held = backup.holdings
+
+	if held is None:
+		return (
+			"Holdings not recorded — taken before this was written down. Check it before "
+			"relying on it."
+		)
+
+	if not any(held.values()):
+		return "Holds nothing: an empty instance, not your work."
+
+	return ", ".join(
+		f"{count:,} {name}{'' if count == 1 else 's'}"
+		for name, count in held.items()
+		if count
+	)
+
+
 @database_app.command("backups")
 def database_backups () -> None:
 	"""List the backups this instance has, newest first."""
@@ -1222,6 +1254,7 @@ def database_backups () -> None:
 			f"  {backup.name}  {when}  {backup.size_bytes:,} bytes  "
 			f"schema {backup.schema_head}{kind}"
 		)
+		_say(f"    {_holdings_cell(backup)}")
 
 
 @database_app.command("restore")
