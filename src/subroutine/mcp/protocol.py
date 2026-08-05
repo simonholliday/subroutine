@@ -53,15 +53,31 @@ class Tool:
 	schema: dict[str, typing.Any]
 	call: typing.Callable[[dict[str, typing.Any]], str]
 
+	#: What this tool does to the world, in the protocol's own vocabulary — `#489`.
+	#:
+	#: **Absent means the worst case, not "unknown".** The specification tells a client to read
+	#: an unannotated tool as potentially destructive, non-idempotent and open-world, and clients
+	#: increasingly drive their approval prompts off exactly this. So declaring nothing is not
+	#: neutral: it is a claim, and on the five tools here that only read it is a false one.
+	annotations: dict[str, bool] | None = None
+
 	def described (self) -> dict[str, typing.Any]:
 		"""Return this tool as ``tools/list`` reports it."""
 
-		return {
+		described = {
 			"name": self.name,
 			"title": self.title,
 			"description": self.description,
 			"inputSchema": self.schema,
 		}
+
+		# Omitted rather than sent empty: an empty object is a statement in this protocol, and
+		# a tool with nothing to declare should read as unannotated rather than as annotated
+		# with no claims.
+		if self.annotations:
+			described["annotations"] = self.annotations
+
+		return described
 
 
 @dataclasses.dataclass(frozen=True)

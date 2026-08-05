@@ -71,6 +71,32 @@ WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 #: to it.
 PROJECT = {"type": "string", "description": "Narrow to this project and everything under it."}
 
+#: A tool that only reads — item `#489`.
+#:
+#: **The default is the pessimistic one**, so silence here is not neutrality. A client reading an
+#: unannotated tool is told by the specification to assume it may destroy things, and clients
+#: increasingly turn that into an approval prompt. The five tools carrying this are the ones an
+#: agent calls *first*, before it knows what this instance is — so the cost of the wrong default
+#: falls on first contact, which is the moment §1.4 cares most about.
+READS = {"readOnlyHint": True}
+
+#: A tool that writes, and only ever adds.
+#:
+#: ``destructiveHint`` asks whether a call *overwrites or deletes* rather than creating or
+#: appending. Filing a task, writing a document, adding a comment and completing something are
+#: all additive — nothing here removes what somebody else wrote.
+#:
+#: **Deliberately not claimed for `subroutine_update` or `subroutine_link`**, which replace field
+#: values and withdraw links respectively. Those keep the pessimistic default, which is correct
+#: for them rather than merely unstated.
+#:
+#: **`readOnlyHint: false` is not stated, because that is already the default.** Declaring it
+#: cost 22 bytes a tool to repeat what the absence of :data:`READS` says — 132 bytes of the 591
+#: this addition first measured, spent on nothing. A byte in a schema is context every session
+#: carries, so an annotation that changes no client's behaviour is exactly the fat §21.2 asks to
+#: be read for before the cap moves.
+ADDS = {"destructiveHint": False}
+
 
 def references (
 	client: subroutine.clients.base.Client,
@@ -219,6 +245,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				},
 			},
 			call=lambda arguments: _listed(client, arguments),
+			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_search",
@@ -235,6 +262,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["q"],
 			},
 			call=lambda arguments: _searched(client, arguments),
+			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_show",
@@ -253,6 +281,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["ref"],
 			},
 			call=lambda arguments: _shown(client, arguments),
+			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_add",
@@ -277,6 +306,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["text"],
 			},
 			call=lambda arguments: _added(client, arguments),
+			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_comment",
@@ -298,6 +328,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["ref", "body"],
 			},
 			call=lambda arguments: _remarked(client, arguments),
+			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_document",
@@ -323,6 +354,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["title"],
 			},
 			call=lambda arguments: _wrote(client, arguments),
+			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_update",
@@ -400,6 +432,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				},
 			},
 			call=lambda arguments: _projected(client, arguments),
+			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_changes",
@@ -426,6 +459,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				},
 			},
 			call=lambda arguments: _changed(client, arguments),
+			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_claim",
@@ -448,6 +482,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["ref"],
 			},
 			call=lambda arguments: _claimed(client, arguments),
+			annotations=ADDS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_whoami",
@@ -459,6 +494,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			),
 			schema={"type": "object", "properties": {}},
 			call=lambda arguments: _whoami(client),
+			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
@@ -473,6 +509,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"required": ["ref"],
 			},
 			call=lambda arguments: _completed(client, arguments),
+			annotations=ADDS,
 		),
 	]
 

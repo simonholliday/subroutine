@@ -10,6 +10,7 @@ notification gets no answer at all, and a tool that fails is a successful respon
 ``isError`` rather than a JSON-RPC error.
 """
 
+import ast
 import io
 import json
 import os
@@ -24,6 +25,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.cli.main
+import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.clients.opening
 import subroutine.config
@@ -861,7 +863,41 @@ def test_the_whole_tool_surface_stays_small (
 	  over, and the sentence is teaching at the point of use for the one field an agent was
 	  measured getting wrong (`#392`).
 
-	The slack above the current total is deliberate and small — **144 bytes** as of 2026-08-04,
+	* **`#489`, to 9,500** — tool *annotations*, which is the first raise that buys no
+	  capability at all. Simon's decision, 2026-08-05, asked for after the measurement below.
+
+	  **What it buys is that the surface stops lying about itself.** No tool declared
+	  annotations, and the specification tells a client to read an unannotated tool as
+	  potentially **destructive, non-idempotent and open-world** — so silence was not
+	  neutrality, it was the worst available claim, made about five tools that only read. Clients
+	  increasingly turn exactly these hints into approval prompts, which puts the cost on an
+	  agent's *first* calls: the exploratory ones it makes before it knows what this instance is.
+	  That is the moment §1.4 cares most about, and the one nothing else in this file protects.
+
+	  **Measured at +453 bytes**, roughly 110 tokens a session — and the first figure was
+	  **591**. The difference is the fat, and it was in the addition rather than in the existing
+	  schemas: ``readOnlyHint: false`` is already the protocol's default, so declaring it on the
+	  six writing tools cost 132 bytes to repeat what the *absence* of ``READS`` says. An
+	  annotation that changes no client's behaviour is context spent on nothing.
+
+	  **Fat was read for in the old schemas too, for the sixth time running, and none was
+	  taken.** ``subroutine_update`` is still the largest at 1,214 bytes and is still ten
+	  argument descriptions doing work. What is worth recording is that the *fat existed and was
+	  somewhere new* — this is the first raise where reading the existing schemas was the wrong
+	  place to look, and the addition itself was where the waste was.
+
+	  **Two hints are declared and two are not.** ``idempotentHint`` and ``openWorldHint`` are
+	  accurate and buy no client behaviour that matters here, so they are not worth their bytes.
+	  ``destructiveHint: false`` is claimed only where it is true — not for ``subroutine_update``
+	  or ``subroutine_link``, which overwrite field values and withdraw links, and which
+	  therefore keep the pessimistic default because it is *correct* for them rather than merely
+	  unstated.
+
+	  **This does not pre-buy `#485`.** ``call_api`` is 500-700 bytes on its own estimate and
+	  gets its own act with its own measurement, because a cap raised for work not yet done is
+	  a budget for something nobody has weighed.
+
+	The slack above the current total is deliberate and small — **312 bytes** as of 2026-08-05,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -886,7 +922,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 8800, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 9500, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -2175,3 +2211,139 @@ def test_the_document_tool_says_how_to_revise_one (
 	}
 
 	assert "edit" in within, f"'doc edit' is named by a tool description and is not real: {within}"
+
+
+class _Recorded:
+	"""A client that answers normally and remembers which methods were asked for.
+
+	A proxy rather than a stand-in, so the tools run against the real local client and a real
+	database — the annotation being checked is a claim about what a call *does*, and a mock
+	returning mocks would let a tool pass by never getting far enough to write.
+	"""
+
+	def __init__ (self, wrapped: subroutine.clients.base.Client) -> None:
+		"""Wrap a client and start an empty record."""
+
+		self._wrapped = wrapped
+		self.called: list[str] = []
+
+	def __getattr__ (self, name: str) -> typing.Any:
+		"""Return the wrapped attribute, noting the name if it is callable."""
+
+		attribute = getattr(self._wrapped, name)
+
+		if not callable(attribute):
+			return attribute
+
+		def recording (*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+			self.called.append(name)
+
+			return attribute(*args, **kwargs)
+
+		return recording
+
+
+def _writing_methods () -> set[str]:
+	"""Return the client methods that refuse on a read-only connection.
+
+	**Read out of the code rather than listed here**, because a list would be a second copy of
+	a rule that already exists and is maintained: ``_refuse_if_read_only`` is what
+	``clients/http.py`` calls on every write, and §13.7's read-only connection depends on it
+	being complete. A tool that reaches one of these is writing, whatever it claims.
+	"""
+
+	source = pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	found: set[str] = set()
+
+	for node in ast.walk(ast.parse(source)):
+		if not isinstance(node, ast.FunctionDef):
+			continue
+
+		for inner in ast.walk(node):
+			if (
+				isinstance(inner, ast.Call)
+				and isinstance(inner.func, ast.Attribute)
+				and inner.func.attr == "_refuse_if_read_only"
+			):
+				found.add(node.name)
+
+	return found
+
+
+def test_a_tool_that_says_it_only_reads_only_reads (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#489`. The annotation is a machine-readable claim, so something has to check it.
+
+	A client is entitled to skip an approval prompt because a tool said ``readOnlyHint``. If
+	that is wrong, the tool writes to somebody's instance without the confirmation the client
+	would otherwise have asked for — so this is the one annotation whose falsity has a cost
+	beyond noise, and prose asserting it is exactly what this codebase has been bitten by.
+
+	Driven rather than compared: every read-only tool is *called*, against a real database, and
+	the client methods it reaches are checked against the set that refuses on a read-only
+	connection. A test comparing two hand-written lists would agree with itself forever.
+	"""
+
+	subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	writes = _writing_methods()
+
+	assert len(writes) >= 10, (
+		f"found {len(writes)} writing client methods, which is too few — has the scan stopped "
+		f"reaching them? A guard that finds no writes passes every tool."
+	)
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		recorded = _Recorded(client)
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(typing.cast(subroutine.clients.base.Client, recorded)),
+			name="subroutine",
+			version="0",
+		)
+
+		# Something for the readers to find, made through the tools so the fixture cannot be
+		# right in a way the surface is not.
+		ref = _added(server, "Something to read back")
+
+		reading: dict[str, dict[str, typing.Any]] = {
+			"subroutine_list": {},
+			"subroutine_search": {"q": "read back"},
+			"subroutine_show": {"ref": ref},
+			"subroutine_changes": {},
+			"subroutine_whoami": {},
+		}
+		declared = {
+			tool.name
+			for tool in subroutine.mcp.tools.catalogue(client)
+			if (tool.annotations or {}).get("readOnlyHint")
+		}
+
+		assert declared == set(reading), (
+			f"a tool declares readOnlyHint and this test does not call it: "
+			f"{sorted(declared ^ set(reading))}"
+		)
+
+		for name, arguments in reading.items():
+			recorded.called.clear()
+
+			answered, failed = _called(server, name, **arguments)
+
+			assert not failed, f"{name} did not run, so nothing was measured: {answered}"
+			assert recorded.called, f"{name} reached no client method at all"
+
+			trespass = set(recorded.called) & writes
+
+			assert not trespass, (
+				f"{name} declares readOnlyHint and called {sorted(trespass)}, which "
+				f"clients/http.py refuses on a read-only connection"
+			)
