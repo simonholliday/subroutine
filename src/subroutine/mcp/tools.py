@@ -113,8 +113,13 @@ ADDS = {"destructiveHint": False}
 #: **delete an entry when a confirmation round-trip is dependable in the clients that matter.**
 #:
 #: Read by ``tests/test_reach.py`` as well, so there is one definition and two readers.
+#:
+#: **The third element is one command and nothing else** (`#497`). It carried a clause —
+#: "subroutine init, or 'workspace create'" — and the refusal wraps it in quotes, so it rendered
+#: as ``Run 'subroutine init, or 'workspace create'' instead``. Prose in the data reads as a typo
+#: in the product's own voice, on the one message whose job is handing somebody something to run.
 DENIED: tuple[tuple[str, str, str], ...] = (
-	("POST", r"/v1/workspaces/?$", "subroutine init, or 'workspace create'"),
+	("POST", r"/v1/workspaces/?$", "subroutine workspace create"),
 	("PATCH", r"/v1/workspaces/[^/]+/?$", "subroutine workspace rename"),
 	("POST", r"/v1/projects/[^/]+/move/?$", "subroutine project move"),
 )
@@ -124,7 +129,6 @@ DENIED: tuple[tuple[str, str, str], ...] = (
 #: shaped like a result and cannot tell. Refusing names the three ways to narrow it, which is
 #: also the one place an agent reliably learns §14.10's shaping exists.
 MAX_ANSWER = 64 * 1024
-
 
 
 def references (

@@ -2651,3 +2651,55 @@ def test_the_instructions_say_the_tools_are_not_the_whole_product (
 	assert "if you can run commands" in instructions.lower(), (
 		"it must stay conditional: a session reaching this over HTTP may have no shell"
 	)
+
+
+def test_a_refusal_reads_as_a_sentence_somebody_could_follow (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#497`. Every other test here asks whether the refusal *names* an alternative.
+
+	None of them read it as a person would, so ``Run 'subroutine init, or 'workspace create''
+	instead`` shipped — the entry carried a clause and the message quotes it as a command. That
+	is `#366`'s shape: a substring assertion cannot see a sentence malformed around the
+	substring it is looking for.
+
+	Checked as a class rather than as the instance: nested quotes anywhere in a rendered refusal
+	mean data and prose have been mixed again, whichever entry did it.
+	"""
+
+	for method, path in (
+		("POST", "/v1/workspaces"),
+		("PATCH", "/v1/workspaces/somewhere"),
+		("POST", "/v1/projects/SR/move"),
+	):
+		answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
+
+		assert failed, f"{method} {path} was allowed through"
+		assert "''" not in answered, f"nested quotes in the refusal for {method} {path}"
+
+	# And the entries themselves, so a new one cannot reintroduce it before anybody renders it.
+	groups = {
+		group.name: group for group in subroutine.cli.main.app.registered_groups if group.name
+	}
+
+	for _verb, _pattern, instead in subroutine.mcp.tools.DENIED:
+		assert "'" not in instead and "," not in instead, (
+			f"{instead!r} is a clause rather than a command — the refusal quotes it as one"
+		)
+
+		# **And it has to be a command that exists**, which is `#134`/`#136`/`#138`'s lesson:
+		# every one of those was a page naming something nobody could run. A refusal is the
+		# worst place to do it — the reader is already stuck, and is being handed a second
+		# dead end by the message meant to release them.
+		words = instead.split()
+
+		assert words[0] == "subroutine", f"{instead!r} does not name this program"
+		assert words[1] in groups, f"{instead!r} names no such command group"
+
+		nested = groups[words[1]].typer_instance
+
+		assert nested is not None, f"{words[1]} is a group with nothing under it"
+		assert words[2] in {
+			command.name or (command.callback.__name__ if command.callback else "")
+			for command in nested.registered_commands
+		}, f"{instead!r} names no such command"

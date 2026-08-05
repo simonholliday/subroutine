@@ -811,9 +811,15 @@ SPELLED_DIFFERENTLY = {
 #: **Not a gap and not an excuse: a different way in.** `capture(text=…)` parses these out of one
 #: string, which is the documented primary path (§1.4) and the grammar the skill teaches. Listing
 #: them as unreachable would be measuring the API's shape rather than the product's.
+#: **`assignee_id` is in this set because `@si` works, which was checked by running it** — the
+#: first version of this list was written by reading the request models, and omitting it made
+#: this guard report a gap on `POST /v1/tasks` that does not exist. A missing entry in an
+#: exclusion list manufactures a false gap exactly as convincingly as a wrong one hides a real
+#: one, and both read identically from inside.
 BY_THE_CAPTURE_GRAMMAR = frozenset({
 	"title", "importance", "urgency", "estimate", "tags", "due", "start", "status",
 	"planned_for", "due_is_all_day", "start_is_all_day", "timezone", "parent_task_id",
+	"assignee_id",
 })
 
 #: A request field no client passes, and why. Same discipline as every list here: a written
@@ -828,9 +834,15 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 	),
 	"assignee_id": (
 		"tracked",
-		"`#493`. The centre of decision `#473` — its own table opens with \"who is working on "
-		"this now\" — and no surface can perform the act. Found by this guard on its first "
-		"real run, which is the argument for the guard. **Deleting this entry closes `#493`.**",
+		"`#493`, and **on `PATCH /v1/tasks` alone**. Filing with an assignee works on every "
+		"surface — §6.13's `@` sigil is implemented, verified against the served instance — so "
+		"the gap is *reassignment*: `update` takes no such keyword and `subroutine_update` "
+		"omits it deliberately, leaving a task assignable when it is filed and never "
+		"afterwards. `#41` for tags and `#431` for a deadline are the same shape.\n\n"
+		"The first version of this entry said no surface could assign at all, which was this "
+		"guard reporting a gap it had manufactured by leaving `assignee_id` out of "
+		"`BY_THE_CAPTURE_GRAMMAR`. Corrected by running the grammar rather than by reading the "
+		"models again. **Deleting this entry closes `#493`.**",
 	),
 	"due": (
 		"tracked",
