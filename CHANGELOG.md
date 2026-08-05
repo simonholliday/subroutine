@@ -202,6 +202,14 @@ upgrade involves.
   in force rather than a refusal. A key *neither* kind has is still refused by name, because a
   typo that reads as an empty list is indistinguishable from having nothing to do.
 
+### Changed
+
+- **The package says it runs on Linux, where it used to say "OS Independent".** Nothing had
+  ever been run anywhere else — every CI job on both workflows is Ubuntu — so the claim was a
+  hint to an index rather than anything anybody had checked. It is not a statement that
+  Subroutine fails elsewhere; it is a statement about what has been demonstrated. macOS and
+  Windows are `#245`.
+
 ### Removed
 
 - **Three settings that did nothing.** `trash_retention_days`, `events_retention_days` and

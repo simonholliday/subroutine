@@ -26,7 +26,15 @@ classifiers = [
 	"Environment :: Console",
 	"Framework :: FastAPI",
 	"Intended Audience :: Developers",
-	"Operating System :: OS Independent",
+	# **What has actually been run, not what ought to work** (`#245`). This said
+	# `OS Independent` while every CI job in both workflows ran `ubuntu-latest` — ten of them,
+	# no exceptions — so PyPI advertised a portability nothing had ever demonstrated. Nobody
+	# was misled into a failing install, which is why it was not a release blocker on its own;
+	# it was a claim nothing checked, which is the shape of most of what has gone wrong here.
+	#
+	# `tests/test_packaging.py` holds this to the CI matrix, so widening the claim is done by
+	# running the suite somewhere and letting the guard notice — never by editing this list.
+	"Operating System :: POSIX :: Linux",
 	"Programming Language :: Python :: 3.11",
 	"Programming Language :: Python :: 3.12",
 	"Programming Language :: Python :: 3.13",
