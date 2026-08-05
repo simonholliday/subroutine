@@ -187,6 +187,14 @@ $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
+**It starts a program on your own machine, so not every client can use it.** Claude Code can,
+and so can the desktop apps. **claude.ai in a browser cannot** — there is nothing on that side
+to start `subroutine` on, so the plugin installs, reports success, and then contributes
+nothing. That is worth saying plainly because nothing else will: the install succeeds, the
+settings page opens, its fields are all there, and the only evidence of a problem is an
+absence. Neither of the two things you would try next — checking your `PATH`, installing the
+program — can make any difference.
+
 **Your editor launches `subroutine` itself, so it has to be on your `PATH`** — which is what
 `uv tool install` and `pipx install` guarantee and a virtualenv does not. If the tools do not
 appear afterwards, that is nearly always why, and `claude mcp list` says so in one line:
@@ -194,8 +202,12 @@ installing a plugin and starting its server are separate moments, and only the f
 reports. `/plugin configure subroutine` takes the absolute path when you would rather point at
 a virtualenv than install it again.
 
-It can also be given a connection and a token, both only needed for somebody else's instance.
-The token is kept in your system keychain, never in a settings file.
+It can also be given a connection and a token, both only needed for somebody else's instance —
+**and the connection has to exist before you can name it here**, which today means writing it
+into `config.toml` by hand. That is the case to know about if your work lives on a server and
+this machine is only a client: the plugin is fine, the program is fine, and the step between
+them is a file you have to edit yourself. The token is kept in your system keychain, never in
+a settings file.
 
 Without the plugin, or for another MCP client:
 
@@ -217,9 +229,10 @@ Code's. Aider has no MCP client of its own; use the CLI through `/run` instead.
 
 **Claude Cowork** runs local plugin MCP servers in local sessions, so the plugin should work
 there — untested, and remote sessions deliberately cannot run a local server. Skills do not
-sync between Claude Code, Cowork, claude.ai and the API, so the skill is installed per surface;
-on claude.ai and through the API there is no local MCP server for it to drive, so it will tell
-you so rather than pretend.
+sync between Claude Code, Cowork, claude.ai and the API, so the skill is installed per surface.
+On claude.ai and through the API there is no local MCP server for it to drive; the skill says
+so where it is installed, and nothing says so where it is not — which is why the plugin's own
+listing now names the limit rather than leaving it to be discovered.
 
 ### What the plugin adds beyond the tools
 

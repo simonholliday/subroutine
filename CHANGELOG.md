@@ -204,6 +204,16 @@ upgrade involves.
 
 ### Fixed
 
+- **The plugin says which clients it can run in.** It starts Subroutine as a program on your
+  own machine, so it works in Claude Code and the desktop apps and not on the web. That was
+  always true and was written down nowhere.
+
+  Installed in a browser it reported success, opened a settings page with all four fields
+  present, and produced no tools — and an absence of tools is what a broken product looks
+  like. Neither of the two things you would try next, checking your `PATH` and installing the
+  program, could have made any difference. The limit is now in the marketplace listing, which
+  you read before installing, and in the manifest, which you read after.
+
 - **A backup written to a network volume is no longer reported as having failed.** If your
   `backup_directory` is on a mount whose files the Subroutine account cannot own — CIFS with
   `forceuid`, NFS with `root_squash`, and most other shares — every backup was written

@@ -10,10 +10,18 @@ write in it is attributed to you, addressable by a number, and still there after
 is gone — which is the whole reason to spend calls on it.
 
 **If the `subroutine_*` tools are not available, stop and say so — and do not guess which of the
-two causes it is.** The plugin configures the tools but does not install the program, so either
-it is not installed, or it is installed somewhere the editor cannot see. Both look identical
-from here: no tools, and no error, because installing a plugin and starting its server are
-separate moments and only the first one reports. One command tells them apart:
+three causes it is.**
+
+**Rule out the third first, because it is the only one nobody can fix.** The plugin starts
+Subroutine as a program on the machine the client runs on, and a client running in a browser
+has no machine to start it on. So on claude.ai the tools are absent by construction, however
+the plugin is configured — and every remedy below is a wasted evening. Say that plainly rather
+than beginning a diagnosis; Claude Code and the desktop apps are where it works.
+
+The other two are ordinary: the plugin configures the tools but does not install the program,
+so either it is not installed, or it is installed somewhere the editor cannot see. Both look
+identical from here — no tools, and no error, because installing a plugin and starting its
+server are separate moments and only the first one reports. One command tells those two apart:
 
 ```
 claude mcp list

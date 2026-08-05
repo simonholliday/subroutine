@@ -136,6 +136,47 @@ def test_the_marketplace_says_the_product_is_a_separate_install () -> None:
 	assert "subroutine init" in described
 
 
+def test_a_locally_launched_plugin_says_so_before_anybody_installs_it () -> None:
+	"""**`#515`: it can be installed where it cannot possibly run, and nothing said so.**
+
+	Installed in the Claude web client, which accepted it, opened a settings page with all four
+	fields present and well written, and produced no tools. Every signal says success and the
+	only evidence is an absence — so the reader concludes the product is broken rather than
+	that the client is wrong for it. Both remedies a competent person tries next, checking the
+	``PATH`` and installing the program, *confirm* that conclusion instead of correcting it.
+
+	Prose is the only channel that reaches them, because nothing of ours executes on a client
+	that cannot start the server. That is `#499`'s rule from an unfamiliar direction: the
+	guaranteed channel here is the listing, and it named none of the conditions on using the
+	thing. Both descriptions carry it — the marketplace's is read *before* installing and the
+	manifest's *after*, and somebody meets one or the other rather than both.
+	"""
+
+	server = _read(SERVERS)["mcpServers"]["tools"]
+
+	# **This is what makes the entry go away.** The claim below is only true while the server is
+	# a local command; the moment `#516` offers an HTTP transport, "not on the web" stops being
+	# true and both descriptions are wrong rather than merely stale.
+	assert "url" not in server, (
+		"the server is no longer stdio-only, so 'not on the web' has stopped being true — "
+		"revisit this guard and both descriptions together (`#516`)"
+	)
+
+	for name, described in (
+		("the marketplace listing", _read(MARKETPLACE)["plugins"][0]["description"]),
+		("the plugin manifest", _read(PLUGIN)["description"]),
+	):
+		assert "your own machine" in described, (
+			f"{name} does not say the plugin runs a program on the reader's own machine, "
+			f"which is the premise that makes the rest of it make sense"
+		)
+
+		assert "not on the web" in described, (
+			f"{name} does not name the client where this cannot work, which is the whole of "
+			f"`#515` — an absence of tools is indistinguishable from a broken product"
+		)
+
+
 def test_the_server_runs_the_configured_command_rather_than_a_fixed_one () -> None:
 	"""The trap this option exists for, reproduced live before it was written down.
 
@@ -268,6 +309,24 @@ def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
 	# unreachable are identical from inside a session — no tools, no error — so a skill that
 	# describes the remedies without naming the diagnostic sends half its readers the wrong way.
 	assert "claude mcp list" in text
+
+	# **The third cause, which `claude mcp list` cannot reach and no remedy here can fix**
+	# (`#515`). On a client with no machine to start a local program on, both instructions above
+	# are dead ends — and an agent that has read this far will confidently give one of them.
+	# "Two causes" was a completeness claim, true when written and false once the plugin became
+	# installable in a browser.
+	# Two handles rather than one, because a lone substring is satisfied by a sentence built
+	# wrong around it (`#497`): the count is the completeness claim, and the browser is the
+	# case it has to cover.
+	assert "three causes" in text, (
+		"the skill enumerates the causes of missing tools and the count is part of the claim; "
+		"a reader told there are two will stop looking after two"
+	)
+
+	assert "browser" in text, (
+		"the skill must name the client where no remedy it gives can work, or it sends that "
+		"reader to an install and a reconfiguration that cannot help"
+	)
 
 
 def test_every_tool_the_skill_names_exists (
