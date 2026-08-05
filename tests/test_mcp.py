@@ -2756,3 +2756,41 @@ def test_the_instructions_name_every_document_a_session_might_not_find (
 		"the big picture is one sentence and it is the reason an agent engages at all — "
 		"without it this opens as a description of a filing system"
 	)
+
+
+def test_a_ref_that_names_nothing_says_how_to_find_the_right_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#184`. The surface built for the reader who *cannot ask a follow-up* had no next step.
+
+	``subroutine_show`` on a ref that does not exist answered ``There is no #99999 here.`` and
+	stopped. The CLI's equivalent says the same and then ``Run 'subroutine list' to see what
+	there is`` — so the transport with a person attached, who could have guessed, was the one
+	being helped, and the transport without one was not.
+
+	Not the defect `#165` fixed, which was a hint lost in rendering: these are raised as a plain
+	``LookupError`` in two places and never had a hint to lose. It is the same principle `#497`
+	settled for the deny-list — **a refusal must not be a dead end** — and `#488` for the API.
+	"""
+
+	answered, failed = _called(bound, "subroutine_show", ref=99999)
+
+	assert failed, "a ref naming nothing must be refused"
+	assert "subroutine_list" in answered, "the refusal offers no way to find the right item"
+
+	# **The update path never reaches that refusal**, which is worth pinning rather than
+	# assuming: it is turned away by `clients/local._require` first, whose message carries the
+	# *CLI's* vocabulary — "Run 'subroutine list'". Both are a genuine next step, and `#480`
+	# settled that pointing an agent at the command line is right rather than a fallback. What
+	# the rule requires is that neither refusal is a dead end.
+	changed, failed = _called(bound, "subroutine_update", ref=99999, title="Nope")
+
+	assert failed
+	assert "list" in changed, "the update path refuses with no way to find the right item"
+
+	# **And the tools it names have to exist**, which is `#136`'s lesson: prose in a refusal is
+	# read by an agent that is already stuck, so naming something uncallable strands it twice.
+	catalogue = {tool.name for tool in subroutine.mcp.tools.catalogue(unittest.mock.MagicMock())}
+
+	for named in ("subroutine_list", "subroutine_search"):
+		assert named in catalogue, f"the refusal names {named}, which is not a tool"

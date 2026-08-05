@@ -1001,7 +1001,10 @@ def _item (
 	document = client.document(ref=ref, workspace=workspace)
 
 	if document is None:
-		raise LookupError(f"There is no #{ref} here.")
+		raise LookupError(
+			f"There is no #{ref} here. Run subroutine_list to see what there is, or "
+			f"subroutine_search to look for it by words in its title."
+		)
 
 	return document, "document"
 
@@ -1467,6 +1470,9 @@ def _updated (
 		)
 
 	if changed is None:
-		raise LookupError(f"There is no #{ref} here.")
+		raise LookupError(
+			f"There is no #{ref} here. Run subroutine_list to see what there is, or "
+			f"subroutine_search to look for it by words in its title."
+		)
 
 	return "Changed " + _line(changed)

@@ -691,6 +691,11 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 
 	counted: dict[str, int] = {}
 
+	# **A connection per table, deliberately** (`#430`). Each iteration isolates its own
+	# failure: on PostgreSQL a refused count aborts the transaction it is in, so a shared
+	# connection would let one unreadable table poison every count after it — and this
+	# function's whole purpose is being *legible* about what a backup holds. Hoisting the
+	# connection out reads as the obvious tidy-up, which is why it is worth a sentence.
 	for table in COUNTED:
 		try:
 			with engine.connect() as connection:
