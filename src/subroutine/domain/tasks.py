@@ -1007,9 +1007,9 @@ def restore (
 	"""Take a task back out of the trash (SPEC.md §6.9).
 
 	**The half of soft delete that made it soft**, and it did not exist until `#140`. §6.9 says
-	a deleted item is "restorable for a configurable retention period", ``trash_retention_days``
-	has been a setting since the beginning, and ``EventAction.RESTORED`` has been in the
-	vocabulary just as long — with nothing anywhere setting ``deleted_at`` back to null. So the
+	a deleted item is "restorable for a configurable retention period", a
+	``trash_retention_days`` setting was declared from the beginning, and ``EventAction.RESTORED``
+	has been in the vocabulary just as long — with nothing anywhere setting ``deleted_at`` back to null. So the
 	promise was made in three places and kept in none, and "delete" meant "gone" whatever the
 	documentation said.
 

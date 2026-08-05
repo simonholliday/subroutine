@@ -202,7 +202,23 @@ upgrade involves.
   in force rather than a refusal. A key *neither* kind has is still refused by name, because a
   typo that reads as an empty list is indistinguishable from having nothing to do.
 
+### Removed
+
+- **Three settings that did nothing.** `trash_retention_days`, `events_retention_days` and
+  `require_verification_to_complete` were declared, printed by `config show` and described in
+  the specification — and read by nothing anywhere. Setting one produced no error, no
+  behaviour and no way to find out.
+
+  Nothing changes for you: they never did anything. An old `config.toml` that names one is
+  still fine, since unknown keys are ignored. They come back with what enforces them —
+  §6.9's purge, §5.11's retention floor, §6.12's evidence gate.
+
 ### Fixed
+
+- **Every setting `config show` prints is now documented.** `docs/hosting.md` has a table of
+  all of them and what each is for, which is what `config show` has always sent you looking
+  for. Fourteen were described nowhere. A test compares the two, so a setting that exists and
+  is not described cannot ship.
 
 - **`subroutine db backups` says what each backup holds.** A backup of an empty instance has a
   correct size and a correct schema head, so a listing showing those gave you nothing to be

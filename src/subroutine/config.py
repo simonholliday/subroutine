@@ -592,8 +592,16 @@ class Settings(pydantic_settings.BaseSettings):
 
 	# Installation-wide defaults for behavioural settings. A workspace or a project may
 	# override any of these; see the module docstring.
-	trash_retention_days: int = 30
-	events_retention_days: int = 180
+	#
+	# **`trash_retention_days` and `events_retention_days` were here and are gone** (`#187`).
+	# Both were declared, printed by `config show`, described by a specification section — and
+	# read by nothing anywhere. `#133` settled what to do with that shape: *a setting for an
+	# unbuilt feature belongs with the feature.* Somebody who set one got no error, no pruning
+	# and no way to find out; documenting them instead would have made the promise worse.
+	#
+	# They come back with what enforces them — `#251` for events, §6.9's purge for the trash —
+	# and `#473` adds a requirement to the first: assignment events are exempt from retention,
+	# so the day pruning is built is the day an unexempted history would silently truncate.
 	default_page_size: int = 50
 	max_page_size: int = 200
 
@@ -607,7 +615,12 @@ class Settings(pydantic_settings.BaseSettings):
 		default=DEFAULT_LEASE_MINUTES, ge=1, le=MAX_LEASE_MINUTES
 	)
 
-	require_verification_to_complete: bool = False
+	# **`require_verification_to_complete` was here and is gone**, for the same reason and with
+	# a sharper history: `#133` already removed it from the `software` project *template*, on
+	# the argument that a template may only write a setting something reads. The installation
+	# default it was written from survived that removal and nothing read it either — so the
+	# rule was applied to one of the two places the value lived. §6.12's evidence gate brings
+	# it back when there is a gate.
 
 	# Bounds how deep a project or subtask tree may nest, and with it the length of a
 	# materialised path and the cost of a move (SPEC.md §5.4).

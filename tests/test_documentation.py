@@ -25,6 +25,7 @@ import typer.testing
 
 import subroutine.auth
 import subroutine.cli.main
+import subroutine.config
 import subroutine.db.migrate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -171,6 +172,57 @@ def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
 		expected = re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
 
 		assert anchor == expected, f"{heading!r} links to #{anchor}, but its anchor is #{expected}"
+
+
+def test_every_setting_config_show_prints_is_documented () -> None:
+	"""`#187`. ``config show`` lists every setting, which is how somebody finds out what there
+	is to change — and several of them appeared in no operator-facing document at all.
+
+	**The list is the population, not an allow-list.** It comes off ``Settings.model_fields``,
+	so a setting added without a line here fails the build rather than being discovered by a
+	reader who cannot find out what it does. That is the half `#187` was really about: the five
+	the review named were found by reading one screen, and the comparison found fourteen.
+
+	**No excuse register, deliberately.** Every other guard here has one; this one would only
+	ever be used to park a setting somebody could not be bothered to describe, and a setting
+	nobody can describe should not exist. `#133`'s rule is the alternative and it is better:
+	a setting for an unbuilt feature belongs with the feature, so the answer to "what do I
+	write about this" is sometimes to delete it — which is what happened to the retention pair
+	and to ``require_verification_to_complete``.
+	"""
+
+	text = HOSTING.read_text(encoding="utf-8")
+	heading = "### Every setting, and what it does"
+
+	# The floor. Without it, deleting the section makes this fail with `ValueError: substring
+	# not found` from `.index` — which is a failure, so nothing passes vacuously, but it says
+	# nothing about what is wrong to whoever has to fix it.
+	assert heading in text, f"docs/hosting.md no longer has a {heading!r} section to check"
+
+	opening = text.index(heading)
+
+	# Scoped to that one section rather than to the page. **Its own stale check caught this**:
+	# a page-wide match swept up the agent-profile table's first column and reported four role
+	# names as settings that no longer exist. A guard whose two directions check each other is
+	# worth more than either.
+	section = text[opening : text.index("\n## ", opening)]
+
+	documented = set(re.findall(r"^\| `(\w+)` \|", section, re.MULTILINE))
+	settings = set(subroutine.config.Settings.model_fields)
+
+	missing = sorted(settings - documented)
+
+	assert not missing, (
+		f"{missing} are printed by 'config show' and appear in no table in docs/hosting.md. "
+		f"Describe them there, or remove them if nothing reads them (`#133`)."
+	)
+
+	stale = sorted(documented - settings)
+
+	assert not stale, (
+		f"docs/hosting.md documents {stale}, which is not a setting any more — a reader can "
+		f"set it, get no error, and believe it."
+	)
 
 
 #: The credentials the published transcripts quote, each **verified dead**.

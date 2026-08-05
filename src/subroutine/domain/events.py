@@ -338,10 +338,15 @@ def refuse_unusable_cursor (
 	Both live here rather than in either caller because §5.11a's whole reason for this module is
 	that a feed must not answer differently over two transports.
 
-	§5.11 retains events for ``events_retention_days`` and requires ``410 cursor_expired``
-	below that floor, so a client resyncs rather than being handed a page that silently omits
+	§5.11 retains events for a configurable period and requires ``410 cursor_expired`` below
+	that floor, so a client resyncs rather than being handed a page that silently omits
 	everything pruned in between — the one failure a feed must never have, because it looks
 	exactly like nothing having happened.
+
+	**Nothing prunes yet, and there is deliberately no setting saying otherwise.** An
+	``events_retention_days`` was declared and read by nothing until `#187` removed it, on
+	`#133`'s rule that a setting for an unbuilt feature belongs with the feature. `#251` is the
+	pruning; the floor below cannot move until something moves it.
 
 	**The expiry test is "did events below this point exist and go", not "is this old".** A
 	caller resuming from seq 5 on an instance that still holds seq 1 is simply behind, and

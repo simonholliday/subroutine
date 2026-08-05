@@ -647,9 +647,10 @@ def unremove (
 	"""Restore a soft-deleted task (SPEC.md §6.9).
 
 	**The half that made soft delete soft**, and it did not exist until `#140` — §6.9 promised
-	a deleted item was restorable, `trash_retention_days` has always been a setting, and
+	a deleted item was restorable, a `trash_retention_days` setting was declared, and
 	`EventAction.RESTORED` has always been in the vocabulary, with nothing clearing
-	`deleted_at`.
+	`deleted_at`. The setting is gone since `#187` — nothing ever purged the trash, so it was
+	one more place the promise was made.
 
 	Registered before the parameterised deletes below it for `routing.check`'s reason, and
 	`POST` rather than `DELETE ?restore=` because it is not a deletion of anything.

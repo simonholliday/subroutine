@@ -864,8 +864,8 @@ class Client(typing.Protocol):
 
 		**The half that made soft delete soft**, missing until `#140`. §6.9 has promised since
 		the beginning that a deleted item is "restorable for a configurable retention period";
-		``trash_retention_days`` has been a setting for as long; ``EventAction.RESTORED`` has
-		been in the vocabulary. Nothing anywhere set ``deleted_at`` back to null — so three
+		``trash_retention_days`` was a setting for as long, until `#187` removed it as one nothing
+		read; ``EventAction.RESTORED`` has been in the vocabulary. Nothing anywhere set ``deleted_at`` back to null — so three
 		places said the same true-sounding thing about a product where "delete" meant "gone".
 		"""
 

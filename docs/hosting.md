@@ -120,6 +120,42 @@ from a secrets manager rather than from a file on disk.
 service; `serve` does not reload. A setting that appears not to have taken effect is nearly
 always this.
 
+### Every setting, and what it does
+
+`config show` lists these; this says what they are for. A test fails the build if the two
+disagree, so a setting that exists and is not here cannot ship.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `database_url` | SQLite under `$XDG_DATA_HOME` | Which database to use. The one setting most installations change |
+| `host` | `127.0.0.1` | What `serve` binds to. Never `0.0.0.0` by default — see TLS below |
+| `port` | `8471` | What `serve` binds to |
+| `public_url` | unset | The address a proxy serves this instance on. Published in `/v1/meta`, and what makes a non-loopback bind legal |
+| `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
+| `source_url` | this project | Where this instance's source can be had. The AGPL obligation, not a footnote |
+| `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
+| `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
+| `default_connection` | `local` | Which instance a write goes to when the command did not say |
+| `local_user` | unset | Which account to act as when the database holds more than one and nobody logged in |
+| `default_timezone` | the machine's | The last word in the timezone chain, when no user, workspace or instance says |
+| `rate_limit` | on when reachable | Whether to limit requests. Unset means "on unless this is loopback-only and has no `public_url`" |
+| `rate_limit_per_minute` | `120` | Requests per credential per minute, once limiting is on |
+| `rate_limit_failures_per_minute` | `20` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
+| `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
+| `cors_origins` | `[]` | Browser origins allowed to call the API. Empty means none, which is right until there is a web UI |
+| `log_level` | `INFO` | How much `serve` logs |
+| `dev_mode` | `false` | Development only. Substitutes a fixed, well-known signing key when `secret_key` is unset, so a throwaway instance starts without one. Never set it on anything real |
+| `default_page_size` | `50` | Rows a listing returns when the caller does not say |
+| `max_page_size` | `200` | The most a caller may ask for |
+| `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
+| `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
+
+**There are deliberately no retention settings.** §5.11 and §6.9 both describe a retention
+period, and nothing purges anything yet — so `events_retention_days` and
+`trash_retention_days` were removed rather than documented. A setting that silently does
+nothing is worse than an absent one: you can set it, get no error, and believe it. They come
+back with what enforces them.
+
 ## PostgreSQL, and when to switch
 
 SQLite is the default and it is not a toy — it is the right answer for one person, and for a
