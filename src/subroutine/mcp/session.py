@@ -68,7 +68,7 @@ def build (
 		name="subroutine",
 		version=subroutine.__version__,
 		instructions=_instructions(chosen, roster, workspace),
-		resources=subroutine.mcp.tools.references(client),
+		resources=subroutine.mcp.tools.references(client, workspace=workspace),
 	)
 
 

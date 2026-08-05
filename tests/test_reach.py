@@ -220,6 +220,19 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"meta": (
+		"protocol",
+		"`#486`. The CLI answers this question *in context* rather than as a document, and §1.4 "
+		"requires it to: somebody keeping a to-do list must never have to read a vocabulary "
+		"listing before setting a status. So a wrong key is refused by name with the "
+		"alternatives beside it, `explain` carries the grammars (`#154`), and the words a "
+		"person can actually use are the ones the program prints back at them.\n\n"
+		"An agent constructing a raw request has no point of use to be corrected at — it is "
+		"holding a path and a body, and the keys are renameable per workspace (§5.5). That is "
+		"the asymmetry, and it is why this is reachable over MCP as a resource and not as a "
+		"command. **A `subroutine meta` command would close this, and deleting the entry is "
+		"what would record it.**",
+	),
 	"reference": (
 		"protocol",
 		"`#483`. §13.3's guide is written *for an agent* — it opens with what a caller with a "

@@ -97,12 +97,29 @@ class Client(typing.Protocol):
 		client's job is to know where things are and a caller's is not — and because the local
 		client reaches these without HTTP at all.
 
-		**Not this installation's vocabulary**, which would be the obvious third: ``/v1/meta``
-		is built inside ``api`` against a request, so a local client would have to rebuild it,
-		and that is the same extraction `#483` declined to do in a hurry.
+		**This installation's vocabulary is :meth:`meta`**, which used to be excluded here for
+		the reason given above — built inside ``api`` against a request — and is not any more
+		(`#486`).
 
 		These are what an agent over MCP has no other way to read: it holds a client, so §13.3's
 		guide assumed it had already got past the problem the guide solves, and it has not.
+		"""
+
+		raise NotImplementedError
+
+	def meta (self, *, workspace: str | None = None) -> subroutine.views.Meta:
+		"""Report what this installation calls things — `#486`.
+
+		Statuses, item types, link types, tags, the listings each collection accepts, the small
+		closed grammars, the limits and the error codes. **The keys are per workspace and
+		renameable** (§5.5), so ``done`` may be called ``Shipped`` here — which is why a caller
+		constructing a request against this instance cannot guess them and why §13.2 exists.
+
+		**Ambiguity is answered rather than refused**, unlike every other read: this is often a
+		caller's first call, before it knows what workspaces there are, so naming none with
+		several reachable returns the workspace list and empty vocabulary sections. A name that
+		matches *nothing* is still a refusal — being told something false by the one endpoint
+		whose job is to prevent that is worse than being asked to choose.
 		"""
 
 		raise NotImplementedError

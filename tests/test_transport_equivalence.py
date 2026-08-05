@@ -2151,3 +2151,58 @@ def test_both_withdraw_a_comment_the_same_way (pair: Pair) -> None:
 	for client in (local, remote):
 		with pytest.raises(subroutine.errors.NotFound):
 			client.uncomment(ref=one.ref, comment_id=str(written.id))
+
+
+def test_both_transports_report_the_same_vocabulary (session: sqlalchemy.orm.Session) -> None:
+	"""`#486`. The whole reason the models left ``api/`` for ``views``.
+
+	`#483` declined to publish ``/v1/meta`` over MCP because the local client would have had to
+	*rebuild* what the endpoint assembles — and a second implementation of "what does this
+	installation call things" is the divergence S3-07 removed for tasks, aimed at the one
+	response whose entire job is telling a caller what it may send.
+
+	So there is one assembly and this is what says so. Comparing the whole document rather than
+	a field or two, because the failure being guarded against is a *section* answered differently
+	— which is exactly what a hand-written local version would have got wrong first.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Theirs"
+	)
+	session.flush()
+
+	factory = api_support.factory_for(session)
+	secret = issued.value.get_secret_value()
+
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
+	)
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(api_support.build_app(factory)),
+		base_url=api_support.BASE_URL,
+	)
+
+	with local:
+		here = local.meta()
+
+	with remote:
+		there = remote.meta()
+
+	# `server_time` moves between the two calls and `public_url` is the deployment's, not the
+	# document's. Everything else is a claim about this installation and must match exactly.
+	moving = {"server_time"}
+	locally = here.model_dump(exclude=moving)
+	remotely = there.model_dump(exclude=moving)
+
+	assert locally == remotely
+
+	assert locally["statuses"], "both agreed on nothing, which would pass and prove nothing"
+	assert locally["listings"]["task"]["filters"]

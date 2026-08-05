@@ -84,6 +84,14 @@ class Client:
 
 		return self._text("GET", f"/v1/docs/{name}")
 
+	def meta (self, *, workspace: str | None = None) -> subroutine.views.Meta:
+		"""Report what this installation calls things — `#486`."""
+
+		return self._parsed(
+			subroutine.views.Meta,
+			self._json("GET", "/v1/meta", params=_given(workspace_id=workspace)),
+		)
+
 	def identity (self) -> subroutine.clients.base.Identity:
 		"""Report which instance this is and which workspaces the credential reaches.
 

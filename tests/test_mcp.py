@@ -2347,3 +2347,67 @@ def test_a_tool_that_says_it_only_reads_only_reads (
 				f"{name} declares readOnlyHint and called {sorted(trespass)}, which "
 				f"clients/http.py refuses on a read-only connection"
 			)
+
+
+def test_an_agent_can_read_this_workspace_s_vocabulary (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#486`. The keys are renameable, so an agent that guesses them is guessing wrong.
+
+	`#483` published the guide and the examples and left this out, because the local client
+	would have had to rebuild what ``api/meta.py`` assembles against a request. Decision `#484`
+	made that gap load-bearing: ``call_api`` (`#485`) invites an agent to construct a request by
+	hand, and **nothing else publishes this installation's status and item-type keys** — ``done``
+	may be called ``Shipped`` here (§5.5), which is §13.2's whole subject.
+
+	Driven against a real database through the ordinary local client, because the point is that
+	the *local* transport can answer it at all. A mock would have proved the wiring and left the
+	thing `#483` deferred entirely unchecked.
+	"""
+
+	subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client),
+			name="subroutine",
+			version="0",
+			resources=subroutine.mcp.tools.references(client),
+		)
+		answered = _exchange(
+			server,
+			{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "resources/read",
+				"params": {"uri": "subroutine://meta"},
+			},
+		)
+
+	content = answered[0]["result"]["contents"][0]
+
+	assert content["mimeType"] == "application/json"
+
+	published = json.loads(content["text"])
+
+	assert published["statuses"], "an agent cannot set a status it was never told the key for"
+	assert published["item_types"], "nor a type"
+	assert "done" in {
+		row["key"] for rows in published["statuses"].values() for row in rows
+	}, "keyed rather than labelled — 'done' is the key `#486`'s own argument is about"
+
+	# The half `call_api` needs beyond the vocabulary: what a listing will accept, so a raw
+	# request can be built without discovering each parameter by being refused.
+	assert published["listings"]["task"]["filters"], (
+		"reflected from the application, so an empty list means the reflection stopped working"
+	)
+	assert published["error_codes"]

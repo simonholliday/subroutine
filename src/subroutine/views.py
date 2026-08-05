@@ -1944,3 +1944,144 @@ def _by_id (
 	).all()
 
 	return {row[0]: dict(zip(fields, row[1:], strict=True)) for row in rows}
+# --- What this installation calls things (`/v1/meta`) -----------------------------------
+#
+# **Moved out of `api/meta.py` for `#486`**, on exactly `views.py`'s founding argument: both
+# clients answer `meta()` now, so a model defined inside the transport would be reachable by
+# one of them and not the other — the divergence S3-07 removed for tasks, recreated for the
+# one response whose entire job is telling a caller what this installation is.
+#
+# It is also what `tests/test_response_compatibility.py` requires rather than prefers: that
+# guard scopes itself to `subroutine.views` because every model `clients/http.py` validates
+# comes from here, and it asserts as much. Parsing a `Meta` defined in `api/` would leave the
+# new-field-must-be-defaulted rule silently not covering it (`#345`, three times).
+
+
+class Named(pydantic.BaseModel):
+	"""A vocabulary entry, as this workspace has it.
+
+	``label`` rather than ``title``, matching both the column and §13.2's example: it is
+	what to show a person, while ``key`` is what to send back.
+	"""
+
+	key: str
+	label: str
+	is_default: bool = False
+
+
+class Status(Named):
+	"""A status, with the fixed category a client may branch on."""
+
+	#: The key is renameable; the category is not. Branch on this.
+	category: str
+
+
+class LinkType(pydantic.BaseModel):
+	"""A link type, and how it reads from each end.
+
+	There is no ``inverse_key``, and that is settled rather than missing: **the API names
+	the direction, not the inverse type**. A link response carries ``link_type`` (this key),
+	``direction`` (``outgoing`` or ``incoming``) and a ``label`` already the right way round.
+	Deriving an inverse key by lower-casing ``inverse_title`` works for the five seeded
+	types and breaks on the first custom one.
+	"""
+
+	key: str
+	title: str
+	inverse_title: str
+	is_symmetric: bool
+
+
+class Tag(pydantic.BaseModel):
+	"""A tag, and how much it is used."""
+
+	name: str
+	usage: int
+
+
+class Tags(pydantic.BaseModel):
+	"""The tag list, and an honest statement of what was left out."""
+
+	items: list[Tag]
+	total: int
+	truncated: bool
+
+
+class Listing(pydantic.BaseModel):
+	"""What one collection endpoint accepts.
+
+	Reflected from the running application, so it cannot claim a filter that does not
+	exist or omit one that does.
+	"""
+
+	path: str
+	filters: list[str]
+	sortable: list[str]
+
+	#: What ``?fields=`` may name, and what ``?format=`` accepts (SPEC.md §14.10). Published
+	#: for the reason ``sortable`` is: an agent that has to discover a field name by being
+	#: refused has paid for the discovery in context, which is the cost shaping exists to
+	#: avoid in the first place.
+	selectable: list[str]
+	formats: list[str]
+
+
+class Grammar(pydantic.BaseModel):
+	"""One of the small closed languages this installation parses."""
+
+	description: str
+	vocabulary: list[str]
+	examples: list[str]
+
+
+class Limits(pydantic.BaseModel):
+	"""The bounds a request is held to."""
+
+	default_page_size: int
+	max_page_size: int
+	max_title_length: int
+	max_hierarchy_depth: int
+	max_estimate_minutes: int
+
+
+class Meta(pydantic.BaseModel):
+	"""Everything needed to construct a valid request against *this* installation."""
+
+	api_version: str
+	server_time: datetime.datetime
+	instance: Instance | None
+
+	#: What this is, for the reader who arrived here with a base URL and a token and nothing
+	#: else. **Addressed to an agent, because an agent is the caller that has no other way to
+	#: find out** — a person has the README. It costs about thirty tokens against §13.1's size
+	#: budget and it is the one response every client fetches first, which is the whole
+	#: argument for it being here rather than only in the guide it points at.
+	purpose: str
+
+	#: Where this instance's source can be obtained. Published because the AGPL's network
+	#: clause requires a served instance to offer its source to the people using it
+	#: (SPEC.md §2.2), which makes this a product requirement rather than a footnote.
+	source_url: str
+
+	#: The address this instance is served on, when a deployment has said (SPEC.md §12.4).
+	#: Null on a laptop listening on loopback, which is the ordinary case and is not a gap: a
+	#: client that reached this response already knows one address that works. It is here for
+	#: the client that must hand out a *durable* one — a webhook target, a shared link, or the
+	#: ``subroutine:`` address of an item on this instance — which is not the same as whatever
+	#: host happened to be dialled.
+	public_url: str | None
+
+	workspace: uuid.UUID | None
+	workspaces: list[WorkspaceRef]
+
+	statuses: dict[str, list[Status]]
+	item_types: dict[str, list[Named]]
+	link_types: list[LinkType]
+	linkable_types: list[str]
+	tags: Tags
+
+	listings: dict[str, Listing]
+	grammars: dict[str, Grammar]
+	limits: Limits
+	error_codes: list[str]
+	docs: dict[str, str]

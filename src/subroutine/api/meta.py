@@ -20,13 +20,11 @@ to keep this response small, and a workspace with four thousand tags would other
 the discovery endpoint the most expensive call in the API.
 """
 
-import datetime
 import json
 import typing
 import uuid
 
 import fastapi
-import pydantic
 import sqlalchemy
 import sqlalchemy.orm
 import starlette.requests
@@ -40,9 +38,11 @@ import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.cli.topics
+import subroutine.config
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
+import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
@@ -108,136 +108,6 @@ LISTINGS: tuple[tuple[str, str, dict[str, typing.Any], frozenset[str]], ...] = (
 )
 
 
-class Named(pydantic.BaseModel):
-	"""A vocabulary entry, as this workspace has it.
-
-	``label`` rather than ``title``, matching both the column and §13.2's example: it is
-	what to show a person, while ``key`` is what to send back.
-	"""
-
-	key: str
-	label: str
-	is_default: bool = False
-
-
-class Status(Named):
-	"""A status, with the fixed category a client may branch on."""
-
-	#: The key is renameable; the category is not. Branch on this.
-	category: str
-
-
-class LinkType(pydantic.BaseModel):
-	"""A link type, and how it reads from each end.
-
-	There is no ``inverse_key``, and that is settled rather than missing: **the API names
-	the direction, not the inverse type**. A link response carries ``link_type`` (this key),
-	``direction`` (``outgoing`` or ``incoming``) and a ``label`` already the right way round.
-	Deriving an inverse key by lower-casing ``inverse_title`` works for the five seeded
-	types and breaks on the first custom one.
-	"""
-
-	key: str
-	title: str
-	inverse_title: str
-	is_symmetric: bool
-
-
-class Tag(pydantic.BaseModel):
-	"""A tag, and how much it is used."""
-
-	name: str
-	usage: int
-
-
-class Tags(pydantic.BaseModel):
-	"""The tag list, and an honest statement of what was left out."""
-
-	items: list[Tag]
-	total: int
-	truncated: bool
-
-
-class Listing(pydantic.BaseModel):
-	"""What one collection endpoint accepts.
-
-	Reflected from the running application, so it cannot claim a filter that does not
-	exist or omit one that does.
-	"""
-
-	path: str
-	filters: list[str]
-	sortable: list[str]
-
-	#: What ``?fields=`` may name, and what ``?format=`` accepts (SPEC.md §14.10). Published
-	#: for the reason ``sortable`` is: an agent that has to discover a field name by being
-	#: refused has paid for the discovery in context, which is the cost shaping exists to
-	#: avoid in the first place.
-	selectable: list[str]
-	formats: list[str]
-
-
-class Grammar(pydantic.BaseModel):
-	"""One of the small closed languages this installation parses."""
-
-	description: str
-	vocabulary: list[str]
-	examples: list[str]
-
-
-class Limits(pydantic.BaseModel):
-	"""The bounds a request is held to."""
-
-	default_page_size: int
-	max_page_size: int
-	max_title_length: int
-	max_hierarchy_depth: int
-	max_estimate_minutes: int
-
-
-class Meta(pydantic.BaseModel):
-	"""Everything needed to construct a valid request against *this* installation."""
-
-	api_version: str
-	server_time: datetime.datetime
-	instance: subroutine.views.Instance | None
-
-	#: What this is, for the reader who arrived here with a base URL and a token and nothing
-	#: else. **Addressed to an agent, because an agent is the caller that has no other way to
-	#: find out** — a person has the README. It costs about thirty tokens against §13.1's size
-	#: budget and it is the one response every client fetches first, which is the whole
-	#: argument for it being here rather than only in the guide it points at.
-	purpose: str
-
-	#: Where this instance's source can be obtained. Published because the AGPL's network
-	#: clause requires a served instance to offer its source to the people using it
-	#: (SPEC.md §2.2), which makes this a product requirement rather than a footnote.
-	source_url: str
-
-	#: The address this instance is served on, when a deployment has said (SPEC.md §12.4).
-	#: Null on a laptop listening on loopback, which is the ordinary case and is not a gap: a
-	#: client that reached this response already knows one address that works. It is here for
-	#: the client that must hand out a *durable* one — a webhook target, a shared link, or the
-	#: ``subroutine:`` address of an item on this instance — which is not the same as whatever
-	#: host happened to be dialled.
-	public_url: str | None
-
-	workspace: uuid.UUID | None
-	workspaces: list[subroutine.views.WorkspaceRef]
-
-	statuses: dict[str, list[Status]]
-	item_types: dict[str, list[Named]]
-	link_types: list[LinkType]
-	linkable_types: list[str]
-	tags: Tags
-
-	listings: dict[str, Listing]
-	grammars: dict[str, Grammar]
-	limits: Limits
-	error_codes: list[str]
-	docs: dict[str, str]
-
-
 @router.get("/meta", summary="What does this installation call things?")
 def meta (
 	request: starlette.requests.Request,
@@ -247,8 +117,37 @@ def meta (
 	workspace_id: str | None = fastapi.Query(
 		None, description="Which workspace's vocabulary to report, by id or slug."
 	),
-) -> Meta:
+) -> subroutine.views.Meta:
 	"""Report this installation's vocabulary, limits and grammars."""
+
+	return document(
+		session, actor, settings, workspace_id=workspace_id, application=request.app
+	)
+
+
+def document (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	settings: subroutine.config.Settings,
+	*,
+	workspace_id: str | None,
+	application: fastapi.FastAPI,
+) -> subroutine.views.Meta:
+	"""Assemble what this installation calls things, for either transport — `#486`.
+
+	**Both clients answer this now**, so the assembly is one function rather than an endpoint
+	and a local reimplementation. `#483` left `/v1/meta` out of the agent surface precisely
+	because a local client would have had to rebuild it, and decision `#484` made that gap
+	load-bearing: an agent constructing a raw call needs *this workspace's* status and type
+	keys — ``done`` may be called ``Shipped`` here (§5.5) — and nothing else publishes them.
+
+	**It stays inside ``api`` while the models it returns do not**, which is the split worth
+	understanding. The models moved to :mod:`subroutine.views` because both clients parse them.
+	This does not, because :func:`_listings` reflects the *running application*'s OpenAPI
+	document — reporting the HTTP surface is the point, so the assembly belongs with the thing
+	it reflects. The local client reaches it through the same documented late import it already
+	takes for the reference documents.
+	"""
 
 	reachable = subroutine.domain.workspaces.readable(session, actor)
 
@@ -271,7 +170,7 @@ def meta (
 	)
 	instance = subroutine.domain.instances.get(session)
 
-	return Meta(
+	return subroutine.views.Meta(
 		api_version=subroutine.API_VERSION,
 		server_time=subroutine.db.types.utcnow(),
 		purpose=PURPOSE,
@@ -285,9 +184,9 @@ def meta (
 		link_types=[] if chosen is None else _link_types(session, chosen.id),
 		linkable_types=list(subroutine.domain.links.LINKABLE),
 		tags=_tags(session, actor, chosen),
-		listings=_listings(request),
+		listings=_listings(application),
 		grammars=_grammars(),
-		limits=Limits(
+		limits=subroutine.views.Limits(
 			default_page_size=settings.default_page_size,
 			max_page_size=settings.max_page_size,
 			max_title_length=subroutine.domain.tasks.MAX_TITLE_LENGTH,
@@ -530,11 +429,11 @@ def _sole (reachable: typing.Sequence[typing.Any]) -> typing.Any:
 
 def _statuses (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
-) -> dict[str, list[Status]]:
+) -> dict[str, list[subroutine.views.Status]]:
 	"""Return every status this workspace has, grouped by what it applies to."""
 
 	model = subroutine.db.models.vocabulary.Status
-	grouped: dict[str, list[Status]] = {}
+	grouped: dict[str, list[subroutine.views.Status]] = {}
 
 	for row in session.scalars(
 		sqlalchemy.select(model)
@@ -542,7 +441,7 @@ def _statuses (
 		.order_by(model.entity_type, model.position)
 	):
 		grouped.setdefault(row.entity_type, []).append(
-			Status(
+			subroutine.views.Status(
 				key=row.key, label=row.label, category=row.category, is_default=row.is_default
 			)
 		)
@@ -552,11 +451,11 @@ def _statuses (
 
 def _item_types (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
-) -> dict[str, list[Named]]:
+) -> dict[str, list[subroutine.views.Named]]:
 	"""Return every item type this workspace has, grouped by what it applies to."""
 
 	model = subroutine.db.models.vocabulary.ItemType
-	grouped: dict[str, list[Named]] = {}
+	grouped: dict[str, list[subroutine.views.Named]] = {}
 
 	for row in session.scalars(
 		sqlalchemy.select(model)
@@ -564,7 +463,7 @@ def _item_types (
 		.order_by(model.entity_type, model.position)
 	):
 		grouped.setdefault(row.entity_type, []).append(
-			Named(key=row.key, label=row.label, is_default=row.is_default)
+			subroutine.views.Named(key=row.key, label=row.label, is_default=row.is_default)
 		)
 
 	return grouped
@@ -572,13 +471,13 @@ def _item_types (
 
 def _link_types (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
-) -> list[LinkType]:
+) -> list[subroutine.views.LinkType]:
 	"""Return every link type this workspace has."""
 
 	model = subroutine.db.models.vocabulary.LinkType
 
 	return [
-		LinkType(
+		subroutine.views.LinkType(
 			key=row.key,
 			title=row.title,
 			inverse_title=row.inverse_title,
@@ -594,7 +493,7 @@ def _tags (
 	session: sqlalchemy.orm.Session,
 	actor: typing.Any,
 	workspace: typing.Any,
-) -> Tags:
+) -> subroutine.views.Tags:
 	"""Return the most-used tags, capped, and say how many were left out.
 
 	Usage is counted over the tasks this caller can actually see, so a tag used only in a
@@ -603,7 +502,7 @@ def _tags (
 	"""
 
 	if workspace is None:
-		return Tags(items=[], total=0, truncated=False)
+		return subroutine.views.Tags(items=[], total=0, truncated=False)
 
 	tag = subroutine.db.models.vocabulary.Tag
 	joined = subroutine.db.models.work.TaskTag
@@ -628,14 +527,14 @@ def _tags (
 		)
 	)
 
-	return Tags(
-		items=[Tag(name=row[0], usage=row[1]) for row in rows[:TAG_LIMIT]],
+	return subroutine.views.Tags(
+		items=[subroutine.views.Tag(name=row[0], usage=row[1]) for row in rows[:TAG_LIMIT]],
 		total=total or 0,
 		truncated=len(rows) > TAG_LIMIT,
 	)
 
 
-def _listings (request: starlette.requests.Request) -> dict[str, Listing]:
+def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listing]:
 	"""Report what each collection endpoint accepts, read from the application itself.
 
 	The filters come out of the generated OpenAPI document and the sort fields out of the
@@ -644,8 +543,8 @@ def _listings (request: starlette.requests.Request) -> dict[str, Listing]:
 	here would be publishing a language this installation does not speak.
 	"""
 
-	schema = request.app.openapi()
-	found: dict[str, Listing] = {}
+	schema = application.openapi()
+	found: dict[str, subroutine.views.Listing] = {}
 
 	for entity, path, sortable, selectable in LISTINGS:
 		operation = schema.get("paths", {}).get(path, {}).get("get", {})
@@ -656,7 +555,7 @@ def _listings (request: starlette.requests.Request) -> dict[str, Listing]:
 			and parameter["name"] not in NOT_FILTERS
 		]
 
-		found[entity] = Listing(
+		found[entity] = subroutine.views.Listing(
 			path=path,
 			filters=sorted(parameters),
 			sortable=sorted(sortable),
@@ -667,11 +566,11 @@ def _listings (request: starlette.requests.Request) -> dict[str, Listing]:
 	return found
 
 
-def _grammars () -> dict[str, Grammar]:
+def _grammars () -> dict[str, subroutine.views.Grammar]:
 	"""Report the small closed languages, read from the parsers that enforce them."""
 
 	return {
-		"relative_dates": Grammar(
+		"relative_dates": subroutine.views.Grammar(
 			description=(
 				"A keyword, optionally shifted: <keyword>[+-]<n><unit>. Units are "
 				"minutes, hours, days, weeks, months (capital M) and years."
@@ -679,7 +578,7 @@ def _grammars () -> dict[str, Grammar]:
 			vocabulary=list(subroutine.domain.dates.KEYWORDS),
 			examples=["today", "now+90m", "end_of_week", "start_of_month+1M"],
 		),
-		"durations": Grammar(
+		"durations": subroutine.views.Grammar(
 			description=(
 				"A number and a unit, largest first, each unit at most once. A unit is "
 				"always required."
@@ -687,7 +586,7 @@ def _grammars () -> dict[str, Grammar]:
 			vocabulary=[unit for unit, _minutes in subroutine.domain.durations.UNITS],
 			examples=["90m", "1h30m", "2d", "1w2d"],
 		),
-		"capture": Grammar(
+		"capture": subroutine.views.Grammar(
 			description=(
 				"One line, parsed into fields. Anything not recognised stays in the title, "
 				"verbatim."

@@ -99,7 +99,7 @@ ADDS = {"destructiveHint": False}
 
 
 def references (
-	client: subroutine.clients.base.Client,
+	client: subroutine.clients.base.Client, *, workspace: str | None = None,
 ) -> list[subroutine.mcp.protocol.Resource]:
 	"""Return the documents an agent may read when it wants them — `#483`.
 
@@ -141,7 +141,36 @@ def references (
 			mime_type="text/markdown",
 			read=lambda: client.reference("examples"),
 		),
+		subroutine.mcp.protocol.Resource(
+			uri="subroutine://meta",
+			name="vocabulary",
+			title="What this installation calls things",
+			description=(
+				"This workspace's status keys, item types, link types and tags, plus what each "
+				"listing accepts, the limits and the error codes. Read it before constructing a "
+				"request by hand: the keys are renameable, so 'done' may be called something "
+				"else here."
+			),
+			mime_type="application/json",
+			read=lambda: _vocabulary(client, workspace),
+		),
 	]
+
+
+def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) -> str:
+	"""Return this installation's vocabulary as JSON — `#486`.
+
+	**Bound to the session's workspace, not to whatever is sole.** ``catalogue`` takes the same
+	setting and treats it as a default a caller may override; a resource has no arguments to
+	override *with*, so this is the only place the binding can be applied — and a resource
+	reporting a different workspace's keys from the tools beside it would be worse than not
+	publishing them.
+
+	Serialised through pydantic rather than by hand so that a field added to
+	:class:`subroutine.views.Meta` appears here without being listed anywhere twice.
+	"""
+
+	return client.meta(workspace=workspace).model_dump_json(indent=1)
 
 
 def catalogue (

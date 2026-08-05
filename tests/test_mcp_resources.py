@@ -21,11 +21,26 @@ import subroutine.mcp.protocol
 import subroutine.mcp.tools
 
 
+class _NothingInParticular:
+	"""Stands in for a :class:`subroutine.views.Meta` without naming its fields."""
+
+	def model_dump_json (self, **options: typing.Any) -> str:
+		"""Serialise the way the real model does."""
+
+		return '{"api_version": "0"}'
+
+
+_NOTHING_IN_PARTICULAR = _NothingInParticular()
+
+
 def _client (text: str = "the guide") -> typing.Any:
 	"""Return a client that answers :meth:`reference` and records what it was asked for."""
 
 	client = unittest.mock.MagicMock(spec=subroutine.clients.base.Client)
 	client.reference.side_effect = lambda name: f"{text}: {name}"
+	# A stand-in shaped like the real thing without listing every field: the point here is
+	# the wiring, and the vocabulary itself is proved against a real database in `test_mcp`.
+	client.meta.return_value = _NOTHING_IN_PARTICULAR
 
 	return client
 
@@ -77,19 +92,28 @@ def test_a_server_with_no_resources_does_not_claim_the_capability () -> None:
 	assert "resources" not in described["result"]["capabilities"]
 
 
-def test_the_guide_and_the_examples_are_both_offered () -> None:
-	"""The two documents §13.3 writes for this reader."""
+def test_the_guide_the_examples_and_the_vocabulary_are_offered () -> None:
+	"""The two documents §13.3 writes for this reader, and what `#486` added beside them."""
 
 	listed = _ask(_server(_client()), "resources/list")["result"]["resources"]
 
 	assert [row["uri"] for row in listed] == [
 		"subroutine://docs/agent",
 		"subroutine://docs/examples",
+		"subroutine://meta",
 	]
 
 	for row in listed:
 		assert row["description"], f"{row['uri']} must say what it is, or nobody opens it"
-		assert row["mimeType"] == "text/markdown"
+
+	assert [row["mimeType"] for row in listed] == [
+		"text/markdown",
+		"text/markdown",
+		# **Not markdown**, and the difference is the point: the guide is prose a model reads
+		# and this is a document it looks keys up in. A client that renders by media type
+		# would otherwise show a wall of JSON as if it were something to read through.
+		"application/json",
+	]
 
 
 def test_reading_one_fetches_it_from_the_instance (

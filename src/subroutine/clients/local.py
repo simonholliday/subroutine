@@ -129,6 +129,34 @@ class Client:
 
 		raise subroutine.errors.NotFound(f"There is no reference document called {name!r}.")
 
+	def meta (self, *, workspace: str | None = None) -> subroutine.views.Meta:
+		"""Report what this installation calls things — `#486`.
+
+		**The same assembly the endpoint uses**, reached through the same documented late import
+		as :meth:`reference` and for the same reason: ``api`` pulls in FastAPI, measured at 0.3s
+		of the CLI's 0.8s start, and paying that on every command for a rarely-asked question is
+		the wrong trade.
+
+		**An application is built to be reflected, not to be served.** ``meta`` reports what each
+		listing accepts, read out of the OpenAPI document rather than from a description of it —
+		so answering the question locally means having the thing that generates it. Built with
+		this client's own session factory, so it opens no second engine.
+		"""
+
+		from subroutine.api import app as building
+		from subroutine.api import meta as documents
+
+		with self._opened() as (session, actor):
+			return documents.document(
+				session,
+				actor,
+				self.settings,
+				workspace_id=workspace,
+				application=building.create_app(
+					settings=self.settings, session_factory=self._sessions
+				),
+			)
+
 	def identity (self) -> subroutine.clients.base.Identity:
 		"""Report this installation's identity and the workspaces the credential reaches."""
 
