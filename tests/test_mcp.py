@@ -2612,3 +2612,42 @@ def test_a_raw_call_is_narrowed_by_the_credential_it_already_had (
 	assert failed or writing.startswith("403"), (
 		f"a task:read credential filed a task through the raw path: {writing}"
 	)
+
+
+def test_the_instructions_say_the_tools_are_not_the_whole_product (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#480`. An agent that believes the tools *are* the product stops at the first gap.
+
+	Measured on 2026-08-04, from a third-party agent on a fresh install: it could not revise a
+	document through the tools, concluded documents were immutable, and **changed how it
+	worked** — declining to file a draft at all and giving one-item-in-one-place, which is this
+	project's own principle, as the reason. It was right about the surface and wrong about the
+	system, and nothing anywhere told it so. Told the command line existed, it found
+	``subroutine doc edit`` in under a minute.
+
+	**Here rather than only in the skill**, which is the decision the item left open. The skill
+	carries the *reasoning* — a schema is context every session carries, so a tool is expensive
+	in a way a command is not — and costs nothing per session. But `#378` is standing evidence
+	that the skill is read only by an agent that opened it, and this is the one text guaranteed
+	to be in context. So: point here, teach there.
+
+	**Conditional for a reason the skill pointer does not share**: a client reaching this server
+	over HTTP may have no shell at all, and an instruction telling it to run a command would be
+	the confident wrongness §13.1 forbids.
+	"""
+
+	roster = subroutine.connections.Roster(
+		(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	instructions = _standing_up(monkeypatch, roster)
+
+	assert "budget" in instructions, (
+		"nothing says the surface is deliberate, so a gap reads as the product's limit"
+	)
+	assert "subroutine --help" in instructions, (
+		"the pointer must name the check — the agent above ran exactly that"
+	)
+	assert "if you can run commands" in instructions.lower(), (
+		"it must stay conditional: a session reaching this over HTTP may have no shell"
+	)

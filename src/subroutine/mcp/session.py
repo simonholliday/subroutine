@@ -121,11 +121,24 @@ def _instructions (
 	# **Conditional, because the server runs without the plugin.** `subroutine mcp` started by
 	# hand has no skill to read, and an instruction naming one that is not there is the kind of
 	# confident wrongness §13.1 exists to prevent. Phrased as a condition the reader can check.
+	#
+	# **And the second pointer is `#480`**, which is the same failure one level out: an agent
+	# that believes the tools *are* the product stops at the first thing they cannot do. Measured
+	# — a third-party agent could not revise a document, concluded documents were immutable, and
+	# changed how it worked, giving one-item-in-one-place as the reason. It found `doc edit` in
+	# under a minute once told the command line existed.
+	#
+	# It points and does not teach, for `#378`'s reason: the *why* — a schema is context every
+	# session carries, so a tool is expensive in a way a command is not — is in the skill, where
+	# it costs nothing per session. Conditional for the same reason as the line above it, and a
+	# different one: a client reaching this over HTTP may have no shell at all.
 	return (
 		f"Shared project management for people and agents, on connection "
 		f"'{connection.label}'. {where}{others}"
 		f"If a 'subroutine' skill is available, read it before your first call — it carries "
 		f"the conventions these tool descriptions do not. "
+		f"These tools are a deliberate budget rather than the whole product: if you can run "
+		f"commands, 'subroutine --help' is the complete surface. "
 		f"Items are addressed by a number written #42, unique per "
 		f"workspace and never reused, shared between tasks and documents. "
 		f"A comment is what happened; a document is what you concluded — if the next "
