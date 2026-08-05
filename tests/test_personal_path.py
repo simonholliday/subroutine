@@ -1456,6 +1456,75 @@ def test_the_type_column_stays_hidden_when_everything_is_one_kind (
 	assert "task" not in run("list").output
 
 
+def test_a_list_nobody_delegates_on_has_no_assignee_column (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#511`. The half of §12.2a that must keep holding: §1.4's reader pays nothing for this."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "buy milk")
+	run("add", "call the dentist")
+
+	assert "@" not in run("list").output
+
+
+def test_the_assignee_column_appears_once_one_item_is_handed_over (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#511`. Work could be handed over on every surface and no surface said to whom."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "buy milk")
+	run("add", "fix the boiler @si")
+
+	assert "@si" in run("list").output, "the column did not appear once a row had one"
+
+
+def test_the_assignee_column_survives_everything_being_assigned_to_one_person (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#511`, and **deliberately the opposite answer to the type column above**.
+
+	``_column``'s rule is "fewer than two distinct values", which is right for a kind or a
+	priority: there is no reading of a uniform ``bug`` that means its own absence. The assignee
+	has one, because its default is blank — so *nobody is assigned any of this* and *one person
+	is assigned all of it* are both a single distinct value and would both render as no column,
+	the second reading as the first.
+
+	That is exactly `#511`'s defect, returning at the worst possible moment: the page where
+	everything has been delegated is the page where hiding it costs most. Hence
+	``drop_if_uniform=False`` for this column and this column alone.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "buy milk @si")
+	run("add", "call the dentist @si")
+
+	assert "@si" in run("list").output, (
+		"a page where every row is assigned to the same person now reads as one where "
+		"nothing is assigned at all"
+	)
+
+
+def test_show_says_who_the_work_is_with (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#511`. `#168`'s defect exactly, three lines below `#168`'s own comment in ``_facts``.
+
+	``update 1 --assignee si`` answered *"Changed"* and then ``show`` printed the priority, the
+	deadline and the tags and never mentioned it — a field somebody chose, with no surface.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "fix the boiler")
+
+	assert "@si" not in run("show", "1").output
+
+	run("update", "1", "--assignee", "si")
+
+	assert "@si" in run("show", "1").output
+
+
 def test_a_bare_invocation_says_there_is_more (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

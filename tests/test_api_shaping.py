@@ -170,6 +170,53 @@ def test_the_plan_column_costs_nothing_on_a_page_with_no_plans (
 	]
 
 
+def test_the_compact_line_carries_the_assignee_as_a_username (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#511`. §14.10 promised ``@assignee`` and the view carried an ``assignee_id``.
+
+	A UUID is not what anybody types into ``--assignee`` and not what a line has room for, so
+	the column could not exist until the username was batch-loaded beside the statuses and the
+	tags. It goes *after* the title on purpose: like ``→`` and ``#`` it marks itself, so
+	nothing that already had a position moves.
+	"""
+
+	_populate(world)
+
+	refs = world.call("GET", "/v1/tasks?format=ids").json()["items"]
+
+	world.call("PATCH", f"/v1/tasks/{refs[0]}", json={"assignee": world.user.username})
+
+	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
+
+	assert f"@{world.user.username}" in lines[0]
+	assert str(world.user.id) not in lines[0], "a line has no room for a UUID and never had"
+
+	# The other two are unassigned, and the column they share is blank rather than absent —
+	# `shaping.aligned` drops a column only when *every* row leaves it empty.
+	assert all("@" not in line for line in lines[1:])
+
+
+def test_the_assignee_column_costs_nothing_when_nobody_is_assigned (
+	world: test_api_tasks.World,
+) -> None:
+	"""The condition on which it was safe to add this column, and the plan column's argument.
+
+	Measured the same way: with nobody assigned, every row is exactly what it was before this
+	existed, to the character.
+	"""
+
+	_populate(world)
+
+	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
+
+	assert lines == [
+		"#3  [open]  —      —           Nothing assessed about this one",
+		"#2  [open]  I4/U-  —           Add /v1/changes endpoint",
+		"#1  [open]  I4/U5  2026-08-01  Fix token prefix collision",
+	]
+
+
 def test_ids_returns_the_addresses_alone (world: test_api_tasks.World) -> None:
 	"""The smallest thing that is still useful: what to ask about next."""
 

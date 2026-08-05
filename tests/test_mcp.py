@@ -32,6 +32,7 @@ import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
 import subroutine.context
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.directory
 import subroutine.domain.authentication
@@ -518,6 +519,42 @@ def test_an_agent_can_find_something_by_its_words (
 	assert not failed, found
 	assert "Fix the date parser" in found
 	assert "Paint the shed" not in found
+
+
+def test_an_agent_can_see_who_work_is_with (
+	bound: subroutine.mcp.protocol.Server,
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#511`, on the surface its own description said was already covered.
+
+	The item argued that an agent could see this because ``assignee_id`` is in the JSON. That
+	is true of raw HTTP and **not** of here: these tools return text, and ``_line`` rendered
+	the rank, the estimate and the deadline and nothing about who had it. So `#493` gave an
+	agent a way to hand work over and left the tool that reads it unable to report the result
+	— the two disagreeing about whether anything had happened.
+
+	A username rather than the id, for the reason the comment renderer already gives: a UUID
+	is thirty-six characters a model cannot resolve without another call.
+	"""
+
+	ref = _added(bound, "Build the endpoint")
+	who = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User.username)
+	).first()
+
+	assert who is not None
+
+	changed, failed = _called(bound, "subroutine_update", ref=ref, assignee=who)
+
+	assert not failed, changed
+
+	shown = _called(bound, "subroutine_show", ref=ref)[0]
+
+	assert f"@{who}" in shown, "the tool that assigns and the tool that reads still disagree"
+
+	listed = _called(bound, "subroutine_list")[0]
+
+	assert f"@{who}" in listed
 
 
 def test_an_agent_can_say_what_blocks_what (

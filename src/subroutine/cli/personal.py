@@ -300,7 +300,7 @@ class Listing:
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
 # definition raises `NameError` on import while mypy reports nothing — the same trap as
 # `Item` above `World`, which cost an import failure on 2026-07-30.
-def _column (values: typing.Iterable[str]) -> int:
+def _column (values: typing.Iterable[str], *, drop_if_uniform: bool = True) -> int:
 	"""Return how wide a column must be, or zero when it would say nothing.
 
 	**A column that says the same thing on every row says nothing**, whether what it says is
@@ -318,11 +318,23 @@ def _column (values: typing.Iterable[str]) -> int:
 	That is §1.4 falling out of a layout rule rather than being enforced by one: the columns
 	appear when the data has something to say and are invisible to somebody keeping a to-do
 	list.
+
+	**``drop_if_uniform=False`` is for a column whose uniform value is itself news** (`#511`).
+	The rule above collapses two opposite states when the default is blank: "nobody has been
+	assigned any of this" and "one person has been assigned all of it" are both a single
+	distinct value, so both render as no column — and the second reads as the first. For the
+	type or the priority that conflation cannot arise, because there is no reading of a
+	uniform `bug` that means its own absence. The assignee is the column where it can, and
+	`#511` exists because delegation was invisible; a rule that hides it again exactly when
+	everything is delegated would reintroduce the defect at its worst moment.
+
+	The cost is one redundant column on `list --assignee jo`, which is visible, cheap, and
+	the right way round: a column somebody can see is not a wrong answer.
 	"""
 
 	distinct = set(values)
 
-	if len(distinct) < 2:
+	if len(distinct) < 2 and (drop_if_uniform or not any(distinct)):
 		return 0
 
 	return max(len(value) for value in distinct)
@@ -385,6 +397,7 @@ class Columns:
 	estimate: int = 0
 	matched: int = 0
 	parent: int = 0
+	assignee: int = 0
 
 	#: What was searched for, so a row can say where it was found. ``None`` on any listing
 	#: that was not a search, which is what drops the column entirely.
@@ -408,6 +421,9 @@ class Columns:
 			blocked=_column(_blocked_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
+			assignee=_column(
+				(_assignee_cell(item) for _name, item in rows), drop_if_uniform=False
+			),
 		)
 
 
@@ -601,6 +617,21 @@ def _estimate_cell (item: Item) -> str:
 		return ""
 
 	return item.estimate_human
+
+
+def _assignee_cell (item: Item) -> str:
+	"""Return who the work is with, or nothing when it is with nobody.
+
+	**A to-do list nobody delegates on is unchanged** (`#511`): §12.2a drops a column that is
+	empty in every row, so this costs a personal listing nothing and appears the moment one
+	item is handed over. A document has no assignee and returns empty for the same reason it
+	has no deadline — the field is not a task's alone by accident, it is what `Item` covers.
+	"""
+
+	if not isinstance(item, subroutine.views.Task) or not item.assignee:
+		return ""
+
+	return f"@{item.assignee}"
 
 
 #: A page with nothing worth putting in a column, which is what a bare row looks like.
@@ -4866,6 +4897,9 @@ def _item_line (
 		# glance only if the units line up.
 		line.append(f"{_estimate_cell(item):>{columns.estimate}}  ", style=DETAIL)
 
+	if columns.assignee:
+		line.append(f"{_assignee_cell(item):<{columns.assignee}}  ", style=DETAIL)
+
 	_append_title(line, item.title, columns.term)
 
 	detail = _when(item)
@@ -5111,6 +5145,13 @@ def _facts (located: Located) -> list[str]:
 
 		if item.completed_at is not None:
 			facts.append(f"done {_render_date(item.completed_at, item.timezone)}")
+
+		# **Who has it** (`#511`). A field somebody chose, so it meets this function's own rule
+		# — and it was the one chosen field with no surface at all: `update --assignee jo`
+		# answered "Changed" and then `show` printed the priority, the deadline and the tags
+		# and never mentioned jo. `#168`'s defect exactly, three lines below `#168`'s comment.
+		if item.assignee:
+			facts.append(f"@{item.assignee}")
 
 		if item.tags:
 			facts.extend(f"#{tag}" for tag in item.tags)

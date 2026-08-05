@@ -238,6 +238,15 @@ class Task(pydantic.BaseModel):
 
 	assignee_id: uuid.UUID | None
 
+	#: The assignee's username, batch-loaded beside the statuses and types (`#511`). §8.5 says
+	#: an unrequested relation appears as an id, and an id is what every surface then had to
+	#: print — so work could be handed over on all three surfaces and no surface said to whom.
+	#: A username is what somebody types into `--assignee` and what §14.10's `@assignee` means,
+	#: which makes this enrichment rather than a second representation of the same field.
+	#:
+	#: **Defaulted because it was added after this model shipped** (`#345`, guarded by `#482`).
+	assignee: str | None = None
+
 	#: Who put it in that person's queue (`#477`). Derived from whoever made the change, so it
 	#: is reported and never accepted — an assigner a caller could type would be a claim rather
 	#: than a record. Null with the assignee, and null for a change nobody was acting for.
@@ -326,13 +335,11 @@ class Task(pydantic.BaseModel):
 		wherever it lands. The deadline stays bare because it is never dropped and because
 		marking it would cost four characters a row on every listing ever made.
 
-		``@assignee`` still appears in §14.10's example and not here. It needs a username
-		rather than an ``assignee_id``, which is a lookup this view does not carry — view
-		*enrichment* rather than shaping, and **`#511`** rather than half-done.
-
-		**That ref is new and the sentence used to end "filed as such".** Nothing had been
-		filed, and an excuse naming no item reads as tracked to anybody who does not go and
-		check — `#500`'s failure from the other side, where the ref was present and closed.
+		``@assignee`` arrived in `#511`, batch-loaded onto the view the way ``#tags`` already
+		was — the lookup this docstring used to say the view did not carry. It sits *after*
+		the title deliberately: like the plan and the tags it marks itself with a sigil, so
+		its position is not what identifies it, and putting it there means no column that
+		existed before this moves on any page.
 		"""
 
 		return (
@@ -342,6 +349,7 @@ class Task(pydantic.BaseModel):
 			"—" if self.due_at is None else self.due_at.date().isoformat(),
 			"" if self.planned_for is None else f"→{self.planned_for.isoformat()}",
 			subroutine.domain.text.truncated(self.title),
+			"" if self.assignee is None else f"@{self.assignee}",
 			" ".join(f"#{name}" for name in self.tags),
 		)
 
@@ -1042,6 +1050,7 @@ class Vocabulary:
 		project_ids: typing.Iterable[uuid.UUID] = (),
 		task_ids: typing.Iterable[uuid.UUID] = (),
 		parent_ids: typing.Iterable[uuid.UUID] = (),
+		user_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -1078,6 +1087,13 @@ class Vocabulary:
 			session, subroutine.db.models.work.Task, parent_ids, ("ref", "title")
 		)
 
+		# **One query for every assignee on the page** (`#511`), for the reason the parents load
+		# above gives: a username is how a person is addressed, so a view reporting only
+		# `assignee_id` makes every surface resolve a UUID before it can print anything.
+		self.users = _by_id(
+			session, subroutine.db.models.identity.User, user_ids, ("username",)
+		)
+
 	@classmethod
 	def for_tasks (
 		cls, session: sqlalchemy.orm.Session, tasks: typing.Sequence[subroutine.db.models.work.Task]
@@ -1091,6 +1107,7 @@ class Vocabulary:
 			project_ids={task.project_id for task in tasks},
 			task_ids={task.id for task in tasks},
 			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id},
+			user_ids={task.assignee_id for task in tasks if task.assignee_id},
 		)
 
 	@classmethod
@@ -1144,6 +1161,7 @@ def task (
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
+		assignee=_username(vocabulary, row.assignee_id),
 		assigned_by_id=row.assigned_by_id,
 		claimed_by_id=row.claimed_by_id,
 		claimed_at=row.claimed_at,
@@ -1922,6 +1940,23 @@ def _parent_field (
 		return None
 
 	return vocabulary.parents.get(parent_id, {}).get(field)
+
+
+def _username (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:
+	"""Return a user's username, or ``None`` when nobody is named.
+
+	**Nobody assigned and a name that could not be loaded are both ``None``**, on
+	``_parent_field``'s reasoning: the id is reported beside this either way, so a caller that
+	genuinely needs to tell them apart still can, and a surface printing a name has nothing
+	useful to say about the difference.
+	"""
+
+	if user_id is None:
+		return None
+
+	name = vocabulary.users.get(user_id, {}).get("username")
+
+	return None if name is None else str(name)
 
 
 def _by_id (

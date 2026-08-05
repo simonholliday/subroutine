@@ -204,6 +204,16 @@ upgrade involves.
 
 ### Fixed
 
+- **An item now says who it is with.** Work could be handed over on every surface and no
+  surface reported the result: `subroutine update 1 --assignee jo` answered *"Changed"*, and
+  `subroutine show 1` then printed the priority, the deadline and the tags and never mentioned
+  jo. The view carried an `assignee_id`, which is a UUID — not what anybody types and not what
+  a line has room for.
+
+  A username is now loaded beside the statuses and the tags, in one query for the page rather
+  than one per row, so `show`, the listing and `?format=compact`'s `@assignee` all follow. A
+  list nobody delegates on is unchanged: the column is dropped when no item has one.
+
 - **The plugin says which clients it can run in.** It starts Subroutine as a program on your
   own machine, so it works in Claude Code and the desktop apps and not on the web. That was
   always true and was written down nowhere.

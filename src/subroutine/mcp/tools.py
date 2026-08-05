@@ -1032,6 +1032,17 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 		if item.due_at is not None:
 			cells.append(f"due {item.due_at.date().isoformat()}")
 
+		# **Who has it** (`#511`). `#493` gave an agent the ability to hand work over and this
+		# renderer could not report the result — so the tool that assigns and the tool that
+		# reads disagreed about whether anything had happened. The item filed against this
+		# said an agent *could* already see it because `assignee_id` is in the JSON; that is
+		# true of raw HTTP and not of here, which returns text.
+		#
+		# The username rather than the id, for the reason the comment renderer gives below: a
+		# UUID is thirty-six characters a model cannot resolve without another call.
+		if item.assignee:
+			cells.append(f"@{item.assignee}")
+
 	cells.append(item.title)
 
 	return "  ".join(cells)
