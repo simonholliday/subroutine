@@ -84,6 +84,23 @@ class Client:
 
 		return self._text("GET", f"/v1/docs/{name}")
 
+	def call_api (
+		self,
+		*,
+		method: str,
+		path: str,
+		body: typing.Any | None = None,
+		query: dict[str, str] | None = None,
+	) -> subroutine.clients.base.Answered:
+		"""Make one request against a route this credential already allows — `#485`."""
+
+		if method.upper() not in subroutine.clients.base.READING_VERBS:
+			self._refuse_if_read_only()
+
+		answer = self._call(method.upper(), path, params=query, json=body)
+
+		return subroutine.clients.base.Answered(answer.status_code, answer.text)
+
 	def meta (self, *, workspace: str | None = None) -> subroutine.views.Meta:
 		"""Report what this installation calls things — `#486`."""
 

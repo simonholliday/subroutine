@@ -24,6 +24,7 @@ nobody asked for.
 
 import dataclasses
 import datetime
+import re
 import typing
 
 import subroutine.clients.base
@@ -96,6 +97,34 @@ READS = {"readOnlyHint": True}
 #: carries, so an annotation that changes no client's behaviour is exactly the fat §21.2 asks to
 #: be read for before the cap moves.
 ADDS = {"destructiveHint": False}
+
+#: Routes ``call_api`` will not reach, and what to do instead — decision `#484`.
+#:
+#: **One shared reason: consequential, no undo, and the safety is a confirmation step.** The CLI
+#: half of each counts what will change and asks before doing it, which is not a shape a tool
+#: call has today.
+#:
+#: **The written reason used to say a tool call *cannot* express that, and the protocol has
+#: retired it** — elicitation is part of revision ``2025-06-18``, which is the one this server
+#: negotiates, and ``2026-07-28`` rebuilds it as Multi Round-Trip Requests: a tool returns what
+#: it needs and the client retries with the answer, which is exactly "count, ask, then act". So
+#: the entries stand on two reasons that *are* true — support is uneven across the clients agents
+#: actually run in, and these three fire perhaps once a month — and each carries its expiry:
+#: **delete an entry when a confirmation round-trip is dependable in the clients that matter.**
+#:
+#: Read by ``tests/test_reach.py`` as well, so there is one definition and two readers.
+DENIED: tuple[tuple[str, str, str], ...] = (
+	("POST", r"/v1/workspaces/?$", "subroutine init, or 'workspace create'"),
+	("PATCH", r"/v1/workspaces/[^/]+/?$", "subroutine workspace rename"),
+	("POST", r"/v1/projects/[^/]+/move/?$", "subroutine project move"),
+)
+
+#: How much of a response is worth returning. **A refusal rather than a truncation**, because a
+#: truncated JSON document is unparseable and reads as an answer: the caller gets something
+#: shaped like a result and cannot tell. Refusing names the three ways to narrow it, which is
+#: also the one place an agent reliably learns §14.10's shaping exists.
+MAX_ANSWER = 64 * 1024
+
 
 
 def references (
@@ -526,6 +555,31 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_call_api",
+			title="Call the API directly",
+			description=(
+				"For what the tools above do not cover. Prefer them: they carry the "
+				"conventions this instance expects, and subroutine_add's line grammar "
+				"(!4/2 ~2h #home +SR) is not applied to fields you send here. Read "
+				"subroutine://meta for this workspace's keys and subroutine://docs/examples "
+				"for worked calls. Paths are like '/v1/tasks'."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"method": {"type": "string", "description": "GET, POST, PATCH or DELETE."},
+					"path": {"type": "string", "description": "The route, e.g. /v1/projects."},
+					"body": {"type": "object", "description": "The JSON body, for a write."},
+					"query": {
+						"type": "object",
+						"description": "Query parameters, as strings.",
+					},
+				},
+				"required": ["method", "path"],
+			},
+			call=lambda arguments: _called_directly(client, arguments),
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_done",
 			title="Finish a task",
 			description="Mark a task complete by its ref number.",
@@ -541,6 +595,70 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			annotations=ADDS,
 		),
 	]
+
+
+def _called_directly (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Make one raw request and report what came back — `#485`.
+
+	**The surface is an opinion and this is the escape hatch**, which is decision `#484` in one
+	sentence. The measurement that settled it: of twenty capabilities the tools lacked, thirteen
+	were excluded for *budget* rather than by any decision — so this retires a constraint nobody
+	chose, rather than adding a thirteenth judgement.
+
+	It widens nothing. The credential is the one the connection already holds, and every check
+	the service layer makes for a named tool still runs.
+	"""
+
+	method = (_text(arguments, "method") or "").strip().upper()
+	path = (_text(arguments, "path") or "").strip()
+
+	if not method or not path:
+		raise ValueError("Pass 'method' and 'path', e.g. method='GET', path='/v1/tasks'.")
+
+	if not path.startswith("/"):
+		raise ValueError(f"A path starts with '/': {path!r}. Try '/{path.lstrip('/')}'.")
+
+	_refuse_a_denied_route(method, path)
+
+	body = arguments.get("body")
+	given = arguments.get("query")
+	query = (
+		None
+		if not isinstance(given, dict)
+		else {name: str(value) for name, value in given.items()}
+	)
+
+	answer = client.call_api(method=method, path=path, body=body, query=query)
+
+	if len(answer.text) > MAX_ANSWER:
+		raise ValueError(
+			f"That answer is {len(answer.text) // 1024} KB, which is more context than it is "
+			f"worth spending. Narrow it with 'fields' to choose columns, 'limit' to take fewer "
+			f"rows, or format=compact — see subroutine://meta for what this listing accepts."
+		)
+
+	# The status is reported rather than folded into the text: a caller that cannot tell 201
+	# from 200, or 404 from an empty list, has to infer it from prose written for a person.
+	return f"{answer.status} {answer.text}" if answer.text else str(answer.status)
+
+
+def _refuse_a_denied_route (method: str, path: str) -> None:
+	"""Refuse the three routes decision `#484` keeps off this surface.
+
+	**Named alternatives, never a dead end.** A refusal that only says "not here" strands an
+	agent mid-task; these three exist at a terminal, and saying which command is the difference
+	between a wall and a hand-off.
+	"""
+
+	for verb, pattern, instead in DENIED:
+		if method == verb and re.match(pattern, path):
+			raise ValueError(
+				f"{method} {path} is deliberately not reachable from here: it is consequential, "
+				f"it cannot be undone, and the command line asks before doing it. Run "
+				f"'{instead}' instead, or ask the person you answer to."
+			)
 
 
 def _claimed (

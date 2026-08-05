@@ -318,6 +318,34 @@ in rather than choosing for yourself — publishing cannot be undone.
 **Finish by leaving the trail.** Before your context ends: comment on what you touched, write a
 document for anything you decided, and mark done what is done. `subroutine_done(ref=42)`.
 
+## When the tools do not cover it
+
+`subroutine_call_api(method="PATCH", path="/v1/documents/42", body={"title": "…"})` reaches any
+route your credential already allows. Use it for the thing you cannot otherwise do — and reach
+for a named tool first, every time you have one.
+
+**That is not politeness, it is the difference between a call that works and a call that is
+right.** The tools carry conventions the API does not enforce. `subroutine_add` reads a whole
+line — `Fix the boiler by friday !4/2 ~2h #home +SR` — and `POST /v1/tasks` will happily take
+`{"title": "Fix the boiler", "importance": 4}` instead. Both succeed. The second quietly stops
+using the grammar, sets no deadline because nobody parsed "by friday", and nothing anywhere
+reports it. A raw call is the one place this tool surface cannot help you.
+
+So: **the tools are a budget, and the command line is the whole product.** There are fourteen
+tools because each one costs context in every session whether you call it or not — not because
+the product does fourteen things. If you have a shell, `subroutine --help` and `subroutine
+explain <topic>` are complete, and `subroutine doc edit 42` is how a document is revised.
+
+**Two things to read before constructing a call.** `subroutine://meta` is this workspace's
+vocabulary — status keys, item types, what each listing filters and sorts by. The keys are
+renameable, so `done` may be called something else here and guessing is how you get a 422.
+`subroutine://docs/examples` is a worked request for each common act, every one of them executed
+by the project's own test suite.
+
+**Three routes are deliberately out of reach**: creating a workspace, renaming one, and moving a
+project. Each is consequential, none can be undone, and the command line counts what will change
+and asks first — which a tool call cannot do here yet. The refusal names the command to run.
+
 ## Things worth knowing
 
 - **A number means one item, for ever.** `#42` is allocated once and never reused, and it names

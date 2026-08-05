@@ -129,6 +129,36 @@ class Client:
 
 		raise subroutine.errors.NotFound(f"There is no reference document called {name!r}.")
 
+	def call_api (
+		self,
+		*,
+		method: str,
+		path: str,
+		body: typing.Any | None = None,
+		query: dict[str, str] | None = None,
+	) -> subroutine.clients.base.Answered:
+		"""Make one request against a route this credential already allows — `#485`."""
+
+		if method.upper() not in subroutine.clients.base.READING_VERBS:
+			self._refuse_if_read_only()
+
+		from subroutine.api import app as building
+		from subroutine.api import inprocess
+
+		# **No session is held open around this.** The request opens its own, exactly as it
+		# would over a socket; wrapping it in one of ours nests its transaction inside a
+		# savepoint we then discard, which reports success and writes nothing.
+		answer = inprocess.call(
+			building.create_app(settings=self.settings, session_factory=self._sessions),
+			self._principal,
+			method=method.upper(),
+			path=path,
+			body=body,
+			query=query,
+		)
+
+		return subroutine.clients.base.Answered(answer.status_code, answer.text)
+
 	def meta (self, *, workspace: str | None = None) -> subroutine.views.Meta:
 		"""Report what this installation calls things — `#486`.
 

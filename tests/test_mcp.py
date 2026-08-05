@@ -897,7 +897,35 @@ def test_the_whole_tool_surface_stays_small (
 	  gets its own act with its own measurement, because a cap raised for work not yet done is
 	  a budget for something nobody has weighed.
 
-	The slack above the current total is deliberate and small — **312 bytes** as of 2026-08-05,
+	* **`#485`, to 10,400 and a fourteenth tool** — ``subroutine_call_api``, decision `#484`.
+	  Simon's decision, 2026-08-05. **The only entry here that adds no capability of its own and
+	  instead removes the reason the others had to be argued for.**
+
+	  The measurement that settled it: of twenty capabilities this surface lacked, **thirteen
+	  were excluded for budget** and five by judgement. So the surface had not been curated, it
+	  had been *rationed* — and every raise above this line is a case for spending scarcity that
+	  nobody had chosen to impose.
+
+	  **Measured at +794 bytes.** Roughly 200 tokens a session, against thirteen capabilities
+	  that no longer need a slot and a fourteenth that no longer needs this argument.
+
+	  **What the description spends its bytes on is the part worth keeping.** It points at the
+	  named tools first, because `subroutine_add`'s 250-byte description is the *only* place an
+	  agent learns §6.13's capture grammar — and ``POST /v1/tasks`` takes structured fields too
+	  and documents them as the deliberate no-magic path. So an agent working from the API alone
+	  sends ``{"title": …, "importance": 4}``, which **works perfectly**, and the grammar
+	  silently stops being used. Every call succeeds and nothing reports it, which is this
+	  project's signature failure. The pointer lives in the description rather than only in the
+	  skill because `#378` is standing evidence that the skill alone does not arrive.
+
+	  **Fat was read for, for the seventh time, and none was taken.** ``subroutine_update`` is
+	  still the largest and still ten argument descriptions doing work.
+
+	  **The ratchet stops here rather than moving.** The test for a fourteenth used to be "is
+	  there room"; from now it is *"what would an agent get wrong without it?"* If the answer is
+	  "nothing, it would just have to look up a path", it does not need a tool — it has one.
+
+	The slack above the current total is deliberate and small — **418 bytes** as of 2026-08-05,
 	which is about one description. A cap set exactly at what is there makes every addition a
 	cap change, which is theatre; a generous one stops being a budget.
 
@@ -918,11 +946,11 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 13, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 14, "the surface has grown; is each new tool worth every session?"
 
 	size = len(json.dumps(tools))
 
-	assert size < 9500, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 10400, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -2411,3 +2439,176 @@ def test_an_agent_can_read_this_workspace_s_vocabulary (
 		"reflected from the application, so an empty list means the reflection stopped working"
 	)
 	assert published["error_codes"]
+
+
+def test_an_agent_can_reach_a_route_no_tool_covers (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#485`, decision `#484`. The escape hatch, doing the thing it exists for.
+
+	``PATCH /v1/documents/{ref}`` is the example the decision was argued from: `#293`'s reporter
+	could write a conclusion and not revise one, and there was no tool for it and no room for a
+	tool. This is what "thirteen of twenty were excluded for budget" stops meaning.
+	"""
+
+	written, failed = _called(bound, "subroutine_document", title="A first conclusion")
+
+	assert not failed, written
+
+	ref = int(written.split()[1].lstrip("#"))
+	answered, failed = _called(
+		bound,
+		"subroutine_call_api",
+		method="patch",
+		path=f"/v1/documents/{ref}",
+		body={"title": "A better conclusion"},
+	)
+
+	assert not failed, answered
+	assert answered.startswith("200 "), answered
+	assert "A better conclusion" in answered
+
+	read, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, read
+	assert "A better conclusion" in read, "the write did not land"
+
+
+def test_the_three_refused_routes_name_what_to_do_instead (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Decision `#484`'s deny-list, and the half that stops it being a wall.
+
+	A refusal saying only "not here" strands an agent mid-task. These three exist at a terminal,
+	so naming the command is the difference between a dead end and a hand-off — review dimension
+	4 applied to our own guard rather than to the API's.
+	"""
+
+	for method, path in (
+		("POST", "/v1/workspaces"),
+		("PATCH", "/v1/workspaces/somewhere"),
+		("POST", "/v1/projects/SR/move"),
+	):
+		answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
+
+		assert failed, f"{method} {path} was allowed through"
+		assert "subroutine" in answered, f"{method} {path} refuses without naming an alternative"
+		assert "cannot be undone" in answered
+
+
+def test_a_route_that_merely_looks_like_a_refused_one_is_allowed (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The other side, so the deny-list is a rule rather than a substring search.
+
+	``POST /v1/projects`` is not ``POST /v1/projects/{key}/move``, and ``GET /v1/workspaces`` is
+	not ``POST`` of the same path. A guard matching too widely would refuse ordinary work and
+	pass every test above.
+	"""
+
+	answered, failed = _called(bound, "subroutine_call_api", method="GET", path="/v1/workspaces")
+
+	assert not failed, answered
+	assert answered.startswith("200 ")
+
+	made, failed = _called(
+		bound,
+		"subroutine_call_api",
+		method="POST",
+		path="/v1/projects",
+		body={"key": "NEW", "title": "Somewhere to file things"},
+	)
+
+	assert not failed, made
+	assert made.startswith("201 ")
+
+
+def test_an_enormous_answer_is_refused_rather_than_truncated (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Simon's decision, 2026-08-05, and the reason it is a refusal.
+
+	**A truncated JSON document is unparseable and reads as an answer.** The caller gets
+	something shaped like a result and has no way to tell — which is worse than being told to
+	ask again, and is the family of failure this project keeps recording.
+
+	The refusal names ``fields``, ``limit`` and ``format``, which is also the one place an agent
+	reliably learns §14.10's shaping exists at all.
+	"""
+
+	for index in range(3):
+		_added(bound, f"Something to fill the page {index}")
+
+	# Rather than making a real 64 KB response, which would need hundreds of rows: the rule is
+	# about the measured length of what came back, so the measurement is what gets exercised.
+	original = subroutine.mcp.tools.MAX_ANSWER
+
+	try:
+		subroutine.mcp.tools.MAX_ANSWER = 10
+		answered, failed = _called(
+			bound, "subroutine_call_api", method="GET", path="/v1/tasks"
+		)
+
+	finally:
+		subroutine.mcp.tools.MAX_ANSWER = original
+
+	assert failed, "an answer over the cap was returned whole"
+	assert "fields" in answered and "limit" in answered, answered
+	assert "compact" in answered
+
+	# And under the cap it comes back untouched, so the rule is a bound rather than a filter.
+	whole, failed = _called(bound, "subroutine_call_api", method="GET", path="/v1/tasks")
+
+	assert not failed, whole
+	assert "Something to fill the page 0" in whole
+
+
+def test_a_raw_call_is_narrowed_by_the_credential_it_already_had (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""It widens nothing, which is the sentence the whole decision rests on.
+
+	An escape hatch that authenticated differently from the tools beside it would be a privilege
+	escalation wearing a convenience's clothes — and §12.1a makes that easy to assert *falsely*
+	here: an unscoped local principal is the sole account, holds everything, and would pass a
+	test that checked "some route refuses". So the credential is deliberately narrowed first, and
+	the assertion is that the narrowing survives the raw path.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Read only", scopes=["task:read"]
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+
+		reading, failed = _called(
+			server, "subroutine_call_api", method="GET", path="/v1/tasks"
+		)
+
+		assert not failed, f"a scope this credential holds was refused: {reading}"
+
+		writing, failed = _called(
+			server,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/tasks",
+			body={"title": "Something it may not file"},
+		)
+
+	assert failed or writing.startswith("403"), (
+		f"a task:read credential filed a task through the raw path: {writing}"
+	)

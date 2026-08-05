@@ -35,6 +35,13 @@ import subroutine.views
 #: date", so it cannot double as "not asked for".
 UNSET: typing.Any = object()
 
+#: The verbs that only read, so a raw call knows which side of ``read_only`` it is on.
+#:
+#: Named here rather than in each client, because the two would come to disagree about
+#: ``HEAD`` — and a disagreement in this particular list is a write escaping the one control
+#: §13.7 says the far end cannot enforce for you.
+READING_VERBS = frozenset({"GET", "HEAD", "OPTIONS"})
+
 
 @dataclasses.dataclass(frozen=True)
 class Identity:
@@ -78,6 +85,20 @@ class Captured:
 	summary: str | None = None
 
 
+@dataclasses.dataclass(frozen=True)
+class Answered:
+	"""What a raw call came back with — `#485`.
+
+	Status and body rather than a parsed model, because the whole point is reaching routes no
+	method covers: there is nothing to parse it *into*. The status is carried separately so a
+	caller can tell a refusal from a result without reading prose, which is the distinction an
+	agent gets wrong when both arrive as text.
+	"""
+
+	status: int
+	text: str
+
+
 class Client(typing.Protocol):
 	"""One connection, ready to be asked things.
 
@@ -103,6 +124,30 @@ class Client(typing.Protocol):
 
 		These are what an agent over MCP has no other way to read: it holds a client, so §13.3's
 		guide assumed it had already got past the problem the guide solves, and it has not.
+		"""
+
+		raise NotImplementedError
+
+	def call_api (
+		self,
+		*,
+		method: str,
+		path: str,
+		body: typing.Any | None = None,
+		query: dict[str, str] | None = None,
+	) -> Answered:
+		"""Make one request against a route this credential already allows — `#485`.
+
+		**It widens nothing.** The credential is the same one every other method here presents,
+		so scopes, project scope and the workspace pin all still apply, and the service layer
+		still runs every check it would for a named method. What it removes is the requirement
+		that somebody wrote a method first — which is what decision `#484` measured as the real
+		constraint: thirteen of twenty missing capabilities were excluded for tool budget rather
+		than by any decision.
+
+		``read_only`` is still enforced, and that is not automatic here: §13.7's setting is a
+		*client-side* promise about an employer's instance, and a raw call that skipped it would
+		be a hole in the one control the far end cannot enforce on the caller's behalf.
 		"""
 
 		raise NotImplementedError

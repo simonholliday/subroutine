@@ -2206,3 +2206,67 @@ def test_both_transports_report_the_same_vocabulary (session: sqlalchemy.orm.Ses
 
 	assert locally["statuses"], "both agreed on nothing, which would pass and prove nothing"
 	assert locally["listings"]["task"]["filters"]
+
+
+@pytest.mark.parametrize("transport", ["local", "remote"])
+def test_a_read_only_connection_refuses_a_raw_write_too (
+	session: sqlalchemy.orm.Session, transport: str
+) -> None:
+	"""`#485`. The escape hatch may not be an escape from *this*.
+
+	**Found by falsification, not by design.** Removing the guard from ``call_api`` on both
+	clients failed nothing: the test above walks ``capture``, ``update`` and ``complete``, and a
+	method added later is invisible to it — the same shape as the defect it was itself written
+	for, one surface along.
+
+	§13.7 calls ``read_only`` a *client-side* control precisely because an employer's server
+	cannot be asked to arrange it on the agent-owner's behalf. A raw call that skipped it would
+	therefore not be a smaller hole than the original; it would be the whole feature missing,
+	reachable by anything that can spell a path.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Read only"
+	)
+	session.flush()
+
+	factory = api_support.factory_for(session)
+	secret = issued.value.get_secret_value()
+	client: subroutine.clients.base.Client
+
+	if transport == "local":
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local", read_only=True),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=factory,
+			token=secret,
+		)
+
+	else:
+		client = subroutine.clients.http.Client(
+			subroutine.connections.Connection(
+				name="work", url="https://employer.example.com", read_only=True
+			),
+			token=secret,
+			transport=api_support.SyncTransport(api_support.build_app(factory)),
+			base_url=api_support.BASE_URL,
+		)
+
+	with client:
+		for method, path in (
+			("POST", "/v1/tasks"),
+			("PATCH", "/v1/tasks/1"),
+			("DELETE", "/v1/tasks/1"),
+		):
+			with pytest.raises(subroutine.errors.SubroutineError) as refused:
+				client.call_api(method=method, path=path, body={"title": "Nope"})
+
+			assert "read" in str(refused.value).lower(), (
+				f"{method} {path} was refused for the wrong reason: {refused.value}"
+			)
+
+		# And a read still works, so the rule is `read_only` rather than `no_api`.
+		assert client.call_api(method="GET", path="/v1/tasks").status == 200

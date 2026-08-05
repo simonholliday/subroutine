@@ -19,6 +19,7 @@ import httpx
 import sqlalchemy.orm
 
 import subroutine.api.app
+import subroutine.api.inprocess
 import subroutine.config
 
 BASE_URL = "http://testserver"
@@ -87,50 +88,10 @@ def call (
 	return asyncio.run(run())
 
 
-class SyncTransport(httpx.BaseTransport):
-	"""Drive an ASGI application from synchronous httpx code.
-
-	:mod:`subroutine.clients.http` is deliberately synchronous — a CLI has no event loop and
-	should not grow one to print a list — while ``httpx.ASGITransport`` is async only. This
-	bridges the two, running each request in its own loop.
-
-	It exists so that the equivalence test can point the *real* HTTP client at the *real*
-	application over the *same* database as the local client. Anything less than that — a
-	stubbed transport, a second fixture, a recorded response — would let the two implementations
-	drift in exactly the place the test claims to be watching.
-	"""
-
-	def __init__ (self, application: fastapi.FastAPI) -> None:
-		"""Wrap an application."""
-
-		self._transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
-
-	def handle_request (self, request: httpx.Request) -> httpx.Response:
-		"""Run one request through the application and return its complete response."""
-
-		# Read before entering the loop: the outgoing body is a synchronous stream here, and
-		# the ASGI transport will only iterate it asynchronously.
-		request.read()
-
-		async def run () -> httpx.Response:
-			"""Make the call and drain the response inside the loop that opened it."""
-
-			streamed = await self._transport.handle_async_request(request)
-
-			try:
-				body = await streamed.aread()
-
-			finally:
-				await streamed.aclose()
-
-			return httpx.Response(
-				streamed.status_code,
-				headers=streamed.headers,
-				content=body,
-				request=request,
-			)
-
-		return asyncio.run(run())
+#: The bridge, which moved into the product for `#485` — a local ``call_api`` drives the
+#: application with no socket, which is what this was doing for the equivalence test all along.
+#: Named here rather than re-declared, so there is one definition.
+SyncTransport = subroutine.api.inprocess.SyncTransport
 
 
 @contextlib.asynccontextmanager

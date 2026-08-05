@@ -220,6 +220,18 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"call_api": (
+		"protocol",
+		"`#485`. This exists because the *tool* surface is a budget — decision `#484` measured "
+		"thirteen of twenty missing capabilities as excluded for room rather than by any "
+		"decision — and the CLI has no such budget. It is the complete product, so there is "
+		"nothing for a person at a terminal to escape from: a raw-request command would be a "
+		"second way to do what a command already does, which is the defect `#154` closed for "
+		"`help` and `explain`.\n\n"
+		"**What would close this is the CLI falling behind the API the way MCP did**, and the "
+		"route-side checks in this file are what would say so first. Deleting this entry is "
+		"what would record it.",
+	),
 	"meta": (
 		"protocol",
 		"`#486`. The CLI answers this question *in context* rather than as a document, and §1.4 "
@@ -289,13 +301,16 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"is, and this entry is the note explaining why no tool is coming."
 	),
 	"update_document": (
-		"tracked",
-		"`#293`, and this guard is what found it — the CLI half landed as `#291` and the "
-		"agent half is a budget decision rather than an oversight. `subroutine_document` "
-		"writes one and nothing revises it, so a session that concluded something wrongly "
-		"cannot correct what the next session will read. Whether that is a new tool, a `ref` "
-		"argument on the existing one, or nothing, is measured in `tests/test_mcp.py` the way "
-		"the three previous raises were. **Deleting this entry is what closes `#293`.**",
+		"budget",
+		"`#293` is **closed**, and this entry's reason changed with it rather than surviving it. "
+		"It used to say the capability was missing and tracked; it is not missing — "
+		"`subroutine_call_api` reaches `PATCH /v1/documents/{ref}` (`#485`), and "
+		"`subroutine_document`'s description says how (`#484`, decision 4).\n\n"
+		"What is left is an ordinary budget decision: a named tool for revising a document "
+		"would cost a whole schema in every session for an act measured as rare, and the "
+		"alternative is one call away and pointed at from the place an agent forms the belief. "
+		"**Raise it to a tool if revising turns out to be frequent** — on measured frequency, "
+		"not on one document-heavy session, which is what `#484` declined to decide from.",
 	),
 	"create_workspace": (
 		"disclosure",
@@ -670,7 +685,18 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# This used to end "the reason is written out in NOT_IN_MCP under `me`", and that entry was
 	# deleted in the same commit — correctly, since deleting an excuse is what closes it. So
 	# the pointer outlived the thing it pointed at, by minutes (`#361`). The reason is above.
-	assert len(commands) <= 4, (
+	# **Raised to 5 for `#485`**, deliberately and with the reason here rather than in a commit
+	# message. The addition is `doc`: `subroutine doc edit 42` is how a document is revised, and
+	# the skill now says so because `#293` measured what its absence cost — an agent concluded
+	# documents were immutable and stopped filing them, giving one-item-in-one-place, which is
+	# this project's own principle, as the reason.
+	#
+	# It is not a gap being taught around, which is what this guard exists to catch. The route
+	# is reachable from MCP through `subroutine_call_api`; what the skill names is the *better*
+	# way for an agent that has a shell, which is the sentence `#480` is about. The distinction
+	# worth keeping: teaching a shell-out for something MCP cannot do is a gap, and teaching one
+	# for something it can do more clumsily is advice.
+	assert len(commands) <= 5, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)
@@ -710,3 +736,35 @@ def test_no_client_method_is_both_called_by_mcp_and_excused_from_it () -> None:
 	assert not contradicted, (
 		f"these methods are excused from MCP and called by it: {contradicted}."
 	)
+
+
+def test_every_denied_route_is_one_that_exists () -> None:
+	"""`#485`'s deny-list may not name a route that has gone.
+
+	The three entries in :data:`subroutine.mcp.tools.DENIED` are the shape `#412` keeps finding:
+	written once with the argument fresh, then never re-read. An entry naming a route that no
+	longer exists still *reads* as a considered exclusion — it refuses nothing and looks like a
+	control — which is the same failure as an allow-list entry whose reason has expired.
+
+	Imported rather than restated, so the surface and this guard cannot come to disagree about
+	which routes are refused.
+	"""
+
+	mounted = {
+		(method, path)
+		for path, methods in subroutine.api.routing.declarations(subroutine.api.app.ROUTERS)
+		for method in methods
+	}
+
+	for verb, pattern, instead in subroutine.mcp.tools.DENIED:
+		matched = [
+			path for method, path in mounted
+			if method == verb and re.match(pattern, path.replace("{id_or_slug}", "x")
+				.replace("{id_or_key}", "x"))
+		]
+
+		assert matched, (
+			f"{verb} {pattern} is refused by subroutine_call_api and matches no mounted route, "
+			f"so it guards nothing"
+		)
+		assert instead, f"{verb} {pattern} refuses without naming what to do instead"
