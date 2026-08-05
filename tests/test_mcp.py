@@ -17,6 +17,7 @@ import os
 import pathlib
 import re
 import typing
+import unittest.mock
 import uuid
 
 import pytest
@@ -2703,3 +2704,55 @@ def test_a_refusal_reads_as_a_sentence_somebody_could_follow (
 			command.name or (command.callback.__name__ if command.callback else "")
 			for command in nested.registered_commands
 		}, f"{instead!r} names no such command"
+
+
+def test_the_instructions_name_every_document_a_session_might_not_find (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#498`, on decision `#499`'s rule: **the guaranteed channel names every conditional one.**
+
+	Measured 2026-08-05: this text and the tool schemas are the only two things that reach an
+	agent unconditionally, and they named none of the three documents `#483` and `#486` built.
+	So 9.5 KB written for precisely this reader — ``/v1/docs/agent``, which opens *"You are a
+	principal here, not a tool being driven"* — was unreachable because nothing said it was
+	there. The inert-control defect (`#247`, `#251`, `#303`) applied to prose: every piece
+	individually correct, and nobody receiving it.
+
+	**Derived from the resources rather than listing them**, which is the whole point of writing
+	it as a rule. A fourth document added without a signpost fails this, and that is the failure
+	the fix alone would not have prevented — the resources themselves were three hours old when
+	the gap was measured.
+
+	**Both routes are asserted** because one is client-dependent. A ``subroutine://`` URI is
+	useless to a client that does not read resources, and this was measured against one that
+	exposed resource-listing as a tool the agent had to go looking for.
+	"""
+
+	roster = subroutine.connections.Roster(
+		(subroutine.connections.Connection(name="local"),), default="local"
+	)
+	instructions = _standing_up(monkeypatch, roster)
+	client = unittest.mock.MagicMock(spec=subroutine.clients.base.Client)
+
+	published = subroutine.mcp.tools.references(client)
+
+	assert published, "no resources at all — has this stopped reaching them?"
+
+	for resource in published:
+		assert resource.uri in instructions, (
+			f"{resource.uri} exists and the one text every session receives does not name it, "
+			f"so only a client that lists resources will ever find it"
+		)
+
+		# The same document as an ordinary route, for a client that cannot read resources.
+		route = "/v1/" + resource.uri.removeprefix("subroutine://")
+
+		assert route in instructions, (
+			f"{resource.uri} is named only as a resource; {route} is how a client without them "
+			f"reaches the same document through subroutine_call_api"
+		)
+
+	assert "principal" in instructions, (
+		"the big picture is one sentence and it is the reason an agent engages at all — "
+		"without it this opens as a description of a filing system"
+	)

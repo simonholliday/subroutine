@@ -122,6 +122,21 @@ def _instructions (
 	# hand has no skill to read, and an instruction naming one that is not there is the kind of
 	# confident wrongness §13.1 exists to prevent. Phrased as a condition the reader can check.
 	#
+	# **And the signpost is `#498`, on the rule decision `#499` settles: the channel that is
+	# guaranteed must name every channel that is not.** Measured — this text and the tool schemas
+	# reach an agent unconditionally, and named none of the three documents `#483` and `#486`
+	# built. So 9.5 KB written for exactly this reader was unreachable because nothing said it
+	# was there, which is the inert-control defect (`#247`, `#251`, `#303`) applied to prose.
+	#
+	# **Both routes to each, because one of them is client-dependent.** A `subroutine://` URI is
+	# useless to a client that does not read resources — measured against one that exposed
+	# listing them as a tool the agent had to go looking for — and `call_api` reaches all three
+	# as ordinary routes. Naming both is what makes the pointer universal.
+	#
+	# **Signpost, never teach.** `#378` found that instructions which teach make the skill feel
+	# redundant, in an agent's own words. The cost of over-correcting here is a paragraph that
+	# replaces the thing it points at.
+	#
 	# **And the second pointer is `#480`**, which is the same failure one level out: an agent
 	# that believes the tools *are* the product stops at the first thing they cannot do. Measured
 	# — a third-party agent could not revise a document, concluded documents were immutable, and
@@ -134,9 +149,14 @@ def _instructions (
 	# different one: a client reaching this over HTTP may have no shell at all.
 	return (
 		f"Shared project management for people and agents, on connection "
-		f"'{connection.label}'. {where}{others}"
+		f"'{connection.label}'. You are a principal here rather than a tool being driven: what "
+		f"you write is attributed to you and outlives your context. {where}{others}"
 		f"If a 'subroutine' skill is available, read it before your first call — it carries "
 		f"the conventions these tool descriptions do not. "
+		f"There is more than these tools: read subroutine://docs/agent for what this is worth "
+		f"and how it works, subroutine://docs/examples for worked calls, and subroutine://meta "
+		f"for this workspace's own keys — or fetch them with subroutine_call_api at "
+		f"/v1/docs/agent, /v1/docs/examples and /v1/meta. "
 		f"These tools are a deliberate budget rather than the whole product: if you can run "
 		f"commands, 'subroutine --help' is the complete surface. "
 		f"Items are addressed by a number written #42, unique per "
