@@ -190,10 +190,10 @@ def test_a_private_project_stays_out_of_the_feed (session: sqlalchemy.orm.Sessio
 	world.call(
 		"POST",
 		"/v1/projects",
-		json={"key": "SECRET", "title": "Secret", "visibility": "private"},
+		json={"key": "secret", "title": "Secret", "visibility": "private"},
 	)
 	hidden = world.call(
-		"POST", "/v1/tasks", json={"title": "Acquire the rival company", "project": "SECRET"}
+		"POST", "/v1/tasks", json={"title": "Acquire the rival company", "project": "secret"}
 	).json()
 	_settled(session)
 
@@ -216,7 +216,7 @@ def test_a_private_project_stays_out_of_the_feed (session: sqlalchemy.orm.Sessio
 def _secret (item: dict[str, typing.Any]) -> bool:
 	"""Whether an event's recorded changes mention the private project by key."""
 
-	return "SECRET" in str(item.get("changes"))
+	return "secret" in str(item.get("changes"))
 
 
 def test_a_projects_deletion_reaches_the_feed (session: sqlalchemy.orm.Session) -> None:
@@ -228,7 +228,7 @@ def test_a_projects_deletion_reaches_the_feed (session: sqlalchemy.orm.Session) 
 
 	world = test_api_tasks._world(session)
 
-	world.call("POST", "/v1/projects", json={"key": "DOOMED", "title": "Doomed"})
+	world.call("POST", "/v1/projects", json={"key": "doomed", "title": "Doomed"})
 	world.call("DELETE", "/v1/projects/DOOMED")
 	_settled(session)
 
@@ -256,9 +256,9 @@ def test_deleting_a_project_does_not_erase_its_contents_past (
 
 	world = test_api_tasks._world(session)
 
-	world.call("POST", "/v1/projects", json={"key": "DOOMED", "title": "Doomed"})
+	world.call("POST", "/v1/projects", json={"key": "doomed", "title": "Doomed"})
 	inside = world.call(
-		"POST", "/v1/tasks", json={"title": "Filed in it", "project": "DOOMED"}
+		"POST", "/v1/tasks", json={"title": "Filed in it", "project": "doomed"}
 	).json()
 	_settled(session)
 
@@ -317,10 +317,10 @@ def test_a_comment_on_a_private_task_stays_out_of_the_feed (
 	world.call(
 		"POST",
 		"/v1/projects",
-		json={"key": "SECRET", "title": "Secret", "visibility": "private"},
+		json={"key": "secret", "title": "Secret", "visibility": "private"},
 	)
 	hidden = world.call(
-		"POST", "/v1/tasks", json={"title": "Acquire the rival", "project": "SECRET"}
+		"POST", "/v1/tasks", json={"title": "Acquire the rival", "project": "secret"}
 	).json()
 	world.call(
 		"POST", f"/v1/tasks/{hidden['ref']}/comments", json={"body": "Board approved it"}

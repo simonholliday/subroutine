@@ -635,11 +635,11 @@ def test_an_agent_can_make_and_list_a_project (
 	"""
 
 	made, failed = _called(
-		bound, "subroutine_project", key="WEB", title="Website redesign"
+		bound, "subroutine_project", key="web", title="Website redesign"
 	)
 
 	assert not failed, made
-	assert "WEB" in made
+	assert "web" in made
 
 	listed, failed = _called(bound, "subroutine_project")
 
@@ -656,7 +656,7 @@ def test_a_project_named_without_a_title_is_refused (
 	listing would be the tool quietly doing something else.
 	"""
 
-	answered, failed = _called(bound, "subroutine_project", key="WEB")
+	answered, failed = _called(bound, "subroutine_project", key="web")
 
 	assert failed
 	assert "title" in answered
@@ -1292,7 +1292,7 @@ def test_add_tells_the_agent_what_the_grammar_read (
 
 	An agent is the caller most likely to have written something it believes was understood —
 	the same reason ``#115`` put the *unparsed* sentence here. Being told only what was left as
-	written answers the rarer half: an agent that captured ``+WEB`` and got no confirmation has
+	written answers the rarer half: an agent that captured ``+web`` and got no confirmation has
 	to spend a second call reading the task back to find out whether it worked.
 	"""
 
@@ -1590,7 +1590,7 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 	"""
 
 	(tmp_path / subroutine.directory.FILE_NAME).write_text(
-		'project = "ELSEWHERE"\n', encoding="utf-8"
+		'project = "elsewhere"\n', encoding="utf-8"
 	)
 	os.chdir(tmp_path)
 
@@ -1601,7 +1601,7 @@ def test_a_marker_for_another_instance_is_ignored_rather_than_refused (
 
 	# And it says so, for the reason this function says everything else out loud: the agent is
 	# holding a repository whose file claims one thing and an instance that says another.
-	assert "ELSEWHERE" in text
+	assert "elsewhere" in text
 	assert "Ignoring it" in text
 
 
@@ -1621,10 +1621,10 @@ def test_a_marker_for_another_connection_does_not_file_by_key (
 	``consulted`` and this fails, reporting the task filed ``in WEB``.
 	"""
 
-	_called(bound, "subroutine_project", key="WEB", title="Website")
+	_called(bound, "subroutine_project", key="web", title="Website")
 
 	(tmp_path / subroutine.directory.FILE_NAME).write_text(
-		'connection = "somewhere-else"\nproject = "WEB"\n', encoding="utf-8"
+		'connection = "somewhere-else"\nproject = "web"\n', encoding="utf-8"
 	)
 	os.chdir(tmp_path)
 
@@ -1633,7 +1633,7 @@ def test_a_marker_for_another_connection_does_not_file_by_key (
 	assert not failed, text
 	assert "Added" in text
 
-	# Not "in WEB, from .subroutine" — the marker was never consulted, so nothing about it is
+	# Not "in web, from .subroutine" — the marker was never consulted, so nothing about it is
 	# reported as having decided anything.
 	assert subroutine.directory.FILE_NAME not in text
 	assert "in WEB" not in text
@@ -1832,13 +1832,13 @@ def test_a_listing_can_be_narrowed_to_one_project (
 	than a default it has to notice.
 	"""
 
-	for key in ("HERE", "ELSEWHERE"):
+	for key in ("here", "elsewhere"):
 		_answer, failed = _called(bound, "subroutine_project", key=key, title=key.title())
 
 		assert not failed, _answer
 
-	_added(bound, "Work in this project +HERE")
-	_added(bound, "Work in the other one +ELSEWHERE")
+	_added(bound, "Work in this project +here")
+	_added(bound, "Work in the other one +elsewhere")
 
 	everything, failed = _called(bound, "subroutine_list")
 
@@ -1846,13 +1846,13 @@ def test_a_listing_can_be_narrowed_to_one_project (
 	assert "Work in this project" in everything
 	assert "Work in the other one" in everything, "both are visible without the argument"
 
-	narrowed, failed = _called(bound, "subroutine_list", project="HERE")
+	narrowed, failed = _called(bound, "subroutine_list", project="here")
 
 	assert not failed
 	assert "Work in this project" in narrowed
 	assert "Work in the other one" not in narrowed, "the argument has to actually narrow"
 
-	found, failed = _called(bound, "subroutine_search", q="Work", project="HERE")
+	found, failed = _called(bound, "subroutine_search", q="Work", project="here")
 
 	assert not failed
 	assert "Work in this project" in found

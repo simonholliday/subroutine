@@ -184,11 +184,11 @@ def test_ids_returns_the_addresses_alone (world: test_api_tasks.World) -> None:
 def test_a_project_is_addressed_by_key_not_by_ref (world: test_api_tasks.World) -> None:
 	"""``ids`` means "what you address it by", and for a project that is its key (§5.2)."""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Site"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Site"})
 
 	body = world.call("GET", "/v1/projects?format=ids").json()
 
-	assert "WEB" in body["items"]
+	assert "web" in body["items"]
 	assert all(isinstance(key, str) for key in body["items"])
 
 
@@ -418,13 +418,13 @@ def test_a_column_empty_in_every_row_is_dropped () -> None:
 	"""
 
 	assert subroutine.api.shaping.aligned(
-		[("INBOX", "[active]", "", "Inbox"), ("WEB", "[active]", "", "Website")]
-	) == ["INBOX  [active]  Inbox", "WEB    [active]  Website"]
+		[("inbox", "[active]", "", "Inbox"), ("web", "[active]", "", "Website")]
+	) == ["inbox  [active]  Inbox", "web    [active]  Website"]
 
 	# And it stays when any row has something to say in it.
 	assert subroutine.api.shaping.aligned(
-		[("INBOX", "[active]", "", "Inbox"), ("SEC", "[active]", "private", "Secrets")]
-	) == ["INBOX  [active]           Inbox", "SEC    [active]  private  Secrets"]
+		[("inbox", "[active]", "", "Inbox"), ("sec", "[active]", "private", "Secrets")]
+	) == ["inbox  [active]           Inbox", "sec    [active]  private  Secrets"]
 
 
 def test_the_openapi_document_still_describes_the_default (

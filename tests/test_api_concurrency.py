@@ -209,7 +209,7 @@ def test_projects_and_documents_are_guarded_the_same_way (
 ) -> None:
 	"""One rule, applied everywhere it could matter."""
 
-	project = world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Site"}).json()
+	project = world.call("POST", "/v1/projects", json={"key": "web", "title": "Site"}).json()
 	document = world.call("POST", "/v1/documents", json={"title": "Spec"}).json()
 
 	world.call("PATCH", "/v1/projects/WEB", json={"title": "Website"})

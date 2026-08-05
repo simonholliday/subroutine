@@ -152,8 +152,12 @@ _IMPORTANCE = re.compile(
 _ESTIMATE = re.compile(
 	rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z][a-zA-Z0-9]*)[,.;:!?)\]]*(?=\s|$)"
 )
+#: ``+key`` — which project it goes in. **Hyphens inside, never at an edge** (`#508`), so
+#: ``+web-sales`` reads as one key and ``+web.`` still drops the full stop. Without the
+#: alternation a hyphenated key parsed as ``+web`` and left ``-sales`` in the title, which is
+#: §6.13 rule 1's forbidden outcome: a word may only vanish if a field was set.
 _PROJECT = re.compile(
-	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*)[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)[,.;:!?)\]]*(?=\s|$)"
 )
 
 def names_a_project (text: str) -> bool:
@@ -414,8 +418,12 @@ def _collect_sigils (
 			if name in fields or _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
 				continue
 
-			value = match.group("value")
-			fields[name] = value.upper() if name == "project_key" else value
+			# **Read as written; the service normalises.** This used to upper-case a project
+			# key here, which was a second copy of `projects.normalize_key`'s rule — and when
+			# that rule changed to lower case (`#508`) this one did not, so `+secret` was
+			# looked up as `SECRET` and refused. Two copies of one rule, disagreeing, which is
+			# this codebase's signature defect and was found by a test rather than by reading.
+			fields[name] = match.group("value")
 			claimed.append(match.span())
 
 	for match in _IMPORTANCE.finditer(text):

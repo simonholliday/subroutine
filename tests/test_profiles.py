@@ -23,8 +23,8 @@ import subroutine.permissions
 #: expansion fails rather than being covered by nothing. Keyed by profile so a new entry is
 #: required rather than optional — the last test in this file is what enforces that.
 CANONICAL: dict[str, dict[str, list[str] | str | None]] = {
-	"worker": {"projects": ["WEB"], "writes": [], "workspace": None},
-	"collaborator": {"projects": ["SR", "WEB"], "writes": ["WEB"], "workspace": None},
+	"worker": {"projects": ["web"], "writes": [], "workspace": None},
+	"collaborator": {"projects": ["SR", "web"], "writes": ["web"], "workspace": None},
 	"observer": {"projects": [], "writes": [], "workspace": None},
 	"colleague": {"projects": [], "writes": [], "workspace": "acme"},
 }
@@ -129,7 +129,7 @@ class TestWorker:
 
 		shape = _expand("worker")
 
-		assert shape.projects == ["WEB"]
+		assert shape.projects == ["web"]
 		assert shape.writes is None
 		assert shape.scopes == []
 
@@ -145,7 +145,7 @@ class TestWorker:
 		"""The refusal names the profile that *does* mean this, because somebody wants it."""
 
 		with pytest.raises(subroutine.errors.ValidationError) as refused:
-			_expand("worker", projects=["WEB", "API"])
+			_expand("worker", projects=["web", "api"])
 
 		assert "collaborator" in (refused.value.errors[0].hint or "")
 
@@ -153,7 +153,7 @@ class TestWorker:
 		"""``--write`` beside a worker is two intentions: it already writes where it reaches."""
 
 		with pytest.raises(subroutine.errors.ValidationError) as refused:
-			_expand("worker", writes=["WEB"])
+			_expand("worker", writes=["web"])
 
 		assert "'--write'" in str(refused.value)
 
@@ -166,8 +166,8 @@ class TestCollaborator:
 
 		shape = _expand("collaborator")
 
-		assert shape.projects == ["SR", "WEB"]
-		assert shape.writes == ["WEB"]
+		assert shape.projects == ["SR", "web"]
+		assert shape.writes == ["web"]
 
 	def test_naming_no_write_set_is_refused (self) -> None:
 		"""Without one it is a worker with several projects, and should say so.
@@ -254,7 +254,7 @@ class TestColleague:
 		"""Two answers to "what does it reach": the workspace, and these projects."""
 
 		with pytest.raises(subroutine.errors.ValidationError) as refused:
-			_expand("colleague", projects=["WEB"])
+			_expand("colleague", projects=["web"])
 
 		assert "'--project'" in str(refused.value)
 

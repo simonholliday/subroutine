@@ -350,9 +350,9 @@ def test_a_project_scope_carries_the_whole_subtree (
 	workspace = _seeded_workspace(session)
 	principal = _member(session, workspace, "member")
 
-	parent = _project(session, workspace, key="PAR")
-	child = _project(session, workspace, key="CHI", parent=parent)
-	unrelated = _project(session, workspace, key="OTH")
+	parent = _project(session, workspace, key="par")
+	child = _project(session, workspace, key="chi", parent=parent)
+	unrelated = _project(session, workspace, key="oth")
 
 	scoped = _with_token(session, principal, project_scope=[str(parent.id)])
 

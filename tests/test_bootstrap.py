@@ -51,7 +51,7 @@ def _run (environment: dict[str, str], *arguments: str) -> subprocess.CompletedP
 		[sys.executable, "-c", "import subroutine.cli.main; subroutine.cli.main.main()", *arguments],
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home()), **environment},
+		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **environment},
 		check=False,
 	)
 
@@ -75,7 +75,7 @@ def test_initialising_creates_everything_a_first_task_needs (
 	# nobody noticed.
 	assert result.workspace.title == "Personal"
 	assert result.workspace.slug == "personal"
-	assert result.inbox.key == "INBOX"
+	assert result.inbox.key == "inbox"
 	assert result.inbox.is_inbox
 	assert result.inbox.template == "personal"
 
@@ -302,7 +302,7 @@ def test_an_empty_password_pipe_is_refused (isolated_home: dict[str, str]) -> No
 		input="",
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home()), **isolated_home},
+		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **isolated_home},
 		check=False,
 	)
 
@@ -325,7 +325,7 @@ def test_a_supplied_password_is_used (isolated_home: dict[str, str]) -> None:
 		input="a decent passphrase\n",
 		capture_output=True,
 		text=True,
-		env={"PATH": "/usr/bin:/bin", "HOME": str(pathlib.Path.home()), **isolated_home},
+		env={"PATH": "/usr/bin:/bin", "home": str(pathlib.Path.home()), **isolated_home},
 		check=False,
 	)
 

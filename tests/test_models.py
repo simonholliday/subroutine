@@ -212,7 +212,7 @@ def test_a_ref_is_unique_across_projects_not_only_within_one (
 	"""
 
 	workspace = _make_workspace(session)
-	home = _make_project(session, workspace, key="HOME")
+	home = _make_project(session, workspace, key="home")
 	work = _make_project(session, workspace, key="SR")
 
 	_make_task(session, workspace, home, ref=3)
@@ -230,7 +230,7 @@ def test_a_moved_task_keeps_its_ref (session: sqlalchemy.orm.Session) -> None:
 	"""
 
 	workspace = _make_workspace(session)
-	home = _make_project(session, workspace, key="HOME")
+	home = _make_project(session, workspace, key="home")
 	work = _make_project(session, workspace, key="SR")
 
 	moved = _make_task(session, workspace, home, ref=3)

@@ -43,7 +43,25 @@ import subroutine.permissions
 #: The cost is that a key must be ASCII — 'CAFÉ' is refused. Titles, descriptions, tags and
 #: comments are all fully Unicode; only this one identifier is not, because it is the piece
 #: that ends up in commit messages, chat and URLs, where being typeable matters more.
-KEY_PATTERN = re.compile(r"[A-Z][A-Z0-9]{0,15}")
+#: How long a key may be. **Shorter than a workspace slug's 64 on purpose**: a slug is typed
+#: when somebody switches context, and a key is typed in every captured line that mentions a
+#: project (`+web-sales`). Thirty-two is double the longest anybody has needed and still fits
+#: the hyphenated compounds `#508` added it for — `service-marketing` is seventeen.
+MAX_KEY_LENGTH = 32
+
+#: What a project key may be — lower case, digits and interior hyphens (`#508`).
+#:
+#: **Lower case, matching a workspace slug.** §13.7 writes an address as
+#: ``connection/workspace/ref`` and a slug has always been lower case, so keys being shouted
+#: made the two halves of one address obey different conventions for no reason a reader could
+#: infer. Nothing ever depended on the case — measured: no parser, resolver or address in
+#: ``addressing.py`` or ``selection.py`` branches on it.
+#:
+#: **Hyphens between things, never at an edge and never doubled.** The alternation says that
+#: structurally rather than by a second check, so ``web-`` and ``a--b`` are refused by the same
+#: rule that accepts ``web-sales`` — a key that renders as two words when it is one is the
+#: confusion the hyphen was added to remove.
+KEY_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
 #: What a template writes into ``project.settings``, and nothing else (SPEC.md §6.12).
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
@@ -687,6 +705,24 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 
 	wrote = given if given is not None else normalized_key
 
+	# **Length before shape**, so "too long" is not reported as "not a usable key". The
+	# pattern has no bound of its own since `#508`: expressing one inside an alternation that
+	# already forbids edge and doubled hyphens makes both rules unreadable.
+	if len(normalized_key) > MAX_KEY_LENGTH:
+		raise subroutine.errors.ValidationError(
+			f"{wrote!r} cannot be used as a project key.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="invalid_field_value",
+					message=f"A key may be up to {MAX_KEY_LENGTH} characters and that is "
+					f"{len(normalized_key)}.",
+					hint="A key is typed in every line that mentions the project, so shorter "
+					"is kinder — 'web-sales' rather than 'website-sales-and-marketing'.",
+				)
+			],
+		)
+
 	if not KEY_PATTERN.fullmatch(normalized_key):
 		raise subroutine.errors.ValidationError(
 			f"{wrote!r} cannot be used as a project key.",
@@ -697,8 +733,8 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 					message=f"{wrote!r} contains nothing usable as a key."
 					if not normalized_key
 					else f"{normalized_key!r} is not a usable key.",
-					hint="A key starts with a letter A-Z and continues with letters and "
-					"digits, up to 16 characters — 'SR', 'HOME', 'WEB2'.",
+					hint="A key is lower case: a letter, then letters, digits and hyphens "
+					"between them — 'sr', 'home', 'web-sales'.",
 				)
 			],
 		)
@@ -724,16 +760,22 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 
 
 def normalize_key (key: str) -> str:
-	"""Return the stored form of a project key: trimmed and upper-cased, nothing more.
+	"""Return the stored form of a project key: trimmed and lower-cased, nothing more.
 
-	Deliberately *not* a filter. An earlier version dropped any character outside the
+	Deliberately *not* a filter, unlike :func:`subroutine.domain.workspaces.normalize_slug`
+	which rewrites what it is given. An earlier version here dropped any character outside the
 	allowed set, which turned ``'CAFÉ'`` into the perfectly valid key ``'CAF'`` — the user
 	asked for one project and silently got another. Case-folding is the only change anyone
-	would expect to be made on their behalf; everything else is refused by
-	:func:`create` with an explanation, which is the honest half of the same job.
+	would expect to be made on their behalf; everything else is refused by :func:`check_key`
+	with an explanation, which is the honest half of the same job.
+
+	**Lower rather than upper since `#508`**, and that is a stored-form change: every lookup
+	compares this against ``project.key``, so a database of upper-case keys and a normaliser
+	that lower-cases would match nothing at all. Migration ``c858f2942244`` rewrites
+	them, and it is not optional.
 	"""
 
-	return key.strip().upper()
+	return key.strip().lower()
 
 
 def _refuse_duplicate_key (

@@ -447,7 +447,7 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 			{
 				"id": parent_project,
 				"workspace_id": workspace,
-				"key": "TOP",
+				"key": "top",
 				"title": "Top",
 				"status_id": status,
 				"visibility": "public",

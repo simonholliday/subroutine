@@ -563,7 +563,7 @@ def test_the_narrowing_sentence_names_a_write_set (
 	inside = subroutine.domain.projects.create(
 		session,
 		workspace_id=setup.workspace.id,
-		key="WEB",
+		key="web",
 		title="Website",
 		actor=subroutine.domain.authentication.Principal(user=setup.user),
 	)

@@ -226,7 +226,7 @@ def test_an_ordinary_key_is_unaffected (
 		session, workspace_id=workspace.id, key="searchable", title="Fine"
 	)
 
-	assert project.key == "SEARCHABLE"
+	assert project.key == "searchable"
 
 
 def test_reserved_words_are_matched_case_insensitively () -> None:

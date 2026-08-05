@@ -55,12 +55,12 @@ class Project(
 		sqlalchemy.String(16), default="public", nullable=False
 	)
 
-	# Short and uppercase. It is an *address* — a path segment, a `+KEY` in a capture line —
-	# and not part of any ref: §6.2 made a ref a bare workspace-scoped integer on 2026-07-29,
-	# and four places went on saying otherwise until `#176`. `id` is the identifier; this is
-	# the name, and a name can be changed.
+	# Short and lower case (`#508`, matching a workspace slug). It is an *address* — a path
+	# segment, a `+key` in a capture line — and not part of any ref: §6.2 made a ref a bare
+	# workspace-scoped integer on 2026-07-29, and four places went on saying otherwise until
+	# `#176`. `id` is the identifier; this is the name, and a name can be changed.
 	key: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(16), nullable=False
+		sqlalchemy.String(32), nullable=False
 	)
 	title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(512), nullable=False

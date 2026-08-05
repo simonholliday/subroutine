@@ -34,14 +34,14 @@ def test_a_marker_is_found_from_a_subdirectory (tmp_path: pathlib.Path) -> None:
 	setting that works when you do not need it.
 	"""
 
-	_write(tmp_path, 'project = "WEB"\n')
+	_write(tmp_path, 'project = "web"\n')
 	deep = tmp_path / "src" / "components" / "nav"
 	deep.mkdir(parents=True)
 
 	found = subroutine.directory.find(deep)
 
 	assert found is not None
-	assert found.project == "WEB"
+	assert found.project == "web"
 
 
 def test_the_nearest_marker_wins_and_the_walk_stops (tmp_path: pathlib.Path) -> None:
@@ -51,14 +51,14 @@ def test_the_nearest_marker_wins_and_the_walk_stops (tmp_path: pathlib.Path) -> 
 	the closer file asked for.
 	"""
 
-	_write(tmp_path, 'project = "OUTER"\nworkspace = "si"\n')
+	_write(tmp_path, 'project = "outer"\nworkspace = "si"\n')
 	inner = tmp_path / "vendor" / "thing"
-	_write(inner, 'project = "INNER"\n')
+	_write(inner, 'project = "inner"\n')
 
 	found = subroutine.directory.find(inner)
 
 	assert found is not None
-	assert found.project == "INNER"
+	assert found.project == "inner"
 	assert found.workspace is None, "the outer file's keys must not leak into the inner one"
 
 
@@ -94,13 +94,13 @@ def test_what_is_written_is_what_is_read_back (tmp_path: pathlib.Path) -> None:
 	"""The round trip, so the writer and the parser cannot drift apart."""
 
 	subroutine.directory.write(
-		tmp_path, connection="work", workspace="acme", project="WEB"
+		tmp_path, connection="work", workspace="acme", project="web"
 	)
 
 	found = subroutine.directory.find(tmp_path)
 
 	assert found is not None
-	assert (found.connection, found.workspace, found.project) == ("work", "acme", "WEB")
+	assert (found.connection, found.workspace, found.project) == ("work", "acme", "web")
 
 
 def test_a_written_marker_explains_itself (tmp_path: pathlib.Path) -> None:
@@ -111,7 +111,7 @@ def test_a_written_marker_explains_itself (tmp_path: pathlib.Path) -> None:
 	leave alone forever or remove without knowing.
 	"""
 
-	path = subroutine.directory.write(tmp_path, project="WEB")
+	path = subroutine.directory.write(tmp_path, project="web")
 	written = path.read_text(encoding="utf-8")
 
 	assert "Safe to delete" in written
@@ -171,6 +171,12 @@ def test_a_marker_records_the_project_id_beside_the_key (tmp_path: pathlib.Path)
 
 	assert found is not None
 	assert found.project_id == "0f9c1234-0000-0000-0000-000000000000"
+
+	# **Read back exactly as written, and `#508` did not change that.** A marker is a file
+	# somebody may have hand-edited; normalising it on the way in would make what the file says
+	# and what this reports two different things. It resolves either way, because every lookup
+	# normalises what it is given — which is why markers written when keys were upper-cased go
+	# on working after the change.
 	assert found.project == "SR"
 
 	# And it still reads as something rather than as a pair of opaque values.
@@ -227,7 +233,7 @@ def test_a_marker_written_before_ids_still_resolves_by_key (tmp_path: pathlib.Pa
 		path=tmp_path / subroutine.directory.FILE_NAME, project="web"
 	)
 
-	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) == "WEB"
+	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "web")]) == "web"
 
 
 def test_a_marker_speaks_only_for_the_connection_it_names (tmp_path: pathlib.Path) -> None:
@@ -252,7 +258,7 @@ def test_a_marker_speaks_only_for_the_connection_it_names (tmp_path: pathlib.Pat
 
 	# Case-insensitively, because `Roster.find` matches that way — otherwise one connection
 	# spelled two ways would be two connections here and one everywhere else.
-	assert named.speaks_for("WORK")
+	assert named.speaks_for("work")
 
 	silent = subroutine.directory.Marker(
 		path=tmp_path / subroutine.directory.FILE_NAME, project="SR"
@@ -271,11 +277,11 @@ def test_a_marker_naming_nothing_here_resolves_to_nothing (tmp_path: pathlib.Pat
 
 	marker = subroutine.directory.Marker(
 		path=tmp_path / subroutine.directory.FILE_NAME,
-		project="ELSEWHERE",
+		project="elsewhere",
 		project_id=str(uuid.uuid4()),
 	)
 
-	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "WEB")]) is None
+	assert subroutine.directory.resolve(marker, [_Row(uuid.uuid4(), "web")]) is None
 
 
 class _Space(typing.NamedTuple):

@@ -154,10 +154,10 @@ def test_documents_in_a_private_project_are_hidden_like_its_tasks (
 	world = test_api_tasks._world(session)
 
 	world.call(
-		"POST", "/v1/projects", json={"key": "SECRET", "title": "Secret", "visibility": "private"}
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
 	)
 	hidden = world.call(
-		"POST", "/v1/documents", json={"title": "The plan", "project": "SECRET"}
+		"POST", "/v1/documents", json={"title": "The plan", "project": "secret"}
 	).json()
 
 	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
@@ -292,10 +292,10 @@ def test_a_link_to_something_invisible_is_not_reported (
 
 	public = world.call("POST", "/v1/tasks", json={"title": "Public work"}).json()
 	world.call(
-		"POST", "/v1/projects", json={"key": "SECRET", "title": "Secret", "visibility": "private"}
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
 	)
 	secret = world.call(
-		"POST", "/v1/tasks", json={"title": "Secret work", "project": "SECRET"}
+		"POST", "/v1/tasks", json={"title": "Secret work", "project": "secret"}
 	).json()
 
 	world.call(

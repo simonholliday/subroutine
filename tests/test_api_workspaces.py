@@ -70,7 +70,7 @@ def test_a_new_workspace_is_stocked_and_owned (world: test_api_tasks.World) -> N
 	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
 
 	project = world.call(
-		"POST", "/v1/projects", json={"key": "WEB", "title": "Web", "workspace_id": "acme"}
+		"POST", "/v1/projects", json={"key": "web", "title": "Web", "workspace_id": "acme"}
 	)
 
 	assert project.status_code == 201
@@ -78,11 +78,11 @@ def test_a_new_workspace_is_stocked_and_owned (world: test_api_tasks.World) -> N
 	task = world.call(
 		"POST",
 		"/v1/tasks",
-		json={"text": "Something there", "project": "WEB", "workspace_id": "acme"},
+		json={"text": "Something there", "project": "web", "workspace_id": "acme"},
 	)
 
 	assert task.status_code == 201
-	assert task.json()["project_key"] == "WEB"
+	assert task.json()["project_key"] == "web"
 
 	# And the ref sequence is the new workspace's own, not a continuation of the founder's.
 	assert task.json()["ref"] == 1
@@ -120,12 +120,12 @@ def test_the_agenda_can_now_narrow_to_one_of_two_workspaces (
 	world.call("POST", "/v1/tasks", json={"text": "Buy salad"})
 	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
 	world.call(
-		"POST", "/v1/projects", json={"key": "WEB", "title": "Web", "workspace_id": "acme"}
+		"POST", "/v1/projects", json={"key": "web", "title": "Web", "workspace_id": "acme"}
 	)
 	world.call(
 		"POST",
 		"/v1/tasks",
-		json={"text": "Ship the release", "project": "WEB", "workspace_id": "acme"},
+		json={"text": "Ship the release", "project": "web", "workspace_id": "acme"},
 	)
 
 	everywhere = world.call("GET", "/v1/agenda").json()
@@ -414,5 +414,5 @@ def test_a_workspace_made_over_http_can_be_filed_into (
 	)
 
 	assert filed.status_code == 201, filed.text
-	assert filed.json()["project_key"] == "INBOX"
+	assert filed.json()["project_key"] == "inbox"
 	assert filed.json()["ref"] == 1

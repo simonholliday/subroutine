@@ -166,7 +166,7 @@ def test_the_counter_is_the_workspace_not_the_project (
 	"""
 
 	workspace = _workspace(session)
-	home = _project(session, workspace, key="HOME")
+	home = _project(session, workspace, key="home")
 	other = _project(session, workspace, key="SR")
 
 	first = subroutine.domain.tasks.create(session, project=home, title="In one")
@@ -179,7 +179,7 @@ def test_a_ref_survives_its_task_moving_project (session: sqlalchemy.orm.Session
 	"""A ref names nothing the task can be moved out of, so a move cannot invalidate it."""
 
 	workspace = _workspace(session)
-	home = _project(session, workspace, key="HOME")
+	home = _project(session, workspace, key="home")
 	other = _project(session, workspace, key="SR")
 
 	task = subroutine.domain.tasks.create(session, project=home, title="Moves later")
@@ -922,7 +922,7 @@ def test_concurrent_ref_allocation_never_duplicates (
 				title="Test workspace",
 				owner=founder,
 			)
-			_project(setup, workspace, key="RACE")
+			_project(setup, workspace, key="race")
 			setup.commit()
 			workspace_id = workspace.id
 			founder_id = founder.id
@@ -1098,7 +1098,7 @@ def test_a_subtask_carried_into_another_project_says_so_in_its_own_history (
 	"""
 
 	workspace = _workspace(session)
-	home = _project(session, workspace, key="HOME")
+	home = _project(session, workspace, key="home")
 	elsewhere = _project(session, workspace, key="SR")
 
 	parent = subroutine.domain.tasks.create(session, project=home, title="Carries them")
@@ -1157,7 +1157,7 @@ def test_a_project_key_can_never_look_like_a_ref (
 	)
 	task = subroutine.domain.tasks.create(session, project=project, title="Findable")
 
-	assert project.key == "WEB2"
+	assert project.key == "web2"
 	assert subroutine.domain.refs.parse_ref(project.key) is None, "a key is never a ref"
 	assert subroutine.domain.refs.parse_ref(str(task.ref)) == task.ref
 
@@ -1218,7 +1218,7 @@ def test_a_soft_delete_moves_the_version (
 		row = subroutine.domain.projects.create(
 			session,
 			workspace_id=setup.workspace.id,
-			key="DOOM",
+			key="doom",
 			title="Doomed",
 			owner_id=setup.user.id,
 			actor=None,
@@ -1337,7 +1337,7 @@ def test_a_document_is_filed_under_a_different_project (
 	"""
 
 	workspace = _workspace(session)
-	docs = _project(session, workspace, key="DOCS")
+	docs = _project(session, workspace, key="docs")
 
 	# The workspace's own Inbox, not one made here: `#301` means every workspace has one, and
 	# creating a second `INBOX` is now a duplicate key. This is also the real case — the

@@ -51,6 +51,7 @@ import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.ordering
+import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.errors
@@ -2317,7 +2318,10 @@ def register (
 		# user actually performs — accumulate tasks, notice a theme, make a project, file them
 		# — dead-ended at the last step.
 		if project:
-			changes["project"] = project.strip().upper()
+			# Passed as typed: `projects.normalize_key` in the service decides the stored
+			# form, and a second opinion here is a copy of that rule free to disagree with
+			# it — which is exactly what happened when the rule changed (`#508`).
+			changes["project"] = project.strip()
 
 		# **A refusal rather than a cheerful no-op**, matching the MCP tool: somebody who ran
 		# this and named no field meant to change something, and "unchanged" would hide the
@@ -2999,7 +3003,7 @@ def register (
 			held = where.client.count_tasks(workspace=workspace, project=key)
 
 			if not yes:
-				say(f"Renaming {key} to {to.upper()}.")
+				say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
 				say(f"  {_kept(held)}.")
 				say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
 				say("  .subroutine file that names it.")
@@ -3013,7 +3017,12 @@ def register (
 
 			# The marker in *this* directory is the one that can be repaired from here, and
 			# the one most likely to be stale a second from now (`#177`).
-			if world.marker is not None and world.marker.project == key.upper():
+			# A marker holds what somebody wrote, so this compares normalised forms rather
+			# than raw ones — a checkout marked `WEB` still matches the project `web`.
+			if world.marker is not None and world.marker.project is not None and (
+				subroutine.domain.projects.normalize_key(world.marker.project)
+				== subroutine.domain.projects.normalize_key(key)
+			):
 				_suggest(console, f"subroutine use --here --project {renamed.key}")
 
 	workspace_app = typer.Typer(
@@ -3153,7 +3162,10 @@ def register (
 
 			if not moving:
 				stop(
-					f"There is no project called {key.upper()!r} here.",
+					# Named as they typed it, never as we would have stored it: telling
+					# somebody 'WEB' is not here when they wrote 'web' reads as the program
+					# mangling their input and then blaming them for it.
+					f"There is no project called {key!r} here.",
 					"Run 'subroutine project list' to see what there is.",
 				)
 
@@ -3169,11 +3181,13 @@ def register (
 			held = place.client.count_tasks(workspace=workspace, project=key)
 
 			if not yes:
-				destination = "the top level" if root else under.upper()
+				destination = (
+					"the top level" if root else subroutine.domain.projects.normalize_key(under)
+				)
 				projects = f"{len(moving)} project{'' if len(moving) == 1 else 's'}"
 				items = f"{held} item{'' if held == 1 else 's'}"
 
-				say(f"Moving {key.upper()} to {destination}.")
+				say(f"Moving {subroutine.domain.projects.normalize_key(key)} to {destination}.")
 				say(f"  {projects} move, and {items} {'goes' if held == 1 else 'go'} with them.")
 				say("  Every number stays the same, and nothing is refiled.")
 
@@ -3202,7 +3216,7 @@ def register (
 		and nothing has to recurse.
 		"""
 
-		wanted = key.strip().upper()
+		wanted = subroutine.domain.projects.normalize_key(key)
 		root = next((item for item in tree if item.key == wanted), None)
 
 		if root is None:
@@ -3612,7 +3626,7 @@ def register (
 			if where.strip()
 			else (world.current.connection, world.current.workspace)
 		)
-		key = project.strip().upper() or None
+		key = subroutine.domain.projects.normalize_key(project) or None
 		identifier = None if key is None else _project_id_of(world, key)
 
 		if key is not None and identifier is None:
@@ -3691,7 +3705,7 @@ def register (
 		where = world.writing_to()
 
 		for row in where.client.projects(workspace=_writing_workspace(world)):
-			if row.key.upper() == key:
+			if subroutine.domain.projects.normalize_key(row.key) == key:
 				return str(row.id)
 
 		return None
@@ -3750,7 +3764,11 @@ def register (
 		# **The one moment this file can explain itself.** The id resolved and the key beside
 		# it did not match, which is exactly what a rename leaves behind — so say it once,
 		# here, rather than letting the file go on quietly disagreeing with itself.
-		if world.marker.project and world.marker.project.upper() != named.upper():
+		# Compared normalised on both sides: a marker holds what somebody wrote, and the
+		# project holds the stored form, so a checkout marked `WEB` still matches `web`.
+		if world.marker.project and subroutine.domain.projects.normalize_key(
+			world.marker.project
+		) != subroutine.domain.projects.normalize_key(named):
 			warn(
 				f"{FILE_NAME} here still says {world.marker.project!r}; that project is now "
 				f"{named}. Run 'subroutine use --here --project {named}' to bring it up to date."

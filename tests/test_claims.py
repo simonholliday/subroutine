@@ -91,7 +91,7 @@ def _place (
 		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Claims", owner=owner
 	)
 	project = subroutine.domain.projects.create(
-		session, workspace_id=workspace.id, key="WORK", title="Work"
+		session, workspace_id=workspace.id, key="work", title="Work"
 	)
 
 	return workspace, project, subroutine.domain.authentication.Principal(user=owner)

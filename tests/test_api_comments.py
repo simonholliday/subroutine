@@ -116,7 +116,7 @@ def test_a_deleted_comment_stops_mentioning_things (world: test_api_tasks.World)
 def test_projects_and_documents_take_comments_too (world: test_api_tasks.World) -> None:
 	"""All three subjects §5.10 names, through one registration so they cannot drift."""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	document = world.call("POST", "/v1/documents", json={"title": "A finding"}).json()
 
 	on_project = world.call(

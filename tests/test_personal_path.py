@@ -1646,7 +1646,7 @@ def test_the_listing_narrows_to_one_project (
 
 	# The Inbox is a real project and is what an unfiled task is in, so it is the one key
 	# guaranteed to exist without this test having to create a project first.
-	narrowed = run("list", "--project", "INBOX").output
+	narrowed = run("list", "--project", "inbox").output
 
 	assert "Filed nowhere in particular" in narrowed
 
@@ -1654,15 +1654,15 @@ def test_the_listing_narrows_to_one_project (
 	# connections a project may legitimately exist on one and not another. So it is named on
 	# stderr and the command carries on — `--strict` is how a script says it would rather
 	# stop, and that is the fan-out's contract rather than anything this flag invented.
-	missing = run("list", "--project", "NOSUCH")
+	missing = run("list", "--project", "nosuch")
 
-	assert "NOSUCH" in missing.output
+	assert "nosuch" in missing.output
 
 	# And what it must *not* say is that the list is empty. That reads as "the project exists
 	# and has nothing in it", which is the one wrong conclusion available.
 	assert "Nothing on your list" not in missing.output
 
-	assert run("list", "--project", "NOSUCH", "--strict", expect=1)
+	assert run("list", "--project", "nosuch", "--strict", expect=1)
 
 
 def test_a_truncated_listing_suggests_a_command_that_keeps_the_narrowing (
@@ -2133,10 +2133,10 @@ def test_a_default_install_can_make_a_project_and_file_into_it (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website redesign")
-	run("add", "Fix the header +WEB")
+	run("project", "create", "web", "Website redesign")
+	run("add", "Fix the header +web")
 
-	assert "Fix the header" in run("list", "--project", "WEB").output
+	assert "Fix the header" in run("list", "--project", "web").output
 
 
 def test_a_project_key_is_refused_rather_than_repaired (
@@ -2152,7 +2152,7 @@ def test_a_project_key_is_refused_rather_than_repaired (
 
 	assert "not a usable key" in run("project", "create", "2FA", "Digits", expect=1).output
 
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
 	assert "already in use" in run("project", "create", "web", "Again", expect=1).output
 
@@ -2167,21 +2167,21 @@ def test_the_project_listing_shows_what_is_inside_what (
 	"""
 
 	run("init")
-	run("project", "create", "OUTER", "Outer thing")
-	run("project", "create", "INNER", "Inner thing", "--parent", "OUTER")
+	run("project", "create", "outer", "Outer thing")
+	run("project", "create", "inner", "Inner thing", "--parent", "outer")
 
 	printed = run("project", "list").output
 	rows = [line for line in printed.splitlines() if line.strip()]
 
-	assert any(line.startswith("OUTER") for line in rows)
-	assert any(line.startswith("  INNER") for line in rows), printed
+	assert any(line.startswith("outer") for line in rows)
+	assert any(line.startswith("  inner") for line in rows), printed
 
 	def where (key: str) -> int:
 		"""Return which row a project is on."""
 
 		return next(index for index, line in enumerate(rows) if key in line)
 
-	assert where("OUTER") < where("INNER"), printed
+	assert where("outer") < where("inner"), printed
 
 
 def test_a_listing_marks_work_that_cannot_be_started_yet (
@@ -2323,11 +2323,11 @@ def test_add_says_what_it_read_out_of_the_line (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
-	printed = run("add", "Fix the header !4/2 ~2h #ops +WEB").output
+	printed = run("add", "Fix the header !4/2 ~2h #ops +web").output
 
-	for sigil in ("+WEB", "!4/2", "~2h", "#ops"):
+	for sigil in ("+web", "!4/2", "~2h", "#ops"):
 		assert sigil in printed, f"{sigil} was read and not mentioned:\n{printed}"
 
 
@@ -2821,21 +2821,21 @@ def test_new_work_goes_to_the_project_this_directory_names (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
 	checkout = tmp_path / "checkout" / "src" / "nav"
 	checkout.mkdir(parents=True)
 
 	monkeypatch.chdir(checkout.parent.parent)
-	run("use", "--here", "--project", "WEB")
+	run("use", "--here", "--project", "web")
 
 	# From three directories down, exactly as somebody running a command mid-edit would be.
 	monkeypatch.chdir(checkout)
 
 	added = run("add", "Fix the nav")
 
-	assert "in WEB" in added.output, "a default nobody typed must be said out loud"
-	assert "WEB" in run("show", "1").output
+	assert "in web" in added.output, "a default nobody typed must be said out loud"
+	assert "web" in run("show", "1").output
 
 
 def test_a_project_in_the_line_beats_the_one_in_the_file (
@@ -2850,22 +2850,22 @@ def test_a_project_in_the_line_beats_the_one_in_the_file (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
-	run("project", "create", "OPS", "Operations")
+	run("project", "create", "web", "Website")
+	run("project", "create", "ops", "Operations")
 
 	monkeypatch.chdir(tmp_path)
-	run("use", "--here", "--project", "WEB")
+	run("use", "--here", "--project", "web")
 
-	added = run("add", "Rotate the certificates +OPS")
+	added = run("add", "Rotate the certificates +ops")
 	shown = run("show", "1").output
 
-	assert "OPS" in shown
-	assert "WEB" not in shown
+	assert "ops" in shown
+	assert "web" not in shown
 
 	# **And it does not claim the marker filed it**, which is a separate guard from the one
 	# above: the client enforces the rule and the surface reports it, so a message that said
-	# "in WEB" over a task in OPS would be true of nothing and caught by neither.
-	assert "in WEB" not in added.output
+	# "in web" over a task in OPS would be true of nothing and caught by neither.
+	assert "in web" not in added.output
 
 
 def test_work_outside_the_checkout_is_unaffected (
@@ -2880,7 +2880,7 @@ def test_work_outside_the_checkout_is_unaffected (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
 	inside = tmp_path / "checkout"
 	outside = tmp_path / "elsewhere"
@@ -2888,14 +2888,14 @@ def test_work_outside_the_checkout_is_unaffected (
 	outside.mkdir()
 
 	monkeypatch.chdir(inside)
-	run("use", "--here", "--project", "WEB")
+	run("use", "--here", "--project", "web")
 
 	monkeypatch.chdir(outside)
 
 	added = run("add", "Call the dentist")
 
-	assert "in WEB" not in added.output
-	assert "WEB" not in run("show", "1").output
+	assert "in web" not in added.output
+	assert "web" not in run("show", "1").output
 
 
 def test_a_marker_naming_a_project_that_does_not_exist_is_refused_when_written (
@@ -2913,7 +2913,7 @@ def test_a_marker_naming_a_project_that_does_not_exist_is_refused_when_written (
 
 	monkeypatch.chdir(tmp_path)
 
-	refused = run("use", "--here", "--project", "NOPE", expect=1)
+	refused = run("use", "--here", "--project", "nope", expect=1)
 
 	assert "no project" in refused.output.lower()
 	assert not (tmp_path / subroutine.directory.FILE_NAME).exists(), (
@@ -2933,12 +2933,12 @@ def test_use_reports_the_marker_when_asked_where_it_is (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
 	monkeypatch.chdir(tmp_path)
-	run("use", "--here", "--project", "WEB")
+	run("use", "--here", "--project", "web")
 
-	assert "WEB" in run("use").output
+	assert "web" in run("use").output
 
 
 def test_project_without_here_is_refused_rather_than_ignored (
@@ -2952,7 +2952,7 @@ def test_project_without_here_is_refused_rather_than_ignored (
 
 	run("init")
 
-	refused = run("use", "--project", "WEB", expect=1)
+	refused = run("use", "--project", "web", expect=1)
 
 	assert "--here" in refused.output
 
@@ -2977,7 +2977,7 @@ def test_a_marker_naming_an_unknown_workspace_is_ignored_not_fatal (
 
 	checkout = tmp_path / "checkout"
 	checkout.mkdir()
-	subroutine.directory.write(checkout, workspace="somewhere-else", project="NOPE")
+	subroutine.directory.write(checkout, workspace="somewhere-else", project="nope")
 
 	monkeypatch.chdir(checkout)
 
@@ -3009,13 +3009,13 @@ def test_a_project_can_be_renamed_and_nothing_recorded_moves (
 	"""
 
 	run("init")
-	run("project", "create", "ST", "Subtask")
-	run("add", "Something +ST")
-	run("add", "Another +ST")
+	run("project", "create", "st", "Subtask")
+	run("add", "Something +st")
+	run("add", "Another +st")
 
-	renamed = run("project", "rename", "ST", "SR", "--yes")
+	renamed = run("project", "rename", "st", "SR", "--yes")
 
-	assert "SR" in renamed.output
+	assert "sr" in renamed.output
 
 	listed = run("list", "--project", "SR").output
 
@@ -3034,17 +3034,17 @@ def test_a_rename_says_what_will_stop_working_before_it_does_it (
 	"""
 
 	run("init")
-	run("project", "create", "ST", "Subtask")
-	run("add", "Something +ST")
+	run("project", "create", "st", "Subtask")
+	run("add", "Something +st")
 
-	refused = run("project", "rename", "ST", "SR", expect=1, input="n\n")
+	refused = run("project", "rename", "st", "SR", expect=1, input="n\n")
 
 	assert "1 item" in refused.output
-	assert "+ST" in refused.output
+	assert "+st" in refused.output
 	assert "Nothing was renamed" in refused.output
 
 	# And declining really declined.
-	assert "ST" in run("project", "list").output
+	assert "st" in run("project", "list").output
 
 
 def test_a_checkout_still_finds_its_project_after_a_rename (
@@ -3061,17 +3061,17 @@ def test_a_checkout_still_finds_its_project_after_a_rename (
 	import os
 
 	run("init")
-	run("project", "create", "ST", "Subtask")
+	run("project", "create", "st", "Subtask")
 
 	os.chdir(tmp_path)
-	run("use", "--here", "--project", "ST")
-	run("project", "rename", "ST", "SR", "--yes")
+	run("use", "--here", "--project", "st")
+	run("project", "rename", "st", "SR", "--yes")
 
 	added = run("add", "After the rename")
 
 	# It landed in the renamed project, and the file explained itself on the way.
-	assert "SR" in added.output
-	assert "still says 'ST'" in added.output
+	assert "sr" in added.output
+	assert "still says 'st'" in added.output
 
 	assert "After the rename" in run("list", "--project", "SR").output
 
@@ -3395,19 +3395,19 @@ def test_project_move_counts_the_whole_subtree_before_asking (
 	"""
 
 	run("init")
-	run("project", "create", "ACME", "Acme")
-	run("project", "create", "WEB", "Website")
-	run("project", "create", "API", "The API", "--parent", "WEB")
-	run("add", "Fix the nav +WEB")
-	run("add", "Rate limit +API")
+	run("project", "create", "acme", "Acme")
+	run("project", "create", "web", "Website")
+	run("project", "create", "api", "The API", "--parent", "web")
+	run("add", "Fix the nav +web")
+	run("add", "Rate limit +api")
 
-	asked = run("project", "move", "WEB", "--under", "ACME", input="n\n", expect=1)
+	asked = run("project", "move", "web", "--under", "acme", input="n\n", expect=1)
 
 	assert "2 projects move, and 2 items go with them" in asked.output
 	assert "Nothing was moved." in asked.output
 
 	# Declining left the tree alone, which is what makes the question a question.
-	assert "  WEB" not in run("project", "list").output
+	assert "  web" not in run("project", "list").output
 
 
 def test_project_move_refuses_to_guess_a_direction (
@@ -3421,9 +3421,9 @@ def test_project_move_refuses_to_guess_a_direction (
 	"""
 
 	run("init")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
-	for arguments in (("project", "move", "WEB"), ("project", "move", "WEB", "--root", "--under", "ACME")):
+	for arguments in (("project", "move", "web"), ("project", "move", "web", "--root", "--under", "acme")):
 		refused = run(*arguments, expect=1)
 
 		assert "Say where to move it." in refused.output
@@ -3767,12 +3767,12 @@ def test_a_document_can_be_filed_under_a_different_project (
 	"""
 
 	run("init")
-	run("project", "create", "DOCS", "Docs")
+	run("project", "create", "docs", "Docs")
 	run("doc", "create", "A conclusion", "--body", "Reasoning.")
 
-	run("doc", "edit", "1", "--project", "DOCS")
+	run("doc", "edit", "1", "--project", "docs")
 
-	assert "DOCS" in run("show", "1").output
+	assert "docs" in run("show", "1").output
 
 
 class _RefusesToBeRead:
@@ -3862,12 +3862,12 @@ def test_renaming_a_project_counts_past_a_page_and_agrees_with_itself (
 	"""
 
 	run("init", "--workspace", "Personal")
-	run("project", "create", "BIG", "Big")
+	run("project", "create", "big", "Big")
 
 	for index in range(60):
-		run("add", f"item {index} +BIG")
+		run("add", f"item {index} +big")
 
-	refused = run("project", "rename", "BIG", "HUGE", input="n\n", expect=1)
+	refused = run("project", "rename", "big", "HUGE", input="n\n", expect=1)
 
 	assert "60 items keep their numbers" in refused.output, refused.output
 
@@ -3883,10 +3883,10 @@ def test_the_rename_prompt_agrees_when_there_is_one_item (
 	"""
 
 	run("init", "--workspace", "Personal")
-	run("project", "create", "SOLO", "Solo")
-	run("add", "the only one +SOLO")
+	run("project", "create", "solo", "Solo")
+	run("add", "the only one +solo")
 
-	refused = run("project", "rename", "SOLO", "ONE", input="n\n", expect=1)
+	refused = run("project", "rename", "solo", "ONE", input="n\n", expect=1)
 
 	assert "1 item keeps its number" in refused.output, refused.output
 	assert "keep their numbers" not in refused.output
@@ -3996,11 +3996,11 @@ def test_a_project_listing_survives_a_second_workspace (
 	"""
 
 	run("init", "--workspace", "Projects")
-	run("project", "create", "WEB", "Website")
-	run("add", "Fix the header +WEB")
+	run("project", "create", "web", "Website")
+	run("add", "Fix the header +web")
 	run("workspace", "create", "personal", "Personal")
 
-	listed = run("list", "--project", "WEB").output
+	listed = run("list", "--project", "web").output
 
 	assert "Fix the header" in listed, listed
 
@@ -4016,12 +4016,12 @@ def test_a_project_that_is_nowhere_is_still_refused_by_name (
 	"""
 
 	run("init", "--workspace", "Projects")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 	run("workspace", "create", "personal", "Personal")
 
-	refused = run("list", "--project", "WBE")
+	refused = run("list", "--project", "wbe")
 
-	assert "WBE" in refused.output, refused.output
+	assert "wbe" in refused.output, refused.output
 	assert "no project" in refused.output
 
 

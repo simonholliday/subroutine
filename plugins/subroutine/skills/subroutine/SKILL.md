@@ -63,10 +63,10 @@ setup interview is how a tool loses the person who just installed it.
    follows the rename, so this is not a decision to stop over.
 
    ```
-   subroutine_project(key="WEB", title="Website redesign")
+   subroutine_project(key="web", title="Website redesign")
    ```
 
-   What a rename *does* cost is addresses somebody has already written down — a `+WEB` in a
+   What a rename *does* cost is addresses somebody has already written down — a `+web` in a
    note, a URL, the key in another checkout's marker. The old key then stops working, loudly.
    So it is worth a sentence if they seem to be choosing a name they will regret, and it is
    not worth a question. Renaming is the person's to do, not yours: it is a command that
@@ -90,7 +90,7 @@ setup interview is how a tool loses the person who just installed it.
    directory has no way to tell which of the instance's projects the work belongs to.
 
    ```
-   subroutine use --here --project WEB
+   subroutine use --here --project web
    ```
 
    That writes a small `.subroutine` file at the repository root. Say that you have written it
@@ -226,19 +226,19 @@ attempted and what happened, and reading it is cheaper than repeating it. A ref 
 afterwards. One line carries the detail:
 
 ```
-subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops +WEB")
+subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops +web")
 ```
 
 `by friday` is a deadline, `!4/2` is importance and urgency out of five, `~2h` an estimate,
-`#ops` a tag, `+WEB` the project. Whatever it read is echoed back, so check that line — it is
-the only confirmation that `+WEB` was understood rather than left in the title.
+`#ops` a tag, `+web` the project. Whatever it read is echoed back, so check that line — it is
+the only confirmation that `+web` was understood rather than left in the title.
 
 **The line is the title. Everything you know that the title cannot hold goes in
 `description`, in the same call:**
 
 ```
 subroutine_add(
-    text="Cache the connection roster !3/2 +WEB",
+    text="Cache the connection roster !3/2 +web",
     description="Measured at 400ms a call, four calls a listing. The roster changes only when config.toml does.",
 )
 ```
@@ -300,7 +300,7 @@ subroutine_document(title="Why we dropped the queue", type="decision",
 Dead ends especially. "We tried X and it does not work because Y" is the single most valuable
 thing to leave behind, because without it the next session will try X.
 
-**Say which project it belongs in.** Pass `project="WEB"`. Without one it lands in the Inbox,
+**Say which project it belongs in.** Pass `project="web"`. Without one it lands in the Inbox,
 which is where things go when nobody decided — fine for a quick capture, wrong for a conclusion
 somebody will go looking for. It can be moved later, so this is worth a moment and not worth a
 question.

@@ -602,7 +602,7 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 			],
 			examples=[
 				"Renew the domain by friday !4",
-				"Fix the header +WEB #bug ~2h @alice",
+				"Fix the header +web #bug ~2h @alice",
 				"Call the dentist tomorrow",
 			],
 		),

@@ -557,7 +557,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			title="Projects",
 			description=(
 				"List the projects, or make one by passing a key and a title. A key is "
-				"permanent and starts with a letter, like WEB. Work is filed under a project "
+				"permanent and lower case, like web or web-sales. Work is filed under a project "
 				"with '+KEY' in a captured line."
 			),
 			schema={

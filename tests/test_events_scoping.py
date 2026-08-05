@@ -269,7 +269,7 @@ def world (session: sqlalchemy.orm.Session) -> World:
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=owner.id,

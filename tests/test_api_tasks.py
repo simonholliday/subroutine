@@ -466,13 +466,13 @@ def test_a_listing_can_be_narrowed_by_project_and_by_text (world: World) -> None
 	subroutine.domain.projects.create(
 		world.session,
 		workspace_id=world.workspace.id,
-		key="WEB",
+		key="web",
 		title="Website",
 		owner_id=world.user.id,
 	)
 	world.session.flush()
 
-	world.call("POST", "/v1/tasks", json={"title": "Fix the header", "project": "WEB"})
+	world.call("POST", "/v1/tasks", json={"title": "Fix the header", "project": "web"})
 	world.call("POST", "/v1/tasks", json={"title": "Unrelated"})
 
 	scoped = world.call("GET", "/v1/tasks?project=WEB").json()["items"]
@@ -518,7 +518,7 @@ def test_a_task_in_a_private_project_is_not_found_rather_than_forbidden (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=world.user.id,
@@ -619,7 +619,7 @@ def test_the_agenda_spans_every_readable_workspace (session: sqlalchemy.orm.Sess
 		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Work", owner=world.user
 	)
 	elsewhere = subroutine.domain.projects.create(
-		session, workspace_id=second.id, key="WORK", title="Work", owner_id=world.user.id
+		session, workspace_id=second.id, key="work", title="Work", owner_id=world.user.id
 	)
 	subroutine.domain.tasks.create(session, project=elsewhere, title="A work thing")
 	session.flush()
@@ -647,17 +647,17 @@ def test_capture_respects_an_explicit_project (world: World) -> None:
 	shape here, and silent, because there is nothing in a 201 to say where the task went.
 	"""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 
 	response = world.call(
-		"POST", "/v1/tasks", json={"text": "Ship the release ~2h", "project": "WEB"}
+		"POST", "/v1/tasks", json={"text": "Ship the release ~2h", "project": "web"}
 	)
 
 	assert response.status_code == 201
 
 	body = response.json()
 
-	assert body["project_key"] == "WEB"
+	assert body["project_key"] == "web"
 	assert body["title"] == "Ship the release", "capture should still clean the line"
 	assert body["estimate_minutes"] == 120, "and still parse what it parses"
 
@@ -665,24 +665,24 @@ def test_capture_respects_an_explicit_project (world: World) -> None:
 def test_an_explicit_project_beats_one_named_in_the_captured_line (world: World) -> None:
 	"""§6.13's rule — structured fields win over parsed ones — applied to where it lands."""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
-	world.call("POST", "/v1/projects", json={"key": "OPS", "title": "Ops"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "ops", "title": "Ops"})
 
 	response = world.call(
-		"POST", "/v1/tasks", json={"text": "Rotate the keys +WEB", "project": "OPS"}
+		"POST", "/v1/tasks", json={"text": "Rotate the keys +web", "project": "ops"}
 	)
 
-	assert response.json()["project_key"] == "OPS"
+	assert response.json()["project_key"] == "ops"
 
 
 def test_capture_still_uses_the_project_named_in_the_line (world: World) -> None:
 	"""And the fix must not have replaced a `+KEY` with the Inbox, which is the other misfiling."""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 
-	response = world.call("POST", "/v1/tasks", json={"text": "Fix the header +WEB"})
+	response = world.call("POST", "/v1/tasks", json={"text": "Fix the header +web"})
 
-	assert response.json()["project_key"] == "WEB"
+	assert response.json()["project_key"] == "web"
 
 
 def test_an_estimate_can_be_given_at_creation_and_revised_afterwards (world: World) -> None:
@@ -997,7 +997,7 @@ def test_a_link_to_something_the_caller_cannot_see_is_not_reported (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=world.user.id,
@@ -1388,7 +1388,7 @@ def test_a_parent_the_caller_cannot_see_is_not_found_rather_than_empty (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=world.user.id,
@@ -1558,7 +1558,7 @@ def test_a_blocker_the_caller_cannot_see_still_blocks (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=world.user.id,
@@ -1814,14 +1814,14 @@ def test_a_task_can_be_moved_between_projects (world: World) -> None:
 	capture path was fixed; this is the other half.
 	"""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	made = world.call("POST", "/v1/tasks", json={"title": "Filed nowhere"}).json()
 
-	assert made["project_key"].upper() == "INBOX"
+	assert made["project_key"] == "inbox"
 
-	moved = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "WEB"}).json()
+	moved = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "web"}).json()
 
-	assert moved["project_key"] == "WEB"
+	assert moved["project_key"] == "web"
 	assert moved["version"] > made["version"], "a move is a change and moves the version"
 
 
@@ -1833,7 +1833,7 @@ def test_moving_a_task_takes_its_parts_with_it (world: World) -> None:
 	nothing re-checks it afterwards.
 	"""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	parent = world.call("POST", "/v1/tasks", json={"title": "The feature"}).json()
 	child = world.call(
 		"POST", "/v1/tasks", json={"title": "A part", "parent_task_id": str(parent["id"])}
@@ -1842,12 +1842,12 @@ def test_moving_a_task_takes_its_parts_with_it (world: World) -> None:
 		"POST", "/v1/tasks", json={"title": "A smaller part", "parent_task_id": str(child["id"])}
 	).json()
 
-	world.call("PATCH", f"/v1/tasks/{parent['ref']}", json={"project": "WEB"})
+	world.call("PATCH", f"/v1/tasks/{parent['ref']}", json={"project": "web"})
 
 	for ref in (parent["ref"], child["ref"], grandchild["ref"]):
 		found = world.call("GET", f"/v1/tasks/{ref}").json()
 
-		assert found["project_key"] == "WEB", f"#{ref} was left behind"
+		assert found["project_key"] == "web", f"#{ref} was left behind"
 
 	# **The parts' versions move too.** A client holding one and sending it back under §8.9
 	# has a stale view of where that task lives, which is what the check exists to catch.
@@ -1857,13 +1857,13 @@ def test_moving_a_task_takes_its_parts_with_it (world: World) -> None:
 def test_a_part_cannot_be_moved_out_of_its_parent (world: World) -> None:
 	"""Refused, and the refusal names what to do instead rather than just saying no."""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	parent = world.call("POST", "/v1/tasks", json={"title": "The feature"}).json()
 	child = world.call(
 		"POST", "/v1/tasks", json={"title": "A part", "parent_task_id": str(parent["id"])}
 	).json()
 
-	response = world.call("PATCH", f"/v1/tasks/{child['ref']}", json={"project": "WEB"})
+	response = world.call("PATCH", f"/v1/tasks/{child['ref']}", json={"project": "web"})
 
 	assert response.status_code == 422
 
@@ -1873,7 +1873,7 @@ def test_a_part_cannot_be_moved_out_of_its_parent (world: World) -> None:
 	assert "parent" in body["errors"][0]["hint"].lower()
 
 	# And nothing moved.
-	assert world.call("GET", f"/v1/tasks/{child['ref']}").json()["project_key"].upper() == "INBOX"
+	assert world.call("GET", f"/v1/tasks/{child['ref']}").json()["project_key"] == "inbox"
 
 
 def test_an_ordinary_edit_does_not_refile_the_task (world: World) -> None:
@@ -1884,16 +1884,16 @@ def test_an_ordinary_edit_does_not_refile_the_task (world: World) -> None:
 	200 this time rather than a 201.
 	"""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	made = world.call(
-		"POST", "/v1/tasks", json={"title": "Filed on purpose", "project": "WEB"}
+		"POST", "/v1/tasks", json={"title": "Filed on purpose", "project": "web"}
 	).json()
 
 	edited = world.call(
 		"PATCH", f"/v1/tasks/{made['ref']}", json={"title": "Renamed, not refiled"}
 	).json()
 
-	assert edited["project_key"] == "WEB"
+	assert edited["project_key"] == "web"
 
 
 def test_a_move_is_recorded_as_a_change (world: World) -> None:
@@ -1904,10 +1904,10 @@ def test_a_move_is_recorded_as_a_change (world: World) -> None:
 	for a day.
 	"""
 
-	world.call("POST", "/v1/projects", json={"key": "WEB", "title": "Web"})
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
 	made = world.call("POST", "/v1/tasks", json={"title": "Moves house"}).json()
 
-	world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "WEB"})
+	world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"project": "web"})
 
 	events = world.call("GET", f"/v1/tasks/{made['ref']}/events").json()["items"]
 
@@ -1934,7 +1934,7 @@ def test_a_move_is_refused_when_the_destination_is_out_of_reach (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=world.user.id,
@@ -1960,7 +1960,7 @@ def test_a_move_is_refused_when_the_destination_is_out_of_reach (
 	assert response.status_code == 404, response.text
 
 	# And it stayed where it was.
-	assert nosy.call("GET", f"/v1/tasks/{mine['ref']}").json()["project_key"].upper() == "INBOX"
+	assert nosy.call("GET", f"/v1/tasks/{mine['ref']}").json()["project_key"] == "inbox"
 
 
 def test_tags_can_be_set_on_a_task_built_from_fields (world: World) -> None:

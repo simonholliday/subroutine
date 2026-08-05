@@ -139,10 +139,10 @@ def test_it_never_names_something_the_caller_cannot_see (
 	world = test_api_tasks._world(session)
 
 	world.call(
-		"POST", "/v1/projects", json={"key": "SECRET", "title": "Secret", "visibility": "private"}
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
 	)
 	hidden = world.call(
-		"POST", "/v1/documents", json={"title": "The acquisition plan", "project": "SECRET"}
+		"POST", "/v1/documents", json={"title": "The acquisition plan", "project": "secret"}
 	).json()
 
 	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")

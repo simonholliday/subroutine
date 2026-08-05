@@ -696,11 +696,11 @@ def test_both_create_a_project_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	by_local = local.create_project(key="ALPHA", title="From the local client")
-	by_remote = remote.create_project(key="BETA", title="From the HTTP client")
+	by_local = local.create_project(key="alpha", title="From the local client")
+	by_remote = remote.create_project(key="beta", title="From the HTTP client")
 
-	assert by_local.key == "ALPHA"
-	assert by_remote.key == "BETA"
+	assert by_local.key == "alpha"
+	assert by_remote.key == "beta"
 
 	# Every field that is not the two they were told to differ in. A create is where a default
 	# most easily comes to be decided in two places — `visibility` is passed explicitly by the
@@ -719,14 +719,14 @@ def test_both_list_the_same_projects_parents_before_children (pair: Pair) -> Non
 
 	local, remote = pair.both()
 
-	above = local.create_project(key="OUTER", title="Outer")
-	local.create_project(key="INNER", title="Inner", parent=above.key)
+	above = local.create_project(key="outer", title="Outer")
+	local.create_project(key="inner", title="Inner", parent=above.key)
 
 	from_local = [(one.key, one.depth) for one in local.projects()]
 	from_remote = [(one.key, one.depth) for one in remote.projects()]
 
 	assert from_local == from_remote
-	assert from_local.index(("OUTER", 0)) < from_local.index(("INNER", 1))
+	assert from_local.index(("outer", 0)) < from_local.index(("inner", 1))
 
 
 def test_both_make_the_creator_the_owner_so_a_private_project_stays_visible (
@@ -742,12 +742,12 @@ def test_both_make_the_creator_the_owner_so_a_private_project_stays_visible (
 
 	local, remote = pair.both()
 
-	by_local = local.create_project(key="HUSH", title="Quiet", visibility="private")
-	by_remote = remote.create_project(key="SHH", title="Quieter", visibility="private")
+	by_local = local.create_project(key="hush", title="Quiet", visibility="private")
+	by_remote = remote.create_project(key="shh", title="Quieter", visibility="private")
 
 	assert by_local.owner_id == by_remote.owner_id == pair.user.id
-	assert {one.key for one in local.projects()} >= {"HUSH", "SHH"}
-	assert {one.key for one in remote.projects()} >= {"HUSH", "SHH"}
+	assert {one.key for one in local.projects()} >= {"hush", "shh"}
+	assert {one.key for one in remote.projects()} >= {"hush", "shh"}
 
 
 def test_both_refuse_an_unusable_key_the_same_way (pair: Pair) -> None:
@@ -1440,7 +1440,7 @@ def test_neither_transport_reads_an_item_a_token_may_not_see (pair: Pair) -> Non
 	private = subroutine.domain.projects.create(
 		pair.session,
 		workspace_id=pair.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=pair.user.id,
@@ -1553,7 +1553,7 @@ def test_both_list_documents_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 	project = subroutine.domain.projects.create(
-		pair.session, workspace_id=pair.workspace.id, key="DOCS", title="Docs"
+		pair.session, workspace_id=pair.workspace.id, key="docs", title="Docs"
 	)
 
 	for index in range(4):
@@ -1933,19 +1933,19 @@ def test_both_move_a_project_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	local.create_project(key="ACME", title="Acme")
-	local.create_project(key="WEB", title="Website")
-	local.create_project(key="API", title="The API", parent="WEB")
+	local.create_project(key="acme", title="Acme")
+	local.create_project(key="web", title="Website")
+	local.create_project(key="api", title="The API", parent="web")
 
-	moved = local.move_project("WEB", parent="ACME")
-	acme = next(item for item in local.projects() if item.key == "ACME")
+	moved = local.move_project("web", parent="acme")
+	acme = next(item for item in local.projects() if item.key == "acme")
 
 	assert moved.parent_id == acme.id
 	assert local.projects() == remote.projects()
 
 	# The subtree came with it, which is the whole of what "move" means here.
-	api = next(item for item in local.projects() if item.key == "API")
-	web = next(item for item in local.projects() if item.key == "WEB")
+	api = next(item for item in local.projects() if item.key == "api")
+	web = next(item for item in local.projects() if item.key == "web")
 
 	assert api.parent_id == web.id
 	assert api.depth == web.depth + 1
@@ -1961,10 +1961,10 @@ def test_both_take_a_project_back_to_the_root_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	local.create_project(key="ACME", title="Acme")
-	local.create_project(key="WEB", title="Website", parent="ACME")
+	local.create_project(key="acme", title="Acme")
+	local.create_project(key="web", title="Website", parent="acme")
 
-	assert remote.move_project("WEB", parent=None).parent_id is None
+	assert remote.move_project("web", parent=None).parent_id is None
 	assert local.projects() == remote.projects()
 
 
@@ -2071,11 +2071,11 @@ def test_both_move_a_document_to_another_project (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	local.create_project(key="DOCS", title="Docs")
+	local.create_project(key="docs", title="Docs")
 	written = local.create_document(title="A conclusion", body="Reasoning.")
-	moved = local.update_document(ref=written.ref, project="DOCS")
+	moved = local.update_document(ref=written.ref, project="docs")
 
-	assert moved.project_key == "DOCS"
+	assert moved.project_key == "docs"
 	assert moved.ref == written.ref, "filing it somewhere else does not renumber it"
 
 	assert local.document(ref=written.ref) == remote.document(ref=written.ref)
@@ -2095,18 +2095,18 @@ def test_both_include_a_sub_projects_items_under_its_parent (pair: Pair) -> None
 	between a listing and a permission.
 	"""
 
-	parent = pair.local.create_project(key="PARENT", title="Parent")
-	child = pair.local.create_project(key="CHILD", title="Child", parent=parent.key)
+	parent = pair.local.create_project(key="parent", title="Parent")
+	child = pair.local.create_project(key="child", title="Child", parent=parent.key)
 
 	assert child.parent_id == parent.id
 
-	make(pair, "lives in the parent +PARENT")
-	make(pair, "lives in the child +CHILD")
+	make(pair, "lives in the parent +parent")
+	make(pair, "lives in the child +child")
 
 	local, remote = pair.both()
-	under = local.tasks(project="PARENT")
+	under = local.tasks(project="parent")
 
-	assert local.tasks(project="PARENT") == remote.tasks(project="PARENT")
+	assert local.tasks(project="parent") == remote.tasks(project="parent")
 	assert {task.title for task in under} == {
 		"lives in the parent",
 		"lives in the child",
@@ -2114,8 +2114,8 @@ def test_both_include_a_sub_projects_items_under_its_parent (pair: Pair) -> None
 
 	# And naming the child still means the child alone — a subtree is not a widening of
 	# everything, it is the branch somebody named.
-	assert {task.title for task in local.tasks(project="CHILD")} == {"lives in the child"}
-	assert local.count_tasks(project="PARENT") == 2
+	assert {task.title for task in local.tasks(project="child")} == {"lives in the child"}
+	assert local.count_tasks(project="parent") == 2
 
 
 def test_both_withdraw_a_comment_the_same_way (pair: Pair) -> None:
@@ -2430,19 +2430,19 @@ def test_both_narrow_projects_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	top = local.create_project(key="TOP", title="A tree")
-	local.create_project(key="UNDER", title="Beneath it", parent=top.key)
-	local.create_project(key="HIDDEN", title="Not for everyone", visibility="private")
+	top = local.create_project(key="top", title="A tree")
+	local.create_project(key="under", title="Beneath it", parent=top.key)
+	local.create_project(key="hidden", title="Not for everyone", visibility="private")
 
 	children = {project.key for project in local.projects(parent=top.key)}
 
 	assert children == {project.key for project in remote.projects(parent=top.key)}
-	assert children == {"UNDER"}
+	assert children == {"under"}
 
 	private = {project.key for project in local.projects(visibility="private")}
 
 	assert private == {project.key for project in remote.projects(visibility="private")}
-	assert private == {"HIDDEN"}
+	assert private == {"hidden"}
 
 
 def test_both_hand_a_task_over_after_it_was_filed (pair: Pair) -> None:

@@ -785,13 +785,13 @@ def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Projects")
-	run("project", "create", "WEB", "Website")
-	run("project", "create", "OPS", "Operations")
-	run("add", "Fix the header +WEB")
-	run("add", "Rotate the certificates +OPS")
+	run("project", "create", "web", "Website")
+	run("project", "create", "ops", "Operations")
+	run("add", "Fix the header +web")
+	run("add", "Rotate the certificates +ops")
 
 	made = run(
-		"agent", "create", "claude", "--project", "WEB", "--scope", "task:read"
+		"agent", "create", "claude", "--project", "web", "--scope", "task:read"
 	).output
 
 	assert "Created service account claude" in made
@@ -801,7 +801,7 @@ def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
 	assert line is not None, "the environment line is the deliverable, not a nicety"
 
 	assert "claude (agent)" in made, "checked by presenting it, not by describing it"
-	assert "only within WEB" in made
+	assert "only within web" in made
 	assert "its shell acts as si" in made, "and it says what is not yet bounded"
 
 	# **Follow the instruction and see what happens** — the only version of this check worth
@@ -890,14 +890,14 @@ def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
-	run("project", "create", "OPS", "Operations")
-	run("add", "Fix the header +WEB")
-	run("add", "Rotate the certificates +OPS")
+	run("project", "create", "web", "Website")
+	run("project", "create", "ops", "Operations")
+	run("add", "Fix the header +web")
+	run("add", "Rotate the certificates +ops")
 
-	issued = run("token", "create", "--service-account", "web", "--project", "WEB")
+	issued = run("token", "create", "--service-account", "web", "--project", "web")
 
-	assert "Restricted to WEB and anything filed underneath" in issued.output, (
+	assert "Restricted to web and anything filed underneath" in issued.output, (
 		"the subtree is the part nobody would guess from what they typed"
 	)
 
@@ -912,7 +912,7 @@ def test_a_credential_can_be_restricted_to_one_project_from_the_command_line (
 
 	# Not merely absent from a listing: the project itself does not resolve, which is what
 	# §7.3a means by a restriction hiding rather than forbidding.
-	assert "no project 'OPS'" in run("list", "--project", "OPS").output
+	assert "no project 'ops'" in run("list", "--project", "ops").output
 
 
 def test_a_project_restriction_reaches_everything_under_it (
@@ -928,10 +928,10 @@ def test_a_project_restriction_reaches_everything_under_it (
 
 	run("init", "--username", "si", "--workspace", "Personal")
 	run("project", "create", "SR", "Subroutine")
-	run("project", "create", "WEB", "Web UI", "--parent", "SR")
-	run("project", "create", "OPS", "Operations")
-	run("add", "Build the login page +WEB")
-	run("add", "Rotate the certificates +OPS")
+	run("project", "create", "web", "Web UI", "--parent", "SR")
+	run("project", "create", "ops", "Operations")
+	run("add", "Build the login page +web")
+	run("add", "Rotate the certificates +ops")
 
 	issued = run("token", "create", "--service-account", "core", "--project", "SR")
 
@@ -951,21 +951,21 @@ def test_a_restricted_credential_reads_back_the_key_that_was_typed (
 	"""`project_scope` stores ids, and a person who typed `WEB` is owed `WEB` back (`#203`)."""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
-	issued = run("token", "create", "--service-account", "web", "--project", "WEB")
+	issued = run("token", "create", "--service-account", "web", "--project", "web")
 
 	monkeypatch.setenv(
 		"SUBROUTINE_TOKEN", next(word for word in issued.output.split() if word.startswith("sr_"))
 	)
 
-	assert "Narrowed to projects WEB" in run("whoami").output
+	assert "Narrowed to projects web" in run("whoami").output
 
 	scoped = json.loads(run("whoami", "--json").output)[0]["credential"]
 
 	# The id is still reported, because it is what is stored and what the API takes.
-	assert scoped["project_scope_keys"] == ["WEB"]
-	assert scoped["project_scope"] != ["WEB"]
+	assert scoped["project_scope_keys"] == ["web"]
+	assert scoped["project_scope"] != ["web"]
 
 
 def test_a_project_named_in_two_workspaces_is_refused_rather_than_picked (
@@ -978,19 +978,19 @@ def test_a_project_named_in_two_workspaces_is_refused_rather_than_picked (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 	run("workspace", "create", "acme", "Acme")
-	run("-w", "acme", "project", "create", "WEB", "Acme website")
+	run("-w", "acme", "project", "create", "web", "Acme website")
 
-	refused = run("token", "create", "--username", "si", "--project", "WEB", expect=1)
+	refused = run("token", "create", "--username", "si", "--project", "web", expect=1)
 
 	assert "More than one workspace" in refused.output
 	assert "acme, personal" in refused.output
 	assert "--workspace" in refused.output, "and it says how to settle it"
 
 	# Named, it resolves — and the two are different projects, so this is the whole fix.
-	assert "Restricted to WEB" in run(
-		"token", "create", "--username", "si", "--workspace", "acme", "--project", "WEB"
+	assert "Restricted to web" in run(
+		"token", "create", "--username", "si", "--workspace", "acme", "--project", "web"
 	).output
 
 
@@ -1006,11 +1006,11 @@ def test_a_mistyped_project_is_refused_before_a_credential_exists (
 
 	run("init", "--username", "si", "--workspace", "Personal")
 
-	refused = run("token", "create", "--username", "si", "--project", "NOPE", expect=1)
+	refused = run("token", "create", "--username", "si", "--project", "nope", expect=1)
 
-	assert "no project 'NOPE'" in refused.output
+	assert "no project 'nope'" in refused.output
 	assert "sr_" not in refused.output, "nothing was minted"
-	assert "NOPE" not in run("token", "list").output
+	assert "nope" not in run("token", "list").output
 
 
 def test_whoami_names_the_account_and_where_its_authority_comes_from (
@@ -1776,11 +1776,11 @@ def test_a_worker_profile_bounds_an_agent_to_one_project (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
-	made = run("agent", "create", "claude", "--profile", "worker", "--project", "WEB").output
+	made = run("agent", "create", "claude", "--profile", "worker", "--project", "web").output
 
-	assert "only within WEB" in made
+	assert "only within web" in made
 	assert "writing only in" not in made, "a worker writes everywhere it reaches"
 
 
@@ -1795,18 +1795,18 @@ def test_a_collaborator_reads_a_tree_and_writes_one_part_of_it (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
-	run("project", "create", "API", "Public API")
+	run("project", "create", "web", "Website")
+	run("project", "create", "api", "Public API")
 
 	made = run(
 		"agent", "create", "sam",
 		"--profile", "collaborator",
-		"--project", "WEB", "--project", "API",
-		"--write", "API",
+		"--project", "web", "--project", "api",
+		"--write", "api",
 	).output
 
-	assert "only within WEB, API" in made
-	assert "writing only in API" in made
+	assert "only within web, api" in made
+	assert "writing only in api" in made
 
 
 def test_an_observer_can_read_and_is_refused_a_write (
@@ -1844,10 +1844,10 @@ def test_a_profile_that_means_two_things_is_refused_rather_than_resolved (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "WEB", "Website")
+	run("project", "create", "web", "Website")
 
 	refused = run(
-		"agent", "create", "nosy", "--profile", "observer", "--write", "WEB", expect=1
+		"agent", "create", "nosy", "--profile", "observer", "--write", "web", expect=1
 	).output
 
 	assert "does not go with the 'observer' profile" in refused
@@ -1879,17 +1879,17 @@ def test_whoami_names_a_credentials_write_set (
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
-	run("project", "create", "API", "Public API")
+	run("project", "create", "api", "Public API")
 
 	issued = run(
-		"token", "create", "--service-account", "narrow", "--title", "probe", "--write", "API"
+		"token", "create", "--service-account", "narrow", "--title", "probe", "--write", "api"
 	)
 	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
 	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)
 
 	answer = run("whoami").output
 
-	assert "Narrowed to writing in API." in answer
+	assert "Narrowed to writing in api." in answer
 
 
 def test_upgrade_check_asks_nothing_of_the_database (

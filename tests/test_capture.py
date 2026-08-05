@@ -71,8 +71,12 @@ def test_a_sentence_with_no_grammar_in_it_is_left_entirely_alone () -> None:
 		("Renew it defer 2026-09-01", "Renew it", {"start": "2026-09-01"}),
 		("Tidy up #home #admin", "Tidy up", {"tags": ("home", "admin")}),
 		("Review the PR @si", "Review the PR", {"assignee": "si"}),
-		("Fix the build +WEB", "Fix the build", {"project_key": "WEB"}),
-		("Fix the build +web", "Fix the build", {"project_key": "WEB"}),
+		("Fix the build +web", "Fix the build", {"project_key": "web"}),
+		# **Read as written since `#508`.** The grammar reports what somebody typed and
+		# `projects.normalize_key` decides the stored form — one copy of that rule, in
+		# the service. It used to be here as well, and the two disagreed the moment the
+		# rule changed.
+		("Fix the build +web", "Fix the build", {"project_key": "web"}),
 		("Write it up ~2h", "Write it up", {"estimate_minutes": 120}),
 		("Write it up ~1h30m", "Write it up", {"estimate_minutes": 90}),
 		("Deal with it !5", "Deal with it", {"importance": 5}),
@@ -197,11 +201,11 @@ def test_the_first_value_for_a_field_wins () -> None:
 def test_everything_at_once () -> None:
 	"""The whole grammar in one line, which is how it will actually be used."""
 
-	captured = _parse("Ship the release by next friday +WEB @si ~2h #release #urgent !4")
+	captured = _parse("Ship the release by next friday +web @si ~2h #release #urgent !4")
 
 	assert captured.title == "Ship the release"
 	assert captured.due == datetime.date(2026, 8, 7)
-	assert captured.project_key == "WEB"
+	assert captured.project_key == "web"
 	assert captured.assignee == "si"
 	assert captured.estimate_minutes == 120
 	assert captured.tags == ("release", "urgent")
@@ -368,7 +372,7 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 		("Note the #hashtag, then move on", "Note the then move on", {"tags": ("hashtag",)}),
 		("Ping @bob, then talk", "Ping then talk", {"assignee": "bob"}),
 		("Write it up ~2h, then rest", "Write it up then rest", {"estimate_minutes": 120}),
-		("Fix the build +WEB, please", "Fix the build please", {"project_key": "WEB"}),
+		("Fix the build +web, please", "Fix the build please", {"project_key": "web"}),
 		# …which also restores first-wins for importance: `!3,` used to fail to match at
 		# all, letting the later `!4` win.
 		("Set it to !3, not !4", "Set it to not !4", {"importance": 3}),
@@ -552,7 +556,7 @@ REPORTED_AS = {
 def test_every_field_the_grammar_can_set_is_accounted_for () -> None:
 	"""The guard, rather than the summary being right today.
 
-	``+WEB`` was parsed, filed and never mentioned for as long as the sigil existed, and
+	``+web`` was parsed, filed and never mentioned for as long as the sigil existed, and
 	nothing failed — because no test asked whether a parsed field was *reported*. This is that
 	question, asked of the dataclass rather than of a list somebody maintains.
 	"""
@@ -578,14 +582,14 @@ def test_a_line_with_no_sigils_summarises_to_nothing () -> None:
 @pytest.mark.parametrize(
 	("text", "expected"),
 	[
-		("Fix it +WEB", "+WEB"),
+		("Fix it +web", "+web"),
 		("Think about it !3", "!3"),
 		("Do it !4/2", "!4/2"),
 		("Write it ~2h", "~2h"),
 		("Write it ~90m", "~1h 30m"),
 		("Ask her @alice", "@alice"),
 		("Tidy up #home #admin", "#home #admin"),
-		("Fix the header !4/2 ~2h #ops +WEB", "+WEB !4/2 ~2h #ops"),
+		("Fix the header !4/2 ~2h #ops +web", "+web !4/2 ~2h #ops"),
 	],
 )
 def test_each_sigil_is_written_back_as_it_was_typed (text: str, expected: str) -> None:
@@ -603,18 +607,18 @@ def test_each_sigil_is_written_back_as_it_was_typed (text: str, expected: str) -
 def test_the_read_back_line_cannot_be_mistaken_for_the_title () -> None:
 	"""Item ``#426``. The tokens alone had a double space for a separator and nothing else.
 
-	``Added: Stop the stamp brokering an introduction  +TERENCE !4/3 #prompt`` gives a reader
+	``Added: Stop the stamp brokering an introduction  +terence !4/3 #prompt`` gives a reader
 	no way to tell where the title stops — which defeats the confirmation `#135` exists for,
-	since the question being answered is exactly *"was `+TERENCE` understood, or left in the
+	since the question being answered is exactly *"was `+terence` understood, or left in the
 	title?"* and both readings rendered identically.
 
 	Reported by an agent that liked the echo and could not parse it.
 	"""
 
-	read = subroutine.domain.capture.parse("Fix the header !4/2 +WEB", now=NOW)
+	read = subroutine.domain.capture.parse("Fix the header !4/2 +web", now=NOW)
 	echoed = subroutine.domain.capture.read_back(subroutine.domain.capture.summarise(read))
 
-	assert echoed == "(read +WEB !4/2)"
+	assert echoed == "(read +web !4/2)"
 
 	# The tokens themselves are untouched — this wraps `summarise`, it does not re-spell it,
 	# so `--json`'s `read` field and every test above still describe the same thing.
@@ -642,7 +646,7 @@ def test_the_summary_never_claims_a_field_the_grammar_did_not_set () -> None:
 	summary built from the wrong object — or one that guessed a default — fails here.
 	"""
 
-	read = subroutine.domain.capture.parse("Fix it +WEB ~2h", now=NOW)
+	read = subroutine.domain.capture.parse("Fix it +web ~2h", now=NOW)
 	summary = subroutine.domain.capture.summarise(read) or ""
 
 	assert ("!" in summary) is (read.importance is not None)

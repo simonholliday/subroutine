@@ -82,7 +82,7 @@ def test_the_two_worlds_really_do_collide (two_worlds: tuple[Side, Side]) -> Non
 	left, right = two_worlds
 
 	assert left.workspace.id != right.workspace.id
-	assert left.project.key == right.project.key == "SR"
+	assert left.project.key == right.project.key == "sr"
 	assert left.task.ref == right.task.ref == 1
 	assert left.task.title == right.task.title
 
@@ -209,7 +209,7 @@ def test_a_subtree_query_stops_at_the_workspace_boundary (
 	left, right = two_worlds
 
 	child = subroutine.domain.projects.create(
-		session, workspace_id=left.workspace.id, key="CHILD", title="Child", parent=left.project
+		session, workspace_id=left.workspace.id, key="child", title="Child", parent=left.project
 	)
 	untouched = right.project.path
 

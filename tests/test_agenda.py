@@ -269,7 +269,7 @@ def test_a_task_in_someone_elses_private_project_is_not_shown (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Private project",
 		visibility="private",
 	)
@@ -286,7 +286,7 @@ def test_a_private_project_is_shown_to_its_members (session: sqlalchemy.orm.Sess
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Private project",
 		visibility="private",
 	)
@@ -424,7 +424,7 @@ def test_the_agenda_can_be_narrowed_to_one_workspace (
 	elsewhere = subroutine.domain.projects.create(
 		session,
 		workspace_id=second.id,
-		key="WRK",
+		key="wrk",
 		title="Work",
 		owner_id=first.user.id,
 	)

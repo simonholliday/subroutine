@@ -146,7 +146,7 @@ def test_projects_and_documents_have_histories_too (world: test_api_tasks.World)
 	"""All three, from one registration, so they cannot drift into three different APIs."""
 
 	project = world.call(
-		"POST", "/v1/projects", json={"key": "WEB", "title": "Website"}
+		"POST", "/v1/projects", json={"key": "web", "title": "Website"}
 	).json()
 	document = world.call("POST", "/v1/documents", json={"title": "How it works"}).json()
 
@@ -190,10 +190,10 @@ def test_a_history_is_not_readable_inside_a_private_project (
 	world.call(
 		"POST",
 		"/v1/projects",
-		json={"key": "SECRET", "title": "Secret", "visibility": "private"},
+		json={"key": "secret", "title": "Secret", "visibility": "private"},
 	)
 	hidden = world.call(
-		"POST", "/v1/tasks", json={"title": "Acquire the rival company", "project": "SECRET"}
+		"POST", "/v1/tasks", json={"title": "Acquire the rival company", "project": "secret"}
 	).json()
 
 	assert world.call("GET", f"/v1/tasks/{hidden['ref']}/events").status_code == 200

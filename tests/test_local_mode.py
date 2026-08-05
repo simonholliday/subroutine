@@ -275,27 +275,27 @@ def test_a_captured_line_becomes_a_task_with_its_tags (
 def test_a_named_project_is_used_and_a_wrong_one_is_refused (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""``+WEB`` naming nothing is a typo; filing it in the Inbox anyway would lose it."""
+	"""``+web`` naming nothing is a typo; filing it in the Inbox anyway would lose it."""
 
 	installed = _installed(session)
 	project = subroutine.domain.projects.create(
-		session, workspace_id=installed.workspace.id, key="WEB", title="Website"
+		session, workspace_id=installed.workspace.id, key="web", title="Website"
 	)
 
 	task, _captured = subroutine.domain.tasks.create_from_text(
-		session, workspace=installed.workspace, text="Fix the build +WEB"
+		session, workspace=installed.workspace, text="Fix the build +web"
 	)
 
 	assert task.project_id == project.id
 
 	with pytest.raises(subroutine.errors.ValidationError) as raised:
 		subroutine.domain.tasks.create_from_text(
-			session, workspace=installed.workspace, text="Fix the build +NOPE"
+			session, workspace=installed.workspace, text="Fix the build +nope"
 		)
 
 	assert raised.value.errors[0].field == "project"
 	assert raised.value.errors[0].hint is not None
-	assert "WEB" in raised.value.errors[0].hint
+	assert "web" in raised.value.errors[0].hint
 
 
 def test_an_unknown_assignee_names_the_members (session: sqlalchemy.orm.Session) -> None:
@@ -482,14 +482,14 @@ def test_privacy_reaches_a_private_projects_children (
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=installed.workspace.id,
-		key="PRIV",
+		key="priv",
 		title="Private",
 		visibility="private",
 	)
 	child = subroutine.domain.projects.create(
 		session,
 		workspace_id=installed.workspace.id,
-		key="CHILD",
+		key="child",
 		title="Public child",
 		parent=private,
 		visibility="public",

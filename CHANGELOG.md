@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `243497ffc330`.
+> **This release changes the database schema**, to `c858f2942244`.
 >
 > Install it, then run `subroutine upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -142,6 +142,21 @@ upgrade involves.
   document is *draft*, then *active*, then *superseded*, and asking a workspace for its active
   decisions is how you find the rules you are working under. Projects gained `parent`,
   `visibility` and `include_archived`.
+
+- **A project key is lower case, and may contain hyphens.** `web-sales` rather than
+  `WEBSALES`. The Inbox every installation starts with is now `inbox`.
+
+  A workspace short name has always been lower case, so an address like `work/acme/#42`
+  had its two halves shouted differently for no reason anybody could infer. Nothing depended
+  on the case, and what you type is still case-insensitive — `+SR` and `--project SR` go on
+  working, they are just stored and shown as `sr`.
+
+  **Your existing keys are rewritten by the migration**, because every lookup compares what
+  you typed against what is stored, and an instance left half-converted would report that
+  none of your projects exist.
+
+  A key may now be up to 32 characters, up from 16, which is what makes a hyphenated
+  compound like `service-marketing` possible at all.
 
 - **Work can be handed over after it is filed.** `subroutine update 42 --assignee jo`, and
   `assignee` on the agent's `subroutine_update`. A deadline, tags and a timezone can be

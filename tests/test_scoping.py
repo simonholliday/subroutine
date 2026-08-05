@@ -182,13 +182,13 @@ def world (session: sqlalchemy.orm.Session) -> World:
 	private = subroutine.domain.projects.create(
 		session,
 		workspace_id=workspace.id,
-		key="SECRET",
+		key="secret",
 		title="Secret",
 		visibility="private",
 		owner_id=owner.id,
 	)
 	public = subroutine.domain.projects.create(
-		session, workspace_id=workspace.id, key="OPEN", title="Open"
+		session, workspace_id=workspace.id, key="open", title="Open"
 	)
 
 	subroutine.domain.tasks.create(session, project=private, title="Acquire the rival company")
@@ -287,7 +287,7 @@ def test_a_project_scope_carries_the_subtree_into_the_listing (
 	"""
 
 	child = subroutine.domain.projects.create(
-		session, workspace_id=world.workspace.id, key="CHILD", title="Child", parent=world.public
+		session, workspace_id=world.workspace.id, key="child", title="Child", parent=world.public
 	)
 	subroutine.domain.tasks.create(session, project=child, title="Work underneath")
 	session.flush()
@@ -545,7 +545,7 @@ def test_a_credential_that_writes_nowhere_here_is_refused_in_those_terms (
 	elsewhere = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="OTHERWHERE",
+		key="otherwhere",
 		title="Otherwhere",
 		actor=subroutine.domain.authentication.Principal(user=world.owner),
 	)
@@ -582,8 +582,8 @@ def test_a_credential_reaching_two_projects_is_asked_which (
 		subroutine.domain.selection.project(session, bounded, world.workspace, None)
 
 	assert refused.value.errors[0].field == "project"
-	assert "OPEN" in str(refused.value.errors[0].hint)
-	assert "SECRET" in str(refused.value.errors[0].hint), "and it names them both"
+	assert "open" in str(refused.value.errors[0].hint)
+	assert "secret" in str(refused.value.errors[0].hint), "and it names them both"
 
 
 def test_the_reach_is_what_was_scoped_to_not_everything_underneath (
@@ -599,7 +599,7 @@ def test_the_reach_is_what_was_scoped_to_not_everything_underneath (
 	child = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="OPENSUB",
+		key="opensub",
 		title="Underneath",
 		parent=world.public,
 	)
@@ -731,7 +731,7 @@ def test_a_write_set_reaches_the_subtree_under_it (
 	child = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="UNDERNEATH",
+		key="underneath",
 		title="Underneath",
 		parent=world.public,
 	)
@@ -799,7 +799,7 @@ def test_a_write_set_may_name_a_project_under_the_reach (
 	child = subroutine.domain.projects.create(
 		session,
 		workspace_id=world.workspace.id,
-		key="BENEATH",
+		key="beneath",
 		title="Beneath",
 		parent=world.public,
 	)

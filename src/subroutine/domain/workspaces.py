@@ -39,7 +39,7 @@ MAX_TITLE_LENGTH = 255
 #: The project a task with no project is filed in. Named here rather than in ``bootstrap``
 #: because this is where an Inbox is made — ``bootstrap`` was the only caller when it owned
 #: these, and stopped being so when `#301` moved the creation (§6.14).
-INBOX_KEY = "INBOX"
+INBOX_KEY = "inbox"
 INBOX_TITLE = "Inbox"
 
 #: Two statuses and no evidence requirement: the clearest case for the personal template,
