@@ -846,12 +846,12 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 	),
 	"due": (
 		"tracked",
-		"`#431`. `PATCH` accepts a deadline and no client passes one, so a date can be set at "
-		"capture and never changed. Found by this guard while it was still a spike.",
+		"`#493`, into which `#431` was merged. `PATCH` accepts a deadline and no client passes "
+		"one, so a date can be set at capture and never changed.",
 	),
 	"title": (
 		"tracked",
-		"`#434` for a project and `#295`'s neighbourhood for a workspace: `rename_project` "
+		"`#434`, which now covers both: `rename_project` "
 		"takes only `key` and `rename_workspace` only `slug`, so the human-readable name of "
 		"both is set at creation and never afterwards.",
 	),
@@ -868,27 +868,27 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 	),
 	"tags": (
 		"tracked",
-		"`#41`, open since 2026-07-30 and found by `test_api_writability` from the other side: "
-		"a tag is *reported* on a task and settable only by the `#home` sigil in a capture line "
-		"at creation. So a task can be tagged when it is filed and never afterwards, on any "
-		"surface. This guard reaches it from the writing side and agrees.",
+		"`#493`. **Not `#41`, which is closed** — that fixed the *API*, and this guard reads the "
+		"other side of the same wall: no client passes tags, so they are settable by the `#home` "
+		"sigil in a capture line at creation and never afterwards. An excuse naming a closed item "
+		"reads as tracked and is not, which is why this list is re-read rather than trusted.",
 	),
 	"timezone": (
 		"tracked",
-		"`#431`'s neighbourhood. A deadline's zone, on `PATCH /v1/tasks` — meaningless while the "
-		"deadline itself cannot be changed, which is what `#431` is. Fixing that carries this: "
+		"`#493`, which `#431` was merged into. A deadline's zone, meaningless while the "
+		"deadline itself cannot be changed. Fixing that carries this: "
 		"a client gaining `due` and not the zone it is read in would set a date in whichever "
 		"zone the chain in `schedule.zone_for` happened to resolve.",
 	),
 	"due_is_all_day": (
 		"tracked",
-		"`#431`'s neighbourhood, with `start_is_all_day`. The pair says whether a date carries a "
+		"`#493`, with `start_is_all_day`. The pair says whether a date carries a "
 		"time of day, and §6.4 keeps them separate from the date so \"Friday\" and \"Friday at "
 		"four\" are different claims rather than one with a zero time. Reachable when `due` is.",
 	),
 	"start_is_all_day": (
 		"tracked",
-		"`#431`'s neighbourhood, with `due_is_all_day` above. `schedule` passes `start` and not "
+		"`#493`, with `due_is_all_day` above. `schedule` passes `start` and not "
 		"its precision, so a deferral is always read as a whole day.",
 	),
 	"owner_id": (
