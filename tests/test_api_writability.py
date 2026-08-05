@@ -44,6 +44,12 @@ import sqlalchemy.orm
 import api_support
 import subroutine.api.documents
 import subroutine.api.tasks
+import subroutine.db.base
+import subroutine.db.models.activity
+import subroutine.db.models.identity
+import subroutine.db.models.project
+import subroutine.db.models.system
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -281,6 +287,53 @@ INTERNAL: dict[str, str] = {
 	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
 	"depth": "Derived from `path`, and maintained with it.",
 	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",
+	# **Everything below arrived when `#443` widened the walk past `Task` and `Document`.**
+	# Each is machinery, a secret, or a normalisation — and the qualified spellings are the
+	# ones that must not be excused on any other model.
+	"workspace_id": (
+		"The tenant key. Every view is already scoped to one workspace and a client that "
+		"reached a row has named it, so reporting it is reporting how this is partitioned."
+	),
+	"entity_type": (
+		"Which kind of item a vocabulary or a link end belongs to. Reported *as structure* "
+		"rather than as a field — `/v1/meta` keys `statuses` and `item_types` by it, and a "
+		"link end carries it — so publishing it again would be the same fact twice."
+	),
+	"name_normalized": "The case-folded form a unique index compares. Never the name.",
+	"username_normalized": "The same, for §7.1's uniqueness.",
+	"email_normalized": "The same.",
+	"ApiToken.token_hash": "The credential. §7.4: stored as a hash and reportable by nothing.",
+	"ApiToken.token_prefix": (
+		"The lookup half of a credential. `views.Token` reports it as `prefix`; the column "
+		"name differs and the fact does not."
+	),
+	"User.password_hash": "§7.4 again. A hash is not a field, it is the absence of one.",
+	"Instance.singleton": (
+		"The constant column a unique index uses to make this table hold one row. An "
+		"implementation of *there is one instance*, which the response already says by shape."
+	),
+	"Workspace.next_ref_number": (
+		"The ref counter (§6.2). `views.py` already argues its absence: a client that read it "
+		"would be reading a number that is only true until the next write."
+	),
+	"Comment.parent_comment_id": (
+		"§5.10's escape hatch, deliberately unexposed — comments are flat and chronological "
+		"by decision, and `domain/comments.py` carries the argument."
+	),
+	"Link.link_type_id": "Reported as `label`, which is the name §5.7 says a client uses.",
+	"Link.source_id": "Reported as the `LinkEnd` pair, which carries the ref a caller addresses.",
+	"Link.source_type": "The same end.",
+	"Link.target_id": "The same, as `other`.",
+	"Link.target_type": "The same end.",
+	"ProjectMember.user_id": "Reported as the member themselves — `Member.user`.",
+	"ProjectMember.role_id": "Reported as `Member.role`, the name rather than the id (§7.2).",
+	"WorkspaceMember.user_id": "The same view, the same reason.",
+	"WorkspaceMember.role_id": "The same.",
+	"User.email": (
+		"§7.1 makes an address a way to reach somebody rather than a fact about them, and "
+		"nothing in the product mails anybody yet. Publishing every member's address on a "
+		"listing any member can read is a decision nobody has taken."
+	),
 }
 
 #: Columns that exist ahead of the feature that will use them. **Each names the milestone**,
@@ -303,6 +356,30 @@ UNREPORTED: dict[str, str] = {
 	"spent_minutes": (
 		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
 	),
+	# **The four `#443` found on its first widened run**, which is what that item was for: it
+	# fixes nothing and finds the rest by itself. Every one was measured by grepping `src/`
+	# rather than inferred from the schema — `#427`'s lesson, whose hand-written exclusion list
+	# manufactured a gap that did not exist.
+	"colour": (
+		"#523 — stored on item_type, status and tag; written only by `db/seed.py` and read "
+		"nowhere in `src/`. Decision `#102` is the argument for dropping it rather than "
+		"reporting it, and `#441` is the reason to decide with the visual language rather "
+		"than before it."
+	),
+	"Tag.description": "#523 — the same item: written by nothing, read by nothing.",
+	"is_system": (
+		"#524 — written by `db/seed.py` in three places and read nowhere. Unlike the colours "
+		"this one is a candidate for *publishing*: `#445` records that `item_types` has no "
+		"stable field a client can branch on, which is the gap this column would close."
+	),
+	"Project.timezone": (
+		"#525 — §6.5's chain is explicit → user → workspace → instance and `schedule.zone_for` "
+		"implements exactly that. A project is not a step in it, and nothing writes this."
+	),
+	"User.last_login_at": (
+		"#526 — the string does not appear in `src/` outside `db/models/`, so it is null on "
+		"every account everywhere."
+	),
 }
 
 
@@ -314,11 +391,83 @@ def _columns (model: type[typing.Any]) -> frozenset[str]:
 	)
 
 
+#: Models whose view is not named after them, so the pairing cannot be derived from the name.
+VIEWED_AS: dict[str, str] = {
+	"ItemType": "Named",
+	"ApiToken": "Token",
+	"ProjectMember": "Member",
+	"WorkspaceMember": "Member",
+}
+
+#: Mapped models that no view reports, and why that is right. **Each has to say what a reader
+#: gets instead**, because "there is no view" is a description of the code rather than a reason.
+NOT_VIEWED: dict[str, str] = {
+	"TaskTag": (
+		"An association row. Its content reaches a client as `Task.tags`, batch-loaded by "
+		"`views.Vocabulary`, which is the whole of what it holds."
+	),
+	"DocumentTag": "The same, as `Document.tags`.",
+	"Mention": (
+		"The backlink index (§6.15). Reported through `?include=backlinks` on the item "
+		"mentioned rather than as rows — a mention has no identity anybody addresses. That "
+		"nothing *surfaces* them in the CLI is `#144`, which is about a listing rather than "
+		"about this table being unreported."
+	),
+	"Role": (
+		"A role reaches a client as its name — `Member.role`, `WorkspaceAccess.role` — because "
+		"§7.2 makes the name the thing you grant and the permission set an implementation of "
+		"it. A view would publish `permissions` as data somebody could believe was editable."
+	),
+}
+
+
+def _mapped () -> dict[str, type[typing.Any]]:
+	"""Return every model this application maps, by class name.
+
+	**Read off the registry rather than listed** (`#443`). The version of this file that named
+	two models could not report the eight it did not name, which is the shape `#405` went round
+	the repository removing — an allow-list that is really the whole population.
+	"""
+
+	return {
+		mapper.class_.__name__: mapper.class_
+		for mapper in subroutine.db.base.Base.registry.mappers
+	}
+
+
+def _paired () -> list[tuple[str, type[typing.Any], type[pydantic.BaseModel]]]:
+	"""Return each mapped model beside the view that ought to report it."""
+
+	found = []
+
+	for name, model in sorted(_mapped().items()):
+		if name in NOT_VIEWED:
+			continue
+
+		view = getattr(subroutine.views, VIEWED_AS.get(name, name), None)
+
+		if view is not None:
+			found.append((name, model, view))
+
+	return found
+
+
 #: The stored side of the two surfaces above, paired with the view that ought to report it.
-STORED: tuple[tuple[str, type[typing.Any], type[pydantic.BaseModel]], ...] = (
-	("task", subroutine.db.models.work.Task, subroutine.views.Task),
-	("document", subroutine.db.models.work.Document, subroutine.views.Document),
-)
+STORED = tuple(_paired())
+
+
+def _excused (model: type[typing.Any], column: str, register: dict[str, str]) -> bool:
+	"""Say whether one model's column is written off by one register.
+
+	**Two spellings, and the qualified one is why widening this file was not a one-line
+	change.** A bare column name excuses that name on *every* model, which was harmless while
+	two models were walked and is not now: ``timezone`` is unread on `Project` (`#525`) and
+	reported on three other models, so excusing it by name alone would blind the guard to the
+	three that work in order to describe the one that does not. ``Project.timezone`` says the
+	one. Bare names are kept for the columns that genuinely mean the same thing everywhere.
+	"""
+
+	return column in register or f"{model.__name__}.{column}" in register
 
 
 @pytest.mark.parametrize(("name", "model", "view"), STORED, ids=[row[0] for row in STORED])
@@ -338,7 +487,7 @@ def test_every_stored_column_is_reported_or_says_why_not (
 	only the comparison shows it.
 	"""
 
-	excused = set(DERIVED) | set(WRITTEN_AS) | set(INTERNAL) | set(UNBUILT) | set(UNREPORTED)
+	registers = (DERIVED, WRITTEN_AS, INTERNAL, UNBUILT, UNREPORTED)
 	reported = set(view.model_fields)
 
 	# A column may be reported under another name — `status_id` as `status`, `body` as
@@ -346,13 +495,70 @@ def test_every_stored_column_is_reported_or_says_why_not (
 	unexplained = sorted(
 		column
 		for column in _columns(model)
-		if column not in reported and column not in excused
+		if column not in reported
+		and not any(_excused(model, column, register) for register in registers)
 	)
 
 	assert not unexplained, (
 		f"The {name} table stores {unexplained} and no response reports them. Add them to "
-		f"the view, or record them in INTERNAL, UNBUILT or UNREPORTED with a reason."
+		f"the view, or record them in INTERNAL, UNBUILT or UNREPORTED with a reason — "
+		f"qualified as {name}.<column> unless the name means the same on every model."
 	)
+
+
+def test_every_mapped_model_is_walked_or_says_why_not () -> None:
+	"""**The half that fails silently**, and the reason `#443` existed at all.
+
+	This file walked ``Task`` and ``Document`` and reported nothing about the other eighteen —
+	not as a decision, but because the list was written when there were two views and never
+	revisited. A guard checking the shape it was written from, which is this repository's
+	recorded signature and what `#405` went round removing.
+
+	So the population comes off the mapper registry and a model leaves it only by being named
+	in ``NOT_VIEWED`` with a reason. Adding a table now costs a line here or a view, and
+	cannot cost nothing.
+	"""
+
+	walked = {name for name, _model, _view in STORED}
+	unaccounted = sorted(set(_mapped()) - walked - set(NOT_VIEWED))
+
+	assert not unaccounted, (
+		f"{unaccounted} are mapped, have no view named after them and no entry in NOT_VIEWED, "
+		f"so nothing checks what they store. Add a view, an alias in VIEWED_AS, or a reason."
+	)
+
+
+def test_the_walk_actually_reached_the_models () -> None:
+	"""A floor, because a registry read that returned nothing would excuse everything.
+
+	The check above passes vacuously against an empty walk — no models, nothing unaccounted —
+	and so does every parametrised case, since "no cases failed" and "no cases ran" are the
+	same output. `#405`'s lesson from ``test_cli_help``, which reported clean over one command
+	out of forty-eight.
+	"""
+
+	assert len(_mapped()) >= 20, "the mapper registry read fewer models than this app defines"
+	assert len(STORED) >= 15, "the pairing dropped models the registry has"
+
+	names = {name for name, _model, _view in STORED}
+
+	assert {"Task", "Document", "User", "Project", "Status"} <= names
+
+
+def test_every_model_excused_from_the_walk_is_still_a_model () -> None:
+	"""``NOT_VIEWED`` and ``VIEWED_AS`` rot the same way every allow-list here does."""
+
+	mapped = set(_mapped())
+
+	for register, label in ((NOT_VIEWED, "NOT_VIEWED"), (VIEWED_AS, "VIEWED_AS")):
+		unknown = sorted(name for name in register if name not in mapped)
+
+		assert not unknown, f"{label} names {unknown}, which this application no longer maps."
+
+	for name, view in VIEWED_AS.items():
+		assert hasattr(subroutine.views, view), (
+			f"VIEWED_AS sends {name} to views.{view}, which does not exist."
+		)
 
 
 def test_every_column_excused_here_is_still_a_column () -> None:
@@ -360,16 +566,28 @@ def test_every_column_excused_here_is_still_a_column () -> None:
 
 	A stale exemption reads as a considered decision about a column that no longer exists,
 	and silently excuses whatever later takes the name.
+
+	**Both spellings are checked**, and the qualified one is the stricter: ``Project.timezone``
+	is stale the moment either the model or the column goes, where a bare ``timezone`` survives
+	as long as anything anywhere has one.
 	"""
 
-	stored = _columns(subroutine.db.models.work.Task) | _columns(
-		subroutine.db.models.work.Document
-	)
+	mapped = _mapped()
+	stored = {column for model in mapped.values() for column in _columns(model)}
+	qualified = {
+		f"{name}.{column}" for name, model in mapped.items() for column in _columns(model)
+	}
 
-	for register, label in ((INTERNAL, "INTERNAL"), (UNBUILT, "UNBUILT"), (UNREPORTED, "UNREPORTED")):
-		unknown = sorted(column for column in register if column not in stored)
+	for register, label in (
+		(INTERNAL, "INTERNAL"), (UNBUILT, "UNBUILT"), (UNREPORTED, "UNREPORTED")
+	):
+		unknown = sorted(
+			entry
+			for entry in register
+			if entry not in stored and entry not in qualified
+		)
 
-		assert not unknown, f"{label} names {unknown}, which neither table stores any more."
+		assert not unknown, f"{label} names {unknown}, which no table stores any more."
 
 
 def test_every_unreported_column_names_the_item_tracking_it () -> None:
