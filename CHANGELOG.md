@@ -204,6 +204,12 @@ upgrade involves.
 
 ### Fixed
 
+- **A project listing can be sorted from a client, not only over raw HTTP.**
+  `GET /v1/projects` had accepted `?order=` since it was written, and no client could pass it,
+  because the sort vocabulary was declared inside the HTTP layer where one transport could see
+  it. It now lives beside the task and document vocabularies, so `projects(order="-key")`
+  works on both. Asking for nothing still gives you the tree, parents before children.
+
 - **An item now says who it is with.** Work could be handed over on every surface and no
   surface reported the result: `subroutine update 1 --assignee jo` answered *"Changed"*, and
   `subroutine show 1` then printed the priority, the deadline and the tags and never mentioned

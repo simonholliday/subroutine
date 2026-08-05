@@ -1142,21 +1142,6 @@ UNREACHED_FILTERS: dict[str, Excuse] = {
 	),
 }
 
-#: The filters `#501` is about: reachable only over raw HTTP, and each one a real question
-#: somebody would ask. Kept as its own list rather than folded into the one above, because
-#: these go away by being *built* and the entry above goes away by the API changing shape.
-UNREACHED_FILTERS["order"] = (
-	"tracked",
-	"`#501`, and **on `GET /v1/projects` alone** — the other listings reach it. A client "
-	"cannot offer this one until the project sort vocabulary moves out of `api/projects.py` "
-	"into `domain/ordering.py`, where `TASK_FIELDS` and `DOCUMENT_FIELDS` already live and "
-	"where both transports can share it. Projects are the odd one out rather than a special "
-	"case, so this is a move rather than a design question — and doing it inside `#501` would "
-	"have been a refactor of the ordering layer wearing a filter's hat.\n\n"
-	"Until then the local client orders by `path`, which is `DEFAULT_ORDER` and the tree "
-	"reading order §8.4 wants — so nothing is wrong, one question just cannot be asked.",
-)
-
 
 def _query_names (route: typing.Any) -> set[str]:
 	"""Return the filter names one route declares, with paging and shaping removed."""

@@ -477,6 +477,7 @@ class Client(typing.Protocol):
 		parent: str | None = None,
 		visibility: str | None = None,
 		include_archived: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children.
 
@@ -488,6 +489,11 @@ class Client(typing.Protocol):
 		``parent`` narrows to one project's children by key or id, ``visibility`` to public or
 		private, and ``include_archived`` widens to projects somebody has finished with. All
 		four were declared by ``GET /v1/projects`` and reachable from no client (`#501`).
+
+		**``order`` was the fifth, and this docstring described it for a day before the
+		signature had it** — a parameter documented and absent, which reads to anybody skimming
+		as one that exists. It arrived last because it needed the sort vocabulary moved out of
+		``api/projects.py``, where only one transport could see it.
 		"""
 
 	def create_project (

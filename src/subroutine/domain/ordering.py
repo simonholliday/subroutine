@@ -19,6 +19,7 @@ import typing
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.errors
 
@@ -151,6 +152,36 @@ DOCUMENT_FIELDS: dict[str, Sortable] = {
 
 #: The same default, for the same reason.
 DEFAULT_DOCUMENT_ORDER = ("-created_at",)
+
+#: What ``?order=`` accepts on a project listing. ``key`` is the one people think in.
+#:
+#: **Here rather than in ``api/projects.py``, where it lived until `#501`.** A vocabulary
+#: declared inside the HTTP layer is reachable by one transport, so `GET /v1/projects` accepted
+#: a sort that no client could ask for and none of the three lists above could be compared with
+#: it. Projects were the odd one out rather than a special case, which is what made this a move.
+PROJECT_FIELDS: dict[str, Sortable] = {
+	"created_at": subroutine.db.models.project.Project.created_at,
+	"updated_at": subroutine.db.models.project.Project.updated_at,
+	"key": subroutine.db.models.project.Project.key,
+	"title": subroutine.db.models.project.Project.title,
+	"path": subroutine.db.models.project.Project.path,
+}
+
+#: **Not ``-created_at``**, unlike the two above, and the difference is the point: a project
+#: listing is a *tree*. By path a child follows its parent and the shape can be printed without
+#: the caller reassembling it (§8.4), where newest-first would interleave branches.
+DEFAULT_PROJECT_ORDER = ("path",)
+
+#: **These names are deliberately absent from :data:`VIEW_READERS`, and the two lists above are
+#: deliberately checked against it.** A reader is only needed by a caller that merges pages it
+#: has already been given and re-sorts them in Python, and nothing merges projects: all four of
+#: the CLI's project listings ask one connection for one workspace and render a tree per place.
+#: Adding readers now would be a control nothing reads, which is `#303`'s shape and where that
+#: item's answer was to delete rather than to wire.
+#:
+#: What changes it is a *merged* project listing. Give ``key`` and ``path`` readers then, and
+#: extend ``tests/test_ordering.py``'s subset check to this list at the same time — a sort field
+#: a merged listing accepts and ignores is worse than one it refuses.
 
 #: How to read each sortable field off a **rendered view**, for a caller sorting rows it has
 #: already been given rather than a query it is about to run. ``subroutine list`` is that

@@ -888,6 +888,7 @@ class Client:
 		parent: str | None = None,
 		visibility: str | None = None,
 		include_archived: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
@@ -916,9 +917,21 @@ class Client:
 			if visibility is not None:
 				statement = statement.where(model.visibility == visibility)
 
+			# The same vocabulary `GET /v1/projects` sorts by, out of `domain/ordering.py` since
+			# `#501` — a hand-written `order_by(model.path)` here was the reason the two could
+			# not be compared, and `ordering.clauses` carries the NULLS LAST rule (§10.3) and
+			# the tiebreak that keyset pagination needs rather than leaving them to be
+			# remembered per call site.
 			rows = list(
 				session.scalars(
-					statement.order_by(model.path).limit(size)
+					statement.order_by(
+						*subroutine.domain.ordering.clauses(
+							order,
+							allowed=subroutine.domain.ordering.PROJECT_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_PROJECT_ORDER,
+							tiebreak=model.id,
+						)
+					).limit(size)
 				)
 			)
 

@@ -729,6 +729,37 @@ def test_both_list_the_same_projects_parents_before_children (pair: Pair) -> Non
 	assert from_local.index(("outer", 0)) < from_local.index(("inner", 1))
 
 
+def test_both_sort_a_project_listing_by_the_same_vocabulary (pair: Pair) -> None:
+	"""`#501`'s last filter, and the only one that needed a move rather than an argument.
+
+	The sort vocabulary lived in ``api/projects.py``, where one transport could see it — so
+	``GET /v1/projects`` accepted an ``?order=`` no client could ask for and nothing could
+	compare the two. Moved beside ``TASK_FIELDS`` and ``DOCUMENT_FIELDS``, which is where the
+	other two listings had it and why only projects were unreachable.
+
+	Sorted by ``-key`` rather than by ``path``: the default *is* path, so ordering by it would
+	pass against a client that ignored the argument entirely.
+	"""
+
+	local, remote = pair.both()
+
+	above = local.create_project(key="mid", title="Middle")
+	local.create_project(key="alpha", title="Alpha", parent=above.key)
+	local.create_project(key="zulu", title="Zulu")
+
+	from_local = [one.key for one in local.projects(order="-key")]
+	from_remote = [one.key for one in remote.projects(order="-key")]
+
+	assert from_local == from_remote
+	assert from_local.index("zulu") < from_local.index("alpha"), "not sorted by key at all"
+
+	# And the tree order is still what you get for asking nothing, which is the property the
+	# move had to preserve — `DEFAULT_PROJECT_ORDER` is now the only place that says so.
+	assert [one.key for one in local.projects()].index("mid") < (
+		[one.key for one in local.projects()].index("alpha")
+	)
+
+
 def test_both_make_the_creator_the_owner_so_a_private_project_stays_visible (
 	pair: Pair,
 ) -> None:

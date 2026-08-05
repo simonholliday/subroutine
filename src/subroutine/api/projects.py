@@ -24,6 +24,7 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.domain.authentication
+import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.scoping
@@ -37,18 +38,14 @@ router = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
-#: What ``?order=`` accepts here. ``key`` is the one people think in.
-SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
-	"created_at": subroutine.db.models.project.Project.created_at,
-	"updated_at": subroutine.db.models.project.Project.updated_at,
-	"key": subroutine.db.models.project.Project.key,
-	"title": subroutine.db.models.project.Project.title,
-	"path": subroutine.db.models.project.Project.path,
-}
-
-#: By path, so a listing reads as the tree it is: a parent immediately followed by its
-#: children, rather than a flat list the caller has to reassemble.
-DEFAULT_ORDER = ("path",)
+#: What ``?order=`` accepts here, and by path so a listing reads as the tree it is: a parent
+#: immediately followed by its children, rather than a flat list the caller has to reassemble.
+#:
+#: **Both moved into ``domain/ordering.py`` by `#501`**, beside the task and document
+#: vocabularies, so that a client can offer the same sort — which is what `tasks.py` has always
+#: done and what left projects the only listing whose ``?order=`` no client could reach.
+SORTABLE = subroutine.domain.ordering.PROJECT_FIELDS
+DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_PROJECT_ORDER
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Project)

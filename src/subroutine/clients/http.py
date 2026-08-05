@@ -461,6 +461,7 @@ class Client:
 		parent: str | None = None,
 		visibility: str | None = None,
 		include_archived: bool = False,
+		order: str | None = None,
 	) -> list[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
@@ -473,6 +474,7 @@ class Client:
 				parent=parent,
 				visibility=visibility,
 				include_archived="true" if include_archived else None,
+				order=order,
 			),
 		)
 
