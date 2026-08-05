@@ -438,9 +438,11 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 	**Reported rather than refused** (`#175`). Silently ignoring one is how somebody comes to
 	believe they set something they did not, and the two that matter fail dangerously: a
 	misspelled ``protected`` means the destructive commands quietly stop asking, and a
-	misspelled ``backup_directory`` means backups go next to the database — which is the
-	arrangement ``docs/hosting.md`` opens by calling "not a backup". ``docs/errors.md`` argues
-	exactly this for request bodies and the file was the one place it did not hold.
+	misspelled ``backup_directory`` means backups are still being written and are not where
+	anybody will look for them. **That is the whole of it and it needs no stronger claim**
+	(`#504`): backups beside the database are a perfectly good arrangement for one machine, so
+	the fault here is the silence, not the destination. ``docs/errors.md`` argues exactly this
+	for request bodies and the file was the one place it did not hold.
 
 	Refusing outright was the other candidate and is wrong here: it would make a stray key in
 	a file stop ``db restore``, and a recovery path blocked by the thing you are recovering

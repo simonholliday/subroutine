@@ -130,6 +130,23 @@ upgrade involves.
 
 ### Fixed
 
+- **A backup written to a network volume is no longer reported as having failed.** If your
+  `backup_directory` is on a mount whose files the Subroutine account cannot own — CIFS with
+  `forceuid`, NFS with `root_squash`, and most other shares — every backup was written
+  perfectly and then announced as an error: `Operation not permitted`, or a `503` from
+  `POST /v1/admin/backups`. The file was there, complete and restorable, all along.
+
+  It was the copy step, which used to bring the file's timestamps and permissions with it.
+  Those are the parts a share like that refuses, and they are refused *after* the data has
+  arrived. A backup's name already carries the moment it was taken and the schema it holds, so
+  nothing was gained by copying them.
+
+  **Worth checking your backup directory if you have seen this**, because the natural response
+  was to run it again: each attempt left another complete copy.
+
+- **A copy that fails part way no longer leaves a short file behind.** Verification already
+  deleted a backup that arrived truncated, but a copy that raised on the way never reached it.
+
 - **The line `add` echoes back cannot be mistaken for part of the title.** It confirms which
   parts of what you typed were understood as shorthand rather than left as words — the only way
   to tell that `+WEB` filed something rather than becoming part of its name — and a double space

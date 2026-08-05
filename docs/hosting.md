@@ -359,8 +359,10 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
-# Only if backup_directory points outside /var/lib/subroutine, which it should.
-# ReadWritePaths=/srv/backups/subroutine
+# Only if backup_directory points outside /var/lib/subroutine. Keep the leading '-': it
+# means "ignore this path if it is not there", so an unmounted volume costs you a backup
+# rather than a service that will not start.
+# ReadWritePaths=-/srv/backups/subroutine
 
 [Install]
 WantedBy=multi-user.target
@@ -402,7 +404,10 @@ LAN that is a reasonable trade. It should be one you have made rather than one y
 inherited from a flag you copied. `ProtectSystem=strict` makes the whole filesystem read-only apart from
 what `StateDirectory` grants, which is why a backup directory elsewhere needs naming — a
 `ReadWritePaths` you forgot shows up as a backup that cannot be written, on the day you need
-one.
+one. If the directory is on a network mount, add `Wants=` and `After=` on that mount's unit
+in `[Unit]` (`mnt-backups.mount` for `/mnt/backups`) so it is there before the service starts.
+`Wants=` rather than `Requires=`, deliberately: a volume that is down should cost you backups,
+not the API.
 
 ```console
 # systemctl daemon-reload
@@ -840,18 +845,32 @@ is refused by name rather than ignored.
 
 ## Backups
 
-Set a directory, and **put it on a different volume from the database** — a backup on the disk
-you are worried about is not one:
+Unset, backups go into the instance's own data directory, and for a single machine that is a
+real backup: it protects you from a bad migration, a restore you did not mean, a delete nobody
+meant, and a database that corrupts itself. It fails for exactly one thing, which is losing the
+device.
+
+So if the device matters, set a directory on another volume:
 
 ```toml
 backup_directory = "/srv/backups/subroutine"
 ```
 
+That is a judgement about what you are protecting against, not a requirement. Nothing here
+refuses a path, warns about one, or nags about how old the newest copy is — how old is too old
+depends on whether this is a laptop or a server, and only you know which.
+
 A network mount is the intended destination and works. The file is built locally and then
-moved, because SQLite's `VACUUM INTO` cannot write to an SMB share any more than the live
+copied, because SQLite's `VACUUM INTO` cannot write to an SMB share any more than the live
 database can live on one; delivery is then verified where the file landed, by size and by
 reading the schema version back out of it. A copy that fails verification is deleted rather
 than left looking like a backup.
+
+**Permissions may not survive the trip, and that is worth knowing rather than working around.**
+A backup is written `0600`, because it holds every task, comment and token hash. Many network
+mounts fix their permissions at mount time — CIFS with `file_mode=`, for instance — so the
+`chmod` succeeds and changes nothing, and the file is as readable as everything else on the
+share. If that matters, the answer is on the share rather than here.
 
 ```console
 $ subroutine db backup

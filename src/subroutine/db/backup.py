@@ -717,7 +717,7 @@ def _holdings (engine: sqlalchemy.engine.Engine) -> dict[str, int]:
 def _delivered (
 	staged: pathlib.Path, target: pathlib.Path, *, head: str, size: int
 ) -> None:
-	"""Move a finished backup to its destination and prove that what arrived is readable.
+	"""Copy a finished backup to its destination and prove that what arrived is readable.
 
 	**A half-written file on a network volume is the failure worth spending code on**, because it
 	looks like a backup: it appears in the catalogue, its name says which schema it holds, and it
@@ -725,15 +725,34 @@ def _delivered (
 	— its size, and that its schema version can still be read out of it — and a file that fails
 	is deleted rather than left looking valid.
 
-	``shutil.move`` rather than ``os.replace``: the destination is usually on another filesystem,
-	where a rename cannot work at all, and this share does not honour the create-then-rename dance
-	either.
+	**Data only, and that is the whole of `#505`.** A rename cannot cross a filesystem and this
+	share does not honour the create-then-rename dance either, so neither ``os.replace`` nor
+	``os.rename`` can be used — but ``shutil.move``'s cross-filesystem fallback is ``copy2``,
+	which copies *metadata* as well as data, and ``copystat``'s ``os.utime`` and ``os.chmod``
+	raise ``EPERM`` for a process that does not own the destination file. Under a ``forceuid``
+	mount that is every process but one, so it is permanent rather than intermittent.
+
+	**The bytes have already arrived when it raises.** The served instance wrote three complete,
+	restorable backups to the RAID volume on 2026-08-05 and reported every one of them as a
+	failure — over HTTP as a ``503``, which says the *instance* is unwell rather than that one
+	operation could not finish. A backup's mode and timestamps carry nothing anyway: the name
+	holds the moment and the schema head, and :func:`subroutine.config.keep_private` sets the
+	mode on the next line.
+
+	The staged copy is not removed here. :func:`take` owns it in a ``finally``, so it goes
+	whether this succeeds or not.
 	"""
 
 	try:
-		shutil.move(str(staged), str(target))
+		shutil.copyfile(staged, target)
 
 	except OSError as error:
+		# **A copy that stopped part way leaves a short file behind**, which is the exact thing
+		# this function exists to prevent — and the verification below never runs on this path,
+		# so the removal cannot be left to it.
+		with contextlib.suppress(OSError):
+			target.unlink(missing_ok=True)
+
 		raise subroutine.errors.ServiceUnavailable(
 			f"The backup could not be written to {target}: {error}. If that is a network "
 			f"volume, check that it is mounted and writable."

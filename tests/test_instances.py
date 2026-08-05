@@ -10,6 +10,7 @@ database is where every other test in the suite lives.
 """
 
 import datetime
+import errno
 import os
 import pathlib
 import sqlite3
@@ -1017,17 +1018,16 @@ def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
 	elsewhere = tmp_path / "volume"
 	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
 
-	def truncating_move (source: str, destination: str) -> str:
+	def truncating_copy (source: str, destination: str) -> str:
 		"""Stand in for a network write that stops half way through."""
 
 		pathlib.Path(destination).write_bytes(pathlib.Path(source).read_bytes()[:512])
-		pathlib.Path(source).unlink()
 
 		return destination
 
 	# Named as a string: the module under test reaches `shutil` through its own namespace, and
 	# `--strict` will not have an attribute access into another module's imports.
-	monkeypatch.setattr("subroutine.db.backup.shutil.move", truncating_move)
+	monkeypatch.setattr("subroutine.db.backup.shutil.copyfile", truncating_copy)
 
 	with pytest.raises(subroutine.errors.ServiceUnavailable):
 		subroutine.db.backup.take(engine, _settings())
@@ -1035,6 +1035,71 @@ def test_a_backup_that_does_not_arrive_intact_is_not_left_looking_usable (
 	assert subroutine.db.backup.catalogue(_settings()) == [], (
 		"a truncated backup must not survive to be listed as one"
 	)
+
+
+def test_a_backup_arrives_on_a_volume_whose_files_this_account_cannot_own (
+	engine: sqlalchemy.engine.Engine,
+	home: pathlib.Path,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#505`. The served instance wrote three perfect backups and called every one a failure.
+
+	§12.6b says a network mount is the intended destination, and the commonest kind — CIFS with
+	``forceuid``, NFS with ``root_squash`` — presents every file as owned by somebody the writing
+	process is not. ``shutil.move`` falls back to ``copy2`` across a filesystem boundary, and
+	``copy2`` copies metadata: ``os.utime`` and ``os.chmod`` then raise ``EPERM`` **after the
+	bytes have landed**, so the operator is told there is no backup while holding one.
+
+	Both halves of the real mount are reproduced rather than the library step between them: a
+	destination on another filesystem, and a destination whose files this account cannot own.
+	"""
+
+	elsewhere = tmp_path / "volume"
+	monkeypatch.setenv("SUBROUTINE_BACKUP_DIRECTORY", str(elsewhere))
+
+	def somewhere_else (path: object) -> bool:
+		"""Whether this path is on the pretend volume, so the real filesystem is left alone."""
+
+		return str(path).startswith(str(elsewhere))
+
+	renames, changes_ownership, restamps = os.rename, os.chmod, os.utime
+
+	def across_a_filesystem_boundary (source: typing.Any, destination: typing.Any) -> None:
+		"""What a rename onto another filesystem does, and why ``move`` falls back at all."""
+
+		if somewhere_else(destination):
+			raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+		renames(source, destination)
+
+	def refuses_to_be_owned (path: typing.Any, *rest: typing.Any, **named: typing.Any) -> None:
+		"""``forceuid`` makes every file somebody else's, so metadata calls are refused."""
+
+		if somewhere_else(path):
+			raise PermissionError(errno.EPERM, "Operation not permitted")
+
+		changes_ownership(path, *rest, **named)
+
+	def refuses_to_be_restamped (path: typing.Any, *rest: typing.Any, **named: typing.Any) -> None:
+		"""The other half of ``copystat``, and the one that raises first."""
+
+		if somewhere_else(path):
+			raise PermissionError(errno.EPERM, "Operation not permitted")
+
+		restamps(path, *rest, **named)
+
+	monkeypatch.setattr(os, "rename", across_a_filesystem_boundary)
+	monkeypatch.setattr(os, "chmod", refuses_to_be_owned)
+	monkeypatch.setattr(os, "utime", refuses_to_be_restamped)
+
+	written = subroutine.db.backup.take(engine, _settings())
+
+	assert written.path.exists(), "the backup arrived and must be reported as having arrived"
+	assert written.path.stat().st_size == written.size_bytes
+	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
+
+	assert [found.path for found in subroutine.db.backup.catalogue(_settings())] == [written.path]
 
 
 # --------------------------------------------------------------------------------------
