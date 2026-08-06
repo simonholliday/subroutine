@@ -84,6 +84,36 @@ upgrade involves.
 - **`subroutine explain connecting`**, so the same question has an answer without leaving the
   terminal.
 
+### Fixed
+
+- **An MCP tool argument is checked against the type its schema declares.** The schemas were
+  published and never used as schemas, and one half of that failed silently: a `true`/`false`
+  argument given the *string* `"false"` is truthy in Python, so `subroutine_list` with
+  `{"today": "false"}` turned the filter **on**. The agent asked for it off, got a plausible
+  answer, and had nothing to notice.
+
+  The other half was loud and useless — a whole-number argument given text reached a comparison
+  and the Python message came back: `'<' not supported between instances of 'str' and 'int'`.
+  `subroutine_changes` was the likeliest to hit it, because `since` takes a *seq* and a date is
+  the obvious guess.
+
+  Both are refused by name now, saying what the argument takes. Refused rather than coerced,
+  both kinds: `"5"` for a number could be read, and accepting it would teach an agent that
+  strings are sometimes fine — when the case where they are not is the case that fails quietly.
+
+- **An item can be named the way this program prints it, and the schema now says so.** Seven
+  arguments were declared as whole numbers and have always accepted `"#42"` too, since that is
+  the form every listing returns. A client obeying the published contract could not send it.
+
+- **A refusal an agent reads now names a field that agent can actually pass.** On an instance
+  holding more than one workspace, a session that had not been told which one had its first read
+  refused with *"Pass `workspace_id`"* — which is right in a problem document and is not an
+  argument any tool declares. Following it produced a second refusal.
+
+  The tools' own vocabulary is used now. The refusal below the transport carries the field
+  rather than spelling it in prose, so the HTTP API still says `workspace_id` and an agent is
+  told `workspace`.
+
 ### Changed
 
 - **`subroutine` the plugin now says it is the one that runs a program on your machine**, in its

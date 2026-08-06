@@ -61,6 +61,20 @@ DEFAULT_LIMIT = 20
 #: Measuring it in the test is what makes the argument checkable rather than dated.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
+#: The type of an argument that names an item — `#549`. **Both spellings, because both work
+#: and only one was published.**
+#:
+#: §6.2 requires ``#42`` to be accepted: this system prints that form in every listing it
+#: returns, so a model sends it back, and refusing our own notation is a refusal the caller
+#: cannot learn from. The schema said ``integer`` alone, which made the accepted form invisible
+#: to a client reading the contract and impossible for a strict one to send — harmless while
+#: nothing checked, and the first thing to break when something did.
+#:
+#: Declared once and used seven times, for the reason ``WORKSPACE`` is: seven copies of a type
+#: are seven chances for one of them to disagree. It costs 84 bytes of the tool budget, spent
+#: from slack rather than by moving the cap; ``tests/test_mcp.py`` holds the measurement.
+A_REF = ["integer", "string"]
+
 #: Narrowing a listing to one project and everything under it — item `#367`.
 #:
 #: **An argument rather than a default, and that is the decision rather than the cheap
@@ -498,7 +512,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The item's number."},
+					"ref": {"type": A_REF, "description": "The item's number."},
 					"history": {"type": "boolean", "description": "Every change, newest first."},
 					"workspace": WORKSPACE,
 				},
@@ -544,7 +558,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The item's number."},
+					"ref": {"type": A_REF, "description": "The item's number."},
 					"body": {"type": "string", "description": "What happened."},
 					"remove": {"type": "boolean", "description": "Withdraw it instead."},
 					"workspace": WORKSPACE,
@@ -591,7 +605,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The task's number."},
+					"ref": {"type": A_REF, "description": "The task's number."},
 					"importance": {"type": "integer", "description": "1-5, 5 highest."},
 					"urgency": {"type": "integer", "description": "1-5, 5 soonest."},
 					"estimate": {"type": "string", "description": "How long, e.g. '4h'."},
@@ -631,9 +645,9 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The item's number."},
+					"ref": {"type": A_REF, "description": "The item's number."},
 					"type": {"type": "string", "description": "blocks, relates_to, duplicates."},
-					"other": {"type": "integer", "description": "The other item's number."},
+					"other": {"type": A_REF, "description": "The other item's number."},
 					"remove": {"type": "boolean", "description": "Withdraw it instead."},
 					"workspace": WORKSPACE,
 				},
@@ -661,6 +675,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			},
 			call=lambda arguments: _projected(client, arguments),
 			annotations=ADDS,
+			# The only tool here that takes a project and does not call it one: `parent` is
+			# where a project key goes, so a refusal about the project it could not find has
+			# to name that (`#547`). The `_id` rule cannot derive this one.
+			renames={"project": "parent"},
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_changes",
@@ -700,7 +718,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The task's number."},
+					"ref": {"type": A_REF, "description": "The task's number."},
 					"release": {
 						"type": "boolean",
 						"description": "Give it back instead of taking it.",
@@ -756,7 +774,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": "integer", "description": "The task's number."},
+					"ref": {"type": A_REF, "description": "The task's number."},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],

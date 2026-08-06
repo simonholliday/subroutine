@@ -61,6 +61,11 @@ class Tool:
 	#: neutral: it is a claim, and on the five tools here that only read it is a false one.
 	annotations: dict[str, bool] | None = None
 
+	#: What this tool calls a field the layer below names differently — `#547`. Only for the
+	#: irregular cases: :func:`_as_this_tool_calls_it` already handles an ``_id`` suffix, and
+	#: nothing here is applied unless the tool really does declare the name it maps to.
+	renames: dict[str, str] | None = None
+
 	def described (self) -> dict[str, typing.Any]:
 		"""Return this tool as ``tools/list`` reports it."""
 
@@ -310,6 +315,16 @@ class Server:
 				),
 			)
 
+		mistyped = _mistyped(tool, arguments)
+
+		if mistyped:
+			# Reported the same way an unknown argument is, and for the same reason: the model
+			# is the one that has to try again, so it has to be the one told.
+			return _result(
+				identifier,
+				_content(f"{tool.name} was given {'; '.join(mistyped)}.", failed=True),
+			)
+
 		try:
 			return _result(identifier, _content(tool.call(arguments)))
 
@@ -317,7 +332,7 @@ class Server:
 			# Deliberately broad. A tool that raises anything at all must still produce a
 			# readable answer: an exception escaping here would take the whole session down
 			# over one bad argument, and the model would learn nothing from the silence.
-			return _result(identifier, _content(_explained(failure), failed=True))
+			return _result(identifier, _content(_explained(failure, tool), failed=True))
 
 
 def _capabilities (has_resources: bool) -> dict[str, typing.Any]:
@@ -373,7 +388,130 @@ def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typi
 	return {"jsonrpc": "2.0", "id": identifier, "error": {"code": code, "message": message}}
 
 
-def _explained (failure: BaseException) -> str:
+#: What each declared JSON Schema type accepts, as a Python check — `#549`.
+#:
+#: **``bool`` is excluded from ``integer`` deliberately.** ``isinstance(True, int)`` is true in
+#: Python, so without it ``{"limit": true}`` would pass a check written to catch exactly that
+#: class of mistake.
+_ACCEPTS: dict[str, typing.Callable[[typing.Any], bool]] = {
+	"boolean": lambda value: isinstance(value, bool),
+	"integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
+	"string": lambda value: isinstance(value, str),
+	"object": lambda value: isinstance(value, dict),
+}
+
+
+def _mistyped (tool: "Tool", arguments: dict[str, typing.Any]) -> list[str]:
+	"""Return a complaint per argument whose value is not the type the schema declares.
+
+	**The schema is published and was never used as one** (`#549`). ``_undeclared`` checks the
+	argument *names* and nothing checked their values, so a boolean given the string ``"false"``
+	was truthy in Python and the filter came on — the model asked for it off, got a plausible
+	answer, and had nothing to notice. `#149`'s blind spot one level down: a guard shaped around
+	one property of an argument cannot see another.
+
+	**Refused rather than coerced**, both kinds, which is one rule instead of two. ``"5"`` for an
+	integer is unambiguous and could be taken; ``"false"`` for a boolean is unambiguous to a
+	person and is the one value that must never be. Accepting the first and refusing the second
+	teaches a model that strings are sometimes fine, and the case where they are not is the case
+	that fails silently.
+
+	``None`` is passed over rather than refused. Every tool reads its arguments with ``.get``, so
+	an explicit null already behaves exactly as an omission does, and some clients send one for
+	every field they have not filled in. Refusing it would break them to no purpose.
+
+	**A list of types is a union and any of them will do**, which is what ``A_REF`` is: an item
+	is named by ``42`` or by ``"#42"`` and both are published. Skipping a union instead would
+	have left the seven arguments most likely to be sent badly as the seven this cannot see.
+
+	A type this does not know is left alone, so a schema growing an array is a thing somebody
+	adds a rule for rather than a thing that quietly starts being rejected.
+	"""
+
+	declared = tool.schema.get("properties", {})
+	wrong = []
+
+	for name in sorted(arguments):
+		kinds = _declared_types(declared.get(name, {}))
+		value = arguments[name]
+
+		if not kinds or value is None:
+			continue
+
+		if any(_ACCEPTS[kind](value) for kind in kinds):
+			continue
+
+		wrong.append(f"{name}={json.dumps(value)} where it takes {_readable(kinds)}")
+
+	return wrong
+
+
+def _declared_types (specification: dict[str, typing.Any]) -> list[str]:
+	"""Return the types a property declares that this knows how to check."""
+
+	declared = specification.get("type")
+	named = [declared] if isinstance(declared, str) else declared
+
+	if not isinstance(named, list):
+		return []
+
+	return [kind for kind in named if isinstance(kind, str) and kind in _ACCEPTS]
+
+
+def _readable (kinds: typing.Sequence[str]) -> str:
+	"""Name what a property accepts, the way somebody reading a sentence would."""
+
+	spelt = {
+		"boolean": "true or false",
+		"integer": "a whole number",
+		"string": "text",
+		"object": "an object",
+	}
+	named = [spelt.get(kind, kind) for kind in kinds]
+
+	if len(named) == 1:
+		return named[0]
+
+	return f"{', '.join(named[:-1])} or {named[-1]}"
+
+
+def _as_this_tool_calls_it (field: str, tool: Tool | None) -> str:
+	"""Return a field's name as an argument of this tool, or unchanged when it has none.
+
+	**A refusal is only actionable if the thing it names is a thing the reader can pass**
+	(`#547`). The layer below is shared by the CLI, the HTTP API and this server, so it names
+	fields in its own vocabulary — ``workspace_id``, which is exactly right in a problem
+	document and is not an argument any tool here declares. An agent following that advice is
+	refused a second time, and recovers only because `#379` lists what the tool does accept.
+
+	**It can only ever rename to a name the tool actually declares**, which is what makes the
+	``_id`` rule safe to derive rather than list. A convention deciding a user-facing string is
+	a shape this codebase has been bitten by; this one cannot invent a name, because it checks
+	the schema before using it, and a tool with no such argument keeps the original.
+	"""
+
+	if tool is None:
+		return field
+
+	arguments = tool.schema.get("properties", {})
+
+	if field in arguments:
+		return field
+
+	renamed = (tool.renames or {}).get(field)
+
+	if renamed is not None and renamed in arguments:
+		return renamed
+
+	shortened = field.removesuffix("_id")
+
+	if shortened != field and shortened in arguments:
+		return shortened
+
+	return field
+
+
+def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 	"""Render a refusal with its remedy attached, not only its complaint.
 
 	**The hint is the half an agent needs most, and it was being dropped** (`#165`). ``str()``
@@ -398,7 +536,7 @@ def _explained (failure: BaseException) -> str:
 
 	for field in failure.errors:
 		if field.message not in (failure.detail, failure.hint):
-			lines.append(f"{field.field}: {field.message}")
+			lines.append(f"{_as_this_tool_calls_it(field.field, tool)}: {field.message}")
 
 		if field.hint is not None and field.hint not in (failure.hint, field.message):
 			lines.append(field.hint)

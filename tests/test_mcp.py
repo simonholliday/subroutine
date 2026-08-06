@@ -977,6 +977,19 @@ def test_the_whole_tool_surface_stays_small (
 	unreadable as a result. Worth recording that no fat was read for this time: the addition
 	fitted, so looking would have been a ritual rather than a check.
 
+	**`#549` spent 84 more and the cap did not move either.** Seven arguments that name an item
+	were declared ``integer`` and have always accepted ``"#42"`` as well, because §6.2 requires
+	it: this system prints that form in every listing, so a model sends it back. Publishing one
+	of two accepted spellings was free while nothing checked the types and was the first thing
+	to break when something did — a client obeying the contract could not send the notation the
+	product's own output uses.
+
+	**Fat was read for and none was taken, for the eighth time.** What was read this time was
+	the *addition* — `#489`'s lesson, where 132 of 591 bytes said nothing because they restated
+	a protocol default. ``["integer", "string"]`` has no such slack: dropping ``type`` entirely
+	would be cheaper than today and leaves a model guessing, and ``"string"`` alone is cheaper
+	still and would refuse the integer every existing caller sends.
+
 	**That number is now stated as of a date, because the last one rotted.** It said 33 bytes,
 	which was true when it was written and was 7 by the time anybody read it again — a title
 	stating a condition becomes false when the condition changes, silently, which is the
@@ -1062,6 +1075,263 @@ def test_without_a_workspace_a_session_on_two_of_them_cannot_read_anything (
 
 	assert failed
 	assert first in text and second in text, "and it says which names would work"
+
+
+def test_a_refusal_names_a_field_this_tool_actually_takes (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#547`. Naming the workspaces is half of it; the other half is what to do with one.
+
+	The test above asserts the refusal lists both names, and passed for as long as the advice
+	beside them was unfollowable — *"Pass 'workspace_id'"*, which no tool here declares. An
+	agent that followed it was refused a second time and recovered only because `#379` prints
+	the arguments the tool does accept. That is the shape `#492` is about: a guard checking one
+	half of a message cannot see the half that decides whether the reader can act.
+
+	**Driven rather than reasoned about** (`#489`): every tool that takes a workspace is called
+	with no arguments at all on an instance holding two, which is the one bad input that reaches
+	every one of them, and the rendered text is read the way a model reads it.
+	"""
+
+	client, _first, _second = _two_workspaces(session)
+	wrong = []
+	named = 0
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+
+		for tool in server.tools.values():
+			takes = tool.schema.get("properties", {})
+
+			if "workspace" not in takes:
+				continue
+
+			text, failed = _called(server, tool.name)
+
+			if not failed:
+				continue
+
+			for field in re.findall(r"^([A-Za-z_][\w-]*): ", text, re.MULTILINE):
+				named += 1
+
+				if field not in takes:
+					wrong.append(
+						f"{tool.name} was refused naming {field!r}, which it does not take. "
+						f"It accepts: {', '.join(sorted(takes))}"
+					)
+
+	assert not wrong, "\n".join(wrong)
+
+	# Otherwise a rendering that stopped naming fields at all would pass this most comfortably,
+	# which is the one thing a check over prose cannot notice about itself.
+	assert named, "no refusal named a field — has the rendering stopped reporting them?"
+
+
+def test_a_tool_that_calls_a_field_something_else_says_so (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The irregular case the ``_id`` rule cannot derive, and the reason ``renames`` exists.
+
+	``subroutine_project`` is the only tool that takes a project and does not call it one: a key
+	goes in ``parent``. The layer below reports it as ``project``, which is right everywhere
+	else and is a word this tool does not accept.
+	"""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(
+			server,
+			"subroutine_project",
+			key="child",
+			title="Child",
+			parent="nosuchproject",
+			workspace=first,
+		)
+
+	assert failed
+	assert "parent:" in text, text
+	assert "project:" not in text, "the layer below's name for it reached the agent"
+
+
+@pytest.mark.parametrize(
+	"field,expected,why",
+	[
+		("workspace_id", "workspace", "the suffix rule, where the shorter name is declared"),
+		("workspace", "workspace", "a name the tool already takes is left alone"),
+		("project", "project", "no rename declared and no shorter form"),
+		("owner_id", "owner_id", "shortening it would name an argument that does not exist"),
+	],
+)
+def test_a_field_is_renamed_only_to_something_the_tool_declares (
+	field: str, expected: str, why: str
+) -> None:
+	"""A rule that could invent a name would be worse than the defect it replaces.
+
+	Renaming is derived rather than listed, which is only safe because it checks the schema
+	first — so ``owner_id`` stays ``owner_id`` on a tool with no ``owner``, and the reader is
+	left with the original rather than sent after a word that does not exist.
+	"""
+
+	tool = subroutine.mcp.protocol.Tool(
+		name="example",
+		title="Example",
+		description="",
+		schema={
+			"type": "object",
+			"properties": {"workspace": {"type": "string"}, "project": {"type": "string"}},
+		},
+		call=lambda arguments: "",
+	)
+
+	assert subroutine.mcp.protocol._as_this_tool_calls_it(field, tool) == expected, why
+
+
+def test_a_field_is_left_alone_when_there_is_no_tool_to_ask () -> None:
+	"""A resource read and a protocol-level refusal have no tool, and must still render."""
+
+	assert subroutine.mcp.protocol._as_this_tool_calls_it("workspace_id", None) == "workspace_id"
+
+
+def test_a_boolean_given_a_string_is_refused_rather_than_read_as_true (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#549`, and the reason it is ranked where it is: this one failed *silently*.
+
+	``"false"`` is a non-empty string and so is truthy in Python, so a model that asked for a
+	filter to be **off** got it **on** — with a plausible answer, no error, and nothing to
+	notice. `#379`'s own words for the class: a plausible, complete, wrong answer.
+
+	Asserted against the behaviour rather than the message, because the message is not what was
+	wrong: it is that the two calls below used to return *different* listings while meaning the
+	same thing.
+	"""
+
+	_added(bound, "Something unplanned")
+
+	proper, failed = _called(bound, "subroutine_list", today=False)
+
+	assert not failed
+	assert "Something unplanned" in proper, "with the filter off, an unplanned task is listed"
+
+	text, refused = _called(bound, "subroutine_list", today="false")
+
+	assert refused, "and a string saying the same thing must not turn the filter on"
+	assert "today" in text and "true or false" in text, text
+
+
+def test_a_number_given_text_is_refused_by_name_rather_than_leaking_python (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The loud half. ``'<' not supported between instances of 'str' and 'int'`` reached agents.
+
+	Not even a refusal — a ``TypeError`` is not a ``SubroutineError``, so ``_explained`` fell
+	through to ``str(failure)``. No field named, no remedy, and nothing saying which argument.
+
+	``since`` is the one an agent is likeliest to hit: it is a *seq*, and it is called ``since``,
+	so a date is the obvious guess and every date failed this way.
+	"""
+
+	text, failed = _called(bound, "subroutine_changes", since="2026-08-01")
+
+	assert failed
+	assert "since" in text and "whole number" in text, text
+	assert "not supported between" not in text, "the Python message reached the agent"
+
+
+def test_true_is_not_a_whole_number_however_python_feels_about_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``isinstance(True, int)`` is true, so the check has to say otherwise itself.
+
+	Written because the obvious implementation passes this by, and a limit of ``true`` then
+	reaches a comparison as ``1`` — a listing of one row, which looks like an answer.
+	"""
+
+	text, failed = _called(bound, "subroutine_list", limit=True)
+
+	assert failed
+	assert "limit" in text and "whole number" in text, text
+
+
+def test_an_item_can_still_be_named_the_way_this_program_prints_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The union `A_REF` publishes, and the reason it had to be published.
+
+	§6.2 requires ``#42`` to work: every listing this returns prints that form, so a model sends
+	it back. The schema said ``integer`` alone, which made the accepted spelling invisible to a
+	client reading the contract — harmless while nothing checked the types, and the first thing
+	to break when something did. It was caught by the test above this one failing, which is the
+	suite naming a schema that had been lying since the tool was written.
+	"""
+
+	ref = _added(bound, "Findable either way")
+
+	for named in (ref, str(ref), f"#{ref}"):
+		_answer, failed = _called(bound, "subroutine_show", ref=named)
+
+		assert not failed, f"{named!r} was refused"
+
+	# A union is not "anything goes": the two spellings are both published and nothing else is.
+	text, refused = _called(bound, "subroutine_show", ref=True)
+
+	assert refused
+	assert "whole number or text" in text, text
+
+
+def test_a_null_is_passed_over_rather_than_refused (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Some clients send one for every field the user left blank.
+
+	Every tool reads its arguments with ``.get``, so an explicit null already behaves exactly as
+	an omission does. Refusing it would break those clients to no purpose, and this is the kind
+	of decision that is invisible until somebody's editor is the one sending them.
+	"""
+
+	_answer, failed = _called(bound, "subroutine_list", today=None, limit=None)
+
+	assert not failed
+
+
+def test_every_declared_type_is_actually_checked (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Driven across the whole surface, because the defect was that a schema went unused.
+
+	A static reading of the schemas cannot see that a value reaches a comparison unvalidated —
+	that is exactly what was true of all thirteen integer arguments. So each declared type is
+	given a value of the wrong kind and the answer has to name the argument.
+
+	**The floor matters more than usual here.** A check that stopped running would leave every
+	assertion below satisfied by an empty loop, which is the shape this project has shipped
+	twice.
+	"""
+
+	wrong_for = {"boolean": "yes", "integer": "lots", "string": 7, "object": "not-an-object"}
+	checked = 0
+
+	for tool in bound.tools.values():
+		for name, specification in tool.schema.get("properties", {}).items():
+			kinds = subroutine.mcp.protocol._declared_types(specification)
+
+			# A union accepts more than one shape, so no single wrong value is wrong for it.
+			if len(kinds) != 1 or kinds[0] not in wrong_for:
+				continue
+
+			text, failed = _called(bound, tool.name, **{name: wrong_for[kinds[0]]})
+			checked += 1
+
+			assert failed, f"{tool.name}.{name} accepted {wrong_for[kinds[0]]!r}"
+			assert name in text, f"{tool.name}.{name} was refused without being named: {text}"
+
+	assert checked > 20, f"only {checked} arguments were reached — has the walk stopped?"
 
 
 def test_a_session_bound_to_a_workspace_reads_and_writes_there (

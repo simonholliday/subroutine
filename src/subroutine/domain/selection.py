@@ -154,7 +154,13 @@ def _only (
 					hint=_alternatives(reachable),
 				)
 			],
-			hint="Pass 'workspace_id', or use a token pinned to one workspace.",
+			# **The field is not named here, and that is deliberate** (`#547`). This refusal is
+			# raised below the transport and read on two of them, which call the same thing by
+			# two names — ``workspace_id`` in a problem document, ``workspace`` as an MCP tool's
+			# argument. Naming one spelling in the prose made the advice wrong for the other
+			# reader, who then followed it and was refused again. The ``FieldError`` beside this
+			# carries the name, and each surface renders that in its own vocabulary.
+			hint="Say which workspace this is about, or use a token pinned to one.",
 		)
 
 	return reachable[0]
