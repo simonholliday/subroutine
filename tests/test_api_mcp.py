@@ -25,11 +25,13 @@ import pytest
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.app
 import subroutine.api.mcp
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.mcp.protocol
+import subroutine.mcp.relay
 import subroutine.mcp.session
 import test_api_tasks
 
@@ -339,3 +341,149 @@ def test_an_unknown_query_parameter_is_refused (world: test_api_tasks.World) -> 
 	# of the API already settled.
 	assert answered.status_code == 422
 	assert "workspce" in answered.text
+
+
+# --- The stdio adapter, driven onto this endpoint ---------------------------------------
+
+
+def _through_the_adapter (
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	*,
+	name: str = "local",
+	url: str | None = None,
+	display_name: str | None = None,
+	elsewhere: tuple[str, ...] = (),
+	workspace: str | None = None,
+	message: str = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+) -> dict[str, typing.Any] | None:
+	"""Send one raw line through ``subroutine mcp`` and return what it writes back.
+
+	Nothing between the two ends is stubbed except *which* application the local forwarder
+	drives: the message is forwarded unparsed, answered by the real endpoint against a real
+	database, and the answer is corrected on the way out. That is the whole of `#539` in one
+	call, and it is the only arrangement that can show the two halves composing.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.api.app, "create_app", lambda **kwargs: world.application
+	)
+
+	built = [
+		subroutine.connections.Connection(name=name, url=url, display_name=display_name)
+	]
+	built.extend(subroutine.connections.Connection(name=other) for other in elsewhere)
+
+	return subroutine.mcp.relay.answering(
+		built[0],
+		subroutine.connections.Roster(connections=tuple(built), default=name),
+		subroutine.config.Settings(dev_mode=True),
+		workspace=workspace,
+	)(message)
+
+
+def test_a_stdio_session_is_answered_by_this_endpoint (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#539`. One implementation of a tool call, and it is the instance's.
+
+	``subroutine mcp`` used to build a catalogue of its own, so what a tool did depended on
+	which package happened to be installed on the calling machine. It forwards now, and this
+	drives a real line through the adapter into the real endpoint.
+	"""
+
+	answered = _through_the_adapter(world, monkeypatch)
+
+	assert answered is not None
+	assert answered["result"]["serverInfo"]["name"] == "subroutine"
+
+
+def test_the_adapter_names_the_connection_the_caller_typed (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The instance calls itself something; the caller calls it something else (`#330`).
+
+	The label in the instructions is the reader's own alias for this server, and the server has
+	never heard it — so it writes its own name and this side corrects it. Driven rather than
+	asserted against the substitution, because a rewrite that silently found nothing would leave
+	the instance's name in place and look exactly like this test passing.
+	"""
+
+	answered = _through_the_adapter(world, monkeypatch, display_name="acme-work")
+
+	assert answered is not None
+
+	said = answered["result"]["instructions"]
+
+	assert "on connection 'acme-work'" in said, said
+	assert "Test" not in said, "the instance's own name for itself reached the caller"
+
+
+def test_the_adapter_restores_what_the_far_end_could_not_know (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#276`'s clause, which the server cannot write and which this side has to add back.
+
+	Naming only the bound instance is what let an agent be confident it knew where it was: the
+	sentence was true, and nothing in it suggested the name was one of several. That roster
+	belongs to the caller, so moving the instructions to the server would have dropped it —
+	silently, and only on machines with more than one connection.
+	"""
+
+	answered = _through_the_adapter(
+		world, monkeypatch, elsewhere=("work", "acme")
+	)
+
+	assert answered is not None
+
+	said = answered["result"]["instructions"]
+
+	assert "work" in said and "acme" in said
+	assert "cannot reach them" in said, said
+
+
+def test_one_connection_hears_nothing_about_connections (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""§1.4. An instruction about instances costs every session that will never have two."""
+
+	answered = _through_the_adapter(world, monkeypatch)
+
+	assert answered is not None
+	assert "cannot reach them" not in answered["result"]["instructions"]
+
+
+def test_a_workspace_travels_as_the_query_the_plugin_already_uses (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""One spelling of it rather than two — `#539`.
+
+	Asserted through what the session is *told*, because that is the observable consequence: the
+	endpoint writes the clause only when it was given a workspace, so the sentence appearing is
+	evidence the parameter arrived.
+	"""
+
+	answered = _through_the_adapter(
+		world, monkeypatch, workspace=world.workspace.slug
+	)
+
+	assert answered is not None
+	assert f"'{world.workspace.slug}' workspace" in answered["result"]["instructions"]
+
+
+def test_a_malformed_message_is_refused_by_the_far_end_rather_than_by_the_adapter (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The adapter must not become a second implementation of the protocol.
+
+	It forwards bytes it has deliberately not parsed, so what a broken message gets back is the
+	instance's answer — the same one an HTTP caller gets. Parsing here to be helpful is how the
+	two transports come to disagree, which is `#530` one layer up.
+	"""
+
+	answered = _through_the_adapter(
+		world, monkeypatch, message="{not json at all"
+	)
+
+	assert answered is not None
+	assert answered["error"]["code"] == subroutine.mcp.protocol.PARSE_ERROR

@@ -652,13 +652,33 @@ def serve (
 	buffered reply is a hung session rather than a slow one.
 	"""
 
+	relay(lambda raw: answer(server, raw), incoming, outgoing)
+
+
+def relay (
+	answering: typing.Callable[[str], dict[str, typing.Any] | None],
+	incoming: typing.TextIO,
+	outgoing: typing.TextIO,
+) -> None:
+	"""Read messages until the input closes, having each one answered somewhere.
+
+	**The framing without the server** — `#539`. ``subroutine mcp`` is a transport adapter now:
+	it reads a message, gets it answered by the instance the connection names, and writes the
+	answer back. What that means for this module is that the loop and the answering have to come
+	apart, because only one of them moves.
+
+	The rules are the transport's and are unchanged: newline-delimited JSON, blank lines
+	ignored, nothing written for a message that deserves no answer, and a flush after each one
+	because a client is blocked waiting.
+	"""
+
 	for line in incoming:
 		stripped = line.strip()
 
 		if not stripped:
 			continue
 
-		reply = answer(server, stripped)
+		reply = answering(stripped)
 
 		if reply is not None:
 			_write(outgoing, reply)

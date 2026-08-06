@@ -119,11 +119,28 @@ def call (
 	path: str,
 	body: typing.Any | None = None,
 	query: dict[str, str] | None = None,
+	content: bytes | None = None,
 ) -> httpx.Response:
-	"""Make one request against ``application``, resolving the caller inside it."""
+	"""Make one request against ``application``, resolving the caller inside it.
+
+	``content`` sends bytes exactly as given, instead of serialising ``body`` — for `#539`'s
+	proxy, which forwards a JSON-RPC message it has deliberately not parsed. **Not parsing it is
+	the point**: a malformed message has to reach the far end and be refused there, or the two
+	transports answer it differently and the adapter has quietly become a second implementation
+	of the protocol, which is the whole thing this change removes.
+	"""
 
 	with httpx.Client(
 		transport=SyncTransport(acting_as(application, resolve)),
 		base_url="http://local",
 	) as client:
+		if content is not None:
+			return client.request(
+				method,
+				path,
+				params=query,
+				content=content,
+				headers={"Content-Type": "application/json"},
+			)
+
 		return client.request(method, path, params=query, json=body)

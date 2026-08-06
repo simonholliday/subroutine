@@ -44,6 +44,7 @@ import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.domain.workspaces
 import subroutine.mcp.protocol
+import subroutine.mcp.relay
 import subroutine.mcp.session
 import subroutine.mcp.tools
 import subroutine.permissions
@@ -1463,10 +1464,9 @@ def test_the_instructions_say_where_work_goes_only_when_a_session_was_told (
 
 	roster = _roster("local", default="local")
 
-	assert "Work goes to the 'acme' workspace" in _standing_up(
-		monkeypatch, roster, workspace="acme"
+	assert "Work goes to the 'acme' workspace" in _standing_up(roster, workspace="acme"
 	)
-	assert "Work goes to" not in _standing_up(monkeypatch, roster)
+	assert "Work goes to" not in _standing_up(roster)
 
 
 def test_an_agent_can_ask_which_principal_it_is (
@@ -2053,33 +2053,41 @@ def _roster (*names: str, default: str) -> subroutine.connections.Roster:
 
 
 def _standing_up (
-	monkeypatch: pytest.MonkeyPatch,
-	roster: subroutine.connections.Roster,
-	workspace: str | None = None,
+	roster: subroutine.connections.Roster, workspace: str | None = None
 ) -> str:
-	"""Return the instructions ``build`` produces for this roster, without opening anything.
+	"""Return what a stdio session is told, which two parties now write between them (`#539`).
 
-	Driven through ``build`` rather than by calling the private helper, so these assert what
-	a session is actually told. Calling ``_instructions`` directly would fail against the
-	previous code with a ``TypeError`` about its signature — evidence that the test matches
-	the new shape, and none at all that it would have caught the old behaviour.
+	The instance writes the paragraph and knows nothing about the caller's roster; the adapter
+	corrects the name and restores the sentence about the instances this session is *not*
+	reaching, which the far end could not have written.
+
+	**The instance is given a different label on purpose.** Passing the connection's own name
+	on both sides would leave the rewrite untested and every assertion below passing — the
+	shape `#492` is about. ``the-instance`` stands for what a server calls itself.
 	"""
 
-	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
-	monkeypatch.setattr(
-		subroutine.clients.opening, "for_connection", lambda connection, roster, settings: None
-	)
-	monkeypatch.setattr(
-		subroutine.mcp.tools, "catalogue", lambda client, workspace=None: []
-	)
-
-	built = subroutine.mcp.session.build(
-		workspace=workspace, settings=subroutine.config.Settings(dev_mode=True)
+	chosen = roster.require(roster.default)
+	served = subroutine.mcp.session.over(
+		unittest.mock.MagicMock(spec=subroutine.clients.base.Client),
+		label="the-instance",
+		workspace=workspace,
 	)
 
-	assert built.instructions is not None, "a session is always told where it is"
+	assert served.instructions is not None, "a session is always told where it is"
 
-	return built.instructions
+	answered = subroutine.mcp.relay._in_this_machines_terms(
+		{"result": {"instructions": served.instructions}},
+		chosen.label,
+		tuple(name for name in roster.names if name != chosen.name),
+	)
+
+	said = answered["result"]["instructions"]
+
+	assert "the-instance" not in said, (
+		"the instance's own name for itself reached the caller, who has never heard it"
+	)
+
+	return str(said)
 
 
 def test_the_instructions_name_the_instances_this_session_cannot_reach (
@@ -2093,7 +2101,7 @@ def test_the_instructions_name_the_instances_this_session_cannot_reach (
 	side.
 	"""
 
-	said = _standing_up(monkeypatch, _roster("local", "work", default="local"))
+	said = _standing_up(_roster("local", "work", default="local"))
 
 	assert "work" in said
 	assert "cannot reach" in said
@@ -2109,7 +2117,7 @@ def test_one_connection_is_told_nothing_about_connections (
 	``--help`` until a second connection exists.
 	"""
 
-	said = _standing_up(monkeypatch, _roster("local", default="local"))
+	said = _standing_up(_roster("local", default="local"))
 
 	assert "cannot reach" not in said
 	assert "configured here" not in said
@@ -2126,10 +2134,14 @@ def test_the_binding_does_not_follow_subroutine_use (
 	process started. Two sessions on one machine on one day bound different instances and
 	neither could tell.
 
-	``build`` is driven for real, with only the client-opening step stubbed — that needs a
-	database and the question here is purely which connection is handed to it. A first
-	version asserted ``(None or roster.default) == "local"``, which re-implemented the
-	expression under test and would have passed with the defect still in place.
+	``run`` is driven for real, with only the forwarding stubbed — that needs a database or a
+	socket, and the question here is purely which connection is chosen. A first version
+	asserted ``(None or roster.default) == "local"``, which re-implemented the expression under
+	test and would have passed with the defect still in place.
+
+	**The choice moved with the transport** (`#539`): it was ``session.build``'s and is now
+	``relay.run``'s. The property is the one thing about that move which must not change, so
+	the test moved with it rather than being deleted alongside the function it drove.
 	"""
 
 	roster = _roster("local", "work", default="local")
@@ -2140,19 +2152,20 @@ def test_the_binding_does_not_follow_subroutine_use (
 	)
 	monkeypatch.setattr(subroutine.connections, "roster", lambda settings: roster)
 	monkeypatch.setattr(
-		subroutine.clients.opening,
-		"for_connection",
-		lambda connection, roster, settings: handed.append(connection.name),
-	)
-	monkeypatch.setattr(
-		subroutine.mcp.tools, "catalogue", lambda client, workspace=None: []
+		subroutine.mcp.relay,
+		"answering",
+		lambda connection, roster, settings, workspace=None: handed.append(connection.name),
 	)
 
 	# The stored context says 'work'. Asserted first, so a fixture that failed to set it
 	# cannot let the real assertion pass for the wrong reason.
 	assert subroutine.context.resolve(roster).connection == "work"
 
-	subroutine.mcp.session.build(settings=subroutine.config.Settings(dev_mode=True))
+	subroutine.mcp.relay.run(
+		io.StringIO(""),
+		io.StringIO(),
+		settings=subroutine.config.Settings(dev_mode=True),
+	)
 
 	assert handed == ["local"], "the binding follows default_connection, not 'subroutine use'"
 
@@ -2280,7 +2293,7 @@ def test_the_instructions_send_a_session_to_the_skill_before_its_first_call (
 	roster = subroutine.connections.Roster(
 		(subroutine.connections.Connection(name="local"),), default="local"
 	)
-	instructions = _standing_up(monkeypatch, roster)
+	instructions = _standing_up(roster)
 
 	assert "skill" in instructions, "nothing sends a session to the skill any more"
 	assert "before your first call" in instructions, (
@@ -3144,7 +3157,7 @@ def test_the_instructions_say_the_tools_are_not_the_whole_product (
 	roster = subroutine.connections.Roster(
 		(subroutine.connections.Connection(name="local"),), default="local"
 	)
-	instructions = _standing_up(monkeypatch, roster)
+	instructions = _standing_up(roster)
 
 	assert "budget" in instructions, (
 		"nothing says the surface is deliberate, so a gap reads as the product's limit"
@@ -3276,7 +3289,7 @@ def test_the_instructions_name_every_document_a_session_might_not_find (
 	roster = subroutine.connections.Roster(
 		(subroutine.connections.Connection(name="local"),), default="local"
 	)
-	instructions = _standing_up(monkeypatch, roster)
+	instructions = _standing_up(roster)
 	client = unittest.mock.MagicMock(spec=subroutine.clients.base.Client)
 
 	published = subroutine.mcp.tools.references(client)

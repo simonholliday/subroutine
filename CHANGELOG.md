@@ -125,6 +125,27 @@ upgrade involves.
 
 ### Changed
 
+- **`subroutine mcp` is a transport adapter now: the tools come from the instance.** It reads a
+  message, has it answered by the instance the connection names, and writes the answer back. It
+  builds no tools of its own.
+
+  Before this, an agent's tools came from whichever version of the package happened to be
+  installed on the *calling* machine, while the same instance served a different set over HTTP
+  to anybody using the remote plugin. Two implementations of what a tool call does, and which
+  one answered depended on something nobody was tracking.
+
+  **Nothing about using it changes.** The same command, the same options, the same tools. What
+  changes is where they come from: point it at a server and you get that server's, so upgrading
+  the instance upgrades every agent reaching it.
+
+  A connection with no server — a plain SQLite install — drives this application in process,
+  so there is still nothing to run and nothing to configure. It costs about **0.3 seconds** at
+  session start on this machine, once, for the web stack that path now loads.
+
+  **An instance older than this program has no such endpoint**, and says so plainly rather than
+  looking like MCP is broken: *"work does not serve MCP. That instance is older than this
+  program."*
+
 - **`subroutine` the plugin now says it is the one that runs a program on your machine**, in its
   own description and in the marketplace listing, because there is now a choice to get wrong.
 

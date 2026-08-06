@@ -203,12 +203,28 @@ def _acting_as (
 	credential, identifies the sole account — §12.1a, where the filesystem permission *is* the
 	authentication. On a served instance that reasoning is exactly inverted, so the two never
 	meet: see :meth:`subroutine.clients.local.Client._principal`.
+
+	**And it authenticates the way the application does, override included** (`#539`). Reading
+	the request's header directly is right for a served instance and wrong for the one caller
+	that has no request to read: ``subroutine mcp`` drives this app in process for a local
+	connection, where §12.1a applies and there is no credential to present. That caller says who
+	it is by overriding :func:`subroutine.api.security.principal`, which is FastAPI's own lever
+	for it and the one :mod:`subroutine.api.inprocess` already uses — so this asks the
+	application rather than going around it. Two authentications per request, disagreeing, is
+	what the previous shape would have produced.
 	"""
 
 	def resolve (
 		session: sqlalchemy.orm.Session,
 	) -> subroutine.domain.authentication.Principal:
-		"""Identify the caller against this session."""
+		"""Identify the caller against this session, as this application would."""
+
+		instead = request.app.dependency_overrides.get(subroutine.api.security.principal)
+
+		if instead is not None:
+			return typing.cast(
+				subroutine.domain.authentication.Principal, instead(session)
+			)
 
 		return subroutine.api.security.resolve(session, request)
 

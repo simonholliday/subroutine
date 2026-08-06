@@ -557,9 +557,9 @@ def mcp (
 	# Imported inside the function like `serve`'s uvicorn: an MCP session is a long-lived
 	# child process where an extra import costs nothing, and every other `subroutine`
 	# invocation is a command line where it would.
-	import subroutine.mcp.session
+	import subroutine.mcp.relay
 
-	subroutine.mcp.session.run(
+	subroutine.mcp.relay.run(
 		sys.stdin,
 		sys.stdout,
 		connection=connection or None,
