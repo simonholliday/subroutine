@@ -204,6 +204,15 @@ upgrade involves.
 
 ### Fixed
 
+- **Reading something you deleted no longer fails in the words of a command you did not run.**
+  `subroutine show` on a deleted item answered *"There is no task here to comment on"* — the
+  comment command's refusal, on a read, naming neither the item nor anything to do next.
+
+  Underneath it, reading an item and reading its record disagreed about the trash: the item
+  resolved and its comments did not. An item's record is still its record once the item is
+  deleted, so it can be read; what is refused is *adding* to it, and that now says the item is
+  in the trash and that restoring it is what you want.
+
 - **An agent can plan or defer a task from a machine outside UTC.** `subroutine_update` with
   `plan` or `defer` failed on any machine whose timezone abbreviation is not also a zone name —
   `'BST' is not a timezone`, and the same for `PDT`, `CEST` and `AEST`. It read the machine's

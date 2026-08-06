@@ -231,3 +231,63 @@ def _mentions_of (world: test_api_tasks.World, target: str) -> list[tuple[str, s
 	).all()
 
 	return [(row.source_type, row.target_type) for row in rows]
+
+
+def test_a_deleted_items_record_can_still_be_read (world: test_api_tasks.World) -> None:
+	"""`#535`. Reading an item and reading its record disagreed about the trash.
+
+	``GET /v1/tasks/{ref}`` resolves a deleted task on purpose — *"a reference to something in
+	the trash is more useful than a dangling one"*, in ``api/tasks._resolve``'s own words — and
+	the comment listing did not, so the same ref answered **200** and **404** depending on which
+	half of it you asked for.
+
+	It surfaced as something else entirely, which is why it is worth a test rather than a fix:
+	``subroutine show`` reads an item's comments, so reading a deleted item failed in the words
+	of the *comment* command — *"There is no task here to comment on"* — to somebody who had run
+	no such command and wanted no such thing.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Scratch"}).json()
+	ref = created["ref"]
+
+	world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": "recorded before it went"})
+	world.call("DELETE", f"/v1/tasks/{ref}")
+
+	assert world.call("GET", f"/v1/tasks/{ref}").status_code == 200, "the premise of the item"
+
+	answered = world.call("GET", f"/v1/tasks/{ref}/comments")
+
+	assert answered.status_code == 200, "the record of a deleted item is still its record"
+	assert answered.json()["items"][0]["body"] == "recorded before it went"
+
+
+def test_a_deleted_item_takes_no_new_comment_and_is_told_why (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#535`'s other half: the asymmetry belongs between reading and writing.
+
+	Adding to the record of something in the trash is the thing to refuse — and refusing it *by
+	name* rather than by claiming the item does not exist is what tells somebody they want
+	``restore``. Reporting it absent would be the sentence a caller gets for a ref that never
+	existed, on the one occasion they know perfectly well it did: they deleted it.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Scratch"}).json()
+	ref = created["ref"]
+
+	world.call("DELETE", f"/v1/tasks/{ref}")
+
+	refused = world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": "after"})
+
+	assert refused.status_code == 422, refused.text
+	assert "in the trash" in refused.json()["detail"]
+	assert "no task" not in refused.json()["detail"], (
+		"a deleted item is not an absent one, and saying so is the whole point"
+	)
+
+	# And it comes back with the item, so the refusal names something the caller can act on.
+	world.call("POST", f"/v1/tasks/{ref}/restore")
+
+	assert world.call(
+		"POST", f"/v1/tasks/{ref}/comments", json={"body": "after"}
+	).status_code == 201

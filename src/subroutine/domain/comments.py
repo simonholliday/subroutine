@@ -57,12 +57,27 @@ def _entity (
 	*,
 	entity_type: str,
 	entity_id: uuid.UUID,
+	writing: bool = True,
 ) -> typing.Any:
 	"""Return the thing being commented on, or report that there is no such thing.
 
 	Looked up **through the scoping helpers**, so an item the caller cannot see is reported as
 	absent rather than forbidden — a comment endpoint that said "forbidden" about a task in a
 	private project would confirm the task exists (§7.3a).
+
+	**A deleted item resolves for a read and not for a write** (`#535`). ``api/tasks._resolve``
+	already settled the reading half in as many words — *"Deleted tasks resolve. A reference to
+	something in the trash is more useful than a dangling one"* — and this did not follow it, so
+	``GET /v1/tasks/534`` answered **200** with the task while
+	``GET /v1/tasks/534/comments`` answered **404**. One rule, two answers, which is this
+	codebase's signature defect; and because ``subroutine show`` reads an item's comments, the
+	visible result was that reading a deleted item failed in the words of the *comment* command
+	nobody had run.
+
+	The asymmetry belongs between reading and writing, not between an item and its record.
+	Adding to the record of something in the trash is the thing to refuse, and refusing it by
+	name — rather than by claiming the item does not exist — is what tells somebody they want
+	``restore``.
 	"""
 
 	if entity_type not in ENTITY_TYPES:
@@ -96,23 +111,35 @@ def _entity (
 
 		if entity_type == "task":
 			statement: typing.Any = subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=reachable, include_completed=True
+				actor,
+				workspace_ids=reachable,
+				include_completed=True,
+				include_deleted=True,
 			).where(subroutine.db.models.work.Task.id == entity_id)
 
 		elif entity_type == "project":
 			statement = subroutine.domain.scoping.readable_projects(
-				actor, workspace_ids=reachable, include_archived=True
+				actor, workspace_ids=reachable, include_archived=True, include_deleted=True
 			).where(subroutine.db.models.project.Project.id == entity_id)
 
 		else:
 			statement = subroutine.domain.scoping.readable_documents(
-				actor, workspace_ids=reachable, include_archived=True
+				actor, workspace_ids=reachable, include_archived=True, include_deleted=True
 			).where(subroutine.db.models.work.Document.id == entity_id)
 
 		found = session.scalars(statement).first()
 
 	if found is None:
 		raise subroutine.errors.NotFound(f"There is no {entity_type} here to comment on.")
+
+	# **Deleted is refused for a write and allowed for a read**, and it is refused *by name*.
+	# Reporting it as absent would be the same sentence a caller gets for something that never
+	# existed, on the one occasion they know perfectly well it did — they deleted it.
+	if writing and getattr(found, "deleted_at", None) is not None:
+		raise subroutine.errors.ValidationError(
+			f"That {entity_type} is in the trash, so nothing more can be added to its record.",
+			hint="Restore it first if you meant to keep working on it.",
+		)
 
 	return found
 
@@ -208,7 +235,9 @@ def listing (
 	exactly this query.
 	"""
 
-	subject = _entity(session, actor, entity_type=entity_type, entity_id=entity_id)
+	subject = _entity(
+		session, actor, entity_type=entity_type, entity_id=entity_id, writing=False
+	)
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
@@ -247,7 +276,13 @@ def get (
 
 	# Reached through the *subject*, so a comment on something the caller cannot see is absent
 	# rather than readable — the comment table has no visibility of its own.
-	_entity(session, actor, entity_type=found.entity_type, entity_id=found.entity_id)
+	_entity(
+		session,
+		actor,
+		entity_type=found.entity_type,
+		entity_id=found.entity_id,
+		writing=False,
+	)
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
