@@ -388,6 +388,51 @@ def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typi
 	return {"jsonrpc": "2.0", "id": identifier, "error": {"code": code, "message": message}}
 
 
+#: What a shell command in a shared refusal is called on this surface — `#548`.
+#:
+#: **A refusal has to name something its reader can do.** The layers below are written for a
+#: person at a terminal and say so — *"Run 'subroutine list' to see what there is"* — and a
+#: remote agent has no terminal at all, which is the whole premise of `#516`. It is not oddly
+#: worded to that reader, it is unfollowable.
+#:
+#: **Translated here rather than reworded at the source**, and the reason is coverage rather
+#: than effort. ``mcp/tools.py`` already carries two hand-written replacements, which is a
+#: second copy of a message and is why only two of them exist; and neutering the shared text
+#: would cost the command line a concrete remedy on the surface whose whole principle is that
+#: an error says what to do next. This is one rule, in the one place a refusal becomes text
+#: for this surface, and it reaches messages nobody has audited yet.
+#:
+#: Longest first when substituting, so ``doc edit`` is not read as ``doc``.
+INSTEAD_OF = {
+	"subroutine doc edit": "subroutine_document",
+	"subroutine project list": "subroutine_project",
+	"subroutine search": "subroutine_search",
+	"subroutine list": "subroutine_list",
+	"subroutine show": "subroutine_show",
+	"subroutine ls": "subroutine_list",
+}
+
+#: A shell command with no tool that does the same thing, and why leaving it is still right.
+#:
+#: **Both come from a database that could not be opened**, which is not a thing any tool acts
+#: on: the remedy is somebody's, on the machine that holds it. An agent meeting one of these has
+#: nothing to try and should say so rather than keep calling, and naming the command is what
+#: tells it whose problem this is.
+#:
+#: **Reachable on a served instance too**, which is worth writing down because the first draft
+#: of this comment said otherwise and an agent met ``subroutine config show`` within the hour —
+#: a locked SQLite database, on a server, reported to a caller with no shell. The claim that
+#: only a local connection could reach these was reasoning rather than measurement.
+#:
+#: An entry here says a translation would be wrong, not that the string is unreachable;
+#: ``tests/test_mcp.py`` checks that no entry is also translated and that each gives a reason.
+NO_TOOL_DOES_THIS = {
+	"subroutine init": "no tool creates an instance, and nothing else works until one exists",
+	"subroutine config": "no tool reports a machine's configuration, and a database that cannot "
+	"be opened is fixed by whoever runs it rather than by the caller",
+}
+
+
 #: What each declared JSON Schema type accepts, as a Python check — `#549`.
 #:
 #: **``bool`` is excluded from ``integer`` deliberately.** ``isinstance(True, int)`` is true in
@@ -541,7 +586,21 @@ def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 		if field.hint is not None and field.hint not in (failure.hint, field.message):
 			lines.append(field.hint)
 
-	return "\n".join(lines)
+	return _in_this_surfaces_words("\n".join(lines))
+
+
+def _in_this_surfaces_words (text: str) -> str:
+	"""Return a refusal with the commands in it named as this surface's tools — `#548`.
+
+	Substituted longest first, so ``subroutine doc edit`` is not read as ``subroutine doc``,
+	and the surrounding quotes are left alone: *"Run 'subroutine_list' to see what there is"*
+	is a slightly odd sentence and an entirely followable one, which is the trade.
+	"""
+
+	for command in sorted(INSTEAD_OF, key=len, reverse=True):
+		text = text.replace(command, INSTEAD_OF[command])
+
+	return text
 
 
 def _content (text: str, *, failed: bool = False) -> dict[str, typing.Any]:

@@ -105,6 +105,15 @@ upgrade involves.
   arguments were declared as whole numbers and have always accepted `"#42"` too, since that is
   the form every listing returns. A client obeying the published contract could not send it.
 
+- **A refusal an agent reads now names a tool rather than a shell command.** `subroutine_update`
+  on a task that is not there said *"Run 'subroutine list' to see what there is"* — advice a
+  remote agent cannot follow, since it has no terminal and no copy of the program. That is the
+  whole premise of reaching an instance with a URL and a token.
+
+  The commands the layers below name are translated to the tools that do the same thing. Two
+  are deliberately left alone: an instance that has not been created and a database that cannot
+  be opened are fixed by whoever runs the machine, and naming the command is what says so.
+
 - **A refusal an agent reads now names a field that agent can actually pass.** On an instance
   holding more than one workspace, a session that had not been told which one had its first read
   refused with *"Pass `workspace_id`"* — which is right in a problem document and is not an

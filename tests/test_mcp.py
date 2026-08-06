@@ -1334,6 +1334,93 @@ def test_every_declared_type_is_actually_checked (
 	assert checked > 20, f"only {checked} arguments were reached — has the walk stopped?"
 
 
+#: Bad input that reaches a refusal, one per shape an agent actually gets wrong. Kept as data
+#: so that the two tests below drive the same set: one reads what comes back, the other proves
+#: the set reaches anything at all.
+REFUSED = (
+	("subroutine_show", {"ref": 9999}),
+	("subroutine_update", {"ref": 9999, "importance": 3}),
+	("subroutine_done", {"ref": 9999}),
+	("subroutine_claim", {"ref": 9999}),
+	("subroutine_comment", {"ref": 9999, "body": "x"}),
+	("subroutine_link", {"ref": 9999, "type": "blocks", "other": 9998}),
+	("subroutine_add", {"text": "x", "project": "nosuchproject"}),
+	("subroutine_project", {"key": "child", "title": "Child", "parent": "nosuchproject"}),
+	("subroutine_search", {"q": "x", "project": "nosuchproject"}),
+)
+
+
+def test_a_refusal_never_tells_an_agent_to_run_a_command (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#548`. A remote agent has no shell, which is the whole premise of `#516`.
+
+	``subroutine_update`` on a missing ref said *"Run 'subroutine list' to see what there is"*,
+	because the layers below are written for a person at a terminal. ``subroutine_show`` did
+	not, because somebody had written a second message for it — so the surface already knew the
+	right answer in two places and inherited the wrong one everywhere else.
+
+	**Driven rather than scanned**, because a static reading cannot tell which of the sixty-nine
+	such strings in ``src`` an agent ever meets, and the excuse list would be sixty-seven
+	entries of "unreachable" that nobody could check.
+	"""
+
+	spoken = re.compile(r"\bsubroutine\s+([a-z][a-z-]*)")
+	wrong = []
+
+	for name, arguments in REFUSED:
+		text, failed = _called(bound, name, **arguments)
+
+		if not failed:
+			continue
+
+		for said in spoken.finditer(text):
+			command = f"subroutine {said.group(1)}"
+
+			if command not in subroutine.mcp.protocol.NO_TOOL_DOES_THIS:
+				wrong.append(f"{name} answered with {command!r}: {text}")
+
+	assert not wrong, "\n".join(wrong)
+
+
+def test_the_refusals_this_drives_are_actually_refusals (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The floor for the test above, which passes most comfortably against nothing at all.
+
+	A ceiling over rendered prose is satisfied by a set of inputs that all *succeed* — and this
+	set is hand-written, so an argument renamed under it turns into a silent hole rather than a
+	failure. `#379` reports that as a refusal too, which is why success is what is checked.
+	"""
+
+	for name, arguments in REFUSED:
+		_text, failed = _called(bound, name, **arguments)
+
+		assert failed, f"{name} was expected to be refused and was not: {arguments}"
+
+
+def test_every_command_named_instead_of_a_tool_is_a_tool (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""A translation to a name nothing answers to would be worse than the sentence it replaced.
+
+	`#405`'s question of both lists here: `INSTEAD_OF` goes stale when a tool is renamed, and
+	`NO_TOOL_DOES_THIS` goes stale when one is *added* that does the thing it excuses — which is
+	the direction nobody checks, because the entry goes on reading as considered.
+	"""
+
+	catalogue = set(bound.tools)
+
+	for command, tool in subroutine.mcp.protocol.INSTEAD_OF.items():
+		assert tool in catalogue, f"{command!r} is translated to {tool!r}, which is not a tool"
+
+	for command, why in subroutine.mcp.protocol.NO_TOOL_DOES_THIS.items():
+		assert why.strip(), f"{command!r} is excused without a reason"
+		assert command not in subroutine.mcp.protocol.INSTEAD_OF, (
+			f"{command!r} is both excused and translated"
+		)
+
+
 def test_a_session_bound_to_a_workspace_reads_and_writes_there (
 	session: sqlalchemy.orm.Session,
 ) -> None:
