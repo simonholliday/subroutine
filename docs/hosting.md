@@ -603,7 +603,7 @@ there and says so. Setting somebody up should not take something away from you.
 **One command does all of it**, and it is the one to reach for:
 
 ```console
-$ subroutine agent create claude --project WEB --scope task:read --scope task:write
+$ subroutine agent create claude --project web --scope task:read --scope task:write
   Created service account claude, with the contributor role.
 
   Set this in the environment the agent's session starts from:
@@ -612,7 +612,7 @@ $ subroutine agent create claude --project WEB --scope task:read --scope task:wr
 
   That is the only time the credential is shown. Nothing recovers it afterwards.
 
-  Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within WEB
+  Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
   Until then its shell acts as si, and nothing above bounds what it does there.
 ```
@@ -647,7 +647,7 @@ nothing a profile can express that you could not have typed.
 | `colleague` | one workspace | the same | a second person, working as they would in their own |
 
 ```console
-$ subroutine agent create sam --profile collaborator --project SR --project WEB --write WEB
+$ subroutine agent create sam --profile collaborator --project sr --project web --write web
 ```
 
 **The refusals are the point.** A combination that means two things at once is turned down
@@ -655,7 +655,7 @@ rather than resolved, because a credential that quietly does something other tha
 just described is one nobody checks again:
 
 ```console
-$ subroutine agent create nosy --profile observer --write WEB
+$ subroutine agent create nosy --profile observer --write web
   '--write' does not go with the 'observer' profile.
     write: 'observer' changes nothing at all.
       Either drop '--write', or use '--profile collaborator' for an agent that reads widely and writes in one place.
@@ -706,9 +706,9 @@ is what stops an agent quietly promoting itself.
 reach at all:
 
 ```console
-$ subroutine token create --service-account web --workspace projects --project WEB
+$ subroutine token create --service-account web --workspace projects --project web
   Created service account web, with the contributor role.
-  Restricted to WEB and anything filed underneath.
+  Restricted to web and anything filed underneath.
 ```
 
 **It brings the sub-projects with it**, which is why the command says so rather than echoing
@@ -717,7 +717,7 @@ than one. Everything outside it is not merely absent from a listing — the proj
 resolve at all, so the agent is told there is no such project rather than that it may not look.
 
 Name the project by its key. Keys are unique per workspace rather than per instance, so if two
-workspaces both hold a `WEB` the command refuses and asks which, rather than picking one — an
+workspaces both hold a `web` the command refuses and asks which, rather than picking one — an
 agent pointed at the wrong tree works perfectly, against the wrong tree.
 
 **Give the token to the client as `SUBROUTINE_TOKEN`.** It is never accepted in a query string
@@ -764,7 +764,7 @@ when no session has claimed the terminal.
 ```console
 $ subroutine whoami
   claude (agent), via token 'web agent' (24148201…).
-  Narrowed to workspace 'projects'; projects WEB; scopes task:read, task:write.
+  Narrowed to workspace 'projects'; projects web; scopes task:read, task:write.
 
     projects  Contributor  may: task:read, task:write
 ```

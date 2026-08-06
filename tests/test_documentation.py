@@ -202,6 +202,94 @@ def test_every_anchor_a_published_page_links_to_exists (page: pathlib.Path) -> N
 	assert checked, f"{page.name} has no anchor links — has this test stopped reaching them?"
 
 
+#: Everything a stranger reads that shows a project key — `#521`. Wider than ``PUBLISHED``,
+#: which is about commands: a plugin's settings field and the skill inside it are read by people
+#: who will never open this repository, so they are exactly where teaching the old form costs
+#: most.
+SHOWS_A_KEY = (
+	README,
+	HOSTING,
+	CONNECTING,
+	ROOT / "plugins" / "subroutine" / "skills" / "subroutine" / "SKILL.md",
+	ROOT / "plugins" / "subroutine-remote" / "skills" / "subroutine" / "SKILL.md",
+	ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json",
+)
+
+#: Where a project key is unmistakably a project key, whatever it is called.
+#:
+#: This catches a key nobody has thought of, which the list below cannot: a new example using
+#: ``--project BILLING`` fails without anybody adding an entry anywhere.
+_A_KEY_FOLLOWS = re.compile(r"(?:\+|--project\s+|--write\s+)([A-Za-z][\w-]*)")
+
+#: The keys these pages actually use in examples, in the form the program stores and prints.
+#:
+#: **The list exists for the case the pattern above cannot see**: a *transcript* naming a
+#: project — "Restricted to web and anything filed underneath" — carries no sigil and no flag,
+#: and those were three of the lines `#521` was filed for. It is small and closed because these
+#: pages use three example keys between them, and
+#: :func:`test_every_example_key_is_one_the_pages_still_use` fails when one stops being used.
+KEYS_IN_EXAMPLES = frozenset({"web", "sr", "other"})
+
+
+def test_no_published_page_writes_a_project_key_in_capitals () -> None:
+	"""`#508` made a key lower case in storage and in display; the pages kept the old form.
+
+	Input is still case-insensitive, so every *command* on those pages worked — which is why
+	nothing noticed. What broke is narrower and worse: three lines of ``docs/hosting.md`` were
+	*output*, and that page's central promise is that every quoted output is what the program
+	actually printed. It is the promise `#363` refused to redact a credential out of, on the
+	grounds that an exception would make the page's own claim conditional.
+
+	And a plugin's settings field and the skill inside it teach the form to somebody who will
+	never see this repository at all.
+	"""
+
+	wrong = []
+
+	for page in SHOWS_A_KEY:
+		text = page.read_text(encoding="utf-8")
+
+		for found in _A_KEY_FOLLOWS.finditer(text):
+			if found.group(1) != found.group(1).lower():
+				wrong.append(f"{page.name}: {found.group(0)!r} — a project key is lower case")
+
+		for key in sorted(KEYS_IN_EXAMPLES):
+			if re.search(rf"\b{key.upper()}\b", text):
+				wrong.append(f"{page.name}: names {key.upper()!r}, which is stored as {key!r}")
+
+	assert not wrong, "\n".join(wrong)
+
+
+def test_every_example_key_is_one_the_pages_still_use () -> None:
+	"""`#405`'s question of this list: what makes an entry go away?
+
+	An example rewritten to stop using a key leaves its entry behind, still policing a word
+	nothing says — which reads as a considered decision and is a dead one. That is the shape
+	`#500` found in ``UNREACHED_FIELDS``, where a reason cited an item closed five days earlier.
+	"""
+
+	together = "\n".join(page.read_text(encoding="utf-8") for page in SHOWS_A_KEY)
+
+	for key in sorted(KEYS_IN_EXAMPLES):
+		assert re.search(rf"\b{key}\b", together), (
+			f"no published page uses {key!r} any more, so guarding its capitals is guarding "
+			f"nothing. Take it out of KEYS_IN_EXAMPLES."
+		)
+
+
+def test_the_key_scan_reaches_the_pages_it_names () -> None:
+	"""A walk that read nothing would satisfy the ceiling above most comfortably."""
+
+	for page in SHOWS_A_KEY:
+		assert page.is_file(), f"{page} is named by the key scan and is not there"
+
+	together = "\n".join(page.read_text(encoding="utf-8") for page in SHOWS_A_KEY)
+
+	assert _A_KEY_FOLLOWS.search(together), (
+		"no page shows a project key behind a sigil or a flag — has this stopped reaching them?"
+	)
+
+
 def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
 	"""`#274`. A table of contents that is quietly incomplete is worse than none.
 

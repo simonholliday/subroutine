@@ -129,7 +129,7 @@ setup interview is how a tool loses the person who just installed it.
 
    That writes a small `.subroutine` file at the repository root. Say that you have written it
    and that it is safe to commit — it names a project, not a credential. From then on, work
-   added anywhere under this directory goes to that project unless a line says `+OTHER`.
+   added anywhere under this directory goes to that project unless a line says `+other`.
 
 7. **Do not import an existing to-do list unless asked.** Filing thirty items out of a
    `TODO.md` is a large write that is tedious to undo and that nobody requested.
@@ -360,7 +360,7 @@ for a named tool first, every time you have one.
 
 **That is not politeness, it is the difference between a call that works and a call that is
 right.** The tools carry conventions the API does not enforce. `subroutine_add` reads a whole
-line — `Fix the boiler by friday !4/2 ~2h #home +SR` — and `POST /v1/tasks` will happily take
+line — `Fix the boiler by friday !4/2 ~2h #home +sr` — and `POST /v1/tasks` will happily take
 `{"title": "Fix the boiler", "importance": 4}` instead. Both succeed. The second quietly stops
 using the grammar, sets no deadline because nobody parsed "by friday", and nothing anywhere
 reports it. A raw call is the one place this tool surface cannot help you.
