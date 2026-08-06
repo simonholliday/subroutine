@@ -25,6 +25,7 @@ import subroutine.cli.main
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.projects
 import subroutine.mcp.tools
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -517,6 +518,50 @@ def test_the_skill_frontmatter_parses_as_yaml () -> None:
 	# block still parses, and would leave exactly the fields that matter missing.
 	assert parsed.get("name") == "subroutine"
 	assert parsed.get("description"), "a skill with no description is one nothing will load"
+
+
+def test_the_skill_teaches_the_project_key_rule_the_product_has () -> None:
+	"""`#533`. The skill told an agent to upper-case a key, use no hyphens, and stop at sixteen.
+
+	All three were made false by `#508` on the previous day, and the sentence contradicted the
+	example three lines below it, which was already lower case. Found by a stranger's agent
+	asked to make a project called "Claude Test": it produced `claudetest`, which is what we
+	told it to produce.
+
+	**`#508`'s commit said the rule was written in eleven places and the suite found ten. This
+	was the twelfth**, and no guard could see it: `test_plugin` checks that the skill names no
+	command or tool that does not exist, which is a different question from whether the prose
+	it teaches is true. So this asks the code.
+
+	The tool schema was right the whole time — *"A key is permanent and lower case, like web or
+	web-sales"* — which is the sharp part. The channel an agent is *guaranteed* to read was
+	correct and the one it chose to read was wrong, so being thorough was what misled it.
+	"""
+
+	text = _skill()
+
+	for demonstrated in re.findall(r'key="([^"]+)"', text):
+		assert subroutine.domain.projects.KEY_PATTERN.fullmatch(demonstrated), (
+			f"the skill demonstrates key={demonstrated!r}, which this product would refuse"
+		)
+		assert len(demonstrated) <= subroutine.domain.projects.MAX_KEY_LENGTH
+
+	# **Whitespace collapsed first, or this dictates where the prose wraps.** It failed on the
+	# corrected skill, because Markdown had broken the line between "32" and "characters" — a
+	# guard that makes a true sentence fail is one somebody edits the sentence to satisfy.
+	flowed = " ".join(text.split())
+
+	assert f"{subroutine.domain.projects.MAX_KEY_LENGTH} characters" in flowed, (
+		f"the skill states a key length that is not {subroutine.domain.projects.MAX_KEY_LENGTH}"
+	)
+
+	# **The word that was wrong, asserted absent.** §13.5b's precedent: where a surface must not
+	# use a piece of vocabulary, the check is that it does not appear. A key has been lower case
+	# since `#508` and displayed lower case since, so an instruction to upper-case one produces a
+	# key the product immediately renames under the agent.
+	assert "uppercase" not in text.lower(), (
+		"the skill tells an agent to upper-case something; keys are lower case (`#508`)"
+	)
 
 
 def test_the_skill_does_not_promise_a_field_no_tool_can_write () -> None:

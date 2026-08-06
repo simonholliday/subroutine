@@ -202,6 +202,24 @@ upgrade involves.
   in force rather than a refusal. A key *neither* kind has is still refused by name, because a
   typo that reads as an empty list is indistinguishable from having nothing to do.
 
+### Fixed
+
+- **An agent can plan or defer a task from a machine outside UTC.** `subroutine_update` with
+  `plan` or `defer` failed on any machine whose timezone abbreviation is not also a zone name —
+  `'BST' is not a timezone`, and the same for `PDT`, `CEST` and `AEST`. It read the machine's
+  zone off a timestamp, which gives the abbreviation rather than the name; it now reads it the
+  way `init` does.
+
+  It worked in UTC, and in London in winter, which is why it survived: `UTC`, `GMT`, `EST` and
+  `MST` happen to be valid zone names. Found on a fresh install on somebody else's laptop, in
+  August.
+
+- **The agent skill teaches the project key rule this version actually has.** It said keys were
+  uppercase, letters and digits only, and at most sixteen characters — all three untrue since
+  the previous release, and contradicted by the example printed directly beneath it. An agent
+  asked for a project called "Claude Test" produced `claudetest`, which is what it had been
+  told to do. Keys are lower case, take hyphens between words, and run to 32 characters.
+
 ### Security
 
 - **The three routes an agent's raw API call cannot reach are now genuinely unreachable.**

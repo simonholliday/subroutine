@@ -65,13 +65,17 @@ setup interview is how a tool loses the person who just installed it.
    covers this repository, use it. A duplicate project is invisible until somebody files into
    the one nobody reads.
 
-2. **Propose a key and say what it is.** Derive it from the repository directory name:
-   uppercase, letters and digits only, starting with a letter, at most sixteen characters.
-   State it and proceed — a key can be renamed later, and a checkout marked with step 6
+2. **Propose a key and say what it is.** Lower case, letters and digits, and **a hyphen between
+   words** — `claude-test` rather than `claudetest`. It starts with a letter and is at most 32
+   characters. Derive it from the title, or from the repository directory name where that reads
+   better. State it and proceed — a key can be renamed later, and a checkout marked with step 6
    follows the rename, so this is not a decision to stop over.
 
+   The hyphen is worth spending a character on: a key is a path segment and will be part of a
+   URL, so it is read far more often than it is typed.
+
    ```
-   subroutine_project(key="web", title="Website redesign")
+   subroutine_project(key="website-redesign", title="Website redesign")
    ```
 
    What a rename *does* cost is addresses somebody has already written down — a `+web` in a

@@ -31,6 +31,7 @@ import urllib.parse
 
 import subroutine.addressing
 import subroutine.clients.base
+import subroutine.config
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
@@ -1510,7 +1511,17 @@ def _day (given: typing.Any, *, field: str) -> datetime.date | None:
 		# on.** An agent saying "friday" means the Friday it is looking at, and resolving that
 		# in UTC turns it into Thursday for anybody west of Greenwich after four in the
 		# afternoon — the same westward-drift bug `defer` already met once.
-		timezone=str(subroutine.db.types.utcnow().astimezone().tzinfo),
+		#
+		# **Read the way `init` reads it, not off a datetime** (`#532`). This was
+		# `str(utcnow().astimezone().tzinfo)`, and `astimezone()` yields a *fixed-offset* zone
+		# whose `str()` is the **abbreviation** — so it passed `BST`, `PDT`, `CEST` or `AEST`
+		# into a function that requires a zoneinfo key, and `plan` and `defer` failed outright.
+		#
+		# Nothing caught it because a handful of abbreviations *are* zoneinfo keys — `UTC`,
+		# `GMT`, `EST`, `MST`. It therefore works in UTC, which is every CI job and every test
+		# here, and in London in winter, and fails in London from late March to October. Found
+		# on a stranger's laptop, in August.
+		timezone=subroutine.config.system_timezone(),
 		now=subroutine.db.types.utcnow(),
 		field=field,
 	)

@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import time
 import typing
 import unittest.mock
 import uuid
@@ -2984,3 +2985,42 @@ def test_a_ref_that_names_nothing_says_how_to_find_the_right_one (
 
 	for named in ("subroutine_list", "subroutine_search"):
 		assert named in catalogue, f"the refusal names {named}, which is not a tool"
+
+
+def test_a_day_resolves_on_a_machine_whose_zone_abbreviation_is_not_a_zone () -> None:
+	"""`#532`, found on a stranger's Fedora laptop and not by 2,930 tests.
+
+	``_day`` passed the *client's* zone so that an agent saying "friday" means the Friday it is
+	looking at — right, and it derived it with ``str(utcnow().astimezone().tzinfo)``, which
+	yields a fixed-offset zone whose ``str()`` is the **abbreviation**. So ``BST``, ``PDT``,
+	``CEST`` and ``AEST`` were handed to a function wanting a zoneinfo key, and ``plan`` and
+	``defer`` failed outright with *"'BST' is not a timezone"*.
+
+	**Why nothing here saw it, and why this test names Sydney.** A few abbreviations are also
+	zoneinfo keys — ``UTC``, ``GMT``, ``EST``, ``MST`` — so the expression works in UTC, which
+	is every CI job and every test in this file, and in London in *winter*. Testing in
+	``Europe/London`` would therefore pass for five months of the year and fail for seven, which
+	is worse than not testing it. Sydney is ``AEST`` or ``AEDT`` and neither is a zone, so this
+	reproduces on any date.
+
+	Driven through the real function rather than by inspecting what it passes: the assertion is
+	that a day resolves, which is what the user could not do.
+	"""
+
+	original = os.environ.get("TZ")
+	os.environ["TZ"] = "Australia/Sydney"
+	time.tzset()
+
+	try:
+		resolved = subroutine.mcp.tools._day("friday", field="plan")
+
+	finally:
+		if original is None:
+			os.environ.pop("TZ", None)
+
+		else:
+			os.environ["TZ"] = original
+
+		time.tzset()
+
+	assert resolved is not None, "a day an agent named did not resolve"
