@@ -86,6 +86,25 @@ upgrade involves.
 
 ### Fixed
 
+- **A machine whose work is on a server is no longer told to set up a second instance.** The
+  `db` commands and `serve` act on a local database, and where there is none they said:
+
+  > Nothing has configured `database_url`, so this is the default. Run `subroutine init` to set
+  > an instance up here…
+
+  On a machine that reaches your instance over a connection — a laptop, a second workstation,
+  the arrangement [docs/connecting.md](docs/connecting.md) describes — following that advice
+  builds an empty second instance beside a connection that already works, and nothing tells you
+  there are now two. It now says which instance the machine does reach, that the command wants a
+  local database, and that `init` would give you a second one:
+
+  > This machine has no instance of its own; it reaches work. This command acts on a local
+  > database, so run it where that instance lives — `subroutine init` would set up a second,
+  > empty one here.
+
+  `init` is still the advice when nothing is configured at all, which is the situation it is
+  right for.
+
 - **An MCP tool argument is checked against the type its schema declares.** The schemas were
   published and never used as schemas, and one half of that failed silently: a `true`/`false`
   argument given the *string* `"false"` is truthy in Python, so `subroutine_list` with

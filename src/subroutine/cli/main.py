@@ -2537,20 +2537,58 @@ def _refuse_absent_database (
 	)
 
 
-def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> str:
-	"""Return the advice to print beside "there is no database", given where the URL came from.
+def _instances_reached_from_here (settings: subroutine.config.Settings) -> tuple[str, ...]:
+	"""Return the names of the connections that are somebody else's instance, if any.
 
-	**Two different faults wear the same message.** Somebody who has never set an instance up
+	**A refusal is the wrong place to raise from**, so a configuration this cannot read is
+	reported as no connections at all and the caller falls back to the advice it gave before
+	this existed. Losing one sentence beats replacing a clear message with a traceback.
+	"""
+
+	try:
+		found = subroutine.connections.roster(settings)
+
+	except subroutine.errors.SubroutineError:
+		return ()
+
+	return tuple(
+		connection.name for connection in found if not connection.is_local
+	)
+
+
+def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> str:
+	"""Return the advice to print beside "there is no database", given what this machine has.
+
+	**Three different faults wear the same message.** Somebody who has never set an instance up
 	needs ``init``. Somebody who set one up in PostgreSQL, whose service is looking at a SQLite
 	path, needs to know ``database_url`` is not configured — telling *them* to run ``init``
-	sends them back to the command that already worked.
+	sends them back to the command that already worked. And somebody whose work is on a served
+	instance needs to be told that this command is not about that instance at all: ``init``
+	would build a second, empty one beside a connection that works, which is the outcome `#264`
+	and `#267` exist to prevent, arriving by a different door (`#328`).
 
-	The distinguishing fact is where the setting came from, and ``setting_sources`` already
-	knows: a default means nobody chose this database, anything else means somebody did.
+	The first is distinguished by where the setting came from, and ``setting_sources`` already
+	knows: a default means nobody chose this database, anything else means somebody did. The
+	third is distinguished by whether any connection reaches somewhere else — which was the one
+	fact this never consulted, though it sat one module away.
+
+	**Only the default branch is widened.** Naming a ``database_url`` states an intention to
+	keep an instance here, so a connection beside it changes nothing about that fault.
 	"""
 
 	if subroutine.config.setting_sources(settings).get("database_url") != "default":
 		return "Run 'subroutine init' first."
+
+	elsewhere = _instances_reached_from_here(settings)
+
+	if elsewhere:
+		# Not a prose list: `Roster.alternatives` joins with commas for the same reason, and a
+		# second way of writing a series is a second thing to keep consistent.
+		return (
+			f"This machine has no instance of its own; it reaches {', '.join(elsewhere)}. "
+			f"This command acts on a local database, so run it where that instance lives — "
+			f"'subroutine init' would set up a second, empty one here."
+		)
 
 	return (
 		"Nothing has configured 'database_url', so this is the default. Run 'subroutine init' "

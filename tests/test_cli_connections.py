@@ -2254,3 +2254,97 @@ def test_upgrade_without_check_reaches_no_network (
 	run("init", "--username", "si", "--workspace", "Personal")
 
 	assert "Nothing to do" in run("db", "upgrade").output
+
+
+def test_a_database_command_on_a_connection_only_machine_is_not_told_to_run_init (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#328`: the advice `#264` and `#267` exist to prevent, arriving by a different door.
+
+	A machine whose work is on a served instance holds no database of its own — the ordinary
+	arrangement, and the one `docs/connecting.md` now documents. Told to run `init`, somebody
+	follows the advice and ends up with a second, empty instance beside a connection that
+	works, and nothing reports that they have two.
+
+	**The message already knew how to tell two faults apart and consulted only one fact.** It
+	asked where `database_url` came from and never asked whether any connection was configured,
+	though the roster sits one module away.
+	"""
+
+	declare(home, '\ndefault_connection = "work"\n\n[connections.work]\nurl = "http://127.0.0.1:1"\n')
+
+	refused = run("db", "backup", expect=1).output
+
+	assert "no instance of its own" in refused
+	assert "it reaches work" in refused, "name the instance this machine does have"
+	assert "run it where that instance lives" in refused
+
+	assert "set an instance up here" not in refused, "the advice `#328` is about"
+	assert "would set up a second, empty one here" in refused, (
+		"say why the obvious remedy is wrong, rather than only withholding it"
+	)
+
+
+def test_a_machine_with_no_connections_is_still_told_to_run_init (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The case `#328` must not take away: nothing configured at all, so `init` is right.
+
+	This is the half that makes the other half safe. A fix that stopped recommending `init`
+	everywhere would leave somebody setting up their first instance with no way in — and it
+	would look like an improvement, because the message it replaced was the wrong one *in the
+	other situation*.
+	"""
+
+	refused = run("db", "backup", expect=1).output
+
+	assert "Run 'subroutine init' to set an instance up here" in refused
+	assert "no instance of its own" not in refused
+
+
+def test_naming_a_database_that_is_absent_is_unchanged_by_having_a_connection (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#328` widens the default branch only, and this is what says so.
+
+	Writing `database_url` states an intention to keep an instance here, so a connection beside
+	it says nothing about that fault: the database somebody named is missing, and that is what
+	they need to hear. Widening both branches would have been the easy over-reach.
+	"""
+
+	declare(
+		home,
+		'\ndatabase_url = "sqlite:////nonexistent/chosen.db"\n'
+		'\n[connections.work]\nurl = "http://127.0.0.1:1"\n',
+	)
+
+	refused = run("db", "backup", expect=1).output
+
+	assert "Run 'subroutine init' first." in refused
+	assert "no instance of its own" not in refused
+
+
+def test_a_configuration_the_roster_cannot_read_still_refuses_rather_than_crashing (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""A refusal is the wrong place to raise from, so the new sentence fails soft.
+
+	Reading the connections is new work done *inside* an error path. If the roster refuses —
+	a malformed `[connections.x]` table is an ordinary mistake — the person gets the advice
+	they got before this existed, rather than a traceback in place of a clear message.
+	"""
+
+	declare(home, '\n[connections.work]\nurl = 17\n')
+
+	result = run("db", "backup", expect=1)
+
+	# **Named directly rather than inferred from the output.** `CliRunner` captures what a
+	# command raised instead of letting Typer render it, so a crash leaves `output` empty —
+	# which every content assertion below would also catch, but as "the sentence is missing"
+	# rather than as "it blew up". Falsified both ways by removing the guard.
+	assert result.exception is None or isinstance(result.exception, SystemExit), (
+		f"a refusal, not a crash: {result.exception!r}"
+	)
+
+	assert "There is no database at" in result.output
+	assert "Run 'subroutine init' to set an instance up here" in result.output
