@@ -79,17 +79,34 @@ class Client:
 		session_factory: sqlalchemy.orm.sessionmaker[sqlalchemy.orm.Session] | None = None,
 		token: str | None = None,
 		token_source: str | None = None,
+		principal: typing.Callable[
+			[sqlalchemy.orm.Session], subroutine.domain.authentication.Principal
+		]
+		| None = None,
 	) -> None:
 		"""Open the database this installation owns.
 
 		``session_factory`` is for tests, which have an engine of their own and a transaction
-		they intend to roll back. Nothing else passes it, and when it is passed the engine is
-		not this object's to dispose.
+		they intend to roll back, and for the MCP endpoint, which hands over the application's
+		own factory so no second engine is opened. When it is passed the engine is not this
+		object's to dispose.
+
+		``principal`` says who this client acts as, *instead of* resolving it from the
+		environment — the served MCP endpoint (`#516`), which has already authenticated a
+		bearer token and must not repeat §12.1a's local reasoning about it.
+
+		**A callable rather than a ready-made principal, and that is not a style choice.** A
+		:class:`Principal` carries ORM objects, so one built in the caller's session is
+		detached the moment anything on it lazy-loads in ours. ``api/inprocess.acting_as``
+		takes the same shape for the same reason and its docstring records what the other
+		arrangement cost: a ``PATCH`` that answered ``200`` with the new title while the write
+		was silently discarded.
 		"""
 
 		self.connection = connection
 		self.settings = settings
 		self._token = token
+		self._resolve_principal = principal
 		# Where the credential came from, so a refusal can name the thing the operator
 		# actually has to change (`#175`). Without it the message said "SUBROUTINE_TOKEN was
 		# set" about a token read from credentials.toml, and told them to unset a variable
@@ -1802,7 +1819,20 @@ class Client:
 	def _principal (
 		self, session: sqlalchemy.orm.Session
 	) -> subroutine.domain.authentication.Principal:
-		"""Return who this process is acting as here."""
+		"""Return who this process is acting as here.
+
+		**The override is checked first and never falls through**, which is the whole of why
+		it exists as a separate parameter rather than as a token this class would resolve.
+		:func:`subroutine.domain.local.principal` answers §12.1a: with no token it identifies
+		the sole account, or the configured one, because on a personal machine the filesystem
+		permission *is* the authentication. On a served instance that reasoning is exactly
+		wrong — an empty credential there must be a refusal, not the owner of the database —
+		and a caller passing an empty token would have got the second behaviour while looking
+		like it asked for the first. So the two paths cannot reach each other.
+		"""
+
+		if self._resolve_principal is not None:
+			return self._resolve_principal(session)
 
 		return subroutine.domain.local.principal(
 			session,

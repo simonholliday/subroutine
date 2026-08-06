@@ -20,6 +20,7 @@ one day bound different instances, and neither could tell. The fallback is now
 
 import typing
 
+import subroutine.clients.base
 import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
@@ -63,18 +64,45 @@ def build (
 	chosen = roster.require(wanted)
 	client = subroutine.clients.opening.for_connection(chosen, roster, resolved)
 
+	return over(
+		client,
+		label=chosen.label,
+		workspace=workspace,
+		elsewhere=tuple(name for name in roster.names if name != chosen.name),
+	)
+
+
+def over (
+	client: subroutine.clients.base.Client,
+	*,
+	label: str,
+	workspace: str | None = None,
+	elsewhere: typing.Sequence[str] = (),
+) -> subroutine.mcp.protocol.Server:
+	"""Return a server over a client somebody else opened.
+
+	**The seam `#516` needed and did not have to invent.** The tools are written against
+	:class:`subroutine.clients.base.Client` and do not know a database from a socket, so the
+	only thing standing between "an MCP server on this machine" and "an MCP server this
+	instance serves" was that :func:`build` resolved the client itself. It no longer does.
+
+	``label`` is what the instructions call the thing being written to. Over stdio that is the
+	caller's own connection name; on a served endpoint it is the instance's, because the
+	caller's alias for it is private and this side has never heard it (`#330`).
+	"""
+
 	return subroutine.mcp.protocol.Server(
 		subroutine.mcp.tools.catalogue(client, workspace=workspace),
 		name="subroutine",
 		version=subroutine.__version__,
-		instructions=_instructions(chosen, roster, workspace),
+		instructions=_instructions(label, elsewhere, workspace),
 		resources=subroutine.mcp.tools.references(client, workspace=workspace),
 	)
 
 
 def _instructions (
-	connection: subroutine.connections.Connection,
-	roster: subroutine.connections.Roster,
+	label: str,
+	elsewhere: typing.Sequence[str] = (),
 	workspace: str | None = None,
 ) -> str:
 	"""Return what a client is told about this server before it calls anything.
@@ -101,7 +129,6 @@ def _instructions (
 		else f"Work goes to the '{workspace}' workspace unless a call says otherwise. "
 	)
 
-	elsewhere = tuple(name for name in roster.names if name != connection.name)
 	others = (
 		""
 		if not elsewhere
@@ -149,7 +176,7 @@ def _instructions (
 	# different one: a client reaching this over HTTP may have no shell at all.
 	return (
 		f"Shared project management for people and agents, on connection "
-		f"'{connection.label}'. You are a principal here rather than a tool being driven: what "
+		f"'{label}'. You are a principal here rather than a tool being driven: what "
 		f"you write is attributed to you and outlives your context. {where}{others}"
 		f"If a 'subroutine' skill is available, read it before your first call — it carries "
 		f"the conventions these tool descriptions do not. "

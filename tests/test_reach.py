@@ -174,6 +174,14 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"A liveness probe for whatever is in front of this. Not a capability anybody is "
 		"being denied, and §10.4's `subroutine doctor` is the question a person asks.",
 	),
+	("POST", "/mcp"): (
+		"protocol",
+		"The MCP transport itself (`#516`). It carries the tools a client already reaches "
+		"rather than offering anything beside them, so a `Client` method here would be a "
+		"method for speaking a protocol rather than for doing a thing — and it would reach "
+		"the same services the client is already sitting on. `#539`'s proxy will POST to it, "
+		"and a transport adapter is not a capability either.",
+	),
 	("GET", "/readyz"): (
 		"protocol",
 		"The same, plus the schema check §12.4a wants before a client trusts an instance. "

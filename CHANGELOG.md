@@ -12,6 +12,23 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **An instance serves MCP itself, at `POST /mcp`.** An agent can now reach it with a URL and a
+  token and nothing installed — no Python, no package, no connection file. That is what a Claude
+  Code plugin needs to point at a Subroutine instance somebody else runs, which is the case this
+  was built for: you are told a URL and given a token, and you get to work.
+
+  Authenticate with the token you already issue — `Authorization: Bearer sr_…`, the same
+  credential the HTTP API takes, narrowed by the same scopes and the same workspace pin. Add
+  `?workspace=` when the instance has more than one and you want a default.
+
+  The tools, the resources and the refusals are the ones `subroutine mcp` has always served;
+  what is new is that they no longer require the caller to be running the program. `GET` on the
+  endpoint answers `405`: this server has nothing to push, so there is no event stream to open.
+
 ## 0.4.0 — 2026-08-06
 
 > **This release changes the database schema**, to `c858f2942244`.

@@ -33,6 +33,7 @@ Rails application, you have already done this.
 - [Adding the people](#adding-the-people)
 - [Giving an agent a token](#giving-an-agent-a-token)
 - [Reaching it from your own machine](#reaching-it-from-your-own-machine)
+- [Reaching it from an agent, with nothing installed](#reaching-it-from-an-agent-with-nothing-installed)
 - [Backups](#backups)
 - [Credentials](#credentials)
 - [Upgrading](#upgrading)
@@ -878,6 +879,55 @@ output, `read_only = true` to refuse writes to it from this machine, `token_env`
 `secret-tool` or a password manager rather than from a file, `timeout_seconds`, and
 `enabled = false` to keep a connection configured and switched off. Anything else in that table
 is refused by name rather than ignored.
+
+## Reaching it from an agent, with nothing installed
+
+Everything above assumes the person has Subroutine on their machine. **An agent does not need
+it.** The server speaks MCP itself, at `POST /mcp`, so a coding agent reaches this instance with
+a URL and a token and nothing else — no Python, no package, no `config.toml`.
+
+This is the case worth designing for: somebody works with you for a month, you send them a URL
+and a token, and their agent files work against your instance the same afternoon.
+
+Issue them a credential exactly as above — `subroutine agent create`, or `token create
+--service-account` — and give them two things:
+
+```
+URL:   https://subroutine.example.com/mcp
+Token: sr_…
+```
+
+In Claude Code that is one command:
+
+```bash
+claude mcp add --transport http subroutine https://subroutine.example.com/mcp \
+  --header "Authorization: Bearer sr_…"
+```
+
+**The credential is the boundary, and it is the same one everywhere.** The scopes, the project
+scope and the workspace pin apply here exactly as they do to `/v1` and to the command line, so
+an agent given a read-only token over MCP is read-only over MCP. Rate limiting applies too, per
+token.
+
+**Add `?workspace=` if this instance has more than one** and you want the agent's work to land
+in a particular one by default:
+
+```
+https://subroutine.example.com/mcp?workspace=projects
+```
+
+Without it, an agent on a multi-workspace instance has its reads refused as ambiguous, and the
+refusal names the workspaces it could have meant. It is a default rather than a limit — a call
+may still name another workspace, and a token pinned to one is what actually narrows access.
+
+**The endpoint needs the instance to be reachable from wherever the agent runs.** Claude Code
+connects from the user's own machine, so a LAN address or a VPN-only host is fine. The Claude
+desktop and web clients connect from Anthropic's servers instead, which means a publicly
+reachable address — see [A reverse proxy](#a-reverse-proxy).
+
+`GET` on the endpoint answers `405`, which is correct rather than a fault: this server has
+nothing to send that a client did not ask for, so there is no event stream to hold open. A
+client that tries carries on without one.
 
 ## Backups
 

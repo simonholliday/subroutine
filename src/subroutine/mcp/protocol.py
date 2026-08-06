@@ -412,6 +412,34 @@ def _content (text: str, *, failed: bool = False) -> dict[str, typing.Any]:
 	return {"content": [{"type": "text", "text": text}], "isError": failed}
 
 
+def answer (server: Server, raw: str | bytes) -> dict[str, typing.Any] | None:
+	"""Parse one message and answer it, or return ``None`` when it deserves no answer.
+
+	**Everything between "bytes arrived" and "here is the reply" lives here, so that a
+	transport is only a way of moving them.** It was inlined in :func:`serve` until `#516`
+	gave this server a second transport, and the two would then have decided separately what
+	a malformed message deserves — which is `#530` exactly: the defect already open against
+	this file is that the transports disagree about a message they cannot dispatch.
+
+	A parse failure and a non-object are answered against a ``null`` id, because there is no
+	id to answer against. JSON-RPC asks for that, and it is at least visible in a client's log.
+	"""
+
+	try:
+		message = json.loads(raw)
+
+	except (json.JSONDecodeError, UnicodeDecodeError):
+		return _failure(None, PARSE_ERROR, "That was not JSON.")
+
+	if not isinstance(message, dict):
+		# **Including a list**, which is a JSON-RPC batch. Batching was removed from MCP in
+		# `2025-06-18` — the revision this server speaks — and `2026-07-28` says the body of a
+		# POST is a single request or notification. So this is not a gap; it is the rule.
+		return _failure(None, INVALID_REQUEST, "A message must be an object.")
+
+	return server.handle(message)
+
+
 def serve (
 	server: Server,
 	incoming: typing.TextIO,
@@ -433,25 +461,10 @@ def serve (
 		if not stripped:
 			continue
 
-		try:
-			message = json.loads(stripped)
+		reply = answer(server, stripped)
 
-		except json.JSONDecodeError:
-			# There is no id to answer against, so this is reported as a null-id error —
-			# which is what JSON-RPC asks for and is at least visible in a client's log.
-			_write(outgoing, _failure(None, PARSE_ERROR, "That was not JSON."))
-
-			continue
-
-		if not isinstance(message, dict):
-			_write(outgoing, _failure(None, INVALID_REQUEST, "A message must be an object."))
-
-			continue
-
-		answer = server.handle(message)
-
-		if answer is not None:
-			_write(outgoing, answer)
+		if reply is not None:
+			_write(outgoing, reply)
 
 
 def _write (outgoing: typing.TextIO, message: dict[str, typing.Any]) -> None:

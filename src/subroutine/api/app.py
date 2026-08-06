@@ -25,6 +25,7 @@ import subroutine.api.events
 import subroutine.api.health
 import subroutine.api.identity
 import subroutine.api.limits
+import subroutine.api.mcp
 import subroutine.api.meta
 import subroutine.api.middleware
 import subroutine.api.problems
@@ -58,6 +59,10 @@ part of the public contract and are listed in `docs/errors.md`.
 #: same space, and :func:`subroutine.api.routing.check` reads this list to enforce it.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
+	# **Its own protocol, so its own path** — `/mcp` rather than `/v1/mcp` (`#516`). It shares
+	# a prefix with nothing and is a literal, so it can sit anywhere `routing.check` allows;
+	# beside the other root-level routes is where a reader will look for it.
+	("", subroutine.api.mcp.router),
 	("", subroutine.api.identity.router),
 	("", subroutine.api.workspaces.router),
 	("", subroutine.api.users.router),
