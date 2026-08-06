@@ -153,7 +153,7 @@ class Client:
 			building.create_app(settings=self.settings, session_factory=self._sessions),
 			self._principal,
 			method=method.upper(),
-			path=path,
+			path=subroutine.clients.base.require_a_route(path),
 			body=body,
 			query=query,
 		)

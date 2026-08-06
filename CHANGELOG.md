@@ -202,6 +202,28 @@ upgrade involves.
   in force rather than a refusal. A key *neither* kind has is still refused by name, because a
   typo that reads as an empty list is indistinguishable from having nothing to do.
 
+### Security
+
+- **The three routes an agent's raw API call cannot reach are now genuinely unreachable.**
+  Creating a workspace, renaming one and moving a project are kept off `subroutine_call_api`
+  because they are consequential, cannot be undone, and the command line asks first. The check
+  matched the spelling of a path rather than the route it named, so `POST /v1/workspaces?x=1`,
+  `/v1/../v1/workspaces` and `/v1/%77orkspaces` all went through and created a workspace.
+
+  It now matches the same path templates the application registers, using the same matcher the
+  router check uses, against every form the request could arrive in. A denied entry that names
+  no real route fails the build, so renaming a route cannot quietly disarm it.
+
+  **This was never a way to exceed a credential**: the permission was still required, and
+  anybody who can run the CLI could always do all three. What was defeated is the promise that
+  a person is asked first. Found by review, not reported in the wild.
+
+- **A raw API call refuses anything that is not a path on the instance it is aimed at.** Given
+  a whole URL, the underlying HTTP library treats it as a replacement rather than a path — and
+  the connection's token travels with it. Nothing could reach that today, because the agent
+  tools already required a leading `/`; the check now lives with the credential it protects
+  rather than a layer above it.
+
 ### Changed
 
 - **`subroutine upgrade` is now `subroutine db upgrade`, and the old spelling is gone.** If you

@@ -97,7 +97,12 @@ class Client:
 		if method.upper() not in subroutine.clients.base.READING_VERBS:
 			self._refuse_if_read_only()
 
-		answer = self._call(method.upper(), path, params=query, json=body)
+		answer = self._call(
+			method.upper(),
+			subroutine.clients.base.require_a_route(path),
+			params=query,
+			json=body,
+		)
 
 		return subroutine.clients.base.Answered(answer.status_code, answer.text)
 

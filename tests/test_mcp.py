@@ -25,6 +25,8 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.app
+import subroutine.api.routing
 import subroutine.cli.main
 import subroutine.clients.http
 import subroutine.clients.local
@@ -2821,6 +2823,48 @@ def test_a_refusal_reads_as_a_sentence_somebody_could_follow (
 		assert failed, f"{method} {path} was allowed through"
 		assert "''" not in answered, f"nested quotes in the refusal for {method} {path}"
 
+#: Every way `#527` found of spelling a denied route so the old guard missed it, plus the ones
+#: that pass looking for the fourth. Each created or moved something when it was measured.
+RESPELT: tuple[tuple[str, str], ...] = (
+	("POST", "/v1/workspaces?x=1"),
+	("POST", "/v1/workspaces/"),
+	("POST", "/v1/../v1/workspaces"),
+	("POST", "/v1/./workspaces"),
+	("POST", "/v1/%77orkspaces"),
+	("POST", "/v1/%2e%2e/v1/workspaces"),
+	("POST", "//v1/workspaces"),
+	("POST", "/v1/workspaces#x"),
+	("PATCH", "/v1/workspaces/personal?x=1"),
+	("PATCH", "/v1/workspaces/personal/?x=1"),
+	("POST", "/v1/projects/a/move?x=1"),
+	("POST", "/v1/projects/a/move/?x=1"),
+	("POST", "/v1/projects/a/%6dove"),
+)
+
+
+@pytest.mark.parametrize(("method", "path"), RESPELT, ids=[p for _m, p in RESPELT])
+def test_a_denied_route_is_refused_however_it_is_spelled (
+	bound: subroutine.mcp.protocol.Server, method: str, path: str
+) -> None:
+	"""`#528`. The old guard matched the caller's raw string with `$`-anchored regexes.
+
+	Everything downstream normalises, so the string it inspected was not the path the router
+	matched — and three of these created a workspace while a fourth moved a project. A query
+	string fell outside the anchor; httpx resolved `..` after the check; the server decoded `%77`
+	after it. The one entry that held did so because `[^/]+` happens to swallow `?x=1`, which is
+	luck rather than design.
+
+	**Not privilege escalation**, and this test is not claiming it was: the credential still
+	needed the permission. What was defeated is decision `#484`'s stated property, that three
+	consequential and un-undoable acts are reachable only where a person is asked first.
+	"""
+
+	answered, failed = _called(bound, "subroutine_call_api", method=method, path=path)
+
+	assert failed, f"{method} {path} reached the application"
+	assert "deliberately not reachable" in answered, (
+		f"{method} {path} was refused for some other reason: {answered}"
+	)
 	# And the entries themselves, so a new one cannot reintroduce it before anybody renders it.
 	groups = {
 		group.name: group for group in subroutine.cli.main.app.registered_groups if group.name

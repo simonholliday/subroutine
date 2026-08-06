@@ -751,6 +751,12 @@ def test_every_denied_route_is_one_that_exists () -> None:
 
 	Imported rather than restated, so the surface and this guard cannot come to disagree about
 	which routes are refused.
+
+	**An equality since `#528`, where it used to be a regex match against a route with its
+	parameters substituted.** The entries are now the path templates the application registers,
+	so "does this entry name a real route" is the same question the router answers rather than a
+	second one asked with a pattern — which is what let three respellings of a denied path walk
+	past the surface this backs up.
 	"""
 
 	mounted = {
@@ -759,18 +765,12 @@ def test_every_denied_route_is_one_that_exists () -> None:
 		for method in methods
 	}
 
-	for verb, pattern, instead in subroutine.mcp.tools.DENIED:
-		matched = [
-			path for method, path in mounted
-			if method == verb and re.match(pattern, path.replace("{id_or_slug}", "x")
-				.replace("{id_or_key}", "x"))
-		]
-
-		assert matched, (
-			f"{verb} {pattern} is refused by subroutine_call_api and matches no mounted route, "
-			f"so it guards nothing"
+	for verb, template, instead in subroutine.mcp.tools.DENIED:
+		assert (verb, template) in mounted, (
+			f"{verb} {template} is refused by subroutine_call_api and is not a route this "
+			f"application registers, so it guards nothing"
 		)
-		assert instead, f"{verb} {pattern} refuses without naming what to do instead"
+		assert instead, f"{verb} {template} refuses without naming what to do instead"
 
 
 # --- Fields, not only methods (`#427`) --------------------------------------------------

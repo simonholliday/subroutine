@@ -18,11 +18,12 @@ project can be keyed ``SEARCH``; that list lives in :mod:`subroutine.addressing`
 knows nothing about HTTP because the service layer enforcing it runs for the CLI too.
 """
 
-import re
 import typing
 
 import fastapi
 import fastapi.routing
+
+import subroutine.addressing
 
 #: A router as it is about to be included: the prefix it will be mounted under, and the
 #: router itself. A router's *own* ``prefix=`` is already part of each route's path, but
@@ -78,7 +79,6 @@ Declaration = tuple[str, frozenset[str]]
 #: The same, with the route object itself — for a caller that has to ask it something.
 Mount = tuple[str, frozenset[str], typing.Any]
 
-_PARAMETER = re.compile(r"\{([^{}:]+)(?::([^{}]+))?\}")
 
 
 def mounted (routers: typing.Sequence[Mounting]) -> list[Mount]:
@@ -138,7 +138,7 @@ def shadowed (routes: typing.Sequence[Declaration]) -> list[str]:
 		for earlier_path, earlier_methods in routes[:index]:
 			collisions = methods & earlier_methods
 
-			if not collisions or not _matches(earlier_path, path):
+			if not collisions or not subroutine.addressing.matches(earlier_path, path):
 				continue
 
 			verbs = ", ".join(sorted(collisions))
@@ -170,27 +170,3 @@ def check (routers: typing.Sequence[Mounting]) -> None:
 		f"  {listed}\n"
 		f"Register literal paths before parameterised ones."
 	)
-
-
-def _matches (template: str, path: str) -> bool:
-	"""Report whether a path template would match a fixed path.
-
-	The conversion is deliberately ours rather than the framework's compiled matcher: the
-	matcher belongs to an included router that composes its paths at request time, and a
-	check that has to open that up would break on an upgrade without saying so. The
-	behaviour it stands in for is small — a ``{name}`` matches one segment, a ``{name:path}``
-	matches the rest — and ``tests/test_api_routing.py`` asserts the two agree by putting
-	real requests through a real application.
-	"""
-
-	pattern: list[str] = []
-	position = 0
-
-	for parameter in _PARAMETER.finditer(template):
-		pattern.append(re.escape(template[position : parameter.start()]))
-		pattern.append(".+" if parameter.group(2) == "path" else "[^/]+")
-		position = parameter.end()
-
-	pattern.append(re.escape(template[position:]))
-
-	return re.fullmatch("".join(pattern), path) is not None

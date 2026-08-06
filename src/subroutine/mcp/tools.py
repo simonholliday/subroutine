@@ -25,9 +25,11 @@ nobody asked for.
 import dataclasses
 import datetime
 import json
-import re
+import posixpath
 import typing
+import urllib.parse
 
+import subroutine.addressing
 import subroutine.clients.base
 import subroutine.db.types
 import subroutine.directory
@@ -119,10 +121,21 @@ ADDS = {"destructiveHint": False}
 #: "subroutine init, or 'workspace create'" — and the refusal wraps it in quotes, so it rendered
 #: as ``Run 'subroutine init, or 'workspace create'' instead``. Prose in the data reads as a typo
 #: in the product's own voice, on the one message whose job is handing somebody something to run.
+#: **Route templates, not regexes** (`#528`). These were `$`-anchored patterns matched against
+#: the caller's raw path string, and three ordinary respellings walked through all of them —
+#: `?x=1` fell outside the anchor, `/v1/../v1/workspaces` was resolved by httpx after the check,
+#: and `%77` was decoded by the server after it. Each created a workspace. The one entry that
+#: held did so by accident, because `[^/]+` happens to swallow a query string.
+#:
+#: A template is the same thing the application registers, matched by the same function
+#: `routing.check` uses — which `tests/test_api_routing.py` holds to the real framework by
+#: putting real requests through a real application. And because it is a template rather than a
+#: pattern, it can be *checked against the routes that exist*, so renaming a route cannot
+#: silently disarm the entry that names it.
 DENIED: tuple[tuple[str, str, str], ...] = (
-	("POST", r"/v1/workspaces/?$", "subroutine workspace create"),
-	("PATCH", r"/v1/workspaces/[^/]+/?$", "subroutine workspace rename"),
-	("POST", r"/v1/projects/[^/]+/move/?$", "subroutine project move"),
+	("POST", "/v1/workspaces", "subroutine workspace create"),
+	("PATCH", "/v1/workspaces/{id_or_slug}", "subroutine workspace rename"),
+	("POST", "/v1/projects/{id_or_key}/move", "subroutine project move"),
 )
 
 #: How much of a response is worth returning. **A refusal rather than a truncation**, because a
@@ -800,16 +813,59 @@ def _called_directly (
 	return f"{answer.status} {answer.text}" if answer.text else str(answer.status)
 
 
+def _readings (path: str) -> set[str]:
+	"""Return every path this request could arrive at the router as — `#528`.
+
+	**More than one, because the stack normalises in more than one place and not in one order.**
+	httpx resolves dot segments when it merges a path against a base URL, *before* anything is
+	sent; the server percent-decodes, *after*. So `/v1/../v1/x` is resolved and then decoded,
+	while `/v1/%2e%2e/v1/x` is decoded and then not resolved — and a check that picked one order
+	would be blind to the other.
+
+	So the readings are generated and the caller refuses if **any** of them names a denied route.
+	Over-refusing is the safe direction here: the cost is an agent being told to use the command
+	line for something it could have done anyway, and the cost the other way is the thing this
+	exists to prevent happening without anybody being asked.
+	"""
+
+	# The query and the fragment are not part of what the router matches, and leaving them on
+	# is what let `?x=1` walk past an anchored pattern.
+	bare = path.split("#", 1)[0].split("?", 1)[0]
+	found = {bare}
+
+	for candidate in (bare, urllib.parse.unquote(bare)):
+		# `normpath` resolves `.` and `..` and collapses repeated slashes. It also strips a
+		# trailing slash, which the router treats as the same route anyway.
+		#
+		# **Except a leading `//`, which POSIX says to keep and `normpath` therefore keeps.**
+		# `//v1/workspaces` is a 404 from Starlette and *is* the route once anything in front
+		# collapses it — nginx does, and this instance is served through a proxy. So the leading
+		# slashes are collapsed by hand rather than left to a function that is documented not to.
+		resolved = posixpath.normpath("/" + candidate.lstrip("/"))
+		found.update({candidate, resolved, urllib.parse.unquote(resolved)})
+
+	return {reading for reading in found if reading.startswith("/")}
+
+
 def _refuse_a_denied_route (method: str, path: str) -> None:
 	"""Refuse the three routes decision `#484` keeps off this surface.
 
 	**Named alternatives, never a dead end.** A refusal that only says "not here" strands an
 	agent mid-task; these three exist at a terminal, and saying which command is the difference
 	between a wall and a hand-off.
+
+	Matched with ``routing._matches``, which is what decides whether a path template covers a
+	path everywhere else in this application — so there is one answer to "does this route match"
+	rather than a second one written here, which is what `#528` was.
 	"""
 
-	for verb, pattern, instead in DENIED:
-		if method == verb and re.match(pattern, path):
+	readings = _readings(path)
+
+	for verb, template, instead in DENIED:
+		if method != verb:
+			continue
+
+		if any(subroutine.addressing.matches(template, reading) for reading in readings):
 			raise ValueError(
 				f"{method} {path} is deliberately not reachable from here: it is consequential, "
 				f"it cannot be undone, and the command line asks before doing it. Run "

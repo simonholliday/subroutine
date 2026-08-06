@@ -11,6 +11,8 @@ runs for the CLI as well, and a domain module reaching into the API package to f
 what a valid key is would have the dependency exactly the wrong way round.
 """
 
+import re
+
 #: Words a literal route already claims in the task and project path spaces. Listed here
 #: rather than derived from the routing table, because a key is refused at creation —
 #: possibly by a CLI with no application built — and because the list is a promise about
@@ -47,3 +49,40 @@ def is_reserved_word (value: str) -> bool:
 	"""
 
 	return value.strip().lower() in RESERVED_PATH_WORDS
+
+
+#: One ``{name}`` or ``{name:converter}`` in a path template.
+_PARAMETER = re.compile(r"\{([^{}:]+)(?::([^{}]+))?\}")
+
+
+def matches (template: str, path: str) -> bool:
+	"""Report whether a path template would match a fixed path.
+
+	The conversion is deliberately ours rather than the framework's compiled matcher: the
+	matcher belongs to an included router that composes its paths at request time, and a check
+	that has to open that up would break on an upgrade without saying so. The behaviour it
+	stands in for is small — a ``{name}`` matches one segment, a ``{name:path}`` matches the
+	rest — and ``tests/test_api_routing.py`` asserts the two agree by putting real requests
+	through a real application.
+
+	**Here rather than in ``api/routing``, where it was written** (`#528`). Two readers now: that
+	module's shadowing check, and the MCP deny-list, which has to decide whether a raw path names
+	a route it will not reach. The second is why it moved — ``api/routing`` imports FastAPI, and
+	making the MCP server load a web framework to run a regex is 0.3s spent on nothing for every
+	session against a *remote* instance, which never otherwise builds an application.
+
+	This module says in its own first paragraph that it is free of any HTTP framework, which is
+	the property that makes it the right home rather than merely a possible one.
+	"""
+
+	pattern: list[str] = []
+	position = 0
+
+	for parameter in _PARAMETER.finditer(template):
+		pattern.append(re.escape(template[position : parameter.start()]))
+		pattern.append(".+" if parameter.group(2) == "path" else "[^/]+")
+		position = parameter.end()
+
+	pattern.append(re.escape(template[position:]))
+
+	return re.fullmatch("".join(pattern), path) is not None

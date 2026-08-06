@@ -2303,6 +2303,41 @@ def test_a_read_only_connection_refuses_a_raw_write_too (
 		assert client.call_api(method="GET", path="/v1/tasks").status == 200
 
 
+@pytest.mark.parametrize("transport", ["local", "remote"])
+def test_neither_transport_will_aim_the_credential_at_another_host (
+	pair: Pair, transport: str
+) -> None:
+	"""`#529`. httpx treats an absolute URL as a *replacement* for the base URL, not as a path.
+
+	The client's default headers go with it, and one of them is ``Authorization: Bearer …`` —
+	so a raw call given a whole URL sends this connection's credential to whoever asked for it.
+	Measured before it was fixed, against a real `build_request`.
+
+	It was unreachable at the time, because ``mcp/tools`` refuses a path that does not start with
+	``/`` and was the only caller. **That is the finding rather than the mitigation**: the guard
+	sat a layer above the credential it protects, so the second caller would have inherited a
+	way to leak a token without anybody deciding to grant one.
+
+	``//host/x`` is refused too. httpx merges it against the base URL's host today, so it is
+	currently harmless — and letting it through would be relying on one library's merge rule to
+	stay put, on the one argument that decides where a credential goes.
+	"""
+
+	local, remote = pair.both()
+	client = local if transport == "local" else remote
+
+	for path in ("https://elsewhere.example/collect", "//elsewhere.example/x", "not-a-path"):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.call_api(method="GET", path=path)
+
+		assert "not a route" in str(refused.value), (
+			f"{path!r} was refused for the wrong reason on {transport}: {refused.value}"
+		)
+
+	# And an ordinary path still works, so the rule is "a route" rather than "no raw calls".
+	assert client.call_api(method="GET", path="/v1/tasks").status == 200
+
+
 # --- Listing filters, which nothing could pass until `#501` ------------------------------
 
 
