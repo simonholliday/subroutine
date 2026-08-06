@@ -703,13 +703,26 @@ def register (
 	selected = Selected()
 
 	@contextlib.contextmanager
-	def opened (*, strict: bool = False) -> typing.Iterator[World]:
+	def opened (*, strict: bool = False, merged: bool = True) -> typing.Iterator[World]:
 		"""Yield every reachable connection, with the current context settled.
 
 		One ``identity()`` per connection, fanned out — which is what resolves a workspace
 		slug, prints an address and notices the same instance configured twice. It is one
 		cheap query locally and one request remotely, and everything after it is narrower
 		for having been asked.
+
+		``merged`` says whether this command *combines* what the connections answer. The
+		duplicate-instance guard exists so a merged read does not count one instance twice
+		(`#327`), and it was applied to every command that opened the world — including
+		``whoami``, which reports each connection on its own line and cannot count anything.
+
+		**The rule: the check runs unless the command reports each connection separately or
+		targets exactly one.** ``today`` merges into buckets by design, so it keeps it.
+
+		**Default ``True``, and the default is the point.** A command that combines answers
+		and forgets to say so goes on refusing, which is the outcome nobody has to debug;
+		flipping it is a claim about one command that a test can hold. Getting a double-count
+		guard wrong in the permissive direction is silent, so it fails the other way.
 		"""
 
 		resolved = settings()
@@ -770,7 +783,9 @@ def register (
 				gathered = subroutine.fanout.gather(
 					clients, lambda client: client.identity(), strict=strict
 				)
-				subroutine.fanout.refuse_duplicate_instances(gathered.answers)
+
+				if merged:
+					subroutine.fanout.refuse_duplicate_instances(gathered.answers)
 
 			except subroutine.errors.SubroutineError as error:
 				fail(error)
@@ -1438,7 +1453,9 @@ def register (
 		# code is the same, the presentation rule is not applied.
 		hiding = not deferred and not json_output
 
-		with opened(strict=strict) as world:
+		# Grouped by connection, one heading each, so the same instance under two names is
+		# shown twice rather than counted twice — which is what the file says (`#327`).
+		with opened(strict=strict, merged=False) as world:
 			gathered = _listing(
 				world,
 				limit=limit,
@@ -1906,7 +1923,8 @@ def register (
 		  subroutine show 42 --history
 		"""
 
-		with opened() as world:
+		# One address resolved in one context, so there is nothing to combine (`#327`).
+		with opened(merged=False) as world:
 			located = _locate(
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
@@ -3873,7 +3891,9 @@ def register (
 		that answers here is the one your next command will act under.
 		"""
 
-		with opened(strict=strict) as world:
+		# One line per connection. Refusing this reported an ambiguous configuration through
+		# the one command somebody would run to find out about it (`#327`).
+		with opened(strict=strict, merged=False) as world:
 			gathered = subroutine.fanout.gather(
 				world.clients, lambda client: client.me(), strict=strict
 			)

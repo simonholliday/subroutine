@@ -86,6 +86,17 @@ upgrade involves.
 
 ### Fixed
 
+- **Two connections to one instance no longer stop you reading anything at all.** When two
+  connections turn out to be the same server, a *merged* read would count everything twice, so
+  it is refused. That check ran on every command that opened a connection — including
+  `subroutine whoami`, which prints a line per connection and combines nothing, and
+  `subroutine list`, which groups by connection and would have shown the collision plainly.
+
+  So the one situation where two names for one instance is deliberate — copying between them,
+  and checking the copy while the original is still there — was also the situation where
+  nothing worked. `list`, `show` and `whoami` now answer; `today` merges into one set of buckets
+  by design and still refuses, which is the case the check was written for.
+
 - **A machine whose work is on a server is no longer told to set up a second instance.** The
   `db` commands and `serve` act on a local database, and where there is none they said:
 

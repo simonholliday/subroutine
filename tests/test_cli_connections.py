@@ -2348,3 +2348,63 @@ def test_a_configuration_the_roster_cannot_read_still_refuses_rather_than_crashi
 
 	assert "There is no database at" in result.output
 	assert "Run 'subroutine init' to set an instance up here" in result.output
+
+
+def test_a_listing_is_not_refused_for_a_duplicate_it_reports_separately (
+	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#327`: the guard against double-counting refused reads that count nothing.
+
+	`list` groups by connection with a heading each, so one instance configured under two
+	names is *shown* twice — which is what the file says — rather than counted twice. Refusing
+	it is what made `#288`'s migration verify after cutover instead of before: the one time two
+	connections legitimately name one instance is while you are copying between them.
+	"""
+
+	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
+	subroutine.credentials.store("acme", two.token)
+
+	listed = run("list").output
+
+	assert "work" in listed and "acme" in listed, "both headings, so the two can be compared"
+	assert "same instance" not in listed
+
+
+def test_whoami_answers_on_a_machine_whose_connections_collide (
+	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The sharpest case, because of which command it is.
+
+	`whoami` prints a line per connection and combines nothing, so it cannot double-count. It
+	is also the command somebody runs to work out what their machine is talking to — so
+	refusing it answered "your configuration is ambiguous" by way of the one question that
+	would have shown them the ambiguity.
+	"""
+
+	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
+	subroutine.credentials.store("acme", two.token)
+
+	said = run("whoami").output
+
+	assert "work" in said and "acme" in said
+	assert "same instance" not in said
+
+
+def test_a_merged_agenda_still_refuses_when_two_connections_are_one_instance (
+	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The half `#327` must not take away, stated beside the halves it changes.
+
+	`today` merges across connections into one set of buckets by design (§13.7), so a
+	duplicate genuinely is counted twice there. Keeping this is also what keeps `#337`'s
+	conclusion true: identity belongs in the environment rather than in a connection, because
+	one connection per identity would leave the operator's own agenda refusing.
+	"""
+
+	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
+	subroutine.credentials.store("acme", two.token)
+
+	refused = run("today", expect=1).output
+
+	assert "same instance" in refused
+	assert "work" in refused and "acme" in refused
