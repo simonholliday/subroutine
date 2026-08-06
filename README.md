@@ -233,11 +233,16 @@ Without the plugin, or for another MCP client:
 $ claude mcp add subroutine -- subroutine mcp
 ```
 
-Eleven tools: list, search, show, add, update, comment, done, document, link, project and
-changes. Deliberately eleven and not one per endpoint — a tool's schema is context the agent
-carries for its whole session whether it calls it or not, so the whole surface is about 7 KB of
-JSON, roughly 1,850 tokens, and there is a test that fails if it grows past a budget somebody
-has to raise on purpose.
+**A deliberately small set of tools, not one per endpoint.** A tool's schema is context the
+agent carries for its whole session whether it calls it or not, so the surface is a budget —
+and a test fails when it grows past one somebody has to raise on purpose. They cover the
+everyday work: capture, list, search, read, update, comment, finish, document, link, projects,
+what has changed since you last looked, claiming a task so two agents do not collide, and
+asking which principal you are.
+
+**And one that reaches everything else the credential allows.** `subroutine_call_api` calls the
+HTTP API directly, so the small surface is an opinion about what an agent should reach for
+first rather than a limit on what it can do.
 
 **Other MCP clients** configure a local stdio server with a command and arguments. Cursor,
 Windsurf, Zed, VS Code's Copilot agent mode, Gemini CLI, Codex CLI, Cline, Continue, OpenCode

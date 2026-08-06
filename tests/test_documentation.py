@@ -290,6 +290,63 @@ def test_the_key_scan_reaches_the_pages_it_names () -> None:
 	)
 
 
+#: Prose that counts the tools, which is the one thing about the surface that keeps rotting.
+#:
+#: Words as well as digits, because the README said "Eleven tools" rather than "11".
+_COUNTS_TOOLS = re.compile(
+	r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
+	r"fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+tools\b",
+	re.IGNORECASE,
+)
+
+
+def test_no_published_page_counts_the_tools () -> None:
+	"""`#522`, and `#198` before it, which is the whole argument for a test rather than a note.
+
+	`#198` found the tool count stale in the README, the CHANGELOG and two comments at once, and
+	the response was to stop repeating it: ``tests/test_mcp.py`` holds the figure and this
+	project's own notes say in as many words that it is deliberately not restated. The README
+	kept its copy, and by the time anybody read it again it said eleven of fourteen — omitting
+	``claim``, ``whoami`` and ``call_api``, the last of which is the one a reader deciding
+	whether the surface is enough most needs to know exists.
+
+	**Recording a rule does not inoculate you against it; only a guard does.** That sentence is
+	already written down here about something else, which is exactly why this is a test.
+
+	Deliberately about the *count* rather than the tool names. Naming what the tools do is
+	prose that ages slowly and readably; naming how many is a claim that is false the moment
+	one is added, and false silently.
+
+	**The README alone, and the other pages are excluded on evidence rather than by oversight.**
+	Written over all four first, it reported two findings and both were correct prose:
+	``docs/hosting.md`` says a merged agenda beats keeping things "in two tools", meaning two
+	*products*; and ``CHANGELOG.md`` records a past release serving "nine tools", which was true
+	of that release and is what a changelog is for. A guard that fires on those would be
+	switched off inside a month, which is the argument ``tests/test_references.py`` makes for
+	not being a general dead-link checker. The README is the one page that describes this
+	surface.
+	"""
+
+	wrong = [
+		f"{README.name}: {found.group(0)!r}"
+		for found in _COUNTS_TOOLS.finditer(README.read_text(encoding="utf-8"))
+	]
+
+	assert not wrong, (
+		"a published page states how many MCP tools there are, which is true until the next one "
+		f"is added and then quietly false: {', '.join(wrong)}. Say what they do instead — "
+		"tests/test_mcp.py is where the number lives, because there it can fail."
+	)
+
+
+def test_the_tool_count_scan_would_notice_one () -> None:
+	"""Falsified through the pattern itself, since a regex that matches nothing passes above."""
+
+	assert _COUNTS_TOOLS.search("Eleven tools: list, search, show"), "the spelt-out form"
+	assert _COUNTS_TOOLS.search("all 14 tools are"), "and the digits"
+	assert not _COUNTS_TOOLS.search("the tools are few"), "and nothing about a count"
+
+
 def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
 	"""`#274`. A table of contents that is quietly incomplete is worse than none.
 
