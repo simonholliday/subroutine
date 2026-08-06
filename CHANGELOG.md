@@ -29,6 +29,26 @@ upgrade involves.
   what is new is that they no longer require the caller to be running the program. `GET` on the
   endpoint answers `405`: this server has nothing to push, so there is no event stream to open.
 
+- **A second plugin, `subroutine-remote`, for when the work is on somebody else's server.** Two
+  fields — the address and the token — and nothing to install:
+
+  ```console
+  $ claude plugin install subroutine-remote@subroutine
+  ```
+
+  Install `subroutine` if your work lives on this machine and `subroutine-remote` if it lives on
+  a server; each listing says so and points at the other. Until an address is filled in the
+  remote one sits idle rather than reporting a fault, so it can be installed before anybody has
+  told you where to point it.
+
+  They carry the same skill, and its guidance on missing tools now establishes *which* plugin is
+  installed before offering a remedy — every remedy for one is wasted effort on the other.
+
+### Changed
+
+- **`subroutine` the plugin now says it is the one that runs a program on your machine**, in its
+  own description and in the marketplace listing, because there is now a choice to get wrong.
+
 ## 0.4.0 — 2026-08-06
 
 > **This release changes the database schema**, to `c858f2942244`.

@@ -897,7 +897,18 @@ URL:   https://subroutine.example.com/mcp
 Token: sr_…
 ```
 
-In Claude Code that is one command:
+**The easiest thing to tell them is to install the plugin**, which asks for exactly those two
+things and carries the working practice as well:
+
+```console
+$ claude plugin marketplace add simonholliday/subroutine
+$ claude plugin install subroutine-remote@subroutine
+```
+
+It has no fields for a command or a connection, because it needs neither. Until they paste an
+address in, it sits there configured-but-idle rather than reporting a fault.
+
+Or, without the plugin, one command:
 
 ```bash
 claude mcp add --transport http subroutine https://subroutine.example.com/mcp \
@@ -909,16 +920,20 @@ scope and the workspace pin apply here exactly as they do to `/v1` and to the co
 an agent given a read-only token over MCP is read-only over MCP. Rate limiting applies too, per
 token.
 
-**Add `?workspace=` if this instance has more than one** and you want the agent's work to land
-in a particular one by default:
+**Put `?workspace=` in the address you hand over if this instance has more than one:**
 
 ```
 https://subroutine.example.com/mcp?workspace=projects
 ```
 
-Without it, an agent on a multi-workspace instance has its reads refused as ambiguous, and the
-refusal names the workspaces it could have meant. It is a default rather than a limit — a call
-may still name another workspace, and a token pinned to one is what actually narrows access.
+**This is yours to get right rather than theirs.** Without it, an agent on a multi-workspace
+instance has every read refused as ambiguous — the refusal names the workspaces it could have
+meant, but the person receiving it has no way to know which one you intended, and on the plugin
+path the remedy is a settings field they would have to be told about. You know the answer; put
+it in the address.
+
+It is a default rather than a limit — a call may still name another workspace, and a token
+pinned to one is what actually narrows access.
 
 **The endpoint needs the instance to be reachable from wherever the agent runs.** Claude Code
 connects from the user's own machine, so a LAN address or a VPN-only host is fine. The Claude

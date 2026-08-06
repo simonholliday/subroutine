@@ -72,6 +72,14 @@ CHECKS: tuple[Check, ...] = (
 		step="Validate",
 		command=("claude", "plugin", "validate", "./plugins/subroutine"),
 	),
+	# One entry per plugin rather than a loop, so a failure names which manifest. That this list
+	# covers every plugin that exists is held by `tests/test_plugin.py` rather than by anybody
+	# remembering — a new plugin nobody validates is a manifest a stranger finds broken.
+	Check(
+		job="Plugin manifests",
+		step="Validate",
+		command=("claude", "plugin", "validate", "./plugins/subroutine-remote"),
+	),
 	Check(
 		job="Tests (Python ${{ matrix.python-version }})",
 		step="Tests on SQLite and PostgreSQL",

@@ -1,0 +1,32 @@
+{
+  "name": "subroutine-remote",
+  "version": "0.4.1",
+  "description": "Project management for people and agents, in equal measure. Connects this session to a Subroutine instance somebody else runs \u2014 an address and a token, and nothing to install. Like every Claude Code plugin it runs in the editor and the desktop apps and not on the web; to reach an instance from claude.ai, add it there as a connector instead. Use 'subroutine' instead if your work lives on this machine.",
+  "author": {
+    "name": "Simon Holliday",
+    "email": "simon.holliday@protonmail.com"
+  },
+  "homepage": "https://github.com/simonholliday/subroutine",
+  "keywords": [
+    "tasks",
+    "project-management",
+    "todo",
+    "self-hosted",
+    "planning"
+  ],
+  "userConfig": {
+    "url": {
+      "type": "string",
+      "title": "The instance address",
+      "description": "The address of the Subroutine instance you are working against, ending in /mcp \u2014 for example https://subroutine.example.com/mcp. Whoever runs the instance gives you this. If it holds more than one workspace, the address they give you should name the one your work belongs in: https://subroutine.example.com/mcp?workspace=projects. Leave this empty until you have it: nothing is broken while it is blank, and this session simply has no Subroutine tools. Your editor connects from this machine, so a server on your own network or behind a VPN works as well as a public one.",
+      "default": ""
+    },
+    "token": {
+      "type": "string",
+      "title": "Your token",
+      "description": "The credential you were given for that instance, starting 'sr_'. Paste the token on its own \u2014 not the word 'Bearer' in front of it. It says who you are, so what you file is attributed to you rather than to whoever set the server up, and it decides what you are allowed to do. Stored in your system keychain, never in a settings file. If a call comes back saying the token was rejected, ask for a new one rather than editing this: they expire and they can be revoked.",
+      "sensitive": true,
+      "default": ""
+    }
+  }
+}

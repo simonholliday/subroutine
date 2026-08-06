@@ -202,12 +202,24 @@ installing a plugin and starting its server are separate moments, and only the f
 reports. `/plugin configure subroutine` takes the absolute path when you would rather point at
 a virtualenv than install it again.
 
-It can also be given a connection and a token, both only needed for somebody else's instance —
-**and the connection has to exist before you can name it here**, which today means writing it
-into `config.toml` by hand. That is the case to know about if your work lives on a server and
-this machine is only a client: the plugin is fine, the program is fine, and the step between
-them is a file you have to edit yourself. The token is kept in your system keychain, never in
-a settings file.
+It can also be given a connection and a token, both only needed for reaching somebody else's
+instance from a machine that has Subroutine on it too.
+
+**If your work lives on a server and this machine is only a client, install the other plugin
+instead** — it needs nothing on your machine at all:
+
+```console
+$ claude plugin install subroutine-remote@subroutine
+```
+
+Then paste in the address you were given and your token, and you are working. No Python, no
+package, no `config.toml`. Your editor connects from *this* machine, so an instance on your own
+network or behind a VPN is as reachable as a public one. The token goes to your system keychain,
+never to a settings file.
+
+That is the arrangement to reach for when somebody else runs Subroutine and has given you a way
+in — see [docs/hosting.md](docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) for
+the other end of it, which is what they have to do.
 
 Without the plugin, or for another MCP client:
 

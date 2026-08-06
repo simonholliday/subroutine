@@ -10,7 +10,25 @@
     {
       "name": "subroutine",
       "source": "./plugins/subroutine",
-      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. It starts Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web. Needs Subroutine itself installed separately and on your PATH \u2014 'uv tool install subroutine' or 'pipx install subroutine', then 'subroutine init'.",
+      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. This one starts Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web. Needs Subroutine installed separately and on your PATH \u2014 'uv tool install subroutine' or 'pipx install subroutine', then 'subroutine init'. If your work lives on a server somebody else runs, install 'subroutine-remote' instead.",
+      "author": {
+        "name": "Simon Holliday",
+        "email": "simon.holliday@protonmail.com"
+      },
+      "category": "productivity",
+      "keywords": [
+        "tasks",
+        "project-management",
+        "todo",
+        "self-hosted",
+        "planning"
+      ],
+      "homepage": "https://github.com/simonholliday/subroutine"
+    },
+    {
+      "name": "subroutine-remote",
+      "source": "./plugins/subroutine-remote",
+      "description": "The same shared task list, against a Subroutine instance somebody else runs. Paste the address and the token you were given and you are working \u2014 nothing to install and no configuration file to edit. Your editor connects from this machine, so a server on your own network or behind a VPN works as readily as a public one. Like every Claude Code plugin it runs in the editor and the desktop apps and not on the web; to reach an instance from claude.ai, add it there as a connector instead. Install 'subroutine' if the work lives on this machine.",
       "author": {
         "name": "Simon Holliday",
         "email": "simon.holliday@protonmail.com"

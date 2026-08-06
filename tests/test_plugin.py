@@ -33,6 +33,20 @@ MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
 PLUGIN = ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
 SERVERS = ROOT / "plugins" / "subroutine" / ".mcp.json"
 
+#: The plugin that reaches an instance by address instead of starting one — `#540`.
+REMOTE = ROOT / "plugins" / "subroutine-remote" / ".claude-plugin" / "plugin.json"
+REMOTE_SERVERS = ROOT / "plugins" / "subroutine-remote" / ".mcp.json"
+
+#: Every plugin this repository ships, by the directory it lives in. **Derived from the
+#: filesystem rather than listed**, so a third one is covered by every check below on the day
+#: somebody creates it — which is the failure `#405` is about, one level up from an allow-list.
+PLUGIN_DIRECTORIES = tuple(
+	sorted(path for path in (ROOT / "plugins").iterdir() if (path / ".claude-plugin").is_dir())
+)
+
+#: Their manifests, in the same order.
+MANIFESTS = tuple(path / ".claude-plugin" / "plugin.json" for path in PLUGIN_DIRECTORIES)
+
 
 def _read (path: pathlib.Path) -> dict[str, typing.Any]:
 	"""Return one manifest, as the object it must be."""
@@ -92,32 +106,173 @@ def test_the_plugin_version_matches_the_tag_it_is_released_under () -> None:
 	if tagged.returncode != 0 or not names:
 		pytest.skip("HEAD carries no release tag, so there is nothing yet to agree with")
 
-	shown = subprocess.run(
-		["git", "show", f"{names[0]}:{PLUGIN.relative_to(ROOT).as_posix()}"],
-		capture_output=True, text=True, cwd=ROOT, check=False,
-	)
+	# **Every manifest, not only the first.** Two plugins ship from this repository (`#540`) and
+	# a release tags them together, so one left behind is a plugin nobody can install at the
+	# version the release announces.
+	for manifest in MANIFESTS:
+		shown = subprocess.run(
+			["git", "show", f"{names[0]}:{manifest.relative_to(ROOT).as_posix()}"],
+			capture_output=True, text=True, cwd=ROOT, check=False,
+		)
 
-	if shown.returncode != 0:
-		pytest.skip(f"{names[0]} does not carry a plugin manifest to compare")
+		if shown.returncode != 0:
+			continue
 
-	declared = json.loads(shown.stdout)["version"]
+		declared = json.loads(shown.stdout)["version"]
 
-	assert declared in {name.removeprefix("v") for name in names}
+		assert declared in {name.removeprefix("v") for name in names}, (
+			f"{manifest.relative_to(ROOT)} says {declared} on a commit tagged {names[0]}"
+		)
 
 
-def test_the_marketplace_points_at_the_plugin_that_is_here () -> None:
-	"""A relative source resolves against the marketplace root, not the ``.claude-plugin`` directory."""
+def test_the_marketplace_points_at_every_plugin_that_is_here () -> None:
+	"""A relative source resolves against the marketplace root, not the ``.claude-plugin`` directory.
+
+	**And the listing is compared against the filesystem in both directions.** A plugin present
+	and unlisted cannot be installed by anybody; a listing naming a directory that is not there
+	fails at install time on somebody else's machine. Neither is visible from reading one file.
+	"""
 
 	entries = _read(MARKETPLACE)["plugins"]
 
-	assert len(entries) == 1, entries
+	for entry in entries:
+		source = entry["source"]
 
-	entry = entries[0]
-	source = entry["source"]
+		assert source.startswith("./"), "a relative source must, or it is read as a git reference"
+		assert (ROOT / source).is_dir(), f"{source} does not exist"
+		assert entry["name"] == _read(ROOT / source / ".claude-plugin" / "plugin.json")["name"]
 
-	assert source.startswith("./"), "a relative source must, or it is read as a git reference"
-	assert (ROOT / source).is_dir(), f"{source} does not exist"
-	assert entry["name"] == _read(PLUGIN)["name"]
+	assert {entry["source"] for entry in entries} == {
+		f"./{path.relative_to(ROOT).as_posix()}" for path in PLUGIN_DIRECTORIES
+	}, "the marketplace and the plugins directory disagree about what ships"
+
+
+def test_the_remote_plugin_reaches_a_server_and_installs_nothing () -> None:
+	"""`#540`, and every assertion here is the difference from the local plugin.
+
+	**`type` is what decides whether a URL is read at all.** Claude Code reads an entry with no
+	``type`` as a stdio server and skips one that has a ``url`` without it, reporting a
+	configuration error — so the pair is load-bearing rather than decorative.
+
+	**And it must declare no command.** A plugin that names one would need Subroutine installed,
+	which is the entire thing this plugin exists not to need.
+	"""
+
+	server = _read(REMOTE_SERVERS)["mcpServers"]["tools"]
+
+	assert server["type"] in ("http", "streamable-http")
+	assert "command" not in server, "the whole point is that nothing is installed"
+	assert server["url"] == "${user_config.url}"
+
+	# The credential travels as a header rather than in the environment, because there is no
+	# process here to give an environment to. `Bearer ` is written into the template rather than
+	# asked of the user: a token pasted with the scheme already on it is the commonest way to
+	# get this wrong, and the field's description says to paste the token alone.
+	assert server["headers"]["Authorization"] == "Bearer ${user_config.token}"
+
+
+def test_an_unconfigured_remote_plugin_is_dormant_rather_than_broken () -> None:
+	"""**The measured asymmetry the two-plugin decision rests on** — `#538`.
+
+	Claude Code accepts an ``http`` entry whose ``url`` is empty, shows it as ``Not
+	configured``, and attempts no connection; a stdio entry with an empty ``command`` is
+	refused outright as invalid. So a remote entry can ship inert and wait for somebody to fill
+	it in, which is exactly what a plugin installed before its address is known has to do.
+
+	**The url must therefore be the whole of that field and nothing else.** Appending anything —
+	a path, a query string for the workspace — makes the value non-empty when the field is
+	blank, and the plugin stops being dormant: it becomes a plugin pointed at a malformed
+	address, which reports a connection failure to somebody who has not configured it yet.
+	"""
+
+	declared = _read(REMOTE)["userConfig"]
+
+	assert declared["url"].get("default", "") == "", "an empty default is what makes it dormant"
+	assert declared["url"].get("required") is not True, (
+		"a required field would refuse to leave the plugin unconfigured, which is the state it "
+		"is installed in"
+	)
+
+	template = _read(REMOTE_SERVERS)["mcpServers"]["tools"]["url"]
+
+	assert template == "${user_config.url}", (
+		f"{template!r} is not empty when the field is: the workspace goes in the address the "
+		f"operator hands over, not into this template"
+	)
+
+
+def test_every_plugin_is_validated_by_the_build () -> None:
+	"""A manifest nobody validates is one a stranger finds broken.
+
+	``claude plugin validate`` is the only thing that reads these files as Claude Code will —
+	they are JSON with no import and no type checker, so a mistyped key survives every other
+	check here. `#382` is what that costs: a colon in the skill's frontmatter made it load with
+	no description at all, so it would never have triggered, and 2,391 tests passed over it.
+
+	**Derived from the filesystem rather than from a list**, because the failure this closes is
+	somebody adding a third plugin and validating two. The workflow names each one explicitly so
+	a failure says which manifest; this is what stops that list going stale.
+	"""
+
+	workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+	unvalidated = [
+		path.name
+		for path in PLUGIN_DIRECTORIES
+		if f"claude plugin validate ./{path.relative_to(ROOT).as_posix()}" not in workflow
+	]
+
+	assert not unvalidated, (
+		f"{', '.join(unvalidated)} ship and CI never validates them. Add a line to the Validate "
+		f"step in ci.yml and a matching entry in scripts/check.py."
+	)
+
+
+def test_the_two_plugins_carry_the_same_skill () -> None:
+	"""The duplication decision `#538` took, held to rather than merely regretted.
+
+	A plugin is self-contained by construction, so the practice has to exist in both — and two
+	copies of a file nothing compares is this codebase's signature defect with a fresh disguise.
+	Byte-identical, so the answer to "which one is right" can never be interesting.
+
+	**The skill is written to serve both**, which is why one file can do: its diagnosis section
+	establishes which plugin is installed before offering any remedy, because every remedy for
+	one is wasted effort on the other.
+	"""
+
+	copies = {
+		path.name: (path / "skills" / "subroutine" / "SKILL.md").read_bytes()
+		for path in PLUGIN_DIRECTORIES
+	}
+
+	assert len(set(copies.values())) == 1, (
+		f"the skill differs between {', '.join(sorted(copies))}. Edit one and copy it to the "
+		f"others; a reader cannot tell which copy the practice actually is."
+	)
+
+
+def test_the_marketplace_tells_a_reader_which_plugin_is_theirs () -> None:
+	"""Two entries side by side, and the reader has to be able to choose without installing one.
+
+	**The listing is the only thing they see first.** Somebody browsing does not know there are
+	two, let alone that the difference is where their work lives — so each description has to
+	name its own situation *and* point at the other. `#515`'s lesson one level up: an install
+	that cannot work should say so before it is installed, not after.
+	"""
+
+	described = {entry["name"]: entry["description"] for entry in _read(MARKETPLACE)["plugins"]}
+
+	assert "subroutine-remote" in described["subroutine"], (
+		"the local plugin's listing must name the remote one, or somebody whose work is on a "
+		"server installs the one that cannot reach it"
+	)
+	assert "subroutine" in described["subroutine-remote"]
+
+	# Neither may claim the other's requirement. The remote one needs nothing installed, and
+	# saying otherwise is the friction this whole plugin removes.
+	assert not any(
+		phrase in described["subroutine-remote"]
+		for phrase in ("uv tool install", "pipx install", "subroutine init")
+	), "the remote plugin needs no install, and its listing must not imply one"
 
 
 def test_the_marketplace_says_the_product_is_a_separate_install () -> None:
@@ -155,16 +310,29 @@ def test_a_locally_launched_plugin_says_so_before_anybody_installs_it () -> None
 
 	server = _read(SERVERS)["mcpServers"]["tools"]
 
-	# **This is what makes the entry go away.** The claim below is only true while the server is
-	# a local command; the moment `#516` offers an HTTP transport, "not on the web" stops being
-	# true and both descriptions are wrong rather than merely stale.
+	# **This guard named its own expiry, the condition fired, and the claim survived it** —
+	# which is worth recording, because the next reader will otherwise take the note below as
+	# stale and delete the check. It used to say: "only true while the server is a local
+	# command; the moment `#516` offers an HTTP transport, 'not on the web' stops being true."
+	#
+	# `#516` shipped. An instance now serves MCP over HTTP and `subroutine-remote` reaches it
+	# with nothing installed. **And "not on the web" is still true, for a different reason**:
+	# claude.ai does not read Claude Code plugins at all, whichever transport they declare, so
+	# neither plugin appears there. Reaching an instance from a browser is a *connector*, which
+	# is `#514` and is not a plugin.
+	#
+	# So what makes *this* entry go away is narrower than it was: this plugin declaring a `url`,
+	# which would mean the local and remote plugins had merged and this whole file wants
+	# rewriting.
 	assert "url" not in server, (
-		"the server is no longer stdio-only, so 'not on the web' has stopped being true — "
-		"revisit this guard and both descriptions together (`#516`)"
+		"the local plugin has grown a url, so it is no longer the stdio half of a pair — "
+		"revisit this guard, both descriptions and the two-plugin decision `#538` together"
 	)
 
+	listed = {entry["name"]: entry["description"] for entry in _read(MARKETPLACE)["plugins"]}
+
 	for name, described in (
-		("the marketplace listing", _read(MARKETPLACE)["plugins"][0]["description"]),
+		("the marketplace listing", listed["subroutine"]),
 		("the plugin manifest", _read(PLUGIN)["description"]),
 	):
 		assert "your own machine" in described, (
@@ -311,22 +479,27 @@ def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
 	# describes the remedies without naming the diagnostic sends half its readers the wrong way.
 	assert "claude mcp list" in text
 
-	# **The third cause, which `claude mcp list` cannot reach and no remedy here can fix**
-	# (`#515`). On a client with no machine to start a local program on, both instructions above
-	# are dead ends — and an agent that has read this far will confidently give one of them.
-	# "Two causes" was a completeness claim, true when written and false once the plugin became
-	# installable in a browser.
-	# Two handles rather than one, because a lone substring is satisfied by a sentence built
-	# wrong around it (`#497`): the count is the completeness claim, and the browser is the
-	# case it has to cover.
-	assert "three causes" in text, (
+	# **The count is a completeness claim and it has moved twice**, which is why it is asserted
+	# rather than left to prose. "Two causes" was true until the plugin became installable in a
+	# browser (`#515`); "three" was true until `#540` shipped a second plugin that fails for
+	# reasons none of the three cover. A reader told there are three stops looking after three.
+	assert "Four causes" in text, (
 		"the skill enumerates the causes of missing tools and the count is part of the claim; "
-		"a reader told there are two will stop looking after two"
+		"a reader told there are fewer will stop looking early"
 	)
 
 	assert "browser" in text, (
 		"the skill must name the client where no remedy it gives can work, or it sends that "
 		"reader to an install and a reconfiguration that cannot help"
+	)
+
+	# **And the remote plugin's own failure, which every remedy above is wasted effort on.**
+	# The install instructions are actively wrong for a session connected by address — there is
+	# nothing to install — so a skill that names them without naming the other plugin sends that
+	# reader to an evening of `PATH` diagnosis for a rejected token.
+	assert "subroutine-remote" in text, (
+		"the skill offers install remedies, which are wrong for the plugin that installs "
+		"nothing; it has to say which plugin it is talking to before it talks"
 	)
 
 
@@ -423,7 +596,10 @@ def test_every_command_the_skill_shows_exists () -> None:
 	assert shown <= registered, f"the skill shows {sorted(shown - registered)}, which do not exist"
 
 
-def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
+@pytest.mark.parametrize(
+	"plugin", [str(path) for path in PLUGIN_DIRECTORIES], ids=[p.name for p in PLUGIN_DIRECTORIES]
+)
+def test_a_changed_plugin_carries_a_version_nobody_has_installed (plugin: str) -> None:
 	"""`#380`, and then `#393` when this was not strong enough.
 
 	Claude Code caches an installed plugin under its **version**, so an install at a version
@@ -441,17 +617,25 @@ def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
 	checks the shape it was written from.** `#380` was written from the state where the manifest
 	still named the tag's version, so that is the only state it could see.
 
-	The rule now: if anything under `plugins/` differs from the commit that last *set* the
-	current version, the version must be bumped again. It subsumes the tag comparison, because a
-	manifest still naming the tag's version while the contents differ is the same condition.
+	The rule now: if anything under a plugin's own directory differs from the commit that last
+	*set* its current version, that version must be bumped again. It subsumes the tag
+	comparison, because a manifest still naming the tag's version while the contents differ is
+	the same condition.
 
 	**The working tree counts**, deliberately — an edit in progress should demand the bump
 	before the commit, not after somebody has failed to install it.
+
+	**Per plugin, and that is the point of the parameter** (`#540`). A version is a cache key
+	for the plugin that carries it, so comparing the whole of ``plugins/`` against one
+	manifest's history would demand a bump of both whenever either changed — and, worse, could
+	be satisfied by bumping *either*. Each plugin answers for its own subtree.
 	"""
 
-	declared = _read(PLUGIN)["version"]
+	directory = pathlib.Path(plugin)
+	manifest = directory / ".claude-plugin" / "plugin.json"
+	declared = _read(manifest)["version"]
 	introduced = subprocess.run(
-		["git", "log", "-1", "--format=%H", "-S", f'"version": "{declared}"', "--", str(PLUGIN)],
+		["git", "log", "-1", "--format=%H", "-S", f'"version": "{declared}"', "--", str(manifest)],
 		capture_output=True, text=True, cwd=ROOT, check=False,
 	)
 	commit = introduced.stdout.strip()
@@ -460,7 +644,7 @@ def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
 		pytest.skip("no commit introduced this version, so there is nothing to compare against")
 
 	changed = subprocess.run(
-		["git", "diff", "--name-only", commit, "--", "plugins/"],
+		["git", "diff", "--name-only", commit, "--", str(directory.relative_to(ROOT).as_posix())],
 		capture_output=True, text=True, cwd=ROOT, check=False,
 	)
 
@@ -470,10 +654,10 @@ def test_a_changed_plugin_carries_a_version_nobody_has_installed () -> None:
 	touched = sorted(changed.stdout.split())
 
 	assert not touched, (
-		f"the plugin has changed since {commit[:9]} set version {declared} "
-		f"({', '.join(touched)}), and the manifest still says {declared}. Claude Code caches "
+		f"{directory.name} has changed since {commit[:9]} set version {declared} "
+		f"({', '.join(touched)}), and its manifest still says {declared}. Claude Code caches "
 		f"by version, so anybody already on {declared} would never receive these — bump the "
-		f"version in {PLUGIN.name}."
+		f"version in {manifest.relative_to(ROOT)}."
 	)
 
 

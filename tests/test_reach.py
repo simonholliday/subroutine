@@ -677,9 +677,17 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 		for command in subroutine.cli.main.app.registered_commands
 	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
 
+	# **Across a line break, and that was not a detail** (`#540`). Written as a literal space,
+	# this scan missed `subroutine explain` for as long as the paragraph naming it happened to
+	# wrap between the two words — so the ceiling below read 5 while the skill named 6, and
+	# rewrapping one sentence "added" a command nobody had added. A guard whose answer depends on
+	# where Markdown wrapped is not measuring the thing it claims to.
+	#
+	# This is the second time a scan over this file has been defeated by a line break; the first
+	# was the project-key rule, where a wrap fell between "32" and "characters".
 	commands = {
 		match.group(1)
-		for match in re.finditer(r"\bsubroutine ([a-z][a-z-]*)", skill)
+		for match in re.finditer(r"\bsubroutine\s+([a-z][a-z-]*)", skill)
 		if match.group(1) in registered
 	}
 
@@ -707,7 +715,17 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# way for an agent that has a shell, which is the sentence `#480` is about. The distinction
 	# worth keeping: teaching a shell-out for something MCP cannot do is a gap, and teaching one
 	# for something it can do more clumsily is advice.
-	assert len(commands) <= 5, (
+	# **Raised to 6 for `#540`, and nothing was added to the skill to justify it.** `explain` had
+	# been named all along and the scan above could not see it across a line break, so the
+	# ceiling has been one too low since `#485`. Correcting the regex is what surfaced it.
+	#
+	# It stays a route-around this guard should tolerate, for the same reason as `doc`: `explain`
+	# teaches a *person* the grammars — dates, capture, refs — and an agent that has a shell can
+	# read them faster than it can be told them. What it is not is a gap, because
+	# `subroutine://docs/agent` and `subroutine://meta` carry the same vocabulary to an agent
+	# that has no shell at all. Teaching a shell-out for something MCP cannot do is a gap;
+	# teaching one for something it can do more clumsily is advice.
+	assert len(commands) <= 6, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

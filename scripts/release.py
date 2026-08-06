@@ -3,11 +3,12 @@
 **The number is a judgement and stays a human's.** Nothing here guesses whether a change is a
 patch or a minor; what it removes is the chance to decide 0.1.3 and then say it in only some of
 the places. ``#234`` took ``pyproject.toml`` out of that list by deriving the package version
-from the tag. Three remain and every one has to agree on a single commit:
+from the tag. What is left has to agree on a single commit:
 
 1. the git tag, which is what the package version is built from;
-2. ``plugin.json``, which Claude Code reads straight from a clone with no build step, so
-   nothing can derive it;
+2. **every** ``plugin.json``, which Claude Code reads straight from a clone with no build step,
+   so nothing can derive it — and there is more than one since `#540`, which is why
+   :data:`PLUGINS` is discovered rather than listed;
 3. the changelog heading, which is how a person finds out what they are upgrading into.
 
 **Two of the first three releases needed a corrective commit for exactly this** — 0.1.0's
@@ -38,10 +39,21 @@ import subroutine.installations
 #: is run from wherever somebody happens to be standing.
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: The two files that carry a version. The changelog's heading and the plugin's manifest; the
-#: tag is made rather than written, and `pyproject.toml` no longer has one at all (`#234`).
+#: The files that carry a version. The changelog's heading and every plugin manifest; the tag is
+#: made rather than written, and `pyproject.toml` no longer has one at all (`#234`).
 CHANGELOG = ROOT / "CHANGELOG.md"
-PLUGIN = ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
+
+#: **Discovered rather than listed** (`#540`). Two plugins ship from this repository and a third
+#: is a directory away, so naming them here would mean a release that silently left one behind —
+#: at a version somebody already has cached, which is `#380`'s failure with nobody to notice it.
+#: Sorted, so the dry run and the commit list them in the same order every time.
+PLUGINS = tuple(
+	sorted(
+		path / ".claude-plugin" / "plugin.json"
+		for path in (ROOT / "plugins").iterdir()
+		if (path / ".claude-plugin" / "plugin.json").is_file()
+	)
+)
 
 #: The record `subroutine db upgrade --check` reads — item `#321`. **Written here rather than
 #: derived by whoever asks**, because the fact it carries is only knowable at the moment of
@@ -91,9 +103,10 @@ def main (argv: list[str] | None = None) -> int:
 	if parsed.dry_run:
 		print(f"Would release {version} ({on}):")
 		print(f"  {CHANGELOG.name}: the Unreleased heading becomes '## {version} — {on}'")
-		print(f"  {PLUGIN.name}: version becomes {version}")
+		for manifest in PLUGINS:
+			print(f"  {manifest.parent.parent.name}: version becomes {version}")
 		print(f"  {RELEASES.name}: {version} recorded at schema {head}")
-		print(f"  commit all three, then tag v{version}")
+		print(f"  commit all {2 + len(PLUGINS)}, then tag v{version}")
 
 		return 0
 
@@ -106,7 +119,7 @@ def main (argv: list[str] | None = None) -> int:
 	# makes on every push to main, against the same previous tag. So a missing migration notice
 	# is already refused before anybody reaches this script, and running it again would couple
 	# two scripts for an answer that has been available since the commit that moved the head.
-	_git("add", str(CHANGELOG), str(PLUGIN), str(RELEASES))
+	_git("add", str(CHANGELOG), str(RELEASES), *(str(path) for path in PLUGINS))
 	_git("commit", "-m", f"Release {version}", "-m", f"See CHANGELOG.md for what {version} contains.")
 	_git("tag", "-a", f"v{version}", "-m", f"Subroutine {version}")
 
@@ -185,15 +198,19 @@ def _reasons_to_stop (version: str) -> str | None:
 	#
 	# Equal is the ordinary case and is fine: the manifest reaching the number first is exactly
 	# how this is meant to work.
-	declared = json.loads(PLUGIN.read_text(encoding="utf-8"))["version"]
-	carried = subroutine.installations.ordered(declared)
+	# **The highest of them, because a cache key is per plugin.** One manifest ahead of the
+	# others is the ordinary state — a change under one plugin bumps only that one — so the
+	# floor is whichever has travelled furthest, or the release could never reach its users.
+	for manifest in PLUGINS:
+		declared = json.loads(manifest.read_text(encoding="utf-8"))["version"]
+		carried = subroutine.installations.ordered(declared)
 
-	if proposed is not None and carried is not None and proposed < carried:
-		return (
-			f"{version} is behind {declared}, which the plugin manifest already carries. "
-			f"Anybody who installed {declared} has it cached under that number, so a release "
-			f"below it could never reach them. Cut {declared} or higher."
-		)
+		if proposed is not None and carried is not None and proposed < carried:
+			return (
+				f"{version} is behind {declared}, which {manifest.parent.parent.name} already "
+				f"carries. Anybody who installed {declared} has it cached under that number, "
+				f"so a release below it could never reach them. Cut {declared} or higher."
+			)
 
 	return None
 
@@ -255,16 +272,21 @@ def _record_release (version: str, head: str, on: str) -> None:
 
 
 def _write_plugin_version (version: str) -> None:
-	"""Set the plugin manifest's version, leaving every other key and the formatting alone.
+	"""Set every plugin manifest's version, leaving all other keys and the formatting alone.
+
+	**All of them, to the same number.** They may sit at different versions between releases —
+	each is a cache key for its own plugin — but a release is one act and one tag, so a manifest
+	left behind is a plugin whose users are told a version exists that they cannot install.
 
 	Rewritten through ``json`` rather than by pattern, because a manifest that stops being
 	valid JSON is one nobody can install and the failure arrives at a stranger.
 	"""
 
-	manifest = json.loads(PLUGIN.read_text(encoding="utf-8"))
-	manifest["version"] = version
+	for path in PLUGINS:
+		manifest = json.loads(path.read_text(encoding="utf-8"))
+		manifest["version"] = version
 
-	PLUGIN.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+		path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def _git (*arguments: str) -> str:

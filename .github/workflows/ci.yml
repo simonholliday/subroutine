@@ -115,6 +115,7 @@ jobs:
         run: |
           claude plugin validate .
           claude plugin validate ./plugins/subroutine
+          claude plugin validate ./plugins/subroutine-remote
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
