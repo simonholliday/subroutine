@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import typing
+import uuid
 
 import rich.console
 import rich.text
@@ -636,6 +637,20 @@ def _assignee_cell (item: Item) -> str:
 
 #: A page with nothing worth putting in a column, which is what a bare row looks like.
 NO_COLUMNS = Columns()
+
+
+@dataclasses.dataclass(frozen=True)
+class Welcomed:
+	"""What an instance said when a connection to it was checked, before it was recorded.
+
+	Flattened out of the two calls that produced it, because the caller wants one sentence and
+	neither answer alone can make it: the instance and its workspaces come from ``identity()``,
+	and the name the credential authenticates as comes from ``me()``.
+	"""
+
+	instance: subroutine.views.Instance | None
+	username: str
+	workspaces: tuple[str, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3980,13 +3995,30 @@ def register (
 
 		return workspace.role or "no role"
 
+	# **A group whose bare invocation is still the listing**, the way the application's own is
+	# still the agenda (§12.2a). `subroutine connections` is in other people's notes and in
+	# every refusal that offers it, so turning it into `connections list` to make room for
+	# `connections add` would rename a command to add one beside it.
+	connections_app = typer.Typer(invoke_without_command=True)
+
+	# **Hidden under the same rule as `use`, and `add` is hidden with it** (§1.4). That reads
+	# backwards — the person who most needs `connections add` is the one with no second
+	# connection — and it is right anyway, because *nothing on the filesystem tells a machine
+	# that has not been set up yet from one that never will be*. Both look like one connection
+	# and no database. So the way somebody finds this command is prose they are reading, which
+	# is what `#542` is for, and revealing it here would put "instance" in front of §1.4's
+	# reader on the strength of a guess.
+	app.add_typer(
+		connections_app, name="connections", hidden=not _worth_showing(settings)
+	)
+
 	# **This docstring is published as `--help`**, so the reasoning lives out here. `#278`:
 	# the listing marks the connection being written to as well as the one that is merely the
 	# fallback. Those are different questions, and only the second used to be answered — under
 	# a word, "default", that reads like the first. An agent read it, told Simon local was
 	# where writes went, and a bare `add` filed to the other instance.
-	@app.command(hidden=not _worth_showing(settings))
-	def connections () -> None:
+	@connections_app.callback()
+	def connections (context: typer.Context) -> None:
 		"""List the instances this reaches, which one you are working in, and where each
 		one's token came from.
 
@@ -3994,6 +4026,9 @@ def register (
 		places supplied it is the useful part — the standing footgun in comparable tooling is
 		not having several sources but not knowing which one won.
 		"""
+
+		if context.invoked_subcommand is not None:
+			return
 
 		resolved = settings()
 		current = None
@@ -4037,6 +4072,349 @@ def register (
 
 		say("")
 		_suggest(console, "subroutine use")
+
+	@connections_app.command("add")
+	def connections_add (
+		name: str = typer.Argument("", help="What to call it here, as in 'work'."),
+		url: str = typer.Option(
+			"", "--url", help="Where that instance is, as in https://tasks.example.com."
+		),
+		token_env: str = typer.Option(
+			"",
+			"--token-env",
+			help="Read its token from this environment variable rather than storing one.",
+		),
+		token_command: str = typer.Option(
+			"",
+			"--token-command",
+			help="Run this to get its token, as in a password manager's show command.",
+		),
+		read_only: bool = typer.Option(
+			False, "--read-only", help="Read that instance but refuse to write to it."
+		),
+		default: bool = typer.Option(
+			False, "--default", help="Send new work there rather than to your own database."
+		),
+		check: bool = typer.Option(
+			True,
+			"--check/--no-check",
+			help="Reach the instance before recording it. On by default.",
+		),
+	) -> None:
+		"""Record another instance this machine can reach.
+
+		Examples:
+
+		  subroutine connections add work --url https://tasks.example.com
+
+		  subroutine connections add work --url https://tasks.example.com --read-only
+
+		  subroutine connections add acme --url https://acme.example --token-env ACME_TOKEN
+
+		The name is yours and nobody else's. It becomes the first part of every address that
+		instance's items print as, so work/acme/42, and two people reaching one server may
+		call it different things.
+
+		It asks for the token unless one is already set for that name, checks that the
+		address and the token both work by reaching the instance, and writes nothing until
+		they do. Tokens are kept in a file of their own that nothing else reads.
+		"""
+
+		resolved = settings()
+
+		# **Before the name is validated**, or the empty string is refused as a badly-shaped
+		# name — which is true and is not what happened. Somebody who typed the command and
+		# stopped needs the example, not the grammar.
+		if not name.strip():
+			stop(
+				"Say what to call it.",
+				"For example: subroutine connections add work --url "
+				"https://tasks.example.com",
+			)
+
+		try:
+			wanted = subroutine.connections.check_name(name)
+			roster = subroutine.connections.roster(resolved)
+
+		except subroutine.errors.SubroutineError as error:
+			fail(error)
+
+		if wanted == subroutine.connections.LOCAL_NAME:
+			stop(
+				f"{subroutine.connections.LOCAL_NAME!r} already means this machine's own "
+				"database, so it cannot name another instance.",
+				"Give it a name of its own, as in 'subroutine connections add work'.",
+			)
+
+		# **The file's names rather than the roster's**, because a connection turned off is
+		# still in the file: adding a second table under that name would leave the meaning of
+		# the file to whichever one TOML kept.
+		if wanted in subroutine.connections.declared_names():
+			stop(
+				f"There is already a connection called {wanted!r}.",
+				f"Choose another name, or edit {subroutine.config.config_file_path()} to "
+				"change that one.",
+			)
+
+		if not url.strip():
+			stop(
+				f"Say where {wanted!r} is.",
+				f"For example: subroutine connections add {wanted} --url "
+				"https://tasks.example.com",
+			)
+
+		try:
+			address = subroutine.connections.check_url(url)
+
+		except subroutine.errors.SubroutineError as error:
+			fail(error)
+
+		connection = subroutine.connections.Connection(
+			name=wanted,
+			url=address,
+			read_only=read_only,
+			token_env=token_env.strip() or None,
+			token_command=token_command.strip() or None,
+		)
+
+		# **Whether this connection is where writes go, decided before the token is resolved**
+		# — because the answer changes which environment variable applies. A bare
+		# SUBROUTINE_TOKEN belongs to the default connection (§12.3a), so asking with the old
+		# default would prompt for a token the machine already has, and store a second copy of
+		# it in a file.
+		#
+		# Automatic on a machine with no instance of its own, which is the case this command
+		# exists for: somebody's second laptop, reaching work. Leaving the default at a
+		# database that does not exist would make the very next 'add' fail, and the person has
+		# just said where their work is. Never automatic when there is a local database,
+		# because that is somebody's own list and moving their writes off it is their call.
+		alone = roster.names == (subroutine.connections.LOCAL_NAME,)
+		leads = default or (alone and resolved.has_no_instance_yet())
+
+		try:
+			found = subroutine.credentials.resolve(
+				connection, default_connection=wanted if leads else roster.default
+			)
+
+		except subroutine.errors.Unauthenticated as error:
+			# **The hint is replaced and the detail is kept.** What went wrong is exactly right
+			# — the variable is unset, the helper is not installed, it printed nothing — but
+			# the advice offers to change 'token_env' in the configuration file, and nothing
+			# has been written to it yet. The thing this person can act on is the option they
+			# just typed.
+			stop(
+				error.detail,
+				"Fix that and run this again, or leave --token-env and --token-command out "
+				"and it will ask for the token.",
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			fail(error)
+
+		secret = found.token
+		asked = secret is None
+
+		if secret is None:
+			secret = _asked_for_a_token(wanted)
+
+		reached = _reaching(connection, roster, resolved, secret) if check else None
+
+		if reached is not None and reached.instance is not None:
+			twice = _already_reached(roster, resolved, reached.instance.id)
+
+			if twice is not None:
+				# **Refused here, where it is one word to change.** Left to be discovered, it is
+				# discovered by `subroutine list` refusing outright — the instance is counted
+				# once per name it is configured under, so a merged read cannot be trusted and
+				# the whole listing is withheld. That message can only tell somebody to edit a
+				# file, which is the friction this command exists to remove.
+				#
+				# It is the *check* that finds this, so `--no-check` passes it by. That is the
+				# escape hatch and not a recommendation: `#327` is where two connections naming
+				# one instance becomes a workable arrangement rather than a broken machine.
+				stop(
+					f"{wanted!r} is the same instance as {twice!r}, which this machine already "
+					"reaches.",
+					f"Use {twice!r} instead. Two names for one instance would make every "
+					"merged listing count its work twice, so this machine holds one.",
+				)
+
+		# **The token before the connection.** Both writes can fail on a full or read-only
+		# filesystem, and the two half-written states are not equally bad: a credential under a
+		# name nothing reaches is inert, where a connection with no credential makes every
+		# subsequent listing report a connection it cannot use.
+		if asked:
+			kept = subroutine.credentials.store(wanted, secret)
+
+		try:
+			written = subroutine.config.store_table(
+				f"connections.{wanted}", _connection_settings(connection)
+			)
+
+			if leads:
+				subroutine.config.store_setting("default_connection", wanted)
+
+		except (OSError, ValueError) as error:
+			stop(
+				f"{wanted!r} could not be written to "
+				f"{subroutine.config.config_file_path()}: {error}",
+				"Check that the file is writable, then try again.",
+			)
+
+		if reached is not None:
+			say(_describing(reached))
+
+		say(f"Added {wanted} to {written}")
+
+		if asked:
+			say(f"Its token is in {kept}, readable only by you.")
+
+		else:
+			say(f"Its token comes from {found.source}.")
+
+		# **Three sentences because there are three situations**, and the differences are what a
+		# reader needs. A read-only connection is where a bare number points and is not where
+		# work goes, so saying it is would be contradicted by the very next command; and the
+		# reason 'because this machine has no list of its own' belongs only to the case that
+		# was decided here rather than asked for.
+		if leads and connection.read_only:
+			say(f"A bare number means {wanted} now, and nothing can be written there.")
+
+		elif leads and default:
+			say(f"New work goes to {wanted} now.")
+
+		elif leads:
+			say(f"New work goes to {wanted} now, because this machine has no list of its own.")
+
+		say("")
+		_suggest(console, "subroutine list", "everything this machine can now reach")
+
+	def _connection_settings (
+		connection: subroutine.connections.Connection,
+	) -> dict[str, str | bool]:
+		"""Return what to write under a connection's table, leaving out what was not asked for.
+
+		A default written down is a decision recorded, and this command takes none: a table
+		saying ``read_only = false`` reads as somebody having considered it, and it would
+		outlive a change to what the default means.
+		"""
+
+		values: dict[str, str | bool] = {"url": str(connection.url)}
+
+		if connection.read_only:
+			values["read_only"] = True
+
+		if connection.token_env is not None:
+			values["token_env"] = connection.token_env
+
+		if connection.token_command is not None:
+			values["token_command"] = connection.token_command
+
+		return values
+
+	def _asked_for_a_token (name: str) -> str:
+		"""Ask for a connection's token, or take it from a pipe when there is one.
+
+		Never an option on the command line (§12.3a): an argument lands in shell history and in
+		the process list, where a token that has been logged is a token that has been shared.
+		A pipe is the scripted path, so that 'pass show work' can supply one without either.
+		"""
+
+		if not sys.stdin.isatty():
+			piped = sys.stdin.readline().strip()
+
+			if piped:
+				return piped
+
+			stop(
+				f"Nothing was piped in, so there is no token for {name!r}.",
+				"Pipe it in, or run this at a terminal and it will ask.",
+			)
+
+		typed = str(typer.prompt(f"Token for {name}", hide_input=True)).strip()
+
+		if not typed:
+			stop(
+				f"No token was given, so {name!r} was not added.",
+				"Issue one on that instance with 'subroutine token create', then try again.",
+			)
+
+		return typed
+
+	def _reaching (
+		connection: subroutine.connections.Connection,
+		roster: subroutine.connections.Roster,
+		resolved: subroutine.config.Settings,
+		secret: str,
+	) -> Welcomed:
+		"""Reach an instance with a credential, and report what answered.
+
+		**The same call the fan-out makes**, deliberately: ``identity()`` is what every listing
+		begins with, so a connection that passes here is one that works rather than one that
+		merely parses. It is also the call that refuses a proxy, a captive portal or a typo'd
+		address answering 200 with something that is not an instance.
+
+		``me()`` beside it because the address being right is only half of what somebody wants
+		confirmed. The other half is that the credential they pasted is the one they meant, and
+		the only thing that says so is the name the far end gives back.
+		"""
+
+		try:
+			with subroutine.clients.opening.for_connection(
+				connection, roster, resolved, token=secret
+			) as client:
+				identity = client.identity()
+				me = client.me()
+
+		except subroutine.errors.SubroutineError as error:
+			fail(error)
+
+		return Welcomed(
+			instance=identity.instance,
+			username=me.user.username,
+			workspaces=tuple(workspace.slug for workspace in identity.workspaces),
+		)
+
+	def _describing (reached: Welcomed) -> str:
+		"""Say what a new connection turned out to be, in one line."""
+
+		instance = "it" if reached.instance is None else reached.instance.name
+
+		if not reached.workspaces:
+			# Reachable and useless, which every other command would report as an instance with
+			# nothing in it. Said here because this is the one moment somebody still has the
+			# person who issued the token in mind.
+			return f"Reached {instance} as {reached.username}, who is in no workspace there."
+
+		return f"Reached {instance} as {reached.username}, in {', '.join(reached.workspaces)}."
+
+	def _already_reached (
+		roster: subroutine.connections.Roster,
+		resolved: subroutine.config.Settings,
+		instance: uuid.UUID,
+	) -> str | None:
+		"""Return the connection already naming this instance, or ``None`` if none does.
+
+		A connection that cannot be reached is passed over in silence rather than reported. It
+		is the ordinary state of the local one on the machine this command is written for, and
+		a warning about a work server being down would arrive while somebody is in the middle
+		of doing the one thing that does not need it.
+		"""
+
+		for existing in roster:
+			try:
+				with subroutine.clients.opening.for_connection(
+					existing, roster, resolved
+				) as client:
+					answered = client.identity()
+
+			except subroutine.errors.SubroutineError:
+				continue
+
+			if answered.instance is not None and answered.instance.id == instance:
+				return existing.name
+
+		return None
 
 	def _connection_row (
 		connection: subroutine.connections.Connection,

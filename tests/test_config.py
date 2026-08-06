@@ -191,6 +191,65 @@ def test_a_setting_lands_above_any_table_header (
 	assert "# a comment" in text, "comments are preserved"
 
 
+def test_a_setting_lands_above_the_blank_line_before_a_table (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Where the key is parsed and where it *reads* as belonging are different questions.
+
+	Inserted at the header's own index the key is still top-level and still correct, and it
+	sits hard against ``[connections.work]`` with a blank line above it — so the file says, to
+	anybody who opens it, that the key is part of that table. The one thing it is not.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text('port = 9000\n\n[connections.work]\nurl = "https://x.example"\n', encoding="utf-8")
+
+	subroutine.config.store_setting("default_connection", "work")
+
+	lines = path.read_text(encoding="utf-8").splitlines()
+	placed = lines.index('default_connection = "work"')
+
+	assert lines[placed - 1].strip(), "no blank line above it"
+	assert not lines[placed + 1].strip(), "and the blank line separates it from the table"
+
+
+def test_a_table_is_appended_whole_and_a_repeat_is_refused (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A second table under one name leaves the file meaning whatever TOML decides.
+
+	Refused rather than merged, because the caller is the one that knows whether the person
+	meant to replace a connection or has forgotten they already have one — and either answer
+	given here would be a guess written into somebody's configuration.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+	path = subroutine.config.config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text("# mine\nport = 9000\n", encoding="utf-8")
+
+	subroutine.config.store_table(
+		"connections.work", {"url": "https://tasks.example.com", "read_only": True}
+	)
+
+	text = path.read_text(encoding="utf-8")
+	parsed = tomllib.loads(text)
+
+	assert parsed["port"] == 9000, "what was there is left alone"
+	assert "# mine" in text, "comments included"
+	assert parsed["connections"]["work"] == {
+		"url": "https://tasks.example.com",
+		"read_only": True,
+	}
+
+	with pytest.raises(ValueError):
+		subroutine.config.store_table("connections.work", {"url": "https://other.example"})
+
+
 def test_the_config_file_is_private_however_it_was_made (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

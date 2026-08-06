@@ -254,6 +254,18 @@ def _declared_tables () -> dict[str, dict[str, typing.Any]]:
 	return tables
 
 
+def declared_names () -> frozenset[str]:
+	"""Return every connection the configuration file declares, enabled or not.
+
+	Not the roster, deliberately: :func:`roster` drops anything with ``enabled = false``, so a
+	caller asking "is this name taken" would be told no about a table that is right there in
+	the file. Adding a second connection under that name would then produce a file whose
+	meaning depends on which of two tables TOML kept.
+	"""
+
+	return frozenset(_declared_tables())
+
+
 def _valid_name (name: str) -> str:
 	"""Return a connection name, refusing one that could not be typed in an address."""
 
@@ -265,6 +277,49 @@ def _valid_name (name: str) -> str:
 		f"{name!r} cannot be a connection name. A name starts with a letter and uses "
 		"letters, numbers, hyphens and underscores — it becomes the first part of an "
 		"address, as in 'work/acme/42'.",
+	)
+
+
+def check_name (name: str) -> str:
+	"""Return a connection name somebody typed, or refuse it in the terms they typed it in.
+
+	The same rule as :func:`_valid_name` and a different refusal, which is the point rather
+	than a duplication: that one is read by somebody looking at a file and names the key and
+	the line, and this one is read by somebody who has just pressed return. Both match
+	``_NAME``, so the rule itself exists once.
+
+	**Lower-cased rather than refused**, because :meth:`Roster.find` already lower-cases
+	everything it looks up — so ``Work`` has always resolved to ``work`` everywhere a
+	connection is named, and refusing it here would be the one place that did not. It is what a
+	project key does with the same reasoning (§5.4): input is case-insensitive, and what is
+	stored and printed is one form, so an address is predictable.
+	"""
+
+	wanted = name.strip().lower()
+
+	if _NAME.match(wanted):
+		return wanted
+
+	raise subroutine.errors.ValidationError(
+		f"{name!r} cannot be a connection name.",
+		code="invalid_field_value",
+		hint="A name starts with a letter and uses letters, numbers, hyphens and "
+		"underscores. It becomes the first part of an address, as in 'work/acme/42'.",
+	)
+
+
+def check_url (value: str) -> str:
+	"""Return an instance's address as it will be stored, or refuse what was typed."""
+
+	text = _trimmed_url(value)
+
+	if text is not None:
+		return text
+
+	raise subroutine.errors.ValidationError(
+		f"{value!r} is not an address this can reach.",
+		code="invalid_field_value",
+		hint="It needs a scheme and a host, as in 'https://tasks.example.com'.",
 	)
 
 
@@ -323,15 +378,30 @@ def _url (name: str, value: typing.Any) -> str | None:
 			"A url is text, as in 'url = \"https://tasks.example.com\"'.",
 		)
 
-	text = value.strip().rstrip("/")
-	parsed = urllib.parse.urlsplit(text)
+	text = _trimmed_url(value)
 
-	if parsed.scheme not in SCHEMES or not parsed.netloc:
+	if text is None:
 		raise _refusal(
 			f"connections.{name}.url",
 			f"{value!r} is not an address this can reach. It needs a scheme and a host, as "
 			"in 'https://tasks.example.com'.",
 		)
+
+	return text
+
+
+def _trimmed_url (value: str) -> str | None:
+	"""Return an address in the form a connection stores it, or ``None`` if it is not one.
+
+	The rule itself, with no message attached, because two callers need the same answer and
+	different refusals — the file's names a key, the command line's names what was typed.
+	"""
+
+	text = value.strip().rstrip("/")
+	parsed = urllib.parse.urlsplit(text)
+
+	if parsed.scheme not in SCHEMES or not parsed.netloc:
+		return None
 
 	return text
 

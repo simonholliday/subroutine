@@ -44,6 +44,31 @@ upgrade involves.
   They carry the same skill, and its guidance on missing tools now establishes *which* plugin is
   installed before offering a remedy — every remedy for one is wasted effort on the other.
 
+- **Reaching a server from your own machine is a command now**, rather than two files somebody
+  hand-edits:
+
+  ```console
+  $ subroutine connections add work --url https://tasks.example.com
+  Token for work:
+  Reached hpz2g4 as si, in acme.
+  ```
+
+  It asks for the token, reaches the instance with it, and writes nothing until that works — so
+  a mistyped address, a revoked credential or a proxy answering instead of the server is refused
+  where you can fix it, rather than becoming one line of failure among tomorrow's results. It
+  tells you the name that instance knows you by, which is the only thing that confirms you
+  pasted the token you meant to.
+
+  On a machine with no list of its own — a second laptop, a workstation whose work is all on the
+  server — it also makes that connection where new work goes, and says so. `--default` asks for
+  that anywhere. `--read-only`, `--token-env` and `--token-command` are the rest; there is no
+  `--token`, because a credential given as an argument lands in shell history and in the process
+  list. Pipe it in instead.
+
+  A second name for a server this machine already reaches is refused, by name. Two of them make
+  every merged listing count that instance's work twice, and finding out at the listing means
+  being told nothing at all until a file is edited.
+
 ### Changed
 
 - **`subroutine` the plugin now says it is the one that runs a program on your machine**, in its

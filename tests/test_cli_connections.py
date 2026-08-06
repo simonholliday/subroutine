@@ -24,9 +24,11 @@ import time
 import typing
 import zoneinfo
 
+import click
 import httpx
 import pytest
 import sqlalchemy
+import typer.main
 import typer.testing
 
 import subroutine
@@ -72,10 +74,12 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 	runner = typer.testing.CliRunner()
 
-	def invoke (*arguments: str, expect: int = 0) -> typer.testing.Result:
+	def invoke (
+		*arguments: str, expect: int = 0, input: str | None = None
+	) -> typer.testing.Result:
 		"""Run one command and check how it ended."""
 
-		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=input)
 
 		assert result.exit_code == expect, (
 			f"'subroutine {' '.join(arguments)}' exited {result.exit_code}\n"
@@ -608,6 +612,291 @@ def test_connections_reports_where_each_token_came_from_without_printing_one (
 	assert "credentials.toml" in output, "and where it read the token from"
 	assert two.token not in output, "but never the token itself"
 	assert "default" in output
+
+
+# --- Adding a connection ----------------------------------------------------------------
+
+
+def _configured (home: pathlib.Path) -> str:
+	"""Return the configuration file's text, or nothing when there is none."""
+
+	path = home / "xdg_config_home" / "subroutine" / "config.toml"
+
+	return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def test_a_connection_is_added_by_command_and_the_next_listing_spans_both (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The whole of `#261`: reaching a server is a command, not a file somebody edits.
+
+	Driven end to end rather than by reading what was written, because the thing being claimed
+	is that the machine now works — a file with the right keys in it is the *evidence* for
+	that, and this project has been wrong about what that evidence proves before.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("add", "Pay the gas bill")
+
+	with served(tmp_path) as remote:
+		added = run(
+			"connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n"
+		)
+
+		assert "Reached" in added.output
+		assert "Added work" in added.output
+
+		listed = run("list").output
+
+		assert "Fix the deploy script" in listed, "the remote's work"
+		assert "Pay the gas bill" in listed, "and this machine's own"
+
+
+def test_the_token_goes_where_nothing_but_this_reads_it (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.3a's split, which is the reason there are two files rather than one.
+
+	A configuration file is one a person can commit, sync between machines and paste into a
+	support thread. The moment this command writes a token into it that stops being true, and
+	nothing would report it — the connection would work perfectly.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	with served(tmp_path) as remote:
+		run("connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n")
+
+		assert remote.token not in _configured(home)
+		assert remote.token in subroutine.credentials.credentials_file_path().read_text(
+			encoding="utf-8"
+		)
+
+
+def test_a_token_is_never_asked_for_on_the_command_line () -> None:
+	"""§12.3a: an argument lands in shell history and in the process list.
+
+	Asserted against the command's own parameters rather than by reading the source, so that
+	adding one for convenience fails the build. The prompt exists precisely because this is
+	forbidden, and the two are easy to conflate when somebody is scripting.
+	"""
+
+	# **Typed loosely, with the reason written down**, exactly as ``tests/test_cli_help.py``
+	# has to be. Typer vendors its own click shim, so what ``get_command`` returns is a
+	# ``typer._click.core.Command`` — not a ``click.Command``, and with no exported name to
+	# claim. The walk below uses only the methods both kinds carry.
+	command: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	group: typing.Any = command.get_command(
+		click.Context(command, info_name="subroutine"), "connections"
+	)
+	add: typing.Any = group.get_command(
+		click.Context(group, info_name="connections"), "add"
+	)
+
+	for parameter in add.params:
+		assert "token" not in parameter.name or parameter.name in (
+			"token_env",
+			"token_command",
+		), f"--{parameter.name.replace('_', '-')} would put a credential in shell history"
+
+
+def test_nothing_is_written_when_the_instance_cannot_be_reached (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""Checked before it is recorded, so a typo is refused where somebody can fix it.
+
+	The alternative is a connection that parses, is written, and fails on the first listing —
+	at which point the failure is one line among the results of every other connection, and
+	the person has moved on to something else.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	refused = run(
+		"connections",
+		"add",
+		"work",
+		"--url",
+		f"http://127.0.0.1:{free_port()}",
+		input="sr_whatever\n",
+		expect=1,
+	)
+
+	assert "could not be reached" in refused.output
+	assert "connections.work" not in _configured(home)
+	assert not subroutine.credentials.credentials_file_path().is_file()
+
+
+def test_a_credential_the_instance_refuses_leaves_nothing_behind (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The address being right is half of it, and the other half is the token that was pasted."""
+
+	run("init", "--workspace", "Personal")
+
+	with served(tmp_path) as remote:
+		refused = run(
+			"connections",
+			"add",
+			"work",
+			"--url",
+			remote.url,
+			input="sr_notthetokenyouwerelookingfor\n",
+			expect=1,
+		)
+
+		assert "not accepted" in refused.output
+		assert "connections.work" not in _configured(home)
+		assert not subroutine.credentials.credentials_file_path().is_file()
+
+
+def test_the_same_instance_under_a_second_name_is_refused_before_it_lands (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The sharpest case of "refused where it can be fixed", and it was reachable in one command.
+
+	Two names for one instance make every merged read refuse outright, and the refusal can only
+	tell somebody to go and edit a file — which is the friction this command exists to remove.
+	So the check happens here, where the remedy is a different word, and the machine is left
+	able to list its own work.
+	"""
+
+	refused = run(
+		"connections", "add", "acme", "--url", two.url, input=f"{two.token}\n", expect=1
+	)
+
+	assert "same instance" in refused.output
+	assert "work" in refused.output
+	assert "connections.acme" not in _configured(home)
+
+	assert "Fix the deploy script" in run("list").output, "and the machine still works"
+
+
+def test_a_connection_that_is_turned_off_still_holds_its_name (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The roster drops a disabled connection and the file still declares it.
+
+	Asking the roster would report the name as free and append a second table under it, after
+	which the file means whichever of the two TOML kept — and this command's whole promise is
+	that nobody has to open that file to find out.
+	"""
+
+	run("init", "--workspace", "Personal")
+	declare(home, '\n[connections.work]\nurl = "https://tasks.example.com"\nenabled = false\n')
+
+	refused = run(
+		"connections", "add", "work", "--url", "https://elsewhere.example", expect=1
+	)
+
+	assert "already a connection called 'work'" in refused.output
+	assert _configured(home).count("[connections.work]") == 1
+
+
+def test_a_machine_with_no_list_of_its_own_starts_filing_to_the_connection (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The machine this command was written for: a second laptop, reaching work.
+
+	Leaving the default pointed at a database nobody has created would make the very next
+	``add`` fail, on a machine where the person has just said where their work is.
+	"""
+
+	with served(tmp_path) as remote:
+		added = run(
+			"connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n"
+		)
+
+		assert "no list of its own" in added.output
+
+		run("add", "Filed from the laptop")
+
+		assert "Filed from the laptop" in run("list").output
+
+
+def test_a_machine_that_has_its_own_list_keeps_writing_to_it (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Moving somebody's writes off their own to-do list is their call, not this command's."""
+
+	run("init", "--workspace", "Personal")
+
+	with served(tmp_path) as remote:
+		added = run(
+			"connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n"
+		)
+
+		assert "no list of its own" not in added.output
+		assert "default_connection" not in _configured(home)
+
+
+@pytest.mark.parametrize(
+	"name,said",
+	[("local", "own database"), ("2026", "starts with a letter"), ("a b", "starts with a letter")],
+)
+def test_a_name_that_could_not_be_an_address_is_refused (
+	name: str,
+	said: str,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A connection name is the first segment of every address its items print as."""
+
+	run("init", "--workspace", "Personal")
+
+	refused = run(
+		"connections", "add", name, "--url", "https://tasks.example.com", expect=1
+	)
+
+	assert said in refused.output
+	assert "connections." not in _configured(home)
+
+
+def test_a_name_typed_in_capitals_is_the_name_in_lower_case (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Every lookup already lower-cases, so refusing it here would be the one place that did not.
+
+	``Roster.find`` has always resolved ``Work`` to ``work``, which means a capital was already
+	accepted everywhere a connection is *named* — by the flag, by an address, by ``use``. What
+	is stored is one form, so that an address is predictable, which is what a project key does
+	for the same reason.
+	"""
+
+	with served(tmp_path) as remote:
+		run("connections", "add", "Work", "--url", remote.url, input=f"{remote.token}\n")
+
+		assert "[connections.work]" in _configured(home)
+		assert "work" in run("connections").output
+
+
+def test_the_listing_is_still_what_a_bare_connections_prints (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""Making room for ``add`` must not rename the command people already have.
+
+	``subroutine connections`` is in other people's notes and is what several refusals offer,
+	so the group's bare invocation stays the listing rather than becoming ``connections list``.
+	"""
+
+	assert "work" in run("connections").output
+	assert "add" in run("connections", "--help").output
 
 
 # --- Serving, and issuing a credential -------------------------------------------------

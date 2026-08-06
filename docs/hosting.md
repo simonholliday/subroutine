@@ -789,11 +789,16 @@ service account's instance lives under `/var/lib/subroutine` and yours under `~/
 Reaching the server is not a matter of changing that — it is a matter of adding a connection
 beside it.
 
-Two files, both under `~/.config/subroutine`. First the connection, in `config.toml`:
+**One command, and it asks for the token** — which you issue on the server first, as the
+service account. That is further down this section, and it is worth reading before you start:
+a token is shown once and stored nowhere, so there is nothing to go back and look up.
 
-```toml
-[connections.work]
-url = "http://127.0.0.1:8471"
+```console
+$ subroutine connections add work --url http://127.0.0.1:8471
+Token for work:
+Reached hpz2g4 as si, in acme.
+Added work to …/config.toml
+Its token is in …/credentials.toml, readable only by you.
 ```
 
 The name — `work` here — is *yours*. It is the first segment of every address the server's
@@ -801,17 +806,33 @@ items print as, so `work/acme/#42`, and two people connected to the same server 
 different things. A name must start with a letter, because one made only of digits would read
 as a ref.
 
-Then the token, in `credentials.toml` beside it, keyed by that same name:
+**It reaches the instance before it writes anything**, with the credential you just gave it —
+the same call every listing begins with. A mistyped address, a revoked token, a proxy
+answering instead of the server: each is refused there and then, with nothing recorded, rather
+than becoming one line of failure among tomorrow's results. That is also why it can tell you
+the name the server knows you by, which is the only thing that confirms you pasted the token
+you meant to.
 
-```toml
-[work]
-token = "sr_…"
+If the machine has no instance of its own — a second laptop, a workstation whose work all
+lives on the server — it also makes that connection where new work goes, and says so. On a
+machine that already has its own list it leaves that alone, because moving somebody's writes
+off their own to-do list is their decision. `--default` asks for it either way.
+
+Other things it takes: `--read-only` to reach an instance and refuse to write to it, and
+`--token-env` or `--token-command` to fetch the credential from the environment or from
+`pass`, `gpg`, `secret-tool` or a password manager instead of storing one.
+
+**There is no `--token`, deliberately.** A credential passed as an argument lands in shell
+history and in the process list (§12.3a). Piping one in works, for a script or an agent:
+
+```console
+$ pass show work/subroutine | subroutine connections add work --url http://127.0.0.1:8471
 ```
 
 **Tokens live in their own file and never in `config.toml`** (§12.3a), so that a configuration
 file can be copied, committed or pasted into a bug report without taking a credential with it.
-Make it `chmod 600`. If your shell already has `SUBROUTINE_TOKEN` set, that is another way in
-and needs no file.
+`credentials.toml` is written `chmod 600`. If your shell already has `SUBROUTINE_TOKEN` set,
+that is another way in and needs no file.
 
 **It is not `secret_key`,** which is the only thing in `config.toml` that looks like a
 credential and is the wrong one. Every instance writes its own at `init` — the server has one
@@ -848,8 +869,11 @@ $ subroutine list
 
 **`subroutine connections` is how you check it**, and it is worth knowing about because it
 stays out of `subroutine --help` until a second connection exists — which is to say, until the
-thing you are checking has already worked. It lists what this machine reaches and, for each,
-*which of the four places its token came from*, which is the question that actually bites:
+thing you are checking has already worked. `connections add` is hidden with it, for the same
+reason and with the opposite effect, which is why this page names it: nothing on a machine can
+tell "not set up yet" from "never will be", so the command that fixes the second cannot
+announce itself to the first. It lists what this machine reaches and, for each, *which of the
+four places its token came from*, which is the question that actually bites:
 
 ```console
 $ subroutine connections
@@ -873,12 +897,18 @@ If a connection cannot be reached, the rest of the list still prints and one lin
 one failed. That is deliberate: being told nothing about your own to-do list because a work
 server is down is the outcome this design exists to avoid.
 
-Other keys a `[connections.<name>]` table takes: `display_name` for what it is called in
-output, `read_only = true` to refuse writes to it from this machine, `token_env` or
-`token_command` to fetch the credential from the environment or from `pass`, `gpg`,
-`secret-tool` or a password manager rather than from a file, `timeout_seconds`, and
+`connections add` writes a `[connections.<name>]` table, and the file is still yours to edit
+for anything it does not ask about. The other keys that table takes: `display_name` for what
+it is called in output, `read_only = true` to refuse writes to it from this machine,
+`token_env` or `token_command` to fetch the credential from the environment or from `pass`,
+`gpg`, `secret-tool` or a password manager rather than from a file, `timeout_seconds`, and
 `enabled = false` to keep a connection configured and switched off. Anything else in that table
 is refused by name rather than ignored.
+
+**Two connections may not name one instance**, and `connections add` refuses a second name for
+a server this machine already reaches. A merged listing would count everything on it twice, so
+the refusal is at the moment you can pick a different word rather than on the first listing —
+where it withholds every result and can only tell you to go and edit a file.
 
 ## Reaching it from an agent, with nothing installed
 

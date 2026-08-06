@@ -765,11 +765,80 @@ def store_setting (name: str, value: str) -> pathlib.Path:
 
 	if not replaced:
 		insert_at = next((i for i, text in enumerate(lines) if table.match(text)), len(lines))
+
+		# **Above the blank line before the table, not below it.** Inserting at the header's own
+		# index puts the setting hard against `[connections.work]` and leaves the blank line
+		# separating it from the settings it belongs with — so the file reads as though the key
+		# were part of the table, which is the one thing it must not look like.
+		while insert_at > 0 and not lines[insert_at - 1].strip():
+			insert_at -= 1
+
 		lines.insert(insert_at, line)
 
 	_write_private(path, "\n".join(lines) + "\n")
 
 	return path
+
+
+def store_table (header: str, values: dict[str, str | bool]) -> pathlib.Path:
+	"""Add a table to the configuration file, and return where it was written.
+
+	**Appended, never inserted.** Everything this program reads as a top-level key is written
+	by :func:`store_setting`, which puts it *before* the first table header for exactly this
+	reason — so a table at the end of the file cannot capture one, and the two writers stay out
+	of each other's way whichever order they run in.
+
+	Comments and ordering are preserved, as they are there: a configuration file belongs to
+	whoever edits it. A header that is already present is refused rather than merged, because a
+	file with the same table twice means whatever TOML decides it means, and the caller is
+	better placed to say what the person should do about it.
+
+	**That last check is a backstop and not the authority.** It matches the header as this
+	function would have written it, so a hand-written ``[connections."work"]`` gets past it —
+	which is fine, because the caller has already asked the *parser* whether the name is taken.
+	A regex over a file is a poor way to answer a question TOML can answer.
+	"""
+
+	path = config_file_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+
+	lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+	present = re.compile(rf"^\s*\[\s*{re.escape(header)}\s*\]")
+
+	if any(present.match(existing) for existing in lines):
+		raise ValueError(f"{path} already has a [{header}] table")
+
+	if not lines:
+		lines = ["# Subroutine configuration. See 'subroutine config show'."]
+
+	# A blank line before the header, so a table appended to a file whose last line is a
+	# setting does not read as a continuation of it.
+	if lines[-1].strip():
+		lines.append("")
+
+	lines.append(f"[{header}]")
+	lines.extend(f"{name} = {_toml_value(values[name])}" for name in values)
+
+	_write_private(path, "\n".join(lines) + "\n")
+
+	return path
+
+
+def _toml_value (value: str | bool) -> str:
+	"""Return a setting as TOML, in the form the reader of that file expects.
+
+	Text and true-or-false, which is what anything written here is. A number would want its own
+	branch and its own test, and nothing writes one yet — a rendering nothing exercises is the
+	shape this codebase keeps finding wrong.
+
+	**The boolean check comes first and has to.** ``isinstance(True, int)`` is true in Python,
+	so a numeric branch above this one would quietly write ``read_only = 1``.
+	"""
+
+	if isinstance(value, bool):
+		return "true" if value else "false"
+
+	return _toml_string(value)
 
 
 def _toml_string (value: str) -> str:
