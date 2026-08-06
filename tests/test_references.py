@@ -13,6 +13,11 @@ ratchet rather than a repair. Each ceiling may fall and may never rise.
 
 The rule this failed for a year was the ordinary one: nothing checked. ``#446``.
 
+**Two of those 18 were never dangling** (``#546``): the plugins' skill names ``CLAUDE.md``
+beside ``AGENTS.md`` as *the reader's* agent file, about a project that is not this one. So
+the ceiling has come down to 16 and those mentions are excused by name and by file — which is
+what ``counted_against`` is for, and why the exemption is not a directory.
+
 Deliberately not a general dead-link checker. Measured before choosing: matching every
 ``*.md`` mention across the tree finds 481 dead ones, of which about a dozen are example
 filenames in tests, a partial URL, and a file referred to by its basename — noise that would
@@ -42,6 +47,11 @@ class Absent (typing.NamedTuple):
 	#: Why the file is not here, so that removing this entry is a decision somebody can check.
 	why: str
 
+	#: Files where naming this is about *the reader's* project rather than about this one, so
+	#: the mention resolves for them and dangles for nobody (`#546`). Keyed by path with the
+	#: reason beside it, and checked by :func:`test_no_generic_mention_is_excused_wrongly`.
+	generic_in: tuple[tuple[str, str], ...] = ()
+
 
 #: Every path named in tracked files that is deliberately not in the repository.
 #:
@@ -57,10 +67,23 @@ ABSENT: dict[str, Absent] = {
 		),
 	),
 	"CLAUDE.md": Absent(
-		ceiling=18,
+		ceiling=16,
 		why=(
 			"Stays a file and stays out of the repository (#411). It is loaded from a known "
 			"path at session start, which an instance document would not be."
+		),
+		generic_in=(
+			(
+				"plugins/subroutine/skills/subroutine/SKILL.md",
+				"Advice about the reader's own project — the agent file to write a pointer "
+				"into, named beside AGENTS.md and a contributing guide. That file is theirs "
+				"and it is there.",
+			),
+			(
+				"plugins/subroutine-remote/skills/subroutine/SKILL.md",
+				"The same skill. A plugin is self-contained, so the practice ships twice and "
+				"test_the_two_plugins_carry_the_same_skill requires the copies to be identical.",
+			),
 		),
 	),
 }
@@ -122,6 +145,28 @@ def mentions (name: str, root: pathlib.Path = ROOT, skip: str | None = SELF) -> 
 	return counted
 
 
+def counted_against (name: str, root: pathlib.Path = ROOT) -> dict[str, int]:
+	"""Return the mentions of ``name`` that are pointers into *this* repository.
+
+	**A filename is not always a path here** (`#546`). The plugins' skill tells an agent to
+	write a pointer into "the project's agent file — ``CLAUDE.md``, ``AGENTS.md``, whichever it
+	already uses", which names a well-known filename as a *category*, about a project that is
+	not this one. That file exists for the reader, so it dangles for nobody, and counting it
+	made the ratchet report a spelling rather than the thing it cares about.
+
+	**Excused per name and per file, never per directory.** A skill citing ``SPEC.md §6.13``
+	*would* be a dead pointer, and on the most public surface this repository has — excluding
+	``plugins/*/skills/`` wholesale would stop counting it exactly where it matters most.
+	``CLAUDE.md`` and ``AGENTS.md`` are files the reader has; ``SPEC.md`` is ours alone.
+	"""
+
+	excused = {path for path, _ in ABSENT[name].generic_in}
+
+	return {
+		path: found for path, found in mentions(name, root).items() if path not in excused
+	}
+
+
 def test_no_new_reference_to_an_absent_path () -> None:
 	"""Every mention of a deliberately missing file is one that was already there.
 
@@ -133,7 +178,7 @@ def test_no_new_reference_to_an_absent_path () -> None:
 	"""
 
 	for name, absent in ABSENT.items():
-		total = sum(mentions(name).values())
+		total = sum(counted_against(name).values())
 
 		if total > absent.ceiling:
 			raise AssertionError(
@@ -147,6 +192,34 @@ def test_no_new_reference_to_an_absent_path () -> None:
 			f"{name} is named {total} times now, and ABSENT still allows {absent.ceiling}. "
 			f"Lower the ceiling to {total}, so the difference cannot be spent again."
 		)
+
+
+def test_no_generic_mention_is_excused_wrongly () -> None:
+	"""An exemption naming a file that does not mention the name is measuring nothing.
+
+	`#405`'s question of every allow-list here: what makes an entry go away? This one goes when
+	the prose changes — the skill stops naming an agent file, or the second plugin stops
+	shipping a copy — and until something fails on that, ``generic_in`` is a place to park an
+	excuse nobody can delete. It is the shape `#500` found in ``UNREACHED_FIELDS``, where a
+	written reason cited an item that had closed five days earlier.
+	"""
+
+	present = set(tracked())
+
+	for name, absent in ABSENT.items():
+		found = mentions(name)
+
+		for path, why in absent.generic_in:
+			assert path in present, (
+				f"ABSENT[{name!r}] excuses {path}, which git does not track. Delete the entry."
+			)
+
+			assert path in found, (
+				f"ABSENT[{name!r}] excuses {path}, which no longer names {name}. Delete the "
+				f"entry and lower the ceiling, or the exemption is spendable again."
+			)
+
+			assert why.strip(), f"ABSENT[{name!r}]'s entry for {path} gives no reason"
 
 
 def test_every_absent_path_is_still_absent () -> None:
