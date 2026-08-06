@@ -178,6 +178,41 @@ remember goes on working tomorrow, in another terminal, after anything
 else has been finished.""",
 	),
 	Topic(
+		name="connecting",
+		summary="Where your work lives, and how to reach it from here or from an agent.",
+		body="""Your work can be on this machine, on a server somebody runs, or
+both at once. Each of those is a connection, and your own database is
+one of them — it is called 'local' and it exists whether or not you
+say so. 'subroutine connections' lists them.
+
+To reach a server as well, you need its address and a token from
+whoever runs it. Then:
+
+  subroutine connections add work --url https://tasks.example.com
+
+It asks for the token, reaches the instance to check both, and writes
+nothing until they work. The name — 'work' here — is yours, and it
+becomes the first part of every address that server's items print as.
+
+From then on one list shows both:
+
+  subroutine list
+    Local
+                #1  Pay the gas bill
+    work
+      work/acme/#1  Fix the deploy script
+
+Reading always spans everything you can reach, so nothing is hidden by
+being in the wrong place. Only writing picks one, and 'subroutine use
+work' is how you move it.
+
+An agent reaches an instance a different way — through a plugin rather
+than through this program, and if the work is on somebody else's
+server it needs nothing installed at all. That is a longer story than
+a terminal needs, and it is written up in docs/connecting.md in the
+project's repository.""",
+	),
+	Topic(
 		name="scripting",
 		summary="Machine-readable output, and how to run commands as somebody else.",
 		body="""Every command that reads takes --json:

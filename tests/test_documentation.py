@@ -30,6 +30,7 @@ import subroutine.db.migrate
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
+CONNECTING = ROOT / "docs" / "connecting.md"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
 
@@ -116,7 +117,9 @@ def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> No
 			)
 
 
-@pytest.mark.parametrize("page", [HOSTING, README, CHANGELOG], ids=lambda path: path.name)
+@pytest.mark.parametrize(
+	"page", [HOSTING, CONNECTING, README, CHANGELOG], ids=lambda path: path.name
+)
 def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> None:
 	"""A relative link in published documentation is a promise about the repository.
 
@@ -140,6 +143,63 @@ def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> N
 	# Otherwise this passes just as happily on a page whose links have all been deleted, which
 	# is the failure mode a link checker is least able to notice about itself.
 	assert checked, f"{page.name} has no relative links — has this test stopped reaching them?"
+
+
+def _anchors (page: pathlib.Path) -> set[str]:
+	"""Return the anchors a heading in this page can be linked to.
+
+	Derived the way GitHub derives them — lower-cased, everything but word characters, spaces
+	and hyphens dropped, spaces turned into hyphens — because that is what the link resolves
+	against. Reading the headings and trusting a hand-written anchor beside them would check
+	the wrong half.
+	"""
+
+	found = set()
+
+	for line in page.read_text(encoding="utf-8").splitlines():
+		if line.startswith("#"):
+			heading = line.lstrip("#").strip()
+			found.add(re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-"))
+
+	return found
+
+
+@pytest.mark.parametrize(
+	"page", [HOSTING, CONNECTING, README, CHANGELOG], ids=lambda path: path.name
+)
+def test_every_anchor_a_published_page_links_to_exists (page: pathlib.Path) -> None:
+	"""The half the link check above throws away, and the half that rots quietly.
+
+	It splits a target on ``#`` and keeps the file, so ``docs/hosting.md#reaching-it-from-an-
+	agent`` passes on the strength of ``hosting.md`` existing. Renaming a section leaves the
+	link resolving to the page and landing at the top of it, which reads as the reader's mistake
+	rather than as a broken pointer — and this page sends people across files precisely when
+	they are trying to get something working.
+	"""
+
+	text = page.read_text(encoding="utf-8")
+	checked = 0
+
+	for fragment in text.split("](")[1:]:
+		target = fragment.split(")")[0]
+
+		if target.startswith(("http://", "https://", "mailto:")) or "#" not in target:
+			continue
+
+		path, _, anchor = target.partition("#")
+		where = page if not path else page.parent / path
+
+		if not where.is_file():
+			# The file's own existence is the other test's, and reporting it twice would mean
+			# fixing one failure and meeting its twin.
+			continue
+
+		assert anchor in _anchors(where), (
+			f"{page.name} links to {target}, and {where.name} has no heading with that anchor"
+		)
+		checked += 1
+
+	assert checked, f"{page.name} has no anchor links — has this test stopped reaching them?"
 
 
 def test_the_hosting_guide_lists_every_one_of_its_sections () -> None:
@@ -593,7 +653,7 @@ def test_the_documented_agent_path_produces_a_working_agent (
 #: ``docs/errors.md`` is generated and quotes no shell; the changelog quotes commands as
 #: prose about a release rather than as instructions, and holds ones that no longer exist on
 #: purpose.
-PUBLISHED = (README, HOSTING)
+PUBLISHED = (README, HOSTING, CONNECTING)
 
 #: Shell metacharacters that make a line more than one invocation. A line carrying any of
 #: these is skipped rather than guessed at: the guard's value is that it is quiet, and a

@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import sys
 import typing
 
@@ -23,6 +24,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.cli.topics
 import subroutine.config
 import subroutine.context
 import subroutine.directory
@@ -878,12 +880,51 @@ def test_help_explains_concepts_not_only_commands (
 
 	listed = run("explain")
 
-	for topic in ("dates", "capture", "refs", "scripting"):
+	for topic in ("dates", "capture", "refs", "connecting", "scripting"):
 		assert topic in listed.output
 
 	assert "deadline" in run("explain", "dates").output.lower()
 	assert "Nothing is ever lost" in run("explain", "capture").output
 	assert "#7" in run("explain", "refs").output
+	assert "connections add" in run("explain", "connecting").output
+
+
+def test_no_topic_names_a_command_that_does_not_exist () -> None:
+	"""`#542`. The rule the plugin's skill has had since `#134`, applied to the other prose.
+
+	``explain`` is where somebody who has only this program learns what it can do — it is the
+	one channel a terminal user is guaranteed, and `#499` says the guaranteed channel has to
+	name the ones they only get by going looking. That makes it the natural place for a command
+	to be recommended, and until now nothing checked that the recommendation still resolved.
+
+	**Whitespace-insensitive, and that is not a detail.** These bodies are hard-wrapped to a
+	terminal, so ``subroutine use`` genuinely does break across a line — and a pattern with a
+	literal space in it would silently stop reading half of them, which is `#544`'s
+	neighbouring defect and the second time this repository has paid for it.
+	"""
+
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
+	unknown = []
+
+	for topic in subroutine.cli.topics.TOPICS:
+		for text in (topic.summary, topic.body):
+			for match in re.finditer(r"\bsubroutine\s+([a-z][a-z-]*)", text):
+				if match.group(1) not in registered:
+					unknown.append(f"{topic.name}: 'subroutine {match.group(1)}'")
+
+	assert not unknown, (
+		f"a topic recommends a command that does not exist: {', '.join(unknown)}"
+	)
+
+	# A walk that matched nothing would satisfy the assertion above just as happily, and these
+	# bodies are the only thing it reads.
+	assert any(
+		re.search(r"\bsubroutine\s+[a-z]", topic.body) for topic in subroutine.cli.topics.TOPICS
+	), "no topic names a command at all — has this stopped reaching them?"
 
 
 def test_the_help_topics_are_generated_from_the_parsers (

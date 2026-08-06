@@ -69,6 +69,21 @@ upgrade involves.
   every merged listing count that instance's work twice, and finding out at the listing means
   being told nothing at all until a file is edited.
 
+- **[docs/connecting.md](docs/connecting.md), organised by which of five situations you are
+  in** rather than by how the software is built. Your work is on this machine or on a server;
+  you are at a terminal or you are an agent — those two questions decide everything, and the
+  answers were spread across a hosting guide, a README and two plugins' settings fields.
+
+  It opens with the three things to ask for if somebody else runs the instance: the address, a
+  token, and — the one people forget — **which workspace, if the instance holds more than one**.
+  Without that a session's first read is refused, and an agent has no way to guess.
+
+  Claude on the web is in it too, saying plainly that it is not built and why. A page that
+  covers four situations and goes quiet on the fifth reads as an oversight.
+
+- **`subroutine explain connecting`**, so the same question has an answer without leaving the
+  terminal.
+
 ### Changed
 
 - **`subroutine` the plugin now says it is the one that runs a program on your machine**, in its

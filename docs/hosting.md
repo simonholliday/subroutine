@@ -16,6 +16,11 @@ in front of it, systemd keeping it alive, PostgreSQL underneath once more than o
 using it. There is nothing to cluster and no message broker. If you have hosted a Django or a
 Rails application, you have already done this.
 
+**If you are not the one standing the server up, you want
+[docs/connecting.md](connecting.md) instead.** This page is the operator's end; that one is
+organised by which of five situations a person reaching an instance is in, and says what to ask
+you for. Sending it to whoever you issue a token to saves the conversation.
+
 > **One thing that is not optional.** Subroutine authenticates with bearer tokens, and a bearer
 > token sent over plain HTTP is a compromised token — anything on the path has it, and it does
 > not expire on being read. `serve` refuses to listen beyond this machine unless you have said

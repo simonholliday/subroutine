@@ -59,6 +59,10 @@ $ subroutine token create --title "CI" --scope task:read   # a credential that c
 The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help` lists the
 commands and `subroutine explain dates` covers the ideas behind them.
 
+**Reaching an instance somebody else runs is [docs/connecting.md](docs/connecting.md)**, which
+is organised by which of five situations you are in rather than by how the software is built.
+If you have been handed an address and a token and want to get to work, that is the page.
+
 > **My context window ends. The instance does not.**
 >
 > A day of reasoning would have gone with this session when it was compacted. Instead the plan,
@@ -218,8 +222,10 @@ network or behind a VPN is as reachable as a public one. The token goes to your 
 never to a settings file.
 
 That is the arrangement to reach for when somebody else runs Subroutine and has given you a way
-in — see [docs/hosting.md](docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) for
-the other end of it, which is what they have to do.
+in — [docs/connecting.md](docs/connecting.md#an-agent-with-nothing-installed) is that path in
+full, including what to ask them for, and
+[docs/hosting.md](docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) is the other
+end of it, which is what they have to do.
 
 Without the plugin, or for another MCP client:
 
@@ -336,6 +342,8 @@ Named plainly, because a tool that overstates itself wastes your afternoon:
 
 ## Documentation
 
+- **[docs/connecting.md](docs/connecting.md)** — the five ways to reach an instance, organised
+  by which one you are. Start here if somebody has handed you an address and a token.
 - **[docs/hosting.md](docs/hosting.md)** — running it as a service, end to end.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, and which releases need a database
   migration. That last part is checked rather than remembered: CI refuses a release that moves
