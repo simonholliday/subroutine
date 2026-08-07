@@ -252,6 +252,14 @@ upgrade involves.
 
 ### Changed
 
+- **The `subroutine-remote` listing no longer suggests adding the instance as a connector.**
+  It said *"to reach an instance from claude.ai, add it there as a connector instead"* — and
+  doing that reaches a dialog offering a URL and OAuth client credentials, with nowhere to put
+  the token you were given. It now says why the connector route is not available yet, so
+  nobody spends an afternoon finding out.
+
+  Plugin manifest at 0.4.3.
+
 - **`subroutine mcp` is a transport adapter now: the tools come from the instance.** It reads a
   message, has it answered by the instance the connection names, and writes the answer back. It
   builds no tools of its own.

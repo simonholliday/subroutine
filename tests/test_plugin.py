@@ -788,3 +788,41 @@ def test_the_skill_does_not_promise_a_field_no_tool_can_write () -> None:
 		"the skill tells an agent its motivation belongs in the description, 'one field away' "
 		"— and no tool takes one. Either a tool gains the field or the skill stops promising it."
 	)
+
+
+def test_neither_listing_offers_a_route_that_cannot_carry_a_token () -> None:
+	"""`#560`, from Simon's first contact on Claude Cowork (`#559`).
+
+	The remote plugin's description used to end *"to reach an instance from claude.ai, add it
+	there as a connector instead"*. Followed, that lands in an **Add custom connector** dialog
+	offering a URL and OAuth client credentials — no header field, `static_headers` not offered
+	— so a Subroutine token, the only credential this product issues, has nowhere to go. It was
+	measured on the surface rather than predicted; `#514` had reached the same conclusion from
+	Anthropic's documentation.
+
+	**Worse than saying nothing**, which is `#515`'s framing one surface over: the reader
+	arrives from a successful install, follows the one sentence that looks like an escape
+	hatch, and the effort spent confirms the wrong conclusion.
+
+	**Narrow on purpose.** This checks the two descriptions that name the connector route, and
+	nothing else — a guard over prose that fires on correct prose is one somebody switches off
+	(`#546`). What makes it go away is `#514`: when a connector *can* carry a credential, the
+	advice becomes true and this test should be deleted with the sentence it forbids.
+	"""
+
+	listed = {entry["name"]: entry["description"] for entry in _read(MARKETPLACE)["plugins"]}
+
+	for where, described in (
+		("the marketplace listing", listed["subroutine-remote"]),
+		("the plugin manifest", _read(REMOTE)["description"]),
+	):
+		assert "add it there as a connector" not in described, (
+			f"{where} sends a reader to a dialog that cannot take a Subroutine token"
+		)
+
+		# The positive half, which is what makes the negative one safe: saying less would leave
+		# somebody to discover the wall themselves, which is the same cost by a slower route.
+		assert "OAuth" in described, (
+			f"{where} does not say why a connector cannot be used, so a reader has no reason "
+			f"not to go and try it"
+		)
