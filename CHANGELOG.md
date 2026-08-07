@@ -86,6 +86,27 @@ upgrade involves.
 
 ### Fixed
 
+- **A raw call with a method the instance does not answer to is refused the same way over both
+  transports.** `subroutine_call_api` passed the method straight through, and what came back
+  depended on how you were connected. In process, anything unrecognised reached the router and
+  got a `405`. Over a network, `BREW` was a `400` from the server, and a method containing a
+  newline or a stray space failed inside the HTTP library and was reported as:
+
+  > work could not be reached at https://…: Illegal method characters
+  >
+  > Check that the instance is running and that you are on a network that can reach it.
+
+  Which blames the network for something the caller typed. The method is now checked where it is
+  read, so both sides answer identically and name the argument:
+
+  > `'BREW'` is not a method this instance answers to.
+  >
+  > Methods you can use: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT.
+
+  Nothing was ever smuggled onto the wire — the HTTP library refused those methods before
+  sending. This is about two transports giving one input two answers, and about a refusal saying
+  what is actually wrong.
+
 - **Two connections to one instance no longer stop you reading anything at all.** When two
   connections turn out to be the same server, a *merged* read would count everything twice, so
   it is refused. That check ran on every command that opened a connection — including

@@ -157,7 +157,9 @@ class Client:
 	) -> subroutine.clients.base.Answered:
 		"""Make one request against a route this credential already allows — `#485`."""
 
-		if method.upper() not in subroutine.clients.base.READING_VERBS:
+		verb = subroutine.clients.base.require_a_method(method)
+
+		if verb not in subroutine.clients.base.READING_VERBS:
 			self._refuse_if_read_only()
 
 		from subroutine.api import app as building
@@ -169,7 +171,7 @@ class Client:
 		answer = inprocess.call(
 			building.create_app(settings=self.settings, session_factory=self._sessions),
 			self._principal,
-			method=method.upper(),
+			method=verb,
 			path=subroutine.clients.base.require_a_route(path),
 			body=body,
 			query=query,

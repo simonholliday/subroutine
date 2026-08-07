@@ -94,11 +94,13 @@ class Client:
 	) -> subroutine.clients.base.Answered:
 		"""Make one request against a route this credential already allows — `#485`."""
 
-		if method.upper() not in subroutine.clients.base.READING_VERBS:
+		verb = subroutine.clients.base.require_a_method(method)
+
+		if verb not in subroutine.clients.base.READING_VERBS:
 			self._refuse_if_read_only()
 
 		answer = self._call(
-			method.upper(),
+			verb,
 			subroutine.clients.base.require_a_route(path),
 			params=query,
 			json=body,

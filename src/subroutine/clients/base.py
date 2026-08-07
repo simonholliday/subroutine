@@ -42,6 +42,16 @@ UNSET: typing.Any = object()
 #: §13.7 says the far end cannot enforce for you.
 READING_VERBS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+#: Every method a raw call may present. Not a syntax rule — an allow-list, because the point
+#: is that both transports answer the *same* input the same way (`#530`), and a merely
+#: well-formed method they both accept still diverges: measured, ``BREW`` is a 405 from the
+#: router in process and a 400 from the server over a socket.
+#:
+#: ``tests/test_transport_equivalence.py`` checks this against the methods the application
+#: actually mounts, so a route added with a verb missing here fails the build rather than
+#: becoming unreachable through ``call_api``.
+CALLABLE_METHODS = READING_VERBS | frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
 
 @dataclasses.dataclass(frozen=True)
 class Identity:
@@ -927,6 +937,53 @@ class Client(typing.Protocol):
 		traceback: types.TracebackType | None,
 	) -> None:
 		"""Release whatever this holds."""
+
+
+def require_a_method (method: str) -> str:
+	"""Return ``method`` upper-cased if a raw call may present it, refusing anything else — `#530`.
+
+	**Both transports read this argument and neither checked it**, so one input got three
+	different answers depending on how the caller happened to be connected. Measured against a
+	real instance and a real socket rather than reasoned about:
+
+	==========================  ==============  =========================================
+	given                       in process      over HTTP
+	==========================  ==============  =========================================
+	``BREW``                    405             400, from the server rather than the router
+	``GET\r\nX-Smuggled: 1``    405             refused by h11 at write time
+	``GET`` with a space        405             refused by h11 at write time
+	``""``                      405             refused by h11 at write time
+	==========================  ==============  =========================================
+
+	**The three HTTP rows arrived as "could not be reached"**, hinted with *check that the
+	instance is running and that you are on a network that can reach it* — a refusal blaming the
+	network for the caller's own argument, which is the one thing a refusal here must not do.
+
+	**Nothing was smuggled**, and that is h11's doing rather than ours: a method carrying CRLF
+	never reaches the wire. This is an equivalence and legibility fix, not a mitigation.
+
+	An allow-list rather than a syntax check, because a syntactically valid method both
+	transports accept is exactly the ``BREW`` row — well-formed, and answered two ways.
+	"""
+
+	given = method.strip().upper()
+
+	if given not in CALLABLE_METHODS:
+		listed = ", ".join(sorted(CALLABLE_METHODS))
+
+		raise subroutine.errors.ValidationError(
+			f"{method!r} is not a method this instance answers to.",
+			hint=f"Methods you can use: {listed}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="method",
+					code="invalid_field_value",
+					message=f"Expected one of {listed}.",
+				)
+			],
+		)
+
+	return given
 
 
 def require_a_route (path: str) -> str:

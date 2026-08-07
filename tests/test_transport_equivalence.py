@@ -28,6 +28,8 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.app
+import subroutine.api.routing
 import subroutine.clients.base
 import subroutine.clients.http
 import subroutine.clients.local
@@ -2586,3 +2588,84 @@ def test_both_change_a_deadline_and_its_tags_after_the_fact (pair: Pair) -> None
 
 	assert cleared.tags == []
 	assert cleared.due_at is not None, "clearing tags must not disturb the deadline"
+
+
+#: Methods a raw call must be refused for, and the same input must be refused *identically*
+#: whichever transport is holding it (`#530`). Each was measured against a real instance and a
+#: real socket before the fix: in process every one of them reached the router and got a 405,
+#: while over HTTP ``BREW`` was a 400 from the server and the rest were refused by h11 at write
+#: time and reported as *"could not be reached … Illegal method characters"*.
+MALFORMED_METHODS = (
+	"BREW",
+	"GET\r\nX-Smuggled: 1",
+	"GET\nX-Smuggled: 1",
+	"",
+	"TRACE",
+	"CONNECT",
+)
+
+
+def test_both_transports_refuse_the_same_malformed_method (pair: Pair) -> None:
+	"""`#530`. One argument got three different answers depending on how you were connected.
+
+	**What this fixture can and cannot show, said plainly.** The remote client here runs over
+	httpx's ASGI transport, so h11 is not in the path and the *original* HTTP failure — a
+	protocol error at write time, surfacing as `ServiceUnavailable` and blaming the network for
+	the caller's own argument — cannot be reproduced here. That half was measured by hand
+	against the served instance and is recorded on the item and in `require_a_method`.
+
+	What this does hold is the fix: the method is refused where the argument is *read*, so
+	neither transport is ever asked to carry it. Falsifiable either way — before the fix these
+	inputs returned a status rather than raising, on both sides.
+	"""
+
+	for method in MALFORMED_METHODS:
+		answers = []
+
+		for client in pair.both():
+			with pytest.raises(subroutine.errors.SubroutineError) as refused:
+				client.call_api(method=method, path="/v1/meta")
+
+			answers.append(str(refused.value))
+
+			assert "reach" not in str(refused.value).lower(), (
+				f"{method!r} was refused by blaming the network: {refused.value}"
+			)
+
+		assert answers[0] == answers[1], (
+			f"{method!r} is refused differently by the two transports:\n"
+			f"  local:  {answers[0]}\n  remote: {answers[1]}"
+		)
+
+
+def test_both_transports_normalise_an_acceptable_method_the_same_way (pair: Pair) -> None:
+	"""Case and surrounding space are the caller's typing, not a different request.
+
+	The half that stops the fix being "refuse anything unfamiliar": `require_a_route` already
+	strips, `call_api` already upper-cased, and both transports must go on agreeing about what
+	that leaves. `'GET '` used to be a 405 in process and a protocol error over a socket.
+	"""
+
+	for method in ("get", "GET ", " get\t", "GET"):
+		statuses = [client.call_api(method=method, path="/v1/meta").status for client in pair.both()]
+
+		assert statuses == [200, 200], f"{method!r} answered {statuses}"
+
+
+def test_every_method_the_application_mounts_can_be_called_raw () -> None:
+	"""The allow-list is checked against the routes rather than maintained beside them.
+
+	`call_api` exists so an agent can reach a route nobody wrote a method for (`#485`), so a
+	verb missing from `CALLABLE_METHODS` would make a route unreachable through the one thing
+	built to reach everything — silently, and only for whoever needed that route.
+	"""
+
+	mounted = subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+	used = {method for _path, methods, _route in mounted for method in methods}
+
+	assert used, "the walk found no routes at all, so it is not measuring the application"
+
+	assert used <= subroutine.clients.base.CALLABLE_METHODS, (
+		"a route is mounted with a method a raw call cannot present: "
+		f"{sorted(used - subroutine.clients.base.CALLABLE_METHODS)}"
+	)
