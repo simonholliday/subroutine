@@ -1179,3 +1179,38 @@ def test_the_connecting_page_says_how_to_configure_and_how_to_check () -> None:
 		"the page does not say how to check it worked, so an absence of errors is the only "
 		"signal a reader has — and an unconfigured plugin produces no errors either"
 	)
+
+
+def test_no_surface_says_where_a_credential_is_stored_beyond_what_was_measured () -> None:
+	"""`#572`. Four places told a token's holder it was in their system keychain. It was not.
+
+	Measured on Windows during a first-contact review: the token sits in
+	`%USERPROFILE%\\.claude\\.credentials.json` in plaintext. The claim appeared on both plugin
+	manifests' `token` fields, in the README and on the connecting page — every surface the
+	person pasting the credential in actually reads.
+
+	**A claim about where a secret lives, made to the person handing over the secret**, is the
+	kind believed without checking, which is precisely what we did when we wrote it. Somebody
+	who read it and concluded the file needed no protecting would have been wrong.
+
+	**Not our storage; our sentence.** The client decides where the credential goes and we
+	described that decision without measuring it on any platform. So the rule is narrow: do not
+	name a storage mechanism. Saying "keychain" was wrong, and replacing it with a confident
+	"a file" everywhere would repeat the mistake in the other direction — macOS and Linux were
+	never measured.
+	"""
+
+	surfaces = {
+		"README": README,
+		"the connecting page": CONNECTING,
+		"the local plugin's manifest": ROOT / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json",
+		"the remote plugin's manifest": ROOT / "plugins" / "subroutine-remote" / ".claude-plugin" / "plugin.json",
+	}
+
+	for where, path in surfaces.items():
+		text = path.read_text(encoding="utf-8")
+
+		assert "keychain" not in text.lower(), (
+			f"{where} says a credential is kept in a keychain. That was measured false on "
+			f"Windows (`#572`), and it is the client's choice rather than ours to describe"
+		)

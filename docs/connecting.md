@@ -177,8 +177,10 @@ is the part somebody else hands you.
 package, no configuration file of ours.
 
 **Your editor connects from *this* machine**, so an instance on your own network or behind a
-VPN is as reachable as a public one. The token goes to your system keychain rather than to a
-settings file.
+VPN is as reachable as a public one. Your editor stores the token, not Subroutine, and where it
+puts it depends on the editor and the machine — on Windows it is a file under your home
+directory. Treat it as you would any password there; if it is exposed, ask for a new one rather
+than moving this one somewhere safer.
 
 **If the instance holds more than one workspace, the address has to say which one.** Put it on
 the end:

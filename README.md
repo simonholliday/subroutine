@@ -218,8 +218,9 @@ $ claude plugin install subroutine-remote@subroutine
 
 Then paste in the address you were given and your token, and you are working. No Python, no
 package, no `config.toml`. Your editor connects from *this* machine, so an instance on your own
-network or behind a VPN is as reachable as a public one. The token goes to your system keychain,
-never to a settings file.
+network or behind a VPN is as reachable as a public one. Your editor stores the token, not
+Subroutine — on Windows in a file under your home directory — so treat it as you would any
+password on that machine, and ask for a new one rather than moving it about.
 
 That is the arrangement to reach for when somebody else runs Subroutine and has given you a way
 in — [docs/connecting.md](docs/connecting.md#an-agent-with-nothing-installed) is that path in

@@ -246,6 +246,20 @@ upgrade involves.
 
 ### Security
 
+- **The plugin no longer tells you your token is in your system keychain.** Both plugins' token
+  fields, the README and the connecting page all said *"Stored in your system keychain, never
+  in a settings file"*. On Windows it is in a plaintext file under your home directory —
+  measured, not inferred.
+
+  The client decides where the credential goes, and we described that decision without
+  checking it. It now says that your editor stores it rather than Subroutine, that on Windows
+  that means a file, and that it should be treated like any password on that machine. macOS
+  and Linux are not described, because they were not measured.
+
+  If you read the old sentence and concluded the file needed no protecting, it does.
+
+  Plugin manifests at 0.4.4 and 0.4.5.
+
 - **A raw API call can only be pointed at the API.** `subroutine_call_api` accepted any path on
   the instance, including `POST /mcp` — the endpoint that hosts `subroutine_call_api`. One
   authenticated request could nest a call inside a call inside a call, and each level occupied a
