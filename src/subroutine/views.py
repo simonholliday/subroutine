@@ -2090,6 +2090,18 @@ class Meta(pydantic.BaseModel):
 	server_time: datetime.datetime
 	instance: Instance | None
 
+	#: Which release this installation is running — the same value ``/v1/me`` has carried
+	#: since `#381`, published here too because **this is the response every client fetches
+	#: first** (`#250`). A client that learns it from ``identity()`` can explain a later
+	#: failure in terms of versions instead of reporting a shape it did not expect.
+	#:
+	#: Deliberately the same field name as on :class:`Me`, so a client looks for one key
+	#: rather than knowing which endpoint answered.
+	#:
+	#: **Defaulted, like everything added to a response model after it shipped** (`#345`,
+	#: `#482`). An instance older than this field sends no such key and must keep working.
+	instance_version: str | None = None
+
 	#: What this is, for the reader who arrived here with a base URL and a token and nothing
 	#: else. **Addressed to an agent, because an agent is the caller that has no other way to
 	#: find out** — a person has the README. It costs about thirty tokens against §13.1's size

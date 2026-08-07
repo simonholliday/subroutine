@@ -37,9 +37,14 @@ are replaced with fixed ones; nothing about the shape is edited.
 
 import typing
 
+import httpx
 import pydantic
 import pytest
 
+import subroutine.clients.http
+import subroutine.connections
+import subroutine.errors
+import subroutine.installations
 import subroutine.views
 
 #: ``GET /v1/me`` as served by 0.2.1.dev31 — the last shape before ``project_scope_keys``.
@@ -195,3 +200,111 @@ def test_the_captured_bodies_predate_the_version_fields () -> None:
 
 	assert "instance_version" in subroutine.views.Me.model_fields
 	assert "schema_revision" in subroutine.views.Me.model_fields
+
+
+def _answering (body: dict[str, typing.Any]) -> subroutine.clients.http.Client:
+	"""Return a client whose instance always answers with this body.
+
+	`httpx.MockTransport` rather than the application, because the point is a body *this build
+	cannot produce* — one an older instance sent. Building it from the app would regenerate it
+	from the current models, which is the failure this whole file exists to prevent.
+	"""
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token="sr_x",
+		transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body)),
+	)
+
+
+def test_a_version_skewed_instance_is_reported_as_skewed_rather_than_as_not_an_instance () -> None:
+	"""`#341`, which `#250` absorbed: the ordinary state was reported as a broken server.
+
+	An instance one release behind answered `whoami`, and the client said *"hpz2g4 answered,
+	but not as a Subroutine instance"* — about an instance it had been talking to all week —
+	and pointed the reader at proxies and captive portals. §13.7 makes several connections
+	normal and each may run a different release, so this is the fleet working as designed.
+
+	**The body that fails to parse is the one that knows.** `instance_version` sits beside the
+	field that is missing, so the explanation needs no second call and no earlier one.
+	"""
+
+	older = {
+		**ME_BEFORE_PROJECT_SCOPE_KEYS,
+		"instance_version": "0.4.0",
+		"user": {
+			key: value
+			for key, value in ME_BEFORE_PROJECT_SCOPE_KEYS["user"].items()
+			if key != "username"
+		},
+	}
+
+	with (
+		_answering(older) as client,
+		pytest.raises(subroutine.errors.SubroutineError) as refused,
+	):
+		client.me()
+
+	said = str(refused.value)
+
+	assert "0.4.0" in said, "name what the instance is running"
+	assert subroutine.installations.program() in said, "and what this program is"
+	assert "not as a Subroutine instance" not in said, "it plainly is one"
+
+
+def test_an_instance_that_names_no_version_is_still_reported_the_old_way () -> None:
+	"""The half that must not be lost, and the reason the captured bodies are useful here.
+
+	An instance predating `#381` sends no `instance_version`, so there is nothing to compare
+	and nothing to say about versions. Guessing at that point would be worse than the original
+	message: a proxy, a captive portal and a typo'd URL all answer like this too, and that is
+	what the reader needs to hear when the instance itself has not identified itself.
+	"""
+
+	broken = {
+		**ME_BEFORE_PROJECT_SCOPE_KEYS,
+		"user": {
+			key: value
+			for key, value in ME_BEFORE_PROJECT_SCOPE_KEYS["user"].items()
+			if key != "username"
+		},
+	}
+
+	assert "instance_version" not in broken, "the captured body predates the field"
+
+	with (
+		_answering(broken) as client,
+		pytest.raises(subroutine.errors.SubroutineError) as refused,
+	):
+		client.me()
+
+	assert "not as a Subroutine instance" in str(refused.value)
+
+
+def test_an_instance_running_this_build_is_not_reported_as_skewed () -> None:
+	"""A body that fails to parse while the versions *agree* is not a version problem.
+
+	This is the `#481` shape rather than a nicety: every development machine runs a build whose
+	version string is fixed at whatever tag its last install saw, so a check that fired on any
+	failure would blame skew on the one arrangement where there is none — an instance built
+	from the same commit as its client.
+	"""
+
+	same = {
+		**ME_BEFORE_PROJECT_SCOPE_KEYS,
+		"instance_version": subroutine.installations.program(),
+		"user": {
+			key: value
+			for key, value in ME_BEFORE_PROJECT_SCOPE_KEYS["user"].items()
+			if key != "username"
+		},
+	}
+
+	with (
+		_answering(same) as client,
+		pytest.raises(subroutine.errors.SubroutineError) as refused,
+	):
+		client.me()
+
+	assert "not as a Subroutine instance" in str(refused.value)
+	assert "disagree about what a response contains" not in str(refused.value)

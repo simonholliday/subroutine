@@ -31,6 +31,7 @@ import subroutine.db.types
 import subroutine.domain.capture
 import subroutine.domain.readiness
 import subroutine.errors
+import subroutine.installations
 import subroutine.views
 
 #: Any view model this client parses a response into.
@@ -76,6 +77,11 @@ class Client:
 				"User-Agent": f"subroutine/{subroutine.API_VERSION}",
 			},
 		)
+
+		# **What this instance last said it was running** — `#250`. Recorded as responses go
+		# past rather than fetched, because the call that needs it is the one that just failed:
+		# a body this client could not read is still a body that says which release wrote it.
+		self._instance_version: str | None = None
 
 	# --- The protocol ------------------------------------------------------------------
 
@@ -1098,7 +1104,8 @@ class Client:
 			why = reported[0]["msg"] if reported else "unexpected shape"
 
 			raise self._not_an_instance(
-				f"{model.__name__} could not be read from its response ({where}: {why})"
+				f"{model.__name__} could not be read from its response ({where}: {why})",
+				body=body,
 			) from None
 
 	def _collected (
@@ -1117,14 +1124,51 @@ class Client:
 
 		return [self._parsed(model, item) for item in body["items"]]
 
-	def _not_an_instance (self, because: str) -> subroutine.errors.SubroutineError:
-		"""Return the failure for a server that answered, but not as an instance."""
+	def _not_an_instance (
+		self, because: str, *, body: typing.Any | None = None
+	) -> subroutine.errors.SubroutineError:
+		"""Return the failure for a server that answered, but not as an instance.
+
+		**When the versions disagree, that is the answer and this says so** (`#250`, `#341`).
+		An instance one release behind answered `whoami` and was reported as *"not a Subroutine
+		instance"* — which it plainly was. §13.7 makes several connections normal and each may
+		run a different release, so the ordinary state was being described as a broken server,
+		and the advice sent the reader to look at proxies.
+		"""
+
+		running = self._version_named_in(body) or self._instance_version
+
+		if running is not None and running != subroutine.installations.program():
+			return subroutine.errors.ServiceUnavailable(
+				f"{self.connection.name} is running {running} and this program is "
+				f"{subroutine.installations.program()}, so they disagree about what a "
+				f"response contains: {because}.",
+				hint="Update whichever is older. Until then this connection works for "
+				"anything the two versions still agree about.",
+			)
 
 		return subroutine.errors.ServiceUnavailable(
 			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
 			hint=f"Check what is serving {self.connection.url} — a proxy, a captive portal or "
 			"an instance on a different API version will answer like this.",
 		)
+
+	@staticmethod
+	def _version_named_in (body: typing.Any) -> str | None:
+		"""Return the release a body says wrote it, if it says.
+
+		**The body that failed to parse is the one that knows.** `#341`'s case is `/v1/me`
+		refused for a field an older instance does not send — and `instance_version` is sitting
+		beside the field that is missing. Read here rather than only from what an earlier call
+		recorded, so the very first call of a session explains itself.
+		"""
+
+		if not isinstance(body, dict):
+			return None
+
+		named = body.get("instance_version")
+
+		return named if isinstance(named, str) else None
 
 	def _workspace (self, given: str | None) -> str:
 		"""Return the workspace to address, refusing to guess when none was named.
@@ -1235,6 +1279,13 @@ class Client:
 					hint=f"Check that {self.connection.url} is a Subroutine instance and not "
 					"a proxy or a login page.",
 				)
+
+			# `/v1/meta` and `/v1/me` both carry it, under one name so that this does not have
+			# to know which endpoint answered (`#250`).
+			seen = body.get("instance_version")
+
+			if isinstance(seen, str):
+				self._instance_version = seen
 
 			return body
 

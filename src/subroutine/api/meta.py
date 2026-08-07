@@ -53,6 +53,7 @@ import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.installations
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -172,6 +173,7 @@ def document (
 
 	return subroutine.views.Meta(
 		api_version=subroutine.API_VERSION,
+		instance_version=subroutine.installations.program(),
 		server_time=subroutine.db.types.utcnow(),
 		purpose=PURPOSE,
 		instance=None if instance is None else subroutine.views.instance(instance),

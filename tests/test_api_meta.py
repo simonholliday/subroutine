@@ -21,6 +21,7 @@ import subroutine.db.models.vocabulary
 import subroutine.domain.dates
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.installations
 import test_api_tasks
 
 
@@ -417,3 +418,27 @@ def test_the_guide_does_not_offer_the_unbuilt_agent_machinery (
 
 	assert unbuilt not in guide
 	assert "Not built yet" in guide, "and the absence is stated rather than left to be found"
+
+
+def test_meta_says_which_release_is_serving_it (world: test_api_tasks.World) -> None:
+	"""`#250`. The response every client fetches first should identify the build that sent it.
+
+	`api_version` is the wire contract and has read `"1.0"` since M1 — it is published seven
+	ways and moves for nothing, so comparing it can never report skew. `/v1/me` has carried the
+	*release* since `#381`, but a client only calls that for `whoami`, while `identity()` calls
+	this on every command. So this is where a client learns what it is talking to early enough
+	for a later failure to be explained rather than merely reported.
+
+	Named identically to the field on `Me`, so a client looks for one key rather than knowing
+	which endpoint answered.
+	"""
+
+	body = world.call("GET", "/v1/meta").json()
+
+	assert body["instance_version"] == subroutine.installations.program()
+	assert body["api_version"] == subroutine.API_VERSION, "the contract number is unchanged"
+
+	assert body["instance_version"] != body["api_version"], (
+		"a release version that equals the contract version would be the wrong field, and "
+		"comparing it could never report skew"
+	)

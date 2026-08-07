@@ -84,7 +84,33 @@ upgrade involves.
 - **`subroutine explain connecting`**, so the same question has an answer without leaving the
   terminal.
 
+- **`GET /v1/meta` reports `instance_version`** — the release the instance is running, the same
+  value `/v1/me` has carried since 0.3.0. It is the first thing every client fetches, which is
+  what makes it the right place to find out what you are talking to.
+
 ### Fixed
+
+- **An instance running a different release says so, instead of being reported as not being a
+  Subroutine instance.** When a server was a release behind, the response it sent could be
+  missing a field this program expects — and what you saw was:
+
+  > work answered, but not as a Subroutine instance: Me could not be read from its response
+  > (user.is_active: Field required).
+  >
+  > Check what is serving https://… — a proxy, a captive portal or an instance on a different
+  > API version will answer like this.
+
+  About an instance you had been talking to all week, sending you to look at proxies. Running
+  different versions on different machines is the ordinary arrangement, not a fault. Now:
+
+  > work is running 0.4.0 and this program is 0.5.0, so they disagree about what a response
+  > contains: Me could not be read from its response (user.is_active: Field required).
+  >
+  > Update whichever is older. Until then this connection works for anything the two versions
+  > still agree about.
+
+  An instance too old to say which release it is still gets the original message, because then
+  a proxy or a typo'd address really are the likelier explanations.
 
 - **A raw call with a method the instance does not answer to is refused the same way over both
   transports.** `subroutine_call_api` passed the method straight through, and what came back
