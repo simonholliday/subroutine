@@ -382,12 +382,22 @@ def authenticate (
 	presented: str,
 	*,
 	now: datetime.datetime | None = None,
+	record_use: bool = True,
 ) -> Principal:
 	"""Resolve a presented token into the principal holding it.
 
 	Raises :class:`AuthenticationError` for every kind of refusal. An unknown prefix and a
 	wrong secret raise the same one on purpose — distinguishing them would tell an
 	attacker when they had guessed half of a credential.
+
+	**``record_use=False`` is for resolving the same credential a second time inside one
+	request** — `#565`. A request that authenticates twice used to write ``last_used_at``
+	twice, in two sessions, on one row, and the second write blocked on the lock the first was
+	holding until the handler returned. One request, deadlocked against itself, with no
+	concurrency involved.
+
+	Recording it once per request is not a compromise reached to avoid that: a request is one
+	use, and counting it twice was always wrong. The deadlock is what made it visible.
 	"""
 
 	parsed = subroutine.auth.parse_token(presented)
@@ -419,7 +429,9 @@ def authenticate (
 
 	_refuse_an_agent_nobody_answers_for(session, user, prefix=prefix)
 
-	_record_use(token, moment)
+	if record_use:
+		_record_use(token, moment)
+
 
 	return Principal(user=user, token=token)
 

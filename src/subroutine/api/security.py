@@ -41,14 +41,30 @@ _TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
 
 #: A resolver: find a credential of one kind and identify its holder. ``None`` means "not
 #: my kind of credential"; raising means "my kind, and not acceptable".
-Resolver = typing.Callable[
-	[sqlalchemy.orm.Session, starlette.requests.Request],
-	subroutine.domain.authentication.Principal | None,
-]
+class Resolver(typing.Protocol):
+	"""One way of proving identity — §7.5's seam, and what a second credential type adds.
+
+	A protocol rather than a ``Callable`` alias so that ``record_use`` can be keyword-only:
+	every resolver has to accept it, because it is the caller's statement that this request
+	has already been counted (`#565`), and a resolver that quietly ignored it would
+	reintroduce the double write on whichever credential type it handles.
+	"""
+
+	def __call__ (
+		self,
+		session: sqlalchemy.orm.Session,
+		request: starlette.requests.Request,
+		*,
+		record_use: bool = True,
+	) -> subroutine.domain.authentication.Principal | None:
+		"""Return the principal this credential names, or ``None`` if it is not present."""
 
 
 def from_bearer_token (
-	session: sqlalchemy.orm.Session, request: starlette.requests.Request
+	session: sqlalchemy.orm.Session,
+	request: starlette.requests.Request,
+	*,
+	record_use: bool = True,
 ) -> subroutine.domain.authentication.Principal | None:
 	"""Identify the caller from ``Authorization: Bearer sr_…``."""
 
@@ -78,7 +94,9 @@ def from_bearer_token (
 			"Create an API token with 'subroutine token create'.",
 		)
 
-	return subroutine.domain.authentication.authenticate(session, credential)
+	return subroutine.domain.authentication.authenticate(
+		session, credential, record_use=record_use
+	)
 
 
 #: Every way of proving identity, tried in order. One today; §7.5 adds the next.
@@ -86,17 +104,24 @@ RESOLVERS: tuple[Resolver, ...] = (from_bearer_token,)
 
 
 def resolve (
-	session: sqlalchemy.orm.Session, request: starlette.requests.Request
+	session: sqlalchemy.orm.Session,
+	request: starlette.requests.Request,
+	*,
+	record_use: bool = True,
 ) -> subroutine.domain.authentication.Principal:
 	"""Identify the caller, or refuse the request.
 
 	The first resolver to find a credential of its kind decides the outcome — accepting it
 	or raising. Only when none of them found anything at all is this a request with no
 	credential, which is the one case that needs explaining rather than reporting.
+
+	**``record_use=False`` says this request has already been counted** (`#565`). It is passed
+	by the one caller that resolves the same credential a second time, in a second session, to
+	act as the requester rather than to authenticate them.
 	"""
 
 	for resolver in RESOLVERS:
-		found = resolver(session, request)
+		found = resolver(session, request, record_use=record_use)
 
 		if found is not None:
 			return found

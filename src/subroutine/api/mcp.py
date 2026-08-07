@@ -226,7 +226,13 @@ def _acting_as (
 				subroutine.domain.authentication.Principal, instead(session)
 			)
 
-		return subroutine.api.security.resolve(session, request)
+		# **Already counted, and counting it again deadlocks the request** (`#565`).
+		# `PrincipalDep` authenticated this caller in the request's own session and dirtied
+		# `token.last_used_at` there; `api/routing.Transactional` holds that transaction until
+		# after the handler returns, so the row lock outlives this call. Writing it a second
+		# time here — in the client's separate session, on the same row — blocked on the lock
+		# the same request was holding, with no concurrency involved at all.
+		return subroutine.api.security.resolve(session, request, record_use=False)
 
 	return resolve
 

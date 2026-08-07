@@ -100,6 +100,19 @@ upgrade involves.
 
 ### Fixed
 
+- **The MCP endpoint no longer deadlocks against itself.** A request to `POST /mcp`
+  authenticates its caller twice — once for the request, once for the client that acts as
+  them — and both wrote the same `last_used_at` timestamp on the same credential. The first
+  write held a row lock until the request finished; the second waited for it; the request
+  could not finish. One request was enough, with nothing else running.
+
+  It looked intermittent because that timestamp is only written once a minute: inside that
+  window neither write happens, so the endpoint worked, then stopped, then worked. Once it
+  stopped, every later call queued behind it and the service could not even be shut down
+  cleanly.
+
+  A request now counts its credential's use once, which is what it should always have done.
+
 - **A checkout still knows where it belongs when the connection is called something else on this
   machine.** A `.subroutine` file records a connection name, and that name is each machine's own
   nickname for a server — so two machines sharing a filesystem read one file and have to agree.

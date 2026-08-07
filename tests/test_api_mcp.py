@@ -18,18 +18,25 @@ wrong implementation of this endpoint:
   filed against this server, and a second transport is exactly where it would be reintroduced.
 """
 
+import datetime
 import json
+import os
 import typing
 
 import pytest
 import sqlalchemy.orm
 
 import api_support
+import conftest
 import subroutine.api.app
 import subroutine.api.mcp
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.base
+import subroutine.db.types
+import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
 import subroutine.mcp.session
@@ -487,3 +494,189 @@ def test_a_malformed_message_is_refused_by_the_far_end_rather_than_by_the_adapte
 
 	assert answered is not None
 	assert answered["error"]["code"] == subroutine.mcp.protocol.PARSE_ERROR
+
+
+def test_one_request_records_its_credentials_use_once (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#565`. Twice was a deadlock, and the deadlock needed no concurrency at all.
+
+	**This endpoint is the only place in the application that opens two sessions for one
+	request** — the request's own, and the client's, which `#527` examined and found correct.
+	Both authenticated the same credential, so both wrote `token.last_used_at`. The first took
+	a row lock that `api/routing.Transactional` holds until *after* the handler returns
+	(`#36`); the second blocked on it; the handler could not finish. One request, deadlocked
+	against itself, on a freshly started process with no other traffic.
+
+	**It looked intermittent because of the throttle.** `LAST_USED_INTERVAL` is a minute, and
+	inside it neither resolution writes — so the endpoint worked, then stopped, then worked.
+	Proven on the served instance: `/mcp` hung for 20s cold, and answered in 0.00s when a
+	single-session request had committed the timestamp seconds earlier.
+
+	**Counting a request once is not a workaround.** A request is one use; counting it twice
+	was always wrong, and the deadlock is only what made it visible.
+
+	**The suite could not have caught this and still cannot.** `api_support.factory_for` binds
+	every session to the test's one connection, so the two sessions here share it and cannot
+	lock each other — the *one of a thing* shape, at the fixture. So this counts the writes
+	rather than reproducing the block, and the block itself is measured against a real
+	instance and recorded on the item.
+	"""
+
+	counted: list[typing.Any] = []
+	original = subroutine.domain.authentication._record_use
+
+	def counting (token: typing.Any, moment: typing.Any) -> None:
+		"""Record that a write was attempted, then do it."""
+
+		counted.append(token.token_prefix)
+		original(token, moment)
+
+	monkeypatch.setattr(subroutine.domain.authentication, "_record_use", counting)
+
+	assert _said(_tool(world, "subroutine_whoami")), "the call has to succeed to prove anything"
+
+	assert len(counted) == 1, (
+		f"one request wrote last_used_at {len(counted)} times, on {len(set(counted))} "
+		f"credential(s) — twice on one row is the deadlock `#565` was"
+	)
+
+
+def test_the_second_resolution_leaves_the_token_clean (
+	world: test_api_tasks.World,
+) -> None:
+	"""The rule stated where it is enforced, rather than only where it is used.
+
+	`record_use=False` exists so a caller acting *as* the requester does not count the request
+	a second time. Accepting the argument and ignoring it would put the row back into the
+	caller's transaction, which is the whole defect — so this asserts nothing is left pending.
+	"""
+
+	world.session.flush()
+
+	before = dict(world.session.dirty)
+
+	found = subroutine.domain.authentication.authenticate(
+		world.session, world.secret, record_use=False
+	)
+
+	assert found.token is not None
+	assert dict(world.session.dirty) == before, (
+		"resolving with record_use=False dirtied the session, so the write is back inside the "
+		"caller's transaction and its row lock is held to the end of the request"
+	)
+
+	# And the ordinary path still records, or the throttle would be the only thing writing it.
+	world.session.expire_all()
+	subroutine.domain.authentication.authenticate(world.session, world.secret)
+
+	assert world.session.dirty, "the default must still record the use"
+
+
+@pytest.fixture
+def two_connections (tmp_path: typing.Any) -> typing.Iterator[str]:
+	"""Yield a PostgreSQL database of this test's own, for two genuinely separate sessions.
+
+	**The shared engine cannot be used and that is the point** (`#565`).
+	``api_support.factory_for`` binds every session to the test's one connection, so the two
+	sessions an MCP request opens share it and cannot lock one another — which is why 3,067
+	tests were green while the served endpoint deadlocked on its first cold call. Reproducing
+	it needs two real connections, and this follows `tests/test_instances.py`'s pattern of
+	creating and dropping a database rather than borrowing the suite's.
+
+	PostgreSQL only: SQLite locks the whole file, so it cannot show a *row* lock and would
+	report a different failure for a different reason.
+	"""
+
+	reason = conftest._postgres_unavailable_reason()
+
+	if reason is not None:
+		if conftest.REQUIRE_POSTGRES:
+			pytest.fail(reason)
+
+		pytest.skip(reason)
+
+	name = f"subroutine_lastused_{os.getpid()}_{abs(hash(tmp_path)) % 100000}"
+	admin = sqlalchemy.create_engine(
+		conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT"
+	)
+
+	try:
+		with admin.connect() as connection:
+			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
+			connection.execute(sqlalchemy.text(f'CREATE DATABASE "{name}"'))
+
+		yield conftest.with_database(conftest.POSTGRES_ADMIN_URL, name)
+
+		with admin.connect() as connection:
+			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+
+	finally:
+		admin.dispose()
+
+
+def test_authenticating_twice_in_one_request_does_not_block (two_connections: str) -> None:
+	"""`#565`, reproduced at the mechanism rather than through the endpoint.
+
+	An MCP request authenticates the same credential in two sessions. Both used to write
+	`token.last_used_at`; the first's row lock is held until `Transactional` commits *after*
+	the handler, so the second blocked on it and the handler never returned.
+
+	`lock_timeout` turns the hang into a failure a test can assert on — without it this test
+	would express the defect by never finishing, which is not a test.
+
+    Both halves are asserted: recording twice **must** block, or the reproduction has stopped
+	reproducing and the passing half proves nothing.
+	"""
+
+	engine = sqlalchemy.create_engine(two_connections)
+
+	try:
+		subroutine.db.base.Base.metadata.create_all(engine)
+		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+		with factory() as setup:
+			made = subroutine.domain.bootstrap.initialise(
+				setup, username="si", instance_name="Test"
+			)
+			_row, issued = subroutine.domain.authentication.issue_token(
+				setup, user=made.user, title="probe"
+			)
+			setup.commit()
+			secret = issued.value.get_secret_value()
+
+		# Older than LAST_USED_INTERVAL, so both resolutions want to write.
+		cold = subroutine.db.types.utcnow() - datetime.timedelta(hours=1)
+
+		def authenticate_twice (record_use: bool) -> bool:
+			"""Return whether the second resolution completed, as one request does it."""
+
+			with factory() as first, factory() as second:
+				second.execute(sqlalchemy.text("SET lock_timeout = '3s'"))
+
+				subroutine.domain.authentication.authenticate(first, secret, now=cold)
+				first.flush()
+
+				try:
+					subroutine.domain.authentication.authenticate(
+						second, secret, now=cold, record_use=record_use
+					)
+					second.flush()
+
+					return True
+
+				except sqlalchemy.exc.OperationalError:
+					return False
+
+		assert not authenticate_twice(record_use=True), (
+			"recording the use twice no longer blocks, so this test has stopped reproducing "
+			"`#565` and the assertion below proves nothing"
+		)
+
+		assert authenticate_twice(record_use=False), (
+			"the second resolution still blocks on the first — the request deadlocks against "
+			"itself and the endpoint stops answering"
+		)
+
+	finally:
+		engine.dispose()
