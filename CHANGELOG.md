@@ -84,6 +84,16 @@ upgrade involves.
 - **`subroutine explain connecting`**, so the same question has an answer without leaving the
   terminal.
 
+- **`subroutine list --connection work`** shows only what is on that connection, and
+  `subroutine search` and `subroutine ls` take it too. `-c` before the command moves where a
+  *write* goes and deliberately does not narrow what you can see — forgetting which context you
+  are in should never cost you a missed item — so asking for one instance on purpose had no
+  spelling at all, and meant turning the others off in `config.toml` and putting them back.
+
+  It is a filter rather than a context: nothing durable changes, and addresses still name their
+  connection, so a row you copy out of a narrowed listing still reaches the right instance once
+  the flag is gone.
+
 - **`GET /v1/meta` reports `instance_version`** — the release the instance is running, the same
   value `/v1/me` has carried since 0.3.0. It is the first thing every client fetches, which is
   what makes it the right place to find out what you are talking to.

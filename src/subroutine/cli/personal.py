@@ -144,6 +144,13 @@ class World:
 	#: in.
 	marker: subroutine.directory.Marker | None = None
 
+	#: The connection a `--connection` filter narrowed this listing to, if one did (`#272`).
+	#: Carried rather than inferred from :attr:`reached`, because the two questions differ:
+	#: how many connections are being *read* decides nothing, and how many this machine has
+	#: decides whether a printed address still resolves once the flag is gone — which is
+	#: `#280`'s rule, met here by a filter rather than by a context flag.
+	narrowed_to: str | None = None
+
 	@property
 	def clients (self) -> list[subroutine.clients.base.Client]:
 		"""Return every open client, in roster order."""
@@ -152,9 +159,15 @@ class World:
 
 	@property
 	def qualifies_connection (self) -> bool:
-		"""Report whether an address here has to name its connection."""
+		"""Report whether an address here has to name its connection.
 
-		return len(self.reached) > 1
+		**Narrowing by `--connection` does not shorten an address** (`#272`, on `#280`'s
+		rule). The flag is gone by the command somebody types next, so a row printed bare
+		because *this* listing had one connection in it would be an invitation to act on the
+		wrong instance — the exact hazard qualifying exists to remove.
+		"""
+
+		return len(self.reached) > 1 or self.narrowed_to is not None
 
 	@property
 	def qualifies_workspace (self) -> bool:
@@ -1432,6 +1445,7 @@ def register (
 		strict: bool,
 		order: str | None = None,
 		project: str | None = None,
+		connection: str | None = None,
 		deferred: bool = False,
 		q: str | None = None,
 		ready: bool = False,
@@ -1456,6 +1470,9 @@ def register (
 		# Grouped by connection, one heading each, so the same instance under two names is
 		# shown twice rather than counted twice — which is what the file says (`#327`).
 		with opened(strict=strict, merged=False) as world:
+			if connection is not None:
+				world = _only_this_connection(world, connection)
+
 			gathered = _listing(
 				world,
 				limit=limit,
@@ -1673,6 +1690,9 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		connection: str = typer.Option(
+			"", "--connection", help="Only this connection, by name."
+		),
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
@@ -1720,6 +1740,7 @@ def register (
 			strict=strict,
 			order=order or None,
 			project=project or None,
+			connection=connection or None,
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
@@ -1746,6 +1767,9 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		connection: str = typer.Option(
+			"", "--connection", help="Only this connection, by name."
+		),
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
@@ -1769,6 +1793,7 @@ def register (
 			strict=strict,
 			order=order or None,
 			project=project or None,
+			connection=connection or None,
 			deferred=deferred,
 			q=_asked(terms, "What are you looking for?"),
 		)
@@ -1856,6 +1881,9 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		connection: str = typer.Option(
+			"", "--connection", help="Only this connection, by name."
+		),
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
@@ -1895,6 +1923,7 @@ def register (
 			strict=strict,
 			order=order or None,
 			project=project or None,
+			connection=connection or None,
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
@@ -4660,6 +4689,40 @@ def register (
 		listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
 		return f"{verb:<12}  {named}{listed}"
+
+	def _only_this_connection (world: World, name: str) -> World:
+		"""Return the world with only the named connection in it — `#272`.
+
+		**A filter, not a context, and the difference is the whole item.** `-c` before the
+		command moves where a *write* goes; §13.7 keeps reads spanning everything reachable so
+		that forgetting which context you are in can never cost you a missed item. That leaves
+		"show me only what is on the work instance" — asked for its own sake while checking one
+		server, or driving one instance during a migration — with no spelling at all, and the
+		only way to say it was to disable the others in `config.toml` and put them back.
+
+		So it narrows the rows and changes nothing durable, exactly as `--project` does one
+		level up, and it is spelled *after* the command for that reason: before the command is
+		context, after it is a filter.
+
+		**The roster is left whole on purpose.** `World.address_of` qualifies an address when
+		more than one connection is configured, so rows still print as `work/#42` — which is
+		what somebody types next, after the flag is gone.
+		"""
+
+		wanted = world.roster.require(name)
+		kept = tuple(item for item in world.reached if item.client.connection.name == wanted.name)
+
+		if not kept:
+			# **Configured but not reached is a different answer from "nothing there"**, and an
+			# empty listing would report the second while meaning the first. The failure is
+			# already collected — a connection that could not be built or could not be read —
+			# so this says so rather than showing an empty list somebody would believe.
+			stop(
+				f"Connection {wanted.name!r} was asked for and could not be read.",
+				"Run 'subroutine connections' to see what this machine can reach.",
+			)
+
+		return dataclasses.replace(world, reached=kept, narrowed_to=wanted.name)
 
 	def _listing (
 		world: World,

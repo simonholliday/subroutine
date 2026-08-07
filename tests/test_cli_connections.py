@@ -2408,3 +2408,66 @@ def test_a_merged_agenda_still_refuses_when_two_connections_are_one_instance (
 
 	assert "same instance" in refused
 	assert "work" in refused and "acme" in refused
+
+
+def test_a_listing_can_be_narrowed_to_one_connection (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#272`. "Show me only what is on the work instance" had no spelling at all.
+
+	`-c` moves the *write* context and deliberately does not narrow a read (§13.7), because
+	forgetting which context you are in must never cost you a missed item. That is right, and
+	it left the other question — asked while checking one server, or driving one instance
+	during a migration — answerable only by disabling the others in `config.toml` and putting
+	them back afterwards.
+
+	A filter, spelled after the command like `--project`, changing nothing durable.
+	"""
+
+	both = run("list").output
+
+	assert "Fix the deploy script" in both and "Pay the gas bill" in both
+
+	narrowed = run("list", "--connection", "work").output
+
+	assert "Fix the deploy script" in narrowed
+	assert "Pay the gas bill" not in narrowed, "the local connection's task is filtered out"
+
+	# Nothing durable changed: the next bare listing is the whole thing again.
+	assert "Pay the gas bill" in run("list").output
+
+
+def test_narrowing_to_one_connection_does_not_shorten_the_addresses (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#280`'s rule, met by a filter rather than by a context flag.
+
+	An address is printed as the shortest form that *resolves*, and with one connection in
+	view the shortest form drops its name. But the flag is gone by the command somebody types
+	next, so a row printed bare here would be an invitation to act on the wrong instance —
+	which is the entire hazard qualifying an address exists to remove.
+
+	Found by running it rather than by reasoning: the first version of this narrowed the
+	reached set, `qualifies_connection` counts that set, and the addresses quietly shortened.
+	"""
+
+	narrowed = [
+		line for line in run("list", "--connection", "work").output.splitlines()
+		if "Fix the deploy script" in line
+	]
+
+	assert narrowed, "the row is there to be addressed"
+	assert "work/" in narrowed[0], (
+		f"the address must still name the connection: {narrowed[0]!r}"
+	)
+
+
+def test_narrowing_to_a_connection_that_is_not_configured_names_the_ones_that_are (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""A filter naming nothing is a typo, and the remedy is the list of real names."""
+
+	refused = run("list", "--connection", "wrok", expect=1).output
+
+	assert "wrok" in refused
+	assert "work" in refused and "local" in refused
