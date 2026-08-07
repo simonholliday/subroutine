@@ -3186,6 +3186,87 @@ def test_a_checkout_still_finds_its_project_after_a_rename (
 	assert "After the rename" in run("list", "--project", "SR").output
 
 
+def test_a_marker_holding_an_old_spelling_of_a_current_key_says_so (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""`#554`. The drift check normalised both sides, so a case difference matched silently.
+
+	`#508` changed the *stored* form of a key to lower case. Every marker written before it
+	holds a spelling this program no longer stores, prints or writes anywhere — so the file on
+	disk states something no other surface agrees with, and the one mechanism built to notice
+	that could not see it, because matching is what it compared. Met on a real instance and
+	read as the rename having half-failed.
+
+	Resolution stays case-insensitive, which is what keeps those markers working at all. Only
+	the question *does this file agree with us* is exact.
+	"""
+
+	run("init")
+	run("project", "create", "st", "Subtask")
+
+	os.chdir(tmp_path)
+	run("use", "--here", "--project", "st")
+
+	# Exactly what an older program left behind: the id is right and the key beside it is
+	# written the way keys used to be stored. Rewritten rather than hand-built, so every other
+	# field stays whatever `use --here` really writes.
+	marker = tmp_path / subroutine.directory.FILE_NAME
+	marker.write_text(
+		marker.read_text(encoding="utf-8").replace('project = "st"', 'project = "ST"'),
+		encoding="utf-8",
+	)
+
+	added = run("add", "Filed from an old checkout")
+
+	assert "'ST'" in added.output, (
+		f"the stale spelling is not reported, so the file goes on disagreeing: {added.output}"
+	)
+
+	assert "'st'" in added.output, (
+		f"and it does not say what the key actually is, which is the half that is actionable: "
+		f"{added.output}"
+	)
+
+	# It still resolves, which is the half that must not change: those markers predate the
+	# rule, and an upgrade that stops old checkouts working is the outage.
+	assert "Filed from an old checkout" in run("list", "--project", "st").output
+
+	# And it is not described as a rename. Nothing was renamed, and saying so about two
+	# spellings of one key is what made this confusing when somebody met it.
+	assert "is now" not in added.output, added.output
+
+
+def test_a_marker_that_agrees_with_the_instance_says_nothing (
+	run: typing.Callable[..., typer.testing.Result], tmp_path: pathlib.Path
+) -> None:
+	"""The other side of `#554`, and the reason the comparison could not simply be tightened.
+
+	`use --here` normalises what it writes, so a marker this program produced always agrees.
+	A check that fired anyway would put a warning under every capture in every checkout, and a
+	warning that appears when nothing is wrong stops being read — which would cost more than
+	the silence it replaced.
+	"""
+
+	run("init")
+	run("project", "create", "st", "Subtask")
+
+	os.chdir(tmp_path)
+
+	# Typed in capitals, deliberately: input is case-insensitive and always was (`#508`), so
+	# what lands in the file is the stored form rather than what was typed.
+	run("use", "--here", "--project", "ST")
+
+	added = run("add", "Filed from a current checkout")
+
+	# The marker really was consulted, which is what stops the rest of this passing vacuously:
+	# one that had not been found would produce no warning either, for the wrong reason.
+	assert f"from {subroutine.directory.FILE_NAME}" in added.output, added.output
+
+	assert "use --here" not in added.output, (
+		f"a marker this program wrote is reported as disagreeing with it: {added.output}"
+	)
+
+
 def test_a_type_can_be_given_when_an_item_is_captured (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

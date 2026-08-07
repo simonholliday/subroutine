@@ -3921,16 +3921,33 @@ def register (
 			return None
 
 		# **The one moment this file can explain itself.** The id resolved and the key beside
-		# it did not match, which is exactly what a rename leaves behind — so say it once,
-		# here, rather than letting the file go on quietly disagreeing with itself.
-		# Compared normalised on both sides: a marker holds what somebody wrote, and the
-		# project holds the stored form, so a checkout marked `WEB` still matches `web`.
-		if world.marker.project and subroutine.domain.projects.normalize_key(
-			world.marker.project
-		) != subroutine.domain.projects.normalize_key(named):
+		# it does not match what is stored, which is what a rename leaves behind — so say it
+		# once, here, rather than letting the file go on quietly disagreeing with itself.
+		#
+		# **Compared exactly, against the stored key** (`#554`). It used to normalise both
+		# sides, so a marker saying `WEB` matched `web` and nothing was ever said — and `#508`
+		# then changed the stored form, leaving every marker written before it holding a
+		# spelling this program no longer stores, prints or writes anywhere. The file said
+		# something no other surface agreed with and the one mechanism built to notice could
+		# not see it. *Resolution* stays case-insensitive, in `directory.resolve`, so those
+		# markers go on working; only the question "does this file agree with us" is exact.
+		if world.marker.project and world.marker.project != named:
+			# **Two different things to be told.** A rename changed which project the key
+			# names; a respelling changed nothing but how it is written, and saying "that
+			# project is now reprobate" about a marker reading `REPROBATE` would read as a
+			# rename that half-failed — which is exactly how this was met on a real instance.
+			respelling = (
+				subroutine.domain.projects.normalize_key(world.marker.project) == named
+			)
+
 			warn(
-				f"{FILE_NAME} here still says {world.marker.project!r}; that project is now "
-				f"{named}. Run 'subroutine use --here --project {named}' to bring it up to date."
+				f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
+				f"as {named!r}. It still resolves, so nothing is broken — 'subroutine use "
+				f"--here --project {named}' brings the file into line."
+				if respelling
+				else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
+				f"now {named}. Run 'subroutine use --here --project {named}' to bring it up "
+				f"to date."
 			)
 
 		return named

@@ -34,6 +34,14 @@ upgrade involves.
 
 ### Fixed
 
+- **A `.subroutine` marker written before project keys became lower case is now reported.** The
+  check that tells you a marker has gone stale compared the two keys case-insensitively, which
+  is how they *resolve* — so a file saying `WEB` against a project stored as `web` matched, said
+  nothing, and went on stating a spelling this program no longer writes anywhere. You will see
+  one line under the next capture in such a checkout, saying what the key is stored as and
+  offering `subroutine use --here --project …`. Nothing is broken and the marker keeps working;
+  markers this version wrote already agree and stay silent.
+
 - **A raw `subroutine_call_api` whose answer is too long to report no longer reads as a failed
   call.** The size limit is applied after the request has been made, so on a write the change had
   already happened while the agent was told it had not — and the obvious next move is to send it
