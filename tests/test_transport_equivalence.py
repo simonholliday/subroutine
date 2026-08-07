@@ -2669,3 +2669,58 @@ def test_every_method_the_application_mounts_can_be_called_raw () -> None:
 		"a route is mounted with a method a raw call cannot present: "
 		f"{sorted(used - subroutine.clients.base.CALLABLE_METHODS)}"
 	)
+
+
+def test_a_raw_call_cannot_be_pointed_at_anything_but_the_api (pair: Pair) -> None:
+	"""`#557`. `#484` asked what the escape hatch may *do* and not what it may be pointed at.
+
+	`subroutine_call_api` reached `POST /mcp` — the endpoint that hosts `subroutine_call_api` —
+	so one request could nest until the instance stopped answering anybody. Driven on a served
+	instance before the fix: depth 5 answered in 5.1s, depth 20 did not answer in 30s, and with
+	a depth-30 request in flight `/readyz` timed out twice at 8s. A `task:read` credential was
+	enough, because every control this surface has sits below the recursion.
+
+	Refused identically on both transports, because a rule enforced on one of them is the
+	divergence this file exists to find.
+	"""
+
+	for path in ("/mcp", "/healthz", "/readyz", "/", "/mcp/"):
+		refusals = []
+
+		for client in pair.both():
+			with pytest.raises(subroutine.errors.SubroutineError) as refused:
+				client.call_api(method="GET", path=path)
+
+			refusals.append(str(refused.value))
+
+		assert refusals[0] == refusals[1], f"{path!r} is refused differently: {refusals}"
+		assert "/v1" in refusals[0], f"say where a raw call may go: {refusals[0]}"
+
+	# And the API itself is untouched, so this is a boundary rather than a wall.
+	assert all(
+		client.call_api(method="GET", path="/v1/meta").status == 200 for client in pair.both()
+	)
+
+
+def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> None:
+	"""The positive rule, checked against the routes rather than maintained beside them.
+
+	A deny-list names what is forbidden and goes stale when a route is added; this names what is
+	*allowed* and is compared with what the application mounts. The three exclusions are stated
+	rather than implied, so adding a fourth route outside `/v1` is a decision somebody takes.
+	"""
+
+	mounted = subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+	outside = {
+		path
+		for path, _methods, _route in mounted
+		if not path.startswith(f"{subroutine.clients.base.API_PREFIX}/")
+	}
+
+	assert mounted, "the walk found no routes at all, so it is not measuring the application"
+
+	assert outside == {"/healthz", "/readyz", "/mcp"}, (
+		"a route appeared outside the API prefix, so a raw call cannot reach it. That is either "
+		"correct and belongs in this list with a reason, or the route is API and is misplaced.\n"
+		f"found: {sorted(outside)}"
+	)

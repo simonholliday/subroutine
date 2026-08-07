@@ -231,6 +231,25 @@ upgrade involves.
   rather than spelling it in prose, so the HTTP API still says `workspace_id` and an agent is
   told `workspace`.
 
+### Security
+
+- **A raw API call can only be pointed at the API.** `subroutine_call_api` accepted any path on
+  the instance, including `POST /mcp` — the endpoint that hosts `subroutine_call_api`. One
+  authenticated request could nest a call inside a call inside a call, and each level occupied a
+  worker thread while it waited for the next.
+
+  Measured on a served instance: five levels answered in five seconds, twenty did not answer in
+  thirty, and while a thirty-level request was in flight `/readyz` — public, and touching nothing
+  — timed out twice. **A read-only credential was enough**, because the nesting sits below every
+  scope and permission check.
+
+  Paths must now begin with `/v1/`. Nothing about what a credential may *do* has changed: this
+  says where the escape hatch may be aimed, which nothing said before.
+
+  The three routes this excludes are `/healthz`, `/readyz` and `/mcp`. The first two are public
+  and tell a credentialed caller nothing it cannot already ask for; the third is a transport
+  rather than a route.
+
 ### Changed
 
 - **`subroutine mcp` is a transport adapter now: the tools come from the instance.** It reads a

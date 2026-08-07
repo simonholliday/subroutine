@@ -52,6 +52,20 @@ READING_VERBS = frozenset({"GET", "HEAD", "OPTIONS"})
 #: becoming unreachable through ``call_api``.
 CALLABLE_METHODS = READING_VERBS | frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+#: Where this instance's API lives, and the only place a raw call may be pointed — `#557`.
+#:
+#: **A positive rule rather than a deny-list**, which is a deliberate choice. `#484`'s escape
+#: hatch exists to reach *the API*: routes no tool covers but a credential already allows. The
+#: three routes outside this prefix are not that — ``/healthz`` and ``/readyz`` are public
+#: liveness, and ``/mcp`` is a transport that itself hosts this tool, so pointing it there let
+#: one authenticated request nest until the instance stopped answering anybody.
+#:
+#: The deny-list is the wrong instrument for it: `#527` records in terms that it is not a
+#: privilege boundary but a list of *consequential acts a person should be asked about*, and it
+#: would name one route where the rule is about a class. ``tests/test_transport_equivalence.py``
+#: checks this against the routes the application actually mounts.
+API_PREFIX = "/v1"
+
 
 @dataclasses.dataclass(frozen=True)
 class Identity:
@@ -1013,6 +1027,15 @@ def require_a_route (path: str) -> str:
 			f"'/', such as '/v1/tasks'.",
 			hint="A whole URL is refused deliberately: this connection's credential travels "
 			"with the request, and it belongs only to the instance it was issued for.",
+		)
+
+	if not given.startswith(f"{API_PREFIX}/"):
+		raise subroutine.errors.ValidationError(
+			f"{path!r} is not part of this instance's API. Paths a raw call may reach begin "
+			f"with '{API_PREFIX}/', such as '/v1/tasks'.",
+			hint="'/healthz' and '/readyz' are public and say nothing this credential cannot "
+			"already ask for; '/mcp' is a transport rather than a route, and reaching it from "
+			"here would be this tool calling the thing that hosts it.",
 		)
 
 	return given
