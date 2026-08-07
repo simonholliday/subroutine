@@ -100,6 +100,27 @@ upgrade involves.
 
 ### Fixed
 
+- **A checkout still knows where it belongs when the connection is called something else on this
+  machine.** A `.subroutine` file records a connection name, and that name is each machine's own
+  nickname for a server — so two machines sharing a filesystem read one file and have to agree.
+  When they did not, the whole marker was ignored, not just the connection:
+
+  > .subroutine here names connection 'their-name-for-it', which is not configured. Using 'local' instead.
+  > local has several workspaces, so there is no way to tell which one this is about.
+
+  — asked which workspace, with the answer sitting in the file. The marker also records the
+  workspace's permanent identifier, so it is now looked for on the connections this machine does
+  have:
+
+  > .subroutine here names connection 'their-name-for-it', which is not configured — its workspace
+  > is on 'work', so that is where this goes.
+
+  Matched by identifier only, never by name: a project called `sr` here is not the `sr` on
+  somebody else's server, and that distinction is what keeps work from being filed in the wrong
+  place. If two connections turn out to hold it, nothing is guessed and the old behaviour stands.
+  This also covers renaming a connection in `config.toml`, which needs no shared filesystem at
+  all.
+
 - **An instance running a different release says so, instead of being reported as not being a
   Subroutine instance.** When a server was a release behind, the response it sent could be
   missing a field this program expects — and what you saw was:

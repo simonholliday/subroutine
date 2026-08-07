@@ -2471,3 +2471,123 @@ def test_narrowing_to_a_connection_that_is_not_configured_names_the_ones_that_ar
 
 	assert "wrok" in refused
 	assert "work" in refused and "local" in refused
+
+
+def test_a_marker_finds_its_workspace_on_a_connection_called_something_else_here (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#556`, building `#330`'s decision. A connection name is each machine's private alias.
+
+	Two machines mounting one filesystem read one `.subroutine`, so the nickname has to agree —
+	and when it does not, the *whole* marker stopped directing rather than just the connection:
+	`context.resolve` drops the workspace with it, because a slug means nothing on an instance
+	that has never heard of it. The id does, and has been in every marker since `#317`.
+
+	Written by the program and then edited, rather than hand-built, so the shape under test is
+	the one `use --here` actually produces.
+	"""
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+
+	run("-c", "work", "use", "--here")
+
+	written = (checkout / subroutine.directory.FILE_NAME).read_text(encoding="utf-8")
+
+	assert "workspace_id" in written, "the marker carries the durable half"
+
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		written.replace('connection = "work"', 'connection = "their-name-for-it"'),
+		encoding="utf-8",
+	)
+
+	added = run("add", "Filed by id")
+
+	assert "their-name-for-it" in added.output, "say the file names something we do not have"
+	assert "its workspace is on 'work'" in added.output, "and say where it was found"
+	assert "Using 'local' instead" not in added.output, "which is what used to happen"
+
+	# The whole point: it landed on the instance the marker meant.
+	assert "Filed by id" in run("list", "--connection", "work").output
+	assert "Filed by id" not in run("list", "--connection", "local").output
+
+
+def test_a_marker_whose_workspace_is_nowhere_still_does_not_file_by_project_key (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#414` must survive `#556`, and this is what says the widening is narrow.
+
+	`#414` found a marker whose connection was dropped matching its project by **key** on
+	whichever instance answered, and filing work into a same-named project somewhere else. The
+	fix was `Marker.speaks_for`, which compares the name the marker wrote.
+
+	`#556` widens that gate — but only on a `workspace_id` match, which is a claim a key cannot
+	make. So a marker whose id is held by nothing must be refused exactly as before, *even
+	though* a project of its key exists right here. Falsified by widening the gate to any
+	dropped marker: the task is then filed in `SR`.
+	"""
+
+	run("project", "create", "sr", "Subroutine")
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		'connection = "gone"\n'
+		'workspace_id = "019f0000-0000-7000-8000-000000000000"\n'
+		'project = "sr"\n',
+		encoding="utf-8",
+	)
+
+	added = run("add", "Filed where this connection says")
+
+	assert "in sr" not in added.output, "no instance holds that workspace, so nothing is honoured"
+	assert "Using 'local' instead" in added.output
+
+
+def test_a_marker_whose_workspace_is_on_two_connections_falls_back_rather_than_guessing (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#327` made two connections to one instance readable, so this is a state somebody has.
+
+	Both hold the id, so the question has two answers and the point of resolving by id is that
+	it has one. Falling back is today's behaviour and says so out loud, which is the whole of
+	what `#330` decided here: it never guesses.
+	"""
+
+	checkout = tmp_path / "checkout"
+	checkout.mkdir()
+	monkeypatch.chdir(checkout)
+
+	# The marker is written before the second alias exists, because `use` is a write and a
+	# duplicate instance is refused there — `#327` left that check on the merged path.
+	run("-c", "work", "use", "--here")
+
+	written = (checkout / subroutine.directory.FILE_NAME).read_text(encoding="utf-8")
+
+	(checkout / subroutine.directory.FILE_NAME).write_text(
+		written.replace('connection = "work"', 'connection = "their-name-for-it"'),
+		encoding="utf-8",
+	)
+
+	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
+	subroutine.credentials.store("acme", two.token)
+
+	said = run("list").output
+
+	assert "Using" in said and "instead" in said, "today's behaviour, unchanged"
+	assert "its workspace is on" not in said, "two answers is not an answer"

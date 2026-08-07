@@ -753,17 +753,6 @@ def register (
 		except subroutine.errors.SubroutineError as error:
 			fail(error)
 
-		# **Said here, because `context.resolve` has no output and must not grow any** (`#409`).
-		# Its workspace twin is warned about further down, in `_settled`, for the same reason
-		# and in the same words: a marker is advisory, so it is ignored aloud rather than
-		# obeyed silently or allowed to stop the program.
-		if current.unusable_marker_connection is not None:
-			warn(
-				f"{FILE_NAME} here names connection "
-				f"{current.unusable_marker_connection!r}, which is not configured. "
-				f"Using {current.connection!r} instead."
-			)
-
 		with contextlib.ExitStack() as stack:
 			clients = []
 
@@ -846,7 +835,9 @@ def register (
 			try:
 				yield World(
 					roster=roster,
-					current=_settled(roster, current, reached, marker),
+					current=_settled(
+						roster, _marker_taken_elsewhere(current, reached, marker), reached, marker
+					),
 					reached=reached,
 					unreachable=(*unbuilt, *gathered.failures),
 					settings=resolved,
@@ -855,6 +846,60 @@ def register (
 
 			except subroutine.errors.SubroutineError as error:
 				fail(error)
+
+	def _marker_taken_elsewhere (
+		current: subroutine.context.Current,
+		reached: typing.Sequence[Reached],
+		marker: subroutine.directory.Marker | None,
+	) -> subroutine.context.Current:
+		"""Find a dropped marker's workspace on whichever connection actually holds it — `#556`.
+
+		**A connection name is each machine's private alias, and a shared checkout makes it
+		shared** (`#330`). Two machines mounting one filesystem read one `.subroutine`, so the
+		nickname has to agree — and when it does not, the *whole* marker stopped directing, not
+		just the connection: `context.resolve` drops the workspace with it, because a workspace
+		*slug* means nothing on an instance that has never heard of it.
+
+		The id does. `workspace_id` has been in every marker since `#317` and is a uuid, so
+		asking which reached connection holds it is a question with one answer or none.
+
+		**By id, never by name, and `#414` is why.** That finding is a marker whose connection
+		was dropped matching its project by *key* on whichever instance answered, and filing
+		work into a same-named project somewhere else. A key is a claim that can be true twice;
+		a uuid is not. So this widens `Marker.speaks_for` in exactly one direction and leaves
+		the name test alone.
+
+		**Nothing reachable, nothing changes** (`#166`): this runs after the fan-out that had to
+		happen anyway, so it adds no request, and with nothing to ask it returns what it was
+		given. Several matches — which `#327` made a state somebody can be in — also return
+		unchanged, because refusing to guess is the whole point of using an id.
+		"""
+
+		if current.unusable_marker_connection is None or marker is None:
+			return current
+
+		if marker.workspace_id is None:
+			return current
+
+		holding = [
+			item
+			for item in reached
+			if any(str(row.id) == marker.workspace_id for row in item.identity.workspaces)
+		]
+
+		if len(holding) != 1:
+			return current
+
+		found = holding[0].name
+
+		return dataclasses.replace(
+			current,
+			connection=found,
+			connection_source=subroutine.context.FROM_DIRECTORY,
+			marker_found_on=found,
+			workspace=marker.workspace,
+			workspace_source=subroutine.context.FROM_DIRECTORY,
+		)
 
 	def _settled (
 		roster: subroutine.connections.Roster,
@@ -874,6 +919,27 @@ def register (
 		Anything a person typed *now* still refuses, loudly. The difference is who said it and
 		when.
 		"""
+
+		# **Said here rather than before the fan-out** (`#409`, moved by `#556`). Until the
+		# connections have been asked there is no way to know whether the marker can still be
+		# honoured, and a line saying "using X instead" printed above one that quietly used Y
+		# is the two-lines-of-one-act disagreement `#414` found.
+		if current.unusable_marker_connection is not None:
+			if current.marker_found_on is None:
+				warn(
+					f"{FILE_NAME} here names connection "
+					f"{current.unusable_marker_connection!r}, which is not configured. "
+					f"Using {current.connection!r} instead."
+				)
+
+			else:
+				# Not silence: the marker was honoured, and the file still names something
+				# this machine does not have, which somebody will want to put right.
+				warn(
+					f"{FILE_NAME} here names connection "
+					f"{current.unusable_marker_connection!r}, which is not configured — its "
+					f"workspace is on {current.marker_found_on!r}, so that is where this goes."
+				)
 
 		if (
 			current.workspace is not None
@@ -3887,7 +3953,12 @@ def register (
 
 		where = world.writing_to()
 
-		if not marker.speaks_for(where.name):
+		# **Or found there by id** (`#556`). `speaks_for` compares the name the marker wrote,
+		# which is exactly the test `#414` added and it stays; `marker_found_on` is set only
+		# when a `workspace_id` matched, which is a claim a key could never make.
+		if not (
+			marker.speaks_for(where.name) or world.current.marker_found_on == where.name
+		):
 			return None
 
 		found = where.client.projects(workspace=_writing_workspace(world))

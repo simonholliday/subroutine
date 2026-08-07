@@ -93,6 +93,17 @@ class Current:
 	#: owns the sentence its workspace twin prints. ``None`` is the ordinary case.
 	unusable_marker_connection: str | None = None
 
+	#: The connection a marker's workspace was *found* on when the name it gave is not
+	#: configured here — item `#556`, building `#330`'s decision. Set only by the CLI, which
+	#: is the layer that has asked the connections anything; this module resolves before any
+	#: of them has been reached and cannot know.
+	#:
+	#: **It says the marker speaks for that connection after all**, which is what lets the
+	#: project half be honoured too. `#414` is why that is a separate field rather than a
+	#: quiet reassignment: a marker whose connection was dropped must not match its project by
+	#: *key* somewhere else, and only an id match earns this.
+	marker_found_on: str | None = None
+
 	#: ``None`` when nothing has said which workspace, which is not yet a problem: a
 	#: connection reaching exactly one workspace answers it, and only a connection reaching
 	#: several turns it into a refusal.
