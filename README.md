@@ -10,7 +10,8 @@ your machine, in a backlog it uses as fluently as you do.
 - **Agents get real credentials.** Narrower than yours, unable to widen, every action attributed.
 - **`--ready`, not "everything".** What can be started now, with nothing unfinished blocking it.
 - **One list across every machine.** Your laptop and the team's server in one `subroutine today`.
-- **Cheap for an agent to read.** Compact replies; eleven MCP tools and 7 KB, held by a test.
+- **Cheap for an agent to read.** Compact replies, and a tool surface held under a byte budget
+  by a test — a schema costs an agent context every session, whether it is called or not.
 - **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
 
 One person with a to-do list, or a team of developers and their agents on interconnected work:
@@ -19,7 +20,7 @@ required fields. Backups go where you point them and are checked where they land
 
 **This first release is for developers** — a terminal, an editor, a coding agent. No web UI yet.
 Ways in: the Claude Code plugin, any MCP client, any agent that can run a shell, or the HTTP API.
-AGPL-3.0-or-later, commercial licence by agreement. Thirteen dependencies, Python 3.11+.
+AGPL-3.0-or-later, commercial licence by agreement. Thirteen direct dependencies, Python 3.11+.
 
 ## TLDR; Getting up and running
 

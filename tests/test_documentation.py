@@ -295,11 +295,28 @@ def test_the_key_scan_reaches_the_pages_it_names () -> None:
 #: Prose that counts the tools, which is the one thing about the surface that keeps rotting.
 #:
 #: Words as well as digits, because the README said "Eleven tools" rather than "11".
+#:
+#: **And up to two words may sit between the number and "tools"** (`#582`). Without that this
+#: pattern found *nothing at all* in the README, for as long as the sentence it was written for
+#: said "eleven MCP tools" — the count it exists to catch, on the page it is scoped to, invisible
+#: because of one word in the middle. The width was set by running it over all four published
+#: pages and reading what it caught: two words adds no hit inside the README beyond the real one.
 _COUNTS_TOOLS = re.compile(
 	r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|"
-	r"fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+tools\b",
+	r"fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)"
+	r"\s+(?:[A-Za-z-]+\s+){0,2}tools\b",
 	re.IGNORECASE,
 )
+
+
+def _counted_tools (text: str) -> list[str]:
+	"""Return every phrase in this page that states how many tools there are.
+
+	Takes the text rather than reading the file, so a synthetic defect can be fed through the
+	real scanner instead of through a copy of its rule (`#405`).
+	"""
+
+	return [found.group(0) for found in _COUNTS_TOOLS.finditer(text)]
 
 
 def test_no_published_page_counts_the_tools () -> None:
@@ -330,8 +347,8 @@ def test_no_published_page_counts_the_tools () -> None:
 	"""
 
 	wrong = [
-		f"{README.name}: {found.group(0)!r}"
-		for found in _COUNTS_TOOLS.finditer(README.read_text(encoding="utf-8"))
+		f"{README.name}: {phrase!r}"
+		for phrase in _counted_tools(README.read_text(encoding="utf-8"))
 	]
 
 	assert not wrong, (
@@ -341,11 +358,40 @@ def test_no_published_page_counts_the_tools () -> None:
 	)
 
 
-def test_the_tool_count_scan_would_notice_one () -> None:
-	"""Falsified through the pattern itself, since a regex that matches nothing passes above."""
+def test_the_tool_count_scan_catches_the_sentence_it_was_written_for () -> None:
+	"""`#582`. The falsification here used to prove only that the *regex* worked.
 
-	assert _COUNTS_TOOLS.search("Eleven tools: list, search, show"), "the spelt-out form"
-	assert _COUNTS_TOOLS.search("all 14 tools are"), "and the digits"
+	It asserted `_COUNTS_TOOLS` matched "Eleven tools: list, search, show" — a string invented
+	for the test — and passed for weeks while the README two directories away said **"eleven MCP
+	tools and 7 KB, held by a test"** and the scan returned nothing at all. A guard tested
+	against a copy of its own rule cannot notice that the real text is shaped differently, which
+	is precisely the defect this file exists to catch elsewhere.
+
+	So the case that matters is the *verbatim* sentence, and it is pinned here rather than
+	described.
+	"""
+
+	assert _counted_tools("Compact replies; eleven MCP tools and 7 KB, held by a test.") == [
+		"eleven MCP tools"
+	], "the exact sentence the README carried, which the scan could not see until `#582`"
+
+	assert _counted_tools("Eleven tools: list, search, show"), "the spelt-out form, no filler"
+	assert _counted_tools("all 14 tools are"), "and the digits"
+	assert _counted_tools("fourteen agent-facing tools"), "and a hyphenated qualifier"
+
+
+def test_the_tool_count_scan_leaves_ordinary_prose_alone () -> None:
+	"""The width was chosen by measurement, and this is what it must not start catching.
+
+	Two intervening words is enough for "MCP tools" and "agent-facing tools" and short enough
+	that a sentence merely containing a number and the word later on does not match. A guard
+	that fires on ordinary prose is switched off within a month — the argument
+	``tests/test_references.py`` already makes for not being a general dead-link checker.
+	"""
+
+	assert not _counted_tools("two of the three answers came from other tools we compared")
+	assert not _counted_tools("eleven. Tools are declared in the manifest")
+	assert not _counted_tools("nine releases ago the surface had a different set of tools")
 	assert not _COUNTS_TOOLS.search("the tools are few"), "and nothing about a count"
 
 
