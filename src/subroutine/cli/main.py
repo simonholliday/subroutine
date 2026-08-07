@@ -154,6 +154,18 @@ CRASH_DIRECTORY = "crashes"
 #: somebody has done it anyway.
 _TOKEN_ARGUMENT = re.compile(rf"^{subroutine.auth.TOKEN_SCHEME}_[A-Za-z0-9_.\-]+$")
 
+#: How long a stopping server waits for requests already in flight (`#567`). Uvicorn's own
+#: default is to wait for ever, which is not a default anybody would choose out loud: one
+#: request blocked on a lock and the service cannot be restarted at all. Met twice on
+#: 2026-08-07, when `systemctl restart` and then `stop` both hung and systemd's 90-second
+#: `TimeoutStopSec` was the real answer.
+#:
+#: Fifteen seconds is long enough for any request this program serves — the slowest are a
+#: backup and a listing, both well inside it — and short enough that a restart is a restart.
+#: A graceful shutdown that cannot finish is an ungraceful one with the timeout moved
+#: somewhere the operator did not choose it.
+SHUTDOWN_GRACE_SECONDS = 15
+
 
 def _masked_arguments () -> list[str]:
 	"""Return the command line with anything secret in it replaced.
@@ -640,6 +652,7 @@ def serve (
 		host=where,
 		port=listening,
 		log_level=(log_level.strip() or settings.log_level).lower(),
+		timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
 	)
 
 
@@ -1047,12 +1060,32 @@ def upgrade (
 	# **Both numbers, before anything happens and whatever the answer turns out to be.** They
 	# are step 1 of decision `#97`, and they are what the whole conversation is about: one
 	# says what the software wants and the other what it has got.
-	_say(f"This version expects schema {expected}.")
+	#
+	# **And the program's own version, because the two schema numbers cannot tell "the code
+	# moved and the schema did not" from "nothing moved at all"** — `#343`. Both print
+	# "Nothing to do.", and on 2026-08-03 the served instance was upgraded, was not, and said
+	# what a successful upgrade says. It is the number an operator can compare against what
+	# they thought they installed, and this command already knows it.
+	running = subroutine.installations.program()
+
+	_say(f"Subroutine {running} expects schema {expected}.")
 	_say(
 		f"The database is at {current}."
 		if current is not None
 		else "The database has no schema recorded."
 	)
+
+	if subroutine.installations.ordered(running) is None:
+		# `ordered` declines anything that is not three plain numbers, which is exactly the
+		# shape of a build made from a checkout — and that is when `pip install --upgrade`
+		# compares the installed copy as *newer* than the index and declines, silently. The
+		# rule is not restated here: two spellings of "is this a release" is how the reach and
+		# the write set came apart in `#413`.
+		_say(
+			f"{running} is a development build rather than a release, so upgrading from a "
+			f"package index may have declined to replace it — it can compare as newer than "
+			f"anything published."
+		)
 
 	if current == expected:
 		_say("Nothing to do.")

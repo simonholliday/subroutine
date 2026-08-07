@@ -918,6 +918,43 @@ def test_serve_refuses_a_non_loopback_bind_without_tls (
 	assert "public_url" in result.output
 
 
+def test_serving_bounds_how_long_a_stopping_server_waits (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#567`. Uvicorn waits for ever by default, so one stuck request means no restart.
+
+	Met twice on 2026-08-07 with `/mcp` wedged by `#565`: `systemctl restart` hung, then
+	`systemctl stop` hung, and the service went away only when systemd's 90-second
+	`TimeoutStopSec` killed it — on the one occasion an operator is least able to wait.
+
+	`#565` removed today's reason for a request to block for ever and cannot remove every
+	future one. What can be guaranteed is that the thing can be restarted.
+	"""
+
+	run("init")
+
+	passed: dict[str, typing.Any] = {}
+
+	def instead_of_listening (app: typing.Any, **given: typing.Any) -> None:
+		passed.update(given)
+
+	monkeypatch.setattr("uvicorn.run", instead_of_listening)
+
+	run("serve")
+
+	assert passed, "serve did not reach uvicorn at all, so this asserts nothing"
+
+	waiting = passed.get("timeout_graceful_shutdown")
+
+	assert waiting == subroutine.cli.main.SHUTDOWN_GRACE_SECONDS
+
+	assert waiting is not None and 0 < waiting <= 30, (
+		"an unbounded or very long graceful shutdown is systemd's SIGKILL timeout wearing "
+		"another name, and the operator did not choose that one either"
+	)
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.1.2.3", "::1", "[::1]"])
 def test_a_loopback_bind_is_recognised_however_it_is_written (host: str) -> None:
 	"""Including ``localhost``, which is the case the check exists to allow.

@@ -821,10 +821,22 @@ def _called_directly (
 	answer = client.call_api(method=method, path=path, body=body, query=query)
 
 	if len(answer.text) > MAX_ANSWER:
+		# **The cap is applied after the call, so the call has already happened** — `#531`.
+		# On a `GET` that is merely wasteful. On a write it is `#505`'s shape one layer up:
+		# the change is committed and the caller is told this failed, so it repeats it and
+		# writes twice. The message is what invites that, so the message says so first.
+		advice = (
+			" Ask again more narrowly with 'fields' to choose columns, 'limit' to take fewer "
+			"rows, or format=compact — see subroutine://meta for what this listing accepts."
+			if method in subroutine.clients.base.READING_VERBS
+			else " Whatever it changed is already changed, so sending it again would change "
+			"things twice rather than report them once. Read the result back instead."
+		)
+
 		raise ValueError(
-			f"That answer is {len(answer.text) // 1024} KB, which is more context than it is "
-			f"worth spending. Narrow it with 'fields' to choose columns, 'limit' to take fewer "
-			f"rows, or format=compact — see subroutine://meta for what this listing accepts."
+			f"The request reached the instance and it answered {answer.status}, but the answer "
+			f"is {len(answer.text) // 1024} KB — more context than it is worth spending, so it "
+			f"is not being reported.{advice}"
 		)
 
 	# The status is reported rather than folded into the text: a caller that cannot tell 201

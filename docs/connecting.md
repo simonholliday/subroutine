@@ -131,6 +131,10 @@ $ claude plugin install subroutine@subroutine
 and `pipx install` guarantee and a virtualenv does not. Your editor starts `subroutine` itself,
 so it has to be able to find it. If the tools do not appear, that is nearly always why.
 
+**And Git, for the third command.** The marketplace is a repository and `claude plugin
+marketplace add` clones it, so without a `git` binary that step refuses before anything of ours
+runs. A machine already set up to install Python packages nearly always has it.
+
 **This one runs a program on your machine, so it does not work in a browser.** Claude Code and
 the desktop apps can start it; claude.ai cannot, because there is nothing on that side to start
 anything on. The plugin still installs and still reports success, and the only sign of a problem

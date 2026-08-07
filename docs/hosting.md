@@ -393,6 +393,11 @@ ExecStart=/opt/subroutine/bin/subroutine serve
 Restart=on-failure
 RestartSec=5s
 
+# Subroutine gives requests already in flight 15 seconds and then exits. This is the outer
+# bound on top of that: long enough that a clean stop always wins, short enough that a
+# wedged process does not hold a restart up for systemd's 90-second default.
+TimeoutStopSec=30s
+
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -412,6 +417,13 @@ WantedBy=multi-user.target
 
 `ExecStart` takes no `--host` or `--port` because both are settings; the defaults are
 `127.0.0.1` and `8471`.
+
+**`TimeoutStopSec` is the outer half of a pair, and the order matters.** Subroutine stops
+accepting, gives requests already in flight **15 seconds** to finish, and then exits. systemd's
+timeout has to be the longer of the two, or it would kill a shutdown that was about to
+complete. Left at the default, stopping a server with a request stuck on something takes 90
+seconds — and you find that out during an incident, because that is the only time anything is
+stuck for long enough to notice.
 
 **When the proxy is on another machine** — a router, a NAS, a box running Nginx Proxy Manager
 or Caddy — loopback is no longer enough, because the proxy has to reach this host over the
@@ -943,6 +955,11 @@ $ claude plugin install subroutine-remote@subroutine
 It has no fields for a command or a connection, because it needs neither. Until they paste an
 address in, it sits there configured-but-idle rather than reporting a fault.
 
+**Tell them they will need Git**, though. The marketplace is a repository and the first command
+clones it, so on a machine with no development tools that step refuses before anything of ours
+is reached. It is the only prerequisite on their side, it is Claude Code's rather than ours, and
+it is invisible to everybody whose machine already has it.
+
 Or, without the plugin, one command:
 
 ```bash
@@ -1182,27 +1199,35 @@ is, `/readyz` returns 503 saying exactly that — and ordinary requests fail too
 code is querying columns the database has not got yet.
 
 `subroutine db upgrade` is the whole of the second step, and its value is the ordering rather than
-any one part of it: report both versions, back up and verify the copy where it landed, migrate,
-then read the schema back rather than assuming.
+any one part of it: report what is installed and what the database is at, back up and verify the
+copy where it landed, migrate, then read the schema back rather than assuming.
 
 ```console
 $ subroutine db upgrade
-  This version expects schema c858f2942244.
+  Subroutine 0.5.0 expects schema c858f2942244.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
   Upgraded from 547fe53b263c to c858f2942244.
 ```
 
-It is safe to run when there is nothing to do — it prints both numbers and stops, which is also
-the cheapest way to ask the question:
+It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
+also the cheapest way to ask the question:
 
 ```console
 $ subroutine db upgrade
-  This version expects schema c858f2942244.
+  Subroutine 0.5.0 expects schema c858f2942244.
   The database is at c858f2942244.
   Nothing to do.
 ```
+
+**Read the version on that first line, because it is the only part of this that can tell you
+step one worked.** A release that carries no migration and an upgrade that never happened print
+the same two schema numbers and the same `Nothing to do.` — so if the version is not the one you
+just installed, the database is fine and the *software* did not move. That happens more easily
+than it sounds: a copy installed from a checkout carries a development version, which compares as
+newer than anything published, so `pip install --upgrade` declines it without failing. The
+command says so when it sees one.
 
 Add `--yes` when the instance is marked `protected` and there is no terminal to answer the
 prompt — a timer or a deploy script. On a **protected** instance without it, the command says

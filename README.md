@@ -46,7 +46,8 @@ $ claude plugin install subroutine@subroutine
 ```
 
 One command to install Subroutine, one to make the database, two to add the plugin — and from
-then on it is your agent's job.
+then on it is your agent's job. The marketplace is a repository, so the third of those needs
+Git on your machine.
 
 **A shared instance over HTTP**, for a team or for agents on other machines. Loopback by default;
 it refuses a wider bind without TLS in front of it.
@@ -190,6 +191,9 @@ one — it wires up the tools *and* carries the working practice for using them 
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
+
+**Adding the marketplace needs Git**, because it is a repository and the command clones it —
+the one prerequisite here that is Claude Code's rather than ours.
 
 **It starts a program on your own machine, so not every client can use it.** Claude Code can,
 and so can the desktop apps. **claude.ai in a browser cannot** — there is nothing on that side

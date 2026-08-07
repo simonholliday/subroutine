@@ -26,6 +26,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.db.migrate
+import subroutine.installations
 
 #: Not a revision anybody has written, and not one anybody will: the check only has to find it
 #: absent from the migration directory to conclude the database came from a later release.
@@ -205,6 +206,59 @@ def test_upgrade_reports_both_versions_before_it_does_anything (
 
 	assert head_revision() in result.output
 	assert "Nothing to do." in result.output
+
+
+def test_upgrade_names_the_program_it_is_upgrading_to (
+	run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#343`. Two schema numbers cannot say whether the *software* moved.
+
+	Found on the served instance on 2026-08-03: it was upgraded, the upgrade did not happen —
+	`pip` declined, because the installed copy came from a checkout and its development version
+	compared as newer than the index's — and the one command in the procedure that reports
+	anything printed exactly what a successful upgrade carrying no migration prints.
+
+	So the schema report is not evidence of an upgrade, and it was the only evidence anybody
+	had. The version is a number the command already knows and the operator can compare against
+	what they thought they installed.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	result = run("db", "upgrade")
+
+	assert f"Subroutine {subroutine.installations.program()} expects" in result.output, (
+		f"the report names no program version, so 'Nothing to do.' cannot be told from an "
+		f"upgrade that never happened: {result.output}"
+	)
+
+
+def test_upgrade_says_when_the_installed_copy_could_not_have_been_replaced (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The other half of `#343`: a version comparison against an index is then meaningless.
+
+	Derived from ``installations.ordered`` rather than spelled again — it already declines
+	anything that is not three plain numbers, which is exactly the shape of a build made from a
+	checkout. Two spellings of "is this a release" is how the reach and the write set came
+	apart in `#413`.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	monkeypatch.setattr(subroutine.installations, "program", lambda: "0.5.1.dev29+g1b5e9a698")
+
+	said = run("db", "upgrade").output
+
+	assert "development build" in said, (
+		f"a checkout build is reported as though it were a release, which is the state where "
+		f"'pip install --upgrade' declines and says nothing: {said}"
+	)
+
+	# And a real release must not carry the caveat, or it becomes noise on every upgrade.
+	monkeypatch.setattr(subroutine.installations, "program", lambda: "0.5.0")
+
+	assert "development build" not in run("db", "upgrade").output
 
 
 def test_upgrade_takes_a_backup_before_it_migrates (

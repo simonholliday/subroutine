@@ -82,7 +82,9 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 _QUOTED_HEAD = (
 	re.compile(r"Schema is at ([0-9a-f]{12})\."),
 	re.compile(r'"schema_revision":"([0-9a-f]{12})"'),
-	re.compile(r"This version expects schema ([0-9a-f]{12})\."),
+	# The version is deliberately not pinned: it is illustrative like the backup filename's
+	# timestamp beside it, and pinning it would make every release edit this page (`#343`).
+	re.compile(r"Subroutine \S+ expects schema ([0-9a-f]{12})\."),
 )
 
 
@@ -1214,3 +1216,194 @@ def test_no_surface_says_where_a_credential_is_stored_beyond_what_was_measured (
 			f"{where} says a credential is kept in a keychain. That was measured false on "
 			f"Windows (`#572`), and it is the client's choice rather than ours to describe"
 		)
+
+
+_MARKETPLACE = "claude plugin marketplace add"
+
+_NAMES_GIT = re.compile(r"\bgit\b", re.IGNORECASE)
+
+
+def _sections (text: str) -> list[tuple[str, str]]:
+	"""Split a Markdown page into its headed sections, each keeping its own heading."""
+
+	found: list[tuple[str, str]] = []
+	heading = "the opening"
+	body: list[str] = []
+
+	for line in text.splitlines():
+		if not line.startswith("#"):
+			body.append(line)
+			continue
+
+		if body:
+			found.append((heading, "\n".join(body)))
+
+		heading = line.lstrip("#").strip()
+		body = [line]
+
+	if body:
+		found.append((heading, "\n".join(body)))
+
+	return found
+
+
+def _silent_about_git (pages: dict[str, str]) -> list[str]:
+	"""Name every section that publishes the marketplace command without its prerequisite."""
+
+	offenders = []
+
+	for where, text in pages.items():
+		for heading, body in _sections(text):
+			if _MARKETPLACE in body and not _NAMES_GIT.search(body):
+				offenders.append(f"{where}, under {heading!r}")
+
+	return offenders
+
+
+def _published_pages () -> dict[str, str]:
+	"""Read the three pages a reader arrives at, keyed by what to call each in a refusal."""
+
+	return {
+		"README": README.read_text(encoding="utf-8"),
+		"the connecting page": CONNECTING.read_text(encoding="utf-8"),
+		"the hosting page": HOSTING.read_text(encoding="utf-8"),
+	}
+
+
+def test_every_page_publishing_the_marketplace_command_names_git () -> None:
+	"""`#561`. Five places published a command that refuses without Git, and none said so.
+
+	Found by a first-contact review on a Windows machine with no development tools — the only
+	kind of machine that could have found it. `claude plugin marketplace add owner/repo` clones
+	the repository to read its manifest, so it needs a `git` binary. That is Claude Code's
+	requirement rather than ours; the omission is ours.
+
+	**Every machine on this project had already paid for it**, which is why it survived five
+	publications and a suite. A prerequisite is invisible to everybody who has it.
+
+	The check is per *section* rather than per page, because a reader arrives at one situation
+	and reads it. Naming Git in the operator's chapter does not help somebody in the
+	freelancer's, and the page these appear on is organised so that only one of them is read.
+	"""
+
+	offenders = _silent_about_git(_published_pages())
+
+	assert not offenders, (
+		"these publish 'claude plugin marketplace add' and never mention Git, so a reader "
+		f"with no development tools is stopped before anything of ours runs: {offenders}"
+	)
+
+
+def test_the_git_scan_reads_the_sections_that_publish_the_command () -> None:
+	"""A scan that matched nothing would pass the check above and prove nothing.
+
+	`#405`'s rule, and the floor is not the point: what is asserted is that the command really
+	is found in the real pages, so the guard above is answering about them rather than about an
+	empty set.
+	"""
+
+	publishing = [
+		f"{where}: {heading}"
+		for where, text in _published_pages().items()
+		for heading, body in _sections(text)
+		if _MARKETPLACE in body
+	]
+
+	assert len(publishing) >= 4, (
+		f"the scan found the marketplace command in only {publishing}, which is fewer than "
+		"the pages are known to publish — the section split has probably stopped working"
+	)
+
+
+def test_the_git_scan_reports_a_section_that_omits_it () -> None:
+	"""Falsified against the defect itself: the wording `#561` was filed about."""
+
+	page = (
+		"## An agent, with nothing installed\n"
+		"\n"
+		"It needs nothing on your machine at all.\n"
+		"\n"
+		"```console\n"
+		f"$ {_MARKETPLACE} simonholliday/subroutine\n"
+		"```\n"
+		"\n"
+		"**What it needs:** an address and a token. That is the whole list.\n"
+	)
+
+	assert _silent_about_git({"a page": page}) == [
+		"a page, under 'An agent, with nothing installed'"
+	]
+
+
+def test_the_git_scan_leaves_a_section_that_names_it_alone () -> None:
+	"""And it must not fire on the fixed wording, or it would be switched off within a week."""
+
+	page = (
+		"## An agent, with nothing installed\n"
+		"\n"
+		"```console\n"
+		f"$ {_MARKETPLACE} simonholliday/subroutine\n"
+		"```\n"
+		"\n"
+		"**On your own machine you need Claude Code and Git** — the marketplace is a\n"
+		"repository, and the command clones it.\n"
+	)
+
+	assert _silent_about_git({"a page": page}) == []
+
+
+def test_the_git_scan_does_not_let_a_neighbouring_section_answer_for_one () -> None:
+	"""The whole reason it is per section: a reader arrives at one situation and reads it."""
+
+	page = (
+		"## An agent, on the machine holding the work\n"
+		"\n"
+		f"$ {_MARKETPLACE} simonholliday/subroutine\n"
+		"\n"
+		"You will need Git for that, since the marketplace is a repository.\n"
+		"\n"
+		"## An agent, with nothing installed\n"
+		"\n"
+		f"$ {_MARKETPLACE} simonholliday/subroutine\n"
+	)
+
+	assert _silent_about_git({"a page": page}) == [
+		"a page, under 'An agent, with nothing installed'"
+	]
+
+
+_TIMEOUT_STOP = re.compile(r"^TimeoutStopSec=(\d+)s\s*$", re.MULTILINE)
+
+
+def test_the_documented_stop_timeout_outlasts_the_graceful_shutdown () -> None:
+	"""`#567`. Two numbers in two files that have to agree, which is this project's own trap.
+
+	The server stops accepting, gives what is in flight a stated window and exits; systemd's
+	timeout is the outer bound. If the outer one were the shorter, systemd would SIGKILL a
+	shutdown that was about to complete — the unbounded wait fixed by hand, with the operator
+	still not choosing the number that decides it.
+
+	The page states the inner figure in prose as well, because an operator setting
+	`TimeoutStopSec` needs to know what it has to be longer *than*. Derived from the constant
+	rather than repeated, so the two cannot drift.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	grace = subroutine.cli.main.SHUTDOWN_GRACE_SECONDS
+
+	stated = _TIMEOUT_STOP.search(page)
+
+	assert stated, (
+		"the published unit file sets no TimeoutStopSec, so an operator following it inherits "
+		"systemd's 90-second default as the real answer to how long a stuck restart takes"
+	)
+
+	assert int(stated.group(1)) > grace, (
+		f"the unit stops the service after {stated.group(1)}s while the server itself waits "
+		f"{grace}s, so systemd would kill a shutdown that was going to finish"
+	)
+
+	assert re.search(rf"\b{grace}\s+seconds\b", page), (
+		f"the page never says the server waits {grace} seconds, so the number TimeoutStopSec "
+		"has to exceed is not written anywhere the operator setting it can read"
+	)

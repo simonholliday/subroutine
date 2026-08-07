@@ -3080,6 +3080,59 @@ def test_an_enormous_answer_is_refused_rather_than_truncated (
 	assert "Something to fill the page 0" in whole
 
 
+def test_a_write_over_the_cap_is_not_reported_as_though_it_had_not_happened (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#531`. The cap is applied after the call, so on a write the change is already made.
+
+	`#505`'s shape one layer up: something that succeeded is reported as a failure, and the
+	message is what invites the retry that then does it twice. Latent today — no write returns
+	64 KB, since a create returns one entity — and real the day a batch endpoint exists, which
+	`POST /v1/tasks/batch` already is in §8.6's unbuilt list.
+
+	The wording is the whole fix. Refusing to report a long answer is right; saying nothing
+	about what became of the request is what makes it dangerous.
+	"""
+
+	original = subroutine.mcp.tools.MAX_ANSWER
+
+	try:
+		subroutine.mcp.tools.MAX_ANSWER = 10
+		answered, failed = _called(
+			bound,
+			"subroutine_call_api",
+			method="POST",
+			path="/v1/tasks",
+			body={"title": "Filed once, and only once"},
+		)
+
+	finally:
+		subroutine.mcp.tools.MAX_ANSWER = original
+
+	assert failed, "the cap did not fire, so nothing here is asserting anything about it"
+
+	assert "201" in answered, (
+		f"the refusal does not say the instance answered, or how: {answered}"
+	)
+
+	assert "already changed" in answered and "twice" in answered, (
+		f"the refusal does not warn against repeating a write that already happened: {answered}"
+	)
+
+	assert "fields" not in answered and "compact" not in answered, (
+		f"a write is being told to narrow its columns, which is advice for a listing: {answered}"
+	)
+
+	# And it really did happen — which is the whole of why the message must not read as a
+	# failure, and is the half a wording assertion on its own could not establish.
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+	assert listed.count("Filed once, and only once") == 1, (
+		f"the write did not land exactly once, so the refusal's claim is wrong: {listed}"
+	)
+
+
 def test_a_raw_call_is_narrowed_by_the_credential_it_already_had (
 	session: sqlalchemy.orm.Session,
 ) -> None:

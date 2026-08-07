@@ -12,6 +12,34 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **A stopping server no longer waits indefinitely for requests already in flight.** It gives
+  them 15 seconds and then exits. Uvicorn's default is to wait for ever, so one request blocked
+  on a database lock meant the service could not be restarted at all — `systemctl restart` hung,
+  `systemctl stop` hung, and it went away only when systemd's 90-second `TimeoutStopSec` killed
+  it, which is the moment an operator is least able to wait.
+
+  **If you run it under systemd, set `TimeoutStopSec` to something longer than 15 seconds** —
+  the sample unit in [docs/hosting.md](docs/hosting.md) now uses `30s`. Shorter and systemd
+  would kill a shutdown that was about to finish.
+
+- **`subroutine db upgrade` names the version it is upgrading to.** The report opened with two
+  schema revisions, which cannot tell "the new code carries no migration" from "the new code was
+  never installed" — both print `Nothing to do.` It now begins `Subroutine 0.5.0 expects schema
+  …`, and says so plainly when the installed copy is a development build, because that is the
+  case where `pip install --upgrade` silently declines to replace it.
+
+### Fixed
+
+- **A raw `subroutine_call_api` whose answer is too long to report no longer reads as a failed
+  call.** The size limit is applied after the request has been made, so on a write the change had
+  already happened while the agent was told it had not — and the obvious next move is to send it
+  again. The message now says the instance answered, with the status, and that repeating a write
+  would change things twice rather than report them once.
+
 ## 0.5.0 — 2026-08-07
 
 ### Added
