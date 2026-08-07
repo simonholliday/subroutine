@@ -30,6 +30,19 @@ a publicly reachable address. So on the web the tools are absent by construction
 anything is configured, and every remedy below is wasted effort. Say that plainly rather than
 beginning a diagnosis; Claude Code and the desktop apps are where these work.
 
+**If `claude mcp list` says the server is connected and this session still has no tools, the
+session started before the plugin was configured.** Reload the window, or start a new session.
+MCP servers are attached when a session begins and are not rebuilt when configuration changes
+underneath them, so a session opened before somebody filled in the address and token keeps the
+tool list it was born with — **which is the ordinary state in the minutes right after anybody
+sets this up**, and therefore the likeliest moment to meet it.
+
+Check this before anything below. It is the cheapest remedy and the only one where every other
+signal says the setup is fine: `claude mcp list` runs in a *new* process, so it reports the
+configuration as it is now, correctly, while describing a session that no longer matches it. A
+`✔ Connected` beside absent tools reads as "connected but broken" and is not — it means "connected
+now, and this session predates now".
+
 **With `subroutine-remote`, read the line `claude mcp list` prints and pass it on.** The client
 names the actual fault — a token the server rejected, an address with no MCP endpoint on it, a
 server that did not answer — and quotes the instance's own words back. That sentence is written

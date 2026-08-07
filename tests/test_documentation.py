@@ -1150,3 +1150,32 @@ def test_the_scan_reads_a_line_carrying_a_placeholder (tmp_path: pathlib.Path) -
 	assert [invocation.words for invocation in found] == [
 		["db", "restore", "<file>", "--recover"]
 	], "the placeholder is read and the redirect is not"
+
+
+def test_the_connecting_page_says_how_to_configure_and_how_to_check () -> None:
+	"""`#562`. It listed the two fields and never said where to put them.
+
+	Found by a first-contact review that had installed the plugin successfully and had nowhere
+	to go: the page said "open its settings", which names no command, no menu and no panel.
+	The command exists — but only in the README and the skill, and only for the *other* plugin,
+	inside advice about virtualenv paths. So the one place it appeared was the one place this
+	reader had no reason to look, which is `#499`'s rule failing from an unfamiliar direction.
+
+	Three sentences, and the middle one is the one nobody had noticed was missing: a session
+	that was open when the plugin was configured keeps the tool list it started with, so
+	everything reads as correctly set up and there are no tools.
+	"""
+
+	page = CONNECTING.read_text(encoding="utf-8")
+
+	assert "/plugin" in page, "the page does not name the command that sets the two fields"
+
+	assert "reload the window" in page.lower(), (
+		"the page does not say the session must be restarted, which is the state that looks "
+		"exactly like a broken install"
+	)
+
+	assert "subroutine_whoami" in page, (
+		"the page does not say how to check it worked, so an absence of errors is the only "
+		"signal a reader has — and an unconfigured plugin produces no errors either"
+	)

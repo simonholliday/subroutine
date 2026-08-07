@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Project management for people and agents, in equal measure. Wires this session to a Subroutine instance and carries the working practice for using it well. It starts Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web.",
   "author": {
     "name": "Simon Holliday",
@@ -18,25 +18,25 @@
     "command": {
       "type": "string",
       "title": "The subroutine command",
-      "description": "This plugin works by starting Subroutine on your own machine, which is why the web client shows no tools whatever you put here \u2014 there is nothing on that side to start. Usually just 'subroutine'. Your editor launches it, so it has to be on your PATH \u2014 'uv tool install subroutine' or 'pipx install subroutine' put it there. Give the full path instead if it lives in a virtualenv your editor does not activate, for example /home/you/.venvs/subroutine/bin/subroutine. Not installed yet? Install it in a terminal, run 'subroutine init', then come back here.",
+      "description": "This plugin works by starting Subroutine on your own machine, which is why the web client shows no tools whatever you put here — there is nothing on that side to start. Usually just 'subroutine'. Your editor launches it, so it has to be on your PATH — 'uv tool install subroutine' or 'pipx install subroutine' put it there. Give the full path instead if it lives in a virtualenv your editor does not activate, for example /home/you/.venvs/subroutine/bin/subroutine. Not installed yet? Install it in a terminal, run 'subroutine init', then come back here.",
       "default": "subroutine"
     },
     "connection": {
       "type": "string",
       "title": "Which instance (optional)",
-      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty for your default connection \u2014 the database on this machine, unless you have set 'default_connection' to something else. Run 'subroutine connections' to see the names and which one that is. Note that one session reaches one instance, so if you keep work and personal instances separately, name the one this project belongs to. Connections are set up with 'subroutine' itself, not here.",
+      "description": "The name of a connection you have already configured, such as 'work'. Leave this empty for your default connection — the database on this machine, unless you have set 'default_connection' to something else. Run 'subroutine connections' to see the names and which one that is. Note that one session reaches one instance, so if you keep work and personal instances separately, name the one this project belongs to. Connections are set up with 'subroutine' itself, not here.",
       "default": ""
     },
     "workspace": {
       "type": "string",
       "title": "Which workspace (optional)",
-      "description": "The workspace this session's work belongs in, by its short name \u2014 'subroutine list' prints them beside each item when there is more than one. Leave empty if this instance has only one, which is the usual case: it is then resolved for you and naming it here would be a word you never needed. With two or more, an agent that has not been told a name has every read refused as ambiguous, and no way to learn one. This is a default rather than a limit \u2014 a call may still name another, and a token pinned to a workspace is what narrows access for real.",
+      "description": "The workspace this session's work belongs in, by its short name — 'subroutine list' prints them beside each item when there is more than one. Leave empty if this instance has only one, which is the usual case: it is then resolved for you and naming it here would be a word you never needed. With two or more, an agent that has not been told a name has every read refused as ambiguous, and no way to learn one. This is a default rather than a limit — a call may still name another, and a token pinned to a workspace is what narrows access for real.",
       "default": ""
     },
     "token": {
       "type": "string",
       "title": "Agent token (optional)",
-      "description": "A token issued for this agent, if you want it to have less access than you do \u2014 'subroutine token create --service-account claude --project web'. IMPORTANT: this reaches the tools only. An agent that can also run shell commands uses whatever credential the command line resolves there, which is normally yours \u2014 so filling this in gives you an agent that is itself half the time and you the other half, silently. To cover both, leave this empty and set SUBROUTINE_TOKEN_<CONNECTION> in the environment you start your editor from, upper-cased: SUBROUTINE_TOKEN_WORK for a connection called 'work'. The tools and the shell both read that. Leave empty with nothing set to act as you. Stored in your system keychain, never in a settings file.",
+      "description": "A token issued for this agent, if you want it to have less access than you do — 'subroutine token create --service-account claude --project web'. IMPORTANT: this reaches the tools only. An agent that can also run shell commands uses whatever credential the command line resolves there, which is normally yours — so filling this in gives you an agent that is itself half the time and you the other half, silently. To cover both, leave this empty and set SUBROUTINE_TOKEN_<CONNECTION> in the environment you start your editor from, upper-cased: SUBROUTINE_TOKEN_WORK for a connection called 'work'. The tools and the shell both read that. Leave empty with nothing set to act as you. Stored in your system keychain, never in a settings file.",
       "sensitive": true,
       "default": ""
     }

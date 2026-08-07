@@ -826,3 +826,35 @@ def test_neither_listing_offers_a_route_that_cannot_carry_a_token () -> None:
 			f"{where} does not say why a connector cannot be used, so a reader has no reason "
 			f"not to go and try it"
 		)
+
+
+def test_the_skill_names_the_failure_that_every_other_signal_calls_healthy () -> None:
+	"""`#570`. The ladder tested configuration on every rung, and the fault was not there.
+
+	A first-contact review followed it to the bottom and cleared everything: the plugin was
+	installed and enabled, the address was configured, the instance answered a well-formed 401
+	in 0.2s, and `claude mcp list` reported `✔ Connected` — while the session it was run from
+	had no tools at all. The session had started an hour before the plugin was configured, and
+	MCP servers are attached when a session begins.
+
+	**That is the state anybody is in during the minutes after they set this up**, so it is the
+	likeliest rung to need and it was the one missing. Worse, the command the ladder offers to
+	separate the causes is the one that misleads here: it runs in a new process and reports the
+	configuration correctly, which reads as "connected but broken".
+
+	Narrow on purpose (`#546`): this checks the skill says the two things a reader has to know —
+	that a session can predate its configuration, and what to do about it.
+	"""
+
+	for directory in PLUGIN_DIRECTORIES:
+		name = directory.name
+		skill = (directory / "skills" / "subroutine" / "SKILL.md").read_text(encoding="utf-8")
+
+		assert "predates" in skill or "predate" in skill, (
+			f"{name}'s skill does not tell a reader a session can predate its configuration, "
+			f"which is the one cause every other rung reports as healthy"
+		)
+
+		assert "Reload the window" in skill, (
+			f"{name}'s skill names the cause without naming the remedy"
+		)

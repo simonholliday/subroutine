@@ -155,9 +155,26 @@ $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine-remote@subroutine
 ```
 
-Then open its settings and fill in two fields: the address, ending in `/mcp`, and your token.
+Then fill in two fields — the address, ending in `/mcp`, and your token. **In a terminal**, run
+`claude`, then `/plugin` inside the session, and choose the plugin. There is no `claude plugin
+configure` subcommand and `/plugin` is not available in the VS Code extension, so a terminal is
+currently the only place these can be set. Once set they are read by every session, editor
+included.
 
-**What it needs:** an address and a token. That is the whole list.
+**Then reload the window, or start a new session.** MCP servers are attached when a session
+begins, so one that was already open when you configured the plugin keeps the tool list it
+started with — everything will look correctly set up and there will be no tools.
+
+**You know it worked** when `claude mcp list` shows the server connected *and* the agent can run
+`subroutine_whoami`. Check both: a session that predates its configuration shows `✔ Connected`
+and has no tools, which reads as a broken product and is not one.
+
+**What it needs on the instance's side:** an address and a token. That is the whole list, and it
+is the part somebody else hands you.
+
+**On your own machine you need Claude Code and Git** — the marketplace is a repository, and
+`claude plugin marketplace add` clones it. Nothing of Subroutine's is installed: no Python, no
+package, no configuration file of ours.
 
 **Your editor connects from *this* machine**, so an instance on your own network or behind a
 VPN is as reachable as a public one. The token goes to your system keychain rather than to a

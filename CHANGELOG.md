@@ -265,6 +265,21 @@ upgrade involves.
 
 ### Changed
 
+- **Setting the plugin up is now written down, including the step that looks like a broken
+  install.** `docs/connecting.md` said to "open its settings" and never said where they are:
+  in a terminal, `claude`, then `/plugin`. There is no `claude plugin configure` subcommand,
+  and `/plugin` is not available in the VS Code extension, so a terminal is currently the only
+  place the address and token can be entered — once, after which every session reads them.
+
+  It also now says to reload the window afterwards, and how to check it worked. A session that
+  was already open when you configured the plugin keeps the tool list it started with, so
+  `claude mcp list` reports the server connected while the session has no tools at all.
+
+  The skill's troubleshooting ladder gained the same rung, at the top: every rung it had
+  tested the configuration, and this is the one case where the configuration is correct.
+
+  Plugin manifests at 0.4.3 and 0.4.4.
+
 - **The `subroutine-remote` listing no longer suggests adding the instance as a connector.**
   It said *"to reach an instance from claude.ai, add it there as a connector instead"* — and
   doing that reaches a dialog offering a URL and OAuth client credentials, with nowhere to put
