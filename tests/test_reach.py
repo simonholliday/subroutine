@@ -188,6 +188,19 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"The browser app's own files (`#597`). Same reason as the page they belong to: these "
 		"are bytes a browser needs and nothing a client would ever ask for.",
 	),
+	("GET", "/{workspace}/{ref:int}"): (
+		"protocol",
+		"The app's page again, opened at one item (`#638`) — the address a person pastes into "
+		"a message. It answers the same bytes whatever ref is in it, so a client method would "
+		"fetch HTML and learn nothing; the capability it looks like is `GET /v1/tasks/{ref}`, "
+		"which every client already reaches.",
+	),
+	("GET", "/{workspace}/{project}/{ref:int}"): (
+		"protocol",
+		"The readable spelling of the address above (`#638`), and the project segment in it "
+		"is decoration — read by nobody, since a key can be renamed and the app rewrites it "
+		"after it loads. Reaching this from a client would be reaching the one above twice.",
+	),
 	("GET", "/signin"): (
 		"protocol",
 		"A browser navigation that trades a link for a cookie (`#248`). A client method "

@@ -61,9 +61,10 @@ part of the public contract and are listed in `docs/errors.md`.
 #: same space, and :func:`subroutine.api.routing.check` reads this list to enforce it.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
-	# The browser app. Registered early because its two paths are literals that
-	# share a prefix with nothing — `routing.check` is what says so rather than
-	# this comment, and it fails the build if that ever stops being true.
+	# The browser app's page and its files. Registered early because `/` and `/app/{name}`
+	# share a prefix with nothing — `routing.check` is what says so rather than this comment,
+	# and it fails the build if that ever stops being true. **The app's item addresses are a
+	# different router and go last**, at the bottom of this tuple.
 	("", subroutine.api.web.router),
 	# **Its own protocol, so its own path** — `/mcp` rather than `/v1/mcp` (`#516`). It shares
 	# a prefix with nothing and is a literal, so it can sit anywhere `routing.check` allows;
@@ -102,6 +103,15 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.events.project_events),
 	("", subroutine.api.events.document_events),
 	("", subroutine.api.admin.router),
+	# **Last, and it has to be** (`#638`). The browser app's item addresses are
+	# `/{workspace}/{ref:int}` and `/{workspace}/{project}/{ref:int}`, and `/v1/tasks/42` is
+	# also three segments ending in a number — so anything registered after these would be
+	# shadowed. The converter keeps them off `/v1/me` and `/v1/docs/agent`; the position is
+	# what keeps them off everything that does end in a ref. `routing.check` refuses the
+	# application if either stops being true, which is how the first version of this was
+	# caught: it named thirteen routes it had made unreachable, at startup, before a single
+	# request arrived.
+	("", subroutine.api.web.addresses),
 )
 
 

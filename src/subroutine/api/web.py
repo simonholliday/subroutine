@@ -94,6 +94,52 @@ def shell () -> starlette.responses.Response:
 	return starlette.responses.Response(content=body, media_type=kind)
 
 
+#: The addresses that name one item (`#638`).
+#:
+#: **Its own router, mounted last, and both halves of that are load-bearing.**
+#:
+#: ``{ref:int}`` is Starlette's path converter, and it is the only thing that narrows *matching*
+#: — a Python annotation of ``int`` does not. That was assumed here and it was wrong: the first
+#: version declared ``/{workspace}/{ref}`` with ``ref: int`` in the signature and swallowed
+#: ``GET /v1/me``, ``/v1/tasks``, ``/v1/meta`` and ten more. ``api/routing.check`` refused the
+#: application at startup and named every one of them, which is exactly the guard it exists to
+#: be; nothing else would have said a word until a request arrived.
+#:
+#: Mounted last because the converter is not enough on its own: ``/v1/tasks/42`` is three
+#: segments ending in a number, so it matches ``/{workspace}/{project}/{ref:int}`` too. Order
+#: settles that, and ``routing.check`` is what keeps the order honest rather than this comment.
+addresses = fastapi.APIRouter(tags=["app"], route_class=subroutine.api.routing.Transactional)
+
+
+@addresses.get(
+	"/{workspace}/{ref:int}",
+	summary="The browser app, opened at one item",
+	response_class=starlette.responses.HTMLResponse,
+	include_in_schema=False,
+)
+@addresses.get(
+	"/{workspace}/{project}/{ref:int}",
+	summary="The browser app, opened at one item by its readable address",
+	response_class=starlette.responses.HTMLResponse,
+	include_in_schema=False,
+)
+def opened (workspace: str, ref: int, project: str | None = None) -> starlette.responses.Response:
+	"""Serve the same page for an address naming one item — `#638`.
+
+	**It answers the same bytes for every address, and reads nothing.** Which item this is, and
+	whether the project segment is still the right one, are decided by the app once it has
+	authenticated — because this route is public, and a public route that looked an item up in
+	order to redirect would tell a stranger whether it exists and what project it is in.
+
+	``project`` is accepted and ignored here for that reason: it is a readable convenience, and
+	a project key can be renamed, so the app rewrites it to the current one after it loads.
+	"""
+
+	body, kind = FILES[SHELL]
+
+	return starlette.responses.Response(content=body, media_type=kind)
+
+
 @router.get(
 	"/app/{name}",
 	summary="One of the browser app's files",

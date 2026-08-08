@@ -491,3 +491,13 @@ code, .ref, .priority {
 	.facts { grid-template-columns: 1fr; gap: 2px; }
 	.facts dd { margin-bottom: 8px; }
 }
+
+/* A mention of another item, inside rendered prose (`#638`). Underlined rather than only
+   coloured, because `#102` says a colour may not be the only thing carrying a meaning — and
+   "this is a link" is a meaning. */
+.prose .mention, .comments .body .mention {
+	color: var(--accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	white-space: nowrap;
+}

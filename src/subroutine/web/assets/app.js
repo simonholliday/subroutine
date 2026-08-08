@@ -84,6 +84,75 @@ async function api (path, { method = "GET", body = null } = {}) {
 	throw new Refused(answer.status, detail);
 }
 
+/* ---- addresses (`#638`) -------------------------------------------------- */
+
+/*
+	**Two forms, and only one of them is an identifier.**
+
+	`/{workspace}/{ref}` is the durable one. A ref is allocated once per workspace and never
+	reused (§6.2), and a workspace slug *cannot be renamed* — deliberately (`#295`), because it
+	is the middle segment of every address anybody ever wrote down. So nothing in it can go
+	stale.
+
+	`/{workspace}/{project}/{ref}` is the same address with a word in it for a person reading
+	it. A project key **can** be renamed — `sr` became `subroutine` on 2026-08-08, across 502
+	items — so that segment is a rendering rather than a fact. It is generated fresh whenever a
+	link is made, never stored, and never trusted on the way back in: the ref is last, so a
+	stale one still resolves and the app corrects the bar to the current spelling.
+
+	**One project segment, not the ancestor path.** A key is unique per workspace, so the leaf
+	alone is exactly as unambiguous as `subroutine/ui` would be — and it has one fewer thing
+	that can go stale, since renaming a parent would otherwise invalidate every descendant's
+	address. Extra segments are accepted and ignored, so growing into the path form later costs
+	nothing.
+*/
+
+export function addressOf (item, workspace) {
+	/* The address to put in the bar for one item: readable when we know enough, durable
+	   always. */
+	const durable = `/${encodeURIComponent(workspace)}/${item.ref}`;
+
+	if (!item.project_key) return durable;
+
+	return `/${encodeURIComponent(workspace)}/${encodeURIComponent(item.project_key)}`
+		+ `/${item.ref}`;
+}
+
+export function parseAddress (pathname) {
+	/*
+		Read an address, or return null for one that names no item.
+
+		**The ref is the last segment and everything before the workspace is ignored**, which is
+		what makes a stale project name harmless rather than a dead link. A segment that is not
+		a positive integer is not a ref: `#42` is how a person writes one in prose, and a `#` in
+		a URL is a fragment that never reaches the server at all.
+	*/
+	const parts = String(pathname || "").split("/").filter((part) => part !== "");
+
+	if (parts.length < 2) return null;
+
+	const ref = Number(parts[parts.length - 1]);
+
+	if (!Number.isInteger(ref) || ref < 1) return null;
+
+	return {
+		workspace: decodeURIComponent(parts[0]),
+		project: parts.length > 2 ? decodeURIComponent(parts[1]) : null,
+		ref,
+	};
+}
+
+export function mentionHref (workspace) {
+	/*
+		How a `#42` written in a description becomes a link.
+
+		Durable rather than readable, because a mention is *stored prose* — the one place an
+		address genuinely is permanent, and so the one place a renameable segment must not
+		appear. It resolves within the workspace it was written in, which is what a ref means.
+	*/
+	return (ref) => `/${encodeURIComponent(workspace)}/${ref}`;
+}
+
 /* ---- shaping ------------------------------------------------------------ */
 
 export function day (value) {
@@ -284,7 +353,7 @@ export function Facts ({ item }) {
 	`;
 }
 
-export function Prose ({ text, className }) {
+export function Prose ({ text, className, where, onOpen }) {
 	/*
 		**The whole of this app's trust boundary, and the only `dangerouslySetInnerHTML` in
 		it.** Everything a reader sees as formatted text arrives here, and the safety of that
@@ -293,10 +362,41 @@ export function Prose ({ text, className }) {
 
 		A second call site would be a second thing to be sure about. If formatted text is
 		needed somewhere else, use this component rather than the property it wraps.
+
+		`where` turns a `#42` in the prose into a link to that item, and its absence leaves one
+		as text — which is what it was before `#638` and what it stays wherever the workspace is
+		not known.
 	*/
 
-	return html`<div class=${className}
-		dangerouslySetInnerHTML=${{ __html: markdown.render(text) }}></div>`;
+	/*
+		Mentions are caught here rather than followed.
+
+		The anchor is a real one, so it copies, opens in a new tab and works with JavaScript
+		off — the whole reason `#638` puts an address on every item. Following it in *this* tab
+		would reload the page for a link to something the app already knows how to show, which
+		on a description with forty mentions in it is forty page loads. One listener on the
+		container rather than one per link, because the HTML is set as a string and there is
+		nothing to attach a handler to.
+	*/
+	const caught = (event) => {
+		if (!onOpen) return;
+
+		const anchor = event.target.closest && event.target.closest("a.mention");
+
+		if (!anchor || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+			return;
+		}
+
+		const asked = parseAddress(new URL(anchor.href, window.location.origin).pathname);
+
+		if (asked === null) return;
+
+		event.preventDefault();
+		onOpen({ ref: asked.ref });
+	};
+
+	return html`<div class=${className} onClick=${caught}
+		dangerouslySetInnerHTML=${{ __html: markdown.render(text, where) }}></div>`;
 }
 
 export function Doing ({ item, members, onComplete, onAssign, busy }) {
@@ -336,7 +436,7 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 }
 
 export function Detail ({
-	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy,
+	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 }) {
 	const body = item.description || item.body;
 
@@ -351,7 +451,8 @@ export function Detail ({
 					onAssign=${onAssign} busy=${busy} />
 			`}
 
-			${body && html`<${Prose} className="prose" text=${body} />`}
+			${body && html`<${Prose} className="prose" text=${body} where=${where}
+				onOpen=${onOpen} />`}
 
 			${links.length > 0 && html`
 				<h3>Links</h3>
@@ -374,7 +475,8 @@ export function Detail ({
 					${comments.map((note) => html`
 						<li key=${note.id}>
 							<div class="said">${day(note.created_at)}</div>
-							<${Prose} className="body" text=${note.body} />
+							<${Prose} className="body" text=${note.body} where=${where}
+								onOpen=${onOpen} />
 						</li>
 					`)}
 				</ul>
@@ -497,6 +599,34 @@ export function App () {
 		start();
 	}, []);
 
+	/*
+		The address a reader arrived at, and every one they reach with the back button.
+
+		**Read once the workspace is known**, because opening an item needs the scope — so this
+		waits for `ready` rather than running beside `start`. A `popstate` is the same question
+		asked again, which is why both go through one effect: back out of an item and the list
+		is what an address with no ref means.
+	*/
+	useEffect(() => {
+		if (!ready || error || !workspace) return undefined;
+
+		const arrive = () => {
+			const asked = parseAddress(window.location.pathname);
+
+			if (asked === null) {
+				setOpen(null);
+				return;
+			}
+
+			show({ ref: asked.ref }, { history: false });
+		};
+
+		arrive();
+		window.addEventListener("popstate", arrive);
+
+		return () => window.removeEventListener("popstate", arrive);
+	}, [ready, error, workspace, show]);
+
 	useEffect(() => {
 		if (error || !workspace) return undefined;
 
@@ -521,24 +651,87 @@ export function App () {
 		return () => clearInterval(tick);
 	}, [error, workspace, load]);
 
-	const show = useCallback(async (row) => {
-		const kind = row.kind === "document" ? "documents" : "tasks";
+	const fetched = useCallback(async (ref, kind) => {
+		/*
+			Read one item, working out what it is when nobody said.
+
+			A ref names a task *or* a document — one counter per workspace serves both (§6.2) —
+			so an address carries no kind and there is nothing to infer it from. Ask about a
+			task, and read the 404 as "then it is a document" rather than as a failure. Only a
+			refusal from the *second* is a refusal.
+		*/
 		const scope = `workspace_id=${encodeURIComponent(workspace)}`;
+		const order = kind ? [kind] : ["task", "document"];
 
+		for (const trying of order) {
+			const path = trying === "document" ? "documents" : "tasks";
+
+			try {
+				const [item, links, comments] = await Promise.all([
+					api(`/${path}/${ref}?${scope}`),
+					api(`/${path}/${ref}/links?${scope}`),
+					api(`/${path}/${ref}/comments?${scope}&limit=${PAGE}`),
+				]);
+
+				return { item: { ...item, kind: trying }, links: links.items,
+					comments: comments.items };
+			} catch (failure) {
+				if (failure.status !== 404 || trying === order[order.length - 1]) throw failure;
+			}
+		}
+
+		return null;
+	}, [workspace]);
+
+	const show = useCallback(async (row, { history = true } = {}) => {
 		try {
-			const [item, links, comments] = await Promise.all([
-				api(`/${kind}/${row.ref}?${scope}`),
-				api(`/${kind}/${row.ref}/links?${scope}`),
-				api(`/${kind}/${row.ref}/comments?${scope}&limit=${PAGE}`),
-			]);
+			const found = await fetched(row.ref, row.kind);
 
-			setOpen({ item: { ...item, kind: row.kind }, links: links.items,
-				comments: comments.items });
+			setOpen(found);
+
+			/*
+				**The address is written from what came back, not from what was clicked.** So a
+				link somebody was sent with a retired project name in it corrects itself the
+				moment the item is read — `replaceState` rather than `pushState` for that, since
+				the stale spelling should not become a step in the reader's own history.
+			*/
+			const address = addressOf(found.item, workspace);
+
+			if (window.location.pathname !== address) {
+				window.history[history ? "pushState" : "replaceState"](
+					{ ref: found.item.ref }, "", address,
+				);
+			}
+
 			window.scrollTo(0, 0);
 		} catch (failure) {
+			/*
+				**A ref that is not there is a note, not the end of the page.**
+
+				Prose mentions whatever somebody wrote, and `#999` is linked without asking
+				whether it exists — checking would be a request per mention, on descriptions
+				that carry forty. So the dead ones arrive here, and a reader who followed one
+				should be told that and left with their list. Found by driving: the first
+				version replaced the whole app with an error page for a typo in a description.
+			*/
+			if (failure.status === 404) {
+				setNote({ text: `There is no #${row.ref} in ${workspace}.`, tone: "bad" });
+				setOpen(null);
+
+				return;
+			}
+
 			setError(failure);
 		}
-	}, [workspace]);
+	}, [fetched, workspace]);
+
+	const close = useCallback(({ history = true } = {}) => {
+		setOpen(null);
+
+		if (history && window.location.pathname !== "/") {
+			window.history.pushState({}, "", "/");
+		}
+	}, []);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
@@ -646,8 +839,8 @@ export function App () {
 
 	const chooseWorkspace = useCallback(async (slug) => {
 		setWorkspace(slug);
-		setOpen(null);
 		setNote(null);
+		close();
 
 		try {
 			await load(slug);
@@ -691,7 +884,8 @@ export function App () {
 
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
-					onBack=${() => setOpen(null)} onComplete=${complete} onAssign=${assign} />`
+					where=${mentionHref(workspace)} onBack=${() => close()}
+					onComplete=${complete} onAssign=${assign} />`
 				: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
 					onAdd=${add} busy=${busy} />`}
 

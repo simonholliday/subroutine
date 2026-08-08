@@ -80,9 +80,23 @@ const INLINE = new RegExp(
 		"~~(?!\\s)([\\s\\S]+?)(?<!\\s)~~",            /* 6    — struck through */
 		"\\*(?!\\s)([^*\\n]+?)(?<!\\s)\\*",           /* 7    — italic */
 		"(https?://[^\\s<>\"'`)\\]]+)",               /* 8    — a bare address */
+		"(?<![\\w#])#([1-9][0-9]*)(?!\\w)",           /* 9    — a mention of an item */
 	].join("|"),
 	"g"
 );
+
+/*
+	**The mention rule is `mentions.REF_PATTERN`, character for character.**
+
+	Lookarounds rather than `\b`, and no leading zero: that is what keeps `#42FF00`, `##1`,
+	`issue#1` and `#007` out of the index server-side, and a browser that disagreed would
+	underline things the backlink graph does not know about. A second copy of this rule is
+	this codebase's signature defect, so the copy is deliberate, marked, and identical —
+	`tests/test_web.py` compares them.
+
+	It sits last in the alternation, so a `#42` inside backticks or inside a link's text is
+	claimed by those first.
+*/
 
 
 export function escaped (text) {
@@ -148,14 +162,14 @@ function anchor (href, label) {
 }
 
 
-function linked (text, destination) {
+function linked (text, destination, where) {
 	/* Render one written link, or the source that was written if we will not go there. */
 
 	const href = target(destination);
 
 	if (href === null) return escaped(`[${text}](${destination})`);
 
-	return anchor(href, inline(text));
+	return anchor(href, inline(text, where));
 }
 
 
@@ -175,9 +189,29 @@ function autolinked (found) {
 }
 
 
-export function inline (text) {
+function mentioned (ref, where) {
 	/*
-		Render one run of prose: emphasis, code, links, and nothing else.
+		Render `#42` as a link to that item, or as the text it is.
+
+		**`where` is asked rather than assumed**, so this module knows nothing about how
+		Subroutine addresses anything — it recognises the shape and lets the caller say what it
+		points at. Without one, a mention is prose, which is what it was before `#638` and what
+		it stays anywhere the workspace is not known.
+	*/
+	const written = `#${ref}`;
+
+	if (!where) return escaped(written);
+
+	const href = target(where(ref));
+
+	return href === null ? escaped(written)
+		: `<a href="${escaped(href)}" class="mention">${escaped(written)}</a>`;
+}
+
+
+export function inline (text, where) {
+	/*
+		Render one run of prose: emphasis, code, links, mentions, and nothing else.
 
 		The scan walks left to right and everything *between* matches goes through `escaped`,
 		so there is no path from the source to the output that skips it.
@@ -191,11 +225,12 @@ export function inline (text) {
 		last = found.index + found[0].length;
 
 		if (found[1] !== undefined) out += `<code>${escaped(found[2])}</code>`;
-		else if (found[3] !== undefined) out += linked(found[3], found[4]);
-		else if (found[5] !== undefined) out += `<strong>${inline(found[5])}</strong>`;
-		else if (found[6] !== undefined) out += `<del>${inline(found[6])}</del>`;
-		else if (found[7] !== undefined) out += `<em>${inline(found[7])}</em>`;
-		else out += autolinked(found[8]);
+		else if (found[3] !== undefined) out += linked(found[3], found[4], where);
+		else if (found[5] !== undefined) out += `<strong>${inline(found[5], where)}</strong>`;
+		else if (found[6] !== undefined) out += `<del>${inline(found[6], where)}</del>`;
+		else if (found[7] !== undefined) out += `<em>${inline(found[7], where)}</em>`;
+		else if (found[8] !== undefined) out += autolinked(found[8]);
+		else out += mentioned(found[9], where);
 	}
 
 	return out + escaped(text.slice(last));
@@ -238,7 +273,7 @@ function cells (row) {
 }
 
 
-function tableAt (lines, start) {
+function tableAt (lines, start, where) {
 	/* Render the table beginning at `start`, and say which line comes after it. */
 
 	const header = cells(lines[start]);
@@ -257,7 +292,7 @@ function tableAt (lines, start) {
 
 	let out = "<table><thead><tr>";
 	header.forEach((cell, column) => {
-		out += `<th${styled(column)}>${inline(cell)}</th>`;
+		out += `<th${styled(column)}>${inline(cell, where)}</th>`;
 	});
 	out += "</tr></thead><tbody>";
 
@@ -266,7 +301,7 @@ function tableAt (lines, start) {
 	while (i < lines.length && lines[i].trim().startsWith("|")) {
 		out += "<tr>";
 		cells(lines[i]).forEach((cell, column) => {
-			out += `<td${styled(column)}>${inline(cell)}</td>`;
+			out += `<td${styled(column)}>${inline(cell, where)}</td>`;
 		});
 		out += "</tr>";
 		i += 1;
@@ -276,7 +311,7 @@ function tableAt (lines, start) {
 }
 
 
-function itemBody (content) {
+function itemBody (content, where) {
 	/*
 		Render what one list item holds.
 
@@ -291,11 +326,11 @@ function itemBody (content) {
 			FENCE.test(line) || (index > 0 && line.trim().startsWith(">"))
 	);
 
-	return structured ? blocks(content) : inline(content.join("\n"));
+	return structured ? blocks(content, where) : inline(content.join("\n"), where);
 }
 
 
-function listAt (lines, start) {
+function listAt (lines, start, where) {
 	/* Render the list beginning at `start`, and say which line comes after it. */
 
 	const first = LIST_ITEM.exec(lines[start]);
@@ -335,7 +370,7 @@ function listAt (lines, start) {
 			i += 1;
 		}
 
-		items.push(`<li>${itemBody(content)}</li>`);
+		items.push(`<li>${itemBody(content, where)}</li>`);
 	}
 
 	const tag = ordered ? "ol" : "ul";
@@ -344,7 +379,7 @@ function listAt (lines, start) {
 }
 
 
-function blocks (lines) {
+function blocks (lines, where) {
 	/* Render a sequence of lines as block-level HTML. */
 
 	let out = "";
@@ -390,7 +425,7 @@ function blocks (lines) {
 		if (heading !== null) {
 			const level = Math.min(heading[1].length + HEADING_OFFSET, 6);
 
-			out += `<h${level}>${inline(heading[2])}</h${level}>`;
+			out += `<h${level}>${inline(heading[2], where)}</h${level}>`;
 			i += 1;
 			continue;
 		}
@@ -403,7 +438,7 @@ function blocks (lines) {
 				i += 1;
 			}
 
-			out += `<blockquote>${blocks(held)}</blockquote>`;
+			out += `<blockquote>${blocks(held, where)}</blockquote>`;
 			continue;
 		}
 
@@ -431,7 +466,7 @@ function blocks (lines) {
 			line.trim().startsWith("|") && i + 1 < lines.length &&
 			TABLE_SEPARATOR.test(lines[i + 1])
 		) {
-			const [rendered, next] = tableAt(lines, i);
+			const [rendered, next] = tableAt(lines, i, where);
 
 			out += rendered;
 			i = next;
@@ -439,7 +474,7 @@ function blocks (lines) {
 		}
 
 		if (LIST_ITEM.test(line)) {
-			const [rendered, next] = listAt(lines, i);
+			const [rendered, next] = listAt(lines, i, where);
 
 			out += rendered;
 			i = next;
@@ -463,14 +498,14 @@ function blocks (lines) {
 			i += 1;
 		}
 
-		out += `<p>${inline(paragraph.join("\n"))}</p>`;
+		out += `<p>${inline(paragraph.join("\n"), where)}</p>`;
 	}
 
 	return out;
 }
 
 
-export function render (source) {
+export function render (source, where) {
 	/*
 		Render stored Markdown as HTML.
 
@@ -480,5 +515,5 @@ export function render (source) {
 
 	if (source === null || source === undefined || String(source).trim() === "") return "";
 
-	return blocks(String(source).replace(/\r\n?/g, "\n").split("\n"));
+	return blocks(String(source).replace(/\r\n?/g, "\n").split("\n"), where);
 }

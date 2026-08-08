@@ -22,6 +22,7 @@ import typing
 
 import pytest
 
+import subroutine.api.app
 import subroutine.api.web
 import subroutine.web.vendored
 
@@ -874,3 +875,200 @@ def test_every_write_goes_through_one_request_function () -> None:
 
 	assert app.count("fetch(") == 1, "a second request path has appeared"
 	assert app.count("credentials:") == 1
+
+
+# ---- addresses (`SR#638`) ------------------------------------------------------------------
+
+
+def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) -> list[typing.Any]:
+	"""Run the app's own address functions in Node, and return what each answered.
+
+	**Pure functions, so they can be driven directly** — which is `SR#640`'s point applied
+	rather than only recorded: the routing *decisions* live outside the component, so the
+	harness can check them without a DOM even though it cannot touch `App`.
+	"""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const calls = {json.dumps(calls)};
+
+		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
+			name === "parseAddress" ? app.parseAddress(argument)
+			: name === "mentionHref" ? app.mentionHref(argument)(42)
+			: app.addressOf(argument.item, argument.workspace))));
+	"""))
+
+
+def test_an_item_has_a_readable_address_and_a_durable_one (tmp_path: pathlib.Path) -> None:
+	"""The readable form carries the project; the durable one cannot, because a key is renameable.
+
+	`sr` became `subroutine` across 502 items on 2026-08-08, which is the whole argument: a
+	project key is a rendering and a workspace slug is not — the slug cannot be renamed at all
+	(`SR#295`), deliberately, because it is the middle of every address anybody wrote down.
+	"""
+
+	readable, bare, mention = _addressing(tmp_path, [
+		("addressOf", {"item": {"ref": 42, "project_key": "ui"}, "workspace": "projects"}),
+		("addressOf", {"item": {"ref": 42, "project_key": None}, "workspace": "projects"}),
+		("mentionHref", "projects"),
+	])
+
+	assert readable == "/projects/ui/42"
+	assert bare == "/projects/42", "an item with no project got something other than the ref"
+	assert mention == "/projects/42", "a mention in stored prose used a renameable segment"
+
+
+def test_a_stale_project_in_an_address_still_finds_the_item (tmp_path: pathlib.Path) -> None:
+	"""**The ref is last, so everything before it is decoration.**
+
+	This is what makes the readable form a convenience rather than a liability: a link somebody
+	pasted into a message six weeks ago goes on working after a rename, and the app rewrites the
+	bar to the current spelling once it has read the item.
+	"""
+
+	current, stale, deep = _addressing(tmp_path, [
+		("parseAddress", "/projects/ui/42"),
+		("parseAddress", "/projects/sr/42"),
+		("parseAddress", "/projects/subroutine/ui/42"),
+	])
+
+	assert current["ref"] == 42 and current["workspace"] == "projects"
+	assert stale["ref"] == 42, "a retired project name broke the address"
+	assert deep["ref"] == 42, "extra segments were not ignored, so the path form cannot grow in"
+
+
+def test_an_address_that_names_no_item_is_not_one (tmp_path: pathlib.Path) -> None:
+	"""Everything the app must *not* read as an item, including the shapes the server serves.
+
+	`/app/app.js` is the one that matters: the last segment has to fail as a ref or the app
+	would try to open an asset, and the route that serves it would have been shadowed.
+	"""
+
+	answers = _addressing(tmp_path, [
+		("parseAddress", "/"),
+		("parseAddress", "/projects"),
+		("parseAddress", "/app/app.js"),
+		("parseAddress", "/projects/ui"),
+		("parseAddress", "/projects/0"),
+		("parseAddress", "/projects/-1"),
+		("parseAddress", "/projects/4.5"),
+		("parseAddress", "/healthz"),
+	])
+
+	assert answers == [None] * len(answers), f"one of these read as an item: {answers}"
+
+
+def test_the_web_routes_cannot_shadow_the_api () -> None:
+	"""**Declared narrowly so registration order cannot matter.**
+
+	FastAPI matches in the order routers are registered, not by specificity — this project has
+	already lost a route that way (`/v1/tasks/{id_or_ref}` swallowing `/v1/tasks/next`). A
+	`{path:path}` catch-all would be correct only while it stayed last in `ROUTERS`, enforced by
+	nothing. An `int` in the last segment is enforced by the router itself.
+	"""
+
+	paths = {
+		route.path for router in (subroutine.api.web.router, subroutine.api.web.addresses)
+		for route in router.routes if hasattr(route, "path")
+	}
+
+	assert "/{workspace}/{ref:int}" in paths
+	assert "/{workspace}/{project}/{ref:int}" in paths
+
+	for path in paths:
+		assert ":path}" not in path, f"{path} is a catch-all and can shadow whatever follows it"
+
+	# **`{ref:int}` is Starlette's path converter, and it is the only thing that narrows what
+	# these match.** A Python annotation of `int` does not, which is exactly how the first
+	# version of this shipped: `/{workspace}/{ref}` with `ref: int` in the signature swallowed
+	# `GET /v1/me`, `/v1/tasks`, `/v1/meta` and ten more. So the assertion is on the *path*, and
+	# an annotation-only check would have passed against the defect.
+	assert not any(
+		path.endswith("/{ref}") for path in paths
+	), "a ref is declared without its converter, so this matches any last segment"
+
+	# Last in `ROUTERS`, because `/v1/tasks/42` is three segments ending in a number too. The
+	# converter cannot settle that one; the order does.
+	mounted = [router for _, router in subroutine.api.app.ROUTERS]
+
+	assert mounted[-1] is subroutine.api.web.addresses, (
+		"the app's item addresses are no longer mounted last, so they can shadow any route "
+		"registered after them whose path ends in a number"
+	)
+
+
+def test_a_mention_becomes_a_link_and_only_a_real_one (tmp_path: pathlib.Path) -> None:
+	"""**The pattern is `mentions.REF_PATTERN`, so the browser and the index agree.**
+
+	A `#42` in a description is 2,196 occurrences across 90% of the prose on this instance —
+	the highest-traffic link in the product. If the browser underlined things the mention index
+	does not know about, the link and the backlink would disagree about what a reference is.
+	"""
+
+	module = _staged(tmp_path)
+	rendered = _ran(tmp_path, f"""
+		import * as markdown from "{(module.parent / "markdown.js").as_uri()}";
+		import * as app from "{module.as_uri()}";
+
+		const where = app.mentionHref("projects");
+		const sources = {json.dumps([
+			"See #42 for why.",
+			"`#42` in code is not a link.",
+			"#42FF00 is a colour, ##1 is not a ref, issue#1 is not either, and #007 has a zero.",
+			"A mention with no workspace to point at.",
+		])};
+
+		process.stdout.write(JSON.stringify([
+			...sources.slice(0, 3).map((s) => markdown.render(s, where)),
+			markdown.render(sources[3] + " #42", null),
+		]));
+	""")
+
+	assert '<a href="/projects/42" class="mention">#42</a>' in rendered[0]
+	assert "<a " not in rendered[1], "a ref inside code became a link"
+	assert "<a " not in rendered[2], "something that is not a reference was linked"
+	assert "<a " not in rendered[3], "a mention was linked with nowhere to point"
+
+
+def test_the_browser_and_the_index_share_one_mention_rule () -> None:
+	"""Two copies of a rule that must agree is this codebase's signature defect.
+
+	The copy in `markdown.js` is deliberate — the browser cannot import Python — so it is
+	compared against the original here rather than trusted to have been kept in step.
+	"""
+
+	import subroutine.domain.mentions
+
+	original = subroutine.domain.mentions.REF_PATTERN.pattern
+	inside = _served_modules()["markdown.js"]
+
+	# The JavaScript copy is written escaped for `new RegExp`, so it is unescaped before
+	# comparing: `\\w` in the source is `\w` in the pattern the engine sees.
+	assert original.replace("\\", "\\\\") in inside, (
+		f"markdown.js no longer carries {original!r}, so the browser and the mention index "
+		f"can disagree about what a reference is"
+	)
+
+
+def test_a_mention_of_something_that_is_not_there_is_a_note (tmp_path: pathlib.Path) -> None:
+	"""A dead `#999` must not replace the page a reader is on.
+
+	Prose mentions whatever somebody wrote, and the renderer links every ref without asking
+	whether it resolves — checking would be one request per mention on descriptions that carry
+	forty. So a link to nothing is reachable by construction, and it has to land somewhere
+	survivable. Found by driving: the first version showed the failure page for a typo.
+
+	Source-level for `SR#640`'s reason — the branch is inside `App`, which the harness cannot
+	render.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+
+	assert "failure.status === 404" in app, "a missing ref stopped being told apart"
+	assert app.count("setError(failure)") == 3, (
+		"the number of places that replace the whole page changed — each one should be a case "
+		"where nothing on screen is worth keeping"
+	)

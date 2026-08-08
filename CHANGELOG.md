@@ -37,6 +37,19 @@ upgrade involves.
   press. A refusal — something somebody else changed, a permission you do not have — is
   reported beside the work rather than replacing the page you were reading.
 
+  **Every item has an address you can send somebody.** Open one and the browser's address bar
+  says which it is, so a link can be pasted into a message and it opens on the item — and the
+  back button closes it again, rather than leaving the page.
+
+  An address reads `/<workspace>/<project>/<number>`, and the project in the middle is there for
+  the person reading it rather than for the machine. Rename a project and links written down
+  beforehand go on working: the number is what resolves, and the address quietly corrects itself
+  to the new name.
+
+  **A `#42` written in a description is now a link to that item**, using the same rule the
+  instance itself uses to decide what counts as a reference — so `#42FF00` and `issue#1` are
+  still just text.
+
   Revising a description, and everything else, is still the command line and the API.
 
   It is served by the instance itself, on the same address as the API, and signing in is the

@@ -47,6 +47,14 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# mount this test could never have seen.
 	"GET /": "the browser app's page, which loads before there is a session to load it with",
 	"GET /app/{name}": "the browser app's own files, the same bytes for every caller",
+	# The same page, opened at one item (`#638`). Public for the same reason, and the reason is
+	# sharper here: these *could* have looked the item up in order to correct a stale project
+	# name in the address, and deliberately do not. A public route that read the database to
+	# decide where to send somebody would tell a stranger whether an item exists and what
+	# project it is in, from an address they guessed. The app does that correction after it has
+	# authenticated, where the answer is already theirs to see.
+	"GET /{workspace}/{ref:int}": "the app's page, opened at one item; reads nothing",
+	"GET /{workspace}/{project}/{ref:int}": "the same, by its readable address; reads nothing",
 }
 
 
