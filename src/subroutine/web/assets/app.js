@@ -37,6 +37,33 @@ const POLL_MS = 10000;
    than a ceiling on what exists. */
 const PAGE = 100;
 
+/*
+	**What a listing asks for, which is what a row shows and nothing else** (§14.10, `#645`).
+
+	Measured on the served instance: a whole page of tasks is 287 KB and a whole page of
+	documents is **1.3 MB**, because a document's body comes down in full and the bodies here
+	are the specification. Shaped, the pair is 38 KB — forty-two times smaller, and the reader
+	sees exactly the same list.
+
+	§14.10 calls response size a first-order cost for the agent client. It is a first-order cost
+	for a browser on a train too, and this is the surface that felt it first.
+
+	**These are a second copy of what `Row` renders**, which is the shape this codebase gets
+	wrong most — so `tests/test_web.py` derives the requirement from `Row`, `marks`, `when` and
+	`overdue` rather than trusting the two to be kept in step. A field left out does not error:
+	it arrives as null, and a null reads as *not set* rather than as *not asked for*, which
+	would quietly invert §12.2c.
+*/
+const TASK_FIELDS = [
+	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
+	"status", "status_is_default", "status_category",
+].join(",");
+
+/* A document has no dates and no assignee — `_when` returns nothing for one — so it asks for
+   less. Not the same list with the extras arriving null, because that is the difference
+   between "has no deadline" and "cannot have one", and only one of them is true. */
+const DOCUMENT_FIELDS = ["ref", "title", "project_key", "status", "status_is_default"].join(",");
+
 class Refused extends Error {
 	/* Carries the status so the caller can tell "sign in" from "something went wrong". */
 	constructor (status, detail) {
@@ -537,8 +564,8 @@ export function App () {
 			exist. That was a real complaint about the CLI listing before it spanned both.
 		*/
 		const [tasks, documents] = await Promise.all([
-			api(`/tasks?${scope}&order=-priority_score&limit=${PAGE}`),
-			api(`/documents?${scope}&order=-updated_at&limit=${PAGE}`),
+			api(`/tasks?${scope}&order=-priority_score&limit=${PAGE}&fields=${TASK_FIELDS}`),
+			api(`/documents?${scope}&order=-updated_at&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`),
 		]);
 
 		setItems([
@@ -570,35 +597,6 @@ export function App () {
 		}
 	}, []);
 
-	const start = useCallback(async () => {
-		setError(null);
-
-		try {
-			const identity = await api("/me");
-			const first = identity.workspaces[0];
-			const slug = (workspace || (first && first.slug)) ?? null;
-
-			setMe(identity);
-			setWorkspace(slug);
-
-			/* The head of the feed, so the first poll asks about what happens *next* rather
-			   than replaying everything that ever has. */
-			const head = await api(`/changes?newest=true&limit=1`);
-			since.current = head.items.length > 0 ? head.items[0].seq : 0;
-
-			await load(slug);
-			await roster(slug);
-		} catch (failure) {
-			setError(failure);
-		} finally {
-			setReady(true);
-		}
-	}, [load, roster, workspace]);
-
-	useEffect(() => {
-		start();
-	}, []);
-
 	useEffect(() => {
 		if (error || !workspace) return undefined;
 
@@ -623,7 +621,7 @@ export function App () {
 		return () => clearInterval(tick);
 	}, [error, workspace, load]);
 
-	const fetched = useCallback(async (ref, kind) => {
+	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
 			Read one item, working out what it is when nobody said.
 
@@ -632,7 +630,7 @@ export function App () {
 			task, and read the 404 as "then it is a document" rather than as a failure. Only a
 			refusal from the *second* is a refusal.
 		*/
-		const scope = `workspace_id=${encodeURIComponent(workspace)}`;
+		const scope = `workspace_id=${encodeURIComponent(slug)}`;
 		const order = kind ? [kind] : ["task", "document"];
 
 		for (const trying of order) {
@@ -653,11 +651,11 @@ export function App () {
 		}
 
 		return null;
-	}, [workspace]);
+	}, []);
 
-	const show = useCallback(async (row, { history = true } = {}) => {
+	const show = useCallback(async (row, { history = true, slug = workspace } = {}) => {
 		try {
-			const found = await fetched(row.ref, row.kind);
+			const found = await fetched(row.ref, row.kind, slug);
 
 			setOpen(found);
 
@@ -667,7 +665,7 @@ export function App () {
 				moment the item is read — `replaceState` rather than `pushState` for that, since
 				the stale spelling should not become a step in the reader's own history.
 			*/
-			const address = addressOf(found.item, workspace);
+			const address = addressOf(found.item, slug);
 
 			if (window.location.pathname !== address) {
 				window.history[history ? "pushState" : "replaceState"](
@@ -687,7 +685,7 @@ export function App () {
 				version replaced the whole app with an error page for a typo in a description.
 			*/
 			if (failure.status === 404) {
-				setNote({ text: `There is no #${row.ref} in ${workspace}.`, tone: "bad" });
+				setNote({ text: `There is no #${row.ref} in ${slug}.`, tone: "bad" });
 				setOpen(null);
 
 				return;
@@ -705,19 +703,62 @@ export function App () {
 		}
 	}, []);
 
-	/*
-		The address a reader arrived at, and every one they reach with the back button.
+	const start = useCallback(async () => {
+		setError(null);
 
-		**Read once the workspace is known**, because opening an item needs the scope — so this
-		waits for `ready` rather than running beside `start`. A `popstate` is the same question
-		asked again, which is why both go through one effect: back out of an item and the list
-		is what an address with no ref means.
+		try {
+			const identity = await api("/me");
+			const first = identity.workspaces[0];
+			const slug = (workspace || (first && first.slug)) ?? null;
+
+			setMe(identity);
+			setWorkspace(slug);
+
+			/* The head of the feed, so the first poll asks about what happens *next* rather
+			   than replaying everything that ever has. */
+			const head = await api(`/changes?newest=true&limit=1`);
+			since.current = head.items.length > 0 ? head.items[0].seq : 0;
+
+			/*
+				**The item an address names is opened here, beside the list rather than after
+				it** (`#645`). Loading the list first and opening the item from an effect meant
+				a deep link showed a page of somebody else's work, briefly, before showing the
+				thing that was asked for — and waited for it.
+
+				`slug` is passed rather than read from `workspace`: `setWorkspace` has not
+				landed in this render, so the closure still holds the previous value, and a read
+				scoped to it would be scoped to the wrong workspace or to nothing.
+			*/
+			const asked = parseAddress(window.location.pathname);
+
+			await Promise.all([
+				load(slug),
+				roster(slug),
+				asked === null ? null : show({ ref: asked.ref }, { history: false, slug }),
+			]);
+		} catch (failure) {
+			setError(failure);
+		} finally {
+			setReady(true);
+		}
+	}, [load, roster, show, workspace]);
+
+	useEffect(() => {
+		start();
+	}, []);
+
+	/*
+		Every address a reader reaches with the back button.
+
+		**The one they arrived at is `start`'s** (`#645`), so this does not read the address on
+		mount — doing both fetched the same item twice. Back out of an item and an address with
+		no ref is the list, which is why one handler covers both directions.
 
 		**It sits below `show` because a dependency array is evaluated where it is written.**
 		Declared above it, `show` is in its temporal dead zone and the whole app throws
 		`Cannot access 'show' before initialization` — a blank page, which is exactly where it
-		shipped from. The order of the `const`s was checked and this was not, because it is not
-		one of them.
+		shipped from (`#643`). The order of the `const`s was checked and this was not, because
+		it is not one of them.
 	*/
 	useEffect(() => {
 		if (!ready || error || !workspace) return undefined;
@@ -733,7 +774,6 @@ export function App () {
 			show({ ref: asked.ref }, { history: false });
 		};
 
-		arrive();
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);

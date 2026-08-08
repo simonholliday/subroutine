@@ -1141,3 +1141,60 @@ def test_nothing_is_named_in_a_dependency_array_before_it_exists () -> None:
 	assert declared, "no declarations were found, so this is checking nothing"
 	assert _DEPENDENCIES.search(source), "no hook calls were found, so this is checking nothing"
 	assert not problems, "\n".join(problems)
+
+
+def _function_body (source: str, name: str) -> str:
+	"""Return the body of one top-level function in the app, by name."""
+
+	start = source.index(f"export function {name} (")
+	depth = 0
+
+	for index in range(source.index("{", start), len(source)):
+		if source[index] == "{":
+			depth += 1
+		elif source[index] == "}":
+			depth -= 1
+
+			if depth == 0:
+				return source[start:index]
+
+	raise AssertionError(f"{name} never closes")
+
+
+def test_a_listing_asks_for_every_field_its_rows_render () -> None:
+	"""**The `fields=` list is a second copy of what a row shows, so it is derived, not trusted.**
+
+	`SR#645`: a whole page of tasks is 287 KB and a whole page of documents is 1.3 MB, because a
+	document's body arrives in full. Asking only for what a row renders makes the pair 38 KB.
+	The cost of that is a list somebody has to keep in step with `Row`.
+
+	**And forgetting it does not error.** An unrequested field arrives as `null`, and a null
+	reads as *not set* — which is the rule `subroutine show` and `Facts` are built on (§12.2c).
+	So a row would quietly stop saying an item is blocked, or overdue, or whose it is, and look
+	exactly like an item that is none of those.
+
+	Derived from the four functions that are a row's whole surface, so adding a field to any of
+	them fails here until the request asks for it.
+	"""
+
+	source = _served_modules()["app.js"]
+	rendered = set()
+
+	for name in ("Row", "marks", "when", "overdue"):
+		rendered |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", _function_body(source, name)))
+
+	asked = set(re.findall(r'"([a-z_]+)"', source[
+		source.index("const TASK_FIELDS = ["):source.index("].join(\",\");", source.index("const TASK_FIELDS = ["))
+	]))
+
+	assert rendered, "no fields were found, so this is checking nothing"
+	assert asked, "the task field list was not found, so this is checking nothing"
+
+	# `kind` is added by the app after the answer arrives — it says which collection a row came
+	# from, and no endpoint reports it.
+	missing = rendered - asked - {"kind"}
+
+	assert not missing, (
+		f"a row renders {sorted(missing)}, and the listing does not ask for {'it' if len(missing) == 1 else 'them'} — "
+		f"so every row will show that as absent rather than as unknown"
+	)
