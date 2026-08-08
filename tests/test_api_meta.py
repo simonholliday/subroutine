@@ -442,3 +442,63 @@ def test_meta_says_which_release_is_serving_it (world: test_api_tasks.World) -> 
 		"a release version that equals the contract version would be the wrong field, and "
 		"comparing it could never report skew"
 	)
+
+
+def test_meta_refuses_a_query_parameter_it_does_not_accept (
+	world: test_api_tasks.World,
+) -> None:
+	"""**`#615`, and the spelling in it is the one that cost something.**
+
+	Every MCP tool argument is called ``workspace``; this parameter is ``workspace_id``. The
+	mismatch was discarded in silence and answered ``200`` with empty vocabulary maps — which
+	is what a fresh instance with no custom vocabulary looks like. An agent believed it,
+	concluded there was no way to close an item as a duplicate, and deleted a task instead of
+	cancelling it.
+
+	The refusal is what turns that into a second call: it names what the endpoint *does*
+	accept, so the caller corrects the spelling rather than the conclusion.
+	"""
+
+	answer = world.call("GET", "/v1/meta?workspace=projects")
+
+	assert answer.status_code == 422
+	assert answer.json()["code"] == "unknown_field"
+	assert answer.json()["errors"][0]["field"] == "workspace"
+	assert "workspace_id" in answer.json()["errors"][0]["hint"]
+
+
+def test_meta_still_answers_the_spelling_it_does_accept (
+	world: test_api_tasks.World,
+) -> None:
+	"""The floor under the test above, and it is not decoration.
+
+	A refusal that fired on *everything* would satisfy the previous assertion perfectly while
+	making the endpoint useless — and `#615` is a report about an endpoint answering
+	confidently and wrongly, so a fix that answers nothing would be the same fault again.
+	"""
+
+	answer = world.call("GET", f"/v1/meta?workspace_id={world.workspace.slug}")
+
+	assert answer.status_code == 200
+	assert answer.json()["workspace"] == str(world.workspace.id)
+	assert answer.json()["statuses"], "the vocabulary is what this endpoint is for"
+
+
+def test_meta_with_no_workspace_named_is_unchanged (
+	world: test_api_tasks.World,
+) -> None:
+	"""**The bare call still answers, and that is deliberate rather than overlooked.**
+
+	`_sole` returns nothing when several workspaces are reachable and none was named, because
+	a client's first call is often this one — before it knows what workspaces exist — so
+	answering "which workspace?" to the request that would have told it is a loop.
+
+	Pinned here because `#615` reported the empty maps and the discarded parameter together,
+	and only the second was a defect. A fix that made the bare call refuse would have closed
+	the report and broken the case the endpoint was designed around.
+	"""
+
+	answer = world.call("GET", "/v1/meta")
+
+	assert answer.status_code == 200
+	assert [row["slug"] for row in answer.json()["workspaces"]] == [world.workspace.slug]

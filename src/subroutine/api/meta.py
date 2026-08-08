@@ -33,6 +33,7 @@ import subroutine
 import subroutine.api.dependencies
 import subroutine.api.documents
 import subroutine.api.projects
+import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -109,7 +110,11 @@ LISTINGS: tuple[tuple[str, str, dict[str, typing.Any], frozenset[str]], ...] = (
 )
 
 
-@router.get("/meta", summary="What does this installation call things?")
+@router.get(
+	"/meta",
+	summary="What does this installation call things?",
+	dependencies=[subroutine.api.query.UnknownQueryDep],
+)
 def meta (
 	request: starlette.requests.Request,
 	actor: subroutine.api.security.PrincipalDep,
@@ -119,7 +124,26 @@ def meta (
 		None, description="Which workspace's vocabulary to report, by id or slug."
 	),
 ) -> subroutine.views.Meta:
-	"""Report this installation's vocabulary, limits and grammars."""
+	"""Report this installation's vocabulary, limits and grammars.
+
+	**Refuses a query parameter it does not accept, which no other single-entity read does**
+	(`#615`). The rule `api/query.py` states is that a listing refuses because an ignored
+	parameter costs *payload*, and a single-entity read is exempt because it wastes nothing.
+	This endpoint breaks that criterion: a discarded parameter here does not return too much,
+	it returns **a different answer that looks like a true one**.
+
+	``?workspace=projects`` — the spelling every MCP tool uses — was dropped, and the reply was
+	``200`` with ``workspace: null`` and empty vocabulary maps, which is exactly what a fresh
+	instance with no custom vocabulary would say. An agent read it that way, concluded the
+	status keys were unavailable, derived them instead from the statuses *in use*, decided there
+	was no way to close an item as a duplicate, and **deleted a task** rather than cancelling
+	it. ``cancelled`` had been there the whole time.
+
+	So the criterion is not "collection or entity", it is whether ignoring the parameter
+	changes the *answer* or only its size. This is the one read whose entire answer is chosen
+	by a query parameter, with no path segment naming the subject and no ambiguity refusal
+	underneath it to catch the mistake.
+	"""
 
 	return document(
 		session, actor, settings, workspace_id=workspace_id, application=request.app

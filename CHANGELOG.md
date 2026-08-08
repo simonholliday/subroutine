@@ -41,6 +41,18 @@ upgrade involves.
 
 ### Fixed
 
+- **`GET /v1/meta` refuses a query parameter it does not accept, instead of ignoring it.**
+  `?workspace=projects` — the spelling every agent tool uses, where this endpoint takes
+  `workspace_id` — was discarded in silence and answered with empty vocabulary maps, which is
+  exactly what an instance with no custom vocabulary looks like. It now says which name it
+  wants, as every listing already did.
+
+  A caller believed the empty answer, concluded there was no way to close an item as a
+  duplicate, and deleted a task rather than cancelling it.
+
+  The bare call, with no workspace named, is unchanged: it still answers and lists the
+  workspaces to choose from, because a client's first call is often that one.
+
 - **A search for two words no longer finds nothing.** `q` matched the whole query as one
   contiguous, ordered piece of text, so `vocabulary entries` found an item and
   `vocabulary seeded` did not — although both words were in it, four words apart — and
