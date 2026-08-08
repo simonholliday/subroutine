@@ -6,12 +6,17 @@
 <title>Subroutine</title>
 <link rel="stylesheet" href="/app/app.css">
 <!--
-	An import map rather than a build step. `preact/hooks` imports the bare specifier
-	"preact", and this is what resolves it in a browser without anything rewriting the file
-	first — which is the whole of why no bundler is needed here.
+	An import map rather than a build step. Every bare specifier any served module imports
+	has to be here — including `preact`, which the minified `preact-hooks.js` asks for
+	itself — because nothing rewrites these files on the way to the browser. That is the
+	whole of why no bundler is needed, and the whole of what this map has to get right:
+	a specifier with no entry is a module that never loads and a page that is simply blank.
+
+	`tests/test_web.py` derives the answer from the modules rather than trusting this
+	comment. It did not, once, and `htm` was missing.
 -->
 <script type="importmap">
-{"imports": {"preact": "/app/preact.js", "preact/hooks": "/app/preact-hooks.js"}}
+{"imports": {"preact": "/app/preact.js", "preact/hooks": "/app/preact-hooks.js", "htm": "/app/htm.js"}}
 </script>
 </head>
 <body>

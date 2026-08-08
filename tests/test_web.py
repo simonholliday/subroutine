@@ -14,6 +14,7 @@ green build for us. Syntax checking cannot see it; only rendering can.
 
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import textwrap
@@ -84,6 +85,46 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 UNAUTHENTICATED = {"error": {"status": 401, "message": "This endpoint needs a credential."}}
 
 
+#: A module specifier as it appears in an ``import``. Anchored on the keyword and refusing a
+#: value containing whitespace, which is what keeps prose out: a comment in `app.js` reads
+#: ``"sign in" from "something went wrong"``, and a bare `from "…"` scan reported that as an
+#: import. A specifier with a space in it is not one.
+_SPECIFIER = re.compile(r"""\b(?:from|import)\s*["']([^"'\s]+)["']""")
+
+
+def _import_map () -> dict[str, str]:
+	"""Return what the page tells a browser each bare specifier resolves to."""
+
+	page = (ASSETS / "index.html").read_text(encoding="utf-8")
+	declared = page.split('<script type="importmap">')[1].split("</script>")[0]
+
+	return dict(json.loads(declared)["imports"])
+
+
+def _bare_imports (text: str) -> set[str]:
+	"""Return the bare specifiers this module asks for.
+
+	Bare meaning "not a path": anything starting with ``.``, ``/`` or a scheme resolves by
+	itself, and everything else needs the import map to say what it means.
+	"""
+
+	return {
+		found
+		for found in _SPECIFIER.findall(text)
+		if not found.startswith((".", "/", "http:", "https:", "file:", "data:"))
+	}
+
+
+def _served_modules () -> dict[str, str]:
+	"""Return every JavaScript module this instance serves, by name."""
+
+	return {
+		name: body.decode("utf-8")
+		for name, (body, kind) in subroutine.api.web.FILES.items()
+		if name.endswith(".js")
+	}
+
+
 def _node () -> str:
 	"""Return a JavaScript runtime, or skip.
 
@@ -114,22 +155,30 @@ def _rendered (
 	staged = tmp_path / "staged"
 	staged.mkdir(exist_ok=True)
 
+	# **Resolution comes from the page's own import map**, longest specifier first so that
+	# `preact/hooks` is rewritten before `preact` can match its prefix.
+	#
+	# The first version of this carried its own list of three, and that is why it passed while
+	# the served page was blank: `htm` was missing from the map, the harness supplied it
+	# anyway, and the test proved the components render while saying nothing about whether a
+	# browser could load them. A harness that substitutes the mechanism under test can only
+	# ever confirm the half that was not broken.
+	rewrites = {
+		specifier: (staged / pathlib.Path(target).name).as_uri()
+		for specifier, target in sorted(
+			_import_map().items(), key=lambda pair: -len(pair[0])
+		)
+	}
+
 	def resolved (text: str) -> str:
-		"""Point every bare specifier at the copy beside it.
+		"""Point every bare specifier at the staged copy the import map names.
 
 		**Both spellings, because one of the files is minified**: `preact-hooks.js` contains
 		``from"preact"`` with no space, which is the import the first version of this missed
 		entirely — it rewrote the app and left the vendored file asking for a package name.
-		The browser's import map resolves that one too, which is exactly why forgetting it
-		here produced a failure the served page would never have had.
 		"""
 
-		for specifier, filename in (
-			("preact/hooks", "preact-hooks.js"),
-			("preact", "preact.js"),
-			("htm", "htm.js"),
-		):
-			target = (staged / filename).as_uri()
+		for specifier, target in rewrites.items():
 			text = text.replace(f'from "{specifier}"', f'from "{target}"')
 			text = text.replace(f'from"{specifier}"', f'from"{target}"')
 
@@ -351,3 +400,61 @@ def test_the_app_reaches_only_the_public_api () -> None:
 
 	assert 'fetch(`/v1${path}`' in source, "the one place a request is made has moved"
 	assert source.count("fetch(") == 1, "a second fetch would be a second set of rules"
+
+
+def test_every_bare_specifier_a_served_module_imports_is_in_the_import_map () -> None:
+	"""**The check that was missing, and the page was blank without it.**
+
+	Nothing rewrites these files on the way to a browser — that is the point of having no
+	build step — so a bare specifier with no import-map entry is a module that never loads.
+	The browser says `Failed to resolve module specifier "htm"` in a console nobody is
+	watching and renders an empty page. No request 404s. Nothing is logged server-side. Every
+	other check here passed while it was broken.
+
+	Derived from the modules rather than listed, so a new import is covered the moment it is
+	written — and it scans the *vendored* files too, which is where the requirement comes
+	from: the minified `preact-hooks.js` asks for `preact` itself.
+	"""
+
+	resolvable = set(_import_map())
+	missing: dict[str, set[str]] = {}
+
+	for name, source in _served_modules().items():
+		unresolved = _bare_imports(source) - resolvable
+
+		if unresolved:
+			missing[name] = unresolved
+
+	assert _served_modules(), "no modules were scanned, so this is checking nothing"
+	assert not missing, (
+		f"these bare specifiers have no import-map entry, so the browser cannot load them: "
+		f"{ {name: sorted(found) for name, found in missing.items()} }"
+	)
+
+
+def test_the_import_map_points_only_at_files_that_are_served () -> None:
+	"""The other direction: an entry naming a file that is not served is a 404 on load.
+
+	Same failure, opposite cause, and equally silent — so the map is checked both ways for
+	`#405`'s reason rather than only in the direction that has already bitten.
+	"""
+
+	for specifier, target in _import_map().items():
+		assert target.startswith("/app/"), f"{specifier!r} resolves outside the app's files"
+
+		name = target.removeprefix("/app/")
+
+		assert name in subroutine.api.web.FILES, (
+			f"the import map sends {specifier!r} to {target}, which this instance does not serve"
+		)
+
+
+def test_the_specifier_scan_ignores_prose () -> None:
+	"""A `from "…"` scan reported a *comment* as an import, which would have made this guard
+	demand a map entry for a sentence. Falsified through the real scanner rather than a copy
+	of its rule."""
+
+	assert _bare_imports('/* tell "sign in" from "something went wrong" */') == set()
+	assert _bare_imports('import htm from "htm";') == {"htm"}
+	assert _bare_imports('import{a}from"preact/hooks";') == {"preact/hooks"}
+	assert _bare_imports('import x from "./local.js";') == set()
