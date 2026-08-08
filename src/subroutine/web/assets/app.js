@@ -60,12 +60,20 @@ const PAGE = 100;
 const TASK_FIELDS = [
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
 	"status", "status_is_default", "status_category",
+	/* Not rendered — it is what the two collections are merged on (`#660`). The API sorts
+	   both by `-created_at` and pages on it, so ordering them together by anything else
+	   would put the client and the cursor into disagreement. */
+	"created_at",
 ].join(",");
 
 /* A document has no dates and no assignee — `_when` returns nothing for one — so it asks for
    less. Not the same list with the extras arriving null, because that is the difference
    between "has no deadline" and "cannot have one", and only one of them is true. */
-const DOCUMENT_FIELDS = ["ref", "title", "project_key", "status", "status_is_default"].join(",");
+const DOCUMENT_FIELDS = [
+	"ref", "title", "project_key", "status", "status_is_default",
+	/* As above: the merge key, not something a row shows (`#660`). */
+	"created_at",
+].join(",");
 
 class Refused extends Error {
 	/* Carries the status so the caller can tell "sign in" from "something went wrong". */
@@ -112,6 +120,52 @@ async function api (path, { method = "GET", body = null } = {}) {
 	}
 
 	throw new Refused(answer.status, detail);
+}
+
+/* ---- one list, not two end to end (`#660`) ------------------------------- */
+
+export function newestFirst (rows) {
+	/*
+		Put tasks and documents into one order, which is the order they were written.
+
+		**The list is two requests and has to be one list.** Tasks and documents are separate
+		collections — §6.2 gives them one ref counter precisely so a reader can treat them as one
+		thing — and concatenating them put every document below every task. On a project holding
+		122 tasks against a page of 100, a document written a minute ago started at row 101 at
+		best. Simon met it on `#659`: *"I did not see your new item arrive, but then I saw it is
+		some way down the list."*
+
+		**`created_at` rather than `ref`, and that is the whole of why the field is asked for.**
+		A ref would be a fine proxy — one counter, allocated in order — but the *server* sorts by
+		`-created_at` and its keyset cursor pages on it (`ordering.DEFAULT_TASK_ORDER` and
+		`DEFAULT_DOCUMENT_ORDER`, both `("-created_at",)`). A client ordering by anything else
+		would disagree with the boundary it is paging across, which is the defect keyset
+		pagination exists to prevent.
+
+		**`ref` breaks a tie**, descending, because the server's tiebreaker follows the last
+		key's direction and refs are allocated from one counter in creation order — so it agrees
+		with the server wherever two rows share a timestamp, without asking for `id` as well.
+
+		**Compared as instants, and the honest reason is not the obvious one.** Measured across
+		the two shapes this API emits — `…:00+00:00` and `…:00.100000+00:00` — lexicographic
+		order and chronological order *agree*, because the characters that differ (`+` against
+		`.`) happen to fall the right way. So string comparison would work today, and saying it
+		would not would be a claim nothing supports.
+
+		`Date.parse` is kept for what it does at the edges: it is right whatever the
+		representation, including an offset other than `+00:00`, which this serialisation does
+		not produce and a future one might. Its own cost is that it truncates to the millisecond
+		— two rows a microsecond apart tie here — and `ref` resolves exactly that, correctly,
+		because refs come from one counter in creation order.
+	*/
+	return [...rows].sort((one, other) => {
+		const first = Date.parse(one.created_at);
+		const second = Date.parse(other.created_at);
+
+		if (first !== second) return second - first;
+
+		return other.ref - one.ref;
+	});
 }
 
 /* ---- surviving a component that throws (`#680`) -------------------------- */
@@ -923,7 +977,19 @@ export function App () {
 			...documents.items.map((row) => ({ ...row, kind: "document" })),
 		];
 
-		setItems((held) => (after ? [...held, ...fetched] : fetched));
+		/*
+			**Merged rather than appended, and re-merged over everything held** (`#660`).
+
+			Appending was wrong twice: within a page it put every document under every task, and
+			across pages it was worse — a second page of tasks belongs *above* documents already
+			on screen, so after one *Show more* the list alternated between the two collections
+			and was in no order at all.
+
+			The cost is that *Show more* can insert rows above where a reader is looking. That is
+			inherent to two streams paged separately and is the right trade: a row in the wrong
+			place is a list you cannot trust, and a row appearing above the fold is one you can.
+		*/
+		setItems((held) => newestFirst(after ? [...held, ...fetched] : fetched));
 
 		/*
 			**What was left behind, so the listing can say so.** The envelope has carried

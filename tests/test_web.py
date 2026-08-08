@@ -2135,3 +2135,119 @@ def test_the_app_is_mounted_inside_something_that_can_catch_it () -> None:
 	assert "Boundary" in mount[:200], (
 		f"the app is mounted without a boundary around it: {mount[:160]!r}"
 	)
+
+
+# ---- one list, not two end to end (`SR#660`) ------------------------------------------------
+
+
+def _ordered (tmp_path: pathlib.Path, rows: list[dict[str, typing.Any]]) -> list[typing.Any]:
+	"""Put rows through the app's own merge and return what came back, in order."""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify(
+			app.newestFirst({json.dumps(rows)}).map((row) => row.ref)
+		));
+	"""))
+
+
+def test_a_document_is_ordered_among_the_tasks_not_after_them (
+	tmp_path: pathlib.Path
+) -> None:
+	"""**`SR#660`: a document written a minute ago started at row 101 at best.**
+
+	The list is two requests — tasks and documents are separate collections — and they were
+	concatenated, so every document sat below every task. On a project holding 122 tasks against
+	a page of 100, that put a document written minutes ago off the end of the page entirely.
+	Simon met it on `SR#659`, which is what filed this.
+
+	§6.2 gives both kinds one ref counter precisely so a reader can treat them as one thing; a
+	list that then presents them as two blocks gives back the confusion it was merging to avoid.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 2, "kind": "task", "created_at": "2026-08-08T11:00:00+00:00"},
+		{"ref": 3, "kind": "document", "created_at": "2026-08-08T10:00:00+00:00"},
+		{"ref": 4, "kind": "document", "created_at": "2026-08-08T12:00:00+00:00"},
+	]
+
+	assert _ordered(tmp_path, rows) == [4, 2, 3, 1], (
+		"the two collections were not interleaved by when they were written"
+	)
+
+
+def test_the_merge_agrees_with_the_server_about_a_tie (tmp_path: pathlib.Path) -> None:
+	"""The server's tiebreaker follows the last key's direction, so a tie is `ref` descending.
+
+	`domain/ordering.terms` appends it always — *"so that equal values keep one stable order and
+	'newest first' stays newest first among rows that tie"*. A client breaking it the other way
+	would disagree with the boundary it is paging across.
+	"""
+
+	rows = [
+		{"ref": 7, "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 9, "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 8, "created_at": "2026-08-08T09:00:00+00:00"},
+	]
+
+	assert _ordered(tmp_path, rows) == [9, 8, 7]
+
+
+def test_showing_more_does_not_append_a_page_below_older_rows () -> None:
+	"""**Across pages, appending was worse than within one** (`SR#660`).
+
+	A second page of tasks belongs *above* documents already on screen, so appending made the
+	list alternate between the two collections after one *Show more* — in no order at all. The
+	whole held set is re-merged rather than extended.
+
+	**Derived rather than spelled.** The first version of this asserted one exact expression was
+	present, which is the trap this project keeps meeting — it would have survived any reformat
+	being called a defect, and would have missed a *second* `setItems` written the old way. This
+	asks the question instead: does every place that adds to the held list put the result through
+	the merge?
+
+	The wiring is inside `App`, which the render harness cannot execute (`SR#640`), so this reads
+	the source. The *decision* it is checking — `newestFirst` — is pure and driven above.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+	adding = [
+		body for holder, body in re.findall(r"setItems\((\w+)\) => ([^;]+)\);", app)
+	] + [
+		body for holder, body in re.findall(r"setItems\(\((\w+)\) => ([^;]+)\);", app)
+	]
+
+	assert adding, "nothing sets the list at all, so this is checking nothing"
+
+	for body in adding:
+		if "..." not in body:
+			continue
+
+		assert "newestFirst" in body, (
+			f"a page is added to the list without being merged into it: {body.strip()!r} — "
+			f"a second page of tasks belongs above documents already on screen"
+		)
+
+
+def test_the_listing_asks_for_the_field_it_orders_on () -> None:
+	"""A merge key nobody requested arrives as `undefined`, and every row ties.
+
+	`SR#645` shapes both listings to what a row renders, and this is the one field asked for that
+	a row does *not* render — so it is the exception that the shaping test cannot derive, and it
+	needs saying out loud rather than being left to look like an oversight.
+	"""
+
+	source = _served_modules()["app.js"]
+
+	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
+		start = source.index(f"const {name} = [")
+		block = source[start:source.index('].join(",");', start)]
+
+		assert '"created_at"' in block, (
+			f"{name} does not ask for the field the two collections are merged on, so every row "
+			f"will have an undefined key and the order will be whatever the two requests were"
+		)
