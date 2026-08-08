@@ -37,6 +37,18 @@ upgrade involves.
 
   A workspace picker appears when you belong to more than one.
 
+  **Descriptions and comments are shown as the Markdown they are written in** — headings,
+  tables, lists, quotations, code and emphasis, rather than the punctuation somebody typed to
+  get them. Tables matter more than they sound: a fifth of the prose in a working backlog turns
+  out to be laid out in one, and read as raw text it is unusable.
+
+  Anything that looks like HTML is shown as the text it is, not treated as markup. That is what
+  keeps a description written by somebody else — or by an agent, repeating something it read —
+  from becoming part of the page; and it is also what makes a `<placeholder>` written in prose
+  visible instead of silently disappearing. A link is only made for an address the browser can
+  safely open, and one that is not is left showing where it pointed rather than quietly losing
+  it.
+
 - **Somebody can sign in to a browser, with a link rather than a password.**
   `subroutine login link` prints a single-use address that works for half an hour and hands the
   browser a session lasting a fortnight. `subroutine login revoke <name>` ends every session

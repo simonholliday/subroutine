@@ -194,7 +194,6 @@ code, .ref, .priority {
 	margin-top: 20px;
 	padding-top: 16px;
 	border-top: 1px solid var(--line);
-	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
 
@@ -216,7 +215,102 @@ code, .ref, .priority {
 }
 
 .comments .said { color: var(--ink-soft); font-size: 12px; margin-bottom: 2px; }
-.comments .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.comments .body { overflow-wrap: anywhere; }
+
+/* ---- rendered Markdown (`#637`) ---------------------------------------- */
+
+/*
+	Two selectors rather than a class on every element: the renderer emits plain tags, so the
+	styling hangs off whatever contains them. That keeps `markdown.js` about meaning and this
+	file about appearance, and it means a construct added there is styled without touching it.
+*/
+
+.prose > :first-child, .comments .body > :first-child { margin-top: 0; }
+.prose > :last-child, .comments .body > :last-child { margin-bottom: 0; }
+
+.prose p, .comments .body p { margin: 0 0 12px; }
+
+.prose h3, .prose h4, .prose h5, .prose h6 {
+	margin: 22px 0 8px;
+	line-height: 1.3;
+	text-transform: none;
+	letter-spacing: normal;
+	color: var(--ink);
+}
+
+.prose h3 { font-size: 17px; }
+.prose h4 { font-size: 15px; }
+.prose h5, .prose h6 { font-size: 14px; color: var(--ink-soft); }
+
+.prose ul, .prose ol, .comments .body ul, .comments .body ol { margin: 0 0 12px; padding-left: 22px; }
+.prose li, .comments .body li { margin: 3px 0; }
+
+/* A nested list makes its parent item hold a paragraph, which would otherwise open a gap
+   the writer did not put there. */
+.prose li > p, .comments .body li > p { margin: 0 0 4px; }
+
+.prose blockquote, .comments .body blockquote {
+	margin: 0 0 12px;
+	padding: 2px 0 2px 14px;
+	border-left: 3px solid var(--line-strong);
+	color: var(--ink-soft);
+}
+
+.prose code, .comments .body code {
+	padding: 1px 4px;
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
+	border-radius: 3px;
+	font-size: 0.88em;
+}
+
+.prose pre, .comments .body pre {
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	/* Code is the one thing that must not be re-wrapped, so it scrolls on its own rather
+	   than widening the page — which on a phone would take the whole layout with it. */
+	overflow-x: auto;
+}
+
+.prose pre code, .comments .body pre code {
+	padding: 0;
+	background: none;
+	border: 0;
+	font-size: 12px;
+	white-space: pre;
+}
+
+.prose hr { margin: 20px 0; border: 0; border-top: 1px solid var(--line); }
+
+/*
+	A table is the one construct that cannot be made narrow, and 20% of the prose here has
+	one. It scrolls inside its own box; the wrapper is the table itself because the renderer
+	emits no container, and `display: block` is what lets it scroll at all.
+*/
+.prose table, .comments .body table {
+	display: block;
+	overflow-x: auto;
+	max-width: 100%;
+	margin: 0 0 12px;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.prose th, .prose td, .comments .body th, .comments .body td {
+	padding: 5px 10px;
+	border: 1px solid var(--line);
+	text-align: left;
+	vertical-align: top;
+}
+
+.prose th, .comments .body th { background: var(--bg-sunken); font-weight: 600; }
+
+.prose a, .comments .body a { color: var(--accent); }
+
+.prose del, .comments .body del { color: var(--ink-faint); }
 
 .linked button {
 	background: none;

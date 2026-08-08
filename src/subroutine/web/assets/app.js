@@ -16,6 +16,10 @@ import { h, render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import htm from "htm";
 
+/* A relative specifier, so it resolves by itself and needs no entry in the import map — which
+   is the thing that was missing when this page first shipped blank. */
+import * as markdown from "./markdown.js";
+
 const html = htm.bind(h);
 
 /*
@@ -196,6 +200,21 @@ export function Facts ({ item }) {
 	`;
 }
 
+export function Prose ({ text, className }) {
+	/*
+		**The whole of this app's trust boundary, and the only `dangerouslySetInnerHTML` in
+		it.** Everything a reader sees as formatted text arrives here, and the safety of that
+		is entirely `markdown.render`'s: it escapes every run of text it emits and constructs
+		every tag itself, so nothing written into a description can become markup.
+
+		A second call site would be a second thing to be sure about. If formatted text is
+		needed somewhere else, use this component rather than the property it wraps.
+	*/
+
+	return html`<div class=${className}
+		dangerouslySetInnerHTML=${{ __html: markdown.render(text) }}></div>`;
+}
+
 export function Detail ({ item, links, comments, onOpen, onBack }) {
 	const body = item.description || item.body;
 
@@ -205,7 +224,7 @@ export function Detail ({ item, links, comments, onOpen, onBack }) {
 			<h2>#${item.ref} ${item.title}</h2>
 			<${Facts} item=${item} />
 
-			${body && html`<div class="prose">${body}</div>`}
+			${body && html`<${Prose} className="prose" text=${body} />`}
 
 			${links.length > 0 && html`
 				<h3>Links</h3>
@@ -228,7 +247,7 @@ export function Detail ({ item, links, comments, onOpen, onBack }) {
 					${comments.map((note) => html`
 						<li key=${note.id}>
 							<div class="said">${day(note.created_at)}</div>
-							<div class="body">${note.body}</div>
+							<${Prose} className="body" text=${note.body} />
 						</li>
 					`)}
 				</ul>

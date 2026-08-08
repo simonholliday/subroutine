@@ -141,14 +141,12 @@ def _node () -> str:
 	return found
 
 
-def _rendered (
-	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
-) -> dict[str, str]:
-	"""Render each named component with its props, in Node, and return the HTML.
+def _staged (tmp_path: pathlib.Path) -> pathlib.Path:
+	"""Lay the served app out so Node can import it, and return its entry module.
 
-	The module's bare specifiers are rewritten to file paths, which is exactly what the import
-	map in ``index.html`` does for a browser — so what runs here is the file that is served,
-	with its imports resolved the same way rather than transformed.
+	The bare specifiers are rewritten to file paths, which is exactly what the import map in
+	``index.html`` does for a browser — so what runs is the file that is served, with its
+	imports resolved the same way rather than transformed.
 	"""
 
 	vendor = subroutine.web.vendored.DIRECTORY
@@ -189,49 +187,97 @@ def _rendered (
 			resolved((vendor / entry.filename).read_text(encoding="utf-8")), encoding="utf-8"
 		)
 
-	module = tmp_path / "app.mjs"
-	module.write_text(
-		resolved((ASSETS / "app.js").read_text(encoding="utf-8")), encoding="utf-8"
+	# **Every module we wrote, under the name it is served as**, rather than `app.js` alone
+	# renamed to `.mjs`. The app imports `./markdown.js` relatively — which is how a relative
+	# specifier avoids the import map entirely, and so avoids the class of fault that shipped
+	# a blank page — and a relative import can only resolve if the file it names is beside the
+	# one asking for it. Derived from what is served, so a third module needs nothing here.
+	(tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
+
+	vendored = {entry.filename for entry in subroutine.web.vendored.CATALOGUE}
+
+	for name, body in _served_modules().items():
+		if name not in vendored:
+			(tmp_path / name).write_text(resolved(body), encoding="utf-8")
+
+	return tmp_path / "app.js"
+
+
+def _ran (tmp_path: pathlib.Path, body: str) -> typing.Any:
+	"""Run one script against the staged app and return the JSON it writes."""
+
+	harness = tmp_path / "harness.js"
+	harness.write_text(textwrap.dedent(body), encoding="utf-8")
+
+	done = subprocess.run(
+		[_node(), str(harness)], capture_output=True, text=True, timeout=120, check=False
 	)
+
+	assert done.returncode == 0, f"the app threw:\n{done.stderr}"
+
+	return json.loads(done.stdout)
+
+
+def _rendered (
+	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
+) -> dict[str, str]:
+	"""Render each named component with its props, in Node, and return the HTML."""
+
+	module = _staged(tmp_path)
 
 	# Rendering to a string needs no DOM: a Preact vnode is a plain object, so walking it is
 	# enough to prove every template produced one rather than throwing.
-	harness = tmp_path / "render.mjs"
-	harness.write_text(
-		textwrap.dedent(f"""
-			import * as app from "{module.as_uri()}";
+	#
+	# `dangerouslySetInnerHTML` is read here rather than skipped, because a component whose
+	# whole output is that property would otherwise flatten to nothing and every assertion
+	# about what it says would pass vacuously.
+	return dict(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
 
-			const asked = {json.dumps(components)};
-			const out = {{}};
+		const asked = {json.dumps(components)};
+		const out = {{}};
 
-			function flatten (node) {{
-				if (node === null || node === undefined || node === false) return "";
-				if (Array.isArray(node)) return node.map(flatten).join("");
-				if (typeof node !== "object") return String(node);
+		function flatten (node) {{
+			if (node === null || node === undefined || node === false) return "";
+			if (Array.isArray(node)) return node.map(flatten).join("");
+			if (typeof node !== "object") return String(node);
 
-				const type = typeof node.type === "function" ? node.type : null;
-				const inner = type ? flatten(type(node.props)) : flatten(node.props.children);
+			const raw = node.props && node.props.dangerouslySetInnerHTML;
+			if (raw) return raw.__html;
 
-				return typeof node.type === "string" ? `<${{node.type}}>${{inner}}` : inner;
-			}}
+			const type = typeof node.type === "function" ? node.type : null;
+			const inner = type ? flatten(type(node.props)) : flatten(node.props.children);
 
-			for (const [name, props] of Object.entries(asked)) {{
-				out[name] = flatten(app[name]({{ ...props, onOpen: () => {{}},
-					onBack: () => {{}}, onRetry: () => {{}} }}));
-			}}
+			return typeof node.type === "string" ? `<${{node.type}}>${{inner}}` : inner;
+		}}
 
-			process.stdout.write(JSON.stringify(out));
-		"""),
-		encoding="utf-8",
-	)
+		for (const [name, props] of Object.entries(asked)) {{
+			out[name] = flatten(app[name]({{ ...props, onOpen: () => {{}},
+				onBack: () => {{}}, onRetry: () => {{}} }}));
+		}}
 
-	done = subprocess.run(
-		[_node(), str(harness)], capture_output=True, text=True, timeout=60, check=False
-	)
+		process.stdout.write(JSON.stringify(out));
+	"""))
 
-	assert done.returncode == 0, f"rendering threw:\n{done.stderr}"
 
-	return dict(json.loads(done.stdout))
+def _markdown (tmp_path: pathlib.Path, sources: typing.Sequence[str]) -> list[str]:
+	"""Render each piece of Markdown with the app's own renderer, and return the HTML.
+
+	Driven directly rather than through a component, because the renderer is a pure function
+	from text to a string — which is the whole reason it was written that way. A payload can
+	be fed in and the exact bytes a browser would be handed can be asserted on, with no DOM
+	and nothing standing between the test and the thing being tested.
+	"""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as markdown from "{(module.parent / "markdown.js").as_uri()}";
+
+		const sources = {json.dumps(list(sources))};
+
+		process.stdout.write(JSON.stringify(sources.map((source) => markdown.render(source))));
+	"""))
 
 
 def test_every_component_renders (tmp_path: pathlib.Path) -> None:
@@ -314,7 +360,7 @@ def test_the_render_harness_would_notice_a_broken_template (
 	broken = tmp_path / "broken"
 	broken.mkdir()
 
-	with pytest.raises(AssertionError, match="rendering threw"):
+	with pytest.raises(AssertionError, match="the app threw"):
 		_rendered(broken, {"Facts": {"item": None}})
 
 
@@ -458,3 +504,216 @@ def test_the_specifier_scan_ignores_prose () -> None:
 	assert _bare_imports('import htm from "htm";') == {"htm"}
 	assert _bare_imports('import{a}from"preact/hooks";') == {"preact/hooks"}
 	assert _bare_imports('import x from "./local.js";') == set()
+
+
+# ---- the Markdown renderer (`#637`) --------------------------------------------------------
+
+#: Ways somebody could try to make stored text become markup. Written as *source* rather than
+#: as expected output, because what matters is that none of them produces anything a browser
+#: acts on — and asserting the exact HTML for each would pin the renderer's formatting rather
+#: than its safety, so a harmless change to spacing would read as a security failure.
+#:
+#: The last four are the ones a prefix test on the scheme lets through, which is why the
+#: scheme is parsed instead: two spellings of `javascript:` that a browser accepts and a
+#: literal check does not, a protocol-relative address that looks like a path, and a `data:`
+#: document that is same-origin in some browsers.
+HOSTILE = [
+	"<script>alert(1)</script>",
+	"<img src=x onerror=alert(1)>",
+	'<a href="javascript:alert(1)">click</a>',
+	"<iframe srcdoc='<script>alert(1)</script>'></iframe>",
+	"<svg/onload=alert(1)>",
+	"<style>body{display:none}</style>",
+	"<base href='https://evil.example'>",
+	"[click](javascript:alert(1))",
+	"[click](JaVaScRiPt:alert%281%29)",
+	"[click](java\tscript:alert(1))",
+	"[click](java\nscript:alert(1))",
+	"[click](//evil.example/steal)",
+	"[click](data:text/html,<script>alert(1)</script>)",
+	"[click](vbscript:msgbox(1))",
+	'![x](https://evil.example/p.gif" onerror="alert(1))',
+	"`<script>alert(1)</script>`",
+	"```\n<script>alert(1)</script>\n```",
+	"> <script>alert(1)</script>",
+	"| <script>alert(1)</script> |\n| --- |\n| x |",
+	"- <script>alert(1)</script>",
+	"# <script>alert(1)</script>",
+	"**<script>alert(1)</script>**",
+	'<div onmouseover="alert(1)">hover</div>',
+	"<!-- --><script>alert(1)</script><!-- -->",
+	"&lt;script&gt;alert(1)&lt;/script&gt;",
+]
+
+#: Every tag the renderer is allowed to produce. Anything else means either that source HTML
+#: reached the output or that a construct emits something nobody chose — and `img`, `iframe`,
+#: `script`, `style` and `svg` are absent on purpose, so their absence is asserted by this
+#: list existing rather than by naming each of them.
+EMITTED_TAGS = {
+	"p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",
+	"blockquote", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "a",
+}
+
+
+def _tags (html: str) -> set[str]:
+	"""Return the tag names that appear in some HTML."""
+
+	return {found.lower() for found in re.findall(r"</?([a-zA-Z][a-zA-Z0-9]*)", html)}
+
+
+def _elements (html: str) -> list[str]:
+	"""Return the opening tags in some HTML, which is where every attribute lives.
+
+	**Real tags only.** A first version of the check below scanned the whole string for
+	``on…=`` and failed on ``&lt;img src=x onerror=alert(1)&gt;`` — which is the renderer
+	working perfectly, showing an attack as the text it is. A test that reads escaped output
+	as dangerous would push somebody towards making it less safe.
+	"""
+
+	return re.findall(r"<[a-zA-Z][^>]*>", html)
+
+
+def _without_comments (source: str) -> str:
+	"""Return some JavaScript with its comments removed.
+
+	Counting a construct in a file that *documents* that construct counts the documentation,
+	so the guard below would fire on the comment explaining why there is only one of them.
+	Measuring the thing rather than the spelling is this project's oldest lesson about guards.
+	"""
+
+	return re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", source, flags=re.S))
+
+
+def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
+	"""**The one that matters.** Every hostile source, through the real renderer.
+
+	This page holds a session cookie, and a description is written by anybody with a
+	credential — including every agent, whose output is whatever it read somewhere. So the
+	question is not whether our own prose renders nicely; it is whether somebody else's can
+	reach the browser as anything but text.
+	"""
+
+	# `strict=` because a short answer would otherwise end the loop early and every payload
+	# past that point would go unchecked, silently — on the one test that has to be right.
+	for source, html in zip(HOSTILE, _markdown(tmp_path, HOSTILE), strict=True):
+		assert _tags(html) <= EMITTED_TAGS, f"{source!r} produced {_tags(html) - EMITTED_TAGS}"
+		assert "<script" not in html.lower(), f"{source!r} produced a script element"
+
+		for element in _elements(html):
+			assert not re.search(r"\son[a-z]+\s*=", element, re.I), (
+				f"{source!r} produced an event handler in {element!r}"
+			)
+
+		for href in re.findall(r'href="([^"]*)"', html):
+			scheme = href.split(":", 1)[0].lower() if ":" in href else ""
+
+			assert scheme in ("", "http", "https", "mailto"), f"{source!r} linked to {href!r}"
+			assert not href.startswith("//"), f"{source!r} linked off-origin as {href!r}"
+
+
+def test_a_refused_link_shows_what_was_written (tmp_path: pathlib.Path) -> None:
+	"""A destination we will not follow is rendered as its source, not quietly dropped.
+
+	Dropping the destination and keeping the text would tell the reader there was never a
+	link there, which is a false statement about what somebody wrote — and it is the reading
+	under which a suspicious link becomes invisible rather than obvious.
+	"""
+
+	[rendered] = _markdown(tmp_path, ["[click](javascript:alert(1))"])
+
+	assert "<a " not in rendered
+	assert "javascript:alert(1)" in rendered, "the destination stopped being visible"
+
+
+def test_an_external_link_cannot_reach_back (tmp_path: pathlib.Path) -> None:
+	"""Every anchor carries `rel="noopener noreferrer"`, which is half of why links are safe."""
+
+	[rendered] = _markdown(tmp_path, ["[docs](https://example.com/x) and https://example.com/y"])
+
+	assert rendered.count("<a ") == 2, "the bare address was not linked"
+	assert rendered.count('rel="noopener noreferrer"') == 2
+
+
+def test_what_looks_like_a_tag_is_shown_rather_than_swallowed (tmp_path: pathlib.Path) -> None:
+	"""**Escaping is the correct rendering here, not a safety tax.**
+
+	103 placeholders written as `<ref>`, `<path>`, `<workspace>` and the like appear in this
+	instance's own prose. A renderer that passed HTML through would hand each of them to the
+	browser as an unknown element, and the reader would see a gap where the word was.
+	"""
+
+	[rendered] = _markdown(tmp_path, ["Pass <workspace>/<ref> as the address."])
+
+	assert "&lt;workspace&gt;/&lt;ref&gt;" in rendered
+
+
+def test_an_underscore_in_a_name_is_left_alone (tmp_path: pathlib.Path) -> None:
+	"""Emphasis is asterisks only, and 205 intraword underscores in this instance say why.
+
+	`assignee_id`, `project_scope` and `next_ref_number` are written in ordinary prose without
+	backticks. Underscore emphasis would have to implement CommonMark's flanking rules to
+	leave them alone; not implementing it reaches the same answer with nothing to get wrong.
+	"""
+
+	[rendered] = _markdown(tmp_path, ["assignee_id and project_scope and __all__"])
+
+	assert "<em>" not in rendered and "<strong>" not in rendered
+	assert "assignee_id and project_scope and __all__" in rendered
+
+
+def test_a_ref_at_the_start_of_a_line_is_not_a_heading (tmp_path: pathlib.Path) -> None:
+	"""`#42` is how everything here is addressed, and it appears 2,196 times in this prose.
+
+	A heading needs a space after its hashes; a ref never has one. That is what keeps the
+	commonest thing anybody writes from becoming an `h3` whenever it starts a line.
+	"""
+
+	[rendered] = _markdown(tmp_path, ["#637 is the item\n\n# A real heading"])
+
+	assert "<p>#637 is the item</p>" in rendered
+	assert "<h3>A real heading</h3>" in rendered
+
+
+def test_every_construct_the_backlog_uses_renders (tmp_path: pathlib.Path) -> None:
+	"""The measured subset, each with the tag it has to produce.
+
+	Taken from what this instance actually contains rather than from a specification: over 291
+	descriptions and documents, these are the constructs that appear. Tables are on the list
+	because 20% of the prose here has one, which is why a renderer without them was refused.
+	"""
+
+	wanted = {
+		"# Heading": "<h3>",
+		"**bold**": "<strong>",
+		"*italic*": "<em>",
+		"~~struck~~": "<del>",
+		"`code`": "<code>",
+		"```\nfenced\n```": "<pre>",
+		"    indented": "<pre>",
+		"- one\n- two": "<ul>",
+		"1. one\n2. two": "<ol>",
+		"> quoted": "<blockquote>",
+		"---": "<hr>",
+		"| a | b |\n| --- | --- |\n| 1 | 2 |": "<table>",
+		"[a](https://example.com)": "<a ",
+		"plain words": "<p>",
+	}
+
+	rendered = _markdown(tmp_path, list(wanted))
+
+	for (source, expected), html in zip(wanted.items(), rendered, strict=True):
+		assert expected in html, f"{source!r} rendered as {html!r}, with no {expected}"
+
+
+def test_the_renderer_is_the_only_way_html_is_injected () -> None:
+	"""One trust boundary, and a test that says so.
+
+	`dangerouslySetInnerHTML` is the only way markup can reach this page, so the argument that
+	the app is safe is exactly the argument that `markdown.render` is — and that argument only
+	holds while there is one call site. A second would be a second thing to be sure about.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+
+	assert app.count("dangerouslySetInnerHTML") == 1, "a second injection point has appeared"
+	assert "markdown.render" in app, "the one injection point stopped going through the renderer"
