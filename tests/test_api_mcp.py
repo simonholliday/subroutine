@@ -680,3 +680,32 @@ def test_authenticating_twice_in_one_request_does_not_block (two_connections: st
 
 	finally:
 		engine.dispose()
+
+
+def test_the_address_this_request_arrived_at_is_not_an_origin_it_answers (
+	world: test_api_tasks.World
+) -> None:
+	"""**The one place this check and the browser cookie's must differ** (`SR#639`).
+
+	`SR#639` gave a cookie-authenticated write the same header check, and it may compare against
+	the address the request arrived at: a session cookie carries no ``Domain``, so it is
+	host-only, so a request holding one arrived at this instance's own name and that value is a
+	fact rather than a claim.
+
+	**Here the same value is exactly what the attacker chose.** Rebinding is a page on any
+	origin resolving a name to loopback, so ``Host`` — and with it ``base_url`` — is whatever
+	the attacker put in DNS. Allowing it would be allowing the attack, and the two checks share
+	a mechanism precisely so that the difference between their lists is a decision somebody
+	made rather than an accident of two implementations.
+	"""
+
+	arrived = _message(
+		world,
+		{"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+		headers={"origin": api_support.BASE_URL},
+	)
+
+	assert arrived.status_code == 403, (
+		f"the origin the request arrived at was answered, which is the rebinding attack: "
+		f"{arrived.text[:200]}"
+	)

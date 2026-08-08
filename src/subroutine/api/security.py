@@ -20,6 +20,7 @@ nor appears in an explicit public list.
 
 import datetime
 import typing
+import urllib.parse
 
 import fastapi
 import sqlalchemy.orm
@@ -105,6 +106,80 @@ def from_bearer_token (
 	)
 
 
+#: The port each scheme uses by default, which a browser leaves out of an ``Origin``.
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+#: Methods that cannot change anything, so a browser sending one from anywhere is harmless.
+#: Everything else is treated as a write, including a verb nobody has heard of — the unknown
+#: case has to fail closed, since the whole point is that this list is not the route's.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def origin_of (url: str | None) -> str | None:
+	"""Return the origin a URL belongs to — scheme, host and port — or ``None``.
+
+	**An origin is not a prefix of a URL**, which is what makes this worth a function. It drops
+	any path, lower-cases the scheme and host, and omits a port the scheme uses by default,
+	because that is what a browser does before it puts one in a header. Comparing configured
+	text instead would refuse a legitimate page over a capital letter in ``public_url`` or a
+	``:443`` somebody typed — and it fails *closed*, so the symptom is a browser that stops
+	working on the instance whose operator was most careful about writing their address out.
+
+	``None`` for anything that is not an absolute URL, so a caller can discard it rather than
+	comparing against a value that means "unset".
+	"""
+
+	parsed = urllib.parse.urlsplit((url or "").strip())
+
+	try:
+		port = parsed.port
+	except ValueError:
+		return None
+
+	if not parsed.scheme or not parsed.hostname:
+		return None
+
+	scheme = parsed.scheme.lower()
+
+	if port is None or port == DEFAULT_PORTS.get(scheme):
+		return f"{scheme}://{parsed.hostname}"
+
+	return f"{scheme}://{parsed.hostname}:{port}"
+
+
+def refuse_an_unanswered_origin (
+	request: starlette.requests.Request, *, allowed: typing.Iterable[str | None], hint: str
+) -> None:
+	"""Refuse a request from a browser page this instance does not answer.
+
+	**Absent is allowed and present-but-unknown is refused**, and that asymmetry is the whole
+	rule: only a browser attaches this header, so only a browser can be the threat, and a
+	request without one is a CLI, an agent or ``curl`` — the callers that must keep working
+	unchanged. Both users of this have measured that rather than assumed it.
+
+	**What counts as answered is the caller's**, deliberately, and the two differ for a reason
+	worth reading before making them one list. ``mcp`` must *not* trust the address the request
+	arrived at, because DNS rebinding is precisely a request arriving at a name the attacker
+	chose; a session cookie is host-only, so a request carrying one arrived at this instance's
+	own name and comparing against it is sound. Merging the sets would quietly hand the MCP
+	endpoint back the attack its check exists for.
+	"""
+
+	stated = request.headers.get("origin")
+
+	if stated is None:
+		return
+
+	known = {origin for origin in allowed if origin is not None}
+
+	if "*" in known or origin_of(stated) in known:
+		return
+
+	raise subroutine.errors.Forbidden(
+		f"This instance does not answer requests from {stated!r}.", hint=hint
+	)
+
+
 #: The cookie a browser signs in with (`#248`, decision `#364`). Prefixed with the program's
 #: name because a person may be running several things on one host during development, and an
 #: unprefixed ``session`` is the commonest cookie name there is.
@@ -123,6 +198,19 @@ def from_session_cookie (
 	explicit ``Authorization`` header beats a cookie the same browser happens to be holding.
 	Somebody testing an agent's narrow credential from a signed-in browser gets the narrow
 	credential, which is what they asked for — the alternative silently answers as them.
+
+	**A write is refused unless the page making it is one this instance serves** (`#639`).
+	``SameSite=lax`` on the cookie was measured to be present and explicit, and it closes the
+	unrelated-site case — but ``SameSite`` compares *sites*, not origins, so every sibling
+	subdomain of the instance's own domain is same-site and the browser attaches the cookie to
+	a form it posts. Seven mutating routes take no request body, so a plain form reaches them
+	with no scripting and no preflight; ``POST /v1/users/{username}/signout`` is the sharpest,
+	needing only a username and ending every session that person holds.
+
+	**Here rather than on the routes**, which is §7.5's shape: a credential type brings its own
+	handling. Only a cookie is attached by a browser without anybody asking, so only a cookie
+	can be ridden — a bearer token reaching this instance was put there deliberately, and is
+	deliberately not touched. Getting that scoping wrong is what would break every agent.
 	"""
 
 	presented = request.cookies.get(SESSION_COOKIE)
@@ -130,8 +218,55 @@ def from_session_cookie (
 	if presented is None:
 		return None
 
+	if request.method.upper() not in SAFE_METHODS:
+		_refuse_a_write_from_elsewhere(request)
+
 	return subroutine.domain.sessions.authenticate(
 		session, presented, record_use=record_use
+	)
+
+
+def _refuse_a_write_from_elsewhere (request: starlette.requests.Request) -> None:
+	"""Refuse a cookie-authenticated write from a page this instance does not serve.
+
+	**The address the request arrived at is trustworthy here, and this is the one place that
+	is true.** A session cookie carries no ``Domain``, so it is host-only: a browser sends it
+	to this instance's own name and nowhere else, which means ``base_url`` *is* this instance
+	whenever a cookie is present. That is the opposite of what :func:`subroutine.api.mcp` may
+	assume, and the difference is what stops these two being one list.
+
+	**Both it and ``public_url``, rather than one preferred over the other.** ``public_url`` is
+	needed because TLS terminates at a proxy and the application sees plain HTTP on a connection
+	that reached it over HTTPS — the same reason the ``Secure`` flag is derived from it. But
+	preferring it would refuse every write from a browser reaching the instance *directly*, on a
+	LAN address or on loopback, which is an ordinary thing to do and works today. The union
+	closes nothing: a sibling subdomain's page still posts to this instance's own host, so its
+	``Origin`` matches neither.
+
+	**``cors_origins`` is honoured**, because an operator who named an origin has already said
+	a browser there may make credentialed requests and read the replies; refusing its writes
+	would break a configuration somebody deliberately made. ``*`` is honoured too and gives
+	this up entirely — which it already does for reads, since the middleware is built with
+	``allow_credentials=True``.
+	"""
+
+	settings: subroutine.config.Settings = request.app.state.settings
+	answered: set[str | None] = {
+		origin_of(one) or one.strip() for one in settings.cors_origins
+	}
+
+	answered.add(origin_of(settings.public_url))
+	answered.add(origin_of(str(request.base_url)))
+
+	refuse_an_unanswered_origin(
+		request,
+		allowed=answered,
+		hint=(
+			"A page in a browser sent this write, from somewhere this instance is not served. "
+			"A session cookie is only accepted for a write made by this instance's own pages; "
+			"an API token is not restricted this way and is what a script or an agent should "
+			"send."
+		),
 	)
 
 

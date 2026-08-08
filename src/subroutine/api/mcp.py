@@ -48,7 +48,6 @@ import subroutine.config
 import subroutine.connections
 import subroutine.domain.authentication
 import subroutine.domain.instances
-import subroutine.errors
 import subroutine.mcp.protocol
 import subroutine.mcp.session
 
@@ -291,23 +290,22 @@ def _refuse_a_foreign_origin (
 	known is ``cors_origins`` — the same list that decides whether a browser may read a reply —
 	plus this instance's own ``public_url``, because a UI served from the instance is the one
 	origin that needs no configuring.
+
+	**And deliberately *not* the address this request arrived at**, which the cookie's version
+	of this check does trust (`#639`). Rebinding is an attacker choosing that name, so allowing
+	it would be allowing the attack; a cookie is host-only, so there the same value is a fact
+	rather than a claim. The mechanism is shared and the two lists are not.
 	"""
 
-	origin = request.headers.get("origin")
+	answered: set[str | None] = {
+		subroutine.api.security.origin_of(one) or one.strip() for one in settings.cors_origins
+	}
 
-	if origin is None:
-		return
+	answered.add(subroutine.api.security.origin_of(settings.public_url))
 
-	allowed = {*settings.cors_origins}
-
-	if settings.public_url:
-		allowed.add(settings.public_url.rstrip("/"))
-
-	if origin.rstrip("/") in allowed or "*" in allowed:
-		return
-
-	raise subroutine.errors.Forbidden(
-		f"This instance does not answer requests from {origin!r}.",
+	subroutine.api.security.refuse_an_unanswered_origin(
+		request,
+		allowed=answered,
 		hint=(
 			"A page in a browser sent this. If one there is meant to reach this endpoint, "
 			"add its origin to 'cors_origins'; an agent's own client sends no Origin at all "

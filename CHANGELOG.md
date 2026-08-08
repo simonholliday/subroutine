@@ -97,6 +97,12 @@ upgrade involves.
   A service account cannot be given one. An agent's authority is issued with a scope and a
   reach, and a browser session carries neither.
 
+  **A session is accepted for a change only from a page this instance serves**, which means
+  where it is served from and whatever `public_url` says — and any origin in `cors_origins`, if
+  you have deliberately put a front end somewhere else. Reading is unaffected, and so is an API
+  token: a script or an agent sends one deliberately, where a browser attaches a cookie without
+  being asked.
+
 ### Fixed
 
 - **`GET /v1/meta` refuses a query parameter it does not accept, instead of ignoring it.**

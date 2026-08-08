@@ -497,3 +497,216 @@ def test_a_spent_link_is_not_distinguishable_from_one_that_never_existed (
 	assert spent.status_code == unknown.status_code
 	assert spent.json()["detail"] == unknown.json()["detail"]
 	assert spent.json()["hint"] == unknown.json()["hint"]
+
+
+# ---- a write is refused unless the page making it is ours (`SR#639`) -----------------------
+
+
+#: Where this instance is served.
+INSTANCE = "https://subroutine.example.test"
+
+#: A different host on the same registrable domain. **`SameSite` compares sites, not origins**,
+#: so a page here is same-site and the browser attaches the session cookie to a form it posts.
+#: That is the whole of `SR#639`, and it is not hypothetical: the real instance's domain runs
+#: other services on a box that also runs the proxy.
+SIBLING = "https://photos.example.test"
+
+
+def _served (session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User) -> tuple[
+	fastapi.FastAPI, str
+]:
+	"""An instance that knows where it is served, and a live session cookie for it.
+
+	The session is minted directly rather than through ``/signin``, because ``public_url`` being
+	an ``https://`` address is what makes the cookie ``Secure`` — and a client talking to
+	``http://testserver`` would then be right to refuse to store it. What is under test is the
+	write, not the handout.
+	"""
+
+	_row, secret = subroutine.domain.sessions.redeem(session, _link(session, user))
+
+	return (
+		api_support.build_app(api_support.factory_for(session), public_url=INSTANCE),
+		secret,
+	)
+
+
+def test_a_sibling_subdomain_cannot_act_as_a_signed_in_browser (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**`SR#639`: the case `SameSite=lax` does not cover, because a sibling is same-site.**
+
+	``POST /v1/users/{username}/signout`` is the sharpest of the seven routes that take no
+	request body — a plain HTML form reaches it with no scripting and no preflight, it needs no
+	knowledge of any ref, and its effect is to lock somebody out of the browser they are sitting
+	in front of.
+	"""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": SIBLING},
+	)
+
+	assert answer.status_code == 403, answer.text
+	assert SIBLING in answer.json()["detail"], "the refusal did not say what it refused"
+
+	# **And the session is untouched**, which is the half worth checking: a refusal that signed
+	# the reader out anyway would be the attack succeeding through the defence.
+	after = api_support.call(
+		application, "GET", "/v1/me", cookies={subroutine.api.security.SESSION_COOKIE: held}
+	)
+
+	assert after.status_code == 200, "the refused write ended the session it was refusing"
+
+
+def test_a_page_this_instance_serves_may_write (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""The boundary has to be a boundary rather than a wall — this is the app's own page."""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": INSTANCE},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+
+def test_a_caller_that_states_no_origin_may_write (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**Absent means allow**, and getting that backwards is what would break every caller.
+
+	Only a browser attaches this header without being asked. A request without one is `curl`, a
+	script or an agent — measured on the MCP surface before this rule was first written, and the
+	same reasoning applies to the same header here.
+	"""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+
+def test_reading_is_not_restricted_by_where_the_page_was (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""No state change is reachable by GET — measured for decision `#364`, all 38 mutating
+	routes are POST, PATCH or DELETE — so a read from anywhere changes nothing.
+
+	Refusing them as well would break an ordinary embed for no gain, and a browser cannot read
+	the answer cross-origin anyway without CORS permitting it.
+	"""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": SIBLING},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+
+def test_a_token_is_not_restricted_by_where_the_page_was (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**The one that breaks every agent if the scoping is got wrong.**
+
+	A bearer token is not attached by a browser without being asked, so it cannot be ridden —
+	whoever sent it meant to. The check therefore lives inside the *cookie* resolver rather than
+	on the routes, which is §7.5's shape: a credential type brings its own handling.
+	"""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="An agent"
+	)
+	session.flush()
+
+	application, _held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		headers={
+			"authorization": f"Bearer {issued.value.get_secret_value()}",
+			"origin": SIBLING,
+		},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+
+@pytest.mark.parametrize(
+	("written", "expected"),
+	[
+		("https://subroutine.example.test", "https://subroutine.example.test"),
+		# A trailing slash, which `public_url` is ordinarily written with.
+		("https://subroutine.example.test/", "https://subroutine.example.test"),
+		# Capitals, which a browser never sends and an operator may well type.
+		("HTTPS://Subroutine.Example.Test", "https://subroutine.example.test"),
+		# The default port, which a browser leaves out.
+		("https://subroutine.example.test:443", "https://subroutine.example.test"),
+		("http://localhost:8151", "http://localhost:8151"),
+		# A path, because `public_url` is a URL rather than an origin.
+		("https://subroutine.example.test/app/", "https://subroutine.example.test"),
+		("", None),
+		(None, None),
+		("not a url", None),
+		("https://subroutine.example.test:notaport", None),
+	],
+)
+def test_an_origin_is_compared_as_an_origin (written: str | None, expected: str | None) -> None:
+	"""**An origin is not a prefix of a URL**, and comparing the configured text would fail
+	closed — a capital letter or a `:443` somebody typed would stop the browser app working on
+	the instance whose operator was most careful about writing their address out."""
+
+	assert subroutine.api.security.origin_of(written) == expected
+
+
+def test_reaching_the_instance_directly_still_writes (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**An instance is reachable at more than one address, and both are its own.**
+
+	`public_url` names where a proxy serves it; opening it on a LAN address or on loopback,
+	past the proxy, is an ordinary thing to do and works today. Comparing against `public_url`
+	alone would have refused every write from such a browser — a change that fails *closed*, so
+	the symptom is buttons that stop working with a message about origins, on the deployment
+	whose operator did configure their address correctly.
+
+	This is the address the request arrived at, which for a cookie is a fact rather than a
+	claim: the cookie is host-only, so a browser only sends it to this instance's own name.
+	"""
+
+	application, held = _served(session, setup.user)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": api_support.BASE_URL},
+	)
+
+	assert answer.status_code == 200, answer.text
