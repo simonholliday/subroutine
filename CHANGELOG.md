@@ -22,6 +22,21 @@ upgrade involves.
 
 ### Added
 
+- **There is a web interface.** Open the instance's address in a browser and you get a list of
+  everything in a workspace — tasks and documents together — and clicking one shows it in full:
+  its description, what it is linked to, and everything anybody has recorded against it.
+
+  **Reading only, for now.** Completing, adding and reassigning are still the command line and
+  the API; this is the half worth having first, because it is what lets somebody who does not
+  use a terminal see the work at all.
+
+  It is served by the instance itself, on the same address as the API, and signing in is the
+  link above. Nothing to install, nothing to build, and no external service is contacted: the
+  two libraries it uses are in the package. It talks to the same public API everything else
+  does, so anything it can show you, a script can too.
+
+  A workspace picker appears when you belong to more than one.
+
 - **Somebody can sign in to a browser, with a link rather than a password.**
   `subroutine login link` prints a single-use address that works for half an hour and hands the
   browser a session lasting a fortnight. `subroutine login revoke <name>` ends every session

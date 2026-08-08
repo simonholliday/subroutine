@@ -35,6 +35,7 @@ import subroutine.api.sessions
 import subroutine.api.tasks
 import subroutine.api.tokens
 import subroutine.api.users
+import subroutine.api.web
 import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
@@ -60,6 +61,10 @@ part of the public contract and are listed in `docs/errors.md`.
 #: same space, and :func:`subroutine.api.routing.check` reads this list to enforce it.
 ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.health.router),
+	# The browser app. Registered early because its two paths are literals that
+	# share a prefix with nothing — `routing.check` is what says so rather than
+	# this comment, and it fails the build if that ever stops being true.
+	("", subroutine.api.web.router),
 	# **Its own protocol, so its own path** — `/mcp` rather than `/v1/mcp` (`#516`). It shares
 	# a prefix with nothing and is a literal, so it can sit anywhere `routing.check` allows;
 	# beside the other root-level routes is where a reader will look for it.

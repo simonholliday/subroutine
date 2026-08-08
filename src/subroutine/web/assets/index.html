@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subroutine</title>
+<link rel="stylesheet" href="/app/app.css">
+<!--
+	An import map rather than a build step. `preact/hooks` imports the bare specifier
+	"preact", and this is what resolves it in a browser without anything rewriting the file
+	first — which is the whole of why no bundler is needed here.
+-->
+<script type="importmap">
+{"imports": {"preact": "/app/preact.js", "preact/hooks": "/app/preact-hooks.js"}}
+</script>
+</head>
+<body>
+<noscript>
+	<div class="empty">
+		<p>This page needs JavaScript. Everything it shows is also available from the
+		command line with <code>subroutine list</code>, and over HTTP at
+		<code>/v1/tasks</code>.</p>
+	</div>
+</noscript>
+<div id="app"></div>
+<script type="module" src="/app/app.js"></script>
+</body>
+</html>

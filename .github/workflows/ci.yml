@@ -157,6 +157,16 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # The browser app's tests render it in Node, because an htm template is a tagged
+      # template literal — a malformed one parses perfectly and throws only when rendered
+      # (`SR#597`). `tests/test_web.py` *skips* without a runtime, so without this the
+      # checks that actually exercise the UI would run nowhere at all: not here, and not on
+      # a development machine that has no node either. Pinned rather than relying on
+      # whatever the runner image happens to ship.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
       - name: Install
         run: python -m pip install -e '.[dev,postgres]'
 

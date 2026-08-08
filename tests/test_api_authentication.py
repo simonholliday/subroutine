@@ -37,6 +37,16 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# principal dependency, which is the cost decision `#364` predicted a login endpoint
 	# would inherit — see `test_signing_in_is_rate_limited_although_it_has_no_principal`.
 	"GET /signin": "exchanges a sign-in link for a session, so it has no credential yet",
+	# The browser app (`#597`). The page has to load before anybody can sign in, and what it
+	# then asks for needs the cookie like everything else. Nothing here is workspace-scoped,
+	# personal or read from the database — the same bytes for every caller, signed in or not.
+	#
+	# They are ordinary routes rather than a `StaticFiles` mount **so that they appear in this
+	# list at all**: a mount is attached to the application rather than to a router, and the
+	# walk above reads `ROUTERS`. Two entries somebody had to write are worth more than a
+	# mount this test could never have seen.
+	"GET /": "the browser app's page, which loads before there is a session to load it with",
+	"GET /app/{name}": "the browser app's own files, the same bytes for every caller",
 }
 
 

@@ -2722,6 +2722,11 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 	opens it in a browser, where `/v1/…` is a path nobody types and a link is something you
 	read out over a telephone. It is a *browser* surface rather than an API one, which is also
 	why no client reaches it — `test_reach` records that beside this.
+
+	`/` and `/app/{name}` are the app itself (`#597`), and the same argument again with the
+	volume turned up: the address somebody is *given* is the instance's root, so anything else
+	would be a URL a person had to be told. Both are HTML and JavaScript rather than answers,
+	and neither reads the database at all.
 	"""
 
 	mounted = subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
@@ -2733,7 +2738,7 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 
 	assert mounted, "the walk found no routes at all, so it is not measuring the application"
 
-	assert outside == {"/healthz", "/readyz", "/mcp", "/signin"}, (
+	assert outside == {"/healthz", "/readyz", "/mcp", "/signin", "/", "/app/{name}"}, (
 		"a route appeared outside the API prefix, so a raw call cannot reach it. That is either "
 		"correct and belongs in this list with a reason, or the route is API and is misplaced.\n"
 		f"found: {sorted(outside)}"

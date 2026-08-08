@@ -176,6 +176,18 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"A liveness probe for whatever is in front of this. Not a capability anybody is "
 		"being denied, and §10.4's `subroutine doctor` is the question a person asks.",
 	),
+	("GET", "/"): (
+		"protocol",
+		"The browser app's page (`#597`). A `Client` method returning HTML would be a method "
+		"for being a browser, and the thing it serves talks to this API over the same routes "
+		"every client already reaches — so there is no capability here that is not already "
+		"classified somewhere above.",
+	),
+	("GET", "/app/{name}"): (
+		"protocol",
+		"The browser app's own files (`#597`). Same reason as the page they belong to: these "
+		"are bytes a browser needs and nothing a client would ever ask for.",
+	),
 	("GET", "/signin"): (
 		"protocol",
 		"A browser navigation that trades a link for a cookie (`#248`). A client method "

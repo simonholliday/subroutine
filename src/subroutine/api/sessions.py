@@ -43,16 +43,16 @@ user_sessions = fastapi.APIRouter(
 
 #: Where a signed-in browser is sent.
 #:
-#: **`/v1/me` until `#597` serves a page at `/`, and that is a deliberate choice rather than a
-#: placeholder.** Landing on `/` today is a 404 — every step of signing in reports success and
-#: the reader's actual question, *am I in*, is answered with an error page. `/v1/me` is plain
-#: JSON and answers it: their username, their workspaces, and the credential they are holding.
-#: `test_signing_in_lands_somewhere_that_answers` is what will notice when this moves.
+#: **The app itself, since `#597` serves one there.** It was `/v1/me` for exactly as long as `/`
+#: was a 404 — a sign-in whose every step reports success and whose last step is an error page
+#: answers the reader's actual question, *am I in*, with the wrong word.
+#: `test_signing_in_lands_somewhere_that_answers` follows the redirect rather than checking that
+#: one was sent, which is why moving this needed no change to it.
 #:
-#: The web UI is served from this origin when it arrives, which is what lets the cookie work at
-#: all: a second port would be cross-origin, needing `allow_credentials=True` and exactly the
-#: CORS exposure `#364` warns about.
-LANDING = "/v1/me"
+#: The app is served from this origin, which is what lets the cookie work at all: a second port
+#: would be cross-origin, needing `allow_credentials=True` and exactly the CORS exposure `#364`
+#: warns about.
+LANDING = "/"
 
 
 class SignInLinkRequest(pydantic.BaseModel):
