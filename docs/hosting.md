@@ -42,7 +42,7 @@ you for. Sending it to whoever you issue a token to saves the conversation.
 - [Backups](#backups)
 - [Credentials](#credentials)
 - [Upgrading](#upgrading)
-- [The AGPL obligation, which is a product requirement here](#the-agpl-obligation-which-is-a-product-requirement-here)
+- [What the licence asks of you, which is almost nothing](#what-the-licence-asks-of-you-which-is-almost-nothing)
 
 ## An account and an install
 
@@ -138,7 +138,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `port` | `8471` | What `serve` binds to |
 | `public_url` | unset | The address a proxy serves this instance on. Published in `/v1/meta`, and what makes a non-loopback bind legal |
 | `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
-| `source_url` | this project | Where this instance's source can be had. The AGPL obligation, not a footnote |
+| `source_url` | this project | Where this instance's source can be had. A promise the product makes, not a licence obligation |
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
 | `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |
@@ -1264,23 +1264,26 @@ comparing the migration history against the previous tag rather than by trusting
 remember. So the question "will this upgrade need downtime?" is answered before you download
 anything, which is the whole point.
 
-## The AGPL obligation, which is a product requirement here
+## What the licence asks of you, which is almost nothing
 
-Subroutine is [AGPL-3.0-or-later](../LICENSE). The network clause matters the moment you serve
-it: **if you modify Subroutine and let other people use it over a network, those people are
-entitled to your modified source.** Running an unmodified copy, or using it internally however
-you like, does not trigger anything.
+Subroutine is [FSL-1.1-ALv2](../LICENSE). **Running it, modifying it and serving it to your own
+people are all free and unconditional** — internally, commercially, at any size, for ever. There
+is no obligation to publish anything, and nothing here is triggered by having users.
 
-This is built in rather than left to a footnote. `GET /v1/meta` publishes `source_url`, and it
-is a setting for exactly this reason — somebody running a modified fork must be able to point
-at *their* source, and will be wrong to point at this one:
+The one thing the licence withholds is **selling other people access to it as a service**. If
+that is what you are setting up, write to simon.holliday@protonmail.com first — a commercial
+licence is available by agreement, and it is cheaper than finding out afterwards.
+
+Each release becomes Apache-2.0 two years after it ships, automatically.
+
+**`source_url` is a promise rather than an obligation, and that is worth knowing before you
+change it.** Under the AGPL this page carried a legal requirement; under the FSL it does not,
+and the field stays anyway because somebody using an instance ought to be able to find the
+source of the thing they are using. It is a setting so that a fork can point at *its* source
+rather than at this repository, which it would otherwise do while being wrong:
 
 ```toml
 source_url = "https://git.example.com/us/subroutine"
 ```
 
 Leave it at the default if you have not modified anything, and change it if you have.
-
-**A commercial licence is available by agreement.** If the copyleft does not suit you — your
-organisation's policy rules it out, or you want to build on Subroutine without publishing what
-you build — write to simon.holliday@protonmail.com and say what you have in mind.

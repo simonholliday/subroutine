@@ -133,6 +133,27 @@ upgrade involves.
 
 ### Changed
 
+- **The licence has changed, to [FSL-1.1-ALv2](LICENSE) — the Functional Source License.**
+
+  **Almost certainly nothing changes for you.** Run it, modify it, fork it, for any purpose
+  including making money. A person, a team, a five-hundred-person company self-hosting it for
+  its own work, a consultancy charging to set it up for a client: all free, for ever, with
+  nothing to buy and nobody to ask. There is no obligation to publish anything, and nothing is
+  triggered by having users — which is a *reduction* on the AGPL, whose network clause meant a
+  modified instance owed its source to the people using it.
+
+  **The one thing you may not do is sell other people access to it as a service.** If that is
+  what you have in mind, write to simon.holliday@protonmail.com — a commercial licence is
+  available by agreement.
+
+  **Every release becomes Apache-2.0 two years after it ships**, automatically. That is the
+  promise underneath the restriction: if this project goes somewhere you would rather not
+  follow, you can take it and go.
+
+  This is source-available rather than OSI open source — the Open Source Definition does not
+  permit a licence to rule out a field of use, even one. **Versions up to and including 0.5.0
+  were published under AGPL-3.0-or-later and remain so**; nothing has been withdrawn.
+
 - **A stopping server no longer waits indefinitely for requests already in flight.** It gives
   them 15 seconds and then exits. Uvicorn's default is to wait for ever, so one request blocked
   on a database lock meant the service could not be restarted at all — `systemctl restart` hung,

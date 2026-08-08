@@ -13,8 +13,10 @@ nothing checks.**
 """
 
 import pathlib
+import re
 import tomllib
 
+import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -121,3 +123,126 @@ def test_os_independent_is_never_the_claim () -> None:
 		"nothing can run on every operating system, so nothing can ever have demonstrated "
 		"this — name the platforms that were actually tested"
 	)
+
+
+# ---- one licence, named once, and every statement of it derived (`SR#666`) ------------------
+
+
+#: Every file that tells a reader which licence Subroutine is published under.
+#:
+#: **Not a list of files that mention licensing.** Plenty do and should: `scripts/check_licences`
+#: names the copyleft licences it refuses in a *dependency*, `web/vendored` names the licences of
+#: files we did not write, and several places now say what the AGPL used to require and no longer
+#: does. Those are correct and none of them is a claim about what this package is.
+#:
+#: What is here is the claim itself, in each place somebody could read it and act on it.
+#:
+#: **`LICENSE` is deliberately absent**: it states its own identifier under an `Abbreviation`
+#: heading rather than in a sentence, so the check below cannot see it — and
+#: :func:`test_the_licence_file_is_the_licence_the_package_claims` reads that heading properly.
+#: Listing it here as well produced a test that failed on a correct tree, which made every
+#: falsification of the *others* look successful while they were failing for its reason.
+STATES_THE_LICENCE = {
+	"README.md": "the first and often only place anybody reads it",
+	"CLA.md": "names it as the reason the agreement is needed at all",
+	"CONTRIBUTING.md": "the same reason, told to somebody about to write code",
+	"docs/hosting.md": "what an operator standing up an instance is agreeing to",
+}
+
+
+def _declared () -> str:
+	"""Return the licence the package publishes to an index."""
+
+	loaded = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+
+	return str(loaded["project"]["license"])
+
+
+def test_the_licence_file_is_the_licence_the_package_claims () -> None:
+	"""**The metadata and the file can disagree in total silence, and PyPI shows the metadata.**
+
+	`pyproject.toml`'s `license` field is what an index renders and what a company's tooling
+	reads; `LICENSE` is what a person opens. Changing one and not the other publishes a claim
+	nobody in the repository is making — and nothing else here would notice, because both files
+	are individually well-formed and neither is imported by anything.
+
+	The abbreviation is read out of the licence rather than matched loosely, so this is the file
+	*being* that licence rather than mentioning it somewhere. A licence with no `Abbreviation`
+	section would fail here and should: swapping licence families is a thing somebody ought to
+	be made to look at.
+	"""
+
+	declared = _declared()
+	text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+
+	assert declared, "the package declares no licence at all"
+
+	stated = re.search(r"^##\s+Abbreviation\s*\n+(\S+)\s*$", text, re.MULTILINE)
+
+	assert stated is not None, (
+		"LICENSE has no 'Abbreviation' section, so nothing here can check that the file is the "
+		"licence the package claims — look at this test rather than deleting it"
+	)
+	assert stated.group(1) == declared, (
+		f"pyproject.toml publishes {declared!r} and LICENSE is {stated.group(1)!r} — an index "
+		f"would show one and a reader would open the other"
+	)
+
+
+def test_the_licence_file_the_package_points_at_exists () -> None:
+	"""`license-files` is a glob, and a glob that matches nothing is not an error to hatchling."""
+
+	loaded = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+	named = loaded["project"]["license-files"]
+
+	assert named, "the package ships no licence file"
+
+	for pattern in named:
+		assert list(ROOT.glob(pattern)), f"license-files names {pattern!r} and nothing matches it"
+
+
+@pytest.mark.parametrize("path", sorted(STATES_THE_LICENCE))
+def test_every_file_that_states_the_licence_names_the_one_we_ship_under (path: str) -> None:
+	"""**A licence change is one edit and a dozen sentences, and the sentences are what rot.**
+
+	Derived from `pyproject.toml` rather than pinned to a string, so changing the licence fails
+	here until every reader has been told — which is the whole of what went wrong when this one
+	changed: fourteen files named the old licence and none of them was reachable from any test.
+
+	**It looks for the statement, not for the string, and that distinction was earned.** The
+	first version asked only whether the identifier appeared anywhere in the file. Falsifying it
+	by reverting the README's licence section to the old licence **left it green**, because the
+	summary line near the top names the licence too — so the file could say `AGPL` in the one
+	place a reader goes for it and pass. A name that appears twice makes a substring check
+	vacuous, which is `SR#405`'s lesson arriving in a new disguise.
+
+	So the anchor is how a licence is actually stated: after *"under"*, or as the text of a link
+	to `LICENSE`. Both forms appear in the tree, both are derived from the declared value, and
+	neither matches a mention in passing.
+
+	**Contradiction is still only caught where it displaces the statement**, deliberately.
+	Several of these files say — correctly — what the AGPL used to require and no longer does,
+	and `README` records that releases up to 0.5.0 remain under it. A sweep refusing the old name
+	outright would need an excuse list of permanent entries, and a guard whose every excuse is
+	permanent can never fire.
+	"""
+
+	declared = _declared()
+	text = (ROOT / path).read_text(encoding="utf-8")
+
+	# After "under", or as the text of a link to the licence file. Anything else is the licence
+	# being mentioned rather than declared.
+	stated = re.search(rf"(?:under\s+|\[){re.escape(declared)}\b", text)
+
+	assert stated is not None, (
+		f"{path} — {STATES_THE_LICENCE[path]} — does not state that Subroutine is under "
+		f"{declared!r}, which is what this package publishes. Either it still states the old "
+		f"licence, or it stopped stating one at all"
+	)
+
+
+def test_the_files_that_state_the_licence_all_exist () -> None:
+	"""The other direction: a file renamed out from under this list takes its check with it."""
+
+	for path in STATES_THE_LICENCE:
+		assert (ROOT / path).is_file(), f"{path} is listed here and is not in the repository"

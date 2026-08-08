@@ -2173,9 +2173,10 @@ class Meta(pydantic.BaseModel):
 	#: argument for it being here rather than only in the guide it points at.
 	purpose: str
 
-	#: Where this instance's source can be obtained. Published because the AGPL's network
-	#: clause requires a served instance to offer its source to the people using it
-	#: (SPEC.md §2.2), which makes this a product requirement rather than a footnote.
+	#: Where this instance's source can be obtained. Published as a commitment rather than
+	#: because anything compels it: the AGPL's network clause did, FSL-1.1-ALv2 does not, and
+	#: it is published anyway (SPEC.md §2.2) because somebody using an instance ought to be
+	#: able to find the source of what they are using.
 	source_url: str
 
 	#: The address this instance is served on, when a deployment has said (SPEC.md §12.4).

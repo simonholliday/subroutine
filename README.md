@@ -20,7 +20,7 @@ required fields. Backups go where you point them and are checked where they land
 
 **This first release is for developers** — a terminal, an editor, a coding agent. No web UI yet.
 Ways in: the Claude Code plugin, any MCP client, any agent that can run a shell, or the HTTP API.
-AGPL-3.0-or-later, commercial licence by agreement. Thirteen direct dependencies, Python 3.11+.
+FSL-1.1-ALv2 — run it freely, do not resell it. Thirteen direct dependencies, Python 3.11+.
 
 ## TLDR; Getting up and running
 
@@ -332,9 +332,10 @@ unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower
 backups on a separate volume, and what upgrading actually involves. Every command on that page
 has been run, including the refusals.
 
-If you modify Subroutine and serve it to other people, the AGPL entitles them to your changes —
-which is what `source_url` in `GET /v1/meta` is for. Internal use and unmodified copies trigger
-nothing.
+`source_url` in `GET /v1/meta` says where the source of *this* instance can be had. **Nothing
+in the licence requires that of you** — it is a promise the product makes to whoever is using
+it, and it is a setting so that somebody running a fork can point at theirs rather than at this
+repository.
 
 ## What is not here
 
@@ -376,13 +377,22 @@ says what *is* welcome: bug reports, and being told why you stopped using it.
 
 ## Licence
 
-[AGPL-3.0-or-later](LICENSE).
+[FSL-1.1-ALv2](LICENSE) — the Functional Source License.
 
-Self-hosting and internal use are entirely unaffected by the copyleft. It applies if you
-modify Subroutine and offer it to others as a hosted service — in which case you must
-publish your modifications.
+**Run it, modify it, fork it, for any purpose including making money.** A person, a team, a
+five-hundred-person company self-hosting it for its own work, a consultancy charging to set it
+up for a client: all free, for ever, with nothing to buy and nobody to ask.
 
-**A commercial licence is available by agreement.** If the AGPL does not suit you —
-because your organisation's policy rules out copyleft, or because you want to build on
-Subroutine without publishing what you build — you can license it on other terms instead.
-Write to simon.holliday@protonmail.com and say what you have in mind.
+**The one thing you may not do is sell other people access to it as a service.** That is the
+whole restriction, and it is why this is source-available rather than an OSI open-source
+licence — the Open Source Definition does not allow a licence to rule out a field of use, even
+one.
+
+**Every release becomes Apache-2.0 two years after it ships**, automatically, with no decision
+by anybody. That is the promise underneath the restriction: if this project goes somewhere you
+do not want to follow, you can take it and go.
+
+Versions up to and including 0.5.0 were published under AGPL-3.0-or-later and remain so.
+
+**A commercial licence is available by agreement.** If you want to offer Subroutine as a
+service, write to simon.holliday@protonmail.com and say what you have in mind.

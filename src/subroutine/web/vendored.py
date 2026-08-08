@@ -9,8 +9,8 @@ same hole opens for three files as for three hundred, and this is what closes it
 **Vendored rather than fetched from a CDN**, decided with Simon on 2026-08-08. An instance runs
 on somebody else's network, sometimes with no route to the public internet at all, and a UI
 that goes blank when unpkg is unreachable is a UI that fails for reasons its operator cannot
-see or fix. It also means the AGPL's network-use obligation is discharged by the repository
-containing everything that was served.
+see or fix. It also means the repository contains everything that was served, which is what
+makes "read what you are running" true of the browser half as well as the Python.
 
 Both licences here are permissive and neither one binds the owner the way a copyleft
 dependency would (§2.2a). Both nevertheless **require the notice to travel with the code**, and

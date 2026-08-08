@@ -204,10 +204,11 @@ def test_the_error_codes_are_the_registry (world: test_api_tasks.World) -> None:
 
 
 def test_the_source_url_is_published (world: test_api_tasks.World) -> None:
-	"""SPEC.md §2.2: the AGPL's network clause makes this a product requirement.
+	"""SPEC.md §2.2: a commitment this product keeps although nothing compels it.
 
-	A served instance must offer its source to the people using it, so this is not optional
-	and not a footnote.
+	The AGPL's network clause used to require it. FSL-1.1-ALv2 does not require anything of a
+	served instance at all — so this test is now the only thing holding the promise, which is
+	a reason to keep it rather than to relax it.
 	"""
 
 	assert world.call("GET", "/v1/meta").json()["source_url"].startswith("https://")

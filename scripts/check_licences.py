@@ -1,8 +1,13 @@
 """Fail if anything Subroutine depends on is under a copyleft licence.
 
-Subroutine is AGPL-3.0-or-later and is also offered commercially by agreement (SPEC.md
-§2.2a). Both of those rest on being able to grant rights in the whole of the code, and a
-copyleft *dependency* takes that away no matter who owns the rest. The dependency that
+Subroutine is FSL-1.1-ALv2 and is also offered commercially by agreement (SPEC.md §2.2a).
+Both of those rest on being able to grant rights in the whole of the code, and a copyleft
+*dependency* takes that away no matter who owns the rest.
+
+**This got stricter when the licence changed, and the check did not have to.** Under the
+AGPL a copyleft dependency cost the commercial half and left the public licence intact.
+The FSL is not GPL-compatible, so the same dependency would make distributing Subroutine
+at all unlawful. Same rule, same code, larger consequence for ignoring it. The dependency that
 does it will not arrive as a decision anybody makes — it will arrive inside something
 else's requirements, two releases from now, and be discovered during a due-diligence
 exercise years later. This catches it on the day it lands.
@@ -146,12 +151,13 @@ def _report (*, denied: list[str], flagged: list[str], unknown: list[str]) -> in
 		)
 
 	if denied:
-		print("\nCopyleft dependencies, which Subroutine cannot be licensed commercially with:")
+		print("\nCopyleft dependencies, which Subroutine cannot be distributed with:")
 
 		for entry in denied:
 			print(f"  {entry}")
 
-		print("\nSee SPEC.md §2.2a. Replace the dependency, or accept that AGPL is the only option.")
+		print("\nSee SPEC.md §2.2a. Replace the dependency: the FSL is not GPL-compatible, so\n"
+			"this is not a licence Subroutine can ship under at all.")
 
 		return 1
 

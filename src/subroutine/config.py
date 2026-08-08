@@ -507,12 +507,15 @@ class Settings(pydantic_settings.BaseSettings):
 
 	database_url: str = pydantic.Field(default_factory=default_database_url)
 
-	# Where this instance's source can be obtained. **A product requirement, not a legal
-	# footnote** (SPEC.md §2.2): the AGPL's network clause means a *served* instance must
-	# offer its source to the people using it, so `/v1/meta` publishes this and any future
-	# web UI carries it in a footer. It lives in configuration rather than in the database
-	# because it describes a deployment — somebody running a modified fork must be able to
-	# point at *their* source, and will be wrong to point at this one.
+	# Where this instance's source can be obtained. **A product commitment, and it used to be
+	# a legal obligation** (SPEC.md §2.2): under AGPL a served instance owed its source to the
+	# people using it, and under FSL-1.1-ALv2 it owes them nothing. The field stays, because
+	# somebody using an instance ought to be able to find the source of the thing they are
+	# using, and because a promise kept when nothing compels it is the whole of why anybody
+	# trusts a self-hosted tool. `/v1/meta` publishes it and the web UI carries it in a
+	# footer. It lives in configuration rather than in the database because it describes a
+	# deployment — somebody running a modified fork must be able to point at *their* source,
+	# and will be wrong to point at this one.
 	source_url: str = "https://github.com/simonholliday/subroutine"
 
 	host: str = "127.0.0.1"

@@ -3,9 +3,12 @@
 
 	**No build step.** Preact and htm are served as written from `/app/`, and an import map in
 	`index.html` resolves the one bare specifier between them. What that buys is not
-	convenience: it is that the source a reader is served is the source in the repository,
-	which is what the AGPL's network-use clause is about (§2.2), and there is no npm closure
-	for `scripts/check_licences.py` to be structurally unable to see.
+	convenience: it is that the source a reader is served **is** the source in the repository,
+	so the published-source promise means something for the half that runs in a browser — and
+	there is no npm closure for `scripts/check_licences.py` to be structurally unable to see.
+
+	The first of those was the AGPL's network-use clause until 2026-08-08 and is now a product
+	commitment (§2.2). It is the weaker of the two arguments and it was never the deciding one.
 
 	**It talks only to the public API** (`#351`). No private endpoints, nothing a token could
 	not do — so anything this page can show, a script can too, and the UI cannot quietly become

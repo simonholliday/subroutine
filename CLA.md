@@ -9,10 +9,9 @@ You agree to this by saying so in your pull request:
 
 ## Why this exists
 
-Subroutine is published under AGPL-3.0-or-later and is also offered under a commercial
-licence by separate agreement. Offering both requires the ability to grant rights in the
-whole of the code, including your contribution. This document is how you grant those
-rights.
+Subroutine is published under FSL-1.1-ALv2 and is also offered under a commercial licence
+by separate agreement. Offering both requires the ability to grant rights in the whole of
+the code, including your contribution. This document is how you grant those rights.
 
 **You keep your copyright.** This is a licence, not an assignment. Your contribution
 remains yours and you may use it however you wish, elsewhere and for any purpose.

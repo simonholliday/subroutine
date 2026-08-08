@@ -43,7 +43,7 @@ ASSETS = subroutine.api.web.ASSETS
 #:
 #: Not beside the served ones, and that is the point: ``api/web._collected`` *walks* the vendor
 #: directory, so a file dropped in there is served to every reader — 9 KB of something the page
-#: never imports, inside the set the AGPL's network-use clause is about.
+#: never imports, inside the set a reader is invited to audit.
 TEST_VENDOR = pathlib.Path(__file__).resolve().parent / "vendor"
 
 #: The same record `subroutine.web.vendored` keeps, for the half that is not shipped.

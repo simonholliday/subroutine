@@ -33,9 +33,10 @@ first pull request is merged.** Say so in the pull request:
 
 That is the whole process — there is nothing to print, sign or post.
 
-It exists because Subroutine is offered under AGPL-3.0-or-later *and* under a commercial
+It exists because Subroutine is offered under FSL-1.1-ALv2 *and* under a commercial
 licence by agreement. Offering the second one means being able to grant rights in all of
-the code, and a contribution that arrived under AGPL alone cannot be included in it. The
+the code, and a contribution that arrived under the FSL alone could not be included in it,
+because the FSL grants rights for a Permitted Purpose and selling a service is not one. The
 CLA solves that by having you grant those rights up front. **You keep your copyright** —
 it is a licence, not an assignment, and you remain free to do anything you like with your
 own work.

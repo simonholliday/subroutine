@@ -57,11 +57,13 @@ jobs:
       - name: Release notes
         run: python scripts/check_release_notes.py
 
-  # Subroutine is AGPL and is also offered commercially, and both rest on being able to
-  # grant rights in the whole of what ships. A copyleft dependency takes that away, and it
-  # will arrive inside somebody else's requirements rather than as a decision anybody
-  # makes. Separate job with a clean install: development tools are not distributed, so a
-  # GPL linter constrains nothing and should not fail this.
+  # Subroutine ships under the FSL and is also offered commercially, and both rest on being
+  # able to grant rights in the whole of what ships. A copyleft dependency takes that away —
+  # and since the FSL is not GPL-compatible it would make distributing at all unlawful,
+  # where under the AGPL it merely cost the commercial half. It will arrive inside somebody
+  # else's requirements rather than as a decision anybody makes. Separate job with a clean
+  # install: development tools are not distributed, so a GPL linter constrains nothing and
+  # should not fail this.
   licences:
     name: Dependency licences
     runs-on: ubuntu-latest

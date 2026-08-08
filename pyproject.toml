@@ -17,7 +17,7 @@ dynamic = ["version"]
 description = "Project management for people and agents, in equal measure."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "AGPL-3.0-or-later"
+license = "FSL-1.1-ALv2"
 license-files = ["LICENSE"]
 authors = [{ name = "Simon Holliday", email = "simon.holliday@protonmail.com" }]
 keywords = ["project-management", "tasks", "agents", "ai", "self-hosted", "cli"]
