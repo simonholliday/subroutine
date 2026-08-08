@@ -97,6 +97,14 @@ agent_app = typer.Typer(
 )
 app.add_typer(agent_app, name="agent")
 
+# Separate from `token`, because these are separate audiences and not separate flags. A token
+# is for an agent or another machine; a sign-in link is for a person with a browser, and it is
+# the only one of the two that anybody would hand to somebody who does not use a terminal.
+login_app = typer.Typer(
+	help="Let somebody sign in to the web interface.", no_args_is_help=True
+)
+app.add_typer(login_app, name="login")
+
 # **No `create` here, deliberately.** Every writer makes its own parent directories, so
 # `subroutine --profile scratch init` already brings a new instance into being (SPEC.md §12.5).
 # A `profile create` would be a second way to do the same thing, and the two would drift.
@@ -2025,6 +2033,87 @@ def _what_the_credential_can_do (
 	writes = f", writing only in {', '.join(changing)}" if changing else ""
 
 	return f"{answer.user.username} ({kind}), in {where}{within}{writes}"
+
+
+@login_app.command("link")
+def login_link (
+	username: str = typer.Option(
+		"",
+		"--username",
+		help="Issue for somebody else, by the name 'user list' shows. Unset means you.",
+	),
+) -> None:
+	"""Make a sign-in link for the web interface, and print it once.
+
+	Examples:
+
+	  subroutine login link
+
+	  subroutine login link --username thomas
+
+	Hand it over however you would hand over anything private — it signs in as whoever it
+	names, once, and stops working after half an hour.
+
+	This is also the way back in when email is not set up or is not working, which is why it
+	exists at a terminal rather than only in a browser: the console has to be a way in when
+	the ordinary path is broken.
+	"""
+
+	with _administering() as client:
+		try:
+			minted = client.create_login_link(username=username.strip() or None)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	# Said as a duration rather than a clock time, deliberately. Half an hour is short enough
+	# that "until 14:12" makes a reader work out what that means from now, in a timezone they
+	# then have to be sure about — and the answer they want is how long they have.
+	left = round((minted.expires_at - subroutine.db.types.utcnow()).total_seconds() / 60)
+
+	_say(
+		f"A sign-in link for {minted.username}, good for the next "
+		f"{left} {'minute' if left == 1 else 'minutes'}."
+	)
+	_say("")
+	_say(minted.url)
+	_say("")
+	_say("That is the only time it is shown, and it works once.")
+
+
+@login_app.command("revoke")
+def login_revoke (
+	username: str = typer.Argument(
+		..., help="Whose sessions to end, by the name 'user list' shows."
+	),
+) -> None:
+	"""Sign somebody out of every browser they are signed in on.
+
+	Examples:
+
+	  subroutine login revoke thomas
+
+	Immediate, and it takes any unused sign-in links with it. This is what a lost laptop
+	needs; it does not touch their API tokens, which 'subroutine token revoke' stops.
+	"""
+
+	with _administering() as client:
+		try:
+			stopped = client.sign_out_everywhere(username=username.strip())
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	if not stopped.sessions_ended:
+		_say(f"{stopped.username} was not signed in anywhere. Any unused links are spent.")
+
+		return
+
+	_say(
+		f"Signed {stopped.username} out of {stopped.sessions_ended} "
+		f"{'browser' if stopped.sessions_ended == 1 else 'browsers'}, and spent any unused "
+		f"links."
+	)
 
 
 @token_app.command("revoke")

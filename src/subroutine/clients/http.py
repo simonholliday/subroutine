@@ -571,6 +571,24 @@ class Client:
 			),
 		)
 
+	def create_login_link (
+		self, *, username: str | None = None
+	) -> subroutine.views.SignInLink:
+		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
+
+		return self._parsed(
+			subroutine.views.SignInLink,
+			self._json("POST", "/v1/login-links", json=_given(username=username)),
+		)
+
+	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
+		"""End every browser session an account holds, and report how many (`#248`)."""
+
+		return self._parsed(
+			subroutine.views.SignedOut,
+			self._json("POST", f"/v1/users/{username}/signout"),
+		)
+
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""
 

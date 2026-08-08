@@ -104,6 +104,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
 	("POST", "/v1/projects"): "create_project",
 	("POST", "/v1/tokens"): "issue_token",
+	("POST", "/v1/login-links"): "create_login_link",
+	("POST", "/v1/users/{username}/signout"): "sign_out_everywhere",
 	("DELETE", "/v1/tokens/{id_or_prefix}"): "revoke_token",
 	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
 	("POST", "/v1/projects/{id_or_key}/move"): "move_project",
@@ -173,6 +175,19 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"protocol",
 		"A liveness probe for whatever is in front of this. Not a capability anybody is "
 		"being denied, and §10.4's `subroutine doctor` is the question a person asks.",
+	),
+	("GET", "/signin"): (
+		"protocol",
+		"A browser navigation that trades a link for a cookie (`#248`). A client method "
+		"would have to hold a cookie jar to mean anything, and none of them does — the CLI "
+		"and MCP both authenticate with a bearer token, which this route exists to avoid "
+		"needing. `subroutine login link` is how a person is given one.",
+	),
+	("DELETE", "/v1/session"): (
+		"protocol",
+		"The other half of `/signin` (`#248`), and unreachable for the same reason: a caller "
+		"with no cookie has no session to end, and one holding an API token is told so "
+		"rather than answered. `subroutine login revoke` is the operator's equivalent.",
 	),
 	("POST", "/mcp"): (
 		"protocol",
@@ -282,6 +297,21 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"and confirmed at a terminal. An agent wanting a count asks `subroutine_list` and "
 		"reads what came back; a whole tool schema in every session to save it that is the "
 		"trade §21's budget exists to refuse.",
+	),
+	"create_login_link": (
+		"administrative",
+		"`#248`. It produces an address somebody opens in a browser, and an agent has no "
+		"browser — a tool for it would spend schema in every session on a string its holder "
+		"cannot use. **Not a security control, and saying so is the point**: the service "
+		"gates issuing for somebody else on `instance:user_create`, exactly as issuing them "
+		"a token is, so an agent holding that authority is refused or allowed identically on "
+		"every surface. `#487` is what happens when a deny-list is mistaken for the check.",
+	),
+	"sign_out_everywhere": (
+		"administrative",
+		"`#248`. The same tier as `set_active` beside it: ending the sessions somebody is "
+		"working in is a decision about a person's access rather than about their work, and "
+		"§12.4 puts it at a terminal where whoever takes it can see what they are doing.",
 	),
 	"transfer_agent": (
 		"administrative",

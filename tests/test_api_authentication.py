@@ -32,6 +32,11 @@ import subroutine.permissions
 PUBLIC_ROUTES: dict[str, str] = {
 	"GET /healthz": "liveness, probed before any credential exists",
 	"GET /readyz": "readiness, probed by an orchestrator with no account",
+	# The one route somebody reaches *in order to* get a credential, so it cannot require
+	# one (`#248`). It carries §7.7's limiter itself rather than inheriting it from the
+	# principal dependency, which is the cost decision `#364` predicted a login endpoint
+	# would inherit — see `test_signing_in_is_rate_limited_although_it_has_no_principal`.
+	"GET /signin": "exchanges a sign-in link for a session, so it has no credential yet",
 }
 
 

@@ -750,6 +750,38 @@ class Me(pydantic.BaseModel):
 	workspaces: list[WorkspaceAccess]
 
 
+class SignInLink(pydantic.BaseModel):
+	"""A sign-in link, at the one moment it can be read — item `#248`.
+
+	**The secret is in the URL and nowhere else in this object.** Two fields carrying one
+	credential would be two places for it to be logged, and a caller that wants the parts has
+	the URL to take them from.
+
+	Unlike :class:`Token`, there is no ``prefix`` here. Nothing revokes an individual link —
+	it is spent by being used and gone within the half hour either way — so the public half
+	would be a field with no question to answer.
+	"""
+
+	url: str
+
+	#: Whose sign-in this is. Said back because a link is usually minted *for* somebody, and
+	#: an administrator handing out four of them needs to know which is which.
+	username: str
+	expires_at: datetime.datetime
+
+
+class SignedOut(pydantic.BaseModel):
+	"""What signing somebody out of everything actually did — item `#248`.
+
+	The count is here because the alternative is a 204 that looks identical whether it ended
+	four sessions or none, and "none" is the answer somebody needs to see when they have
+	revoked the wrong account.
+	"""
+
+	username: str
+	sessions_ended: int
+
+
 class Token(pydantic.BaseModel):
 	"""A credential as it can safely be described — item ``#208``.
 
@@ -1491,7 +1523,39 @@ def credential (
 	``None`` is local mode (§12.1a), where the filesystem permission is the authentication
 	and there is no credential to describe — not a caller whose credential failed, who never
 	reaches this.
+
+	**A browser session is described too, and answering ``None`` for one would have been a
+	false statement rather than a missing feature** (`#248`): every caller of this reads a
+	null as "no credential was presented", which for a signed-in browser is exactly wrong.
 	"""
+
+	if principal.is_local:
+		return None
+
+	if principal.session is not None:
+		held = principal.session
+
+		return Credential(
+			kind="web_session",
+			id=held.id,
+			# A session has no title because nobody names one — it is minted by signing in
+			# rather than issued for a purpose. This says what it is instead of inventing a
+			# field that would only ever hold one value.
+			title="Browser session",
+			prefix=held.token_prefix,
+			# A session narrows nothing: it is its owner acting as themselves (`#364`). Said
+			# here as literal empty-and-null rather than reached by omission, because those
+			# are the two values that mean "no narrowing" in this model.
+			scopes=[],
+			project_scope=None,
+			project_scope_keys=None,
+			project_write_scope=None,
+			project_write_scope_keys=None,
+			workspace_id=None,
+			narrows=False,
+			expires_at=held.expires_at,
+			last_used_at=held.last_used_at,
+		)
 
 	row = principal.token
 

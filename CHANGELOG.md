@@ -14,6 +14,31 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `ce11c7d2df2f`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
+### Added
+
+- **Somebody can sign in to a browser, with a link rather than a password.**
+  `subroutine login link` prints a single-use address that works for half an hour and hands the
+  browser a session lasting a fortnight. `subroutine login revoke <name>` ends every session
+  that person holds, and any link they have not used yet — which is what a lost laptop needs.
+
+  No password to store, no reset flow, and nothing worth stealing in a breach. The credential is
+  an opaque value in a cookie backed by a row, so revoking it takes effect on the next request
+  rather than whenever it would have expired.
+
+  **The link is printed at a terminal rather than emailed, deliberately.** Sending it by email
+  is still to come, and until it arrives an operator whose mail relay is misconfigured is not
+  locked out of their own instance — the console has to be a way in when the ordinary path is
+  broken. Nothing about this is required: an instance nobody signs in to is unchanged.
+
+  A service account cannot be given one. An agent's authority is issued with a scope and a
+  reach, and a browser session carries neither.
+
 ### Changed
 
 - **A stopping server no longer waits indefinitely for requests already in flight.** It gives

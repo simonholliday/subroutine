@@ -282,7 +282,18 @@ def readable_workspace_ids (
 def describe (principal: subroutine.domain.authentication.Principal) -> str:
 	"""Return a short description of who is acting, for ``doctor`` and ``--verbose``."""
 
-	how = "a token" if principal.token is not None else "the local database"
+	# Three cases and three answers. Told apart by asking which credential was presented
+	# rather than by the absence of a token, which would have reported a signed-in browser
+	# as somebody holding the database file (`#248`).
+	if principal.token is not None:
+		how = "a token"
+
+	elif principal.session is not None:
+		how = "a browser session"
+
+	else:
+		how = "the local database"
+
 	scopes: typing.Sequence[str] = principal.scopes
 
 	if scopes:

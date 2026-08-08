@@ -91,6 +91,71 @@ class Principal:
 	user: subroutine.db.models.identity.User
 	token: subroutine.db.models.identity.ApiToken | None = None
 
+	#: A browser's credential, when that is what was presented (`#364`). It carries no
+	#: scopes, no project scope and no workspace pin, because a person signed in to the web
+	#: UI is themselves rather than a delegation — so every narrowing property below reports
+	#: "not narrowed" for a session, and says so rather than arriving there by omission.
+	session: subroutine.db.models.identity.WebSession | None = None
+
+	def __post_init__ (self) -> None:
+		"""Refuse a principal that claims to hold two credentials at once.
+
+		Nothing constructs one, and that is the point: the properties below would have to
+		decide which of the two narrows, and any answer to that is a rule in a second place.
+		"""
+
+		if self.token is not None and self.session is not None:
+			raise ValueError(
+				"A principal presents one credential. A token and a browser session "
+				"together would leave it ambiguous which one bounds the caller."
+			)
+
+	@property
+	def is_local (self) -> bool:
+		"""Report whether this caller presented no credential at all.
+
+		**This is §12.1a and nothing else: somebody at a terminal holding the database
+		file.** The filesystem permission is the authentication, so no check here narrows
+		them — a lock on a door in a field.
+
+		It exists as a name because it used to be spelled ``token is None``, and decision
+		`#364` measured what that costs the moment a second kind of credential arrives: the
+		absence of a *token* stops meaning the absence of a *credential*, silently, at every
+		site that had made the two synonymous. A named question can be answered correctly
+		for a kind of credential that did not exist when it was written; a sentinel cannot.
+		"""
+
+		return self.token is None and self.session is None
+
+	@property
+	def expires_at (self) -> datetime.datetime | None:
+		"""Return when the presented credential stops working, or ``None`` for never.
+
+		A browser session always has one and an API token need not, which is why this is
+		asked of the principal rather than of the token: `#356`'s rule is that a credential
+		may not issue one that outlives it, and that rule is about the *presenter*, whatever
+		kind of thing it happens to be.
+		"""
+
+		if self.token is not None:
+			return self.token.expires_at
+
+		return self.session.expires_at if self.session is not None else None
+
+	@property
+	def credential_prefix (self) -> str | None:
+		"""Return the public half of whatever credential was presented, or ``None`` if none.
+
+		This is §7.7's rate-limit key. It is safe as a key because *we* mint the prefix: a
+		caller cannot manufacture a fresh allowance by inventing one, which is the property
+		that made the failure limiter key on the address instead.
+		"""
+
+		if self.token is not None:
+			return self.token.token_prefix
+
+		return self.session.token_prefix if self.session is not None else None
+
 	@property
 	def scopes (self) -> list[str]:
 		"""Return the permissions this credential narrows to, empty meaning no narrowing."""
@@ -272,9 +337,16 @@ def _refuse_amplification (
 	not narrowed by any of this, which is §12.1a's position: the filesystem permission is the
 	authentication, and a check inside a process that already holds the file handle is a lock
 	on a door in a field.
+
+	**That exemption is asked for by name** (`#248`). It used to be spelled ``token is None``,
+	which a browser session would have satisfied — and the early return skips more than the
+	scope comparison it looks like it skips: it also skips the check above requiring
+	``instance:user_create`` to issue for somebody else. A signed-in browser inheriting it
+	could have issued a credential **for any account on the instance**, from the one screen
+	where issuing credentials belongs.
 	"""
 
-	if actor.token is None:
+	if actor.is_local:
 		return
 
 	if user.id != actor.user.id:
@@ -302,8 +374,8 @@ def _refuse_amplification (
 			],
 		)
 
-	if actor.token.project_scope is not None:
-		allowed = set(actor.token.project_scope)
+	if actor.project_scope is not None:
+		allowed = set(actor.project_scope)
 
 		if project_scope is None or not set(_canonical_project_scope(project_scope)) <= allowed:
 			raise subroutine.errors.Forbidden(
@@ -335,8 +407,8 @@ def _refuse_amplification (
 	# `SR` — and where the presenter has no write set of its own, what bounds it is what it can
 	# reach, which is exactly what `_within_write_scope` falls back to at check time. The two
 	# fallbacks have to agree or the guard and the enforcement mean different things.
-	held_writes = actor.token.project_write_scope
-	bounds = held_writes if held_writes is not None else actor.token.project_scope
+	held_writes = actor.project_write_scope
+	bounds = held_writes if held_writes is not None else actor.project_scope
 
 	if bounds is not None:
 		asked = (
@@ -359,10 +431,14 @@ def _refuse_amplification (
 				],
 			)
 
-	if actor.token.expires_at is not None and (
-		expires_at is None or expires_at > actor.token.expires_at
-	):
-		until = actor.token.expires_at.date().isoformat()
+	# **A browser session participates here, and that is a decision rather than a
+	# consequence** (`#248`). A session is time-bounded so that a stolen cookie stops
+	# working; a permanent API token minted from one would end that property in a single
+	# call, which is `#356`'s escalation arriving through a door `#356` could not see.
+	held_until = actor.expires_at
+
+	if held_until is not None and (expires_at is None or expires_at > held_until):
+		until = held_until.date().isoformat()
 
 		raise subroutine.errors.Forbidden(
 			"A token cannot outlive the one that asked for it.",

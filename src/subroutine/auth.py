@@ -32,6 +32,21 @@ TOKEN_SCHEME = "sr"
 #: practical concern, short enough to quote in a log line.
 TOKEN_PREFIX_LENGTH = 8
 
+#: The word between the scheme and the prefix that says what *kind* of credential this is.
+#: An API token has none, so every credential issued before these existed is unchanged and
+#: the commonest case stays the shortest.
+#:
+#: They exist so that a credential presented in the wrong place can be **refused by name**
+#: rather than reported as a mistyped token — the pattern §7.4 already uses for a calendar
+#: feed's ``sr_cal_``. A person holding a browser session and a terminal cannot tell two
+#: opaque strings apart, so the program has to.
+SESSION_KIND = "web"
+LOGIN_KIND = "lnk"
+
+#: Every kind this program mints, for the refusals that have to name them. A calendar
+#: credential (§20.2) is *not* here: it is refused by prefix and nothing issues one yet.
+CREDENTIAL_KINDS = (SESSION_KIND, LOGIN_KIND)
+
 #: Bytes of entropy in the secret half. 256 bits is what makes a fast hash correct.
 TOKEN_SECRET_BYTES = 32
 
@@ -88,40 +103,50 @@ class IssuedToken:
 		return f"IssuedToken(prefix={self.prefix!r})"
 
 
-def generate_token () -> IssuedToken:
-	"""Mint a token as ``sr_<prefix>_<secret>``.
+def generate_token (*, kind: str | None = None) -> IssuedToken:
+	"""Mint a credential as ``sr_<prefix>_<secret>``, or ``sr_<kind>_<prefix>_<secret>``.
 
 	The prefix is stored in the clear and indexed, so authenticating is one row fetch
 	rather than a scan of every token comparing hashes.
+
+	``kind`` says what the credential is for, and every kind shares this one implementation
+	deliberately: a browser session with its own minting code would be a second copy of a
+	grammar that has to agree with :func:`parse_token` to be safe at all.
 	"""
 
 	prefix = secrets.token_hex(TOKEN_PREFIX_LENGTH // 2)
 	secret = secrets.token_urlsafe(TOKEN_SECRET_BYTES)
+	marked = TOKEN_SCHEME if kind is None else f"{TOKEN_SCHEME}_{kind}"
 
 	return IssuedToken(
-		value=pydantic.SecretStr(f"{TOKEN_SCHEME}_{prefix}_{secret}"),
+		value=pydantic.SecretStr(f"{marked}_{prefix}_{secret}"),
 		prefix=prefix,
 		token_hash=hash_token_secret(secret),
 	)
 
 
-def parse_token (presented: str) -> tuple[str, str] | None:
-	"""Split a presented token into its prefix and secret, or ``None`` if it is malformed.
+def parse_token (presented: str, *, kind: str | None = None) -> tuple[str, str] | None:
+	"""Split a presented credential into its prefix and secret, or ``None`` if malformed.
 
 	Rejecting an ill-formed token here saves a pointless database round trip on every
 	piece of garbage sent to the API, and gives the caller a reason it can log safely.
+
+	**A credential of one kind never parses as another.** Asked for an API token, a browser
+	session's ``sr_web_…`` returns ``None`` rather than being looked up in the wrong table —
+	which is what lets the caller refuse it by name instead of reporting it as mistyped.
 	"""
 
-	parts = presented.strip().split("_", 2)
+	wanted = TOKEN_SCHEME if kind is None else f"{TOKEN_SCHEME}_{kind}"
+	parts = presented.strip().split("_", 2 if kind is None else 3)
 
-	if len(parts) != 3:
+	if len(parts) != (3 if kind is None else 4):
 		return None
 
-	scheme, prefix, secret = parts
+	*scheme, prefix, secret = parts
 
 	# The secret half comes from `token_urlsafe` and may itself contain underscores, which
 	# is why the split above is bounded rather than greedy.
-	if scheme != TOKEN_SCHEME or not secret or not _PREFIX_PATTERN.match(prefix):
+	if "_".join(scheme) != wanted or not secret or not _PREFIX_PATTERN.match(prefix):
 		return None
 
 	return prefix, secret

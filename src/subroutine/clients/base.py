@@ -616,6 +616,29 @@ class Client(typing.Protocol):
 		transports refuse identically.
 		"""
 
+	def create_login_link (
+		self, *, username: str | None = None
+	) -> subroutine.views.SignInLink:
+		"""Mint a single-use sign-in link for a browser, and return it once — item `#248`.
+
+		``username`` unset is the caller themselves and needs no permission. Naming somebody
+		else is administering their access, so it is gated exactly as issuing a credential for
+		them is, and refused by the service rather than by whichever client asked.
+
+		**This is the recovery path, not a convenience.** Sending the link by email is
+		`#599`; until then, and whenever a mail relay is misconfigured, this is the only way
+		into a browser — which is §12.4's rule that the administrative path has to work when
+		the ordinary one does not.
+		"""
+
+	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
+		"""End every browser session an account holds, and report how many — item `#248`.
+
+		Unspent sign-in links go with them, because a link is a session that has not happened
+		yet. Revocation takes effect on the next request rather than when something expires,
+		which is the property decision `#364` chose an opaque cookie to keep.
+		"""
+
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now, and return it as it now is — item `#348`.
 

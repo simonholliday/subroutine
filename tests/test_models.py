@@ -34,6 +34,7 @@ EXPECTED_TABLES = {
 	"item_type",
 	"link",
 	"link_type",
+	"login_link",
 	"mention",
 	"project",
 	"project_member",
@@ -43,6 +44,7 @@ EXPECTED_TABLES = {
 	"task",
 	"task_tag",
 	"user",
+	"web_session",
 	"workspace",
 	"workspace_member",
 }

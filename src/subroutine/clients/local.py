@@ -23,6 +23,7 @@ import contextlib
 import datetime
 import types
 import typing
+import urllib.parse
 import uuid
 
 import sqlalchemy
@@ -60,6 +61,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
+import subroutine.domain.sessions
 import subroutine.domain.tasks
 import subroutine.domain.tokens
 import subroutine.domain.users
@@ -1056,6 +1058,56 @@ class Client:
 		assert isinstance(rendered, subroutine.views.IssuedToken)
 
 		return rendered
+
+	def create_login_link (
+		self, *, username: str | None = None
+	) -> subroutine.views.SignInLink:
+		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
+
+		# **Refused rather than guessed at.** A link is an address somebody opens, and this
+		# client is talking to a database rather than to a server — so unlike the HTTP path
+		# there is no request to take a host from. Inventing `localhost` and a port nobody
+		# said would produce a link that looks right and goes nowhere, which is worse than
+		# saying plainly that there is no address yet.
+		root = (self.settings.public_url or "").strip()
+
+		if not root:
+			raise subroutine.errors.ValidationError(
+				"This instance has no public_url, so there is no address to build a "
+				"sign-in link from.",
+				code="missing_field",
+				hint="Set public_url in config.toml to the address a browser reaches this "
+				"instance on. A link is only useful where the web UI is served.",
+			)
+
+		with self._writing() as (session, actor):
+			for_whom = (
+				subroutine.domain.selection.user(session, username)
+				if username
+				else actor.user
+			)
+			link, secret = subroutine.domain.sessions.mint_link(
+				session, user=for_whom, actor=actor
+			)
+
+			return subroutine.views.SignInLink(
+				url=f"{root.rstrip('/')}/signin?link={urllib.parse.quote(secret, safe='')}",
+				username=for_whom.username,
+				expires_at=link.expires_at,
+			)
+
+	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
+		"""End every browser session an account holds, and report how many (`#248`)."""
+
+		with self._writing() as (session, actor):
+			for_whom = subroutine.domain.selection.user(session, username)
+			stopped = subroutine.domain.sessions.sign_out_everywhere(
+				session, user=for_whom, actor=actor
+			)
+
+			return subroutine.views.SignedOut(
+				username=for_whom.username, sessions_ended=stopped
+			)
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""

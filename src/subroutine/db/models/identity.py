@@ -290,3 +290,103 @@ class ApiToken(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
 		nullable=True,
 	)
+
+
+class LoginLink(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
+	"""A single-use credential that buys one browser session, and nothing else.
+
+	**Short-lived and used once, because it travels in a URL.** A link lands in browser
+	history, in a referrer header and in whatever forwarded the message carrying it, so
+	the mitigation is not secrecy but a lifetime measured in minutes and a row that is
+	spent the first time it is redeemed (§7.4's rule against tokens in query strings is
+	the same reasoning arriving at a different answer for a different kind of credential).
+
+	It is deliberately not a session: the two have different lifetimes and different
+	single-use semantics, and one table with a flag for which it was would make every read
+	ask a question the type should already have answered.
+	"""
+
+	__tablename__ = "login_link"
+
+	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
+	user_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+
+	# The public half, as on `ApiToken`: found by index rather than by scanning hashes.
+	token_prefix: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=False, unique=True, index=True
+	)
+	token_hash: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(128), nullable=False
+	)
+	# NOT NULL where `ApiToken.expires_at` is nullable, and that difference is the point: an
+	# API token may be deliberately permanent, and a credential that arrives in a URL may
+	# not become permanent by somebody omitting a field.
+	expires_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=False
+	)
+	redeemed_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+
+	# Who asked for it. NULL is somebody at a terminal with the database file, which §12.1a
+	# says is the one caller no check narrows.
+	created_by: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
+		nullable=True,
+	)
+
+
+class WebSession(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
+	"""A browser's credential: an opaque value in a cookie, backed by this row.
+
+	Decision `#364` settled the shape and struck the alternative §7.5 reserved. **Not a
+	JWT**, for two reasons that outlive the fashion: a signed self-describing credential
+	cannot be revoked before it expires, which is the property §7.4 sells; and verifying
+	one needs ``secret_key`` on the request path, which is deliberately kept to signing
+	pagination cursors so that rotating it never locks anybody out.
+
+	**It carries no scopes, no project scope and no workspace pin, and that is the whole of
+	why it is safe.** A browser session is its owner acting as themselves. Every narrowing
+	an API token can express is a property of the token, so a session simply has none of
+	them — and :class:`~subroutine.domain.authentication.Principal` must therefore never
+	read the absence of a token as the absence of narrowing (`#364`).
+	"""
+
+	__tablename__ = "web_session"
+
+	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
+	user_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+	token_prefix: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=False, unique=True, index=True
+	)
+	token_hash: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(128), nullable=False
+	)
+	expires_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=False
+	)
+	last_used_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+	revoked_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+
+	# Which link bought this session. Kept so that a link found to have leaked names the
+	# sessions it produced, rather than leaving somebody to guess from timestamps.
+	login_link_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("login_link.id", ondelete="SET NULL"),
+		nullable=True,
+	)

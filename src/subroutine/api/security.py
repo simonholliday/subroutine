@@ -18,15 +18,19 @@ walks every registered route and fails the build for any that neither requires a
 nor appears in an explicit public list.
 """
 
+import datetime
 import typing
 
 import fastapi
 import sqlalchemy.orm
 import starlette.requests
+import starlette.responses
 
 import subroutine.api.dependencies
 import subroutine.auth
+import subroutine.config
 import subroutine.domain.authentication
+import subroutine.domain.sessions
 import subroutine.errors
 
 #: The one authentication scheme this API accepts. Compared case-insensitively, as
@@ -94,13 +98,47 @@ def from_bearer_token (
 			"Create an API token with 'subroutine token create'.",
 		)
 
+	_refuse_a_credential_of_another_kind(credential)
+
 	return subroutine.domain.authentication.authenticate(
 		session, credential, record_use=record_use
 	)
 
 
-#: Every way of proving identity, tried in order. One today; §7.5 adds the next.
-RESOLVERS: tuple[Resolver, ...] = (from_bearer_token,)
+#: The cookie a browser signs in with (`#248`, decision `#364`). Prefixed with the program's
+#: name because a person may be running several things on one host during development, and an
+#: unprefixed ``session`` is the commonest cookie name there is.
+SESSION_COOKIE = "subroutine_session"
+
+
+def from_session_cookie (
+	session: sqlalchemy.orm.Session,
+	request: starlette.requests.Request,
+	*,
+	record_use: bool = True,
+) -> subroutine.domain.authentication.Principal | None:
+	"""Identify the caller from the browser session cookie.
+
+	**Registered after the bearer resolver, and that order is a decision** (`#364`): an
+	explicit ``Authorization`` header beats a cookie the same browser happens to be holding.
+	Somebody testing an agent's narrow credential from a signed-in browser gets the narrow
+	credential, which is what they asked for — the alternative silently answers as them.
+	"""
+
+	presented = request.cookies.get(SESSION_COOKIE)
+
+	if presented is None:
+		return None
+
+	return subroutine.domain.sessions.authenticate(
+		session, presented, record_use=record_use
+	)
+
+
+#: Every way of proving identity, tried in order. The first to find a credential of its kind
+#: decides — §7.5's claim that a new credential type is "a new resolver, not a change to every
+#: endpoint" was checked rather than believed when the second one was built, and it held.
+RESOLVERS: tuple[Resolver, ...] = (from_bearer_token, from_session_cookie)
 
 
 def resolve (
@@ -160,8 +198,13 @@ def principal (
 
 		raise
 
-	if limits is not None and found.token is not None:
-		limits.count_a_request(found.token.token_prefix)
+	# Asked of the principal rather than of its token, so a browser session is counted like
+	# anything else (`#248`). Reading `found.token` here would have left the one credential
+	# type a stranger can obtain as the one nothing rate-limits.
+	counted = found.credential_prefix
+
+	if limits is not None and counted is not None:
+		limits.count_a_request(counted)
 
 	return found
 
@@ -171,6 +214,99 @@ def principal (
 PrincipalDep = typing.Annotated[
 	subroutine.domain.authentication.Principal, fastapi.Depends(principal)
 ]
+
+
+#: What each kind of credential is, and where it belongs, for the refusal below. A person
+#: holding two opaque strings cannot tell them apart, so the program has to say which is
+#: which — the same reasoning as the calendar credential's refusal above, and the reason
+#: every kind carries a word in its prefix at all.
+_ELSEWHERE: dict[str, tuple[str, str]] = {
+	subroutine.auth.SESSION_KIND: (
+		"a browser session",
+		"It is set as a cookie when you sign in, and the browser sends it for you. "
+		"Create an API token with 'subroutine token create' to call the API directly.",
+	),
+	subroutine.auth.LOGIN_KIND: (
+		"a sign-in link",
+		"Open it in a browser instead: it is spent once, in exchange for a session, and "
+		"it is not a credential this API accepts.",
+	),
+}
+
+
+def _refuse_a_credential_of_another_kind (credential: str) -> None:
+	"""Refuse a credential that is real but does not belong in this header.
+
+	It would fail the token grammar anyway and be reported as mistyped, which sends somebody
+	looking for a typo in a string they pasted correctly. Naming the thing they hold is the
+	difference between a minute and an afternoon.
+	"""
+
+	for kind, (what, hint) in _ELSEWHERE.items():
+		if credential.strip().startswith(f"{subroutine.auth.TOKEN_SCHEME}_{kind}_"):
+			raise subroutine.errors.Unauthenticated(
+				f"That is {what}, which cannot be sent as a bearer token.", hint=hint
+			)
+
+
+def set_session_cookie (
+	response: starlette.responses.Response,
+	secret: str,
+	*,
+	settings: subroutine.config.Settings,
+	expires_at: datetime.datetime,
+) -> None:
+	"""Put a browser session into a response, with the attributes that make it safe.
+
+	Three of the four attributes are doing real work:
+
+	* **``HttpOnly``** keeps the value out of ``document.cookie``, so a script injected into
+	  a page cannot read it and send it somewhere.
+	* **``SameSite=Lax`` is the actual CSRF defence**, and decision `#364` measured why it is
+	  needed here and was not before: 14 mutating routes take no request body and **six of
+	  them are POSTs** — ``complete``, ``claim``, ``release`` and three ``restore``s — which a
+	  cross-site form can send with no preflight, so CORS never sees them. ``Lax`` withholds
+	  the cookie from exactly those while still sending it on a top-level navigation, which is
+	  what a sign-in link is.
+	* **``Secure``** follows ``public_url``, not the request: TLS is terminated at a proxy, so
+	  the application sees plain HTTP on a connection that reached it over HTTPS. Deriving it
+	  from what the socket says would leave the cookie unmarked on every proxied instance —
+	  every real deployment — and marking it unconditionally would make a loopback development
+	  instance unable to sign in at all, with nothing to say why.
+	"""
+
+	public = (settings.public_url or "").strip()
+
+	response.set_cookie(
+		SESSION_COOKIE,
+		secret,
+		expires=expires_at,
+		path="/",
+		httponly=True,
+		samesite="lax",
+		secure=public.lower().startswith("https://"),
+	)
+
+
+def clear_session_cookie (
+	response: starlette.responses.Response, *, settings: subroutine.config.Settings
+) -> None:
+	"""Remove the browser session cookie.
+
+	The attributes have to match the ones it was set with or the browser deletes nothing and
+	keeps sending a cookie the instance has already revoked — which looks, from the outside,
+	exactly like signing out not working.
+	"""
+
+	public = (settings.public_url or "").strip()
+
+	response.delete_cookie(
+		SESSION_COOKIE,
+		path="/",
+		httponly=True,
+		samesite="lax",
+		secure=public.lower().startswith("https://"),
+	)
 
 
 def _how_to_authenticate (request: starlette.requests.Request) -> str:

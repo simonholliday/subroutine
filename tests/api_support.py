@@ -64,6 +64,7 @@ def call (
 	path: str,
 	*,
 	lifespan: bool = False,
+	cookies: dict[str, str] | None = None,
 	**kwargs: typing.Any,
 ) -> httpx.Response:
 	"""Make one request against an application and return the response.
@@ -74,13 +75,20 @@ def call (
 
 	``lifespan`` runs startup and shutdown around the request, which only matters for a
 	test that wants the application's own engine opened and disposed.
+
+	``cookies`` is taken here and set on the *client* rather than passed through to the
+	request, because httpx deprecates the per-request form — and this suite runs with
+	warnings as errors, so passing it through would turn a browser test into a collection
+	failure with a message about httpx rather than about the thing under test.
 	"""
 
 	async def run () -> httpx.Response:
 		transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
 
 		async with (
-			httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client,
+			httpx.AsyncClient(
+				transport=transport, base_url=BASE_URL, cookies=cookies
+			) as client,
 			_maybe_lifespan(application, lifespan),
 		):
 			return await client.request(method, path, **kwargs)

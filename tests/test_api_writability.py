@@ -418,6 +418,18 @@ NOT_VIEWED: dict[str, str] = {
 		"§7.2 makes the name the thing you grant and the permission set an implementation of "
 		"it. A view would publish `permissions` as data somebody could believe was editable."
 	),
+	"LoginLink": (
+		"A credential, and one that exists for minutes (`#248`). What reaches a caller is "
+		"`views.SignInLink`, which carries the URL and nothing else — a view named after the "
+		"row would have to report `token_hash` as excused, on a table whose whole content is "
+		"a secret nobody may read back."
+	),
+	"WebSession": (
+		"The same, and reported where it matters: `views.credential` describes the session "
+		"the *caller* presented, as `kind='web_session'`, which is the only one anybody has a "
+		"right to see. Somebody else's sessions are counted by `views.SignedOut` and never "
+		"listed — an inventory of a person's live browsers is a map of where they work."
+	),
 }
 
 

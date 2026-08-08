@@ -31,6 +31,7 @@ import subroutine.api.middleware
 import subroutine.api.problems
 import subroutine.api.projects
 import subroutine.api.routing
+import subroutine.api.sessions
 import subroutine.api.tasks
 import subroutine.api.tokens
 import subroutine.api.users
@@ -64,8 +65,14 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	# beside the other root-level routes is where a reader will look for it.
 	("", subroutine.api.mcp.router),
 	("", subroutine.api.identity.router),
+	# Signing in and out. `/signin` is a literal at the root, sharing a prefix with nothing;
+	# `/v1/session` is a literal under `/v1` and cannot be shadowed by an id parameter,
+	# because no router mounts `/v1/{something}`. `routing.check` is what says so.
+	("", subroutine.api.sessions.router),
 	("", subroutine.api.workspaces.router),
 	("", subroutine.api.users.router),
+	# The session sub-resource, after the router whose path it extends.
+	("", subroutine.api.sessions.user_sessions),
 	("", subroutine.api.tokens.router),
 	("", subroutine.api.meta.router),
 	("", subroutine.api.agenda.router),
