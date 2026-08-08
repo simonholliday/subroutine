@@ -26,9 +26,18 @@ upgrade involves.
   everything in a workspace — tasks and documents together — and clicking one shows it in full:
   its description, what it is linked to, and everything anybody has recorded against it.
 
-  **Reading only, for now.** Completing, adding and reassigning are still the command line and
-  the API; this is the half worth having first, because it is what lets somebody who does not
-  use a terminal see the work at all.
+  **You can also work in it.** Complete something from the list or from the item itself; add
+  something with one box, which takes the same shorthand the command line does — so
+  `call the dentist tomorrow +work !4/3` files it in the right place, at the right priority,
+  planned for the right day. Hand a task to somebody, or take it back, from a list of the
+  people in that workspace.
+
+  **Completing tells you what it did, and offers to undo it.** Nothing asks you to confirm
+  first: a question before every action is a tax on being right, and putting it back is one
+  press. A refusal — something somebody else changed, a permission you do not have — is
+  reported beside the work rather than replacing the page you were reading.
+
+  Revising a description, and everything else, is still the command line and the API.
 
   It is served by the instance itself, on the same address as the API, and signing in is the
   link above. Nothing to install, nothing to build, and no external service is contacted: the

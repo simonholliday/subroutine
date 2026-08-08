@@ -78,6 +78,25 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"comments": [{"id": "c1", "created_at": "2026-08-08T10:00:00Z", "body": "Reproduced."}],
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
+	"Adding": {"busy": False},
+	"Doing": {
+		"item": {
+			"ref": 42,
+			"kind": "task",
+			"title": "Fix the pagination cursor",
+			"status_category": "todo",
+			"assignee": "si",
+		},
+		"members": ["si", "ada"],
+		"busy": False,
+	},
+	"Note": {
+		"note": {
+			"text": "Completed #42 Fix the pagination cursor.",
+			"tone": "good",
+			"undo": {"ref": 42, "kind": "task", "title": "Fix it", "status": "open"},
+		}
+	},
 }
 
 #: The one case with its own branch, and the one a reader is likeliest to meet: a page loaded
@@ -228,6 +247,12 @@ def _rendered (
 	# Rendering to a string needs no DOM: a Preact vnode is a plain object, so walking it is
 	# enough to prove every template produced one rather than throwing.
 	#
+	# **The cost, stated rather than discovered later: this renders hook-free components only.**
+	# A component is called as a plain function, so `useState` and the rest throw for want of a
+	# renderer — which is why `App`, where every write lives, is absent from `SAMPLES` and is
+	# not covered here at all. `SR#640` is that gap. Everything below it is deliberately written
+	# without hooks so it *can* be checked, which is a better shape anyway.
+	#
 	# `dangerouslySetInnerHTML` is read here rather than skipped, because a component whose
 	# whole output is that property would otherwise flatten to nothing and every assertion
 	# about what it says would pass vacuously.
@@ -251,9 +276,15 @@ def _rendered (
 			return typeof node.type === "string" ? `<${{node.type}}>${{inner}}` : inner;
 		}}
 
+		/* Every handler a component may be given. Named rather than guessed, and a component
+		   that grows one is added here — which is what makes an absent handler mean "this
+		   reader cannot do that" rather than "the harness forgot". */
+		const handlers = {{}};
+		for (const name of ["onOpen", "onBack", "onRetry", "onComplete", "onAssign",
+			"onAdd", "onUndo", "onDismiss"]) handlers[name] = () => {{}};
+
 		for (const [name, props] of Object.entries(asked)) {{
-			out[name] = flatten(app[name]({{ ...props, onOpen: () => {{}},
-				onBack: () => {{}}, onRetry: () => {{}} }}));
+			out[name] = flatten(app[name]({{ ...handlers, ...props }}));
 		}}
 
 		process.stdout.write(JSON.stringify(out));
@@ -717,3 +748,129 @@ def test_the_renderer_is_the_only_way_html_is_injected () -> None:
 
 	assert app.count("dangerouslySetInnerHTML") == 1, "a second injection point has appeared"
 	assert "markdown.render" in app, "the one injection point stopped going through the renderer"
+
+
+# ---- writing from a browser (`SR#597`) -----------------------------------------------------
+
+
+def test_only_a_task_offers_to_be_completed (tmp_path: pathlib.Path) -> None:
+	"""A document cannot be completed, so it is not offered the control.
+
+	One counter per workspace serves tasks and documents (§6.2), so a listing holds both — and
+	a button whose only possible outcome is a refusal is worse than no button. Same rule as
+	`subroutine done` turning a document down by name rather than pretending it is missing.
+	"""
+
+	task = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 1, "kind": "task", "title": "A task"}, "showKind": True}
+	})
+	document = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 2, "kind": "document", "title": "A document"}, "showKind": True}
+	})
+
+	assert "Complete" in task["Row"], "a task was not offered completion"
+	assert "Complete" not in document["Row"], "a document was offered completion"
+
+
+def test_a_reader_who_cannot_write_is_shown_no_controls (tmp_path: pathlib.Path) -> None:
+	"""The handlers are what say whether this reader may act, and their absence is the answer.
+
+	It matters because the write half arrived after the read half: a surface that renders its
+	buttons regardless and refuses on press would be the same defect as `SR#515` — effort spent
+	confirming the wrong conclusion.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 1, "kind": "task", "title": "A task"}, "onComplete": None},
+		"Listing": {"items": [{"ref": 1, "kind": "task", "title": "A task"}], "onAdd": None},
+	})
+
+	assert "Complete" not in rendered["Row"]
+	assert "<form" not in rendered["Listing"], "an add box appeared with nothing to add through"
+
+
+def test_a_completed_task_is_not_asked_to_complete_again (tmp_path: pathlib.Path) -> None:
+	"""`status_category` is the fixed field a client may branch on; the status key is renameable."""
+
+	rendered = _rendered(tmp_path, {
+		"Doing": {
+			"item": {"ref": 42, "kind": "task", "title": "Done already",
+				"status_category": "done", "assignee": None},
+			"members": ["si"],
+		}
+	})
+
+	assert rendered["Doing"] == "", "a finished task still offered to be finished"
+
+
+def test_the_add_box_teaches_the_capture_grammar (tmp_path: pathlib.Path) -> None:
+	"""**The only place a browser-only reader can learn that §6.13 exists.**
+
+	`SR#484` settled that the grammar has exactly one delivery channel per surface and that a
+	surface without one silently stops using it. At a terminal that is `subroutine explain
+	capture`; here there is no terminal, so it is the placeholder or nothing.
+	"""
+
+	rendered = _rendered(tmp_path, {"Adding": {}})["Adding"]
+
+	assert "<form" in rendered and "<input" in rendered and "<button" in rendered
+
+	# The placeholder is read off the source, because `flatten` walks the tree rather than
+	# rendering attributes — so the assertion has to go where the words actually are.
+	source = _served_modules()["app.js"]
+	placeholder = re.search(r'placeholder="([^"]+)"', source)
+
+	assert placeholder is not None, "the add box stopped saying what can be typed into it"
+	assert "+" in placeholder.group(1) and "!" in placeholder.group(1), (
+		f"the placeholder {placeholder.group(1)!r} no longer shows any of the grammar"
+	)
+
+
+def test_a_failed_write_says_what_happened_in_words (tmp_path: pathlib.Path) -> None:
+	"""`SR#102`: no information exists only in a colour.
+
+	A refused write is the case a reader most needs told, and `.note.bad` is a border. The
+	sentence has to carry it — and the element has to interrupt a screen reader, which is what
+	separates a failure from a confirmation.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Note": {"note": {"text": "#42 was not changed. Not permitted.", "tone": "bad"}}
+	})
+
+	assert "was not changed" in rendered["Note"], "the failure said nothing a reader can read"
+
+
+def test_undo_restores_the_status_that_was_there (tmp_path: pathlib.Path) -> None:
+	"""**Undo puts back what was, rather than writing `open`.**
+
+	A status is workspace vocabulary — `status:write` curates it — so `open` is only the
+	seeded default and an item may well have been in something else. Reversing a completion by
+	writing a guessed status is a different edit from the one being undone, and it would look
+	right on every instance that never renamed anything, which is every instance we own.
+
+	**This reads the source, and that is a weaker check than the rest of this module.** The
+	action lives inside `App`, whose hooks need a DOM the harness deliberately does not build,
+	so it cannot be driven the way `markdown.render` can. What would make it behavioural is
+	lifting the request each action makes into a pure function; that is worth doing when there
+	is a third action, not for two.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+
+	assert "status: row.status" in app, "the previous status stopped being carried into undo"
+	assert "status: going.status" in app, "undo stopped sending the status it recorded"
+
+
+def test_every_write_goes_through_one_request_function () -> None:
+	"""One `fetch`, reads and writes together — so the credential rules are written once.
+
+	`credentials: "same-origin"` is what attaches the session, and a second request path would
+	be a second place to get that right. The read half already relied on this; the write half
+	is when it starts to matter.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+
+	assert app.count("fetch(") == 1, "a second request path has appeared"
+	assert app.count("credentials:") == 1

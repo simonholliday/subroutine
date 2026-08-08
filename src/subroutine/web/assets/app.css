@@ -96,6 +96,79 @@ code, .ref, .priority {
 
 .who strong { font-weight: 600; color: var(--ink); }
 
+/* ---- adding, and what just happened ------------------------------------ */
+
+.adding {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 14px;
+}
+
+.adding input {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 9px 12px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+}
+
+.adding input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.adding input::placeholder { color: var(--ink-faint); }
+
+.adding button {
+	flex: 0 0 auto;
+	padding: 9px 16px;
+	background: var(--accent);
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	color: var(--bg);
+	font: inherit;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.adding button:disabled { opacity: 0.45; cursor: default; }
+.adding button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/*
+	What just happened. **The tone is a colour and says nothing on its own** (`#102`): the
+	sentence carries the outcome, so the border is a way to spot it rather than to read it.
+*/
+.note {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin-bottom: 14px;
+	padding: 9px 12px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-left-width: 3px;
+	border-radius: var(--radius);
+	font-size: 14px;
+}
+
+.note.bad { border-left-color: var(--warn); }
+.note.good { border-left-color: var(--accent); }
+.note .said { flex: 1 1 auto; }
+
+.note button {
+	flex: 0 0 auto;
+	padding: 2px 8px;
+	background: none;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.note button:hover { color: var(--ink); border-color: var(--ink-soft); }
+.note .dismiss { border-color: transparent; font-size: 16px; line-height: 1; }
+
 /* ---- listing ----------------------------------------------------------- */
 
 .rows {
@@ -124,9 +197,38 @@ code, .ref, .priority {
 	cursor: pointer;
 }
 
-.row:first-child { border-top: 0; }
-.row:hover, .row:focus-visible { background: var(--bg-sunken); }
+/* The row and its Complete button are siblings inside the item, because a button cannot
+   contain another one. The `li` is what makes them read as one line. */
+.rows li {
+	display: flex;
+	align-items: stretch;
+	border-top: 1px solid var(--line);
+}
+
+.rows li:first-child { border-top: 0; }
+.rows li:hover { background: var(--bg-sunken); }
+
+.row { border-top: 0; }
 .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.finish {
+	flex: 0 0 auto;
+	align-self: center;
+	margin: 0 10px 0 4px;
+	padding: 4px 10px;
+	background: var(--bg-sunken);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	font-size: 13px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.finish:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
+.finish:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.finish:disabled { opacity: 0.5; cursor: default; }
 
 .row .ref { color: var(--ink-faint); font-size: 13px; }
 .row .title { font-weight: 500; }
@@ -189,6 +291,40 @@ code, .ref, .priority {
 
 .facts dt { color: var(--ink-soft); }
 .facts dd { margin: 0; }
+
+/* What can be done to the open item. Wraps rather than scrolls, so a narrow screen stacks
+   the two controls instead of hiding one. */
+.doing {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	margin-top: 18px;
+	padding-top: 16px;
+	border-top: 1px solid var(--line);
+}
+
+.doing .finish { margin: 0; padding: 6px 14px; font-size: 14px; }
+
+.assign {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	color: var(--ink-soft);
+}
+
+.assign select {
+	padding: 5px 8px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+	font-size: 14px;
+}
+
+.assign select:disabled { opacity: 0.5; }
 
 .prose {
 	margin-top: 20px;

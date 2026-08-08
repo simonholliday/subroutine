@@ -45,17 +45,29 @@ class Refused extends Error {
 	}
 }
 
-async function api (path) {
+async function api (path, { method = "GET", body = null } = {}) {
 	/*
 		Every request sends the cookie and nothing else. `credentials: "same-origin"` is the
 		default for a same-origin fetch, and it is written out because this page working at all
 		depends on it — a second port would be cross-origin, which is the arrangement `#364`
 		warns about and the reason the app is served from the instance itself.
+
+		**One request function, reads and writes together.** Every refusal then arrives the same
+		way, which is what lets a failed write say what happened rather than disappearing — and
+		a second one would be a second place for the credential rules to be written down.
 	*/
+	const sending = body !== null;
+
 	const answer = await fetch(`/v1${path}`, {
+		method,
 		credentials: "same-origin",
-		headers: { accept: "application/json" },
+		headers: sending
+			? { accept: "application/json", "content-type": "application/json" }
+			: { accept: "application/json" },
+		body: sending ? JSON.stringify(body) : undefined,
 	});
+
+	if (answer.status === 204) return null;
 
 	if (answer.ok) return answer.json();
 
@@ -122,9 +134,17 @@ export function when (item) {
 
 /* ---- views -------------------------------------------------------------- */
 
-export function Row ({ item, showKind, onOpen }) {
+export function Row ({ item, showKind, onOpen, onComplete }) {
 	const badges = marks(item, showKind);
 
+	/*
+		**The two controls are siblings, not one inside the other.** A button nested in a button
+		is invalid, and a browser resolves it by dropping the inner one — so completing would
+		open the item instead, silently, and only in some browsers.
+
+		Only a task has one. A document cannot be completed, and a control that refuses when
+		pressed is worse than one that is not there.
+	*/
 	return html`
 		<li>
 			<button class="row" onClick=${() => onOpen(item)}>
@@ -139,15 +159,51 @@ export function Row ({ item, showKind, onOpen }) {
 					</span>
 				`}
 			</button>
+			${item.kind === "task" && onComplete && html`
+				<button class="finish" onClick=${() => onComplete(item)}
+					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+			`}
 		</li>
 	`;
 }
 
-export function Listing ({ items, onOpen }) {
-	if (items.length === 0) {
-		return html`<div class="empty">Nothing here yet.</div>`;
-	}
+export function Adding ({ onAdd, busy }) {
+	/*
+		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
+		`~2h` and a date in words all work here exactly as they do at a terminal, which is why
+		the placeholder shows one rather than describing the syntax: this is the only place a
+		browser-only reader can learn that any of it exists.
 
+		Plain prose is a complete answer, and that is the point — nothing here is required.
+	*/
+	const submit = (event) => {
+		event.preventDefault();
+
+		const form = event.currentTarget;
+		const written = form.elements.text.value.trim();
+
+		if (written === "" || busy) return;
+
+		onAdd(written);
+		form.reset();
+	};
+
+	/*
+		**An uncontrolled input, holding no state of its own.** A box that is cleared on submit
+		needs nothing remembered between keystrokes, so mirroring every one into a state
+		variable would be work with no reader — and `required` hands the empty case to the
+		browser, which says so in the reader's own language rather than in ours.
+	*/
+	return html`
+		<form class="adding" onSubmit=${submit}>
+			<input name="text" required disabled=${busy} aria-label="Add an item"
+				placeholder="Add something — try: call the dentist tomorrow +work !4/3" />
+			<button type="submit" disabled=${busy}>Add</button>
+		</form>
+	`;
+}
+
+export function Listing ({ items, onOpen, onComplete, onAdd, busy }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
 		shown only on a mixed page: a blank beside "Document" would read as missing data rather
@@ -156,12 +212,40 @@ export function Listing ({ items, onOpen }) {
 	const showKind = new Set(items.map((item) => item.kind)).size > 1;
 
 	return html`
-		<ul class="rows">
-			${items.map((item) => html`
-				<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
-					onOpen=${onOpen} />
-			`)}
-		</ul>
+		<div class="listing">
+			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
+
+			${items.length === 0
+				? html`<div class="empty">Nothing here yet.</div>`
+				: html`
+					<ul class="rows">
+						${items.map((item) => html`
+							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
+								onOpen=${onOpen} onComplete=${onComplete} />
+						`)}
+					</ul>
+				`}
+		</div>
+	`;
+}
+
+export function Note ({ note, onUndo, onDismiss }) {
+	/*
+		What just happened, and what to do if it was not wanted.
+
+		**It says the outcome in words** (`#102`): the tone is a colour and carries nothing by
+		itself, so a reader who cannot separate the hues loses none of it. `alert` for a
+		failure and `status` for a success, because a screen reader should interrupt for one
+		and not the other.
+	*/
+	if (!note) return null;
+
+	return html`
+		<div class=${`note ${note.tone}`} role=${note.tone === "bad" ? "alert" : "status"}>
+			<span class="said">${note.text}</span>
+			${note.undo && html`<button class="undo" onClick=${onUndo}>Undo</button>`}
+			<button class="dismiss" onClick=${onDismiss} aria-label="Dismiss this message">×</button>
+		</div>
 	`;
 }
 
@@ -215,7 +299,45 @@ export function Prose ({ text, className }) {
 		dangerouslySetInnerHTML=${{ __html: markdown.render(text) }}></div>`;
 }
 
-export function Detail ({ item, links, comments, onOpen, onBack }) {
+export function Doing ({ item, members, onComplete, onAssign, busy }) {
+	/*
+		The two things a reader can do to an item from here.
+
+		**Only for a task, and only while it is open.** A document has neither, and a completed
+		task offering "Complete" is a control whose only outcome is a refusal.
+
+		Assignment lists the workspace's members and nothing else, because `tasks.assignee_for`
+		is workspace-scoped on purpose: handing work to somebody who cannot see it is not a
+		fair act. "Nobody" sends null, which the API takes as *clear this* rather than as *no
+		opinion* — driven and confirmed rather than assumed, since the two readings of a null
+		are indistinguishable from the outside.
+	*/
+	if (item.kind === "document" || item.status_category === "done") return null;
+
+	return html`
+		<div class="doing">
+			<button class="finish" disabled=${busy} onClick=${() => onComplete(item)}
+				aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+
+			${members.length > 0 && html`
+				<label class="assign">
+					<span>Assigned to</span>
+					<select disabled=${busy}
+						onChange=${(event) => onAssign(item, event.target.value || null)}>
+						<option value="" selected=${!item.assignee}>Nobody</option>
+						${members.map((who) => html`
+							<option value=${who} selected=${who === item.assignee}>${who}</option>
+						`)}
+					</select>
+				</label>
+			`}
+		</div>
+	`;
+}
+
+export function Detail ({
+	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy,
+}) {
 	const body = item.description || item.body;
 
 	return html`
@@ -223,6 +345,11 @@ export function Detail ({ item, links, comments, onOpen, onBack }) {
 			<button class="back" onClick=${onBack}>← All items</button>
 			<h2>#${item.ref} ${item.title}</h2>
 			<${Facts} item=${item} />
+
+			${onComplete && html`
+				<${Doing} item=${item} members=${members} onComplete=${onComplete}
+					onAssign=${onAssign} busy=${busy} />
+			`}
 
 			${body && html`<${Prose} className="prose" text=${body} />`}
 
@@ -291,6 +418,9 @@ export function App () {
 	const [open, setOpen] = useState(null);
 	const [error, setError] = useState(null);
 	const [ready, setReady] = useState(false);
+	const [members, setMembers] = useState([]);
+	const [note, setNote] = useState(null);
+	const [busy, setBusy] = useState(false);
 	const since = useRef(null);
 
 	const load = useCallback(async (slug) => {
@@ -315,6 +445,29 @@ export function App () {
 		]);
 	}, []);
 
+	const roster = useCallback(async (slug) => {
+		/*
+			Who work can be handed to. Its own request because it changes on a different clock
+			from the backlog — and its failure is survivable: without it the assignment control
+			is simply absent, which is honest, where a picker that cannot be filled is not.
+		*/
+		if (!slug) return;
+
+		/*
+			**No `?limit=`, because this endpoint does not declare one** and `api/query.py`
+			refuses a parameter a route did not ask for — so sending one is a 422, not a
+			larger page. Found by driving it: the refusal is caught below, so the only symptom
+			was the assignment control quietly never appearing.
+		*/
+		try {
+			const found = await api(`/workspaces/${encodeURIComponent(slug)}/members`);
+
+			setMembers(found.items.map((row) => row.user.username));
+		} catch (_) {
+			setMembers([]);
+		}
+	}, []);
+
 	const start = useCallback(async () => {
 		setError(null);
 
@@ -332,12 +485,13 @@ export function App () {
 			since.current = head.items.length > 0 ? head.items[0].seq : 0;
 
 			await load(slug);
+			await roster(slug);
 		} catch (failure) {
 			setError(failure);
 		} finally {
 			setReady(true);
 		}
-	}, [load, workspace]);
+	}, [load, roster, workspace]);
 
 	useEffect(() => {
 		start();
@@ -386,16 +540,122 @@ export function App () {
 		}
 	}, [workspace]);
 
+	const reread = useCallback(async (row) => {
+		/* Put the open item back the way `show` found it, so a detail on screen is not left
+		   describing the state before the action. */
+		if (open && open.item.ref === row.ref && open.item.kind === row.kind) await show(row);
+
+		await load(workspace);
+	}, [load, open, show, workspace]);
+
+	const wrote = useCallback(async (row, said, run) => {
+		/*
+			**One path for every write, and the whole of why it exists is the failure case.**
+
+			A refusal here is ordinary rather than exceptional — a member without the
+			permission, a name that is not in this workspace, an item somebody else has just
+			changed — so it becomes a message beside the work rather than replacing the page.
+			Blanking a screen somebody is reading, because a button did not take, loses their
+			place to report a problem they can do nothing about.
+
+			`setError` is kept for the other kind: not signed in, or the instance unreachable,
+			where there is nothing on the page worth keeping.
+		*/
+		setBusy(true);
+
+		try {
+			const answer = await run();
+
+			setNote(said(answer));
+			await reread(row);
+
+			return answer;
+		} catch (failure) {
+			setNote({ text: `#${row.ref} was not changed. ${failure.message}`, tone: "bad" });
+
+			return null;
+		} finally {
+			setBusy(false);
+		}
+	}, [reread]);
+
+	const scoped = useCallback(
+		(path) => `${path}${path.includes("?") ? "&" : "?"}workspace_id=`
+			+ encodeURIComponent(workspace),
+		[workspace],
+	);
+
+	const complete = useCallback((row) => wrote(
+		row,
+		() => ({
+			text: `Completed #${row.ref} ${row.title}.`,
+			tone: "good",
+			/* What it was, so undo restores rather than guesses. A task's status is workspace
+			   vocabulary and "open" is only the seeded default — putting that back would be a
+			   different write from the one being reversed. */
+			undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status },
+		}),
+		() => api(scoped(`/tasks/${row.ref}/complete`), { method: "POST" }),
+	), [scoped, wrote]);
+
+	const undo = useCallback(async () => {
+		const going = note && note.undo;
+
+		if (!going) return;
+
+		setNote(null);
+		await wrote(
+			going,
+			() => ({ text: `#${going.ref} is back to ${going.status}.`, tone: "good" }),
+			() => api(scoped(`/tasks/${going.ref}`), {
+				method: "PATCH", body: { status: going.status },
+			}),
+		);
+	}, [note, scoped, wrote]);
+
+	const assign = useCallback((row, who) => wrote(
+		row,
+		() => ({
+			text: who ? `#${row.ref} is ${who}'s.` : `#${row.ref} is nobody's now.`,
+			tone: "good",
+		}),
+		() => api(scoped(`/tasks/${row.ref}`), { method: "PATCH", body: { assignee: who } }),
+	), [scoped, wrote]);
+
+	const add = useCallback(async (text) => {
+		setBusy(true);
+
+		try {
+			/*
+				`text` rather than a title, so the capture grammar runs (§6.13) and one box
+				can set a project, a priority, tags and a date. The workspace goes in the body
+				because that is where this endpoint takes it.
+			*/
+			const made = await api("/tasks", {
+				method: "POST", body: { text, workspace_id: workspace },
+			});
+
+			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
+			await load(workspace);
+		} catch (failure) {
+			setNote({ text: `That was not added. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [load, workspace]);
+
 	const chooseWorkspace = useCallback(async (slug) => {
 		setWorkspace(slug);
 		setOpen(null);
+		setNote(null);
 
 		try {
 			await load(slug);
+			await roster(slug);
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [load]);
+	}, [load, roster]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -427,9 +687,13 @@ export function App () {
 				</div>
 			</header>
 
+			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
+
 			${open
-				? html`<${Detail} ...${open} onOpen=${show} onBack=${() => setOpen(null)} />`
-				: html`<${Listing} items=${items} onOpen=${show} />`}
+				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
+					onBack=${() => setOpen(null)} onComplete=${complete} onAssign=${assign} />`
+				: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
+					onAdd=${add} busy=${busy} />`}
 
 			<footer class="foot">
 				<span>${items.length} items</span>
