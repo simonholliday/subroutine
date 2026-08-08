@@ -1140,6 +1140,90 @@ def test_an_address_that_names_no_item_is_not_read_as_one (tmp_path: pathlib.Pat
 	)
 
 
+def test_an_address_a_browser_cannot_decode_is_a_miss_rather_than_a_crash (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A stray percent sign is a typo, and a typo may not take the page down — `SR#681`.
+
+	``decodeURIComponent`` is all or nothing: one malformed escape throws ``URIError`` for the
+	whole string. Since `SR#648` **this app is the handler for every address nothing else
+	claimed**, so a mistyped URL is its problem rather than the server's — and the throw
+	reached the failure page, whose *Retry* re-ran the same parse, or in the ``popstate``
+	handler was not caught at all.
+
+	Falling back to the raw segment is safe *because of what it is compared against*: a
+	workspace slug maps every non-alphanumeric to ``-`` and a project key is
+	``[a-z][a-z0-9]*(?:-[a-z0-9]+)*``, so neither can contain a percent sign. An undecodable
+	segment therefore matches nothing, which is a miss — the reader is told the address names
+	nowhere, which is true.
+	"""
+
+	bare, doubled, trailing, partial = _addressing(tmp_path, [
+		("parseAddress", "/%"),
+		("parseAddress", "/%zz"),
+		("parseAddress", "/personal/100%"),
+		("parseAddress", "/personal/%E0%A4%A"),
+	])
+
+	assert bare["workspace"] == "%", "a lone percent sign was not returned as written"
+	assert doubled["workspace"] == "%zz"
+	assert trailing["project"] == "100%" and trailing["workspace"] == "personal"
+	assert partial["project"] == "%E0%A4%A"
+
+
+def test_a_percent_encoded_address_is_still_decoded (tmp_path: pathlib.Path) -> None:
+	"""Tolerating a bad escape must not stop a good one being read.
+
+	This is the half a blanket "stop decoding" would have broken, and it is not hypothetical:
+	``workspaces.normalize_slug`` keeps anything ``str.isalnum`` accepts, which in Python is
+	**Unicode-aware**, so ``Café`` is a legal short name and reaches this function as
+	``caf%C3%A9``. The fallback has to be per-address rather than per-application.
+	"""
+
+	accented, spaced = _addressing(tmp_path, [
+		("parseAddress", "/caf%C3%A9"),
+		("parseAddress", "/personal/q3%20plan/42"),
+	])
+
+	assert accented["workspace"] == "café", "a legitimate escape stopped being decoded"
+	assert spaced["project"] == "q3 plan" and spaced["ref"] == 42
+
+
+def test_an_undecodable_address_is_reported_rather_than_swapped (tmp_path: pathlib.Path) -> None:
+	"""Not crashing is half of it; the other half is saying so.
+
+	The two functions are each already driven — one returns the raw segment, the other refuses
+	a workspace nobody has — and **the join between them was not**, which is the shape all four
+	of this arc's shipped faults had: the rule right, the display right, and no wire. So this
+	runs the real chain rather than asserting the halves again.
+
+	A silent fallback would be the worse failure of the two. `SR#650` was exactly that — an
+	address parsed and then ignored — and it reached Simon rather than the build.
+	"""
+
+	module = _staged(tmp_path)
+	answers = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const available = ["projects", "personal"];
+
+		process.stdout.write(JSON.stringify(
+			["/100%", "/personal", "/caf%C3%A9"].map((path) =>
+				app.chosenWorkspace(app.parseAddress(path), available, "projects"))
+		));
+	""")
+
+	broken, good, accented = answers
+
+	assert broken == {"slug": "projects", "refused": "100%"}, (
+		"a mistyped address was silently swapped for a workspace the reader did not ask for"
+	)
+	assert good == {"slug": "personal", "refused": None}
+	assert accented == {"slug": "projects", "refused": "café"}, (
+		"the decoded name did not reach the refusal, so the reader would be shown the escape"
+	)
+
+
 def test_the_app_claims_no_path_it_has_not_been_given () -> None:
 	"""**The app answers unmatched addresses, and declares none of them.**
 

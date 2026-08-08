@@ -418,6 +418,34 @@ export function addressOf (item, workspace) {
 		+ `/${item.ref}`;
 }
 
+function segment (raw) {
+	/*
+		One path segment as a name, tolerating an escape a browser would not have written —
+		`#681`.
+
+		`decodeURIComponent` is all or nothing: one malformed escape throws `URIError` for the
+		whole string. Since `#648` this app is the handler for **every** address nothing else
+		claimed, so `/personal/100%` is its problem rather than the server's, and the throw
+		reached the failure page — whose *Retry* re-ran the same parse — or, from `popstate`,
+		nothing at all.
+
+		**Falling back to the raw text is safe because of what it is compared against.** A
+		workspace slug maps every non-alphanumeric character to `-` and a project key is
+		`[a-z][a-z0-9]*(?:-[a-z0-9]+)*`, so neither can contain a percent sign. An undecodable
+		segment therefore matches nothing, and the reader is told the address names nowhere,
+		which is exactly what is true.
+
+		**Per segment rather than per address**, because the good half has to keep working:
+		`normalize_slug` keeps whatever `str.isalnum` accepts and that is Unicode-aware, so
+		`Café` is a legal short name and arrives here as `caf%C3%A9`.
+	*/
+	try {
+		return decodeURIComponent(raw);
+	} catch (_) {
+		return raw;
+	}
+}
+
 export function parseAddress (pathname) {
 	/*
 		Read an address into the place it names, or null for one that names nowhere.
@@ -455,8 +483,8 @@ export function parseAddress (pathname) {
 	const middle = names === null ? parts.slice(1) : parts.slice(1, -1);
 
 	return {
-		workspace: decodeURIComponent(parts[0]),
-		project: middle.length > 0 ? decodeURIComponent(middle[middle.length - 1]) : null,
+		workspace: segment(parts[0]),
+		project: middle.length > 0 ? segment(middle[middle.length - 1]) : null,
 		ref: names,
 	};
 }
