@@ -103,34 +103,6 @@ upgrade involves.
   token: a script or an agent sends one deliberately, where a browser attaches a cookie without
   being asked.
 
-### Fixed
-
-- **`GET /v1/meta` refuses a query parameter it does not accept, instead of ignoring it.**
-  `?workspace=projects` — the spelling every agent tool uses, where this endpoint takes
-  `workspace_id` — was discarded in silence and answered with empty vocabulary maps, which is
-  exactly what an instance with no custom vocabulary looks like. It now says which name it
-  wants, as every listing already did.
-
-  A caller believed the empty answer, concluded there was no way to close an item as a
-  duplicate, and deleted a task rather than cancelling it.
-
-  The bare call, with no workspace named, is unchanged: it still answers and lists the
-  workspaces to choose from, because a client's first call is often that one.
-
-- **A search for two words no longer finds nothing.** `q` matched the whole query as one
-  contiguous, ordered piece of text, so `vocabulary entries` found an item and
-  `vocabulary seeded` did not — although both words were in it, four words apart — and
-  `entries vocabulary` did not either, because it was reversed. Every word is now looked for
-  separately, in any order, and may appear in the title or the description.
-
-  **It failed in the direction that costs you something.** An empty result reads as "this does
-  not exist", so the natural next step is to file the thing you were looking for — on the one
-  path that exists to stop duplicates being filed. It was found by an agent searching this
-  project's own backlog before adding to it, which nearly filed two.
-
-  A search of nothing but spaces now narrows nothing, instead of matching every item
-  containing a space. A search asking for more than sixteen words is refused and says so.
-
 ### Changed
 
 - **The licence has changed, to [FSL-1.1-ALv2](LICENSE) — the Functional Source License.**
@@ -179,6 +151,33 @@ upgrade involves.
   you have a workspace with one of these names, it goes on working and is still worth renaming.
 
 ### Fixed
+
+- **`GET /v1/meta` refuses a query parameter it does not accept, instead of ignoring it.**
+  `?workspace=projects` — the spelling every agent tool uses, where this endpoint takes
+  `workspace_id` — was discarded in silence and answered with empty vocabulary maps, which is
+  exactly what an instance with no custom vocabulary looks like. It now says which name it
+  wants, as every listing already did.
+
+  A caller believed the empty answer, concluded there was no way to close an item as a
+  duplicate, and deleted a task rather than cancelling it.
+
+  The bare call, with no workspace named, is unchanged: it still answers and lists the
+  workspaces to choose from, because a client's first call is often that one.
+
+- **A search for two words no longer finds nothing.** `q` matched the whole query as one
+  contiguous, ordered piece of text, so `vocabulary entries` found an item and
+  `vocabulary seeded` did not — although both words were in it, four words apart — and
+  `entries vocabulary` did not either, because it was reversed. Every word is now looked for
+  separately, in any order, and may appear in the title or the description.
+
+  **It failed in the direction that costs you something.** An empty result reads as "this does
+  not exist", so the natural next step is to file the thing you were looking for — on the one
+  path that exists to stop duplicates being filed. It was found by an agent searching this
+  project's own backlog before adding to it, which nearly filed two.
+
+  A search of nothing but spaces now narrows nothing, instead of matching every item
+  containing a space. A search asking for more than sixteen words is refused and says so.
+
 
 - **A `.subroutine` marker written before project keys became lower case is now reported.** The
   check that tells you a marker has gone stale compared the two keys case-insensitively, which
