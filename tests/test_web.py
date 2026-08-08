@@ -1072,3 +1072,72 @@ def test_a_mention_of_something_that_is_not_there_is_a_note (tmp_path: pathlib.P
 		"the number of places that replace the whole page changed — each one should be a case "
 		"where nothing on screen is worth keeping"
 	)
+
+
+#: A hook call and the dependency array it ends with, e.g. ``useCallback(…, [load, workspace])``.
+#: Matched on the closing bracket rather than the opening paren, because the body between them
+#: contains every kind of nesting and this only needs the tail.
+_DEPENDENCIES = re.compile(r"\buse(?:Callback|Effect|Memo|LayoutEffect)\(", re.M)
+
+
+def _deps_after (source: str, start: int) -> tuple[str, int] | None:
+	"""Return the dependency array that closes the hook call starting at ``start``."""
+
+	depth = 0
+
+	for index in range(start, len(source)):
+		if source[index] == "(":
+			depth += 1
+		elif source[index] == ")":
+			depth -= 1
+
+			if depth == 0:
+				tail = source.rfind("[", start, index)
+
+				return (source[tail + 1:source.rfind("]", tail, index)], index) if tail > 0 else None
+
+	return None
+
+
+def test_nothing_is_named_in_a_dependency_array_before_it_exists () -> None:
+	"""**A dependency array is evaluated where it is written, and `const` has a dead zone.**
+
+	This shipped a blank page. The `arrive` effect was written above `show` and listed it as a
+	dependency, so the first render threw `ReferenceError: Cannot access 'show' before
+	initialization` and the app rendered nothing — no failed request, no 404, nothing in the
+	build. The second blank page from this file, and the second one a check of the *served*
+	behaviour would have caught.
+
+	The order of the `const`s themselves was checked by hand at the time and was correct. That
+	is the trap: the effect is not one of them, so reading the declarations proved nothing about
+	the thing that was wrong.
+
+	Narrow on purpose. A name used inside a *body* is fine — that runs later — so only the
+	array is examined, which is where the reference is immediate and where this style of
+	component puts one every time.
+	"""
+
+	source = _served_modules()["app.js"]
+	declared: dict[str, int] = {}
+
+	for found in re.finditer(r"^\t*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", source, re.M):
+		declared.setdefault(found.group(1), found.start())
+
+	problems = []
+
+	for call in _DEPENDENCIES.finditer(source):
+		array = _deps_after(source, call.end() - 1)
+
+		if array is None:
+			continue
+
+		listed, _closes = array
+
+		for name in re.findall(r"[A-Za-z_$][\w$]*", listed):
+			if name in declared and declared[name] > call.start():
+				problems.append(f"{name!r} is a dependency of the hook at offset {call.start()}, "
+				                f"but is not declared until {declared[name]}")
+
+	assert declared, "no declarations were found, so this is checking nothing"
+	assert _DEPENDENCIES.search(source), "no hook calls were found, so this is checking nothing"
+	assert not problems, "\n".join(problems)

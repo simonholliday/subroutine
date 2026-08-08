@@ -599,34 +599,6 @@ export function App () {
 		start();
 	}, []);
 
-	/*
-		The address a reader arrived at, and every one they reach with the back button.
-
-		**Read once the workspace is known**, because opening an item needs the scope — so this
-		waits for `ready` rather than running beside `start`. A `popstate` is the same question
-		asked again, which is why both go through one effect: back out of an item and the list
-		is what an address with no ref means.
-	*/
-	useEffect(() => {
-		if (!ready || error || !workspace) return undefined;
-
-		const arrive = () => {
-			const asked = parseAddress(window.location.pathname);
-
-			if (asked === null) {
-				setOpen(null);
-				return;
-			}
-
-			show({ ref: asked.ref }, { history: false });
-		};
-
-		arrive();
-		window.addEventListener("popstate", arrive);
-
-		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, show]);
-
 	useEffect(() => {
 		if (error || !workspace) return undefined;
 
@@ -732,6 +704,40 @@ export function App () {
 			window.history.pushState({}, "", "/");
 		}
 	}, []);
+
+	/*
+		The address a reader arrived at, and every one they reach with the back button.
+
+		**Read once the workspace is known**, because opening an item needs the scope — so this
+		waits for `ready` rather than running beside `start`. A `popstate` is the same question
+		asked again, which is why both go through one effect: back out of an item and the list
+		is what an address with no ref means.
+
+		**It sits below `show` because a dependency array is evaluated where it is written.**
+		Declared above it, `show` is in its temporal dead zone and the whole app throws
+		`Cannot access 'show' before initialization` — a blank page, which is exactly where it
+		shipped from. The order of the `const`s was checked and this was not, because it is not
+		one of them.
+	*/
+	useEffect(() => {
+		if (!ready || error || !workspace) return undefined;
+
+		const arrive = () => {
+			const asked = parseAddress(window.location.pathname);
+
+			if (asked === null) {
+				setOpen(null);
+				return;
+			}
+
+			show({ ref: asked.ref }, { history: false });
+		};
+
+		arrive();
+		window.addEventListener("popstate", arrive);
+
+		return () => window.removeEventListener("popstate", arrive);
+	}, [ready, error, workspace, show]);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
