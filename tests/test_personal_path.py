@@ -2441,6 +2441,40 @@ def test_add_says_what_it_read_out_of_the_line (
 		assert sigil in printed, f"{sigil} was read and not mentioned:\n{printed}"
 
 
+def test_add_confirms_a_planned_day_beside_a_deadline (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``#673``. The two dates used to be alternatives, and the deadline won.
+
+	So ``on monday by friday`` was answered with Friday alone: Monday had been read and
+	stored, and the only evidence was the words having left the title — which is exactly what
+	their never having been read looks like. The skill names this line as *the* check, so the
+	caller doing as it is told learned nothing.
+
+	**Both renderings are derived from the single-date runs** rather than written out here.
+	``_dated`` adds a year only when a bare one would be ambiguous (`#78`), so spelling either
+	date in this file would make the test depend on the year it is run in — the trap that
+	function's own docstring was written about.
+	"""
+
+	run("init")
+
+	planned = run("add", "Sand the door on 2027-03-01").output
+	deadline = run("add", "Sand the door by 2027-03-05").output
+	together = run("add", "Sand the door on 2027-03-01 by 2027-03-05").output
+
+	day = re.search(r"\(for ([^,)]+)\)", planned)
+	by = re.search(r"\(due ([^,)]+)\)", deadline)
+
+	assert day is not None, f"a planned day alone was not reported:\n{planned}"
+	assert by is not None, f"a deadline alone was not reported:\n{deadline}"
+
+	assert f"for {day.group(1)}" in together, (
+		f"the planned day was dropped once there was a deadline:\n{together}"
+	)
+	assert f"due {by.group(1)}" in together, f"the deadline was dropped:\n{together}"
+
+
 def test_an_ordinary_line_is_answered_exactly_as_before (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

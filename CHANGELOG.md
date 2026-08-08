@@ -194,6 +194,17 @@ upgrade involves.
   again. The message now says the instance answered, with the status, and that repeating a write
   would change things twice rather than report them once.
 
+- **The day you planned something for is confirmed when you add it.** `subroutine add "Fix the
+  sink on monday by friday"` read Monday, filed it, and told you only about Friday — so the one
+  line you read to check what was understood was silent about half of it. The two are now
+  reported together, `(for Mon 10 Aug, due Fri 14 Aug)`, the same way a deferred task already
+  showed both its dates.
+
+  **An agent was told nothing at all**, because the line it gets never mentioned a planned day
+  under any circumstances. That is the surface where it matters most: the guidance an agent
+  follows names that line as the way to check, so one doing as it was told could not tell a day
+  set correctly from a day set wrongly — and a wrong day is not discovered until it has passed.
+
 ## 0.5.0 — 2026-08-07
 
 ### Added

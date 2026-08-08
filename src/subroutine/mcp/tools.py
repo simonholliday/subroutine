@@ -1191,6 +1191,23 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 		if item.estimate_human is not None:
 			cells.append(item.estimate_human)
 
+		# **The day it is planned for, before the day it is wanted by** (`#673`). These are two
+		# facts and reporting only the second loses the one the caller just set: an agent that
+		# captured "Dentist appointment on monday" was answered with a line saying nothing
+		# about Monday, and the only trace was the words having left the title — which is
+		# indistinguishable from their never having been read.
+		#
+		# It matters here more than anywhere because the skill names this line as *the* check:
+		# "whatever it read is echoed back, so check that line". An agent doing as it is told
+		# learned nothing, and the cost is asymmetric — what it cannot rule out is a day
+		# silently set to the wrong one, which nobody discovers until the day has passed.
+		#
+		# `for` rather than `on`, matching the CLI's own phrase, even though `on` is the word
+		# §6.13 actually parses. One product says one thing; whether *both* should say `on` is
+		# a question about voice and is `#691`.
+		if item.planned_for is not None:
+			cells.append(f"for {item.planned_for.isoformat()}")
+
 		if item.due_at is not None:
 			cells.append(f"due {item.due_at.date().isoformat()}")
 

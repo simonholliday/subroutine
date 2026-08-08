@@ -5788,13 +5788,30 @@ def _when (item: Item) -> str:
 
 		return f"  ({deferred})"
 
-	if task.due_at is not None:
-		return f"  (due {_render_date(task.due_at, task.timezone)})"
+	# **Both, when there are both** (`#673`). These used to be alternatives with the deadline
+	# winning, so `add "Fix the sink on monday by friday"` confirmed Friday and said nothing
+	# about Monday — the planned day was read, stored, and reported nowhere on the one line
+	# somebody reads to check what was understood.
+	#
+	# The pattern is the deferred branch's, three lines up, and so is the argument: "not until
+	# December, and wanted by the fifteenth" is two facts and dropping either misinforms. The
+	# same sentence is true of a day you mean to do it and a day it is wanted by.
+	#
+	# The cost is that a listing row grows — but only for a task carrying both dates, which is
+	# uncommon, and this function already spends the same on a defer.
+	said = [
+		phrase
+		for phrase in (
+			None if task.planned_for is None else f"for {_render_day(task.planned_for)}",
+			None if task.due_at is None else f"due {_render_date(task.due_at, task.timezone)}",
+		)
+		if phrase is not None
+	]
 
-	if task.planned_for is not None:
-		return f"  (for {_render_day(task.planned_for)})"
+	if not said:
+		return ""
 
-	return ""
+	return f"  ({', '.join(said)})"
 
 
 def _deferred (task: subroutine.views.Task) -> bool:

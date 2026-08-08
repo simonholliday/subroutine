@@ -1614,6 +1614,35 @@ def test_the_adapter_says_what_the_grammar_declined_to_read (
 	assert "not supported yet" in text
 
 
+def test_a_planned_day_is_reported_where_a_deadline_is (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``#673``, and on this surface the day was reported **nowhere at all**.
+
+	`_line` had a cell for `due_at` and none for `planned_for`, so an agent capturing
+	"Dentist appointment on monday" got back a line saying nothing about Monday. It had been
+	read — `planned_for` came back set — and the only trace was the words having gone from the
+	title, which is what their never having been parsed also looks like.
+
+	**Why it is worse here than on the command line.** The skill tells an agent that this line
+	is the confirmation: *"whatever it read is echoed back, so check that line."* One doing
+	exactly as instructed could not tell a day set correctly from a day set wrongly, and the
+	cost is asymmetric — a wrong day is discovered after it has passed. Confirming it by hand
+	took the agent that reported this three further calls, ending at the raw API.
+
+	Both dates are asked for in one line so the assertion is about them being *reported
+	together*: reporting one and dropping the other is the defect one surface over.
+	"""
+
+	text, failed = _called(
+		bound, "subroutine_add", text="Sand the door on 2027-03-01 by 2027-03-05"
+	)
+
+	assert not failed
+	assert "2027-03-01" in text, f"the planned day was read and reported nowhere:\n{text}"
+	assert "2027-03-05" in text, f"the deadline was dropped:\n{text}"
+
+
 def test_an_ordinary_capture_carries_no_extra_line (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
