@@ -59,7 +59,7 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-code, .ref, .priority {
+code, .ref, .priority, .broke .detail {
 	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -563,3 +563,29 @@ code, .ref, .priority {
 }
 
 .narrowed button:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+/*
+	Something that would not render, said in words — `#679`, `#680`.
+
+	**Marked the same way a refused write is**, because it is the same kind of news: something
+	you were looking at is not there, and the sentence rather than the colour is what carries
+	it (decision `#102`). The left border is how you spot it; the text is how you read it.
+
+	It has to survive being the *only* thing on screen, since the boundary at the mount renders
+	this with nothing around it — so it carries its own spacing rather than inheriting a
+	container's.
+*/
+.broke {
+	margin: 14px 0;
+	padding: 9px 12px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-left: 3px solid var(--warn);
+	border-radius: var(--radius);
+	font-size: 14px;
+}
+
+/* The message verbatim, which is for whoever is told about it rather than for the reader.
+   Its monospace comes from the rule at the top that every other fixed-width thing uses, rather
+   than from a second copy of the stack. */
+.broke .detail { color: var(--ink-soft); }

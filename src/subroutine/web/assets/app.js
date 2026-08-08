@@ -15,7 +15,7 @@
 	the only way to do something.
 */
 
-import { h, render } from "preact";
+import { h, render, Component } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import htm from "htm";
 
@@ -112,6 +112,66 @@ async function api (path, { method = "GET", body = null } = {}) {
 	}
 
 	throw new Refused(answer.status, detail);
+}
+
+/* ---- surviving a component that throws (`#680`) -------------------------- */
+
+export function unrenderable (failure, what) {
+	/*
+		What a reader is shown in place of something that would not render.
+
+		**Pure, and separate from the component, because the component cannot be tested.**
+		`preact-render-to-string` does not run error boundaries — measured, both spellings — so
+		the harness can prove what this says and cannot prove that Preact calls it. Keeping the
+		decision out here is what makes the half we own checkable at all, which is the move
+		`#640` arrived at four times.
+
+		It names the thing rather than apologising, and it says the rest of the page is still
+		good, because the failure a reader meets is *silence* and the question they have is
+		whether anything else can be trusted.
+	*/
+	const message = (failure && failure.message) || String(failure || "");
+
+	return {
+		said: `${what || "This"} could not be displayed.`,
+		/* The message verbatim. It is for us rather than for them — but a reader who reports a
+		   problem with the words in front of them saves the round trip that asks for them. */
+		detail: message,
+	};
+}
+
+class Boundary extends Component {
+	/*
+		Show something when a component below this throws, rather than nothing at all.
+
+		**This exists because two blank pages shipped from one week's work** — an import map
+		missing `htm`, and a dependency array naming a value declared below it (`#643`). Both
+		threw during the first render, both left an empty document, and both were found by a
+		person rather than by the build. A boundary would have turned each into a sentence.
+
+		**What is verified and what is not, stated rather than implied.** `unrenderable` above is
+		pure and tested. That Preact calls `componentDidCatch` at all is documented framework
+		behaviour this project's harness cannot exercise, because rendering an error boundary
+		needs a DOM and `#640` refused jsdom at ~2 MB. So this is belt; `Prose`'s own catch is
+		braces, and that one depends on nothing.
+	*/
+
+	componentDidCatch (failure) {
+		this.setState({ failed: failure });
+	}
+
+	render (props, state) {
+		if (!state.failed) return props.children;
+
+		const note = unrenderable(state.failed, props.what);
+
+		return html`
+			<div class="broke">
+				<strong>${note.said}</strong>
+				${" "}<span class="detail">${note.detail}</span>
+			</div>
+		`;
+	}
 }
 
 /* ---- what this app asks for (`#640`) ------------------------------------- */
@@ -653,8 +713,47 @@ export function Prose ({ text, className, where, onOpen }) {
 		onOpen({ ref: asked.ref });
 	};
 
+	/*
+		**Rendering stored text cannot take the page with it** (`#680`).
+
+		This is the only place arbitrary input becomes output, and the input is written by
+		anybody with a credential — including on *somebody else's* item, since a comment renders
+		through here too. `#679` closed the one way it was known to fail; this closes the ones
+		nobody has found, and unlike the boundary above it depends on no framework behaviour, so
+		the harness can prove it.
+
+		The text is shown escaped rather than dropped, because a description a reader cannot see
+		at all is worse than one that lost its formatting.
+	*/
+	let rendered;
+
+	try {
+		rendered = markdown.render(text, where);
+	} catch (failure) {
+		const note = unrenderable(failure, "This text");
+
+		/*
+			**The fallback may not repeat the step that failed, and the first version did.**
+			It showed the text by way of `String(text)` — which is the first thing `render`
+			does, so a value that threw *there* threw again here and the catch achieved
+			nothing. Caught by the test, which is the whole reason the payload is a value that
+			fails on being stringified rather than one that nests too deeply.
+		*/
+		let written = "";
+
+		try {
+			written = String(text);
+		} catch (_) {
+			written = "";
+		}
+
+		rendered = `<p class="broke"><strong>${markdown.escaped(note.said)}</strong> `
+			+ `${markdown.escaped(note.detail)}</p>`
+			+ (written === "" ? "" : `<pre><code>${markdown.escaped(written)}</code></pre>`);
+	}
+
 	return html`<div class=${className} onClick=${caught}
-		dangerouslySetInnerHTML=${{ __html: markdown.render(text, where) }}></div>`;
+		dangerouslySetInnerHTML=${{ __html: rendered }}></div>`;
 }
 
 export function Doing ({ item, members, onComplete, onAssign, busy }) {
@@ -858,6 +957,24 @@ export function App () {
 	}, []);
 
 	useEffect(() => {
+		/*
+			**`project` is a dependency because the interval closes over it, not because it is
+			read during the effect.** Without it the page widened itself ten seconds after a
+			reader opened a project: `start` calls `setWorkspace` *before* awaiting the head of
+			the feed and `setProject` after, so the two land in different commits. This effect
+			re-ran on the workspace one — while the filter was still `null` — and the interval
+			it created kept that `null` for the life of the page. The first poll to see an event
+			then called `load(workspace, null)` and replaced a correct seven-item list with the
+			whole workspace, at an address that still said the project.
+
+			That is the shape worth remembering: nothing here is stale on the render, only in
+			the callback the render leaves behind. The list widened, the address did not, and
+			the reader is left with somebody else's backlog under their own project's URL.
+
+			The cost is that navigating between projects restarts the ten-second window. That is
+			the right trade — a poll that is late by one tick is invisible, and one that reloads
+			the wrong list is what this is fixing.
+		*/
 		if (error || !workspace) return undefined;
 
 		const tick = setInterval(async () => {
@@ -876,7 +993,7 @@ export function App () {
 		}, POLL_MS);
 
 		return () => clearInterval(tick);
-	}, [error, workspace, load]);
+	}, [error, workspace, project, load]);
 
 	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
@@ -1128,6 +1245,10 @@ export function App () {
 	), [workspace, wrote]);
 
 	const add = useCallback(async (text) => {
+		/* **The reload afterwards keeps the filter the reader is looking at.** Without
+		   `project` declared below, adding an item inside a project answered by replacing the
+		   list with the whole workspace — the same stale closure as the poll, reached by a
+		   button instead of a timer, and read as "adding a task loses my project". */
 		setBusy(true);
 
 		try {
@@ -1140,12 +1261,16 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [load, workspace]);
+	}, [load, project, workspace]);
 
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
 		   rather than the page number, because keyset pagination is what the API offers and
-		   what makes a page boundary stable while somebody is adding things. */
+		   what makes a page boundary stable while somebody is adding things.
+
+		   **`project` is declared even though `more` already changes on every load**, which
+		   in practice rebuilt this callback often enough to hide the omission. Correctness
+		   that depends on a *different* value happening to change is not correctness. */
 		setBusy(true);
 
 		try {
@@ -1156,7 +1281,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [load, more, workspace]);
+	}, [load, more, project, workspace]);
 
 	const widen = useCallback(async () => {
 		/*
@@ -1254,5 +1379,8 @@ export function App () {
 	reach for an element.
 */
 if (typeof document !== "undefined") {
-	render(html`<${App} />`, document.getElementById("app"));
+	/* **Wrapping `App` rather than sitting inside it**, so that a failure in `App` itself is
+	   caught — which is where both of this arc's blank pages came from (`#680`). A boundary
+	   inside the thing that throws catches nothing. */
+	render(html`<${Boundary} what="The page"><${App} /></${Boundary}>`, document.getElementById("app"));
 }

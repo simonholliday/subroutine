@@ -683,6 +683,91 @@ def _without_comments (source: str) -> str:
 	return re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", source, flags=re.S))
 
 
+def _without_prose (source: str) -> str:
+	"""Return some JavaScript with its comments *and the text of its strings* removed.
+
+	`_without_comments` is the blunt version and stays that way, because its callers count
+	constructs and a mangled string cannot spell one. A guard that looks for a *name* needs
+	more: this app says "There is no project called …" in a message to a reader, and a scan
+	for the identifier `project` cannot tell that sentence from a variable.
+
+	So this walks the source once rather than substituting. Comments and strings are decided
+	in the same pass because they decide each other — stripping `//` first turns the `https://`
+	in a link into an unterminated quote, and every scan after that is reading a string it
+	invented. `${…}` is kept: an interpolation is code, and this file puts real reads in one.
+
+	**Regex literals are passed through as ordinary characters**, which is safe only because
+	`app.js` has exactly one and it holds no quote, backtick or slash pair. A second one that
+	does would need this to know about them; the test that uses this would fail loudly rather
+	than quietly, because the source after it would be misread wholesale.
+	"""
+
+	kept: list[str] = []
+	quote: str | None = None
+	depth: list[int] = []
+	index = 0
+
+	while index < len(source):
+		char = source[index]
+		following = source[index + 1:index + 2]
+
+		if quote is None:
+			if char == "/" and following == "/":
+				index = source.find("\n", index)
+
+				if index < 0:
+					break
+
+				continue
+
+			if char == "/" and following == "*":
+				index = source.find("*/", index) + 2
+
+				continue
+
+			if char in "\"'`":
+				quote, kept = char, [*kept, " "]
+				index += 1
+
+				continue
+
+			# The braces of an interpolation, so its end is the one that matches its start
+			# rather than the first `}` in a nested object or template.
+			if depth and char in "{}":
+				depth[-1] += 1 if char == "{" else -1
+
+				if depth[-1] == 0:
+					depth.pop()
+					quote = "`"
+
+			kept.append(char)
+			index += 1
+
+			continue
+
+		if char == "\\":
+			index += 2
+
+			continue
+
+		if char == quote:
+			quote, kept = None, [*kept, " "]
+			index += 1
+
+			continue
+
+		if quote == "`" and char == "$" and following == "{":
+			quote, index = None, index + 2
+			depth.append(1)
+			kept.append(" ")
+
+			continue
+
+		index += 1
+
+	return "".join(kept)
+
+
 def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
 	"""**The one that matters.** Every hostile source, through the real renderer.
 
@@ -1261,6 +1346,66 @@ def test_nothing_is_named_in_a_dependency_array_before_it_exists () -> None:
 	assert not problems, "\n".join(problems)
 
 
+#: A read of the project filter *itself*. `setProject` is a setter and stable, `asked.project`
+#: is a property of a parsed address, and `project_key` is a field on a row — none of them are
+#: the state, and none of them belong in a dependency array.
+_READS_PROJECT = re.compile(r"(?<![\w$.])project(?![\w$])")
+
+
+def test_a_hook_that_reads_the_project_filter_declares_it () -> None:
+	"""**A list that widens itself ten seconds after it is opened.**
+
+	Open `/{workspace}/{project}` and the page showed that project's seven items, then
+	replaced them with the whole workspace — unrelated projects and all — at an address that
+	still said the project. It read as data corruption. It was a dependency array.
+
+	`start` calls `setWorkspace` before awaiting the head of the feed and `setProject` after,
+	so the filter lands in a later commit than the workspace. The poll effect listed
+	`[error, workspace, load]`, so it re-ran on the workspace commit — while the filter was
+	still `null` — and the interval it created closed over that `null` permanently. Every
+	later poll called `load(workspace, null)`.
+
+	The trap is that nothing is stale on the render. `project` was correct in the markup the
+	whole time, which is why the banner still named the project while the list under it did
+	not match. Only the callback the render left behind was wrong, and a ten-second timer is
+	long enough that the wrong list looks like a considered answer rather than a bug.
+
+	So the rule, and not the one instance of it: read the filter inside a hook and it is a
+	dependency of that hook. Written that way it found two more the same day — adding an item
+	and asking for more of the list both reloaded the workspace instead of the project.
+
+	Prose is stripped first because this file's own explanations name the filter constantly,
+	and so does a message it shows a reader: *"There is no project called …"*. A guard that
+	counts its own documentation measures nothing.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	problems = []
+	reading = 0
+
+	for call in _DEPENDENCIES.finditer(source):
+		found = _deps_after(source, call.end() - 1)
+
+		if found is None:
+			continue
+
+		listed, closes = found
+		body = source[call.end():source.rfind("[", call.end(), closes)]
+
+		if not _READS_PROJECT.search(body):
+			continue
+
+		reading += 1
+
+		if not _READS_PROJECT.search(listed):
+			problems.append(f"the hook at offset {call.start()} reads the project filter but "
+			                f"declares [{listed.strip()}] — its callback will keep whichever "
+			                f"filter was current when it last ran")
+
+	assert reading, "no hook reads the project filter, so this is checking nothing"
+	assert not problems, "\n".join(problems)
+
+
 def _function_body (source: str, name: str) -> str:
 	"""Return the body of one top-level function in the app, by name."""
 
@@ -1835,4 +1980,158 @@ def test_the_whole_app_renders (tmp_path: pathlib.Path) -> None:
 	assert answer["html"], "the app rendered nothing at all"
 	assert "Reading" in answer["html"], (
 		f"the first paint says nothing while the instance is being asked: {answer['html'][:200]}"
+	)
+
+
+# ---- stored text cannot take the page with it (`SR#679`, `SR#680`) --------------------------
+
+
+def test_prose_nested_past_any_reason_still_renders (tmp_path: pathlib.Path) -> None:
+	"""**`SR#679`: a 3,363-character line of `>` used to throw, and the page went blank.**
+
+	`blocks` recurses once per blockquote and once per list level. Measured by binary search
+	before the cap: 3,360 nested blockquotes exhausted the stack, and so did a list 2,000 deep
+	and a list of blockquotes alternating — every one of them something a person or an agent can
+	put in a description, or in a **comment on somebody else's item**, which is what made it
+	worth fixing rather than noting.
+
+	Sizes here are far past the old failure, so this fails loudly if the cap is removed.
+	"""
+
+	rendered = _markdown(tmp_path, [
+		">" * 20000 + " hi",
+		"\n".join(" " * (level * 2) + "- x" for level in range(3000)),
+		"\n".join(" " * (level * 2) + "- > x" for level in range(3000)),
+		">" * 20000 + " - x",
+	])
+
+	assert len(rendered) == 4, "the payloads did not all render"
+
+	for html in rendered:
+		assert html, "something nested deeply rendered as nothing at all"
+
+
+def test_the_depth_cap_leaves_ordinary_prose_alone (tmp_path: pathlib.Path) -> None:
+	"""A cap that changed what real prose looks like would be a worse defect than the crash.
+
+	Nothing in this instance nests more than two or three levels; the cap is 32. This is the
+	other direction of `SR#679` — the payloads above prove it stops, and this proves it does not
+	stop early.
+	"""
+
+	source = (
+		"- one\n"
+		"- two\n"
+		"  - nested\n"
+		"    - deeper\n"
+		"      - deeper still\n"
+		"\n"
+		"> a quote\n"
+		">> and a reply\n"
+	)
+
+	html = _markdown(tmp_path, [source])[0]
+
+	assert html.count("<ul>") == 4, f"a real nested list stopped rendering as lists: {html}"
+	assert html.count("<blockquote>") == 2, "a quoted reply stopped rendering as a quote"
+	assert "deeper still" in html
+
+
+def test_text_that_cannot_be_rendered_is_shown_rather_than_thrown (
+	tmp_path: pathlib.Path
+) -> None:
+	"""**`SR#680`: the one surface that takes arbitrary input cannot take the page with it.**
+
+	`Prose` is where stored text becomes output, and the text is written by anybody with a
+	credential — including on somebody else's item, since a comment renders through here too.
+	`SR#679` closed the way it was known to fail; this closes the ones nobody has found.
+
+	**The payload deliberately does not use the recursion.** A test that nested deeply would be
+	checking `SR#679`'s cap a second time rather than this fallback, and would stop being able to
+	fail the day the cap works — which is the shape of a test that cannot fail.
+
+	Depends on no framework behaviour, which is the reason it exists alongside the boundary: a
+	boundary needs a DOM to be exercised and this does not.
+	"""
+
+	module = _staged(tmp_path)
+	answer = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		/* `render` calls `String(source)` before anything else. */
+		const hostile = {{ toString () {{ throw new Error("deliberate"); }} }};
+		const out = {{ threw: null, html: null }};
+
+		try {{
+			const node = app.Prose({{ text: hostile, className: "prose" }});
+
+			out.html = node.props.dangerouslySetInnerHTML.__html;
+		}} catch (failure) {{
+			out.threw = failure.message;
+		}}
+
+		process.stdout.write(JSON.stringify(out));
+	""")
+
+	assert answer["threw"] is None, (
+		f"Prose threw rather than reporting: {answer['threw']} — a description would have taken "
+		f"the page with it"
+	)
+	assert "could not be displayed" in answer["html"], (
+		f"the reader was shown nothing about why: {answer['html']!r}"
+	)
+
+
+def test_what_a_reader_is_told_when_something_will_not_render () -> None:
+	"""The decision is pure so that it can be checked at all (`SR#680`).
+
+	**`preact-render-to-string` does not run error boundaries** — measured, both
+	`componentDidCatch` and `getDerivedStateFromError`, and neither caught. So the harness can
+	prove what the boundary *says* and cannot prove that Preact calls it. Lifting the sentence
+	out is what makes the half this project owns checkable, which is the move `SR#640` arrived at
+	four times.
+	"""
+
+	module_source = _served_modules()["app.js"]
+
+	assert "export function unrenderable (" in module_source, (
+		"the boundary's decision has gone back inside the component, where nothing can reach it"
+	)
+
+
+def test_the_page_says_which_thing_failed_and_stays_readable (tmp_path: pathlib.Path) -> None:
+	"""Driven rather than read: what does a reader actually get told?"""
+
+	module = _staged(tmp_path)
+	answers = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify([
+			app.unrenderable(new Error("Maximum call stack size exceeded"), "This text"),
+			app.unrenderable(new Error("nope"), null),
+		]));
+	""")
+
+	named, unnamed = answers
+
+	assert named["said"] == "This text could not be displayed."
+	assert named["detail"] == "Maximum call stack size exceeded", (
+		"the message was swallowed, so a reader reporting this has nothing to quote"
+	)
+	assert unnamed["said"].startswith("This could not"), "an unnamed thing lost its sentence"
+
+
+def test_the_app_is_mounted_inside_something_that_can_catch_it () -> None:
+	"""**A boundary inside the thing that throws catches nothing** (`SR#680`).
+
+	Both blank pages this arc shipped were `App` itself failing — an import map missing `htm`,
+	and a dependency array naming a value declared below it (`SR#643`). A boundary placed inside
+	`App` would have caught neither, so the mount is what has to be wrapped.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+	mount = app[app.index("render(html`"):]
+
+	assert "Boundary" in mount[:200], (
+		f"the app is mounted without a boundary around it: {mount[:160]!r}"
 	)

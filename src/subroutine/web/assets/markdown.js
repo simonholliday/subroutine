@@ -56,6 +56,27 @@ const SCHEMES = new Set(["http", "https", "mailto"]);
    and the document outline stays true whatever somebody writes. */
 const HEADING_OFFSET = 2;
 
+/*
+	How deeply a nested structure is followed before the rest is shown as it was written
+	(`#679`).
+
+	**A block structure recurses once per level and the stack is finite**, which is a defect
+	rather than a theoretical limit: measured by binary search, **3,360 nested blockquotes — a
+	3,363-character line — throws `RangeError: Maximum call stack size exceeded`**, and so does a
+	list nested 2,000 deep, and so does a list of blockquotes alternating. `render` is called
+	inside a component during a Preact render, so what a reader saw was a blank page.
+
+	**It was reachable by anybody who can write a comment**, on an item belonging to somebody
+	else, which is what made it worth a cap rather than a note.
+
+	**32 is a hundredfold margin below the failure and eight times deeper than anything real.**
+	Prose in this instance nests one or two levels; a document 32 deep is not a document. The
+	inline path — bold, italic, struck through — recurses too and was measured *not* to fail at
+	any size tried, so it is deliberately uncapped: a limit nothing can reach is a control nobody
+	can check.
+*/
+const MAX_DEPTH = 32;
+
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
 const TABLE_SEPARATOR = /^\s{0,3}\|(?:\s*:?-+:?\s*\|)+\s*$/;
 const FENCE = /^\s{0,3}(`{3,}|~{3,})\s*(\S*)\s*$/;
@@ -311,7 +332,7 @@ function tableAt (lines, start, where) {
 }
 
 
-function itemBody (content, where) {
+function itemBody (content, where, depth) {
 	/*
 		Render what one list item holds.
 
@@ -326,11 +347,11 @@ function itemBody (content, where) {
 			FENCE.test(line) || (index > 0 && line.trim().startsWith(">"))
 	);
 
-	return structured ? blocks(content, where) : inline(content.join("\n"), where);
+	return structured ? blocks(content, where, depth) : inline(content.join("\n"), where);
 }
 
 
-function listAt (lines, start, where) {
+function listAt (lines, start, where, depth) {
 	/* Render the list beginning at `start`, and say which line comes after it. */
 
 	const first = LIST_ITEM.exec(lines[start]);
@@ -370,7 +391,7 @@ function listAt (lines, start, where) {
 			i += 1;
 		}
 
-		items.push(`<li>${itemBody(content, where)}</li>`);
+		items.push(`<li>${itemBody(content, where, depth + 1)}</li>`);
 	}
 
 	const tag = ordered ? "ol" : "ul";
@@ -379,8 +400,17 @@ function listAt (lines, start, where) {
 }
 
 
-function blocks (lines, where) {
-	/* Render a sequence of lines as block-level HTML. */
+function blocks (lines, where, depth = 0) {
+	/*
+		Render a sequence of lines as block-level HTML.
+
+		**Past `MAX_DEPTH` the rest is shown as it was written** (`#679`) rather than followed
+		any further. Preformatted, because that is this file's existing way of saying *this is
+		your text and nothing has been done to it* — and because something nested that deeply is
+		read more usefully as its own shape than as forty empty bullets.
+	*/
+
+	if (depth >= MAX_DEPTH) return `<pre><code>${escaped(lines.join("\n"))}</code></pre>`;
 
 	let out = "";
 	let i = 0;
@@ -438,7 +468,7 @@ function blocks (lines, where) {
 				i += 1;
 			}
 
-			out += `<blockquote>${blocks(held, where)}</blockquote>`;
+			out += `<blockquote>${blocks(held, where, depth + 1)}</blockquote>`;
 			continue;
 		}
 
@@ -474,7 +504,7 @@ function blocks (lines, where) {
 		}
 
 		if (LIST_ITEM.test(line)) {
-			const [rendered, next] = listAt(lines, i, where);
+			const [rendered, next] = listAt(lines, i, where, depth);
 
 			out += rendered;
 			i = next;
