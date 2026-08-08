@@ -170,6 +170,14 @@ upgrade involves.
   …`, and says so plainly when the installed copy is a development build, because that is the
   case where `pip install --upgrade` silently declines to replace it.
 
+- **Six more short names are reserved for workspaces**: `app`, `healthz`, `mcp`, `readyz`,
+  `signin` and `v1`. Now that a workspace's short name is the start of its web address, one
+  named after an address the instance already answers could be created, listed, and never
+  opened — `example.com/mcp` reaches the agent endpoint, not your workspace.
+
+  **Existing workspaces are untouched**; the rule applies when one is created or renamed. If
+  you have a workspace with one of these names, it goes on working and is still worth renaming.
+
 ### Fixed
 
 - **A `.subroutine` marker written before project keys became lower case is now reported.** The

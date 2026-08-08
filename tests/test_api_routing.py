@@ -237,6 +237,98 @@ def test_reserved_words_are_matched_case_insensitively () -> None:
 	assert not subroutine.addressing.is_reserved_word("searches")
 
 
+def _root_segments () -> set[str]:
+	"""Return the first path segment of every route the real application registers.
+
+	Read through :func:`subroutine.api.routing.mounted` rather than from a built application,
+	for the reason that function documents: an included router is opaque, and walking one
+	finds a fraction of what is really declared.
+	"""
+
+	found: set[str] = set()
+
+	for path, _verbs, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		first = path.strip("/").split("/")[0]
+
+		if first:
+			found.add(first)
+
+	return found
+
+
+def test_no_route_takes_the_whole_first_segment () -> None:
+	"""Nothing at the root is a parameter, which is what leaves the first segment spendable.
+
+	A ``/{anything}`` registered at the root would match every workspace address there is,
+	and no list of reserved words could recover it — which is why the browser app answers
+	``/{workspace}/{project}`` from a 404 fallback rather than from a route (item ``#648``).
+	The test below is only meaningful for as long as this one passes, so it is stated
+	separately instead of being folded in.
+	"""
+
+	parameterised = sorted(word for word in _root_segments() if word.startswith("{"))
+
+	assert parameterised == [], "a parameterised root route would shadow every workspace"
+
+
+def test_every_root_path_is_reserved_against_a_workspace_slug () -> None:
+	"""A workspace cannot be named after an address this application already answers.
+
+	Derived here rather than restated, because a route added later is precisely how the
+	hand-written list in ``addressing`` would fall behind — and it already had. When item
+	``#678`` was found the two sets were *disjoint*: all six of these could be created, and
+	``mcp`` then answered a protocol where its own page should have been.
+
+	Equality rather than a subset in either direction, so this fails on both kinds of drift —
+	a new root path nobody reserved, and a word reserved here for a route that has since gone
+	away. The words a *person* would misread are the other list and are deliberately not in
+	this comparison; no route claims them and none should have to.
+	"""
+
+	assert _root_segments() == subroutine.addressing.ROUTED_WORKSPACE_WORDS
+
+
+@pytest.mark.parametrize("word", sorted(_root_segments()))
+def test_a_workspace_cannot_be_named_after_a_root_path (
+	session: sqlalchemy.orm.Session, word: str
+) -> None:
+	"""Refused where it is created, so the CLI cannot make one either.
+
+	**Parametrised over the routes rather than over the reserved list**, which is the whole
+	point of the arrangement: emptying that list would generate no cases at all, and a
+	parametrisation cannot tell "nothing failed" from "nothing ran". Driven from what the
+	application really answers, it fails six times instead — and a root path added later is
+	covered the moment the route exists rather than when somebody remembers a case.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.workspaces.validated_slug(session, word)
+
+	assert raised.value.errors[0].field == "slug"
+	assert "reserved" in raised.value.errors[0].message
+
+
+def test_a_title_that_derives_a_claimed_slug_falls_back () -> None:
+	"""``init --workspace "MCP"`` sets an instance up; it does not refuse to.
+
+	A derived slug is shaped rather than validated, so the reserved words have to be a
+	*condition* on it rather than a refusal — otherwise widening the list, as ``#678`` does,
+	turns somebody's perfectly reasonable workspace title into a failure to create the
+	database at all.
+
+	**The fallback itself is still unchecked, and that is item ``#690``** rather than an
+	oversight here: a username that is *also* reserved comes straight back out and is then
+	refused by ``workspaces.create``. Reachable, driven, and widened by this change, because
+	``app`` is an ordinary service-account name where ``me`` and ``self`` were not.
+
+	Reaching past the underscore is deliberate. The public way in is ``init``, which builds a
+	database and an entire instance to answer a question about one string.
+	"""
+
+	assert subroutine.domain.bootstrap._derived_slug("MCP", "si") == "si"
+	assert subroutine.domain.bootstrap._derived_slug("Acme Ltd", "si") == "acme-ltd"
+
+
 def test_every_mounted_route_commits_before_it_answers () -> None:
 	"""The instrument on §8.1's transaction boundary, and it exists because of a real defect.
 
