@@ -111,6 +111,162 @@ async function api (path, { method = "GET", body = null } = {}) {
 	throw new Refused(answer.status, detail);
 }
 
+/* ---- what this app asks for (`#640`) ------------------------------------- */
+
+/*
+	**Every request this app makes is built here, and nowhere else.**
+
+	Three of the four faults this arc shipped were a request the instance refused, or one that
+	asked the wrong question: `?limit=` on a route that declares none, `&subtree=true` beside a
+	project filter, and a list ordered by something the command line does not order by. Each
+	reached a reader, because the decision about *what to ask for* lived inside a component no
+	test can render — every one was found by Simon opening the page.
+
+	Out here they are pure: arguments in, `{path, method, body}` out. So `tests/test_web.py` can
+	call each one and check the query it builds against the parameters the real route declares —
+	`api/query.py` refuses a parameter a route did not ask for, which makes that the same rule
+	the instance applies, run before it ships rather than after.
+
+	**Checking the spelling is not that check**, and this is not hypothetical: the test written
+	for `subtree` asserted the string was *present*, so it passed while every filtered listing
+	422'd into the failure page.
+*/
+
+function sent (request) {
+	/* Make one built request. The only place a builder's answer meets the network, which is
+	   what lets a test hold the two apart. */
+	return api(request.path, { method: request.method, body: request.body ?? null });
+}
+
+function scoped (path, slug) {
+	/* The workspace, on a path that may or may not already be asking something. */
+	return `${path}${path.includes("?") ? "&" : "?"}workspace_id=${encodeURIComponent(slug)}`;
+}
+
+export function identityRequest () {
+	/* Who is reading, and which workspaces they are allowed to see. */
+	return { path: "/me", method: "GET" };
+}
+
+export function headRequest () {
+	/* The newest event there is, so the first poll asks what happens *next* rather than
+	   replaying everything that ever has. */
+	return { path: "/changes?newest=true&limit=1", method: "GET" };
+}
+
+export function pollRequest (slug, since) {
+	/*
+		Whether anything has changed. One row is enough — the question is yes or no.
+
+		**With nothing to resume from, ask for the newest instead** (`#656`). A freshly
+		initialised instance holds no events at all, so the head is empty and there is no seq to
+		carry; sending `0` for it is refused, because a seq starts at 1 and *"0 names nothing"*.
+		That is `#309` a third time, and the reason it is worth a branch rather than a default is
+		that the poll swallows its own failures — so the cursor would stay at `0`, every tick
+		would be refused in the same way, and the page would simply never notice anything again.
+
+		**Omitting `since` would also be accepted and would be wrong**: with `limit=1` that
+		returns the *oldest* event, so the cursor would advance one seq per tick and crawl.
+	*/
+	const asking = since === null || since === undefined
+		? "/changes?newest=true&limit=1"
+		: `/changes?since=${encodeURIComponent(since)}&limit=1`;
+
+	return { path: scoped(asking, slug), method: "GET" };
+}
+
+export function rosterRequest (slug) {
+	/*
+		Who work can be handed to.
+
+		**No `?limit=`, because this route declares none** and `api/query.py` refuses a
+		parameter a route did not ask for — so sending one is a 422, not a larger page. Its
+		refusal is caught, so the only symptom was an assignment control that quietly never
+		appeared.
+	*/
+	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
+}
+
+export function listingRequests (slug, key = null, after = null) {
+	/*
+		The list, which is tasks *and* documents.
+
+		**Two requests because they are two collections and both belong in it.** One counter per
+		workspace serves them (§6.2), so a list holding only tasks tells a reader who has learned
+		that a number names an item that half the numbers do not exist.
+
+		**No `subtree`**, twice over. `project=` already includes what is under it — `#320`
+		settled that `--project subroutine` covers `subroutine/UI` and `subroutine/OPS` — and
+		`subtree` is a different question entirely: it is about a *task's* children, so sending
+		it beside `project` is refused, *"'subtree' says how much of a parent's tree to return,
+		so it needs a parent."*
+
+		**No `order`, because the command line sends none** (`#646`). It used to ask for
+		`-priority_score`, and §6.3a sorts that in three bands with *unranked last* — so an item
+		somebody had just captured, which by definition has neither axis set yet, went straight
+		to the bottom. `#642` was 142 of 142 on a page of 100, and its author was told it had
+		been added. §6.3a exists because saying *more* about an item pushed it down. This is the
+		mirror: saying nothing about one hides it entirely.
+	*/
+	const narrowed = key ? `&project=${encodeURIComponent(key)}` : "";
+	const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+
+	return [
+		{ path: scoped(`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}`
+			+ from(after && after.tasks), slug), method: "GET" },
+		{ path: scoped(`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
+			+ from(after && after.documents), slug), method: "GET" },
+	];
+}
+
+export function itemRequests (kind, ref, slug) {
+	/* One item in full: the thing, what it links to, and what was said about it. */
+	const collection = kind === "document" ? "documents" : "tasks";
+
+	return [
+		{ path: scoped(`/${collection}/${ref}`, slug), method: "GET" },
+		{ path: scoped(`/${collection}/${ref}/links`, slug), method: "GET" },
+		{ path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}`, slug), method: "GET" },
+	];
+}
+
+export function completeRequest (row, slug) {
+	/* Done. A verb of its own rather than a status write, because completing is what the
+	   endpoint is for and it decides the status itself. */
+	return { path: scoped(`/tasks/${row.ref}/complete`, slug), method: "POST" };
+}
+
+export function restoreRequest (going, slug) {
+	/*
+		Undo, which puts back **the status that was there** rather than a status we chose. A
+		task's statuses are workspace vocabulary and `open` is only the seeded default, so
+		writing that would be a different act from reversing the one just made.
+	*/
+	return {
+		path: scoped(`/tasks/${going.ref}`, slug),
+		method: "PATCH",
+		body: { status: going.status },
+	};
+}
+
+export function assignRequest (row, who, slug) {
+	/* Hand it over, or take it back off everybody — `null` is a value here, not an omission. */
+	return {
+		path: scoped(`/tasks/${row.ref}`, slug),
+		method: "PATCH",
+		body: { assignee: who },
+	};
+}
+
+export function addRequest (text, slug) {
+	/*
+		`text` rather than a title, so the capture grammar runs (§6.13) and one box can set a
+		project, a priority, tags and a date. The workspace goes in the body because that is
+		where this endpoint takes it — the only write here that does.
+	*/
+	return { path: "/tasks", method: "POST", body: { text, workspace_id: slug } };
+}
+
 /* ---- addresses (`#638`) -------------------------------------------------- */
 
 /*
@@ -632,46 +788,13 @@ export function App () {
 	const load = useCallback(async (slug, key = null, after = null) => {
 		if (!slug) return;
 
-		/*
-			**No `subtree`**, twice over. `project=` already includes what is under it — `#320`
-			settled that `--project SR` covers `SR/UI` and `SR/OPS` — and `subtree` is a
-			different question entirely: it is about a *task's* children, so sending it beside
-			`project` is refused, *"'subtree' says how much of a parent's tree to return, so it
-			needs a parent."*
-
-			I wrote it in anyway and the test I wrote for it asserted the string was present, so
-			it passed while every filtered listing 422'd into the failure page. Driving found it.
-		*/
-		const scope = `workspace_id=${encodeURIComponent(slug)}`
-			+ (key ? `&project=${encodeURIComponent(key)}` : "");
-		const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
-
-		/*
-			**No `order`, because the command line sends none** (`#646`). It used to ask for
-			`-priority_score`, and §6.3a sorts that in three bands with *unranked last* — so an
-			item somebody had just captured, which by definition has neither axis set yet, went
-			straight to the bottom. `#642` was 142 of 142 on a page of 100, and its author was
-			told it had been added.
-
-			§6.3a exists because saying *more* about an item pushed it down. This is the mirror:
-			saying nothing about one hides it entirely. Priority order is a view and wants a
-			control; it is not what "the list" means.
-
-			Two requests because tasks and documents are two collections, and both belong here:
-			one counter per workspace serves them (§6.2), so a list holding only tasks tells a
-			reader who has learned that a number names an item that half the numbers do not
-			exist. That was a real complaint about the CLI listing before it spanned both.
-		*/
+		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
+		   left here is what to do with the answers. */
 		let tasks;
 		let documents;
 
 		try {
-			[tasks, documents] = await Promise.all([
-				api(`/tasks?${scope}&limit=${PAGE}&fields=${TASK_FIELDS}`
-					+ from(after && after.tasks)),
-				api(`/documents?${scope}&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`
-					+ from(after && after.documents)),
-			]);
+			[tasks, documents] = await Promise.all(listingRequests(slug, key, after).map(sent));
 		} catch (failure) {
 			/*
 				**A project named in an address may not be there any more, and that is the case
@@ -722,14 +845,8 @@ export function App () {
 		*/
 		if (!slug) return;
 
-		/*
-			**No `?limit=`, because this endpoint does not declare one** and `api/query.py`
-			refuses a parameter a route did not ask for — so sending one is a 422, not a
-			larger page. Found by driving it: the refusal is caught below, so the only symptom
-			was the assignment control quietly never appearing.
-		*/
 		try {
-			const found = await api(`/workspaces/${encodeURIComponent(slug)}/members`);
+			const found = await sent(rosterRequest(slug));
 
 			setMembers(found.items.map((row) => row.user.username));
 		} catch (_) {
@@ -742,10 +859,7 @@ export function App () {
 
 		const tick = setInterval(async () => {
 			try {
-				const seen = await api(
-					`/changes?since=${since.current}&limit=1&workspace_id=` +
-						encodeURIComponent(workspace),
-				);
+				const seen = await sent(pollRequest(workspace, since.current));
 
 				if (seen.items.length === 0) return;
 
@@ -770,18 +884,13 @@ export function App () {
 			task, and read the 404 as "then it is a document" rather than as a failure. Only a
 			refusal from the *second* is a refusal.
 		*/
-		const scope = `workspace_id=${encodeURIComponent(slug)}`;
 		const order = kind ? [kind] : ["task", "document"];
 
 		for (const trying of order) {
-			const path = trying === "document" ? "documents" : "tasks";
-
 			try {
-				const [item, links, comments] = await Promise.all([
-					api(`/${path}/${ref}?${scope}`),
-					api(`/${path}/${ref}/links?${scope}`),
-					api(`/${path}/${ref}/comments?${scope}&limit=${PAGE}`),
-				]);
+				const [item, links, comments] = await Promise.all(
+					itemRequests(trying, ref, slug).map(sent),
+				);
 
 				return { item: { ...item, kind: trying }, links: links.items,
 					comments: comments.items };
@@ -847,7 +956,7 @@ export function App () {
 		setError(null);
 
 		try {
-			const identity = await api("/me");
+			const identity = await sent(identityRequest());
 			const asked = parseAddress(window.location.pathname);
 			const { slug, refused } = chosenWorkspace(
 				asked, identity.workspaces.map((space) => space.slug), workspace,
@@ -864,10 +973,12 @@ export function App () {
 				});
 			}
 
-			/* The head of the feed, so the first poll asks about what happens *next* rather
-			   than replaying everything that ever has. */
-			const head = await api(`/changes?newest=true&limit=1`);
-			since.current = head.items.length > 0 ? head.items[0].seq : 0;
+			/* The head of the feed, so the first poll asks what happens *next* rather than
+			   replaying everything that ever has. **Null rather than zero when there is no
+			   head** — an instance nobody has used yet has no events, and `since=0` is refused
+			   (`#656`). */
+			const head = await sent(headRequest());
+			since.current = head.items.length > 0 ? head.items[0].seq : null;
 
 			/*
 				**The item an address names is opened here, beside the list rather than after
@@ -979,24 +1090,17 @@ export function App () {
 		}
 	}, [reread]);
 
-	const scoped = useCallback(
-		(path) => `${path}${path.includes("?") ? "&" : "?"}workspace_id=`
-			+ encodeURIComponent(workspace),
-		[workspace],
-	);
-
 	const complete = useCallback((row) => wrote(
 		row,
 		() => ({
 			text: `Completed #${row.ref} ${row.title}.`,
 			tone: "good",
-			/* What it was, so undo restores rather than guesses. A task's status is workspace
-			   vocabulary and "open" is only the seeded default — putting that back would be a
-			   different write from the one being reversed. */
+			/* What it was, so undo restores rather than guesses. `restoreRequest` is what
+			   carries it back; this is where it is remembered. */
 			undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status },
 		}),
-		() => api(scoped(`/tasks/${row.ref}/complete`), { method: "POST" }),
-	), [scoped, wrote]);
+		() => sent(completeRequest(row, workspace)),
+	), [workspace, wrote]);
 
 	const undo = useCallback(async () => {
 		const going = note && note.undo;
@@ -1007,11 +1111,9 @@ export function App () {
 		await wrote(
 			going,
 			() => ({ text: `#${going.ref} is back to ${going.status}.`, tone: "good" }),
-			() => api(scoped(`/tasks/${going.ref}`), {
-				method: "PATCH", body: { status: going.status },
-			}),
+			() => sent(restoreRequest(going, workspace)),
 		);
-	}, [note, scoped, wrote]);
+	}, [note, workspace, wrote]);
 
 	const assign = useCallback((row, who) => wrote(
 		row,
@@ -1019,21 +1121,14 @@ export function App () {
 			text: who ? `#${row.ref} is ${who}'s.` : `#${row.ref} is nobody's now.`,
 			tone: "good",
 		}),
-		() => api(scoped(`/tasks/${row.ref}`), { method: "PATCH", body: { assignee: who } }),
-	), [scoped, wrote]);
+		() => sent(assignRequest(row, who, workspace)),
+	), [workspace, wrote]);
 
 	const add = useCallback(async (text) => {
 		setBusy(true);
 
 		try {
-			/*
-				`text` rather than a title, so the capture grammar runs (§6.13) and one box
-				can set a project, a priority, tags and a date. The workspace goes in the body
-				because that is where this endpoint takes it.
-			*/
-			const made = await api("/tasks", {
-				method: "POST", body: { text, workspace_id: workspace },
-			});
+			const made = await sent(addRequest(text, workspace));
 
 			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
 			await load(workspace, project);

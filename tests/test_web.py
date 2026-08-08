@@ -19,18 +19,48 @@ import shutil
 import subprocess
 import textwrap
 import typing
+import uuid
 
+import fastapi
+import httpx
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 import starlette.requests
 
 import api_support
 import subroutine.api.app
+import subroutine.api.routing
 import subroutine.api.web
+import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.web.vendored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSETS = subroutine.api.web.ASSETS
+
+#: Where a copied file that is **only ever run by a test** lives.
+#:
+#: Not beside the served ones, and that is the point: ``api/web._collected`` *walks* the vendor
+#: directory, so a file dropped in there is served to every reader — 9 KB of something the page
+#: never imports, inside the set the AGPL's network-use clause is about.
+TEST_VENDOR = pathlib.Path(__file__).resolve().parent / "vendor"
+
+#: The same record `subroutine.web.vendored` keeps, for the half that is not shipped.
+#:
+#: `#445`'s hole is the same either way — ``scripts/check_licences.py`` walks
+#: ``importlib.metadata`` and is structurally blind to a JavaScript file — so the licence is
+#: recorded and checked here exactly as it is there, by the same tests.
+TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
+	subroutine.web.vendored.Vendored(
+		filename="render-to-string.js",
+		package="preact-render-to-string",
+		version="6.7.0",
+		licence="MIT",
+		source="https://unpkg.com/preact-render-to-string@6.7.0/dist/index.mjs",
+		notice="render-to-string.LICENSE",
+	),
+)
 
 #: Sample props for every component that takes them, shaped like the API's real answers —
 #: which were read off a live instance rather than invented, because a component fed a shape
@@ -223,6 +253,15 @@ def _staged (tmp_path: pathlib.Path) -> pathlib.Path:
 		if name not in vendored:
 			(tmp_path / name).write_text(resolved(body), encoding="utf-8")
 
+	# **Staged beside the served files and served from nowhere** — the renderer that lets `App`
+	# be called at all is a test's tool, not part of the app. `resolved` applies to it because
+	# it imports `preact` under the same bare specifier the page does.
+	for entry in TEST_ONLY:
+		(tmp_path / entry.filename).write_text(
+			resolved((TEST_VENDOR / entry.filename).read_text(encoding="utf-8")),
+			encoding="utf-8",
+		)
+
 	return tmp_path / "app.js"
 
 
@@ -412,36 +451,57 @@ def test_every_vendored_file_is_recorded_with_its_licence () -> None:
 	fails too.
 	"""
 
-	on_disk = {
-		path.name
-		for path in subroutine.web.vendored.DIRECTORY.iterdir()
-		if path.suffix == ".js"
-	}
-	recorded = {entry.filename for entry in subroutine.web.vendored.CATALOGUE}
+	for directory, catalogue in (
+		(subroutine.web.vendored.DIRECTORY, subroutine.web.vendored.CATALOGUE),
+		(TEST_VENDOR, TEST_ONLY),
+	):
+		on_disk = {path.name for path in directory.iterdir() if path.suffix == ".js"}
+		recorded = {entry.filename for entry in catalogue}
 
-	assert on_disk, "the vendor directory is empty, so this test is measuring nothing"
-	assert on_disk == recorded, (
-		f"vendored files and the catalogue disagree: only on disk {sorted(on_disk - recorded)}, "
-		f"only recorded {sorted(recorded - on_disk)}"
-	)
+		assert on_disk, f"{directory.name} is empty, so this test is measuring nothing"
+		assert on_disk == recorded, (
+			f"{directory} and its catalogue disagree: only on disk "
+			f"{sorted(on_disk - recorded)}, only recorded {sorted(recorded - on_disk)}"
+		)
 
 
-@pytest.mark.parametrize("entry", subroutine.web.vendored.CATALOGUE, ids=lambda e: e.filename)
+@pytest.mark.parametrize(
+	("entry", "directory"),
+	[(entry, subroutine.web.vendored.DIRECTORY) for entry in subroutine.web.vendored.CATALOGUE]
+	+ [(entry, TEST_VENDOR) for entry in TEST_ONLY],
+	ids=lambda value: value.filename if isinstance(value, subroutine.web.vendored.Vendored) else "",
+)
 def test_each_vendored_file_carries_a_permissive_licence (
-	entry: subroutine.web.vendored.Vendored,
+	entry: subroutine.web.vendored.Vendored, directory: pathlib.Path
 ) -> None:
-	"""Both of these require the notice to travel with the code, and neither build has one.
+	"""All of these require the notice to travel with the code, and no build has one.
 
 	§2.2a is the constraint: a copyleft *dependency* would bind the owner even though our own
-	licence does not, so the allowed set is named rather than pattern-matched.
+	licence does not, so the allowed set is named rather than pattern-matched. **The test-only
+	copy is held to the same rule**, because a licence obligation is not about who runs the file.
 	"""
 
 	assert entry.licence in subroutine.web.vendored.ALLOWED
 
-	notice = subroutine.web.vendored.DIRECTORY / entry.notice
+	notice = directory / entry.notice
 
 	assert notice.is_file(), f"{entry.filename} has no licence text beside it"
 	assert notice.stat().st_size > 500, f"{notice.name} is too short to be a licence"
+
+
+def test_a_file_only_the_tests_run_is_never_served () -> None:
+	"""**The renderer used to check the app is not part of the app.**
+
+	`api/web._collected` *walks* the vendor directory, so where a copied file sits decides
+	whether every reader downloads it. Nine kilobytes the page never imports would be served
+	from the moment it landed in the wrong directory, and nothing about the file would say so.
+	"""
+
+	for entry in TEST_ONLY:
+		assert entry.filename not in subroutine.api.web.FILES, (
+			f"{entry.filename} is being served, so a test-only copy has become part of the app"
+		)
+		assert not (subroutine.web.vendored.DIRECTORY / entry.filename).exists()
 
 
 def test_the_app_is_served_from_files_that_exist () -> None:
@@ -857,17 +917,29 @@ def test_undo_restores_the_status_that_was_there (tmp_path: pathlib.Path) -> Non
 	writing a guessed status is a different edit from the one being undone, and it would look
 	right on every instance that never renamed anything, which is every instance we own.
 
-	**This reads the source, and that is a weaker check than the rest of this module.** The
-	action lives inside `App`, whose hooks need a DOM the harness deliberately does not build,
-	so it cannot be driven the way `markdown.render` can. What would make it behavioural is
-	lifting the request each action makes into a pure function; that is worth doing when there
-	is a third action, not for two.
+	**This used to read the source and now drives the request** (`SR#640`). It said so at the
+	time: what would make it behavioural is lifting the request each action makes into a pure
+	function, and that has happened — so the body the instance would receive is asserted on here
+	rather than a spelling that happens to appear in the file.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	requests = _built(tmp_path, [
+		("completeRequest", [{"ref": 42}, "personal"]),
+		("restoreRequest", [{"ref": 42, "status": "in progress"}, "personal"]),
+	])
 
-	assert "status: row.status" in app, "the previous status stopped being carried into undo"
-	assert "status: going.status" in app, "undo stopped sending the status it recorded"
+	done, back = requests
+
+	assert done["method"] == "POST" and done["path"].startswith("/tasks/42/complete"), (
+		f"completing is no longer the endpoint built for it: {done}"
+	)
+	assert done.get("body") is None, "completing chose a status; the endpoint decides that"
+
+	assert back["method"] == "PATCH", f"undo is no longer a write to the task: {back}"
+	assert back["body"] == {"status": "in progress"}, (
+		f"undo sent {back.get('body')} rather than the status it recorded — an item that was "
+		f"not in the seeded default would come back as something it never was"
+	)
 
 
 def test_every_write_goes_through_one_request_function () -> None:
@@ -1249,7 +1321,9 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 # ---- the list is the whole list, in the same order (`SR#646`) ------------------------------
 
 
-def test_the_listing_asks_the_same_question_the_command_line_does () -> None:
+def test_the_listing_asks_the_same_question_the_command_line_does (
+	tmp_path: pathlib.Path
+) -> None:
 	"""**Two surfaces, one question, and they gave different answers.**
 
 	`subroutine list` sends no `order`, so it gets the API's default: newest first. `app.js`
@@ -1259,17 +1333,20 @@ def test_the_listing_asks_the_same_question_the_command_line_does () -> None:
 
 	The rule is not "never sort by priority"; it is that the *default* is one decision and there
 	is one of it. A sort control is a different item.
+
+	**An order is a parameter the route declares**, so the guard driving these against a real
+	instance cannot see this one — it would be accepted, and answer with the wrong list. That is
+	the difference between a request being *legal* and being the *right question*.
 	"""
 
-	source = _served_modules()["app.js"]
-	listings = re.findall(r'api\(`(/(?:tasks|documents)\?[^`]*)`', source)
+	built = _built(tmp_path, [("listingRequests", ["personal", None, None])])
 
-	assert len(listings) == 2, f"expected the two listing requests, found {listings}"
+	assert len(built) == 2, f"expected the two listing requests, found {built}"
 
-	for path in listings:
-		assert "order=" not in path, (
-			f"{path} chooses an order, and `subroutine list` does not — so the same question "
-			f"has two answers, and the one that hid SR#642 was this one"
+	for request in built:
+		assert "order=" not in request["path"], (
+			f"{request['path']} chooses an order, and `subroutine list` does not — so the same "
+			f"question has two answers, and the one that hid SR#642 was this one"
 		)
 
 
@@ -1454,4 +1531,308 @@ def test_the_workspace_in_an_address_is_the_one_that_is_shown (tmp_path: pathlib
 	assert none == {"slug": "projects", "refused": None}, "no address should keep you where you are"
 	assert unknown == {"slug": "projects", "refused": "nonsense"}, (
 		"an unknown workspace was silently swapped for another one"
+	)
+
+
+# ---- what the browser asks for, against what the instance accepts (`SR#640`) ----------------
+
+
+# **The four faults this arc shipped had one shape**: the rule right, the display right, and no
+# wire between them. Three of the four were a *request* — `?limit=` on a route that declares
+# none, `&subtree=true` beside a project filter, a list ordered by something the command line
+# does not order by — and every one was found by Simon opening the page, because the decision
+# about what to ask for lived inside `App`, which the render harness cannot touch.
+#
+# `SR#640`'s middle option, taken: the requests are pure functions now, so they can be called
+# with no DOM and the answers **driven against a real instance**. That is the part that matters.
+# Reading the query string and approving of it is what was done for `subtree`, and the test
+# passed while every filtered listing 422'd — a spelling can only ever confirm a spelling.
+
+
+class Instance(typing.NamedTuple):
+	"""A real installation holding one of everything an address in this app can name."""
+
+	application: fastapi.FastAPI
+	secret: str
+	slug: str
+	project: str
+	task: int
+	document: int
+	username: str
+	status: str
+	cursor: str
+	since: int
+
+	def call (self, method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
+		"""Make one request, authenticated the way this app's session cookie would be."""
+
+		return api_support.call(
+			self.application, method, path,
+			headers={"authorization": f"Bearer {self.secret}"}, **kwargs,
+		)
+
+
+@pytest.fixture
+def instance (session: sqlalchemy.orm.Session) -> Instance:
+	"""An installation the browser's own requests can be made against.
+
+	Built through the API rather than through the services, so the refs and the cursor are the
+	ones a browser would actually be holding — a cursor especially, which is signed and would
+	be refused if this invented one.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="The browser"
+	)
+	session.flush()
+
+	application = api_support.build_app(api_support.factory_for(session))
+	secret = issued.value.get_secret_value()
+
+	def call (method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
+		return api_support.call(
+			application, method, path, headers={"authorization": f"Bearer {secret}"}, **kwargs
+		)
+
+	slug = setup.workspace.slug
+	scope = f"?workspace_id={slug}"
+
+	made = call("POST", f"/v1/projects{scope}", json={"key": "web", "title": "The browser"})
+	assert made.status_code == 201, made.text
+
+	# Two tasks, so a page of one has something after it and the cursor below is a real one.
+	refs = []
+
+	for title in ("Read the backlog", "Write it down"):
+		answer = call("POST", f"/v1/tasks{scope}", json={"text": f"{title} +web"})
+		assert answer.status_code == 201, answer.text
+		refs.append(answer.json())
+
+	document = call("POST", f"/v1/documents{scope}", json={"title": "A note", "body": "Prose."})
+	assert document.status_code == 201, document.text
+
+	page = call("GET", f"/v1/tasks{scope}&limit=1")
+	assert page.status_code == 200, page.text
+
+	# **A real seq, read rather than invented.** A literal `1` is below the oldest event the
+	# shared PostgreSQL database still holds — earlier tests roll back and leave a gap in the
+	# sequence — and is correctly refused with `410 cursor_expired`.
+	#
+	# Read from the table rather than from the feed, because `GET /v1/changes` carries a
+	# deliberate `now() - 1s` watermark (§5.11a): `seq` is allocated at insert and becomes
+	# visible at commit, so a resumable reader must not advance past a number that has not
+	# landed. Everything above was written in the same second, so the feed reports none of it.
+	newest = session.execute(sqlalchemy.text("SELECT max(seq) FROM event")).scalar()
+
+	assert newest is not None, "no events were written, so there is no seq to resume from"
+
+	return Instance(
+		application=application,
+		secret=secret,
+		slug=slug,
+		project="web",
+		task=refs[0]["ref"],
+		document=document.json()["ref"],
+		username=setup.user.username,
+		status=refs[0]["status"],
+		cursor=page.json()["page"]["next_cursor"],
+		since=int(newest),
+	)
+
+
+def _builders (source: str) -> set[str]:
+	"""Return the name of every request builder the app exports."""
+
+	return set(re.findall(r"\bexport function (\w*Requests?) \(", source))
+
+
+def _built (
+	tmp_path: pathlib.Path, calls: typing.Sequence[tuple[str, list[typing.Any]]]
+) -> list[dict[str, typing.Any]]:
+	"""Call each named builder with its arguments, in Node, and return what each built.
+
+	Flat, because a builder answers with one request or with several and the caller is checking
+	each of them rather than counting.
+	"""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const out = [];
+
+		for (const [name, args] of {json.dumps([list(call) for call in calls])}) {{
+			const answer = app[name](...args);
+
+			for (const request of Array.isArray(answer) ? answer : [answer]) {{
+				out.push({{ ...request, from: name }});
+			}}
+		}}
+
+		process.stdout.write(JSON.stringify(out));
+	"""))
+
+
+def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
+	"""Every request this app can make, with arguments naming things that exist.
+
+	One entry per *shape* rather than per builder: a listing narrowed to a project and a listing
+	that is not are different requests, and the narrowing is where the last two faults were.
+	"""
+
+	return [
+		("identityRequest", []),
+		("headRequest", []),
+		("pollRequest", [place.slug, place.since]),
+		# **The instance nobody has used yet**, which has no events and so no seq to resume
+		# from. `SR#656` was exactly this shape, and the poll's own habit of swallowing
+		# failures is what made it permanent.
+		("pollRequest", [place.slug, None]),
+		("rosterRequest", [place.slug]),
+		("listingRequests", [place.slug, None, None]),
+		("listingRequests", [place.slug, place.project, None]),
+		("listingRequests", [
+			place.slug, None, {"tasks": place.cursor, "documents": place.cursor},
+		]),
+		("itemRequests", ["task", place.task, place.slug]),
+		("itemRequests", ["document", place.document, place.slug]),
+		("completeRequest", [{"ref": place.task}, place.slug]),
+		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
+		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
+		("assignRequest", [{"ref": place.task}, None, place.slug]),
+		("addRequest", ["Something new", place.slug]),
+	]
+
+
+def test_every_request_the_browser_makes_is_one_the_instance_accepts (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""**The whole point of `SR#640`: the request is built here and answered by the real app.**
+
+	`api/query.py` refuses a query parameter a route did not declare, bodies refuse an unknown
+	field, and several parameters are refused for what they *mean* rather than for their
+	spelling — `subtree` needs a `parent`, and sending it beside `project` is a 422. None of
+	those can be checked by reading the source, and all of them shipped.
+
+	A refusal here is not a failing test about HTTP. It is the page a reader would have got.
+	"""
+
+	for request in _built(tmp_path, _calls(instance)):
+		answer = instance.call(
+			request["method"], f"/v1{request['path']}",
+			**({"json": request["body"]} if request.get("body") is not None else {}),
+		)
+
+		assert answer.status_code < 400, (
+			f"{request['from']} builds {request['method']} {request['path']}, and the instance "
+			f"answered {answer.status_code}: {answer.text[:400]}"
+		)
+
+
+def test_every_request_builder_is_driven_against_the_instance () -> None:
+	"""A builder nobody exercises is a request nobody checked.
+
+	The pair above is only worth anything if it covers everything, so the list of calls is
+	compared with what the app exports rather than trusted to have kept up. This is the check
+	that makes adding a fifth write cost something.
+	"""
+
+	declared = _builders(_served_modules()["app.js"])
+	place = Instance(
+		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
+		task=1, document=2, username="si", status="open", cursor="c", since=1,
+	)
+	exercised = {name for name, _arguments in _calls(place)}
+
+	assert declared, "no request builders were found, so this is checking nothing"
+	assert declared == exercised, (
+		f"exercised {sorted(exercised)} and the app exports {sorted(declared)} — a builder that "
+		f"is not driven is a request the instance has never been asked to accept"
+	)
+
+
+def test_the_app_reaches_the_network_only_through_a_built_request () -> None:
+	"""**One way out, so there is one place a path can be got wrong.**
+
+	The builders are only the app's requests if nothing else makes one. `sent` is the single
+	caller of `api`, and every `sent` is handed a builder's answer — so a path assembled inside
+	a component would have to be written past both, rather than merely forgotten about.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+	declared = _builders(_served_modules()["app.js"])
+
+	assert app.count("api(") == 1, (
+		"something other than `sent` reaches the network, so a request exists that no builder "
+		"built and no test drives"
+	)
+
+	handed = set(re.findall(r"\bsent\((\w+)\(", app))
+	handed |= set(re.findall(r"\b(\w+)\([^()]*\)\.map\(sent\)", app))
+
+	assert handed, "no request is sent at all, so this is checking nothing"
+
+	invented = handed - declared
+
+	assert not invented, f"{sorted(invented)} is sent and is not an exported request builder"
+
+
+def _mounted (tmp_path: pathlib.Path) -> dict[str, typing.Any]:
+	"""Render the whole app the way a browser would, and report what came back.
+
+	**`App` uses hooks, so calling it as a plain function throws** — which is why the harness
+	above renders components without one, and why `App` was in no test at all until `SR#640`.
+	`preact-render-to-string` is a renderer with no DOM behind it: hooks work, effects do not
+	run, and what comes back is the markup of the first paint.
+
+	Deliberately *not* jsdom, which is ~2 MB of transitive Node closure to look at a page with
+	three buttons on it.
+	"""
+
+	module = _staged(tmp_path)
+
+	return dict(_ran(tmp_path, f"""
+		import {{ h }} from "{(tmp_path / "staged" / "preact.js").as_uri()}";
+		import {{ renderToString }} from "{(tmp_path / "render-to-string.js").as_uri()}";
+		import * as app from "{module.as_uri()}";
+
+		try {{
+			process.stdout.write(JSON.stringify(
+				{{ html: renderToString(h(app.App, {{}})), threw: null }}
+			));
+		}} catch (failure) {{
+			process.stdout.write(JSON.stringify({{ html: null, threw: failure.message }}));
+		}}
+	"""))
+
+
+def test_the_whole_app_renders (tmp_path: pathlib.Path) -> None:
+	"""**The two blank pages this arc shipped were `App` throwing, and nothing could see it.**
+
+	`ef8386d` — the import map missing `htm`, so the module never loaded. `2713b5e` — `SR#643`,
+	a dependency array naming `show` above its own declaration, so the first render threw. Each
+	time the gate was green, no request failed, and nothing was logged anywhere on the server.
+	The only evidence either time was a browser console.
+
+	This calls `App`. That is the whole of it, and it is what was missing: a component that
+	throws for *any* reason now fails here rather than in front of a reader. The static guard
+	below closes one shape of it; this closes the class.
+
+	Falsified against `SR#643` itself — reinstating that effect above `show` produces
+	``Cannot access 'show' before initialization``, which is exactly what the console said.
+	"""
+
+	answer = _mounted(tmp_path)
+
+	assert answer["threw"] is None, f"the app throws on its first render: {answer['threw']}"
+
+	# Nothing has been fetched — effects do not run without a DOM — so this is the first paint,
+	# which is the state a reader sees before any answer arrives. It has to say *something*.
+	assert answer["html"], "the app rendered nothing at all"
+	assert "Reading" in answer["html"], (
+		f"the first paint says nothing while the instance is being asked: {answer['html'][:200]}"
 	)
