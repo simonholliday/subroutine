@@ -147,25 +147,44 @@ export function addressOf (item, workspace) {
 
 export function parseAddress (pathname) {
 	/*
-		Read an address, or return null for one that names no item.
+		Read an address into the place it names, or null for one that names nowhere.
 
-		**The ref is the last segment and everything before the workspace is ignored**, which is
-		what makes a stale project name harmless rather than a dead link. A segment that is not
-		a positive integer is not a ref: `#42` is how a person writes one in prose, and a `#` in
-		a URL is a fragment that never reaches the server at all.
+		Four shapes (`#638`, `#647`), and the ambiguity between the middle two resolves on one
+		question — is the last segment a number?
+
+		| | |
+		| --- | --- |
+		| `/{workspace}` | that workspace |
+		| `/{workspace}/{project}` | that project within it |
+		| `/{workspace}/{ref}` | one item |
+		| `/{workspace}/{project}/{ref}` | one item, readable |
+
+		**A ref is a positive integer and nothing else**, which is what keeps `#42` — how a
+		person writes one in prose — out of a path, where a `#` is a fragment the server never
+		sees. Everything before the ref is decoration: that is what makes a project renamed
+		since somebody saved the link harmless rather than a dead end.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
-	if (parts.length < 2) return null;
+	if (parts.length === 0) return null;
 
-	const ref = Number(parts[parts.length - 1]);
+	const last = parts[parts.length - 1];
+	const ref = Number(last);
+	/* `[1-9][0-9]*`, which is `refs._TYPED` and `mentions.REF_PATTERN` — no leading zero.
+	   `subroutine show 007` is refused at a terminal, so `/projects/007` is not an item
+	   here either. A project key cannot begin with a digit (§5.4), so this segment is a
+	   malformed ref rather than an ambiguous name, and reading it loosely would be the
+	   browser disagreeing with every other surface about what a number means. */
+	const names = /^[1-9][0-9]*$/.test(last) ? Number(last) : null;
 
-	if (!Number.isInteger(ref) || ref < 1) return null;
+	/* The project is the segment before the ref, or the last one when there is no ref. A
+	   workspace on its own has neither. */
+	const middle = names === null ? parts.slice(1) : parts.slice(1, -1);
 
 	return {
 		workspace: decodeURIComponent(parts[0]),
-		project: parts.length > 2 ? decodeURIComponent(parts[1]) : null,
-		ref,
+		project: middle.length > 0 ? decodeURIComponent(middle[middle.length - 1]) : null,
+		ref: names,
 	};
 }
 
@@ -299,7 +318,9 @@ export function Adding ({ onAdd, busy }) {
 	`;
 }
 
-export function Listing ({ items, onOpen, onComplete, onAdd, onMore, busy, more }) {
+export function Listing ({
+	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project,
+}) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
 		shown only on a mixed page: a blank beside "Document" would read as missing data rather
@@ -319,6 +340,13 @@ export function Listing ({ items, onOpen, onComplete, onAdd, onMore, busy, more 
 	return html`
 		<div class="listing">
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
+
+			${project && html`
+				<div class="narrowed">
+					<span>Showing <strong>${project}</strong> and anything under it.</span>
+					${onWiden && html`<button onClick=${onWiden}>Show everything</button>`}
+				</div>
+			`}
 
 			${items.length === 0
 				? html`<div class="empty">Nothing here yet.</div>`
@@ -569,12 +597,27 @@ export function App () {
 	const [note, setNote] = useState(null);
 	const [busy, setBusy] = useState(false);
 	const [more, setMore] = useState(null);
+	/* The project the address narrows to, or null for the whole workspace (`#647`). Held
+	   beside the workspace rather than derived on each render, because the poll and every
+	   write reload the list and all of them have to narrow the same way. */
+	const [project, setProject] = useState(null);
 	const since = useRef(null);
 
-	const load = useCallback(async (slug, after = null) => {
+	const load = useCallback(async (slug, key = null, after = null) => {
 		if (!slug) return;
 
-		const scope = `workspace_id=${encodeURIComponent(slug)}`;
+		/*
+			**No `subtree`**, twice over. `project=` already includes what is under it — `#320`
+			settled that `--project SR` covers `SR/UI` and `SR/OPS` — and `subtree` is a
+			different question entirely: it is about a *task's* children, so sending it beside
+			`project` is refused, *"'subtree' says how much of a parent's tree to return, so it
+			needs a parent."*
+
+			I wrote it in anyway and the test I wrote for it asserted the string was present, so
+			it passed while every filtered listing 422'd into the failure page. Driving found it.
+		*/
+		const scope = `workspace_id=${encodeURIComponent(slug)}`
+			+ (key ? `&project=${encodeURIComponent(key)}` : "");
 		const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
 
 		/*
@@ -593,12 +636,36 @@ export function App () {
 			reader who has learned that a number names an item that half the numbers do not
 			exist. That was a real complaint about the CLI listing before it spanned both.
 		*/
-		const [tasks, documents] = await Promise.all([
-			api(`/tasks?${scope}&limit=${PAGE}&fields=${TASK_FIELDS}`
-				+ from(after && after.tasks)),
-			api(`/documents?${scope}&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`
-				+ from(after && after.documents)),
-		]);
+		let tasks;
+		let documents;
+
+		try {
+			[tasks, documents] = await Promise.all([
+				api(`/tasks?${scope}&limit=${PAGE}&fields=${TASK_FIELDS}`
+					+ from(after && after.tasks)),
+				api(`/documents?${scope}&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`
+					+ from(after && after.documents)),
+			]);
+		} catch (failure) {
+			/*
+				**A project named in an address may not be there any more, and that is the case
+				this whole design exists for.** `sr` became `subroutine` on 2026-08-08 across
+				502 items; a link somebody saved before that names a project the instance will
+				now refuse with a 404. Letting it through would replace the page with a failure
+				— for an address that still identifies its item perfectly well.
+
+				So the filter is dropped and the workspace is read instead, with the reason said
+				out loud. Only for the filter: a 404 with no project asked for is a different
+				fact and belongs to the caller.
+			*/
+			if (failure.status !== 404 || !key) throw failure;
+
+			setNote({ text: `There is no project called ${key} here any more. `
+				+ `Showing the whole workspace.`, tone: "bad" });
+			setProject(null);
+
+			return load(slug, null, after);
+		}
 
 		const fetched = [
 			...tasks.items.map((row) => ({ ...row, kind: "task" })),
@@ -657,7 +724,7 @@ export function App () {
 				if (seen.items.length === 0) return;
 
 				since.current = seen.items[seen.items.length - 1].seq;
-				await load(workspace);
+				await load(workspace, project);
 			} catch (_) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -778,10 +845,14 @@ export function App () {
 			*/
 			const asked = parseAddress(window.location.pathname);
 
+			setProject(asked && asked.project);
+
 			await Promise.all([
-				load(slug),
+				load(slug, asked && asked.project),
 				roster(slug),
-				asked === null ? null : show({ ref: asked.ref }, { history: false, slug }),
+				asked && asked.ref !== null
+					? show({ ref: asked.ref }, { history: false, slug })
+					: null,
 			]);
 		} catch (failure) {
 			setError(failure);
@@ -812,8 +883,17 @@ export function App () {
 
 		const arrive = () => {
 			const asked = parseAddress(window.location.pathname);
+			const narrowed = (asked && asked.project) ?? null;
 
-			if (asked === null) {
+			/* The filter is part of the address too (`#647`), so stepping back out of a
+			   project restores the whole workspace rather than leaving the list narrowed to
+			   something the address no longer says. */
+			if (narrowed !== project) {
+				setProject(narrowed);
+				load(workspace, narrowed);
+			}
+
+			if (asked === null || asked.ref === null) {
 				setOpen(null);
 				return;
 			}
@@ -824,15 +904,15 @@ export function App () {
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, show]);
+	}, [ready, error, workspace, project, load, show]);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
 		   describing the state before the action. */
 		if (open && open.item.ref === row.ref && open.item.kind === row.kind) await show(row);
 
-		await load(workspace);
-	}, [load, open, show, workspace]);
+		await load(workspace, project);
+	}, [load, open, project, show, workspace]);
 
 	const wrote = useCallback(async (row, said, run) => {
 		/*
@@ -922,7 +1002,7 @@ export function App () {
 			});
 
 			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
-			await load(workspace);
+			await load(workspace, project);
 		} catch (failure) {
 			setNote({ text: `That was not added. ${failure.message}`, tone: "bad" });
 		} finally {
@@ -937,7 +1017,7 @@ export function App () {
 		setBusy(true);
 
 		try {
-			await load(workspace, more);
+			await load(workspace, project, more);
 		} catch (failure) {
 			setNote({ text: `There was more, but it did not arrive. ${failure.message}`,
 				tone: "bad" });
@@ -946,13 +1026,38 @@ export function App () {
 		}
 	}, [load, more, workspace]);
 
-	const chooseWorkspace = useCallback(async (slug) => {
-		setWorkspace(slug);
-		setNote(null);
-		close();
+	const widen = useCallback(async () => {
+		/*
+			**Out of a project, back to the workspace.** A narrowed list that cannot say what
+			narrowed it, or undo it, is an empty backlog with an explanation nobody can reach —
+			and the filter arrived in the address rather than from a control the reader touched,
+			so there is nothing for them to un-touch.
+		*/
+		setProject(null);
+		window.history.pushState({}, "", `/${encodeURIComponent(workspace)}`);
 
 		try {
-			await load(slug);
+			await load(workspace, null);
+		} catch (failure) {
+			/* A note, not the failure page: there is a readable list on screen and losing it
+			   because a re-fetch did not land would cost the reader their place. The guard in
+			   `tests/test_web.py` counts the places that blank the page, and it caught this
+			   one being written the other way. */
+			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
+		}
+	}, [load, workspace]);
+
+	const chooseWorkspace = useCallback(async (slug) => {
+		/* A workspace is the whole of it: a project from the one you were in does not exist
+		   here, and carrying it over would narrow to nothing and look like an empty backlog. */
+		setWorkspace(slug);
+		setProject(null);
+		setNote(null);
+		setOpen(null);
+		window.history.pushState({}, "", `/${encodeURIComponent(slug)}`);
+
+		try {
+			await load(slug, null);
 			await roster(slug);
 		} catch (failure) {
 			setError(failure);
@@ -996,7 +1101,8 @@ export function App () {
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					onComplete=${complete} onAssign=${assign} />`
 				: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-					onAdd=${add} busy=${busy} more=${more} onMore=${showMore} />`}
+					onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
+					project=${project} onWiden=${widen} />`}
 
 			<footer class="foot">
 				<span>${items.length} items</span>

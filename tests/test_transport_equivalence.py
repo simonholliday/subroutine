@@ -2728,12 +2728,10 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 	would be a URL a person had to be told. Both are HTML and JavaScript rather than answers,
 	and neither reads the database at all.
 
-	`/{workspace}/{ref:int}` and `/{workspace}/{project}/{ref:int}` are the same page again,
-	opened at one item (`#638`) — the address a person pastes into a message. They are outside
-	`/v1` for the reason all four above are, and they answer **the same bytes for every
-	address**: the ref in the path is read by the browser, never here. A raw call reaching them
-	would get the page rather than the item, which is why they are excluded rather than
-	reachable.
+	**The addresses a person pastes into a message are not routes at all** (`#648`). They were,
+	briefly, and `/{workspace}/{project}` claimed `/v1/nothing` — so the API's own 404 became a
+	page. They are a 404 fallback now, which is why nothing new appears in this set: an address
+	nobody claimed is answered without ever being declared.
 	"""
 
 	mounted = subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
@@ -2745,10 +2743,7 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 
 	assert mounted, "the walk found no routes at all, so it is not measuring the application"
 
-	assert outside == {
-		"/healthz", "/readyz", "/mcp", "/signin", "/", "/app/{name}",
-		"/{workspace}/{ref:int}", "/{workspace}/{project}/{ref:int}",
-	}, (
+	assert outside == {"/healthz", "/readyz", "/mcp", "/signin", "/", "/app/{name}"}, (
 		"a route appeared outside the API prefix, so a raw call cannot reach it. That is either "
 		"correct and belongs in this list with a reason, or the route is API and is misplaced.\n"
 		f"found: {sorted(outside)}"

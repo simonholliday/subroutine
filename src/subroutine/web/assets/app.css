@@ -531,3 +531,35 @@ code, .ref, .priority {
 
 .cut button:hover:not(:disabled) { border-color: var(--ink-soft); }
 .cut button:disabled { opacity: 0.5; cursor: default; }
+
+/* What the address narrowed the list to (`#647`). It says so in words rather than by looking
+   different, because a filter a reader did not apply is one they cannot be expected to
+   remember — and a short list with no explanation reads as an empty backlog. */
+.narrowed {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 14px;
+	padding: 8px 14px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font-size: 14px;
+}
+
+.narrowed strong { color: var(--ink); font-weight: 600; }
+
+.narrowed button {
+	padding: 4px 10px;
+	background: none;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.narrowed button:hover { color: var(--ink); border-color: var(--ink-soft); }

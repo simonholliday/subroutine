@@ -50,6 +50,15 @@ upgrade involves.
   instance itself uses to decide what counts as a reference — so `#42FF00` and `issue#1` are
   still just text.
 
+  **An address filters the list.** `/<workspace>` shows that workspace and
+  `/<workspace>/<project>` shows that project and everything under it, saying so above the list
+  with a way back to the whole of it. A project that has since been renamed does not break the
+  link: the list widens and tells you why.
+
+  **The list is the whole list.** It arrives in the same order the command line uses, so
+  something you have just added is at the top rather than sorted below everything with a
+  priority set — and when there is more than fits on a page it says so, and offers the rest.
+
   Revising a description, and everything else, is still the command line and the API.
 
   It is served by the instance itself, on the same address as the API, and signing in is the

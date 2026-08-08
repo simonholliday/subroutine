@@ -21,8 +21,11 @@ import pathlib
 import typing
 
 import fastapi
+import starlette.exceptions
+import starlette.requests
 import starlette.responses
 
+import subroutine.api.problems
 import subroutine.api.routing
 import subroutine.errors
 import subroutine.web.vendored
@@ -94,52 +97,6 @@ def shell () -> starlette.responses.Response:
 	return starlette.responses.Response(content=body, media_type=kind)
 
 
-#: The addresses that name one item (`#638`).
-#:
-#: **Its own router, mounted last, and both halves of that are load-bearing.**
-#:
-#: ``{ref:int}`` is Starlette's path converter, and it is the only thing that narrows *matching*
-#: — a Python annotation of ``int`` does not. That was assumed here and it was wrong: the first
-#: version declared ``/{workspace}/{ref}`` with ``ref: int`` in the signature and swallowed
-#: ``GET /v1/me``, ``/v1/tasks``, ``/v1/meta`` and ten more. ``api/routing.check`` refused the
-#: application at startup and named every one of them, which is exactly the guard it exists to
-#: be; nothing else would have said a word until a request arrived.
-#:
-#: Mounted last because the converter is not enough on its own: ``/v1/tasks/42`` is three
-#: segments ending in a number, so it matches ``/{workspace}/{project}/{ref:int}`` too. Order
-#: settles that, and ``routing.check`` is what keeps the order honest rather than this comment.
-addresses = fastapi.APIRouter(tags=["app"], route_class=subroutine.api.routing.Transactional)
-
-
-@addresses.get(
-	"/{workspace}/{ref:int}",
-	summary="The browser app, opened at one item",
-	response_class=starlette.responses.HTMLResponse,
-	include_in_schema=False,
-)
-@addresses.get(
-	"/{workspace}/{project}/{ref:int}",
-	summary="The browser app, opened at one item by its readable address",
-	response_class=starlette.responses.HTMLResponse,
-	include_in_schema=False,
-)
-def opened (workspace: str, ref: int, project: str | None = None) -> starlette.responses.Response:
-	"""Serve the same page for an address naming one item — `#638`.
-
-	**It answers the same bytes for every address, and reads nothing.** Which item this is, and
-	whether the project segment is still the right one, are decided by the app once it has
-	authenticated — because this route is public, and a public route that looked an item up in
-	order to redirect would tell a stranger whether it exists and what project it is in.
-
-	``project`` is accepted and ignored here for that reason: it is a readable convenience, and
-	a project key can be renamed, so the app rewrites it to the current one after it loads.
-	"""
-
-	body, kind = FILES[SHELL]
-
-	return starlette.responses.Response(content=body, media_type=kind)
-
-
 @router.get(
 	"/app/{name}",
 	summary="One of the browser app's files",
@@ -164,3 +121,64 @@ def asset (name: str) -> starlette.responses.Response:
 		media_type=kind,
 		headers={"cache-control": f"public, max-age={CACHE_SECONDS}"},
 	)
+
+
+#: What a browser sends when it is asking for a page, and no client of this API sends.
+#: ``clients/http.py`` sends ``application/json``; the app's own ``fetch`` sends the same;
+#: ``curl`` sends ``*/*``. Only a navigation asks for HTML by name, which is why the test is for
+#: the literal type rather than for "anything".
+NAVIGATION = "text/html"
+
+
+def _navigating (request: starlette.requests.Request) -> bool:
+	"""Whether this is a person's browser asking for a page, rather than a program for data."""
+
+	return NAVIGATION in request.headers.get("accept", "").lower()
+
+
+def unmatched (
+	request: starlette.requests.Request, exception: Exception
+) -> starlette.responses.Response:
+	"""Answer a request nothing else claimed — with the app, for a browser (`#638`, `#647`).
+
+	**A fallback rather than a route, and that distinction cost a day to arrive at.** The first
+	version declared ``/{workspace}``, ``/{workspace}/{project}`` and two more, which is the
+	obvious way to do it and is wrong in a way that gets worse quietly:
+
+	* ``/{workspace}/{project}`` matched ``/v1/nothing``, so **the API's 404 stopped being a
+	  problem document** and became ``200 text/html``. Five tests said so and they were right —
+	  a mistyped path answering with a page is `#379`'s "plausible, complete, wrong answer" on
+	  the surface this project's primary audience uses.
+	* ``/{workspace}`` matched ``GET /mcp``, which declares only ``POST``, turning a ``405``
+	  that had been *measured* against a real client into a page (`#648`).
+	* And it shadowed any route registered after it, for ever, which no amount of care survives:
+	  ``api_support`` adds routes to a built application, and those went unreachable too.
+
+	None of that is fixable by ordering, because the hazard *is* claiming paths nobody has
+	claimed yet. Answering the 404 instead inverts it: every real route wins, always, whenever
+	it was registered — and what is left over is by definition unclaimed.
+
+	``Accept`` is what separates the two readers. A browser navigating asks for ``text/html``
+	by name; every client of this API asks for ``application/json``. So a program still gets
+	the problem document it has always got, byte for byte, and a person gets the page.
+	"""
+
+	http = typing.cast(starlette.exceptions.HTTPException, exception)
+
+	if http.status_code == 404 and _navigating(request):
+		body, kind = FILES[SHELL]
+
+		return starlette.responses.Response(content=body, media_type=kind)
+
+	return subroutine.api.problems.handle_http_exception(request, http)
+
+
+def install (application: fastapi.FastAPI) -> None:
+	"""Serve the app for any address nothing else claimed.
+
+	**After** :func:`subroutine.api.problems.install`, because Starlette keys handlers by
+	exception class and this one replaces that module's — it delegates to it for everything
+	except the case above.
+	"""
+
+	application.add_exception_handler(starlette.exceptions.HTTPException, unmatched)

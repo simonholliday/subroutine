@@ -188,18 +188,13 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"The browser app's own files (`#597`). Same reason as the page they belong to: these "
 		"are bytes a browser needs and nothing a client would ever ask for.",
 	),
-	("GET", "/{workspace}/{ref:int}"): (
+	("GET", "/mcp"): (
 		"protocol",
-		"The app's page again, opened at one item (`#638`) — the address a person pastes into "
-		"a message. It answers the same bytes whatever ref is in it, so a client method would "
-		"fetch HTML and learn nothing; the capability it looks like is `GET /v1/tasks/{ref}`, "
-		"which every client already reaches.",
-	),
-	("GET", "/{workspace}/{project}/{ref:int}"): (
-		"protocol",
-		"The readable spelling of the address above (`#638`), and the project segment in it "
-		"is decoration — read by nobody, since a key can be renamed and the app rewrites it "
-		"after it loads. Reaching this from a client would be reaching the one above twice.",
+		"A refusal, not a capability (`#648`): this transport has no server-initiated messages, "
+		"so the standalone event stream a client opens is answered `405 Allow: POST`. It was "
+		"measured against `claude-code/2.1.222` and had always come from there being no route "
+		"at all — it is declared now because an absence can be claimed by whatever matches "
+		"next, and `#647`'s catch-all did exactly that.",
 	),
 	("GET", "/signin"): (
 		"protocol",

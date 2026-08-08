@@ -90,6 +90,32 @@ async def _raw_body (request: starlette.requests.Request) -> bytes:
 RawBodyDep = typing.Annotated[bytes, fastapi.Depends(_raw_body)]
 
 
+@router.get(
+	PATH,
+	summary="This transport does not stream",
+	response_class=fastapi.Response,
+	include_in_schema=False,
+)
+def no_stream () -> fastapi.Response:
+	"""Refuse the standalone event stream, in writing rather than by absence — `#648`.
+
+	The refusal itself is not new: a client opening this ``GET`` has always been answered
+	``405``, and that was *measured* against ``claude-code/2.1.222`` rather than assumed. What
+	is new is that it now comes from a route instead of from there being no route.
+
+	**The difference matters because an absence can be claimed by somebody else.** `#647` added
+	``GET /{workspace}`` for the browser app, which matches every single-segment path — so this
+	``GET`` began returning an HTML page, and a 405 that had only ever existed as a coincidence
+	stopped being true. ``api/routing.check`` could not see it: nothing became *unreachable*,
+	which is the question it asks.
+
+	``Allow: POST`` because that is what a 405 owes the caller, and because it says out loud
+	what this endpoint is for.
+	"""
+
+	return fastapi.Response(status_code=405, headers={"allow": "POST"})
+
+
 @router.post(
 	PATH,
 	summary="Speak MCP to this instance",

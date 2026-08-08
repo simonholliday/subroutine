@@ -21,7 +21,10 @@ import textwrap
 import typing
 
 import pytest
+import sqlalchemy.orm
+import starlette.requests
 
+import api_support
 import subroutine.api.app
 import subroutine.api.web
 import subroutine.web.vendored
@@ -257,6 +260,10 @@ def _rendered (
 	# `dangerouslySetInnerHTML` is read here rather than skipped, because a component whose
 	# whole output is that property would otherwise flatten to nothing and every assertion
 	# about what it says would pass vacuously.
+	# Every `onSomething=` the app passes to a component. Read off the source so a new one is
+	# supplied the moment it is written, rather than the next time a test notices.
+	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _served_modules()["app.js"])))
+
 	return dict(_ran(tmp_path, f"""
 		import * as app from "{module.as_uri()}";
 
@@ -277,12 +284,12 @@ def _rendered (
 			return typeof node.type === "string" ? `<${{node.type}}>${{inner}}` : inner;
 		}}
 
-		/* Every handler a component may be given. Named rather than guessed, and a component
-		   that grows one is added here — which is what makes an absent handler mean "this
-		   reader cannot do that" rather than "the harness forgot". */
+		/* Every handler a component may be given, **derived from the app rather than listed**.
+		   A hand-kept list went stale three times in one day, and each time the symptom was a
+		   control missing from the render — which is indistinguishable from a reader who is not
+		   allowed to use it, and that distinction is what several tests here turn on. */
 		const handlers = {{}};
-		for (const name of ["onOpen", "onBack", "onRetry", "onComplete", "onAssign",
-			"onAdd", "onUndo", "onDismiss", "onMore"]) handlers[name] = () => {{}};
+		for (const name of {json.dumps(handlers)}) handlers[name] = () => {{}};
 
 		for (const [name, props] of Object.entries(asked)) {{
 			out[name] = flatten(app[name]({{ ...handlers, ...props }}));
@@ -940,64 +947,103 @@ def test_a_stale_project_in_an_address_still_finds_the_item (tmp_path: pathlib.P
 	assert deep["ref"] == 42, "extra segments were not ignored, so the path form cannot grow in"
 
 
-def test_an_address_that_names_no_item_is_not_one (tmp_path: pathlib.Path) -> None:
-	"""Everything the app must *not* read as an item, including the shapes the server serves.
+def test_an_address_that_names_no_item_is_not_read_as_one (tmp_path: pathlib.Path) -> None:
+	"""A path may name a place without naming an item, and the two must not be confused.
 
-	`/app/app.js` is the one that matters: the last segment has to fail as a ref or the app
-	would try to open an asset, and the route that serves it would have been shadowed.
+	`SR#647` added the first two shapes, and `/projects/ui` is the interesting one: two
+	segments, like `/projects/42`, and only the last one being a number tells them apart. Get
+	that wrong and a project called `2026` would open item 2026 — which is exactly the reason
+	§5.4 forbids a project key that reads as a number, and the reason a ref may not have a
+	leading zero.
 	"""
 
-	answers = _addressing(tmp_path, [
+	nowhere, workspace, project, item, readable, padded = _addressing(tmp_path, [
 		("parseAddress", "/"),
 		("parseAddress", "/projects"),
-		("parseAddress", "/app/app.js"),
 		("parseAddress", "/projects/ui"),
-		("parseAddress", "/projects/0"),
-		("parseAddress", "/projects/-1"),
-		("parseAddress", "/projects/4.5"),
-		("parseAddress", "/healthz"),
+		("parseAddress", "/projects/42"),
+		("parseAddress", "/projects/ui/42"),
+		("parseAddress", "/projects/007"),
 	])
 
-	assert answers == [None] * len(answers), f"one of these read as an item: {answers}"
+	assert nowhere is None, "the root named a place"
+
+	assert workspace["workspace"] == "projects" and workspace["ref"] is None
+	assert workspace["project"] is None
+
+	assert project["project"] == "ui" and project["ref"] is None, (
+		"a project was read as an item, so /projects/ui would open something"
+	)
+
+	assert item["ref"] == 42 and item["project"] is None
+	assert readable["ref"] == 42 and readable["project"] == "ui"
+
+	assert padded["ref"] is None and padded["project"] == "007", (
+		"a leading zero was read as a ref; the mention rule forbids one and so does this"
+	)
 
 
-def test_the_web_routes_cannot_shadow_the_api () -> None:
-	"""**Declared narrowly so registration order cannot matter.**
+def test_the_app_claims_no_path_it_has_not_been_given () -> None:
+	"""**The app answers unmatched addresses, and declares none of them.**
 
-	FastAPI matches in the order routers are registered, not by specificity — this project has
-	already lost a route that way (`/v1/tasks/{id_or_ref}` swallowing `/v1/tasks/next`). A
-	`{path:path}` catch-all would be correct only while it stayed last in `ROUTERS`, enforced by
-	nothing. An `int` in the last segment is enforced by the router itself.
+	`SR#648`. The first version declared `/{workspace}`, `/{workspace}/{project}` and two more,
+	which claimed paths nothing else had claimed *yet* — and that is the hazard, not an ordering
+	mistake:
+
+	* `/{workspace}/{project}` matched `/v1/nothing`, so the API's own 404 became `200
+	  text/html`. Five tests in two other modules said so.
+	* `/{workspace}` matched `GET /mcp`, which declares only `POST`, replacing a `405` that had
+	  been measured against a real client with a page.
+	* Routes registered later were shadowed too, including ones `api_support` adds to a built
+	  application.
+
+	None of it is fixable by ordering. Answering the 404 inverts the problem: every real route
+	wins whenever it was registered, and what is left is by definition unclaimed.
 	"""
 
-	paths = {
-		route.path for router in (subroutine.api.web.router, subroutine.api.web.addresses)
-		for route in router.routes if hasattr(route, "path")
+	declared = {
+		path for router in (subroutine.api.web.router,)
+		for path in (getattr(route, "path", "") for route in router.routes)
 	}
 
-	assert "/{workspace}/{ref:int}" in paths
-	assert "/{workspace}/{project}/{ref:int}" in paths
-
-	for path in paths:
-		assert ":path}" not in path, f"{path} is a catch-all and can shadow whatever follows it"
-
-	# **`{ref:int}` is Starlette's path converter, and it is the only thing that narrows what
-	# these match.** A Python annotation of `int` does not, which is exactly how the first
-	# version of this shipped: `/{workspace}/{ref}` with `ref: int` in the signature swallowed
-	# `GET /v1/me`, `/v1/tasks`, `/v1/meta` and ten more. So the assertion is on the *path*, and
-	# an annotation-only check would have passed against the defect.
-	assert not any(
-		path.endswith("/{ref}") for path in paths
-	), "a ref is declared without its converter, so this matches any last segment"
-
-	# Last in `ROUTERS`, because `/v1/tasks/42` is three segments ending in a number too. The
-	# converter cannot settle that one; the order does.
-	mounted = [router for _, router in subroutine.api.app.ROUTERS]
-
-	assert mounted[-1] is subroutine.api.web.addresses, (
-		"the app's item addresses are no longer mounted last, so they can shadow any route "
-		"registered after them whose path ends in a number"
+	assert declared == {"/", "/app/{name}"}, (
+		f"the app declares {sorted(declared)}; anything beyond its page and its files claims "
+		f"addresses nothing else has claimed yet, which is what SR#648 is about"
 	)
+
+	for _prefix, router in subroutine.api.app.ROUTERS:
+		for route in router.routes:
+			path = getattr(route, "path", "")
+
+			assert ":path}" not in path, (
+				f"{path} is a catch-all and can shadow whatever is registered after it"
+			)
+
+
+def test_only_a_browser_is_given_the_app_for_an_unmatched_address () -> None:
+	"""`Accept` is what separates the two readers, and it has to be the literal type.
+
+	A browser navigating asks for `text/html` by name. Every client of this API asks for
+	`application/json` — `clients/http.py` sets it, and the app's own `fetch` sets it. `curl`
+	sends `*/*`, which would match a looser test and would turn a mistyped path into a page for
+	anybody driving the API by hand.
+	"""
+
+	assert subroutine.api.web.NAVIGATION == "text/html"
+
+	def asking (accept: str) -> bool:
+		request = starlette.requests.Request({
+			"type": "http", "method": "GET", "path": "/x", "headers":
+				[(b"accept", accept.encode())],
+		})
+
+		return subroutine.api.web._navigating(request)
+
+	assert asking("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	assert asking("TEXT/HTML"), "the header is case-insensitive and this reads it literally"
+	assert not asking("application/json"), "a client of this API was handed a page"
+	assert not asking("*/*"), "curl's default was read as a browser navigation"
+	assert not asking(""), "a request with no Accept was read as a browser navigation"
 
 
 def test_a_mention_becomes_a_link_and_only_a_real_one (tmp_path: pathlib.Path) -> None:
@@ -1264,3 +1310,106 @@ def test_the_page_size_is_a_page_and_not_a_ceiling (tmp_path: pathlib.Path) -> N
 	assert "include_total" not in source, (
 		"a total is being asked for; §8.4 declines it because it costs a second full scan"
 	)
+
+
+def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathlib.Path) -> None:
+	"""**A filter the reader did not apply has to announce itself.**
+
+	`SR#647`: `/projects/subroutine` shows that project. Nothing on the page put it there — it
+	arrived in a link somebody was sent — so a short list with no explanation is indistinguishable
+	from an empty backlog, and there is no control for the reader to un-touch. It says what it is
+	showing, and offers the whole workspace.
+
+	This is `SR#251`/`SR#303`'s shape read forwards: a filter nobody can see is a control that
+	does nothing, from the reader's side.
+	"""
+
+	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+
+	whole = _rendered(tmp_path, {"Listing": {"items": rows, "project": None}})
+	narrow = _rendered(tmp_path, {"Listing": {"items": rows, "project": "ui"}})
+
+	assert "Showing" not in whole["Listing"], "an unfiltered list claimed to be filtered"
+	assert "ui" in narrow["Listing"], "the list did not say what it was narrowed to"
+	assert "Show everything" in narrow["Listing"], "there was no way back to the workspace"
+
+
+def test_a_project_filter_sends_what_the_route_accepts () -> None:
+	"""`SR#320`: `project=` already covers what is under a project, and `subtree` is not it.
+
+	**This test used to assert the opposite and passed while the feature was broken.** It
+	checked that the request contained `subtree=true`; it did, and every filtered listing
+	answered `422` — *"'subtree' says how much of a parent's tree to return, so it needs a
+	parent"* — because `subtree` is about a *task's* children, not a project's. The failure
+	reached `setError` and replaced the page.
+
+	A guard that reads a spelling out of the source can only ever confirm the spelling. This one
+	now asserts the absence that was measured, and the note is the point: **what actually found
+	it was driving a real instance**, and nothing available to this file could have.
+	"""
+
+	source = _without_comments(_served_modules()["app.js"])
+
+	assert "project=$" in source, "the listing stopped narrowing by project at all"
+	assert "subtree" not in source, (
+		"`subtree` is back in a request beside `project`, which the API refuses — it is about a "
+		"task's children, and a project already includes its own"
+	)
+
+
+def test_a_project_that_is_gone_does_not_take_the_page_with_it () -> None:
+	"""**The case the whole address design exists for.**
+
+	`sr` became `subroutine` on 2026-08-08 across 502 items. A link saved before that names a
+	project this instance now refuses with `404` — and the listing's failure would have reached
+	`setError` and replaced the page, for an address that still identifies its item perfectly
+	well. Measured by driving: `?project=gone` is *"There is no project 'gone' here."*
+
+	The filter is dropped, the workspace is read instead, and the reason is said out loud —
+	which is the difference between a link that ages and one that dies.
+
+	Source-level, for `SR#640`'s reason: the branch is inside `App`.
+	"""
+
+	app = _without_comments(_served_modules()["app.js"])
+
+	assert "failure.status !== 404 || !key" in app, (
+		"a project that no longer exists no longer falls back to the workspace"
+	)
+	assert "any more" in app, "the reader is no longer told why the list widened"
+
+
+def test_an_unmatched_address_answers_a_browser_and_a_client_differently (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The fallback, driven rather than read (`SR#648`).
+
+	Both halves matter and they fail in opposite directions. A browser that got a problem
+	document for `/personal` would have no deep links at all; a client that got a page for
+	`/v1/nothing` would have `200 text/html` where `docs/errors.md` promises
+	`application/problem+json` — and that one is silent, because 200 does not look like a
+	failure.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	page = api_support.call(
+		application, "GET", "/personal", headers={"accept": "text/html,*/*;q=0.8"}
+	)
+	data = api_support.call(
+		application, "GET", "/personal", headers={"accept": "application/json"}
+	)
+	mistyped = api_support.call(
+		application, "GET", "/v1/nothing", headers={"accept": "application/json"}
+	)
+
+	assert page.status_code == 200
+	assert page.headers["content-type"].startswith("text/html")
+	assert "<title>Subroutine</title>" in page.text
+
+	assert data.status_code == 404
+	assert data.headers["content-type"].startswith("application/problem+json")
+
+	assert mistyped.status_code == 404
+	assert mistyped.json()["code"] == "not_found"
+	assert "/v1/nothing" in mistyped.json()["detail"]
