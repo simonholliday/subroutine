@@ -39,6 +39,22 @@ upgrade involves.
   A service account cannot be given one. An agent's authority is issued with a scope and a
   reach, and a browser session carries neither.
 
+### Fixed
+
+- **A search for two words no longer finds nothing.** `q` matched the whole query as one
+  contiguous, ordered piece of text, so `vocabulary entries` found an item and
+  `vocabulary seeded` did not — although both words were in it, four words apart — and
+  `entries vocabulary` did not either, because it was reversed. Every word is now looked for
+  separately, in any order, and may appear in the title or the description.
+
+  **It failed in the direction that costs you something.** An empty result reads as "this does
+  not exist", so the natural next step is to file the thing you were looking for — on the one
+  path that exists to stop duplicates being filed. It was found by an agent searching this
+  project's own backlog before adding to it, which nearly filed two.
+
+  A search of nothing but spaces now narrows nothing, instead of matching every item
+  containing a space. A search asking for more than sixteen words is refused and says so.
+
 ### Changed
 
 - **A stopping server no longer waits indefinitely for requests already in flight.** It gives

@@ -1729,6 +1729,15 @@ def test_both_search_the_same_text_the_same_way (pair: Pair) -> None:
 	assert found == [described.ref], "the probe matched nothing, so it proves nothing"
 	assert found == sorted(task.ref for task in remote.tasks(q="cursor", limit=50))
 
+	# **`#620`: every word, in any order, across both fields.** Two words that are neither
+	# adjacent nor in the source's order, one of them from the title and one from the
+	# description — the case that used to return nothing, checked on both transports because
+	# there are two call sites and one of them is the local client's own query.
+	spread = sorted(task.ref for task in local.tasks(q="cursor heading", limit=50))
+
+	assert spread == [described.ref], "the probe matched nothing, so it proves nothing"
+	assert spread == sorted(task.ref for task in remote.tasks(q="cursor heading", limit=50))
+
 
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:

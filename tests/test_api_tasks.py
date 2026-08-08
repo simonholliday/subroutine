@@ -22,6 +22,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.ordering
 import subroutine.domain.projects
+import subroutine.domain.search
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -2101,3 +2102,96 @@ def test_a_null_clears_the_tags (world: World) -> None:
 
 	assert made["tags"] == ["one", "two"]
 	assert world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"tags": None}).json()["tags"] == []
+
+
+def test_a_search_finds_words_that_are_not_adjacent_or_in_order (world: World) -> None:
+	"""**`#620`, reproduced from the report's own probes.**
+
+	`q` was one contiguous ordered substring, so a multi-word search succeeded only where the
+	words happened to sit next to each other in that order. Both of the failing probes below
+	returned nothing against an item plainly containing both words.
+
+	**The direction of the failure is why this was urgent.** "Nothing open." reads as "this
+	does not exist", so the caller does what an empty result implies and files a duplicate —
+	on the one path that exists to prevent duplicates. Two were nearly filed against this
+	backlog by an agent doing exactly what the skill tells it to.
+	"""
+
+	item = world.call(
+		"POST",
+		"/v1/tasks",
+		json={
+			"title": "Nothing can ask which vocabulary entries the installation seeded",
+			"description": "`is_system` is written by seed.py and read by nothing.",
+		},
+	).json()
+
+	def finds (query: str) -> bool:
+		"""Report whether this query returns that item."""
+
+		answer = world.call("GET", f"/v1/tasks?q={query}&limit=50").json()
+
+		return item["ref"] in {row["ref"] for row in answer["items"]}
+
+	# Worked before, and must go on working.
+	assert finds("vocabulary"), "a single term"
+	assert finds("is_system"), "a term that appears only in the description"
+	assert finds("vocabulary+entries"), "adjacent, in order"
+
+	# The two the report found returning nothing.
+	assert finds("vocabulary+seeded"), "both present, four words apart"
+	assert finds("entries+vocabulary"), "adjacent but reversed"
+
+	# And across the two fields at once, which is the ordinary shape of half-remembering.
+	assert finds("vocabulary+is_system"), "one word from the title, one from the description"
+
+
+def test_a_search_still_requires_every_word (world: World) -> None:
+	"""The other direction, and the reason this is an AND rather than an OR.
+
+	Widening to "any word matches" would turn every multi-word search into most of the
+	backlog, which fails the same task — a caller cannot look before filing if looking always
+	answers "here are forty things".
+	"""
+
+	world.call("POST", "/v1/tasks", json={"title": "The vocabulary is seeded"}).json()
+	missing = world.call("POST", "/v1/tasks", json={"title": "The vocabulary"}).json()
+
+	found = {
+		row["ref"]
+		for row in world.call("GET", "/v1/tasks?q=vocabulary+seeded&limit=50").json()["items"]
+	}
+
+	assert missing["ref"] not in found
+
+
+def test_a_search_of_nothing_but_spaces_narrows_nothing (world: World) -> None:
+	"""It used to search for whatever was typed, so `q=" "` matched every row with a space.
+
+	A filter nobody asked for, answering a question nobody put — and one that looks like a
+	working search because it returns plausible rows.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Solitary"}).json()
+
+	found = {
+		row["ref"] for row in world.call("GET", "/v1/tasks?q=%20%20&limit=50").json()["items"]
+	}
+
+	assert made["ref"] in found
+
+
+def test_a_search_asking_for_too_many_words_is_refused_by_name (world: World) -> None:
+	"""Each term is its own unindexable scan, so a pasted paragraph is real work per row.
+
+	Refused rather than quietly truncated: a search that silently narrows differently from
+	what was asked is `#620` in the other direction, and this project's rule is that an
+	argument it cannot honour is reported rather than swallowed (`#379`).
+	"""
+
+	asked = "+".join(f"word{n}" for n in range(subroutine.domain.search.MAX_TERMS + 1))
+	answer = world.call("GET", f"/v1/tasks?q={asked}&limit=50")
+
+	assert answer.status_code == 422
+	assert answer.json()["errors"][0]["field"] == "q"
+	assert "distinctive" in answer.json()["hint"]

@@ -283,7 +283,7 @@ def listing (
 		False, description="With parent: include the whole subtree, not only direct children."
 	),
 	q: str | None = fastapi.Query(
-		None, description="Match this text in the title or the description."
+		None, description="Words to look for in the title or the description. Every one must appear."
 	),
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),

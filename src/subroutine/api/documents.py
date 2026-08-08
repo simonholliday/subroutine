@@ -176,7 +176,7 @@ def listing (
 	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
 	q: str | None = fastapi.Query(
-		None, description="Match this text in the title or the body."
+		None, description="Words to look for in the title or the body. Every one must appear."
 	),
 	deleted: bool = fastapi.Query(
 		False, description="Show *only* what is in the trash, rather than including it."

@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Project management for people and agents, in equal measure. Wires this session to a Subroutine instance and carries the working practice for using it well. It starts Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web.",
   "author": {
     "name": "Simon Holliday",

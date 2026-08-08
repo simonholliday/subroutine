@@ -311,8 +311,8 @@ def _refuse_administering_somebody_else (
 		return
 
 	# Imported here rather than at the top: `domain.authorization` imports
-	# `domain.authentication`, and a module-level import is the circular-import trap
-	# `CLAUDE.md` records. The house style's documented exception covers exactly this.
+	# `domain.authentication`, so a module-level import here would be a cycle. The alias is
+	# what stops `subroutine` being rebound as a local name for the rest of this function.
 	from subroutine.domain import authorization as permits
 
 	permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)

@@ -254,9 +254,10 @@ of wondering which of two items is the real one:
 subroutine_search(q="deploy script")
 ```
 
-It reads titles *and* what was written about them, so a half-remembered phrase from a
-description will find it. Use it before creating anything, and whenever the user refers to
-something you have no record of — it is usually already there.
+It reads titles *and* what was written about them, and every word you give has to appear —
+in any order, in either field. So a half-remembered description finds it. Use it before
+creating anything, and whenever the user refers to something you have no record of — it is
+usually already there.
 
 **Read one before acting on it.** A listing is titles; `subroutine_show(ref=42)` is the whole
 item, with what it is linked to and everything anybody has recorded against it:
