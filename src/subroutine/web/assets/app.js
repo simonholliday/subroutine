@@ -299,13 +299,22 @@ export function Adding ({ onAdd, busy }) {
 	`;
 }
 
-export function Listing ({ items, onOpen, onComplete, onAdd, busy }) {
+export function Listing ({ items, onOpen, onComplete, onAdd, onMore, busy, more }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
 		shown only on a mixed page: a blank beside "Document" would read as missing data rather
 		than as "ordinary", and the word "Task" on every line of a list of tasks is noise.
 	*/
 	const showKind = new Set(items.map((item) => item.kind)).size > 1;
+
+	/*
+		**A listing that had to stop says so.** It said nothing until `#646`, and a reader was
+		shown 100 of 142 with no way to tell — which is how an item they had written minutes
+		earlier became unfindable. The count is of what is *shown* rather than of what exists,
+		because §8.4 declines to compute a total and a wrong number would be worse than none.
+	*/
+	const truncated = more !== null && more !== undefined
+		&& (more.tasks !== null || more.documents !== null);
 
 	return html`
 		<div class="listing">
@@ -321,6 +330,15 @@ export function Listing ({ items, onOpen, onComplete, onAdd, busy }) {
 						`)}
 					</ul>
 				`}
+
+			${truncated && html`
+				<div class="cut">
+					<span>Showing ${items.length}. There are more.</span>
+					${onMore && html`
+						<button onClick=${onMore} disabled=${busy}>Show more</button>
+					`}
+				</div>
+			`}
 		</div>
 	`;
 }
@@ -550,28 +568,57 @@ export function App () {
 	const [members, setMembers] = useState([]);
 	const [note, setNote] = useState(null);
 	const [busy, setBusy] = useState(false);
+	const [more, setMore] = useState(null);
 	const since = useRef(null);
 
-	const load = useCallback(async (slug) => {
+	const load = useCallback(async (slug, after = null) => {
 		if (!slug) return;
 
 		const scope = `workspace_id=${encodeURIComponent(slug)}`;
+		const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
 
 		/*
+			**No `order`, because the command line sends none** (`#646`). It used to ask for
+			`-priority_score`, and §6.3a sorts that in three bands with *unranked last* — so an
+			item somebody had just captured, which by definition has neither axis set yet, went
+			straight to the bottom. `#642` was 142 of 142 on a page of 100, and its author was
+			told it had been added.
+
+			§6.3a exists because saying *more* about an item pushed it down. This is the mirror:
+			saying nothing about one hides it entirely. Priority order is a view and wants a
+			control; it is not what "the list" means.
+
 			Two requests because tasks and documents are two collections, and both belong here:
 			one counter per workspace serves them (§6.2), so a list holding only tasks tells a
 			reader who has learned that a number names an item that half the numbers do not
 			exist. That was a real complaint about the CLI listing before it spanned both.
 		*/
 		const [tasks, documents] = await Promise.all([
-			api(`/tasks?${scope}&order=-priority_score&limit=${PAGE}&fields=${TASK_FIELDS}`),
-			api(`/documents?${scope}&order=-updated_at&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`),
+			api(`/tasks?${scope}&limit=${PAGE}&fields=${TASK_FIELDS}`
+				+ from(after && after.tasks)),
+			api(`/documents?${scope}&limit=${PAGE}&fields=${DOCUMENT_FIELDS}`
+				+ from(after && after.documents)),
 		]);
 
-		setItems([
+		const fetched = [
 			...tasks.items.map((row) => ({ ...row, kind: "task" })),
 			...documents.items.map((row) => ({ ...row, kind: "document" })),
-		]);
+		];
+
+		setItems((held) => (after ? [...held, ...fetched] : fetched));
+
+		/*
+			**What was left behind, so the listing can say so.** The envelope has carried
+			`has_more` since M1 and this app read it nowhere — so it showed 100 of 142 and
+			looked complete, which is how an item somebody had just written became unfindable
+			rather than merely mis-sorted. A count is deliberately not asked for: §8.4 declines
+			`include_total` because it costs a second full scan, and "there is more" is the part
+			a reader acts on.
+		*/
+		setMore({
+			tasks: tasks.page.has_more ? tasks.page.next_cursor : null,
+			documents: documents.page.has_more ? documents.page.next_cursor : null,
+		});
 	}, []);
 
 	const roster = useCallback(async (slug) => {
@@ -883,6 +930,22 @@ export function App () {
 		}
 	}, [load, workspace]);
 
+	const showMore = useCallback(async () => {
+		/* The next page of each collection that has one, appended. `load` takes the cursors
+		   rather than the page number, because keyset pagination is what the API offers and
+		   what makes a page boundary stable while somebody is adding things. */
+		setBusy(true);
+
+		try {
+			await load(workspace, more);
+		} catch (failure) {
+			setNote({ text: `There was more, but it did not arrive. ${failure.message}`,
+				tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [load, more, workspace]);
+
 	const chooseWorkspace = useCallback(async (slug) => {
 		setWorkspace(slug);
 		setNote(null);
@@ -933,7 +996,7 @@ export function App () {
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					onComplete=${complete} onAssign=${assign} />`
 				: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-					onAdd=${add} busy=${busy} />`}
+					onAdd=${add} busy=${busy} more=${more} onMore=${showMore} />`}
 
 			<footer class="foot">
 				<span>${items.length} items</span>

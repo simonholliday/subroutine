@@ -282,7 +282,7 @@ def _rendered (
 		   reader cannot do that" rather than "the harness forgot". */
 		const handlers = {{}};
 		for (const name of ["onOpen", "onBack", "onRetry", "onComplete", "onAssign",
-			"onAdd", "onUndo", "onDismiss"]) handlers[name] = () => {{}};
+			"onAdd", "onUndo", "onDismiss", "onMore"]) handlers[name] = () => {{}};
 
 		for (const [name, props] of Object.entries(asked)) {{
 			out[name] = flatten(app[name]({{ ...handlers, ...props }}));
@@ -1197,4 +1197,70 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	assert not missing, (
 		f"a row renders {sorted(missing)}, and the listing does not ask for {'it' if len(missing) == 1 else 'them'} — "
 		f"so every row will show that as absent rather than as unknown"
+	)
+
+
+# ---- the list is the whole list, in the same order (`SR#646`) ------------------------------
+
+
+def test_the_listing_asks_the_same_question_the_command_line_does () -> None:
+	"""**Two surfaces, one question, and they gave different answers.**
+
+	`subroutine list` sends no `order`, so it gets the API's default: newest first. `app.js`
+	asked for `-priority_score`, which §6.3a sorts in three bands with *unranked last* — and an
+	item somebody has just captured has neither axis set, so it goes straight to the bottom.
+	`SR#642` was 142 of 142 on a page of 100, and its author had been told it was added.
+
+	The rule is not "never sort by priority"; it is that the *default* is one decision and there
+	is one of it. A sort control is a different item.
+	"""
+
+	source = _served_modules()["app.js"]
+	listings = re.findall(r'api\(`(/(?:tasks|documents)\?[^`]*)`', source)
+
+	assert len(listings) == 2, f"expected the two listing requests, found {listings}"
+
+	for path in listings:
+		assert "order=" not in path, (
+			f"{path} chooses an order, and `subroutine list` does not — so the same question "
+			f"has two answers, and the one that hid SR#642 was this one"
+		)
+
+
+def test_a_listing_that_had_to_stop_says_so (tmp_path: pathlib.Path) -> None:
+	"""`has_more` is in every envelope and this app read it nowhere.
+
+	So it showed 100 of 142 and looked complete. The CLI learned to print `…and more` in July;
+	the browser was written eleven months later without it. A truncation nobody is told about is
+	worse than a short list — it is a *wrong* list that cannot be questioned.
+	"""
+
+	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+
+	whole = _rendered(tmp_path, {"Listing": {"items": rows, "more": None}})
+	cut = _rendered(tmp_path, {
+		"Listing": {"items": rows, "more": {"tasks": "a-cursor", "documents": None}}
+	})
+
+	assert "There are more" not in whole["Listing"], "a complete list claimed to be short"
+	assert "There are more" in cut["Listing"], "a truncated list said nothing"
+	assert "Show more" in cut["Listing"], "there was no way to see the rest"
+
+
+def test_the_page_size_is_a_page_and_not_a_ceiling (tmp_path: pathlib.Path) -> None:
+	"""Whatever was left behind is reachable, so the cursor has to be carried.
+
+	`has_more` without `next_cursor` would be a listing that admits it is short and offers
+	nothing — which is the shape §8.4 rejected for `include_total`, arrived at from the other
+	direction.
+	"""
+
+	# Comments stripped, because this file *documents* why a total is not asked for — and a
+	# guard that counts the word in its own explanation measures the prose, not the code.
+	source = _without_comments(_served_modules()["app.js"])
+
+	assert "next_cursor" in source, "the cursor stopped being read, so there is no way onwards"
+	assert "cursor=" in source, "the cursor is read and never sent"
+	assert "include_total" not in source, (
+		"a total is being asked for; §8.4 declines it because it costs a second full scan"
 	)
