@@ -1413,3 +1413,45 @@ def test_an_unmatched_address_answers_a_browser_and_a_client_differently (
 	assert mistyped.status_code == 404
 	assert mistyped.json()["code"] == "not_found"
 	assert "/v1/nothing" in mistyped.json()["detail"]
+
+
+def test_the_workspace_in_an_address_is_the_one_that_is_shown (tmp_path: pathlib.Path) -> None:
+	"""`SR#650`: it was parsed and then ignored, so `/personal` showed whatever you were in.
+
+	`/projects` looked right the whole time — **because it was the default**, which is the one
+	case that cannot tell a working feature from a missing one. That is why the decision is a
+	function now: the rule was never wrong, the wire was missing, and only something callable
+	can prove the wire exists.
+
+	Four cases, and the last is new since `SR#648`: an address nobody claimed is served the app,
+	so `/nonsense` reaches this and a reader who typed it must be told rather than quietly shown
+	somebody else's backlog.
+	"""
+
+	module = _staged(tmp_path)
+	answers = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const available = ["projects", "personal"];
+		const cases = [
+			[{{ workspace: "personal", project: null, ref: null }}, "projects"],
+			[{{ workspace: "projects", project: null, ref: null }}, "personal"],
+			[null, "projects"],
+			[{{ workspace: "nonsense", project: null, ref: null }}, "projects"],
+		];
+
+		process.stdout.write(JSON.stringify(
+			cases.map(([asked, current]) => app.chosenWorkspace(asked, available, current))
+		));
+	""")
+
+	named, other, none, unknown = answers
+
+	assert named == {"slug": "personal", "refused": None}, (
+		"an address naming a workspace did not select it — which is SR#650 exactly"
+	)
+	assert other == {"slug": "projects", "refused": None}
+	assert none == {"slug": "projects", "refused": None}, "no address should keep you where you are"
+	assert unknown == {"slug": "projects", "refused": "nonsense"}, (
+		"an unknown workspace was silently swapped for another one"
+	)

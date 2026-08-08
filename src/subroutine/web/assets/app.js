@@ -188,6 +188,32 @@ export function parseAddress (pathname) {
 	};
 }
 
+export function chosenWorkspace (asked, available, current) {
+	/*
+		Which workspace to show, given the address, the ones this reader has, and where they
+		already were — `#650`.
+
+		**A pure function on purpose.** The bug this replaces was not a wrong rule: the address
+		was parsed correctly and the list rendered correctly, and nothing joined them. That
+		wire lived inside `App`, which the render harness cannot execute (`#640`), so it was
+		found by Simon opening `/personal` and seeing the wrong workspace. Lifting the decision
+		out is what makes it checkable — the same move that makes `parseAddress` and
+		`markdown.render` the best-covered code here.
+
+		`refused` is named rather than silently dropped, because since `#648` an address nobody
+		claimed is served the app: `/nonsense` reaches this function, and a reader who typed it
+		deserves to be told rather than shown somebody else's backlog.
+	*/
+	const wanted = (asked && asked.workspace) || null;
+	const known = wanted !== null && available.includes(wanted);
+	const fallback = current || available[0] || null;
+
+	return {
+		slug: known ? wanted : fallback,
+		refused: wanted !== null && !known ? wanted : null,
+	};
+}
+
 export function mentionHref (workspace) {
 	/*
 		How a `#42` written in a description becomes a link.
@@ -822,11 +848,21 @@ export function App () {
 
 		try {
 			const identity = await api("/me");
-			const first = identity.workspaces[0];
-			const slug = (workspace || (first && first.slug)) ?? null;
+			const asked = parseAddress(window.location.pathname);
+			const { slug, refused } = chosenWorkspace(
+				asked, identity.workspaces.map((space) => space.slug), workspace,
+			);
 
 			setMe(identity);
 			setWorkspace(slug);
+
+			if (refused !== null) {
+				setNote({
+					text: `There is no workspace called ${refused} that you can see.`
+						+ (slug ? ` Showing ${slug}.` : ""),
+					tone: "bad",
+				});
+			}
 
 			/* The head of the feed, so the first poll asks about what happens *next* rather
 			   than replaying everything that ever has. */
@@ -843,8 +879,6 @@ export function App () {
 				landed in this render, so the closure still holds the previous value, and a read
 				scoped to it would be scoped to the wrong workspace or to nothing.
 			*/
-			const asked = parseAddress(window.location.pathname);
-
 			setProject(asked && asked.project);
 
 			await Promise.all([
