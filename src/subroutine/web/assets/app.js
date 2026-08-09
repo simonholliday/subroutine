@@ -681,6 +681,39 @@ export function overdue (item) {
 	return new Date(item.due_at) < new Date();
 }
 
+/*
+	**The two categories that mean a task is over**, which is `domain/tasks.FINISHED_CATEGORIES`
+	said in JavaScript. Two copies of one rule is this codebase's signature defect, so it is worth
+	saying why this one is not: the browser is handed `status_category` as data precisely so it
+	may branch on it, and the alternative — asking the instance whether each row is finished — is
+	a request per row to learn something already in the row.
+
+	It is the *vocabulary* that is shared, not the rule, and the vocabulary is published: §6.4
+	fixes these four categories beside a status key an installation may rename freely, and
+	`COLUMNS` below already names all four for the board.
+*/
+const FINISHED = new Set(["done", "cancelled"]);
+
+export function completable (item) {
+	/*
+		Whether finishing this is something a reader could still do.
+
+		**Two questions, and `Row` was asking only the first.** A document cannot be completed —
+		it has no such axis — and neither can a task that is already over. `Row` checked the kind
+		and shipped a **Complete** button on every card in the board's *Done* column (`#724`),
+		where pressing it rewrites the record of when the work finished (`#723`).
+
+		The rule is stated twice already, in `Row`'s own comment and in `Doing`'s: *a control that
+		refuses when pressed is worse than one that is not there*. This is that sentence made into
+		something both of them can call.
+
+		**A missing category reads as unfinished**, which is the safe direction: it costs a button
+		that turns out to do nothing, where the opposite would silently remove the only way to
+		complete something.
+	*/
+	return item.kind === "task" && !FINISHED.has(item.status_category);
+}
+
 export function marks (item, showKind) {
 	/*
 		The small labels under a title.
@@ -903,8 +936,10 @@ export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
 		is invalid, and a browser resolves it by dropping the inner one — so completing would
 		open the item instead, silently, and only in some browsers.
 
-		Only a task has one. A document cannot be completed, and a control that refuses when
-		pressed is worse than one that is not there.
+		**Only where there is something left to finish** — `completable`, which asks about the
+		status as well as the kind. This asked about the kind alone until `#724` and so put a
+		**Complete** button on every card in the board's *Done* column, on work that was already
+		over, where pressing it moves the record of when it finished (`#723`).
 	*/
 	return html`
 		<li>
@@ -920,7 +955,7 @@ export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
 					</span>
 				`}
 			</button>
-			${item.kind === "task" && onComplete && html`
+			${completable(item) && onComplete && html`
 				<button class="finish" onClick=${() => onComplete(item)}
 					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
 			`}
@@ -1317,13 +1352,18 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 		**Only for a task, and only while it is open.** A document has neither, and a completed
 		task offering "Complete" is a control whose only outcome is a refusal.
 
+		**This wrote the rule out by hand and got it three-quarters right** (`#724`): it asked
+		whether the category was `done`, so a **cancelled** task — equally over — was offered both
+		controls. The set has two members and the copy here knew one of them. It is `completable`
+		now, which `Row` also calls, so there is one place to be wrong rather than three.
+
 		Assignment lists the workspace's members and nothing else, because `tasks.assignee_for`
 		is workspace-scoped on purpose: handing work to somebody who cannot see it is not a
 		fair act. "Nobody" sends null, which the API takes as *clear this* rather than as *no
 		opinion* — driven and confirmed rather than assumed, since the two readings of a null
 		are indistinguishable from the outside.
 	*/
-	if (item.kind === "document" || item.status_category === "done") return null;
+	if (!completable(item)) return null;
 
 	return html`
 		<div class="doing">

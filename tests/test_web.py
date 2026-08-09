@@ -34,6 +34,7 @@ import subroutine.api.routing
 import subroutine.api.web
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.tasks
 import subroutine.web.vendored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1004,18 +1005,76 @@ def test_a_reader_who_cannot_write_is_shown_no_controls (tmp_path: pathlib.Path)
 	assert "<form" not in rendered["Listing"], "an add box appeared with nothing to add through"
 
 
-def test_a_completed_task_is_not_asked_to_complete_again (tmp_path: pathlib.Path) -> None:
-	"""`status_category` is the fixed field a client may branch on; the status key is renameable."""
+@pytest.mark.parametrize("category", sorted(subroutine.domain.tasks.FINISHED_CATEGORIES))
+def test_a_finished_task_is_not_asked_to_finish_again (
+	tmp_path: pathlib.Path, category: str
+) -> None:
+	"""Neither on the page that shows one item, nor on the rows of a listing — `#724`.
+
+	`status_category` is the fixed field a client may branch on; the status key is renameable.
+
+	**Parametrised over the instance's own set rather than over the word `done`**, which is what
+	both copies of this rule got wrong in different ways. `Doing` named `done` and so offered a
+	*cancelled* task both its controls; `Row` asked only whether the item was a task and so put a
+	**Complete** button on every card in the board's *Done* column, where pressing it moves the
+	record of when the work finished (`#723`).
+
+	Sorted so the cases are named stably, and the set is measured for emptiness by
+	``test_the_browser_and_the_instance_agree_on_what_finished_means`` — a parametrisation over an
+	empty constant produces zero cases, and "no cases failed" reads exactly like "the guard ran".
+	"""
+
+	item = {"ref": 42, "kind": "task", "title": "Over already",
+		"status_category": category, "assignee": None}
 
 	rendered = _rendered(tmp_path, {
-		"Doing": {
-			"item": {"ref": 42, "kind": "task", "title": "Done already",
-				"status_category": "done", "assignee": None},
-			"members": ["si"],
-		}
+		"Doing": {"item": item, "members": ["si"]},
+		"Row": {"item": item, "showKind": False},
 	})
 
-	assert rendered["Doing"] == "", "a finished task still offered to be finished"
+	assert rendered["Doing"] == "", f"a {category} task still offered to be finished"
+	assert "Complete" not in rendered["Row"], f"a {category} row still offered to be finished"
+
+
+def test_an_unfinished_row_still_offers_the_control (tmp_path: pathlib.Path) -> None:
+	"""The other half, without which the test above passes on a page that offers nothing at all.
+
+	`#405`'s rule in its cheapest form: a refusal test proves only that something is absent, and
+	absence is also what a broken component produces.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 1, "kind": "task", "title": "Still going",
+			"status_category": "in_progress"}, "showKind": False},
+	})
+
+	assert "Complete" in rendered["Row"], "an open task was not offered completion"
+
+
+def test_the_browser_and_the_instance_agree_on_what_finished_means () -> None:
+	"""The browser holds its own copy of `FINISHED_CATEGORIES`, and this is what makes that safe.
+
+	It is a copy on purpose: `status_category` is published to clients precisely so they may
+	branch on it, and the alternative — asking the instance whether each row is finished — is a
+	request per row for something already in the row. What is not safe is a copy nothing compares,
+	which is this codebase's signature defect and cost eleven sites on `#508`.
+
+	**Set equality, so it fails in both directions.** A category added to the instance and not to
+	the browser leaves finished work offering to be finished; one added to the browser alone hides
+	the control on work that is still open, which is the more expensive way round.
+	"""
+
+	source = _served_modules()["app.js"]
+	found = re.search(r"const FINISHED = new Set\(\[([^\]]*)\]\)", source)
+
+	assert found, "the browser's set of finished categories could not be read from app.js"
+
+	written = set(re.findall(r'"([^"]+)"', found.group(1)))
+
+	assert written == set(subroutine.domain.tasks.FINISHED_CATEGORIES), (
+		f"the browser calls {sorted(written)} finished and the instance calls "
+		f"{sorted(subroutine.domain.tasks.FINISHED_CATEGORIES)} finished"
+	)
 
 
 def test_the_add_box_teaches_the_capture_grammar (tmp_path: pathlib.Path) -> None:
