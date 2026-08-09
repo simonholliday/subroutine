@@ -320,9 +320,12 @@ def guide_text () -> str:
 		"| Somebody edits the same item while you are thinking | `expected_version` on every "
 		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
 		"edit |",
-		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim` | "
-		"It leaves their ready listing until you are done — a lease, so nothing is stranded "
-		"if you stop first |",
+		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim`, "
+		"then `/release` at the end | It leaves their ready listing while you hold it — a "
+		"lease, so nothing is stranded if you stop first. Finishing does **not** release it |",
+		"| Nobody can see that you are working | `status_category` `in_progress`, set when "
+		"you begin | A person watching sees the work move, rather than items appearing "
+		"finished with nothing in between |",
 		"",
 		"**Being bounded is what earns you more to do.** Your token can be scoped narrower "
 		"than its owner's — particular permissions, particular projects, one workspace. That "

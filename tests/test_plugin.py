@@ -21,6 +21,7 @@ import sqlalchemy.orm
 import yaml
 
 import api_support
+import subroutine.api.meta
 import subroutine.cli.main
 import subroutine.clients.local
 import subroutine.config
@@ -954,3 +955,81 @@ def test_the_skill_names_the_failure_that_every_other_signal_calls_healthy () ->
 		assert "Reload the window" in skill, (
 			f"{name}'s skill names the cause without naming the remedy"
 		)
+
+
+def test_the_skill_asks_for_a_claim_without_a_condition_on_it () -> None:
+	"""`#705`. The instruction was there all along and had a 0% hit rate — because of one clause.
+
+	It read *"If anybody else works from this list, take the task before you start it."* An agent
+	alone on an instance evaluates that as false, and it **was** false, for as long as there was
+	one of us. By the time a second worker exists the habit needed to have been there already:
+	measured on 2026-08-09, every open item in `projects` had `claimed_by_id: null` and nothing
+	had ever been claimed.
+
+	**A conditional instruction whose condition the reader evaluates for itself, in a system
+	whose whole premise is that other workers cannot see your screen, switches itself off exactly
+	when the population it guards against appears.**
+
+	So the guard is on the *absence* of a condition, which is an odd thing to assert and is the
+	thing that actually went wrong. Checked against the sentence that shipped rather than against
+	any phrasing of it, so a rewrite that keeps the clause fails.
+	"""
+
+	skill = SKILL.read_text(encoding="utf-8")
+	claiming = skill[skill.index("subroutine_claim"):]
+
+	assert "If anybody else works from this list" not in skill, (
+		"the claim instruction is conditional again, and the condition reads as false to the "
+		"agent most likely to be alone with the instance"
+	)
+
+	# The three calls, in the order they have to happen. `release` last is the one measured to
+	# be necessary rather than implied: completing a task leaves the claim exactly as it was.
+	for named in ("subroutine_claim(ref=42)", "release=true", 'status="in_progress"'):
+		assert named in claiming, f"the skill no longer shows {named}"
+
+
+def test_the_skill_says_a_claim_and_a_status_are_different_facts () -> None:
+	"""`#726`, and Simon's ruling on 2026-08-09 that neither is derived from the other.
+
+	The first design had claiming write `in_progress` and releasing revert it. He refused it on
+	two grounds and both are right: a claim is taken *before* the work and may be given back
+	without any being done, and release has four possible destinations and cannot tell them
+	apart — the worst being a task started and abandoned mid-context, which a revert would
+	report as untouched.
+
+	So the skill has to ask for **both**, and say why they are not the same thing. Without that
+	an agent reads two instructions with one apparent purpose and drops one of them.
+	"""
+
+	skill = SKILL.read_text(encoding="utf-8")
+
+	assert "two different facts" in skill, (
+		"the skill asks for a claim and a status without saying they answer different "
+		"questions, which is an invitation to treat one as redundant"
+	)
+
+	assert "Finishing does not release it" in skill, (
+		"an agent told only to claim leaves one on every finished item until the lease runs "
+		"out — measured: `done` changes neither the holder nor the expiry"
+	)
+
+
+def test_the_guaranteed_channel_names_the_practice_and_not_only_the_endpoint () -> None:
+	"""`#499`: the channel every agent gets must name what the optional ones teach.
+
+	`/v1/docs/agent` reaches an agent that has no plugin and so no skill. It named
+	`POST /v1/tasks/{ref}/claim` in a table row — so `#705`'s claim that it *"describes claiming
+	nowhere"* was not accurate, and is corrected on the item — but it said nothing about
+	releasing, and nothing about a status. An agent reading only this would have taken leases
+	and never given one back.
+	"""
+
+	guide = subroutine.api.meta.guide_text()
+
+	assert "/release" in guide, "the guide names claiming and never says to give it back"
+
+	assert "in_progress" in guide, (
+		"the guide never tells an agent to say it has started, so a person watching sees items "
+		"appear finished with nothing in between"
+	)

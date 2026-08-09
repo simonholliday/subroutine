@@ -82,6 +82,22 @@ upgrade involves.
   There is no capture box on it. Anything you added there would be open, and this page shows
   what is over — so it would report success over a list that could not change.
 
+- **Agents are now told to claim work, say when they start it, and give it back.** Three acts
+  around the job: take the task before touching anything, move it to *in progress* when you
+  actually begin, and release it at the end whether or not you finished.
+
+  **The instruction to claim was already there and had never once been followed**, because it
+  began *"if anybody else works from this list"* — which an agent alone on an instance reads as
+  false, and which stops being false at exactly the moment the habit needed to have existed
+  already. It is unconditional now.
+
+  **Finishing does not release a claim**, so that is a separate act rather than something to
+  assume, and the skill says so. A lease still expires on its own, so nothing is stranded when
+  a session ends partway.
+
+  Both plugins carry the change, and `GET /v1/docs/agent` says the same for an agent working
+  from the API with no plugin at all.
+
 - **A list says who is holding an item.** A row now carries *`agent` is on it* while somebody
   has claimed it, so you can see what is being worked on without opening anything.
 

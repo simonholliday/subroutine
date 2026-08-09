@@ -232,20 +232,36 @@ subroutine_list(ready=true, order="-priority_score")
 `ready` leaves out anything blocked by unfinished work and anything deferred to a later date.
 Without it you get a backlog in priority order, which includes things nobody can act on yet.
 
-**If anybody else works from this list, take the task before you start it.**
+**Take the task before you touch anything, say when you start, and give it back at the end.**
+Three calls around the work, in this order, every time:
 
 ```
-subroutine_claim(ref=42)
+subroutine_claim(ref=42)                      first, before any other change
+subroutine_update(ref=42, status="in_progress")   when you actually begin
+                                              … the work …
+subroutine_claim(ref=42, release=true)        last, whether you finished or not
 ```
 
-Nothing enforces this and nothing has to: a claim is how you say "I am on this" to workers who
-cannot see your screen. `ready=true` then hides it from them and never from you. It expires by
-itself, so say it again if you are still going, and nothing is stranded if your context ends
-first — which it will.
+**This used to say "if anybody else works from this list", and that condition is why nobody
+ever did it.** An agent alone on an instance reads it as false — and it was, until it was not.
+By the time a second worker exists, the habit needed to have been there already. So it is
+unconditional now: you cannot see who else is about to pick this up, and that is the whole
+reason the mechanism exists.
 
-`subroutine_claim(ref=42, release=true)` gives it back when you stop without finishing. If
-somebody else holds it you are told who and until when, which is the answer to what you do
+**A claim and a status are two different facts, and both are worth saying.** The claim says
+*somebody has this right now* — a lease, so `ready=true` hides it from other workers and
+`claimed_by` shows your name beside the item. The status says *work has begun*, which is not
+the same thing: you may claim an item in order to read it and decide it is not for you, and
+then nothing was in progress at all. Nobody derives either from the other.
+
+**It expires by itself**, so say it again if you are still going, and nothing is stranded if
+your context ends first — which it will. A claim you find on somebody else's item may already
+have run out; you are told who holds it and until when, which is the answer to what you do
 next.
+
+**Finishing does not release it. Measured, not assumed** — `subroutine_done` leaves the claim
+and its expiry exactly as they were. So release is a separate act at the end, and it is the one
+most easily forgotten because the work feels over.
 
 **Look before you file.** Searching costs one call and a duplicate costs somebody an afternoon
 of wondering which of two items is the real one:
