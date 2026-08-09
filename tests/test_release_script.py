@@ -42,6 +42,19 @@ Notable changes, newest first.
 The first release.
 """
 
+#: A plugin's server definition, bootstrapping through ``uvx`` at the previous release's series.
+#: **The fixture carries one because without it the pin writer runs over nothing** — `BOOTSTRAPS`
+#: is discovered from the filesystem, so an empty `plugins/` made every assertion about it
+#: vacuous while the suite stayed green.
+SERVERS = {
+	"mcpServers": {
+		"tools": {
+			"command": "uvx",
+			"args": ["subroutine~=0.1.0", "mcp", "--connection", "${user_config.connection}"],
+		}
+	}
+}
+
 #: A manifest with more in it than a version, so that rewriting one key can be shown to leave
 #: the rest alone — the failure mode of editing JSON by pattern instead of by parser.
 MANIFEST = {
@@ -71,6 +84,9 @@ def repository (tmp_path: pathlib.Path) -> pathlib.Path:
 
 	(root / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
 	(manifest / "plugin.json").write_text(json.dumps(MANIFEST, indent=2) + "\n", encoding="utf-8")
+	(manifest.parent / ".mcp.json").write_text(
+		json.dumps(SERVERS, indent=2) + "\n", encoding="utf-8"
+	)
 	shutil.copy(SCRIPT, root / "scripts" / "release.py")
 
 	_git(root, "init", "-q")
@@ -408,3 +424,72 @@ def test_a_dry_run_says_what_the_record_would_gain (
 
 	assert "releases.json" in done.stdout
 	assert not (repository / "docs" / "releases.json").exists()
+
+
+def test_the_uvx_pin_moves_to_the_series_being_released (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""``#585``. An unpinned bootstrap moves the code under a database on a day nobody chose.
+
+	``uvx subroutine`` resolves to whatever is newest whenever its cache next looks, and for a
+	local instance the program *is* the instance — so a minor version arriving unasked is a
+	migration arriving unasked. The pin is written by the same run that writes the manifests,
+	which is what keeps them from drifting.
+
+	**The series, not the version.** ``~=0.2.0`` is ``>=0.2.0, ==0.2.*``: patches reach a user
+	by themselves, a minor does not. Pinning the exact version would deny them fixes; pinning
+	the manifest's version would ask PyPI for something that does not exist, because a manifest
+	leads the package between releases (`#396`).
+	"""
+
+	done = cut("0.2.0", "--date", "2026-08-02")
+
+	assert done.returncode == 0, done.stderr
+
+	servers = json.loads(
+		(repository / "plugins/subroutine/.mcp.json").read_text(encoding="utf-8")
+	)
+	arguments = servers["mcpServers"]["tools"]["args"]
+
+	assert arguments[0] == "subroutine~=0.2.0", f"the pin was not moved: {arguments[0]}"
+
+	# Everything else about the invocation is untouched, which is the failure mode of editing
+	# JSON by pattern rather than by parser — the same argument the manifest test makes.
+	assert arguments[1:] == ["mcp", "--connection", "${user_config.connection}"]
+	assert servers["mcpServers"]["tools"]["command"] == "uvx"
+
+
+def test_the_pin_is_committed_with_everything_else (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""A file rewritten and left out of the commit is a tag that does not carry it.
+
+	The same hazard `#238` produced for the manifest: the tree is right, the tag is wrong, and
+	nobody finds out until somebody installs from it.
+	"""
+
+	assert cut("0.2.0", "--date", "2026-08-02").returncode == 0
+
+	assert _git(repository, "status", "--porcelain").strip() == "", (
+		"the release left something uncommitted"
+	)
+
+	named = _git(repository, "show", "--stat", "--name-only", "--format=", "HEAD")
+
+	assert "plugins/subroutine/.mcp.json" in named, "the pin was rewritten and not committed"
+
+
+def test_a_dry_run_says_the_pin_it_would_write (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""The dry run is what somebody reads before cutting, so it has to name every file it moves."""
+
+	said = cut("0.2.0", "--date", "2026-08-02", "--dry-run")
+
+	assert said.returncode == 0, said.stderr
+	assert "subroutine~=0.2.0" in said.stdout, said.stdout
+
+	# And it really was a dry run.
+	servers = (repository / "plugins/subroutine/.mcp.json").read_text(encoding="utf-8")
+
+	assert "subroutine~=0.1.0" in servers, "the dry run wrote the pin anyway"

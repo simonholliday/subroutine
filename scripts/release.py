@@ -55,6 +55,18 @@ PLUGINS = tuple(
 	)
 )
 
+#: The plugin server definitions that bootstrap through ``uvx`` and so carry a version pin.
+#: Discovered the same way :data:`PLUGINS` is and for the same reason, and filtered by *reading*
+#: rather than by naming: a plugin reaching an instance over HTTP has no package to pin, and one
+#: added later that does will be found without this line being touched.
+BOOTSTRAPS = tuple(
+	sorted(
+		path
+		for path in (ROOT / "plugins").glob("*/.mcp.json")
+		if "subroutine~=" in path.read_text(encoding="utf-8")
+	)
+)
+
 #: The record `subroutine db upgrade --check` reads — item `#321`. **Written here rather than
 #: derived by whoever asks**, because the fact it carries is only knowable at the moment of
 #: release: the schema head this version expects. PyPI publishes a version and nothing about a
@@ -100,18 +112,24 @@ def main (argv: list[str] | None = None) -> int:
 		return _refuse("no migration head could be read, so the release record cannot say what "
 		               "schema this version expects.")
 
+	major, minor, *_ = version.split(".")
+	pinned = PIN.format(major=major, minor=minor)
+
 	if parsed.dry_run:
 		print(f"Would release {version} ({on}):")
 		print(f"  {CHANGELOG.name}: the Unreleased heading becomes '## {version} — {on}'")
 		for manifest in PLUGINS:
 			print(f"  {manifest.parent.parent.name}: version becomes {version}")
+		for bootstrap in BOOTSTRAPS:
+			print(f"  {bootstrap.parent.name}: uvx is pointed at '{pinned}'")
 		print(f"  {RELEASES.name}: {version} recorded at schema {head}")
-		print(f"  commit all {2 + len(PLUGINS)}, then tag v{version}")
+		print(f"  commit all {2 + len(PLUGINS) + len(BOOTSTRAPS)}, then tag v{version}")
 
 		return 0
 
 	CHANGELOG.write_text(changelog, encoding="utf-8")
 	_write_plugin_version(version)
+	_write_uvx_pin(version)
 	_record_release(version, head, on)
 
 	# **`check_release_notes.py` is deliberately not run here.** It compares this commit's
@@ -119,7 +137,10 @@ def main (argv: list[str] | None = None) -> int:
 	# makes on every push to main, against the same previous tag. So a missing migration notice
 	# is already refused before anybody reaches this script, and running it again would couple
 	# two scripts for an answer that has been available since the commit that moved the head.
-	_git("add", str(CHANGELOG), str(RELEASES), *(str(path) for path in PLUGINS))
+	_git(
+		"add", str(CHANGELOG), str(RELEASES),
+		*(str(path) for path in PLUGINS), *(str(path) for path in BOOTSTRAPS),
+	)
 	_git("commit", "-m", f"Release {version}", "-m", f"See CHANGELOG.md for what {version} contains.")
 	_git("tag", "-a", f"v{version}", "-m", f"Subroutine {version}")
 
@@ -287,6 +308,46 @@ def _write_plugin_version (version: str) -> None:
 		manifest["version"] = version
 
 		path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+#: How a plugin asks ``uvx`` for the program: the package, pinned to the release series it was
+#: published beside. ``~=`` is a compatible release — ``~=0.6.0`` is ``>=0.6.0, ==0.6.*`` — so a
+#: user picks up fixes without being moved to a minor version that may carry a migration.
+PIN = "subroutine~={major}.{minor}.0"
+
+
+def _write_uvx_pin (version: str) -> None:
+	"""Point every ``uvx`` bootstrap at the series being released.
+
+	**This exists because ``uvx`` floats and a local instance cannot afford that** (`#585`).
+	``uvx subroutine`` resolves to whatever is newest whenever the cache next looks, so an
+	unpinned bootstrap changes the code running against somebody's SQLite database on a day
+	they did not choose — and a minor version is exactly where a migration lands. Pinned to
+	``~=X.Y.0`` they get patches and nothing that moves the schema.
+
+	**Not pinned to the manifest's own version**, which is the tempting mistake: a manifest is a
+	cache key and leads the package between releases (`#396`), so a plugin at 0.6.1 beside a
+	published 0.6.0 would ask PyPI for something that does not exist.
+
+	Discovered from the filesystem like :data:`PLUGINS`, so a plugin added later is pinned
+	without being named here — and one that bootstraps some other way is left alone, because
+	only an argument that already looks like this pin is rewritten.
+	"""
+
+	major, minor, *_ = version.split(".")
+	wanted = PIN.format(major=major, minor=minor)
+
+	for path in BOOTSTRAPS:
+		servers = json.loads(path.read_text(encoding="utf-8"))
+
+		for server in servers.get("mcpServers", {}).values():
+			arguments = server.get("args") or []
+
+			for index, argument in enumerate(arguments):
+				if argument.startswith("subroutine~="):
+					arguments[index] = wanted
+
+		path.write_text(json.dumps(servers, indent=2) + "\n", encoding="utf-8")
 
 
 def _git (*arguments: str) -> str:

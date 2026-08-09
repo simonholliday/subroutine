@@ -346,19 +346,63 @@ def test_a_locally_launched_plugin_says_so_before_anybody_installs_it () -> None
 		)
 
 
-def test_the_server_runs_the_configured_command_rather_than_a_fixed_one () -> None:
-	"""The trap this option exists for, reproduced live before it was written down.
+def test_the_server_bootstraps_through_uvx_so_nothing_is_installed_first () -> None:
+	"""``#585``. The plugin must work on arrival, not after a trip to a terminal.
 
-	Installed with ``command`` left at its default, the server on this machine reported
-	``✘ Failed to connect``: a bare ``subroutine`` does not resolve when the program lives in a
-	virtualenv the editor does not activate. That is why a committed ``.mcp.json`` was written
-	for this repository and deliberately deleted, and why the value is prompted for instead.
+	It used to run ``${user_config.command}``, defaulting to a bare ``subroutine`` — which
+	needed Python, the package, and a ``PATH`` entry before the tools appeared, and reported
+	``✘ Failed to connect`` when any of the three was missing. ``uvx`` fetches and caches on
+	first use instead.
+
+	**Measured before it was chosen**: 5.66s on a cold cache, 0.60s warm, 14 tools and a real
+	capture through the relay. And ``uvx`` *prefers an already-installed uv tool* — proved by
+	installing 0.5.0 into an isolated tool directory and watching ``uvx subroutine`` report
+	0.5.0 rather than the published 0.6.0 — so somebody who ran ``uv tool install`` keeps their
+	copy and one plugin serves both.
+
+	The cost, taken deliberately: pointing at a virtualenv or a checkout is no longer a settings
+	field, because ``.mcp.json`` takes a fixed argument list and ``uvx`` needs the package as
+	its first argument — there is no way to spell "and skip that argument", since an empty one
+	is passed through verbatim and refused. ``claude mcp add subroutine -- <path> mcp`` is that
+	route now and is better for it: the marketplace copy is cached and lags.
 	"""
 
 	server = _read(SERVERS)["mcpServers"]["tools"]
 
-	assert server["command"] == "${user_config.command}"
-	assert server["args"][0] == "mcp"
+	assert server["command"] == "uvx"
+	assert server["args"][0].startswith("subroutine~="), (
+		"the package uvx is asked for is the first argument, and it must be pinned"
+	)
+	assert server["args"][1] == "mcp"
+
+
+def test_the_bootstrap_is_pinned_to_the_series_that_was_released () -> None:
+	"""**An unpinned ``uvx`` moves the code under somebody's database on a day they did not
+	choose**, which is the one thing ``uv tool install`` does not do.
+
+	``uvx subroutine`` resolves to whatever is newest whenever the cache next looks. For a local
+	instance that is the program *and* the instance, so a minor version arriving unasked is a
+	migration arriving unasked. ``~=X.Y.0`` is a compatible release — patches yes, a minor no.
+
+	Derived from ``docs/releases.json`` rather than restated, so the two cannot drift: that file
+	is written by the same run of ``release.py`` that writes this pin. **Not** compared against
+	the plugin manifest, which leads the package between releases (`#396`) and would ask PyPI
+	for a version that does not exist yet.
+	"""
+
+	published = json.loads(
+		(ROOT / "docs" / "releases.json").read_text(encoding="utf-8")
+	)["releases"][0]["version"]
+	major, minor, *_ = published.split(".")
+
+	for path in sorted((ROOT / "plugins").glob("*/.mcp.json")):
+		for server in _read(path)["mcpServers"].values():
+			pinned = [a for a in server.get("args", []) if a.startswith("subroutine~=")]
+
+			assert pinned == [] or pinned == [f"subroutine~={major}.{minor}.0"], (
+				f"{path.parent.name} asks uvx for {pinned}, and the newest published release "
+				f"is {published} — release.py writes both, so they have drifted"
+			)
 
 
 def test_the_token_travels_in_the_environment_and_is_held_as_a_secret () -> None:
@@ -376,7 +420,7 @@ def test_the_token_travels_in_the_environment_and_is_held_as_a_secret () -> None
 	assert _read(PLUGIN)["userConfig"]["token"]["sensitive"] is True
 
 
-@pytest.mark.parametrize("option", ["command", "connection", "token"])
+@pytest.mark.parametrize("option", ["connection", "workspace", "token"])
 def test_every_declared_option_is_substituted_somewhere (option: str) -> None:
 	"""An option nobody reads is a question asked for nothing.
 
@@ -388,7 +432,7 @@ def test_every_declared_option_is_substituted_somewhere (option: str) -> None:
 	assert "${user_config." + option + "}" in SERVERS.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("option", ["command", "connection", "token"])
+@pytest.mark.parametrize("option", ["connection", "workspace", "token"])
 def test_an_optional_value_left_empty_is_safe (option: str) -> None:
 	"""Every option but the command may honestly be left blank, and blank must mean "as before".
 

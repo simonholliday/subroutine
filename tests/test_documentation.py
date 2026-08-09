@@ -810,8 +810,16 @@ def test_the_documented_agent_path_produces_a_working_agent (
 	would have found this from inside.
 
 	What is checked here is the claim the page makes: run these, and an agent can read. The
-	``uv``/``claude`` lines are somebody else's programs and are skipped by name; everything
-	the README asks of *this* one is run, in order, against an empty XDG home.
+	``claude`` lines are somebody else's program and are skipped by name; everything the README
+	asks of *this* one is run, in order, against an empty XDG home.
+
+	**A ``uvx subroutine …`` line is one of ours** (`#585`). ``uvx`` is a launcher for this
+	program rather than a different program, so the arguments after the package name are what
+	the reader is really being asked to run — and dropping such a line would have made this
+	guard quietly vacuous on the day the README stopped saying ``uv tool install``. It is run
+	in process rather than through ``uvx`` itself, because reaching PyPI from a test would make
+	the suite depend on a network and would exercise the *published* version rather than this
+	one.
 	"""
 
 	home = tmp_path / "fresh"
@@ -820,7 +828,10 @@ def test_the_documented_agent_path_produces_a_working_agent (
 		monkeypatch.setenv(variable, str(home / variable.lower()))
 
 	block = next(one for one in _blocks(README) if _THE_AGENT_PATH in one)
-	ours = [line for line in _typed(block) if line.startswith("subroutine ")]
+	ours = [
+		line.removeprefix("uvx ") for line in _typed(block)
+		if line.startswith(("subroutine ", "uvx subroutine "))
+	]
 
 	assert ours, (
 		"the agent block asks nothing of subroutine itself, so a reader following it has no "

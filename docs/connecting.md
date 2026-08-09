@@ -121,15 +121,21 @@ names them both.
 **Your work is on this machine and you want your coding agent to plan, file and close it.**
 
 ```console
-$ uv tool install subroutine    # or: pipx install subroutine
-$ subroutine init
+$ uvx subroutine init
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-**What it needs:** Subroutine installed **and on your `PATH`**, which is what `uv tool install`
-and `pipx install` guarantee and a virtualenv does not. Your editor starts `subroutine` itself,
-so it has to be able to find it. If the tools do not appear, that is nearly always why.
+**What it needs: [uv](https://docs.astral.sh/uv/getting-started/installation/), and not
+Subroutine.** Your editor starts the plugin through `uvx`, which fetches the package on first
+use and caches it — roughly five seconds once, then a fraction of a second. Nothing is
+permanently installed and nothing has to be on your `PATH`.
+
+**Already ran `uv tool install subroutine`?** That copy is used instead of a download, so the
+two arrangements do not fight. **Running from a checkout or a virtualenv?** The plugin cannot
+point at it — `uvx` takes the package name as its first argument and there is no way to omit
+that — so use `claude mcp add subroutine -- /path/to/subroutine mcp` instead, which is better
+for development anyway: the plugin's copy is cached and lags until you refresh it.
 
 **And Git, for the third command.** The marketplace is a repository and `claude plugin
 marketplace add` clones it, so without a `git` binary that step refuses before anything of ours

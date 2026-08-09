@@ -12,6 +12,29 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **The Claude Code plugin no longer needs Subroutine installed first.** It starts the program
+  through `uvx`, which fetches and caches it on first use — so installing the plugin is the
+  whole of it, rather than the third step after installing Python and a package and fixing your
+  `PATH`. What you need instead is [uv](https://docs.astral.sh/uv/getting-started/installation/),
+  which is one line and no Python. Measured: about five seconds the first time, then a fraction
+  of a second.
+
+  **If you already ran `uv tool install subroutine`, that copy is used** rather than a
+  download, so the two arrangements do not fight and nothing you have set up stops working.
+
+  **The plugin's "subroutine command" setting is gone.** It cannot survive the change: `uvx`
+  takes the package name as its first argument and there is no way to say "skip that". If you
+  were pointing it at a virtualenv or a checkout, use
+  `claude mcp add subroutine -- /path/to/subroutine mcp` instead — which is better for that
+  purpose anyway, because the plugin's copy is cached and lags until you refresh it.
+
+  **The version it fetches is pinned to a release series**, so you get fixes automatically and
+  never a minor version that might carry a database migration on a day you did not choose one.
+
 ## 0.6.0 — 2026-08-09
 
 > **This release changes the database schema**, to `ce11c7d2df2f`.

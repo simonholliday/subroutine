@@ -7,21 +7,23 @@ your machine, in a backlog it uses as fluently as you do.
 
 ## TL;DR
 
-You install one thing, your agent does the filing, and the plan outlives the context window.
+Nothing to install. Your agent does the filing, and the plan outlives the context window.
 
 ```console
-$ uv tool install subroutine
-$ subroutine init
+$ uvx subroutine init
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
 From then on: *"file that as a bug"*, *"what can I actually start?"*, *"write down why we
 rejected the other approach."* You never type a ticket. When you want to look at it yourself,
-open the instance in a browser or run `subroutine today`.
+open the instance in a browser or run `uvx subroutine today`.
 
-The marketplace is a Git repository and that command clones it, so you need Git on your
-machine — the one prerequisite here that is Claude Code's rather than ours.
+**`uvx` comes with [uv](https://docs.astral.sh/uv/getting-started/installation/)** and fetches
+Subroutine on first use rather than installing it — so the plugin works on arrival instead of
+after a trip to a terminal. Prefer it permanently on your `PATH`? `uv tool install subroutine`,
+and the plugin uses that copy instead. Git is needed too, for the marketplace command, which
+clones a repository — the one prerequisite here that is Claude Code's rather than ours.
 
 - **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it. No account, no cloud,
   no telemetry, nothing phoning home.
@@ -84,12 +86,13 @@ a workflow and six required fields.
 
 ## Three ways in, and they compose
 
-**1. Your coding agent using it for you** — the four commands at the top of this page. The
+**1. Your coding agent using it for you** — the three commands at the top of this page. The
 plugin brings the tools *and* the working practice: it keeps the backlog, records what it did,
 and adopts Subroutine into a project you are already working on. **You never have to learn the
 CLI.**
 
-**2. A to-do list on your own machine.** Nothing to configure, no agent involved.
+**2. A to-do list on your own machine.** Nothing to configure, no agent involved. Install it
+properly for this one — you will be typing `subroutine` often enough to want it on your `PATH`.
 
 ```console
 $ uv tool install subroutine    # or: pipx install subroutine
@@ -338,15 +341,24 @@ settings page opens, its fields are all there, and the only evidence of a proble
 absence. Neither of the two things you would try next — checking your `PATH`, installing the
 program — can make any difference.
 
-**Your editor launches `subroutine` itself, so it has to be on your `PATH`** — which is what
-`uv tool install` and `pipx install` guarantee and a virtualenv does not. If the tools do not
-appear afterwards, that is nearly always why, and `claude mcp list` says so in one line:
+**Your editor launches it through `uvx`, so what it needs is uv rather than Subroutine.** The
+package is fetched and cached on first use — about five seconds once, then a fraction of a
+second — and if you have already run `uv tool install subroutine`, that copy is used instead of
+a download. If the tools do not appear afterwards, `claude mcp list` says so in one line:
 installing a plugin and starting its server are separate moments, and only the first one
-reports. `/plugin configure subroutine` takes the absolute path when you would rather point at
-a virtualenv than install it again.
+reports.
 
-It can also be given a connection and a token, both only needed for reaching somebody else's
-instance from a machine that has Subroutine on it too.
+**Working on a checkout, or running from a virtualenv?** The plugin has no field for that, on
+purpose — `uvx` takes the package name as its first argument and there is no way to spell "skip
+that". Point Claude Code at your copy directly instead, which is better anyway, because the
+plugin's own copy is cached and lags until you refresh it:
+
+```console
+$ claude mcp add subroutine -- /path/to/your/venv/bin/subroutine mcp
+```
+
+The plugin can also be given a connection and a token, both only needed for reaching somebody
+else's instance.
 
 **If your work lives on a server and this machine is only a client, install the other plugin
 instead** — it needs nothing on your machine at all:
