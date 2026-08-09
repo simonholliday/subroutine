@@ -13,6 +13,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.mixins
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -1266,3 +1267,88 @@ def status_for (
 			)
 		],
 	)
+
+
+def statuses_in_category (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, category: str
+) -> list[uuid.UUID]:
+	"""Return the ids of every task status in one category, for a listing to narrow by.
+
+	**A category rather than a key, and that is the whole point of the filter** (`#710`). A
+	status key is per-workspace and renameable, so a board or a completed-work view keyed on
+	``done`` stops working on the first installation that renames it. ``category`` is the fixed
+	field :class:`subroutine.db.models.vocabulary.Status` publishes beside the key precisely so
+	that a client may branch on it.
+
+	A document's categories are refused here by name. They are a different vocabulary for a
+	different reason — a superseded specification is not "done" — and passing one to a task
+	listing is a mistake worth being told about rather than an empty page.
+	"""
+
+	if category not in subroutine.db.mixins.TASK_STATUS_CATEGORIES:
+		known = ", ".join(subroutine.db.mixins.TASK_STATUS_CATEGORIES)
+
+		raise subroutine.errors.ValidationError(
+			f"{category!r} is not a status category a task can be in.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="status_category",
+					code="invalid_field_value",
+					message=f"No task status category called {category!r}.",
+					hint=f"A task is in one of: {known}.",
+				)
+			],
+		)
+
+	model = subroutine.db.models.vocabulary.Status
+
+	return list(
+		session.scalars(
+			sqlalchemy.select(model.id).where(
+				model.workspace_id == workspace_id,
+				model.entity_type == "task",
+				model.category == category,
+			)
+		)
+	)
+
+
+def completion_wanted (category: str | None, asked: bool | None) -> bool:
+	"""Say whether a listing narrowed to ``category`` should reach finished work.
+
+	**Here rather than in the router, because both transports have to agree** — the same reason
+	:mod:`subroutine.domain.ordering` exists. A rule applied on one side would make
+	``status_category="done"`` return the finished work over HTTP and an empty list locally.
+
+	``asked`` is three-valued: ``None`` means the caller did not say, which is what lets a
+	narrowing supersede a default without overriding a decision. Asking for a finished category
+	and *not* mentioning completion is an unambiguous request for finished work, so the rows
+	are reached rather than filtered away — the trap being ``?status_category=done`` answering
+	``[]`` on an instance full of finished work, which is a plausible, complete, wrong answer.
+
+	Saying both, and disagreeing, is refused rather than resolved. There is no reading of
+	"only cancelled work, and no finished work" that means anything, and this codebase's rule
+	on a listing is that a contradiction is named rather than quietly settled in one
+	parameter's favour.
+	"""
+
+	if category is None or category not in FINISHED_CATEGORIES:
+		return bool(asked)
+
+	if asked is False:
+		raise subroutine.errors.ValidationError(
+			f"{category!r} is finished work, so excluding finished work leaves nothing.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="include_completed",
+					code="invalid_field_value",
+					message=(
+						f"status_category={category!r} asks only for finished work and "
+						"include_completed=false excludes all of it."
+					),
+					hint="Drop include_completed — narrowing to a finished category implies it.",
+				)
+			],
+		)
+
+	return True

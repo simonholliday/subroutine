@@ -212,7 +212,7 @@ class Client:
 		*,
 		workspace: str | None = None,
 		limit: int | None = None,
-		include_completed: bool = False,
+		include_completed: bool | None = None,
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
@@ -223,6 +223,7 @@ class Client:
 		deleted: bool = False,
 		assignee: str | None = None,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
@@ -235,7 +236,12 @@ class Client:
 			params=_given(
 				workspace_id=workspace,
 				limit=limit,
-				include_completed="true" if include_completed else None,
+				# **Three-valued on the wire, not two.** Sending nothing for `False` would make
+				# "no finished work" and "did not say" the same request, and `#710`'s refusal of
+				# the contradiction with a finished `status_category` could never fire remotely.
+				include_completed=(
+					None if include_completed is None else str(include_completed).lower()
+				),
 				order=order,
 				project=project,
 				# Sent as written and resolved at the far end (`#501`). A username looked up
@@ -243,6 +249,7 @@ class Client:
 				# with the local client's.
 				assignee=assignee,
 				status=status,
+				status_category=status_category,
 				type=type,
 				due_before=None if due_before is None else due_before.isoformat(),
 				due_after=None if due_after is None else due_after.isoformat(),

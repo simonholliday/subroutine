@@ -16,6 +16,22 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be asked for one kind of work rather than one named status.**
+  `GET /v1/tasks?status_category=` takes `todo`, `in_progress`, `done` or `cancelled`, and both
+  clients pass it. A status *key* is yours to rename, so anything built on `?status=done` breaks
+  the day somebody renames it; the category is the fixed field published beside the key for
+  exactly this. It also gathers a group — three of the seeded statuses are `todo`, and asking by
+  key means knowing all three and re-learning them when you add a fourth.
+
+  **Asking for finished work no longer needs a second parameter.** Naming a finished category
+  reaches finished tasks on its own, rather than answering with an empty page because completed
+  work is hidden by default. Asking for a finished category *and* excluding finished work is
+  refused and says why, instead of quietly picking one of the two.
+
+- **Tasks can be sorted by when they were finished** — `?order=-completed_at`, which is
+  *most recently done first*. Unfinished work sorts last in both directions, so one query
+  answers "what has been done lately" without a second filter.
+
 - **An instance can have more than one administrator.** `subroutine user create <name>
   --superuser` grants it, and `POST /v1/users` takes `is_superuser`. Until now there was
   exactly one — the account `init` made — and nothing could create a second: the field was

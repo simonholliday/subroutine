@@ -258,7 +258,7 @@ class Client(typing.Protocol):
 		*,
 		workspace: str | None = None,
 		limit: int | None = None,
-		include_completed: bool = False,
+		include_completed: bool | None = None,
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
@@ -269,6 +269,7 @@ class Client(typing.Protocol):
 		deleted: bool = False,
 		assignee: str | None = None,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
@@ -285,6 +286,13 @@ class Client(typing.Protocol):
 
 		``subtree`` widens ``parent`` from direct children to the whole tree, which is the shape
 		a delegated piece of work takes once somebody has broken it up.
+
+		``status_category`` narrows to one of ``todo``, ``in_progress``, ``done`` or
+		``cancelled`` — the fixed field beside a status's renameable key (`#710`). It is what a
+		board and a completed-work view ask with, because a filter on the *key* ``done`` breaks
+		on the first installation that renames it. Naming a finished category reaches finished
+		work on its own: ``include_completed`` is three-valued for that reason, and ``None``
+		means the caller did not say rather than said no.
 
 		``order`` is §8.4's spelling — comma-separated field names, a leading ``-`` to
 		reverse one — and its vocabulary is ``domain.ordering.TASK_FIELDS``, shared with the

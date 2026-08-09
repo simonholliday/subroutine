@@ -128,6 +128,12 @@ RANKING = sqlalchemy.case(
 TASK_FIELDS: dict[str, Sortable] = {
 	"created_at": subroutine.db.models.work.Task.created_at,
 	"updated_at": subroutine.db.models.work.Task.updated_at,
+	# **What "most recently finished" means** (`#710`). `updated_at` is the tempting proxy and
+	# it is wrong: editing a finished item reorders the page for a reason nobody did. The
+	# column is maintained under §10.7 invariant 5 — non-null exactly when the status category
+	# is finished — so descending order is finished-newest-first with everything open at the
+	# end, NULLS LAST doing that for free.
+	"completed_at": subroutine.db.models.work.Task.completed_at,
 	"due_at": subroutine.db.models.work.Task.due_at,
 	"planned_for": subroutine.db.models.work.Task.planned_for,
 	"importance": subroutine.db.models.work.Task.importance,
@@ -200,6 +206,7 @@ DEFAULT_PROJECT_ORDER = ("path",)
 VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"created_at": lambda item: item.created_at,
 	"updated_at": lambda item: item.updated_at,
+	"completed_at": lambda item: getattr(item, "completed_at", None),
 	"due_at": lambda item: getattr(item, "due_at", None),
 	"planned_for": lambda item: getattr(item, "planned_for", None),
 	"importance": lambda item: getattr(item, "importance", None),

@@ -319,7 +319,7 @@ class Client:
 		*,
 		workspace: str | None = None,
 		limit: int | None = None,
-		include_completed: bool = False,
+		include_completed: bool | None = None,
 		order: str | None = None,
 		project: str | None = None,
 		deferred: str = subroutine.domain.readiness.DEFAULT_DEFERRAL,
@@ -330,6 +330,7 @@ class Client:
 		deleted: bool = False,
 		assignee: str | None = None,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
@@ -339,6 +340,11 @@ class Client:
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.size(limit, self.settings)
 		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+
+		# The same rule `GET /v1/tasks` applies, from the same function — a narrowing that
+		# widened on one transport and not the other is what `domain.ordering` exists to
+		# prevent for sorting, one filter along.
+		completion = subroutine.domain.tasks.completion_wanted(status_category, include_completed)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -355,7 +361,7 @@ class Client:
 			statement = subroutine.domain.scoping.readable_tasks(
 				actor,
 				workspace_ids=[chosen.id],
-				include_completed=include_completed,
+				include_completed=completion,
 				include_deleted=deleted,
 			)
 
@@ -443,6 +449,15 @@ class Client:
 				statement = statement.where(
 					model.status_id
 					== subroutine.domain.tasks.status_for(session, chosen.id, status).id
+				)
+
+			if status_category is not None:
+				statement = statement.where(
+					model.status_id.in_(
+						subroutine.domain.tasks.statuses_in_category(
+							session, chosen.id, status_category
+						)
+					)
 				)
 
 			if type is not None:

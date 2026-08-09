@@ -2195,3 +2195,164 @@ def test_a_search_asking_for_too_many_words_is_refused_by_name (world: World) ->
 	assert answer.status_code == 422
 	assert answer.json()["errors"][0]["field"] == "q"
 	assert "distinctive" in answer.json()["hint"]
+
+
+def test_a_status_category_gathers_every_status_in_it (world: World) -> None:
+	"""`#710`. The point of the filter: three seeded keys share the ``todo`` category.
+
+	``open``, ``blocked`` and ``needs_input`` are all ``todo``, so a caller asking "what is not
+	started" by *key* has to know all three and re-learn them on any installation that adds a
+	fourth. The category is the fixed field beside the renameable key, published for this.
+	"""
+
+	for key in ("open", "blocked", "needs_input"):
+		world.call("POST", "/v1/tasks", json={"title": f"A {key} task", "status": key})
+
+	world.call("POST", "/v1/tasks", json={"title": "Underway", "status": "in_progress"})
+
+	by_category = world.call("GET", "/v1/tasks?status_category=todo").json()["items"]
+	by_key = world.call("GET", "/v1/tasks?status=open").json()["items"]
+
+	assert len(by_category) == 3, "the category is all three, not the one sharing its name"
+	assert len(by_key) == 1
+
+	assert {item["status_category"] for item in by_category} == {"todo"}
+
+
+def test_asking_for_a_finished_category_reaches_finished_work (world: World) -> None:
+	"""`#710`. ``?status_category=done`` alone must not answer ``[]`` on an instance full of it.
+
+	The trap this is written for is a plausible, complete, wrong answer: ``include_completed``
+	defaults to off, so without the implication the one query a completed-work view makes
+	returns an empty page and says nothing about why.
+	"""
+
+	ref = world.call("POST", "/v1/tasks", json={"title": "Finished"}).json()["ref"]
+	world.call("POST", "/v1/tasks", json={"title": "Still going"})
+	world.call("POST", f"/v1/tasks/{ref}/complete")
+
+	items = world.call("GET", "/v1/tasks?status_category=done").json()["items"]
+
+	assert [item["title"] for item in items] == ["Finished"]
+
+
+def test_asking_for_finished_work_and_excluding_it_is_refused (world: World) -> None:
+	"""`#710`. A contradiction is named rather than settled in one parameter's favour.
+
+	Both readings are defensible and both are silent, which is what makes refusing right: the
+	narrowing could win and return finished work the caller said to exclude, or the default
+	could win and return nothing at all.
+	"""
+
+	response = world.call("GET", "/v1/tasks?status_category=done&include_completed=false")
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert body["errors"][0]["field"] == "include_completed"
+	assert "status_category" in body["errors"][0]["message"]
+
+
+def test_excluding_finished_work_is_fine_beside_an_unfinished_category (world: World) -> None:
+	"""The refusal is about the contradiction, not about naming both parameters."""
+
+	response = world.call("GET", "/v1/tasks?status_category=todo&include_completed=false")
+
+	assert response.status_code == 200
+
+
+def test_a_document_status_category_is_refused_on_a_task_listing (world: World) -> None:
+	"""``superseded`` is a real category and not one a task can be in.
+
+	Two vocabularies for a reason — a superseded specification is not "done" — so passing one
+	to the other's listing is a mistake worth being told about rather than an empty page.
+	"""
+
+	response = world.call("GET", "/v1/tasks?status_category=superseded")
+
+	assert response.status_code == 422
+
+	hint = response.json()["errors"][0]["hint"]
+
+	assert "cancelled" in hint and "in_progress" in hint
+	assert "superseded" not in hint
+
+
+def test_finished_work_can_be_ordered_by_when_it_finished (world: World) -> None:
+	"""`#710`, and the half `#706` needs: *most recently finished first*.
+
+	``updated_at`` is the tempting proxy and is wrong — this asserts the difference by editing
+	the *older* completion afterwards, which would reorder the page under that proxy and must
+	not under this one.
+	"""
+
+	refs = [
+		world.call("POST", "/v1/tasks", json={"title": title}).json()["ref"]
+		for title in ("First finished", "Second finished")
+	]
+
+	for ref in refs:
+		world.call("POST", f"/v1/tasks/{ref}/complete")
+
+	world.call("PATCH", f"/v1/tasks/{refs[0]}", json={"description": "touched afterwards"})
+
+	titles = [
+		item["title"]
+		for item in world.call(
+			"GET", "/v1/tasks?status_category=done&order=-completed_at"
+		).json()["items"]
+	]
+
+	assert titles == ["Second finished", "First finished"]
+
+
+def test_ordering_by_completion_leaves_unfinished_work_at_the_end (world: World) -> None:
+	"""NULLS LAST in both directions (§10.3, `#457`), which is what makes the order usable.
+
+	Descending, the newest finish is first and everything open is at the end — so a single
+	query serves "what has been done lately" without a second filter.
+	"""
+
+	ref = world.call("POST", "/v1/tasks", json={"title": "Finished"}).json()["ref"]
+	world.call("POST", "/v1/tasks", json={"title": "Open"})
+	world.call("POST", f"/v1/tasks/{ref}/complete")
+
+	for direction in ("completed_at", "-completed_at"):
+		titles = [
+			item["title"]
+			for item in world.call(
+				"GET", f"/v1/tasks?include_completed=true&order={direction}"
+			).json()["items"]
+		]
+
+		assert titles[0] == "Finished", f"NULLS LAST is not holding for {direction}"
+
+
+def test_a_completion_ordering_pages_without_repeating_a_row (world: World) -> None:
+	"""`#46`'s trap, checked on the new field: a cursor must read the sort value back.
+
+	``priority_score`` ordered perfectly and returned 500 for every result set larger than one
+	page, because encoding a cursor reads each sort value off a loaded row. ``completed_at`` is
+	a plain column and so needs no ``Derived`` — this is what says so rather than assuming it.
+	"""
+
+	for index in range(4):
+		ref = world.call("POST", "/v1/tasks", json={"title": f"Task {index}"}).json()["ref"]
+		world.call("POST", f"/v1/tasks/{ref}/complete")
+
+	seen: list[str] = []
+	base = "/v1/tasks?status_category=done&order=-completed_at&limit=2"
+	path: str | None = base
+
+	while path is not None:
+		answer = world.call("GET", path)
+
+		assert answer.status_code == 200, answer.json()
+
+		page = answer.json()
+		seen.extend(item["title"] for item in page["items"])
+		cursor = page["page"]["next_cursor"]
+		path = None if cursor is None else f"{base}&cursor={cursor}"
+
+	assert len(seen) == len(set(seen)) == 4

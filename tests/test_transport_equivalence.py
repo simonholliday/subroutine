@@ -2748,3 +2748,64 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 		"correct and belongs in this list with a reason, or the route is API and is misplaced.\n"
 		f"found: {sorted(outside)}"
 	)
+
+
+def test_both_narrow_to_a_status_category_and_reach_finished_work (pair: Pair) -> None:
+	"""`#710`. The filter a board and a completed-work view ask with, on both transports.
+
+	**Written because nothing else could see it.** ``test_reach``'s filter guard reads the
+	*signature* on :class:`subroutine.clients.base.Client`, so a filter declared there and
+	dropped by ``clients/http.py`` reports as reached — falsified by deleting the line that
+	sends it, which left the whole suite green. This is what fails in that case.
+
+	The implication is the other half: ``status_category="done"`` reaches finished work without
+	``include_completed``, and doing that on one transport only would be the divergence §13.7
+	exists to prevent.
+	"""
+
+	local, remote = pair.both()
+
+	finished = make(pair, "Finished")
+	underway = make(pair, "Underway")
+	make(pair, "Not started")
+
+	local.update(ref=underway.ref, status="in_progress")
+	local.complete(ref=finished.ref)
+
+	for wanted, expected in (("done", {finished.ref}), ("in_progress", {underway.ref})):
+		here = {task.ref for task in local.tasks(status_category=wanted)}
+
+		assert here == {task.ref for task in remote.tasks(status_category=wanted)}
+		assert here == expected, f"{wanted!r} did not narrow to the task in it"
+
+	# The `todo` category holds three seeded keys, which is the whole reason for the filter:
+	# asking by key means knowing all three and re-learning them when an installation adds one.
+	waiting = {task.ref for task in local.tasks(status_category="todo")}
+
+	assert waiting == {task.ref for task in remote.tasks(status_category="todo")}
+	assert finished.ref not in waiting
+
+
+def test_both_refuse_asking_for_finished_work_and_excluding_it (pair: Pair) -> None:
+	"""`#710`. A contradiction is named identically whichever transport carried it.
+
+	This is what makes ``include_completed`` three-valued on the wire: sending nothing for
+	``False`` would make "no finished work" and "did not say" one request, and the refusal
+	could then fire locally and never remotely.
+	"""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(status_category="done", include_completed=False)
+
+		assert "include_completed" in str(raised.value.errors[0].field)
+
+
+def test_both_refuse_a_status_category_a_task_cannot_be_in (pair: Pair) -> None:
+	"""A document's vocabulary is refused by name rather than matching nothing."""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(status_category="superseded")
+
+		assert "cancelled" in str(raised.value.errors[0].hint)

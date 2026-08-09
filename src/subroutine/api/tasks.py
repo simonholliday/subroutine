@@ -268,6 +268,16 @@ def listing (
 	),
 	project: str | None = fastapi.Query(None, description="Restrict to one project, by key or id."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
+	status_category: str | None = fastapi.Query(
+		None,
+		description=(
+			"Restrict to one status category: todo, in_progress, done or cancelled. Unlike "
+			"'status' this survives an installation renaming its statuses, so it is the handle "
+			"a board or a completed-work view should use. Naming a finished category reaches "
+			"finished work without also passing include_completed."
+		),
+		examples=["done"],
+	),
 	assignee: str | None = fastapi.Query(
 		None, description="Restrict to one assignee, by username or id."
 	),
@@ -287,7 +297,14 @@ def listing (
 	),
 	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
 	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
-	include_completed: bool = fastapi.Query(False, description="Include finished tasks."),
+	include_completed: bool | None = fastapi.Query(
+		None,
+		description=(
+			"Include finished tasks. Left unsaid it is off, unless status_category names a "
+			"finished category — asking for finished work and not mentioning completion is not "
+			"a request for an empty page."
+		),
+	),
 	deferred: str = fastapi.Query(
 		subroutine.domain.readiness.DEFAULT_DEFERRAL,
 		description=(
@@ -338,10 +355,15 @@ def listing (
 	)
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+
+	# Resolved in the domain rather than here, so the local client reaches the same rows for
+	# the same query — a narrowing that widened only over HTTP is the divergence S3-07 removed.
+	completion = subroutine.domain.tasks.completion_wanted(status_category, include_completed)
+
 	statement = subroutine.domain.scoping.readable_tasks(
 		actor,
 		workspace_ids=[workspace.id],
-		include_completed=include_completed,
+		include_completed=completion,
 		include_deleted=deleted,
 	)
 
@@ -362,6 +384,13 @@ def listing (
 	if status is not None:
 		statement = statement.where(
 			model.status_id == subroutine.domain.tasks.status_for(session, workspace.id, status).id
+		)
+
+	if status_category is not None:
+		statement = statement.where(
+			model.status_id.in_(
+				subroutine.domain.tasks.statuses_in_category(session, workspace.id, status_category)
+			)
 		)
 
 	if type is not None:
