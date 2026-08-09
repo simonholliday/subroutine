@@ -196,8 +196,10 @@ code, .ref, .priority, .broke .detail {
 	color: var(--ink-soft);
 }
 
-/* The count is exact, because a board is not paged — unlike the listing's `…and more`, which
-   declines a number because §8.4 will not compute a total. */
+/* A count of what is on the page, which is **not** a total. This comment said the count was
+   exact because a board is not paged; that was wrong and was corrected in `app.js` for `#718`
+   and left standing here — the same retracted claim in a second file, which is the shape this
+   project keeps finding. The board renders the page `load` fetched, capped at 100. */
 .board .tally {
 	color: var(--ink-faint);
 	font-weight: 400;
@@ -235,7 +237,10 @@ code, .ref, .priority, .broke .detail {
 	margin-top: 10px;
 }
 
-.views button {
+/* Anchors since `#722`, so each arrangement can be opened in its own tab. `inline-block` is what
+   makes the padding hold — an inline anchor's vertical padding does not affect line height. */
+.views a {
+	display: inline-block;
 	padding: 3px 10px;
 	background: none;
 	border: 1px solid transparent;
@@ -243,15 +248,16 @@ code, .ref, .priority, .broke .detail {
 	color: var(--ink-faint);
 	font: inherit;
 	font-size: 13px;
+	text-decoration: none;
 	cursor: pointer;
 }
 
-.views button:hover { color: var(--ink-soft); }
-.views button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.views a:hover { color: var(--ink-soft); }
+.views a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* **The chosen one is named as well as coloured** — `aria-current` in the markup, and here a
    border rather than a hue alone (decision `#102`: no information exists only in a colour). */
-.views button.chosen {
+.views a.chosen {
 	border-color: var(--line-strong);
 	color: var(--ink);
 }
@@ -299,6 +305,16 @@ code, .ref, .priority, .broke .detail {
 	overflow: hidden;
 }
 
+/*
+	**A row is an anchor** (`#722`), so ctrl-click opens a tab, middle-click opens a tab, the
+	context menu offers *copy link address*, and a screen reader announces a link. It was a
+	button, which has no address for any of those to act on.
+
+	Everything below already applied to a button and still has to: `display: grid` because an
+	anchor is inline, `color: inherit` and `text-decoration: none` because an anchor is neither.
+	The `button` rules stay because one case still renders one — an agenda row whose workspace
+	nobody can name has no address, and a hollow anchor cannot be tabbed to.
+*/
 .row {
 	display: grid;
 	grid-template-columns: 4.5rem 1fr auto;
@@ -312,6 +328,7 @@ code, .ref, .priority, .broke .detail {
 	color: inherit;
 	font: inherit;
 	text-align: left;
+	text-decoration: none;
 	cursor: pointer;
 }
 
@@ -394,6 +411,7 @@ code, .ref, .priority, .broke .detail {
 	padding: 0;
 	color: var(--accent);
 	font: inherit;
+	text-decoration: none;
 	cursor: pointer;
 }
 
@@ -566,17 +584,20 @@ code, .ref, .priority, .broke .detail {
 
 .prose del, .comments .body del { color: var(--ink-faint); }
 
-.linked button {
+/* Anchors since `#722` — the other end of a link is the thing a reader on this page is most
+   likely to want in a tab. The `button` rules stay for the one case that has no address. */
+.linked a, .linked button {
 	background: none;
 	border: 0;
 	padding: 0;
 	color: var(--accent);
 	font: inherit;
+	text-decoration: none;
 	cursor: pointer;
 	text-align: left;
 }
 
-.linked button:hover { text-decoration: underline; }
+.linked a:hover, .linked button:hover { text-decoration: underline; }
 
 /* ---- states ------------------------------------------------------------ */
 
@@ -707,3 +728,20 @@ code, .ref, .priority, .broke .detail {
    Its monospace comes from the rule at the top that every other fixed-width thing uses, rather
    than from a second copy of the stack. */
 .broke .detail { color: var(--ink-soft); }
+
+/* *Show everything* leaves a project for its workspace, which is an address — so it is a link
+   (`#722`), styled as the button it replaced rather than as prose. */
+.narrowed a.widen {
+	display: inline-block;
+	padding: 3px 10px;
+	background: none;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	font-size: 13px;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.narrowed a.widen:hover { color: var(--ink); border-color: var(--ink-soft); }

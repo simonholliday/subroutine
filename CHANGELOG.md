@@ -99,6 +99,18 @@ upgrade involves.
 
 ### Fixed
 
+- **Anything you can navigate to in the browser can now be opened in a new tab.** Ctrl-click or
+  cmd-click an item and it opens beside your list instead of replacing it; so does middle-click,
+  and the right-click menu offers *Open link in new tab* and *Copy link address*. The same is
+  true of *list*, *board* and *done*, of a linked item, of *All items*, and of *Show everything*.
+
+  They were buttons, which have no address, so there was nothing for a modified click to act on
+  — and no way to keep a list in one tab and work through items in others. A mention written
+  inside a description was the only thing on the page that already behaved correctly.
+
+  It also means a screen reader announces each of them as a link, so listing the links on a page
+  now finds the items on it.
+
 - **Finished work is no longer offered a *Complete* button.** Every card in the board's *Done*
   column carried one, and pressing it was not harmless: completing something that is already
   complete moves the record of when it finished. A cancelled item had the same button on its own

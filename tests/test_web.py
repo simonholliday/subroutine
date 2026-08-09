@@ -85,6 +85,13 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"status_is_default": False,
 		},
 		"showKind": True,
+		# **The workspace is here so the default sample renders a row as it actually ships**
+		# (`SR#722`). Without it `Row` has no address to link to and falls back to a button —
+		# which is a legitimate branch, and it silently absorbed the change from button to
+		# anchor: every one of these tests went on passing while the path a reader takes was
+		# covered by nothing. A sample that omits an input tests the fallback, and reads
+		# exactly like a test of the thing.
+		"workspace": "personal",
 	},
 	"Listing": {
 		"items": [
@@ -168,6 +175,10 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			}
 		],
 		"comments": [{"id": "c1", "created_at": "2026-08-08T10:00:00Z", "body": "Reproduced."}],
+		# Same reason as `Row`'s: without it the linked items have no address and render as
+		# buttons, so the default sample would go on testing the fallback (`SR#722`).
+		"workspace": "personal",
+		"backTo": "/personal",
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
 	"Adding": {"busy": False},
@@ -383,7 +394,14 @@ def _rendered (
 			const type = typeof node.type === "function" ? node.type : null;
 			const inner = type ? flatten(type(node.props)) : flatten(node.props.children);
 
-			return typeof node.type === "string" ? `<${{node.type}}>${{inner}}` : inner;
+			/* **`href` is the one attribute carried through** (`SR#722`). A row is a link now,
+			   and a flatten that drops every attribute cannot tell a link from a span — which is
+			   the whole of the difference that change makes. Nothing else is carried: this is a
+			   text harness, and a test that wants to assert on layout wants a browser. */
+			const address = node.props && node.props.href;
+			const said = address ? ' href="' + address + '"' : "";
+
+			return typeof node.type === "string" ? `<${{node.type}}${{said}}>${{inner}}` : inner;
 		}}
 
 		/* Every handler a component may be given, **derived from the app rather than listed**.
@@ -446,6 +464,108 @@ def test_a_row_says_in_words_what_it_says_in_colour (tmp_path: pathlib.Path) -> 
 	assert "Blocked" in markup
 	assert "Overdue" in markup
 	assert "#42" in markup
+
+
+def test_a_row_is_a_link_to_the_item_it_names (tmp_path: pathlib.Path) -> None:
+	"""`#722`. Simon: *"I CTRL-click an item and it loads in the same tab, replacing the list."*
+
+	A button has no address, so there is nothing for a modified click to do differently — and
+	with it go *open in a new tab*, *copy link address*, middle-click, the hover target and the
+	link's existence to a screen reader. `#638` gave every item a durable address precisely so
+	that this would be possible.
+
+	**The address is the item's own**, so a row from another workspace links there rather than to
+	whichever workspace the switcher happens to hold — the same precedence `App` already applies
+	to opening and completing an agenda row, and the fault `#650` was.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 42, "kind": "task", "title": "Here",
+			"project_key": "sr"}, "workspace": "personal"},
+	})["Row"]
+
+	assert 'href="/personal/sr/42"' in rendered, (
+		f"a row is not a link to its own item: {rendered}"
+	)
+
+	elsewhere = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 1, "kind": "task", "title": "Elsewhere",
+			"workspace": "sandbox"}, "workspace": "projects", "showWhere": True},
+	})["Row"]
+
+	assert 'href="/sandbox/1"' in elsewhere, (
+		f"an agenda row linked to the wrong workspace: {elsewhere}"
+	)
+
+
+def test_a_linked_item_is_a_link_to_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#722`. The other end of a link is what a reader on this page most wants in a tab.
+
+	The address is the durable `{workspace}/{ref}` form, and it has to be: the far end of a link
+	is reported as a ref and a type with no project key, so the readable form is not available
+	here. `SR#638` guarantees the durable one resolves.
+	"""
+
+	rendered = _rendered(tmp_path, {"Detail": SAMPLES["Detail"]})["Detail"]
+
+	assert 'href="/personal/43"' in rendered, (
+		f"a linked item is not a link to it: {rendered}"
+	)
+
+
+def test_a_row_with_no_address_stays_a_button (tmp_path: pathlib.Path) -> None:
+	"""The branch the sample above used to take by accident, now taken on purpose.
+
+	`agendaBuckets` leaves `workspace` null for a row whose workspace nobody can name, and there
+	is then no address to link to. An `<a>` with no `href` is not a link and cannot be tabbed to,
+	which is worse than the button it replaced — so the button stays for that case.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 7, "kind": "task", "title": "Nowhere"}, "workspace": None},
+	})["Row"]
+
+	assert "<button" in rendered, f"a row with no address rendered something unfocusable: {rendered}"
+	assert "href" not in rendered, f"a row with no address claimed to have one: {rendered}"
+
+
+def test_every_navigation_hands_a_modified_click_back_to_the_browser (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#722`. The rule `Prose` had and nothing else did, now shared and asked of all eight cases.
+
+	Ctrl and cmd open a tab, shift opens a window, alt downloads, and any button but the primary
+	one is the browser's — middle-click is *open in a tab* everywhere. A keyboard activation
+	reports no button at all, and refusing there would break the path this exists to serve.
+
+	**The decision is a pure function because `tests/dom.js` cannot dispatch an event**, by its
+	own scope test. Lifting it out is what makes it checkable at all, which is `#640`'s cheapest
+	route for the sixth time.
+	"""
+
+	module = _staged(tmp_path)
+	cases = [
+		{}, {"button": 0}, {"button": None},
+		{"ctrlKey": True}, {"metaKey": True}, {"shiftKey": True}, {"altKey": True},
+		{"button": 1}, {"button": 2},
+	]
+
+	answered = list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify(
+			{json.dumps(cases)}.map((event) => app.opens(event))
+		));
+	"""))
+
+	assert answered[:3] == [True, True, True], (
+		"a plain left click, and a keyboard activation reporting no button, must be handled here"
+	)
+
+	assert answered[3:] == [False] * 6, (
+		f"a modified or non-primary click was swallowed rather than left to the browser: "
+		f"{list(zip(cases[3:], answered[3:], strict=True))}"
+	)
 
 
 def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
@@ -1794,11 +1914,20 @@ def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathli
 	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
 
 	whole = _rendered(tmp_path, {"Listing": {"items": rows, "project": None}})
-	narrow = _rendered(tmp_path, {"Listing": {"items": rows, "project": "ui"}})
+	narrow = _rendered(tmp_path, {
+		"Listing": {"items": rows, "project": "ui", "widenTo": "/projects"},
+	})
 
 	assert "Showing" not in whole["Listing"], "an unfiltered list claimed to be filtered"
 	assert "ui" in narrow["Listing"], "the list did not say what it was narrowed to"
 	assert "Show everything" in narrow["Listing"], "there was no way back to the workspace"
+
+	# **It leaves a project for its workspace, so it is an address and so it is a link**
+	# (`SR#722`). Found by auditing every remaining `onClick=` rather than from the report,
+	# which named the rows, the switcher and the detail page and not this.
+	assert 'href="/projects"' in narrow["Listing"], (
+		f"the way back to the workspace cannot be opened in a tab: {narrow['Listing']}"
+	)
 
 
 def test_a_project_filter_sends_what_the_route_accepts () -> None:
@@ -3268,7 +3397,20 @@ def _driven (
 		   rows arriving ten seconds late. */
 		await new Promise((done) => setTimeout(done, 300));
 
-		process.stdout.write(JSON.stringify({{ asked, written, said: text(root) }}));
+		/* **Every address the mounted page offers** (`SR#722`). The view switcher and the
+		   detail page's controls are built inside `App`, so no component harness can reach
+		   them — and whether they are links is precisely what this change is about. Walking
+		   for one attribute is not markup assertion; it is the same narrow question `asked`
+		   answers about requests. */
+		function addresses (of) {{
+			const found = of.href ? [of.href] : [];
+
+			return found.concat(...of.childNodes.map(addresses));
+		}}
+
+		process.stdout.write(JSON.stringify(
+			{{ asked, written, said: text(root), links: addresses(root) }}
+		));
 
 		/* The poll's interval holds the process open, and a test that hangs is worse than one
 		   that fails. */
@@ -3368,6 +3510,55 @@ def test_the_done_view_never_asks_documents_a_question_they_refuse (
 	assert [call for call in plain["asked"] if "/v1/documents" in call["path"]], (
 		"the ordinary list must still read both collections — one ref counter serves them, so "
 		"half the numbers a reader has learned would not exist"
+	)
+
+
+def test_each_view_can_be_opened_in_its_own_tab (tmp_path: pathlib.Path) -> None:
+	"""`SR#722`. The switcher was buttons, so the board could only replace the list.
+
+	The addresses come from `withView`, which is what `chooseView` is about to write — building
+	them here by hand would be a second copy of the rule `SR#651` centralised, and the two would
+	drift the first time a default moved.
+
+	**Built inside `App`**, so no component harness can see them; this is what the mounted page
+	actually offers.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects")
+
+	for wanted in ("/projects", "/projects?view=board", "/projects?view=done"):
+		assert wanted in driven["links"], (
+			f"{wanted} is not something a reader can open in a tab: {driven['links']}"
+		)
+
+
+def test_the_page_behind_an_open_item_is_a_link (tmp_path: pathlib.Path) -> None:
+	"""`SR#722`. *All items* was a button, so there was no way back except in this tab.
+
+	It carries the arrangement, so going back from an item opened on the board returns to the
+	board rather than to the list — the same address `close` writes, which is why both read it
+	from one expression.
+	"""
+
+	# **The two narrower paths come first**, because the fixture matches on a fragment being
+	# present and `/v1/tasks/42` is inside `/v1/tasks/42/links`. Answering a listing with a bare
+	# object leaves `links.items` undefined and the boundary shows its fallback — a page with no
+	# links on it at all, which is what this asserts about and would have passed for the wrong
+	# reason if the assertion had been the other way round.
+	empty = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
+
+	driven = _driven(
+		tmp_path, pathname="/projects/42", search="?view=board",
+		answers={
+			"/v1/tasks/42/links": empty,
+			"/v1/tasks/42/comments": empty,
+			"/v1/tasks/42": {"ref": 42, "kind": "task", "title": "Open",
+				"status_category": "todo"},
+		},
+	)
+
+	assert "/projects?view=board" in driven["links"], (
+		f"there is no link back to the board an item was opened from: {driven['links']}"
 	)
 
 

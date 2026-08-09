@@ -1030,9 +1030,54 @@ export function spansWorkspaces (buckets) {
 	return seen.size > 1;
 }
 
+/* ---- following a link, or letting the browser do it (`#722`) ------------- */
+
+export function opens (event) {
+	/*
+		Whether this app should handle a click itself, or stand back and let the browser have it.
+
+		**Every navigation here is a real anchor**, so *open in a new tab*, *copy link address*,
+		middle-click and the status bar all work — and a screen reader announces a link rather
+		than a button, which is what makes "list the links on this page" return the items. What
+		this function decides is the one case the app wants: a plain left click, which it handles
+		without a page load because the app already has the rows.
+
+		**Everything modified goes back to the browser**, and each modifier is a real gesture:
+		ctrl or cmd opens a tab, shift opens a window, alt downloads. So is any button but the
+		primary one — middle-click is *open in a tab* on every platform, and a context menu must
+		reach the anchor rather than be intercepted before it.
+
+		**An absent `button` counts as primary**, because a link activated from the keyboard
+		reports no button in some browsers and refusing there would break the path this whole
+		change exists to serve.
+
+		`Prose` has held exactly this rule since `#637` and was the only thing that had it: a
+		`#42` written inside a description opened in a new tab while the row for the same item
+		did not. One rule applied to one side of a pair, which is this codebase's signature
+		defect and is why the rule is a function now rather than a condition written twice.
+	*/
+	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+
+	return event.button === undefined || event.button === null || event.button === 0;
+}
+
+export function followed (event, act) {
+	/*
+		Handle a click the app wants, and leave every other kind alone.
+
+		The pair is always written together — decide, then prevent, then act — and writing it
+		once is what stops the third call site getting it in the wrong order. Preventing before
+		deciding would swallow a middle click; acting before preventing would do both.
+	*/
+	if (!opens(event)) return;
+
+	event.preventDefault();
+	act();
+}
+
 /* ---- views -------------------------------------------------------------- */
 
-export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
+export function Row ({ item, showKind, showWhere, workspace, onOpen, onComplete }) {
 	const badges = marks(item, showKind);
 
 	/*
@@ -1045,6 +1090,23 @@ export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
 	const where = showWhere && item.workspace ? `${item.workspace}/` : "";
 
 	/*
+		**The row is a link, and the address is the item's own** (`#722`, `#638`).
+
+		`item.workspace` first, because the agenda spans them and a row from `sandbox` addressed
+		against the workspace the switcher happens to hold would send a reader somewhere else —
+		the same precedence `App` already applies to opening and completing an agenda row.
+
+		**No workspace means no address**, which happens only where `agendaBuckets` could not name
+		one. An anchor with no `href` is not a link and cannot be tabbed to; that is worse than a
+		button and it is why the control below falls back to one rather than rendering a hollow
+		anchor. The click still works either way, so nothing is lost that was ever there.
+	*/
+	const slug = item.workspace || workspace;
+	const address = slug ? addressOf(item, slug) : null;
+
+	const open = (event) => followed(event, () => onOpen && onOpen(item));
+
+	/*
 		**The two controls are siblings, not one inside the other.** A button nested in a button
 		is invalid, and a browser resolves it by dropping the inner one — so completing would
 		open the item instead, silently, and only in some browsers.
@@ -1054,20 +1116,24 @@ export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
 		**Complete** button on every card in the board's *Done* column, on work that was already
 		over, where pressing it moves the record of when it finished (`#723`).
 	*/
+	const cells = html`
+		<span class="ref">${where}#${item.ref}</span>
+		<span class="title">${item.title}</span>
+		<span class="when">${when(item)}</span>
+		${badges.length > 0 && html`
+			<span class="marks">
+				${badges.map((mark) => html`
+					<span class="mark ${mark.tone || ""}">${mark.text}</span>
+				`)}
+			</span>
+		`}
+	`;
+
 	return html`
 		<li>
-			<button class="row" onClick=${() => onOpen(item)}>
-				<span class="ref">${where}#${item.ref}</span>
-				<span class="title">${item.title}</span>
-				<span class="when">${when(item)}</span>
-				${badges.length > 0 && html`
-					<span class="marks">
-						${badges.map((mark) => html`
-							<span class="mark ${mark.tone || ""}">${mark.text}</span>
-						`)}
-					</span>
-				`}
-			</button>
+			${address
+				? html`<a class="row" href=${address} onClick=${open}>${cells}</a>`
+				: html`<button class="row" onClick=${open}>${cells}</button>`}
 			${completable(item) && onComplete && html`
 				<button class="finish" onClick=${() => onComplete(item)}
 					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
@@ -1124,8 +1190,12 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 					<h2 class=${bucket.key}>${bucket.label}</h2>
 					<ul class="rows">
 						${bucket.items.map((item) => html`
+							${/* `where` is the workspace the switcher holds, and it is the
+							     fallback only — a row that knows its own uses that, which is
+							     what keeps an agenda row's address pointing at the workspace
+							     it actually came from. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
-								showKind=${false} showWhere=${showWhere}
+								showKind=${false} showWhere=${showWhere} workspace=${where}
 								onOpen=${onOpen} onComplete=${onComplete} />
 						`)}
 					</ul>
@@ -1149,7 +1219,8 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 }
 
 export function Board ({
-	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project,
+	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
+	widenTo,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -1179,7 +1250,10 @@ export function Board ({
 			${project && html`
 				<div class="narrowed">
 					<span>Showing <strong>${project}</strong> and anything under it.</span>
-					${onWiden && html`<button onClick=${onWiden}>Show everything</button>`}
+					${onWiden && (widenTo
+						? html`<a class="widen" href=${widenTo}
+							onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
+						: html`<button onClick=${onWiden}>Show everything</button>`)}
 				</div>
 			`}
 
@@ -1204,8 +1278,8 @@ export function Board ({
 								<ul class="rows">
 									${column.items.map((item) => html`
 										<${Row} key=${item.kind + item.ref} item=${item}
-											showKind=${showKind} onOpen=${onOpen}
-											onComplete=${onComplete} />
+											showKind=${showKind} workspace=${workspace}
+											onOpen=${onOpen} onComplete=${onComplete} />
 									`)}
 								</ul>
 							`}
@@ -1266,7 +1340,7 @@ export function Adding ({ onAdd, busy, note }) {
 }
 
 export function Listing ({
-	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project,
+	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	empty = "Nothing here yet.",
 }) {
 	/*
@@ -1292,7 +1366,10 @@ export function Listing ({
 			${project && html`
 				<div class="narrowed">
 					<span>Showing <strong>${project}</strong> and anything under it.</span>
-					${onWiden && html`<button onClick=${onWiden}>Show everything</button>`}
+					${onWiden && (widenTo
+						? html`<a class="widen" href=${widenTo}
+							onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
+						: html`<button onClick=${onWiden}>Show everything</button>`)}
 				</div>
 			`}
 
@@ -1309,7 +1386,8 @@ export function Listing ({
 					<ul class="rows">
 						${items.map((item) => html`
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
-								onOpen=${onOpen} onComplete=${onComplete} />
+								workspace=${workspace} onOpen=${onOpen}
+								onComplete=${onComplete} />
 						`)}
 					</ul>
 				`}
@@ -1411,16 +1489,16 @@ export function Prose ({ text, className, where, onOpen }) {
 
 		const anchor = event.target.closest && event.target.closest("a.mention");
 
-		if (!anchor || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
-			return;
-		}
+		if (!anchor) return;
 
 		const asked = parseAddress(new URL(anchor.href, window.location.origin).pathname);
 
 		if (asked === null) return;
 
-		event.preventDefault();
-		onOpen({ ref: asked.ref });
+		/* **`opens` was written from the copy that used to be here** (`#722`), which was the only
+		   place in the app that had the rule. It is shared now, so a row and a mention behave the
+		   same way — which is what a reader expects and what they did not get. */
+		followed(event, () => onOpen({ ref: asked.ref }));
 	};
 
 	/*
@@ -1509,12 +1587,27 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
+	backTo, workspace,
 }) {
 	const body = item.description || item.body;
 
+	/*
+		**Both of these are addresses, so both are links** (`#722`). *All items* goes to the
+		listing behind this one, and each linked item to that item — the two things a reader on
+		this page would most want to open in a tab, and the two that were buttons.
+
+		A link's address comes from `addressOf` with only a ref, which is the durable form
+		`#638` guarantees: the other end of a link is reported as a ref and a type, with no
+		project key, so the readable form is not available here and the durable one is exactly
+		right.
+	*/
+	const back = (event) => followed(event, () => onBack && onBack());
+
 	return html`
 		<div class="detail">
-			<button class="back" onClick=${onBack}>← All items</button>
+			${backTo
+				? html`<a class="back" href=${backTo} onClick=${back}>← All items</a>`
+				: html`<button class="back" onClick=${back}>← All items</button>`}
 			<h2>#${item.ref} ${item.title}</h2>
 			<${Facts} item=${item} />
 
@@ -1529,15 +1622,23 @@ export function Detail ({
 			${links.length > 0 && html`
 				<h3>Links</h3>
 				<ul class="linked">
-					${links.map((link) => html`
-						<li key=${link.id}>
-							${link.label}${" "}
-							<button onClick=${() => onOpen({ ref: link.other.ref,
-								kind: link.other.entity_type })}>
-								#${link.other.ref} ${link.other.title}
-							</button>
-						</li>
-					`)}
+					${links.map((link) => {
+						const going = { ref: link.other.ref, kind: link.other.entity_type };
+						const to = workspace ? addressOf(going, workspace) : null;
+						const follow = (event) =>
+							followed(event, () => onOpen && onOpen(going));
+
+						return html`
+							<li key=${link.id}>
+								${link.label}${" "}
+								${to
+									? html`<a href=${to} onClick=${follow}>
+										#${link.other.ref} ${link.other.title}</a>`
+									: html`<button onClick=${follow}>
+										#${link.other.ref} ${link.other.title}</button>`}
+							</li>
+						`;
+					})}
 				</ul>
 			`}
 
@@ -2204,6 +2305,11 @@ export function App () {
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
+	/* The address of the listing behind whatever is showing — what *All items* goes back to, and
+	   what the view switcher hangs its arrangements off. One expression, because `close` and
+	   `chooseView` already agree on it and a second spelling here would be the thing that drifts. */
+	const behind = listingAddress({ agenda: agenda !== null, workspace, project });
+
 	if (error) {
 		return html`
 			<div class="app">
@@ -2244,12 +2350,20 @@ export function App () {
 					different set, so the old wording described two of the three and quietly
 					mis-announced the third to the readers who depend on it most.
 				*/ null}
+				${/*
+					**And each one is a link** (`#722`), so a reader can open the board in a tab
+					beside their list rather than replacing it. `withView` builds exactly the
+					address `chooseView` is about to write, which is what makes the two agree —
+					a hand-built `href` here would be a second copy of the rule `#651` centralised.
+				*/ null}
 				${!open && agenda === null && html`
 					<nav class="views" aria-label="Which view">
 						${VIEWS.map((name) => html`
-							<button key=${name} class=${name === view ? "chosen" : ""}
+							<a key=${name} class=${name === view ? "chosen" : ""}
+								href=${withView(behind, name)}
 								aria-current=${name === view ? "true" : undefined}
-								onClick=${() => chooseView(name)}>${name}</button>
+								onClick=${(event) => followed(event, () => chooseView(name))}
+								>${name}</a>
 						`)}
 					</nav>
 				`}
@@ -2260,6 +2374,7 @@ export function App () {
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					where=${mentionHref(workspace)} onBack=${() => close()}
+					backTo=${withView(behind, view)} workspace=${workspace}
 					onComplete=${complete} onAssign=${assign} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
@@ -2275,7 +2390,8 @@ export function App () {
 					: view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
-							project=${project} onWiden=${widen} />`
+							project=${project} workspace=${workspace} onWiden=${widen}
+							widenTo=${withView(listingAddress({ workspace }), view)} />`
 						/*
 							**No capture box on the finished view** (`#706`). Adding from here
 							would report success over a page the new item cannot appear on — it is
@@ -2287,7 +2403,8 @@ export function App () {
 						*/
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${view === "done" ? null : add} busy=${busy} more=${more}
-							onMore=${showMore} project=${project} onWiden=${widen}
+							onMore=${showMore} project=${project} workspace=${workspace}
+							onWiden=${widen} widenTo=${withView(listingAddress({ workspace }), view)}
 							empty=${view === "done"
 								? "Nothing has been finished here yet."
 								: "Nothing here yet."} />`}
