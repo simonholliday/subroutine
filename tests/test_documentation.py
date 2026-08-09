@@ -119,11 +119,35 @@ def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> No
 			)
 
 
+#: An absolute link to a file in *this* repository, which is how the README has to write them
+#: so they work on PyPI as well as on GitHub (`#716`). Matched so the checks below go on
+#: reading them: a link that stops being relative must not stop being checked, and both of
+#: these tests have a floor that fired the moment the spelling changed — which is the floor
+#: doing its job and the reason they were widened rather than the README exempted.
+_OUR_BLOB = re.compile(r"^https://github\.com/simonholliday/subroutine/blob/[^/]+/")
+
+
+def _in_repository (page: pathlib.Path, target: str) -> pathlib.Path | None:
+	"""Return the file a link names in this repository, or ``None`` if it points elsewhere.
+
+	Both spellings resolve to the same place, which is the point: one page writes its links
+	absolutely because of where it is published, and every other page writes them relatively.
+	"""
+
+	if _OUR_BLOB.match(target):
+		return ROOT / _OUR_BLOB.sub("", target)
+
+	if target.startswith(("http://", "https://", "mailto:")):
+		return None
+
+	return page.parent / target
+
+
 @pytest.mark.parametrize(
 	"page", [HOSTING, CONNECTING, README, CHANGELOG], ids=lambda path: path.name
 )
 def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> None:
-	"""A relative link in published documentation is a promise about the repository.
+	"""A link in published documentation is a promise about the repository.
 
 	Worth having because the README's links point *out* of its own directory: moving or
 	renaming anything under ``docs/`` breaks them from a distance, and a dead link in the file
@@ -136,15 +160,20 @@ def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> N
 	for fragment in text.split("](")[1:]:
 		target = fragment.split(")")[0].split("#")[0]
 
-		if not target or target.startswith(("http://", "https://", "mailto:")):
+		if not target:
 			continue
 
-		assert (page.parent / target).exists(), f"{page.name} links to a missing {target}"
+		where = _in_repository(page, target)
+
+		if where is None:
+			continue
+
+		assert where.exists(), f"{page.name} links to a missing {target}"
 		checked += 1
 
 	# Otherwise this passes just as happily on a page whose links have all been deleted, which
 	# is the failure mode a link checker is least able to notice about itself.
-	assert checked, f"{page.name} has no relative links — has this test stopped reaching them?"
+	assert checked, f"{page.name} has no links into the repository — has this stopped reaching them?"
 
 
 def _anchors (page: pathlib.Path) -> set[str]:
@@ -185,13 +214,13 @@ def test_every_anchor_a_published_page_links_to_exists (page: pathlib.Path) -> N
 	for fragment in text.split("](")[1:]:
 		target = fragment.split(")")[0]
 
-		if target.startswith(("http://", "https://", "mailto:")) or "#" not in target:
+		if "#" not in target:
 			continue
 
 		path, _, anchor = target.partition("#")
-		where = page if not path else page.parent / path
+		where = page if not path else _in_repository(page, target.split("#")[0])
 
-		if not where.is_file():
+		if where is None or not where.is_file():
 			# The file's own existence is the other test's, and reporting it twice would mean
 			# fixing one failure and meeting its twin.
 			continue

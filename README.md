@@ -110,10 +110,10 @@ $ subroutine login link                                    # sign in to the web 
 $ subroutine token create --title "CI" --scope task:read   # a credential that can only read
 ```
 
-The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help` lists the
+The full hosting recipe is in [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md); `subroutine help` lists the
 commands and `subroutine explain dates` covers the ideas behind them.
 
-**Reaching an instance somebody else runs is [docs/connecting.md](docs/connecting.md)**, which
+**Reaching an instance somebody else runs is [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)**, which
 is organised by which of five situations you are in rather than by how the software is built.
 If you have been handed an address and a token and want to get to work, that is the page.
 
@@ -374,9 +374,9 @@ Subroutine — on Windows in a file under your home directory — so treat it as
 password on that machine, and ask for a new one rather than moving it about.
 
 That is the arrangement to reach for when somebody else runs Subroutine and has given you a way
-in — [docs/connecting.md](docs/connecting.md#an-agent-with-nothing-installed) is that path in
+in — [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md#an-agent-with-nothing-installed) is that path in
 full, including what to ask them for, and
-[docs/hosting.md](docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) is the other
+[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) is the other
 end of it, which is what they have to do.
 
 Without the plugin, or for another MCP client:
@@ -443,7 +443,7 @@ $ subroutine today
 
 **TL;DR: a Python process on loopback, your own TLS proxy in front, systemd keeping it alive,
 PostgreSQL underneath once more than one person is writing.** Nothing to cluster, no message
-broker. The whole recipe is [docs/hosting.md](docs/hosting.md).
+broker. The whole recipe is [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md).
 
 One thing is not optional, and the program enforces it rather than mentioning it in a footnote:
 **a bearer token sent over plain HTTP is a compromised token**, so `serve` refuses to listen
@@ -474,7 +474,7 @@ creates the identity as it goes. Roles belong to a workspace, so `member` in one
 `member` in another, and the last account able to administer a workspace cannot be removed
 from it.
 
-**[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
+**[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** is the whole recipe: the service account, the systemd
 unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,
 backups on a separate volume, and what upgrading actually involves. Every command on that page
 has been run, including the refusals.
@@ -486,16 +486,16 @@ repository.
 
 ## Documentation
 
-- **[docs/connecting.md](docs/connecting.md)** — the five ways to reach an instance, organised
+- **[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)** — the five ways to reach an instance, organised
   by which one you are. Start here if somebody has handed you an address and a token.
-- **[docs/hosting.md](docs/hosting.md)** — running it as a service, end to end.
-- **[CHANGELOG.md](CHANGELOG.md)** — what changed, and which releases need a database
+- **[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** — running it as a service, end to end.
+- **[CHANGELOG.md](https://github.com/simonholliday/subroutine/blob/main/CHANGELOG.md)** — what changed, and which releases need a database
   migration. That last part is checked rather than remembered: CI refuses a release that moves
   the schema without saying so, so you can plan the upgrade instead of discovering it.
-- **[docs/errors.md](docs/errors.md)** — every error code the API can return. Generated from
+- **[docs/errors.md](https://github.com/simonholliday/subroutine/blob/main/docs/errors.md)** — every error code the API can return. Generated from
   the registry, so it cannot drift from the code.
 - **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
-- **[SECURITY.md](SECURITY.md)** — how to report a vulnerability privately, and what is in
+- **[SECURITY.md](https://github.com/simonholliday/subroutine/blob/main/SECURITY.md)** — how to report a vulnerability privately, and what is in
   scope. Not through an issue: an issue is public from the moment it is filed.
 
 The full specification — data model, API, permissions and agent design — is written but
@@ -504,12 +504,12 @@ not yet published. It lands here once the API has settled enough to be worth rea
 ## Contributing
 
 **Not code, for now** — the core is still moving and there is no stable surface to review
-outside work against fairly. [CONTRIBUTING.md](CONTRIBUTING.md) says so at more length, and
+outside work against fairly. [CONTRIBUTING.md](https://github.com/simonholliday/subroutine/blob/main/CONTRIBUTING.md) says so at more length, and
 says what *is* welcome: bug reports, and being told why you stopped using it.
 
 ## Licence
 
-[FSL-1.1-ALv2](LICENSE) — the Functional Source License.
+[FSL-1.1-ALv2](https://github.com/simonholliday/subroutine/blob/main/LICENSE) — the Functional Source License.
 
 **Run it, modify it, fork it, for any purpose including making money.** A person, a team, a
 five-hundred-person company self-hosting it for its own work, a consultancy charging to set it

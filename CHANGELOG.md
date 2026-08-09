@@ -126,6 +126,14 @@ upgrade involves.
   It also means a screen reader announces each of them as a link, so listing the links on a page
   now finds the items on it.
 
+- **Every link on the PyPI page now goes somewhere.** The project description is `README.md`,
+  and it linked to `docs/hosting.md`, `docs/connecting.md`, the licence and how to report a
+  vulnerability as paths relative to the repository. GitHub rewrites those; PyPI does not, so
+  each one resolved against the project page's own address and led nowhere.
+
+  Nine links, and four of them were what somebody needs to read *before* installing anything.
+  They point at the repository directly now, which works on both.
+
 - **Completing something that is already complete no longer changes when it was finished.**
   Every write of a finished status stamped the moment afresh, so a retried request, or a second
   press of a button, moved a record of something that had happened hours earlier. Reopening

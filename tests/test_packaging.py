@@ -246,3 +246,64 @@ def test_the_files_that_state_the_licence_all_exist () -> None:
 
 	for path in STATES_THE_LICENCE:
 		assert (ROOT / path).is_file(), f"{path} is listed here and is not in the repository"
+
+
+#: Where a link in the README has to point so that it works on **both** surfaces GitHub and
+#: PyPI render it on. Simon's decision, 2026-08-09: ``main`` rather than the tag, so one edit
+#: never rots — at the cost of a reader on the 0.6.0 page being shown documentation for
+#: unreleased code, which is the smaller of the two problems.
+README_BASE = "https://github.com/simonholliday/subroutine/blob/main/"
+
+
+def test_the_published_description_has_no_link_only_github_can_resolve () -> None:
+	"""``README.md`` is the description, and PyPI gives it no base URL to resolve against.
+
+	`#716`. ``pyproject.toml`` sets ``readme = "README.md"``, so the file ships verbatim in the
+	wheel with ``Description-Content-Type: text/markdown`` — and PyPI renders it *without* the
+	rewriting GitHub does. A relative ``docs/hosting.md`` therefore resolves against the
+	project page's own address, which is nothing PyPI serves.
+
+	**It is the only page most PyPI visitors ever see**, and four of the nine broken links were
+	the documents somebody needs *before* installing anything: hosting, connecting, the licence
+	and how to report a vulnerability. `#694` audited the page's prose and found two false
+	claims; nothing had ever asked whether its links work where it is published.
+
+	This is the `#446` ratchet shape, and it would have caught the fault before 0.5.0.
+	"""
+
+	readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+	# Anything that is not already absolute, not a bare fragment and not a mailto: is a path in
+	# this repository, and a path in this repository is what PyPI cannot resolve.
+	relative = re.findall(r"\]\((?!https?://|#|mailto:)([^)]+)\)", readme)
+
+	assert not relative, (
+		f"README.md links to {sorted(set(relative))} relatively, and PyPI renders the "
+		f"description with no base URL — so each resolves to a page it does not serve. "
+		f"Write them as {README_BASE}<path>."
+	)
+
+
+def test_every_repository_link_in_the_description_names_a_file_that_exists () -> None:
+	"""The other direction, without which the rule above is satisfied by pointing anywhere.
+
+	An absolute URL cannot be checked by looking at the filesystem *unless* it is one of ours,
+	and ours are exactly the ones worth checking: a link rewritten to
+	``blob/main/docs/hosting.md`` is as broken as the relative one it replaced if the file has
+	since been renamed, and it fails silently on a page nobody here loads.
+	"""
+
+	readme = (ROOT / "README.md").read_text(encoding="utf-8")
+	named = re.findall(rf"\]\({re.escape(README_BASE)}([^)]+)\)", readme)
+
+	assert named, "no repository links were found, so this is checking nothing"
+
+	missing = sorted({
+		target for target in named
+		if not (ROOT / target.split("#", 1)[0]).exists()
+	})
+
+	assert not missing, (
+		f"README.md points at {missing}, which are not in the repository — so the link is "
+		f"broken on GitHub as well as on PyPI"
+	)
