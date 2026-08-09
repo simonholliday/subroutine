@@ -104,6 +104,44 @@ def answering (
 				"like this.",
 			)
 
+		# **Parsing is not the question; being a JSON-RPC message is** (`#697`). The check above
+		# tested whether the body was *readable*, and a problem document is perfectly readable
+		# JSON — so every refusal this API makes was written to the protocol channel verbatim,
+		# with no envelope and no id, including for `initialize`. A client cannot match that to
+		# anything it sent, so the session never starts and what it reports is not a refusal but
+		# a stream of objects that mean nothing.
+		#
+		# Measured on a machine with no instance yet: three problem documents on stdout and 564
+		# lines of traceback on stderr, ending "unable to open database file".
+		if not isinstance(answered, dict) or "jsonrpc" not in answered:
+			trouble = answered if isinstance(answered, dict) else {}
+
+			# **The commonest cause has a name and a one-command remedy**, and it is asked only
+			# here, on a path that has already failed. Checking before the request instead was
+			# tried and was wrong: `settings` describes where a database *would* be, and the
+			# application being driven need not be built from it — four adapter tests inject
+			# their own and were refused outright by a machine that was working perfectly.
+			#
+			# The same sentence `clients/local.py` gives a person, and the same predicate: a
+			# missing SQLite file is a fact, where an unreachable PostgreSQL might be absent,
+			# asleep or firewalled, and guessing produces confident bad advice.
+			if connection.is_local and settings.has_no_instance_yet():
+				return _refused(
+					raw,
+					"No Subroutine instance has been set up on this machine yet.",
+					"Run 'subroutine init' in a terminal to create one. It takes no arguments.",
+				)
+
+			# **Its own words when it has any.** A problem document already carries a `detail`
+			# written for a person and often a `hint` naming the remedy, and those are worth far
+			# more than a sentence composed here about a status code.
+			return _refused(
+				raw,
+				trouble.get("detail")
+				or f"{connection.name} answered {status}, and not with a JSON-RPC message.",
+				trouble.get("hint"),
+			)
+
 		return _in_this_machines_terms(answered, connection.label, elsewhere)
 
 	return answer
@@ -259,13 +297,21 @@ def _in_this_machines_terms (
 	return answered
 
 
-def _refused (raw: str, detail: str, hint: str | None) -> dict[str, typing.Any]:
+def _refused (raw: str, detail: str, hint: str | None) -> dict[str, typing.Any] | None:
 	"""Return a JSON-RPC error for something that went wrong on this side of the wire.
 
 	**Carrying the request's id when there is one**, because a client matches answers to
 	requests by it and an error with the wrong id is worse than none: it either resolves the
 	wrong call or is dropped and the real one hangs. A message this side could not parse has no
 	id to carry, and null is what the specification says to use.
+
+	**Nothing at all for a notification** (`#697`). A request object with no ``id`` *member* is a
+	notification, and the specification is explicit that a server must not reply to one — the
+	client is not waiting on it, so an answer is an unmatched message arriving out of nowhere.
+	This has always been the shape of a refusal here and was only reachable when a connection
+	failed; naming a missing instance made it the ordinary first contact, which is how it was
+	found. **A literal ``"id": null`` is not a notification** and still gets its answer, which is
+	why the test is for the member rather than for the value.
 	"""
 
 	identifier = None
@@ -277,7 +323,10 @@ def _refused (raw: str, detail: str, hint: str | None) -> dict[str, typing.Any]:
 		parsed = None
 
 	if isinstance(parsed, dict):
-		identifier = parsed.get("id")
+		if "id" not in parsed:
+			return None
+
+		identifier = parsed["id"]
 
 	return {
 		"jsonrpc": "2.0",

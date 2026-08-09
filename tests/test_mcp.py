@@ -3476,3 +3476,145 @@ def test_a_day_resolves_on_a_machine_whose_zone_abbreviation_is_not_a_zone () ->
 		time.tzset()
 
 	assert resolved is not None, "a day an agent named did not resolve"
+
+
+# ---- a machine with no instance on it yet (`SR#697`) ----------------------------------------
+
+
+def _relayed (
+	lines: str, settings: subroutine.config.Settings, monkeypatch: pytest.MonkeyPatch
+) -> list[dict[str, typing.Any]]:
+	"""Drive ``relay.run`` for real over the given messages and return what it wrote back."""
+
+	monkeypatch.setattr(
+		subroutine.connections, "roster", lambda settings: _roster("local", default="local")
+	)
+
+	outgoing = io.StringIO()
+
+	subroutine.mcp.relay.run(io.StringIO(lines), outgoing, settings=settings)
+
+	return [json.loads(line) for line in outgoing.getvalue().splitlines() if line.strip()]
+
+
+def _nowhere (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> subroutine.config.Settings:
+	"""Return settings for a machine where nobody has run ``init``."""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	settings = subroutine.config.Settings(dev_mode=True)
+
+	assert settings.has_no_instance_yet(), "the fixture built an instance, so it proves nothing"
+
+	return settings
+
+
+def test_a_machine_with_no_instance_is_told_which_command_makes_one (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``SR#697``, and it is `SR#585`'s sequel rather than a separate accident.
+
+	Nothing has to be installed before the plugin starts now, so *"an agent asking its first
+	question on a machine where nobody has run init"* stopped being an edge and became the
+	ordinary first contact. What it used to get was three problem documents written straight
+	onto the protocol channel — no envelope, no id, including for ``initialize`` — and 564 lines
+	of traceback on stderr, ending ``unable to open database file``.
+
+	The sentence is the one ``clients/local.py`` already gives a person, and the predicate is
+	the same: a missing SQLite file is a *fact*, where an unreachable PostgreSQL might be
+	absent, asleep or firewalled, and guessing produces confident bad advice.
+	"""
+
+	answered = _relayed(
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+		_nowhere(tmp_path, monkeypatch),
+		monkeypatch,
+	)
+
+	assert len(answered) == 1
+	assert answered[0]["jsonrpc"] == "2.0", "a reply with no envelope cannot be matched to a call"
+	assert answered[0]["id"] == 1, "an error carrying the wrong id resolves the wrong call"
+
+	said = answered[0]["error"]["message"]
+
+	assert "no Subroutine instance" in said.lower() or "No Subroutine instance" in said
+	assert "subroutine init" in said, f"the remedy is not named: {said}"
+
+
+def test_a_notification_is_not_answered_even_when_it_fails (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The specification is explicit that a server must not reply to a notification.
+
+	**Found by driving the fix rather than by reading it.** Naming the missing instance made
+	every message fail, including ``notifications/initialized`` — which has no ``id``, is not
+	waited on, and so received an answer the client could match to nothing. The shape was always
+	there in the refusal path and had only ever been reachable when a whole connection failed.
+
+	**A literal ``"id": null`` is a request, not a notification**, and still gets its answer:
+	the test is for the member being absent rather than for the value being null, which is the
+	distinction ``dict.get`` silently loses.
+	"""
+
+	settings = _nowhere(tmp_path, monkeypatch)
+
+	answered = _relayed(
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+		'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+		'{"jsonrpc":"2.0","id":null,"method":"tools/list"}\n',
+		settings,
+		monkeypatch,
+	)
+
+	assert [message.get("id") for message in answered] == [1, None], (
+		"three messages went in and the notification is the one that must not come back"
+	)
+
+
+def test_an_answer_that_is_not_a_json_rpc_message_becomes_one (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The guard tested whether the body *parsed*, and a problem document parses perfectly.
+
+	So every refusal this API makes reached the protocol channel verbatim. The condition is
+	about being a JSON-RPC message now, and the document's own ``detail`` and ``hint`` are used
+	when it has them — they are written for a person and are worth more than a sentence composed
+	here about a status code.
+	"""
+
+	class _Answered:
+		status_code = 500
+		text = json.dumps({
+			"status": 500,
+			"title": "Internal error",
+			"detail": "The instance could not read its own vocabulary.",
+			"hint": "Check that the database is migrated.",
+		})
+
+	monkeypatch.setattr(
+		subroutine.api.inprocess, "call", lambda *args, **kwargs: _Answered()
+	)
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		monkeypatch.setenv(variable, str(tmp_path / variable.lower()))
+
+	# Made, so the missing-instance refusal above does not fire first and answer a different
+	# question than this test is asking.
+	(tmp_path / "xdg_data_home" / "subroutine").mkdir(parents=True)
+	(tmp_path / "xdg_data_home" / "subroutine" / "subroutine.db").touch()
+
+	answered = _relayed(
+		'{"jsonrpc":"2.0","id":7,"method":"tools/list"}\n',
+		subroutine.config.Settings(dev_mode=True),
+		monkeypatch,
+	)
+
+	assert len(answered) == 1
+	assert answered[0]["jsonrpc"] == "2.0"
+	assert answered[0]["id"] == 7
+
+	said = answered[0]["error"]["message"]
+
+	assert "could not read its own vocabulary" in said, f"its own words were dropped: {said}"
+	assert "Check that the database is migrated." in said, "the hint was dropped"

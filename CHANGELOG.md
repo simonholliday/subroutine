@@ -14,6 +14,25 @@ upgrade involves.
 
 ## Unreleased
 
+### Fixed
+
+- **An agent asking its first question before you have run `subroutine init` is now told so.**
+  It used to receive a stream of objects that were not protocol messages at all — an internal
+  error document with no envelope and nothing tying it to the question asked, for every message
+  including the one that opens the session. Nothing could be matched to anything, so the session
+  simply never started and the tools appeared broken.
+
+  It now answers *"No Subroutine instance has been set up on this machine yet"* and names the
+  one command that fixes it, which is the same sentence the command line has given for a year.
+
+  **This matters more now that the plugin installs nothing** — arriving before `init` has been
+  run is the ordinary first contact rather than an edge case.
+
+- **A refusal from the instance reaches an agent as a refusal.** Anything the API declined —
+  a permission, a bad argument, a workspace it could not resolve — was written onto the
+  protocol channel as-is rather than as an error the client could read, so the agent saw
+  nothing it could act on. The instance's own words are used now, including the hint.
+
 ### Changed
 
 - **The Claude Code plugin no longer needs Subroutine installed first.** It starts the program
