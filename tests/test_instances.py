@@ -1487,6 +1487,94 @@ def test_something_still_there_on_the_second_look_is_reported (
 	assert "active" in str(refused.value)
 
 
+def test_a_database_nobody_is_using_reports_nobody_however_it_is_asked (
+	own_database: str,
+) -> None:
+	"""`SR#741`. The other half of `SR#725`, driven against a real database rather than a patched one.
+
+	**The refusal half is driven with a real second connection open**, deliberately, because a
+	hand-made row would only prove the formatting. The same reasoning applies here and had not
+	been applied: an idle database answering *nobody* was checked only with
+	``_postgresql_in_use_by`` replaced, which proves the retry's control flow and nothing about
+	the query.
+
+	**That is the half the retry can break, and it is not hypothetical.** ``in_use_by`` now looks
+	twice, so the second look happens while the first look's own connection may still be open —
+	and ``pg_stat_activity`` excludes only the backend asking. A change to pooling, to where
+	``engine.dispose()`` sits, or to the settle time could make this function report *itself*.
+	Every test would stay green while an operator halfway through a recovery is refused for a
+	reason nothing can account for, which is the exact failure `SR#725` exists to remove.
+
+	**Both connection paths, because they are not the same risk.** One engine asked repeatedly
+	reuses a pooled backend, which is excluded by pid; a fresh engine each time — what
+	``db restore`` actually does — opens and closes one per call, and a backend on its way out is
+	precisely what the four refuted hypotheses were about.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+
+	reused = subroutine.db.session.create_engine(own_database)
+
+	try:
+		pooled = [subroutine.db.backup.in_use_by(reused) for _ in range(5)]
+
+	finally:
+		reused.dispose()
+
+	fresh = []
+
+	for _ in range(5):
+		engine = subroutine.db.session.create_engine(own_database)
+
+		try:
+			fresh.append(subroutine.db.backup.in_use_by(engine))
+
+		finally:
+			engine.dispose()
+
+	assert pooled == [None] * 5, (
+		f"asking one engine repeatedly reported somebody on a database nobody is using: {pooled}"
+	)
+
+	assert fresh == [None] * 5, (
+		f"a fresh engine per call — what db restore does — reported somebody on a database "
+		f"nobody is using: {fresh}"
+	)
+
+	# And the guard built on it agrees, since that is what an operator actually meets.
+	quiet = subroutine.db.session.create_engine(own_database)
+
+	try:
+		subroutine.db.backup.check_unused(quiet)
+
+	finally:
+		quiet.dispose()
+
+	# **The case ``engine.dispose()`` is actually there for**, which nothing exercised: an engine
+	# whose pool already holds idle connections. One of them answers the question and the rest
+	# look like somebody else — *"our own pool would otherwise answer for somebody else"*, which
+	# is a comment nothing was measuring. Two, because with one the pool hands back the same
+	# backend and it is excluded by pid, so the defect cannot appear.
+	warm = subroutine.db.session.create_engine(own_database)
+
+	try:
+		if not own_database.startswith("sqlite"):
+			pooled_pair = [warm.connect(), warm.connect()]
+
+			for connection in pooled_pair:
+				connection.execute(sqlalchemy.text("SELECT 1"))
+
+			for connection in pooled_pair:
+				connection.close()
+
+			assert subroutine.db.backup.in_use_by(warm) is None, (
+				"this engine's own idle pool was reported as somebody else using the database"
+			)
+
+	finally:
+		warm.dispose()
+
+
 def test_a_refusal_says_who_is_holding_it_rather_than_how_many (
 	own_database: str,
 ) -> None:

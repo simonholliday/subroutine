@@ -207,7 +207,12 @@ code, .ref, .priority, .broke .detail {
 }
 
 /* An empty column is deliberate — the categories are the structure — so it reads as a place
-   rather than as a gap. */
+   rather than as a gap.
+
+   **It says one of two different things and this styles both** (`#742`). *Nothing* is the column
+   being empty; *Not shown* is finished work not having been asked for, which is a selection now
+   (`#738`) and so a coherent thing for a board to be without. The second carries a link, because
+   a statement that something is missing with no way to have it is worse than either. */
 .board .column .empty {
 	margin: 0;
 	padding: 14px;
@@ -754,3 +759,32 @@ code, .ref, .priority, .broke .detail {
 }
 
 .narrowed a.widen:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+/* *Show finished work*, in a column that was not asked for it (`#740`, `#738`).
+
+   **There is no global anchor rule in this file and that is deliberate** — `.views a`,
+   `.prose a`, `.comments .body a`, `.foot a` and `.narrowed a.widen` each style their own
+   context, because a link inside prose and a link that replaces a button want opposite things.
+   The cost is that a new one lands on the user agent's default: browser blue, underlined, and
+   **blind to both themes**, which is what this arrived as.
+
+   Styled as `.narrowed a.widen` is, because it is the same thing one place smaller — an action
+   offered inside a notice — and the accent is what says it is the way out of the state the
+   sentence above it describes. */
+.board .column .empty a {
+	display: inline-block;
+	margin-top: 8px;
+	padding: 2px 8px;
+	border: 1px solid currentColor;
+	border-radius: var(--radius);
+	color: var(--accent);
+	font-size: 12px;
+	text-decoration: none;
+}
+
+.board .column .empty a:hover { color: var(--ink); }
+
+.board .column .empty a:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}

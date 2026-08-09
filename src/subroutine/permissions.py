@@ -189,9 +189,14 @@ def sorted_permissions (candidates: typing.Iterable[str]) -> list[str]:
 #: §12.2a's column that says the same thing on every row, and a note beside ``comment:write``
 #: saying *comments* teaches nothing while making the two that matter harder to see.
 #:
-#: **Complete for documents by derivation, not by care.** ``tests/test_permissions.py`` reads
-#: the permissions ``domain/documents.py`` actually checks and fails if one of them has no
+#: **Complete for documents by derivation, not by care.**
+#: ``test_every_permission_that_gates_a_document_says_so``, in ``tests/test_authorization.py``,
+#: reads the permissions ``domain/documents.py`` actually checks and fails if one of them has no
 #: entry here — so gating documents on a new verb cannot silently reintroduce this.
+#:
+#: That sentence named ``tests/test_permissions.py``, which does not exist (`#742`). A citation
+#: to nothing is worse than none: it is the thing a reader checks *instead of* the claim, and
+#: finding nothing there tells them less than being sent nowhere would have.
 COVERAGE: dict[str, str] = {
 	TASK_READ: "tasks and documents",
 	TASK_WRITE: "tasks and documents",
