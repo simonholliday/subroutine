@@ -352,25 +352,30 @@ export function rosterRequest (slug) {
 	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
 }
 
-export function collectionsFor (arranged) {
+export function collectionsFor (selection) {
 	/*
-		Which collections a view reads, and the order the answers come back in.
+		Which collections a selection reads, and the order the answers come back in.
 
-		**Only the *done* view reads one**, because only tasks have a completed axis at all:
-		`GET /v1/documents` refuses `status_category` outright — measured, 422 — and a document's
-		categories are `draft`, `current`, `superseded` and `archived`, none of which means
-		*finished*. A done view asking for documents would not be widened, it would be a page
-		that does not load.
+		**A selection on `status_category` reads one**, because only tasks have that axis at all:
+		`GET /v1/documents` refuses it outright — measured, 422 — and a document's categories are
+		`draft`, `current`, `superseded` and `archived`, none of which means *finished*. Asking
+		documents for it would not widen the page, it would be a page that does not load.
 
-		**Anything unrecognised reads both**, which is the safe direction and the one a new
-		arrangement almost certainly wants: `list` and `board` are the same rows differently
-		arranged and both hold every kind of item there is (§6.2 gives them one ref counter
-		precisely so a reader can treat them as one thing).
+		**Keyed on the selection rather than on a view name** (`#738`). It used to ask whether
+		the arrangement was `done`, which stated the consequence and hid the reason — the reason
+		is the filter, and it holds for `?status_category=in_progress` just as it does for
+		`done`.
+
+		**Everything else reads both**, which is the safe direction: `list` and `board` are the
+		same rows differently arranged and both hold every kind of item there is (§6.2 gives them
+		one ref counter precisely so a reader can treat them as one thing).
 	*/
-	return arranged === "done" ? ["task"] : ["task", "document"];
+	const asked = selection || {};
+
+	return asked.status_category === undefined ? ["task", "document"] : ["task"];
 }
 
-export function listingRequests (slug, key = null, after = null, arranged = null) {
+export function listingRequests (slug, key = null, after = null, selection = null) {
 	/*
 		The list, which is tasks *and* documents — except where it cannot be.
 
@@ -395,75 +400,59 @@ export function listingRequests (slug, key = null, after = null, arranged = null
 	const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
 
 	/*
-		**Finished work is fetched for the board and not for the list** — `#718`, and it is a
-		qualification of decision `#649` rather than an oversight, recorded there.
+		**The selection comes from the address and is sent verbatim** (`#738`, decision `#649`).
 
-		`#649` says the path decides which rows there are and the query decides how they look.
-		This is the query changing a listing *default*, which the decision did not anticipate and
-		which its two worked concerns do not touch: an item's address is unchanged and the path
-		grammar is unchanged. The precedent is `cli/personal._listed`, which hides deferred work
-		for a human reader and not for `--json` — the same rows question answered differently by
-		presentation context, reasoned out and accepted.
+		It used to be derived from the view name here — `board` meant `include_completed=true`
+		and `done` meant `status_category=done&order=-completed_at` — which is the query
+		selecting under a display parameter's name. Two consequences of taking that out are worth
+		stating, because they are how you can tell the design is right:
 
-		The argument for it is simply that **without finished work a board is not a board**: the
-		*Done* column was structurally incapable of holding anything, measured on the served
-		instance the day it shipped.
+		- **This function no longer takes the arrangement at all.** An arrangement decides how
+		  rows are displayed, so it has nothing to say about what is asked for. That it was a
+		  parameter here was the defect in miniature.
+		- **`?include_completed=true` on a list and `?status_category=in_progress` on either
+		  arrangement are now reachable**, and neither was possible while a view name carried the
+		  selection.
 
-		**Tasks only, and the asymmetry is right rather than an omission.** `GET /v1/documents`
-		does not accept `include_completed` at all — measured, it answers 422 — because a
+		**Only the tasks request carries it**, and the asymmetry is right rather than an
+		omission. `GET /v1/documents` accepts neither — measured, 422 for both — because a
 		document has no completed axis: its categories are `draft`, `current`, `superseded` and
 		`archived`, and none of them means *stop showing me this*. A superseded specification is
-		still in the listing by default, so the board already receives every document there is.
+		in the listing by default, so the documents request already receives every one there is,
+		and `collectionsFor` drops it entirely when the selection is one it cannot answer.
 
-		I wrote this comment claiming both collections were asked the same, which asserted a
-		symmetry that does not exist. `test_every_request_the_browser_makes_is_one_the_instance_accepts`
-		refused the request before it shipped — the guard `#640` exists for, doing exactly its
-		job for the second time on this arc.
+		**`status_category=done` implies `include_completed`, and the constraint is one-sided.**
+		Measured on the served instance rather than read off the code: sending `true` beside it
+		answers **200** and is merely redundant; sending `false` is refused by name — *"'done' is
+		finished work, so excluding finished work leaves nothing."* So no control sets them
+		together, and `SELECTABLE` admits only `true`, which makes the refused combination
+		unreachable from an address rather than merely undocumented.
+
+		I wrote this comment claiming *both* were refused, which asserted a constraint that does
+		not exist. Found by falsifying the request derivation with a preset that should have been
+		rejected and was not — the mutation passing is what sent me to measure it.
 	*/
-	const finished = arranged === "board" ? "&include_completed=true" : "";
-
-	/*
-		**The *done* view narrows to finished work and orders on when it finished** (`#706`).
-
-		`status_category` rather than `?status=done`: a status *key* is per-workspace and
-		renameable, so a view keyed on one breaks on the first instance that renames it.
-		`-completed_at` rather than `-updated_at`: the tempting proxy reorders the page whenever
-		somebody edits a finished item, for a reason nobody did.
-
-		**No `include_completed` beside it, and that is not an omission.** Asking for a finished
-		category implies it — `tasks.completion_wanted` returns true — and passing `false` as well
-		is refused by name rather than silently resolved. Sending `true` would be a second way of
-		saying the same thing, which is how two spellings of one rule start disagreeing.
-
-		**Both handles were built by `#710` and both were measured on the live instance**, not
-		read off the code: `?status_category=done&order=-completed_at` answers 200, newest finish
-		first, and pages normally.
-
-		**This is a bigger step past decision `#649` than the board took and it is flagged rather
-		than taken quietly.** The board changed a listing *default*; this changes which rows there
-		are, which `#649` gives to the path. What survives is the decision's own reasoning: its two
-		worked concerns were *is `/personal` legal* and *does an item gain one address per view*,
-		and neither is touched — the path grammar is unchanged and an item still has exactly one
-		address. The sharper statement, recorded on `#649` for Simon to accept or reject: **the
-		path decides where rows come from; the query decides the arrangement, and an arrangement
-		chooses from within that place.** The alternative was a path segment, which `#649`
-		rejected on its own merits and which would reserve a word in the position every address
-		starts with.
-	*/
-	const only = arranged === "done" ? "&status_category=done&order=-completed_at" : "";
+	/* **`SELECTABLE` order rather than the object's**, for the same reason `withShowing` sorts:
+	   one screen must produce one string, or a cursor taken on one page is compared against a
+	   path spelled differently on the next. */
+	const chose = selection || {};
+	const rows = Object.keys(SELECTABLE)
+		.filter((name) => chose[name] !== undefined && chose[name] !== null)
+		.map((name) => `&${name}=${encodeURIComponent(chose[name])}`)
+		.join("");
 
 	const asks = {
 		task: { kind: "task", method: "GET", path: scoped(
-			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${finished}${only}`
+			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${rows}`
 			+ from(after && after.tasks), slug) },
 		document: { kind: "document", method: "GET", path: scoped(
 			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
 			+ from(after && after.documents), slug) },
 	};
 
-	/* **Tagged with the kind rather than positional**, so a view reading one collection cannot
-	   have its rows labelled by whichever slot they happened to arrive in. */
-	return collectionsFor(arranged).map((kind) => asks[kind]);
+	/* **Tagged with the kind rather than positional**, so a selection reading one collection
+	   cannot have its rows labelled by whichever slot they happened to arrive in. */
+	return collectionsFor(chose).map((kind) => asks[kind]);
 }
 
 export function itemRequests (kind, ref, slug) {
@@ -568,30 +557,64 @@ export function addressOf (item, workspace) {
 		+ `/${item.ref}`;
 }
 
-/* ---- views (`#651`, decision `#649`) ------------------------------------- */
+/* ---- what is showing: an arrangement and a selection (`#651`, `#649`) ----- */
 
 /*
-	**The path says which rows there are; the query says how they look.** That is decision
-	`#649` and it is §14.10 applied to a second surface: `?fields=` and `?format=` already decide
-	how a row is *reported* while `domain/scoping.py` decides which rows exist, and
-	`api/shaping.py` takes already-rendered views specifically so a display parameter can never
-	reach the `WHERE` clause. A view is the same promise one layer out.
+	**The path decides place; the query decides selection and arrangement; a view never
+	selects.** Decision `#649`, rewritten on 2026-08-09 because its first version had two things
+	where there are three — it put *selection* on the path's side of the line, and the first
+	honest application of that rule produced a board whose *Done* column was structurally
+	incapable of holding anything (`#718`).
 
-	**The default is the absence of the parameter**, not `?view=list`. That is what lets it
-	become per-workspace and later per-user without invalidating an address anybody wrote down —
-	an address that spells out today's default would freeze it.
+	| | |
+	| --- | --- |
+	| `?view=` | the **arrangement** — how the rows that arrived are displayed |
+	| `?status_category=`, `?include_completed=`, `?order=` | the **selection** — which rows arrive |
+
+	§14.10 is the same separation one layer in, and it is untouched: `?fields=` and `?format=`
+	decide how a row is *reported* while `domain/scoping.py` decides which rows exist, and
+	`api/shaping.py` takes already-rendered views specifically so a display parameter cannot
+	reach the `WHERE` clause. What changed is that a selection is no longer pretending to be a
+	display parameter — it is a filter, in the open, in the address.
+
+	**A control may set several parameters at once; the address states each of them.** So a
+	reader can see what they are looking at, send it to somebody, and take one part away. That
+	last is not theoretical: separating them is what makes `?include_completed=true` on a *list*
+	and `?status_category=in_progress` on either arrangement possible at all, and neither was
+	reachable while a view name carried the selection.
+
+	**The bound that keeps this from meaning nothing** (`#649`): a selection parameter may only
+	be one the caller could have sent anyway, and may never widen what a credential can see.
+	`SELECTABLE` is that bound written down — a name the browser does not know is refused here
+	rather than forwarded, so this can never become a passthrough to the query layer.
 */
-/*
-	**`done` is a third kind of thing from the first two, and it earns its place beside them.**
-	`list` and `board` are the same rows arranged differently; `done` is a narrower set of rows.
-	Putting it in a second control would be more honest to the taxonomy and worse for the reader —
-	`#651`'s reason for having a control at all is that *a reader who has never seen one cannot
-	type a word they have not been told*, and a filter with no control is a feature nobody finds.
-	Every tracker a person has used offers this as a tab beside the others.
-*/
-export const VIEWS = ["list", "board", "done"];
+export const VIEWS = ["list", "board"];
 
 export const DEFAULT_VIEW = "list";
+
+export const SELECTABLE = {
+	/*
+		`status_category` rather than `status`: a status *key* is per-workspace and renameable,
+		so an address keyed on one breaks on the first instance that renames it. The four
+		categories are fixed by the model, which is why they can be spelled here at all.
+	*/
+	status_category: ["todo", "in_progress", "done", "cancelled"],
+	include_completed: ["true"],
+	/*
+		**One order, and it names its successor rather than pretending to be general.** `#661`
+		is what puts ordering in a reader's hands; until then the only order any control here
+		produces is the finished view's, and allowing more would be publishing an address whose
+		results nothing has driven. `-completed_at` rather than `-updated_at`: the tempting
+		proxy reorders the page whenever somebody edits a finished item, for a reason nobody did.
+	*/
+	order: ["-completed_at"],
+};
+
+/* What the controls produce. Named because two places need each — the chip that writes the
+   address and the test that drives it — and a second spelling is what drifts. */
+export const EVERYTHING = { include_completed: "true" };
+
+export const ONLY_FINISHED = { status_category: "done", order: "-completed_at" };
 
 export function viewOf (search) {
 	/*
@@ -615,19 +638,130 @@ export function viewOf (search) {
 		: { view: DEFAULT_VIEW, refused: asked };
 }
 
-export function withView (path, view) {
+export function selectionOf (search) {
 	/*
-		One address, carrying the arrangement — `#651`'s *survives navigation*.
+		Which rows an address asks for, and which of its words were not understood.
 
-		Four places wrote an address before this and every one of them dropped the query, so
-		`/projects?view=board` became `/projects` the moment anything was opened. The view is not
-		state the app remembers; it is part of the address, which is what makes it something a
-		reader can send somebody.
+		**Same rule as `viewOf` and for the same reason**: a person types these. An unknown
+		selection is dropped rather than forwarded — forwarding would make this a passthrough to
+		`api/query.py`, which refuses a parameter it does not declare, so one typo would replace
+		the reader's page with a 422 instead of their list.
 
-		**The default is written as an absence**, so an ordinary address stays ordinary and
-		nothing has to be stripped back out later.
+		**A value outside its list is refused too, not only an unknown name.** `status_category`
+		exists and `?status_category=finished` does not; admitting the name and passing the value
+		is the half-check that reads as validation and is not.
 	*/
-	return !view || view === DEFAULT_VIEW ? path : `${path}?view=${encodeURIComponent(view)}`;
+	const asked = new URLSearchParams(String(search || ""));
+	const selection = {};
+	const refused = [];
+
+	Object.keys(SELECTABLE).forEach((name) => {
+		const value = asked.get(name);
+
+		if (value === null || value === "") return;
+
+		if (SELECTABLE[name].includes(value)) selection[name] = value;
+		else refused.push(`${name}=${value}`);
+	});
+
+	return { selection, refused };
+}
+
+export function showingOf (search) {
+	/* The arrangement and the selection an address asks for, read once so the two cannot be
+	   read from different places and disagree — which is `#719`'s defect in miniature. */
+	const arrangement = viewOf(search);
+	const rows = selectionOf(search);
+
+	return {
+		view: arrangement.view,
+		selection: rows.selection,
+		refused: (arrangement.refused ? [`view=${arrangement.refused}`] : []).concat(rows.refused),
+	};
+}
+
+export function withShowing (path, showing) {
+	/*
+		One address, carrying everything about what is on screen — `#651`'s *survives
+		navigation*, widened by `#738` to carry the selection too.
+
+		Four places wrote an address before `#651` and every one of them dropped the query, so
+		`/projects?view=board` became `/projects` the moment anything was opened.
+
+		**The default arrangement is written as an absence**, so an ordinary address stays
+		ordinary and nothing has to be stripped back out later. **A selection is always written
+		out**, because there is no default to fall back to and the absence of one *is* the
+		ordinary selection.
+
+		**Emitted in `SELECTABLE` order rather than the order they were set**, so the same
+		screen always produces the same string — `go` compares the address it wants against the
+		one in the bar and would otherwise push a duplicate entry onto the history.
+	*/
+	const view = showing && showing.view;
+	const selection = (showing && showing.selection) || {};
+
+	const parts = (view && view !== DEFAULT_VIEW ? [`view=${encodeURIComponent(view)}`] : [])
+		.concat(Object.keys(SELECTABLE)
+			.filter((name) => selection[name] !== undefined && selection[name] !== null)
+			.map((name) => `${name}=${encodeURIComponent(selection[name])}`));
+
+	return parts.length === 0 ? path : `${path}?${parts.join("&")}`;
+}
+
+export function reloads (before, after) {
+	/*
+		Whether moving from one showing to another has to ask the instance again.
+
+		**Only a change of selection does** (`#738`). An arrangement is a rendering of rows
+		already held — which is what the first version of `chooseView`'s comment said, and it was
+		right about *that* half and wrong that the same went for finished work.
+
+		**Lifted out of `App` rather than written inline**, which is `#640`'s cheapest route and
+		the reason it is worth the function: four faults shipped from decisions left inside that
+		component, every one found by Simon rather than by the build, and a wrong answer here is
+		exactly that shape — a page showing the rows of a selection it is no longer on, with the
+		address, the rule and the display all individually correct.
+
+		Compared through `withShowing` with the arrangement blanked, so *what makes two
+		selections the same* is answered in one place. Comparing the objects would make key order
+		significant, and `{a, b}` and `{b, a}` are the same selection.
+	*/
+	const asked = (showing) => withShowing("", { view: null, selection: showing.selection });
+
+	return asked(before) !== asked(after);
+}
+
+export function chips (behind, showing) {
+	/*
+		The controls beside a listing, and what each one is about to write.
+
+		**A control, because an address is not a way to find something** (`#651`) — a reader who
+		has never seen one cannot type a word they have not been told, and a filter with no
+		control is a feature nobody finds. Every tracker a person has used offers these as tabs.
+
+		**Two of them are arrangements and one is a selection, which is the whole of `#738`.**
+		They look alike deliberately: the taxonomy belongs in the address, not in the furniture.
+		*done* keeps whichever arrangement is showing, so a board of finished work is reachable
+		and is exactly what its address says it is.
+
+		**Chosen is computed, never remembered.** An address no control produces —
+		`?status_category=in_progress`, say — highlights nothing, which is true rather than
+		tidy.
+	*/
+	const narrowed = showing.selection.status_category !== undefined;
+
+	return [
+		{ name: "list", showing: { view: "list", selection: {} } },
+		{ name: "board", showing: { view: "board", selection: EVERYTHING } },
+		{ name: "done", showing: { view: showing.view, selection: ONLY_FINISHED } },
+	].map((chip) => ({
+		name: chip.name,
+		href: withShowing(behind, chip.showing),
+		showing: chip.showing,
+		chosen: chip.name === "done"
+			? showing.selection.status_category === "done"
+			: !narrowed && showing.view === chip.name,
+	}));
 }
 
 export function listingAddress (place) {
@@ -1282,7 +1416,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
-	widenTo,
+	widenTo, finished, finishedTo,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -1298,6 +1432,23 @@ export function Board ({
 	*/
 	const arranged = columns(items);
 	const showKind = new Set(items.map((item) => item.kind)).size > 1;
+
+	/*
+		**A column nothing was asked for must not report "Nothing"** (`#738`, and it is `#718`
+		arriving through a second door).
+
+		Finished work is a *selection* now — `?include_completed=true` — so a board reached
+		without it is a coherent thing to want and an empty *Done* column under it would be a
+		false statement rather than an empty one. This project's own repeated lesson is that
+		something which works and says something untrue about itself is worse than a failure
+		(`#564`, `#568`, `#570`, `#572`), and a column is exactly where a reader looks to
+		conclude nothing is left.
+
+		So the column says what is true — it was not asked for — and offers the address that
+		asks. Which also makes a board of *unfinished work only* reachable, and it was not while
+		the arrangement carried the selection.
+	*/
+	const unasked = (column) => column.key === "done" && finished === false;
 
 	/* The same test the listing makes, and it has to be the same: both render one page of two
 	   collections, and a column tally that reads as a total is worse on a board than a short
@@ -1332,9 +1483,18 @@ export function Board ({
 							`#646` gives — a reader shown 100 of 142 with no way to tell had an
 							item they wrote minutes earlier become unfindable.
 						*/ null}
-						<h2>${column.label}${" "}<span class="tally">${column.items.length}</span></h2>
+						${/* **And no tally on a column nothing was asked for** — a `0` beside
+						     *Done* is the same false statement as the word *Nothing* under it,
+						     in the place a reader glances rather than reads. */ null}
+						<h2>${column.label}${!unasked(column) && html`${" "}
+							<span class="tally">${column.items.length}</span>`}</h2>
 
-						${column.items.length === 0
+						${unasked(column)
+							? html`<p class="empty">Not shown.${" "}
+								${finishedTo
+									? html`<a href=${finishedTo}>Show finished work</a>`
+									: "Add ?include_completed=true to see it."}</p>`
+							: column.items.length === 0
 							? html`<p class="empty">Nothing</p>`
 							: html`
 								<ul class="rows">
@@ -1768,25 +1928,32 @@ export function App () {
 	   render" and "the agenda is what to render" are the same fact and two would drift. */
 	const [agenda, setAgenda] = useState(null);
 	const [unscheduled, setUnscheduled] = useState(0);
-	/* How the rows are arranged, read from the address rather than remembered (`#651`). It is
-	   part of the address so that a reader can send somebody the thing they are looking at. */
-	const [view, setView] = useState(DEFAULT_VIEW);
+	/*
+		What is on screen — the arrangement and the selection — read from the address rather
+		than remembered (`#651`), so a reader can send somebody the thing they are looking at.
+
+		**One state holding both, not two** (`#738`). `setView` not having landed in the render
+		that reads it is `#719`'s defect, and two setters would give it two chances to happen
+		with the halves disagreeing. They are one fact: what this page is showing.
+	*/
+	const [showing, setShowing] = useState({ view: DEFAULT_VIEW, selection: {} });
 	const since = useRef(null);
 
-	const go = useCallback((path, { replace = false, arranged = view } = {}) => {
+	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
 		/*
-			**Every address this app writes goes through here**, carrying the arrangement.
+			**Every address this app writes goes through here**, carrying the arrangement and the
+			selection.
 
 			Four places wrote one before `#651` and all four dropped the query, so
 			`/projects?view=board` became `/projects` the moment anything was opened — the view
 			would have been a setting that silently expired on the first click.
 		*/
-		const wanted = withView(path, arranged);
+		const wanted = withShowing(path, arranged);
 
 		if (window.location.pathname + window.location.search === wanted) return;
 
 		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
-	}, [view]);
+	}, [showing]);
 
 	const readAgenda = useCallback(async (spaces) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
@@ -1821,11 +1988,11 @@ export function App () {
 			`go()` writes it before any load that changes one, and `popstate` fires only after it
 			has already changed. Nothing to capture, nothing to forget.
 		*/
-		const arranged = viewOf(window.location.search).view;
+		const chose = selectionOf(window.location.search).selection;
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
-		const wanted = listingRequests(slug, key, after, arranged);
+		const wanted = listingRequests(slug, key, after, chose);
 		let answers;
 
 		try {
@@ -1933,14 +2100,14 @@ export function App () {
 				   in the dependency array below for the reason `project` is: the interval
 				   closes over it, and an interval created while the list was showing would go
 				   on reloading the list for the life of the page. */
-				const showing = agenda !== null;
-				const seen = await sent(pollRequest(showing ? null : workspace, since.current));
+				const onAgenda = agenda !== null;
+				const seen = await sent(pollRequest(onAgenda ? null : workspace, since.current));
 
 				if (seen.items.length === 0) return;
 
 				since.current = seen.items[seen.items.length - 1].seq;
 
-				await (showing ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
+				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
 			} catch (_) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -2033,9 +2200,9 @@ export function App () {
 		try {
 			const identity = await sent(identityRequest());
 			const asked = parseAddress(window.location.pathname);
-			const arrangement = viewOf(window.location.search);
+			const arrangement = showingOf(window.location.search);
 
-			setView(arrangement.view);
+			setShowing({ view: arrangement.view, selection: arrangement.selection });
 			const { slug, refused } = chosenWorkspace(
 				asked, identity.workspaces.map((space) => space.slug), workspace,
 			);
@@ -2043,9 +2210,13 @@ export function App () {
 			setMe(identity);
 			setWorkspace(slug);
 
-			if (arrangement.refused !== null) {
+			/* **Every refused word, named** — `viewOf`'s rule applied to the selection too
+			   (`#738`). One note rather than one per word: a reader who mistyped two things
+			   needs to know both, and `setNote` holds one. */
+			if (arrangement.refused.length > 0) {
 				setNote({
-					text: `There is no ${arrangement.refused} view. Showing the list.`,
+					text: `This address asks for ${arrangement.refused.join(" and ")}, `
+						+ `which is not something to ask for. Showing the list.`,
 					tone: "bad",
 				});
 			}
@@ -2128,7 +2299,9 @@ export function App () {
 			/* The arrangement is in the address too (`#651`), so stepping back into a board
 			   restores the board rather than leaving the list under an address saying otherwise
 			   — which is the disagreement `close` used to create for the agenda. */
-			setView(viewOf(window.location.search).view);
+			const back = showingOf(window.location.search);
+
+			setShowing({ view: back.view, selection: back.selection });
 
 			/*
 				**Stepping back to `/` is stepping back to the agenda** (`#652`), and this has
@@ -2335,7 +2508,7 @@ export function App () {
 
 	const chooseView = useCallback(async (wanted) => {
 		/*
-			**Switching does refetch, and the comment here used to say it must not.**
+			**Switching refetches, and the comment here used to say it must not.**
 
 			That sentence was written the same day and was wrong within hours: it argued that a
 			view is a rendering of rows `load` already has, so refetching would make the query
@@ -2344,15 +2517,19 @@ export function App () {
 			excludes finished work by default, so the board never received a single done row
 			(`#718`).
 
-			What is fetched is a listing **default**, not a scope. `#649`'s rule stands for what
-			it was decided about — the path grammar, and an item having one address — and this
-			is recorded on it as a qualification rather than left as a contradiction.
+			**What refetches is the selection, and only when it changes** (`#738`). An
+			arrangement genuinely is a rendering of rows already held — that half of the original
+			sentence was right — so switching list to board with the same selection reloads
+			nothing it did not need. The two are separate parameters now, which is what makes
+			that distinction expressible at all.
 
-			`wanted` is passed to `load` explicitly because `setView` has not landed in this
-			render, so the closure still holds the previous arrangement — the same reason `start`
-			passes `slug` rather than reading `workspace`.
+			`wanted` is passed to `load` explicitly because `setShowing` has not landed in this
+			render, so the closure still holds the previous one — the same reason `start` passes
+			`slug` rather than reading `workspace`.
 		*/
-		setView(wanted);
+		const again = reloads(showing, wanted);
+
+		setShowing(wanted);
 
 		/* **The address first, then the reload** — and the order is the whole of why `load`
 		   needs no argument for this: it reads the arrangement from the address, which `go` has
@@ -2362,8 +2539,8 @@ export function App () {
 			{ arranged: wanted },
 		);
 
-		if (agenda === null) await load(workspace, project);
-	}, [agenda, go, load, project, workspace]);
+		if (agenda === null && again) await load(workspace, project);
+	}, [agenda, go, load, project, showing, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -2371,6 +2548,15 @@ export function App () {
 	   what the view switcher hangs its arrangements off. One expression, because `close` and
 	   `chooseView` already agree on it and a second spelling here would be the thing that drifts. */
 	const behind = listingAddress({ agenda: agenda !== null, workspace, project });
+
+	/*
+		**The one question the render asks of the selection**, named once.
+
+		Everything below that used to ask `view === "done"` is really asking this: *is this page
+		showing only work that is over?* Answering it from the arrangement is what made `done` a
+		view in the first place, and it is what `#738` took out.
+	*/
+	const finishedOnly = showing.selection.status_category === "done";
 
 	if (error) {
 		return html`
@@ -2400,32 +2586,29 @@ export function App () {
 				</div>
 
 				${/*
-					**A control, because an address is not a way to find something** (`#651`).
-					`?view=board` is what the arrangement *is*, and a reader who has never seen
-					one cannot type a word they have not been told. It is on a listing only: the
-					agenda is chosen by the path and arranging it by status would answer a
-					question nobody asked of it.
-				*/ null}
-				${/*
-					**"Which view" rather than "how to arrange this"** (`#706`). The label was
-					written when both entries were arrangements of one set of rows; `done` is a
-					different set, so the old wording described two of the three and quietly
-					mis-announced the third to the readers who depend on it most.
-				*/ null}
-				${/*
-					**And each one is a link** (`#722`), so a reader can open the board in a tab
-					beside their list rather than replacing it. `withView` builds exactly the
-					address `chooseView` is about to write, which is what makes the two agree —
-					a hand-built `href` here would be a second copy of the rule `#651` centralised.
+					**Controls, because an address is not a way to find something** (`#651`). A
+					reader who has never seen one cannot type a word they have not been told. They
+					are on a listing only: the agenda is chosen by the path, and arranging it by
+					status would answer a question nobody asked of it.
+
+					**What each one writes, and which is highlighted, is `chips`** — a pure
+					function, which is `#640`'s cheapest route and the reason this arc's four
+					shipped faults were all in wiring rather than in rules. Two of the three are
+					arrangements and one is a selection (`#738`); they look alike because the
+					taxonomy belongs in the address, not in the furniture.
+
+					**And each is a real link** (`#722`), so a reader can open the board in a tab
+					beside their list rather than replacing it. `chips` builds exactly the address
+					`chooseView` is about to write, which is what makes the two agree.
 				*/ null}
 				${!open && agenda === null && html`
 					<nav class="views" aria-label="Which view">
-						${VIEWS.map((name) => html`
-							<a key=${name} class=${name === view ? "chosen" : ""}
-								href=${withView(behind, name)}
-								aria-current=${name === view ? "true" : undefined}
-								onClick=${(event) => followed(event, () => chooseView(name))}
-								>${name}</a>
+						${chips(behind, showing).map((chip) => html`
+							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}
+								href=${chip.href}
+								aria-current=${chip.chosen ? "true" : undefined}
+								onClick=${(event) => followed(event, () => chooseView(chip.showing))}
+								>${chip.name}</a>
 						`)}
 					</nav>
 				`}
@@ -2436,7 +2619,7 @@ export function App () {
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					where=${mentionHref(workspace)} onBack=${() => close()}
-					backTo=${withView(behind, view)} workspace=${workspace}
+					backTo=${withShowing(behind, showing)} workspace=${workspace}
 					onComplete=${complete} onAssign=${assign} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
@@ -2449,25 +2632,32 @@ export function App () {
 						     `agendaBuckets` resolves the slug onto every row. */ null}
 						onOpen=${(row) => show(row, { slug: row.workspace || workspace })}
 						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
-					: view === "board"
+					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
+							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more}
+							onMore=${showMore}
 							project=${project} workspace=${workspace} onWiden=${widen}
-							widenTo=${withView(listingAddress({ workspace }), view)} />`
+							finished=${showing.selection.include_completed === "true"}
+							finishedTo=${withShowing(behind, {
+								view: "board", selection: EVERYTHING,
+							})}
+							widenTo=${withShowing(listingAddress({ workspace }), showing)} />`
 						/*
-							**No capture box on the finished view** (`#706`). Adding from here
-							would report success over a page the new item cannot appear on — it is
-							open, and this view holds only what is over — which is `#515`'s shape:
-							every step reports success and the reader is left confirming the wrong
-							conclusion. `Row` already declines to offer *Complete* on finished work
-							by way of `completable` (`#724`), so `onComplete` is passed and simply
-							never applies; the add box has no such guard and is withheld here.
+							**No capture box while only finished work is showing** (`#706`).
+							Adding from here would report success over a page the new item cannot
+							appear on — it is open, and this selection holds only what is over —
+							which is `#515`'s shape: every step reports success and the reader is
+							left confirming the wrong conclusion. `Row` already declines to offer
+							*Complete* on finished work by way of `completable` (`#724`), so
+							`onComplete` is passed and simply never applies; the add box has no
+							such guard and is withheld here.
 						*/
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${view === "done" ? null : add} busy=${busy} more=${more}
+							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more}
 							onMore=${showMore} project=${project} workspace=${workspace}
-							onWiden=${widen} widenTo=${withView(listingAddress({ workspace }), view)}
-							empty=${view === "done"
+							onWiden=${widen}
+							widenTo=${withShowing(listingAddress({ workspace }), showing)}
+							empty=${finishedOnly
 								? "Nothing has been finished here yet."
 								: "Nothing here yet."} />`}
 

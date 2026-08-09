@@ -2386,21 +2386,60 @@ def _view_names () -> list[str]:
 	return re.findall(r'"([^"]+)"', found.group(1))
 
 
+def _selections () -> list[dict[str, str]]:
+	"""Every selection this app's address grammar admits, derived from `SELECTABLE`.
+
+	**Derived from what is being measured, not from a list kept beside it** (`SR#738`). This used
+	to parametrise over `VIEWS`, which was right while a view name carried the selection and
+	became a hole the moment it did not: `VIEWS` shrank to two entries and the done path would
+	have stopped being driven while every case went on passing. *No cases failed* and *one case
+	ran* read identically, which is `test_cli_help`'s recorded trap.
+
+	Singles plus the named presets, and **never every combination**: `status_category=done`
+	implies `include_completed`, and sending both is refused by name — a constraint `SELECTABLE`
+	cannot express and `SR#710` measured on the live instance.
+	"""
+
+	source = _served_modules()["app.js"]
+	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
+
+	assert block, "the app's selectable parameters could not be read from app.js"
+
+	singles = [
+		{name: value}
+		for name, values in re.findall(r"\n\t(\w+): \[([^\]]*)\]", block.group(1))
+		for value in re.findall(r'"([^"]+)"', values)
+	]
+
+	assert singles, "no selectable parameter was found, so nothing would be driven"
+
+	return [{}] + singles + [_preset(source, name) for name in ("EVERYTHING", "ONLY_FINISHED")]
+
+
+def _preset (source: str, name: str) -> dict[str, str]:
+	"""One of the selections a control writes, read from the app rather than restated here."""
+
+	found = re.search(rf"export const {name} = \{{([^}}]*)\}};", source)
+
+	assert found, f"the app's {name} selection could not be read from app.js"
+
+	return dict(re.findall(r'(\w+): "([^"]+)"', found.group(1)))
+
+
 def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 	"""Every request this app can make, with arguments naming things that exist.
 
 	One entry per *shape* rather than per builder: a listing narrowed to a project and a listing
 	that is not are different requests, and the narrowing is where the last two faults were.
 
-	**A view is a shape, so the views are derived rather than listed** (`SR#706`). Each one sends
-	a different query — the board adds `include_completed`, the done view adds `status_category`
-	and an `order` — and each is a chance to send something the route refuses. Listing them here
-	would have made a fourth view arrive undriven, which is precisely how `SR#718` reached a
-	reader: nothing had ever asked what a *board* fetches.
+	**A selection is a shape, so the selections are derived rather than listed** (`SR#738`). Each
+	sends a different query and each is a chance to send something the route refuses — which is
+	precisely how `SR#718` reached a reader: nothing had ever asked what a *board* fetches.
 	"""
 
 	return [
-		("listingRequests", [place.slug, None, None, view]) for view in _view_names()
+		("listingRequests", [place.slug, None, None, selection])
+		for selection in _selections()
 	] + [
 		("identityRequest", []),
 		("headRequest", []),
@@ -3233,7 +3272,11 @@ def _views (
 
 		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
 			name === "viewOf" ? app.viewOf(argument)
-			: name === "withView" ? app.withView(argument.path, argument.view)
+			: name === "selectionOf" ? app.selectionOf(argument)
+			: name === "showingOf" ? app.showingOf(argument)
+			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
+			: name === "chips" ? app.chips(argument.behind, argument.showing)
+			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: app.columns(argument))));
 	"""))
@@ -3254,7 +3297,9 @@ def test_the_default_view_is_the_absence_of_the_parameter (tmp_path: pathlib.Pat
 	assert empty == {"view": "list", "refused": None}
 	assert board == {"view": "board", "refused": None}
 
-	[written] = _views(tmp_path, [("withView", {"path": "/projects", "view": "list"})])
+	[written] = _views(tmp_path, [
+		("withShowing", {"path": "/projects", "showing": {"view": "list", "selection": {}}}),
+	])
 
 	assert written == "/projects", "the default must not be written into an address"
 
@@ -3285,13 +3330,239 @@ def test_the_arrangement_survives_being_written_into_an_address (
 	silently expired on the first click.
 	"""
 
-	kept, item = _views(tmp_path, [
-		("withView", {"path": "/projects", "view": "board"}),
-		("withView", {"path": "/projects/subroutine/42", "view": "board"}),
+	board = {"view": "board", "selection": {}}
+
+	kept, item, chosen = _views(tmp_path, [
+		("withShowing", {"path": "/projects", "showing": board}),
+		("withShowing", {"path": "/projects/subroutine/42", "showing": board}),
+		("withShowing", {"path": "/projects", "showing": {
+			"view": "list", "selection": {"status_category": "done"},
+		}}),
 	])
 
 	assert kept == "/projects?view=board"
 	assert item == "/projects/subroutine/42?view=board"
+
+	# **A selection is written out even under the default arrangement** (`SR#738`), because
+	# there is no default to fall back to: the absence of one *is* the ordinary selection, so an
+	# address that dropped it would show a different set of rows than the one it came from.
+	assert chosen == "/projects?status_category=done"
+
+
+def test_a_selection_nobody_can_send_is_refused_by_name_and_by_value (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738`. What stops the address becoming a passthrough to `api/query.py`.
+
+	That route refuses a parameter it does not declare, so forwarding whatever a person typed
+	would replace their page with a 422 over one wrong word — the failure `viewOf` already
+	declined for the arrangement, arriving by a second door.
+
+	**A value outside its list is refused as well as an unknown name**, which is the half worth
+	having: `status_category` exists and `finished` is not one of its categories, so admitting
+	the name and passing the value is the check that reads as validation and is not.
+	"""
+
+	known, wrong, unknown, both = _views(tmp_path, [
+		("selectionOf", "?status_category=done"),
+		("selectionOf", "?status_category=finished"),
+		("selectionOf", "?colour=red"),
+		("selectionOf", "?status_category=finished&order=-title"),
+	])
+
+	assert known == {"selection": {"status_category": "done"}, "refused": []}
+
+	assert wrong == {"selection": {}, "refused": ["status_category=finished"]}, (
+		"a value outside the list must be refused, not forwarded"
+	)
+
+	assert unknown == {"selection": {}, "refused": []}, (
+		"a name the app does not know is not the reader's mistake to be told about — it is "
+		"simply not a selection, and every address carries parameters this app has no opinion on"
+	)
+
+	assert both["refused"] == ["status_category=finished", "order=-title"], (
+		"a reader who mistyped two things needs to be told about both"
+	)
+
+
+def test_an_address_can_ask_for_finished_work_on_either_arrangement (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738`, and the thing that says the split is real rather than cosmetic.
+
+	While a view name carried the selection, *a list including finished work* and *a board of
+	only finished work* could not be expressed at all — there was no name for either, and adding
+	one would have meant a fourth and a fifth view. Separating the two parameters makes both
+	fall out with nothing built for them.
+	"""
+
+	wide, narrow = _built(tmp_path, [
+		("listingRequests", ["personal", None, None, {"include_completed": "true"}]),
+		("listingRequests", ["personal", None, None, {"status_category": "in_progress"}]),
+	]), None
+
+	tasks = [request for request in wide if "/tasks" in request["path"]]
+
+	assert "include_completed=true" in tasks[0]["path"], (
+		"a list must be able to include finished work, which no view name could ask for"
+	)
+
+	assert [request for request in wide if "/documents" in request["path"]], (
+		"including finished work says nothing about documents, so both collections stay"
+	)
+
+	assert narrow is None
+
+
+def test_a_category_selection_reads_tasks_alone_whichever_category_it_is (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738`. The reason is the filter, not the word *done*.
+
+	`GET /v1/documents` refuses `status_category` outright — 422, measured — because a document
+	has no such axis. That holds for `in_progress` exactly as it does for `done`, and keying the
+	decision on a view name stated the consequence while hiding the reason: a second category
+	would have shipped a page that does not load.
+	"""
+
+	progress = _built(tmp_path, [
+		("listingRequests", ["personal", None, None, {"status_category": "in_progress"}]),
+	])
+
+	assert [request for request in progress if "/tasks" in request["path"]]
+
+	assert not [request for request in progress if "/documents" in request["path"]], (
+		"any status_category selection must skip documents, not only the finished one"
+	)
+
+
+def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738` and `SR#722`. Two arrangements and a selection, and each is a real address.
+
+	**Chosen is computed, never remembered**, so an address no control produces highlights
+	nothing — which is true rather than tidy, and is what stops the switcher claiming a reader is
+	somewhere they are not.
+
+	**The done control keeps whichever arrangement is showing**, which is the split doing its
+	job: a board of finished work is reachable and its address says exactly that.
+	"""
+
+	plain, board, finished = _views(tmp_path, [
+		("chips", {"behind": "/projects", "showing": {"view": "list", "selection": {}}}),
+		("chips", {"behind": "/projects", "showing": {
+			"view": "board", "selection": {"include_completed": "true"},
+		}}),
+		("chips", {"behind": "/projects", "showing": {
+			"view": "board", "selection": {"status_category": "done"},
+		}}),
+	])
+
+	assert [chip["href"] for chip in plain] == [
+		"/projects",
+		"/projects?view=board&include_completed=true",
+		"/projects?status_category=done&order=-completed_at",
+	]
+
+	assert [chip["name"] for chip in plain if chip["chosen"]] == ["list"]
+	assert [chip["name"] for chip in board if chip["chosen"]] == ["board"]
+
+	assert [chip["name"] for chip in finished if chip["chosen"]] == ["done"], (
+		"a board narrowed to finished work is on the done control, not on the board one"
+	)
+
+	assert [chip["href"] for chip in finished][2] \
+		== "/projects?view=board&status_category=done&order=-completed_at", (
+			"the done control must keep the arrangement, or switching to it silently rearranges"
+		)
+
+
+def test_every_arrangement_this_app_has_can_be_reached_from_a_control (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#651`'s reason for having controls at all, asked of `VIEWS` rather than of a list here.
+
+	*A reader who has never seen one cannot type a word they have not been told* — so an
+	arrangement with no control is a feature nobody finds. `chips` names its three entries
+	literally, because two of them are arrangements and one is a selection and the selections
+	differ per arrangement, so it cannot be derived; this is what makes that literal safe.
+
+	**Derived from `VIEWS`**, so a third arrangement fails here rather than shipping unreachable.
+	"""
+
+	[offered] = _views(tmp_path, [
+		("chips", {"behind": "/projects", "showing": {"view": "list", "selection": {}}}),
+	])
+	named = {chip["name"] for chip in offered}
+
+	assert set(_view_names()) <= named, (
+		f"an arrangement this app has is not on any control: {set(_view_names()) - named}"
+	)
+
+
+def test_only_a_change_of_selection_asks_the_instance_again (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738`. An arrangement is a rendering of rows already held; a selection is not.
+
+	**Lifted out of `App` to be askable at all** (`SR#640`). A wrong answer here is that
+	component's signature fault — the address right, the rule right, the display right, and the
+	rows belonging to a selection the page has left.
+	"""
+
+	rearranged, narrowed, identical = _views(tmp_path, [
+		("reloads", {"before": {"view": "list", "selection": {}},
+			"after": {"view": "board", "selection": {}}}),
+		("reloads", {"before": {"view": "list", "selection": {}},
+			"after": {"view": "list", "selection": {"status_category": "done"}}}),
+		("reloads", {"before": {"view": "list", "selection": {"order": "-completed_at",
+			"status_category": "done"}},
+			"after": {"view": "board", "selection": {"status_category": "done",
+				"order": "-completed_at"}}}),
+	])
+
+	assert rearranged is False, "rearranging rows already held must not refetch them"
+	assert narrowed is True, "a narrower selection is a different set of rows"
+
+	assert identical is False, (
+		"two spellings of one selection are one selection — comparing the objects would make "
+		"key order significant"
+	)
+
+
+def test_a_board_column_nobody_asked_for_does_not_report_that_it_is_empty (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#738`, and it is `SR#718` arriving through a second door.
+
+	Finished work is a selection now, so a board reached without it is a coherent thing to want —
+	and an empty *Done* column under it would be a false statement rather than an empty one. A
+	column is exactly where a reader looks to conclude nothing is left, and this project's own
+	repeated lesson is that something which works and says something untrue about itself is
+	worse than a failure (`SR#564`, `SR#568`, `SR#570`, `SR#572`).
+
+	**Driven rather than built**, because what is being checked is which of two empty states
+	`App` hands down — the decision `SAMPLES` cannot reach.
+	"""
+
+	bare = _driven(tmp_path, pathname="/projects", search="?view=board")
+	asked = _driven(
+		tmp_path, pathname="/projects", search="?view=board&include_completed=true",
+	)
+
+	assert "Not shown." in bare["said"], (
+		f"a column nobody asked for reported on its contents: {bare['said']!r}"
+	)
+
+	assert "/projects?view=board&include_completed=true" in bare["links"], (
+		f"the column says it is not shown and offers no way to show it: {bare['links']}"
+	)
+
+	assert "Not shown." not in asked["said"], (
+		f"a board that did ask for finished work still said it had not: {asked['said']!r}"
+	)
 
 
 def test_closing_an_item_returns_to_what_is_behind_it (tmp_path: pathlib.Path) -> None:
@@ -3438,8 +3709,10 @@ def test_the_board_asks_for_finished_work_and_the_list_does_not (
 	was not showing a wrong number — it could not work, and the suite could not see it because
 	nothing here had ever asked what a *board* fetches.
 
-	**This qualifies decision `SR#649`** — the query changing a listing default — and that is
-	recorded on the decision rather than left as a contradiction.
+	**Decision `SR#649` was rewritten over this** (`SR#738`): the parameter is a *selection*, in
+	the address beside the arrangement, rather than something a view name implies. What that
+	buys is asked below — a list can now be told to include finished work, which was not
+	expressible while `board` was the only thing that could say it.
 
 	**Tasks only, and the asymmetry is right.** `GET /v1/documents` does not accept the
 	parameter — it answers 422, which the driven-request guard caught before this shipped — and
@@ -3448,8 +3721,10 @@ def test_the_board_asks_for_finished_work_and_the_list_does_not (
 	already. My first version sent it to both and asserted a symmetry that does not exist.
 	"""
 
-	plain = _built(tmp_path, [("listingRequests", ["personal", None, None, "list"])])
-	board = _built(tmp_path, [("listingRequests", ["personal", None, None, "board"])])
+	plain = _built(tmp_path, [("listingRequests", ["personal", None, None, {}])])
+	board = _built(tmp_path, [
+		("listingRequests", ["personal", None, None, {"include_completed": "true"}]),
+	])
 
 	assert not any("include_completed" in request["path"] for request in plain), (
 		"the list must go on hiding finished work — it is the answer to 'what do I have to do'"
@@ -3612,7 +3887,9 @@ def test_arriving_at_a_board_asks_for_finished_work_immediately (
 	which fails this and nothing else.
 	"""
 
-	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?view=board")
+	driven = _driven(
+		tmp_path, pathname="/projects/subroutine", search="?view=board&include_completed=true",
+	)
 	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
 
 	assert tasks, f"the board asked for no tasks at all: {driven['asked']}"
@@ -3649,10 +3926,10 @@ def test_arriving_at_the_done_view_asks_for_finished_work_immediately (
 	later. A third view is where a fix like that gets quietly undone, so it is asked again.
 	"""
 
-	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?view=done")
+	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?status_category=done&order=-completed_at")
 	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
 
-	assert tasks, f"the done view asked for no tasks at all: {driven['asked']}"
+	assert tasks, f"the finished selection asked for no tasks at all: {driven['asked']}"
 
 	assert "status_category=done" in tasks[0]["path"], (
 		f"the *first* load must narrow to finished work — {tasks[0]['path']}"
@@ -3677,7 +3954,7 @@ def test_the_done_view_never_asks_documents_a_question_they_refuse (
 	`include_completed` being sent to both.
 	"""
 
-	driven = _driven(tmp_path, pathname="/projects", search="?view=done")
+	driven = _driven(tmp_path, pathname="/projects", search="?status_category=done&order=-completed_at")
 	documents = [call for call in driven["asked"] if "/v1/documents" in call["path"]]
 
 	assert not documents, (
@@ -3695,9 +3972,9 @@ def test_the_done_view_never_asks_documents_a_question_they_refuse (
 def test_each_view_can_be_opened_in_its_own_tab (tmp_path: pathlib.Path) -> None:
 	"""`SR#722`. The switcher was buttons, so the board could only replace the list.
 
-	The addresses come from `withView`, which is what `chooseView` is about to write — building
-	them here by hand would be a second copy of the rule `SR#651` centralised, and the two would
-	drift the first time a default moved.
+	The addresses come from `chips`, which is what `chooseView` is about to write — building them
+	here by hand would be a second copy of the rule `SR#651` centralised, and the two would drift
+	the first time a default moved.
 
 	**Built inside `App`**, so no component harness can see them; this is what the mounted page
 	actually offers.
@@ -3705,9 +3982,15 @@ def test_each_view_can_be_opened_in_its_own_tab (tmp_path: pathlib.Path) -> None
 
 	driven = _driven(tmp_path, pathname="/projects")
 
-	for wanted in ("/projects", "/projects?view=board", "/projects?view=done"):
-		assert wanted in driven["links"], (
-			f"{wanted} is not something a reader can open in a tab: {driven['links']}"
+	wanted = (
+		"/projects",
+		"/projects?view=board&include_completed=true",
+		"/projects?status_category=done&order=-completed_at",
+	)
+
+	for address in wanted:
+		assert address in driven["links"], (
+			f"{address} is not something a reader can open in a tab: {driven['links']}"
 		)
 
 
@@ -3754,7 +4037,7 @@ def test_the_finished_view_offers_no_capture_box (tmp_path: pathlib.Path) -> Non
 	this is which of the two `App` hands down.
 	"""
 
-	done = _driven(tmp_path, pathname="/projects", search="?view=done")
+	done = _driven(tmp_path, pathname="/projects", search="?status_category=done&order=-completed_at")
 	plain = _driven(tmp_path, pathname="/projects")
 
 	assert "Add" not in done["said"], (
@@ -3775,7 +4058,7 @@ def test_an_empty_page_says_which_question_it_answered (tmp_path: pathlib.Path) 
 	it asked for.
 	"""
 
-	done = _driven(tmp_path, pathname="/projects", search="?view=done")
+	done = _driven(tmp_path, pathname="/projects", search="?status_category=done&order=-completed_at")
 	plain = _driven(tmp_path, pathname="/projects")
 
 	assert "Nothing has been finished here yet." in done["said"], (

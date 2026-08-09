@@ -17,8 +17,8 @@ upgrade involves.
 ### Added
 
 - **Work can be seen as a board, in columns.** *List*, *board* and *done* sit at the top of the
-  page, and the choice is part of the address — `/projects?view=board` is a link you can send
-  somebody, and it survives opening an item and pressing back.
+  page, and what you are looking at is part of the address — `/projects?view=board&include_completed=true`
+  is a link you can send somebody, and it survives opening an item and pressing back.
 
   The columns are **to do, in progress, done and cancelled**, which is what a status *means*
   rather than what you have named it. Rename `open` to `next up` and the board still works;
@@ -32,7 +32,9 @@ upgrade involves.
 
   The board shows finished work — a list hides it, because a list answers *what do I have to
   do*, and a board answers *where is everything*. Like the list, it says when there is more
-  than fits on a page rather than leaving a column looking complete.
+  than fits on a page rather than leaving a column looking complete. Ask for a board **without**
+  finished work and the *Done* column says it is not being shown, and offers to show it, rather
+  than reporting that there is none.
 
   **Cards cannot be dragged yet.** Moving one has nowhere to be recorded, so a card would not
   stay where you put it; that is coming separately.
@@ -66,9 +68,9 @@ upgrade involves.
   *most recently done first*. Unfinished work sorts last in both directions, so one query
   answers "what has been done lately" without a second filter.
 
-- **A third view shows what has been finished, most recently first.** *Done* sits beside *list*
-  and *board*, and like them it is part of the address — `/projects?view=done` is a link you can
-  send somebody.
+- **A third control shows what has been finished, most recently first.** *Done* sits beside
+  *list* and *board*, and what it writes into the address is the filter it applies —
+  `/projects?status_category=done&order=-completed_at` is a link you can send somebody.
 
   It is what you look at to see progress rather than to plan: everything finished or cancelled,
   newest finish at the top, narrowed to a project if the address names one. Every row says
@@ -79,8 +81,23 @@ upgrade involves.
   **It holds tasks only**, because only a task can be finished: a document's states are draft,
   current, superseded and archived, and none of them means *done*.
 
-  There is no capture box on it. Anything you added there would be open, and this page shows
-  what is over — so it would report success over a list that could not change.
+  There is no capture box while it is on. Anything you added there would be open, and the page
+  shows what is over — so it would report success over a list that could not change.
+
+- **What is showing and how it is arranged are two separate parts of the address.** `?view=`
+  says how rows are displayed — *list* or *board*. `?status_category=`, `?include_completed=`
+  and `?order=` say which rows there are. A control at the top of the page may set several at
+  once, and the address states each of them, so what you send somebody is what you were
+  looking at.
+
+  What this buys is combinations that had no name before: a **list including finished work**
+  (`?include_completed=true`), a **board of only what is in progress**
+  (`?view=board&status_category=in_progress`), a **board of finished work**. None of them was
+  reachable while the arrangement carried the filter, and none of them is new machinery — they
+  are what falls out of writing the two things down separately.
+
+  A word this page does not know is ignored and named rather than replacing your page with a
+  failure, which is what already happened for an arrangement it does not have.
 
 - **Agents are now told to claim work, say when they start it, and give it back.** Three acts
   around the job: take the task before touching anything, move it to *in progress* when you
@@ -133,7 +150,8 @@ upgrade involves.
 - **Anything you can navigate to in the browser can now be opened in a new tab.** Ctrl-click or
   cmd-click an item and it opens beside your list instead of replacing it; so does middle-click,
   and the right-click menu offers *Open link in new tab* and *Copy link address*. The same is
-  true of *list*, *board* and *done*, of a linked item, of *All items*, and of *Show everything*.
+  true of the controls at the top of the page, of a linked item, of *All items*, and of *Show
+  everything*.
 
   They were buttons, which have no address, so there was nothing for a modified click to act on
   — and no way to keep a list in one tab and work through items in others. A mention written
