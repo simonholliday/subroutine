@@ -10,7 +10,7 @@
     {
       "name": "subroutine",
       "source": "./plugins/subroutine",
-      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. This one starts Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web. Needs Subroutine installed separately and on your PATH — 'uv tool install subroutine' or 'pipx install subroutine', then 'subroutine init'. If your work lives on a server somebody else runs, install 'subroutine-remote' instead.",
+      "description": "Give Claude a shared, durable task list: file work, find what is ready, record what happened, and leave the next session something to read. This one runs Subroutine as a program on your own machine, so it works in Claude Code and the desktop apps and not on the web. The only thing to install first is 'uv' — the plugin fetches Subroutine itself on first use, and keeps a copy you already installed if you have one. If your work lives on a server somebody else runs, install 'subroutine-remote' instead.",
       "author": {
         "name": "Simon Holliday",
         "email": "simon.holliday@protonmail.com"

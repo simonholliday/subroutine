@@ -275,21 +275,73 @@ def test_the_marketplace_tells_a_reader_which_plugin_is_theirs () -> None:
 	), "the remote plugin needs no install, and its listing must not imply one"
 
 
-def test_the_marketplace_says_the_product_is_a_separate_install () -> None:
-	"""§21.4's third layer, and the earliest of the three.
+#: An instruction to install the package the plugin would otherwise fetch for itself. Three
+#: tool names rather than a bare ``install``, so *"install 'subroutine-remote' instead"* — which
+#: is a plugin, and correct — is not caught by a rule about a Python package.
+_INSTALL_THE_PACKAGE = re.compile(
+	r"(?:pip|pipx|uv\s+tool)\s+install\s+subroutine\b|subroutine\s+installed\b",
+	re.IGNORECASE,
+)
 
-	Somebody browsing a marketplace has no reason to know there is anything else to install,
-	and a plugin that fails on first use with ``✘ Failed to connect`` explains nothing — that
-	was measured, and a launcher script written to explain itself is not surfaced either.
+
+@pytest.mark.parametrize(
+	"directory", PLUGIN_DIRECTORIES, ids=lambda path: typing.cast(pathlib.Path, path).name
+)
+def test_the_marketplace_names_the_prerequisite_the_manifest_actually_has (
+	directory: pathlib.Path,
+) -> None:
+	"""**What a plugin needs is derivable, and until `#720` nothing compared it with the claim.**
+
+	This test used to be ``test_the_marketplace_says_the_product_is_a_separate_install`` and it
+	asserted the opposite of what is true: that the description names ``uv tool install`` or
+	``pipx install``, and ``subroutine init``. `#585` made both false the day 0.6.0 shipped —
+	the server bootstraps through ``uvx`` now — and the guard sixty lines below this one has
+	asserted exactly that since. **Two checks in one file, contradicting each other, both
+	green**, and the older one was holding the false sentence in place: anybody correcting the
+	description would have been failed by the suite for doing it.
+
+	That is this codebase's signature defect in its sharpest form yet, and the shape to carry is
+	that a guard written for a fact does not notice when the fact changes. It has to be derived
+	from something that moves with the code.
+
+	So: the manifest says what must already be on the machine, and the description has to agree.
+
+	- A plugin that launches a **command** names the thing that provides it, because that is the
+	  one prerequisite a reader has to satisfy before the plugin can work at all.
+	- A plugin that **fetches the package itself** must not tell anybody to install it. It is
+	  not merely redundant — it is the trip to a terminal `#585` exists to remove, offered to
+	  somebody who had already been told there was nothing to do.
 	"""
 
-	described = _read(MARKETPLACE)["plugins"][0]["description"]
+	described = next(
+		entry["description"]
+		for entry in _read(MARKETPLACE)["plugins"]
+		if entry["name"] == directory.name
+	)
+	server = _read(directory / ".mcp.json")["mcpServers"]["tools"]
 
-	# Same correction as the skill's (`#237`): the listing is read by somebody who is about to
-	# wire an editor to it, so the install it names has to be one that leaves the command
-	# findable. `pip install` into a virtualenv satisfies "installed" and fails anyway.
-	assert any(phrase in described for phrase in ("uv tool install", "pipx install"))
-	assert "subroutine init" in described
+	launcher = server.get("command")
+
+	if launcher:
+		# `uvx` is what `uv` provides, and `uv` is what a reader installs — so the description
+		# names the thing they would go and get, not the executable we happen to invoke.
+		assert re.search(rf"\b{re.escape(launcher.removesuffix('x'))}\b", described), (
+			f"{directory.name} launches {launcher!r} and its description never mentions it, so "
+			f"the one thing a reader must install first is unsaid"
+		)
+
+	fetches = any(
+		str(argument).startswith("subroutine~=") for argument in server.get("args", [])
+	)
+
+	if fetches:
+		found = _INSTALL_THE_PACKAGE.search(described)
+
+		assert not found, (
+			f"{directory.name} fetches Subroutine itself, and its description says "
+			f"{found.group(0)!r} — which is the trip to a terminal `#585` removed, offered to "
+			f"somebody who has just been told there is nothing to install"
+		)
 
 
 def test_a_locally_launched_plugin_says_so_before_anybody_installs_it () -> None:
