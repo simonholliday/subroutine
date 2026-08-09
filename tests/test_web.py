@@ -448,6 +448,46 @@ def test_a_row_says_in_words_what_it_says_in_colour (tmp_path: pathlib.Path) -> 
 	assert "#42" in markup
 
 
+def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#706`, and `#661`'s complaint answered for one view.
+
+	`overdue` deliberately returns false for anything done, so a task finished a week late used
+	to read `due 3 Aug` with nothing to say it had been dealt with — a fact about a date that
+	stopped mattering, printed in the one cell there is.
+
+	It is also the field the done view is **ordered** on. Simon's words on `#661`: *if the view
+	does not show the values of the fields on which it is ordered, it is unclear.* A column of
+	finish dates descending is a page a reader can check; the same rows showing deadlines are an
+	order they have to take on trust.
+
+	**A cancelled row says `cancelled`**, because it carries a `completed_at` too and calling it
+	*done* would be the one word that misdescribes it.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": {"ref": 42, "kind": "task", "title": "Late but finished",
+			"due_at": "2026-08-03T09:00:00+00:00", "status_category": "done",
+			"completed_at": "2026-08-09T14:00:00+00:00"}, "showKind": False},
+		"Listing": {"items": [{"ref": 43, "kind": "task", "title": "Abandoned",
+			"status_category": "cancelled",
+			"completed_at": "2026-08-07T14:00:00+00:00"}]},
+	})
+
+	assert "done" in rendered["Row"], (
+		f"a finished row did not say when it finished: {rendered['Row']}"
+	)
+
+	assert "due" not in rendered["Row"], (
+		f"a finished row still showed the deadline it no longer has: {rendered['Row']}"
+	)
+
+	assert "cancelled" in rendered["Listing"], (
+		f"a cancelled row was described as done: {rendered['Listing']}"
+	)
+
+
 def test_a_reader_who_is_not_signed_in_is_told_what_to_ask_for (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -2027,14 +2067,33 @@ def _built (
 	"""))
 
 
+def _view_names () -> list[str]:
+	"""The arrangements the app offers, read from `VIEWS` rather than listed here."""
+
+	source = _served_modules()["app.js"]
+	found = re.search(r"export const VIEWS = \[([^\]]*)\]", source)
+
+	assert found, "the app's list of views could not be read from app.js"
+
+	return re.findall(r'"([^"]+)"', found.group(1))
+
+
 def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 	"""Every request this app can make, with arguments naming things that exist.
 
 	One entry per *shape* rather than per builder: a listing narrowed to a project and a listing
 	that is not are different requests, and the narrowing is where the last two faults were.
+
+	**A view is a shape, so the views are derived rather than listed** (`SR#706`). Each one sends
+	a different query — the board adds `include_completed`, the done view adds `status_category`
+	and an `order` — and each is a chance to send something the route refuses. Listing them here
+	would have made a fourth view arrive undriven, which is precisely how `SR#718` reached a
+	reader: nothing had ever asked what a *board* fetches.
 	"""
 
 	return [
+		("listingRequests", [place.slug, None, None, view]) for view in _view_names()
+	] + [
 		("identityRequest", []),
 		("headRequest", []),
 		("pollRequest", [place.slug, place.since]),
@@ -2048,10 +2107,6 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("listingRequests", [
 			place.slug, None, {"tasks": place.cursor, "documents": place.cursor},
 		]),
-		# **The board's fetch, driven against the instance like every other** (`SR#718`). It
-		# differs from the list's by one parameter and that parameter is the whole bug: without
-		# it the *Done* column could never hold anything, which no test saw and one look did.
-		("listingRequests", [place.slug, None, None, True]),
 		("itemRequests", ["task", place.task, place.slug]),
 		("itemRequests", ["document", place.document, place.slug]),
 		("completeRequest", [{"ref": place.task}, place.slug]),
@@ -2393,6 +2448,81 @@ def test_a_document_is_ordered_among_the_tasks_not_after_them (
 	)
 
 
+def _accumulated (
+	tmp_path: pathlib.Path,
+	held: list[dict[str, typing.Any]],
+	arriving: list[dict[str, typing.Any]],
+	*,
+	appending: bool,
+	collections: int,
+) -> list[typing.Any]:
+	"""Put a page through the app's own accumulation rule and return the refs it produced."""
+
+	module = _staged(tmp_path)
+	options = {"appending": appending, "collections": collections}
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.accumulated(
+			{json.dumps(held)}, {json.dumps(arriving)}, {json.dumps(options)}
+		).map((row) => row.ref)));
+	"""))
+
+
+def test_one_collection_keeps_the_order_the_instance_gave_it (tmp_path: pathlib.Path) -> None:
+	"""**`SR#706`: the merge that fixes one view silently breaks another.**
+
+	`newestFirst` sorts on `created_at` because that is the key both collections are paged by.
+	The done view asks the instance for `-completed_at` and reads one collection, so re-sorting
+	client-side would overwrite the server's order with the *creation* order — a page ordered by
+	when work was written, under a heading claiming when it was finished.
+
+	Nothing about that page would look wrong. It is the right rows, complete, in an order a
+	reader has no way to check, which is why the rule is a function with a test rather than a
+	condition inside `App` (`SR#640`).
+	"""
+
+	# Deliberately the *reverse* of creation order, which is what finishing order looks like:
+	# an old item completed today belongs above a new one completed last week.
+	arriving = [
+		{"ref": 1, "kind": "task", "created_at": "2026-08-01T09:00:00+00:00"},
+		{"ref": 9, "kind": "task", "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 5, "kind": "task", "created_at": "2026-08-04T09:00:00+00:00"},
+	]
+
+	kept = _accumulated(tmp_path, [], arriving, appending=False, collections=1)
+
+	assert kept == [1, 9, 5], (
+		f"a single collection was re-sorted, so the instance's ordering was thrown away: {kept}"
+	)
+
+	merged = _accumulated(tmp_path, [], arriving, appending=False, collections=2)
+
+	assert merged == [9, 5, 1], (
+		f"two collections must still be merged by when they were written: {merged}"
+	)
+
+
+def test_a_page_is_added_to_what_is_already_held (tmp_path: pathlib.Path) -> None:
+	"""The other axis, and the one *Show more* depends on.
+
+	Without it the two branches above could both be right and the page still lose everything
+	above the fold on the second load — which is what `appending` is, and it is a separate
+	question from whether the result is merged.
+	"""
+
+	held = [{"ref": 9, "kind": "task", "created_at": "2026-08-08T09:00:00+00:00"}]
+	arriving = [{"ref": 5, "kind": "task", "created_at": "2026-08-04T09:00:00+00:00"}]
+
+	assert _accumulated(tmp_path, held, arriving, appending=True, collections=1) == [9, 5]
+
+	assert _accumulated(tmp_path, held, arriving, appending=False, collections=1) == [5], (
+		"a first load must replace what is held rather than growing it — otherwise switching "
+		"view or project leaves the previous page's rows underneath"
+	)
+
+
 def test_the_merge_agrees_with_the_server_about_a_tie (tmp_path: pathlib.Path) -> None:
 	"""The server's tiebreaker follows the last key's direction, so a tie is `ref` descending.
 
@@ -2428,21 +2558,33 @@ def test_showing_more_does_not_append_a_page_below_older_rows () -> None:
 	"""
 
 	app = _without_comments(_served_modules()["app.js"])
-	adding = [
-		body for holder, body in re.findall(r"setItems\((\w+)\) => ([^;]+)\);", app)
-	] + [
-		body for holder, body in re.findall(r"setItems\(\((\w+)\) => ([^;]+)\);", app)
+	setting = [
+		body for _, body in re.findall(r"setItems\(\(?(\w+)\)? =>\s*(.+?)\);", app, re.S)
 	]
 
-	assert adding, "nothing sets the list at all, so this is checking nothing"
+	assert setting, "nothing sets the list at all, so this is checking nothing"
 
-	for body in adding:
+	# **The rule moved into `accumulated` and this guard nearly went vacuous with it** (`SR#706`).
+	# Its first version skipped any body with no `...` in it, so lifting the concatenation into a
+	# pure function left every case `continue`-ing and the test passing while checking nothing.
+	# That is the shape it was written to catch, met by the change that was meant to improve it.
+	#
+	# So it asks the question the other way round: a body that touches the held list at all must
+	# delegate, and at least one must — the floor, without which deleting the delegation would
+	# read as "no offenders".
+	delegating = [body for body in setting if "accumulated" in body]
+
+	assert delegating, (
+		"no setItems call goes through `accumulated`, so the merge rule is wired to nothing"
+	)
+
+	for body in setting:
 		if "..." not in body:
 			continue
 
-		assert "newestFirst" in body, (
-			f"a page is added to the list without being merged into it: {body.strip()!r} — "
-			f"a second page of tasks belongs above documents already on screen"
+		assert "accumulated" in body or "newestFirst" in body, (
+			f"a page is added to the list without going through the merge rule: "
+			f"{body.strip()!r} — a second page of tasks belongs above documents already on screen"
 		)
 
 
@@ -2998,8 +3140,8 @@ def test_the_board_asks_for_finished_work_and_the_list_does_not (
 	already. My first version sent it to both and asserted a symmetry that does not exist.
 	"""
 
-	plain = _built(tmp_path, [("listingRequests", ["personal", None, None])])
-	board = _built(tmp_path, [("listingRequests", ["personal", None, None, True])])
+	plain = _built(tmp_path, [("listingRequests", ["personal", None, None, "list"])])
+	board = _built(tmp_path, [("listingRequests", ["personal", None, None, "board"])])
 
 	assert not any("include_completed" in request["path"] for request in plain), (
 		"the list must go on hiding finished work — it is the answer to 'what do I have to do'"
@@ -3067,15 +3209,23 @@ def _driven (
 	**Assert on the requests, not on the markup.** What went wrong five times was which of two
 	correct values a component passed, and that is visible in the request and invisible in the
 	HTML. Markup is `SAMPLES`' job and needs no DOM at all.
+
+	**The one exception, and it is narrow**: `said` is the mounted page as flat text, and it is
+	here for what `App` *decides* rather than for what a component renders — which prop it hands
+	down, which sentence it chooses. Those live inside a hook and so are reachable by nothing
+	else, which is the other half of `SR#640`. A test asserting on layout, class names or the
+	shape of a component's output is in the wrong place and belongs in `SAMPLES`.
 	"""
 
 	module = _staged(tmp_path)
 	replies = dict(answers or {})
 
 	return dict(_ran(tmp_path, f"""
-		import {{ install }} from "{(tmp_path / DOM.name).as_uri()}";
+		import {{ install, text }} from "{(tmp_path / DOM.name).as_uri()}";
 
-		const {{ written }} = install({json.dumps({"pathname": pathname, "search": search})});
+		const {{ root, written }} = install(
+			{json.dumps({"pathname": pathname, "search": search})}
+		);
 		const replies = {json.dumps(replies)};
 		const asked = [];
 
@@ -3118,7 +3268,7 @@ def _driven (
 		   rows arriving ten seconds late. */
 		await new Promise((done) => setTimeout(done, 300));
 
-		process.stdout.write(JSON.stringify({{ asked, written }}));
+		process.stdout.write(JSON.stringify({{ asked, written, said: text(root) }}));
 
 		/* The poll's interval holds the process open, and a test that hangs is worse than one
 		   that fails. */
@@ -3166,6 +3316,105 @@ def test_arriving_at_a_listing_does_not_ask_for_finished_work (
 
 	assert tasks, "the listing asked for no tasks at all"
 	assert all("include_completed" not in call["path"] for call in tasks)
+
+
+def test_arriving_at_the_done_view_asks_for_finished_work_immediately (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#706`, and `SR#719`'s trap asked of the view that arrived after it.
+
+	The board's version of this failed because `load` read the arrangement from state; the fix
+	was to read it from the address, which is why this passes on arrival rather than a `POLL_MS`
+	later. A third view is where a fix like that gets quietly undone, so it is asked again.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?view=done")
+	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
+
+	assert tasks, f"the done view asked for no tasks at all: {driven['asked']}"
+
+	assert "status_category=done" in tasks[0]["path"], (
+		f"the *first* load must narrow to finished work — {tasks[0]['path']}"
+	)
+
+	assert "order=-completed_at" in tasks[0]["path"], (
+		f"a page claiming 'most recently finished' must ask for that order — {tasks[0]['path']}"
+	)
+
+
+def test_the_done_view_never_asks_documents_a_question_they_refuse (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#706`. The failure this prevents is a page that does not load, not one that is wide.
+
+	`GET /v1/documents` refuses `status_category` outright — 422, measured — because a document
+	has no completed axis at all: its categories are `draft`, `current`, `superseded` and
+	`archived`, and none of them means *finished*. So the done view reads one collection.
+
+	**Driven rather than built**, because the question is what the mounted app does on arrival:
+	the same asymmetry was got wrong once already on the board (`SR#718`), where the guard caught
+	`include_completed` being sent to both.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects", search="?view=done")
+	documents = [call for call in driven["asked"] if "/v1/documents" in call["path"]]
+
+	assert not documents, (
+		f"the done view asked the documents listing for something it refuses: {documents}"
+	)
+
+	plain = _driven(tmp_path, pathname="/projects")
+
+	assert [call for call in plain["asked"] if "/v1/documents" in call["path"]], (
+		"the ordinary list must still read both collections — one ref counter serves them, so "
+		"half the numbers a reader has learned would not exist"
+	)
+
+
+def test_the_finished_view_offers_no_capture_box (tmp_path: pathlib.Path) -> None:
+	"""`SR#706`. Adding from here reports success over a page the new item cannot appear on.
+
+	A captured item is open and this view holds only what is over, so the note would say
+	*Added #123* and the list would not change. That is `SR#515`'s shape — every step reports
+	success and the reader is left confirming the wrong conclusion — and it is the reason the box
+	is withheld rather than merely unhelpful.
+
+	**The decision is `App`'s and lives inside a hook**, so `SAMPLES` cannot reach it: `Listing`
+	renders whatever it is handed, and is already checked both ways. What is unchecked without
+	this is which of the two `App` hands down.
+	"""
+
+	done = _driven(tmp_path, pathname="/projects", search="?view=done")
+	plain = _driven(tmp_path, pathname="/projects")
+
+	assert "Add" not in done["said"], (
+		f"the finished view offered a capture box: {done['said']!r}"
+	)
+
+	assert "Add" in plain["said"], (
+		f"the ordinary list lost its capture box, which is §1.4's primary path: {plain['said']!r}"
+	)
+
+
+def test_an_empty_page_says_which_question_it_answered (tmp_path: pathlib.Path) -> None:
+	"""`SR#706`. *Nothing here yet* under the finished view means the opposite of what it says.
+
+	A reader checking whether an agent has been working reads it as an empty workspace, when what
+	it means is that nothing has been finished — and those are different facts with different
+	next actions. The sentence comes from the caller because the caller is what knows which view
+	it asked for.
+	"""
+
+	done = _driven(tmp_path, pathname="/projects", search="?view=done")
+	plain = _driven(tmp_path, pathname="/projects")
+
+	assert "Nothing has been finished here yet." in done["said"], (
+		f"an empty finished view did not say what was empty: {done['said']!r}"
+	)
+
+	assert "Nothing here yet." in plain["said"], (
+		f"an empty list stopped saying it was empty: {plain['said']!r}"
+	)
 
 
 def test_arriving_at_the_root_asks_for_the_agenda_across_every_workspace (

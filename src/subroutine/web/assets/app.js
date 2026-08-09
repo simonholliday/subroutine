@@ -60,6 +60,11 @@ const PAGE = 100;
 const TASK_FIELDS = [
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
 	"status", "status_is_default", "status_category",
+	/* Rendered by `when` on anything finished, and the field the *done* view is ordered on
+	   (`#706`). §22 has no rule about showing the sort key and `#661` is the item that wants
+	   one; a page whose whole claim is *most recently finished first* had better say when each
+	   row finished, or the order is something a reader has to take on trust. */
+	"completed_at",
 	/* Not rendered — it is what the two collections are merged on (`#660`). The API sorts
 	   both by `-created_at` and pages on it, so ordering them together by anything else
 	   would put the client and the cursor into disagreement. */
@@ -170,6 +175,31 @@ export function newestFirst (rows) {
 
 		return other.ref - one.ref;
 	});
+}
+
+export function accumulated (held, arriving, { appending, collections }) {
+	/*
+		What the list becomes when a page arrives — the whole rule, in one place.
+
+		**Appending is re-merged over everything held** (`#660`): a second page of tasks belongs
+		*above* documents already on screen, so extending the array made the list alternate
+		between the two collections after one *Show more*, in no order at all.
+
+		**And the merge runs only where there is more than one collection to merge** (`#706`).
+		That is the actual reason rather than a proxy for it. `newestFirst` sorts on `created_at`
+		because that is the one key both collections are paged by; applied to a single collection
+		the *server* has ordered, it silently overwrites that order. The done view asks for
+		`-completed_at`, so merging would produce a page ordered by when work was **written**
+		under a heading claiming when it was **finished** — plausible, complete and wrong.
+
+		**It takes the count rather than the view name** so that an arrangement added later cannot
+		get this wrong by being spelled differently, and it is a pure function rather than three
+		lines inside `load` for the reason `#640` has now demonstrated five times: the harness
+		calls components as plain functions, so a decision left inside `App` is covered by nothing.
+	*/
+	const all = appending ? [...held, ...arriving] : arriving;
+
+	return collections > 1 ? newestFirst(all) : all;
 }
 
 /* ---- surviving a component that throws (`#680`) -------------------------- */
@@ -317,9 +347,27 @@ export function rosterRequest (slug) {
 	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
 }
 
-export function listingRequests (slug, key = null, after = null, completed = false) {
+export function collectionsFor (arranged) {
 	/*
-		The list, which is tasks *and* documents.
+		Which collections a view reads, and the order the answers come back in.
+
+		**Only the *done* view reads one**, because only tasks have a completed axis at all:
+		`GET /v1/documents` refuses `status_category` outright — measured, 422 — and a document's
+		categories are `draft`, `current`, `superseded` and `archived`, none of which means
+		*finished*. A done view asking for documents would not be widened, it would be a page
+		that does not load.
+
+		**Anything unrecognised reads both**, which is the safe direction and the one a new
+		arrangement almost certainly wants: `list` and `board` are the same rows differently
+		arranged and both hold every kind of item there is (§6.2 gives them one ref counter
+		precisely so a reader can treat them as one thing).
+	*/
+	return arranged === "done" ? ["task"] : ["task", "document"];
+}
+
+export function listingRequests (slug, key = null, after = null, arranged = null) {
+	/*
+		The list, which is tasks *and* documents — except where it cannot be.
 
 		**Two requests because they are two collections and both belong in it.** One counter per
 		workspace serves them (§6.2), so a list holding only tasks tells a reader who has learned
@@ -367,14 +415,50 @@ export function listingRequests (slug, key = null, after = null, completed = fal
 		refused the request before it shipped — the guard `#640` exists for, doing exactly its
 		job for the second time on this arc.
 	*/
-	const finished = completed ? "&include_completed=true" : "";
+	const finished = arranged === "board" ? "&include_completed=true" : "";
 
-	return [
-		{ path: scoped(`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${finished}`
-			+ from(after && after.tasks), slug), method: "GET" },
-		{ path: scoped(`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
-			+ from(after && after.documents), slug), method: "GET" },
-	];
+	/*
+		**The *done* view narrows to finished work and orders on when it finished** (`#706`).
+
+		`status_category` rather than `?status=done`: a status *key* is per-workspace and
+		renameable, so a view keyed on one breaks on the first instance that renames it.
+		`-completed_at` rather than `-updated_at`: the tempting proxy reorders the page whenever
+		somebody edits a finished item, for a reason nobody did.
+
+		**No `include_completed` beside it, and that is not an omission.** Asking for a finished
+		category implies it — `tasks.completion_wanted` returns true — and passing `false` as well
+		is refused by name rather than silently resolved. Sending `true` would be a second way of
+		saying the same thing, which is how two spellings of one rule start disagreeing.
+
+		**Both handles were built by `#710` and both were measured on the live instance**, not
+		read off the code: `?status_category=done&order=-completed_at` answers 200, newest finish
+		first, and pages normally.
+
+		**This is a bigger step past decision `#649` than the board took and it is flagged rather
+		than taken quietly.** The board changed a listing *default*; this changes which rows there
+		are, which `#649` gives to the path. What survives is the decision's own reasoning: its two
+		worked concerns were *is `/personal` legal* and *does an item gain one address per view*,
+		and neither is touched — the path grammar is unchanged and an item still has exactly one
+		address. The sharper statement, recorded on `#649` for Simon to accept or reject: **the
+		path decides where rows come from; the query decides the arrangement, and an arrangement
+		chooses from within that place.** The alternative was a path segment, which `#649`
+		rejected on its own merits and which would reserve a word in the position every address
+		starts with.
+	*/
+	const only = arranged === "done" ? "&status_category=done&order=-completed_at" : "";
+
+	const asks = {
+		task: { kind: "task", method: "GET", path: scoped(
+			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${finished}${only}`
+			+ from(after && after.tasks), slug) },
+		document: { kind: "document", method: "GET", path: scoped(
+			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
+			+ from(after && after.documents), slug) },
+	};
+
+	/* **Tagged with the kind rather than positional**, so a view reading one collection cannot
+	   have its rows labelled by whichever slot they happened to arrive in. */
+	return collectionsFor(arranged).map((kind) => asks[kind]);
 }
 
 export function itemRequests (kind, ref, slug) {
@@ -492,7 +576,15 @@ export function addressOf (item, workspace) {
 	become per-workspace and later per-user without invalidating an address anybody wrote down —
 	an address that spells out today's default would freeze it.
 */
-export const VIEWS = ["list", "board"];
+/*
+	**`done` is a third kind of thing from the first two, and it earns its place beside them.**
+	`list` and `board` are the same rows arranged differently; `done` is a narrower set of rows.
+	Putting it in a second control would be more honest to the taxonomy and worse for the reader —
+	`#651`'s reason for having a control at all is that *a reader who has never seen one cannot
+	type a word they have not been told*, and a filter with no control is a feature nobody finds.
+	Every tracker a person has used offers this as a tab beside the others.
+*/
+export const VIEWS = ["list", "board", "done"];
 
 export const DEFAULT_VIEW = "list";
 
@@ -735,7 +827,28 @@ export function marks (item, showKind) {
 }
 
 export function when (item) {
-	/* The one date worth a column. A deadline outranks a plan, and neither is invented. */
+	/*
+		The one date worth a column. A deadline outranks a plan, and neither is invented.
+
+		**Once something is finished, when it finished outranks both** (`#706`). A deadline on
+		completed work is a fact about a date that stopped mattering — and `overdue` deliberately
+		returns false for anything done, so before this a task finished a week late read `due
+		3 Aug` with nothing to say it had been dealt with.
+
+		It is also the field the *done* view is **ordered** on, which is `#661`'s complaint in
+		miniature: *if the view does not show the values of the fields on which it is ordered, it
+		is unclear*. A column of finish dates descending is a page a reader can check, where the
+		same rows showing deadlines are an order they have to take on trust.
+
+		`completed_at` rather than the category, because a row is only worth a date it actually
+		has — a cancelled item carries one too, and *cancelled 3 Aug* is the honest thing to say
+		about it rather than nothing.
+	*/
+	if (item.completed_at) {
+		return `${item.status_category === "cancelled" ? "cancelled" : "done"} `
+			+ `${day(item.completed_at)}`;
+	}
+
 	if (item.due_at && !overdue(item)) return `due ${day(item.due_at)}`;
 	if (item.planned_for) return `→ ${day(item.planned_for)}`;
 
@@ -1154,6 +1267,7 @@ export function Adding ({ onAdd, busy, note }) {
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project,
+	empty = "Nothing here yet.",
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -1182,8 +1296,15 @@ export function Listing ({
 				</div>
 			`}
 
+			${/*
+				**An empty page has to say which question it answered** (`#706`). *Nothing here
+				yet* under the finished view reads as an empty workspace, when what it means is
+				that nothing has been finished — the opposite conclusion for somebody checking
+				whether an agent has been working. The caller knows which view it asked for and
+				this does not, so the sentence comes from there.
+			*/ null}
 			${items.length === 0
-				? html`<div class="empty">Nothing here yet.</div>`
+				? html`<div class="empty">${empty}</div>`
 				: html`
 					<ul class="rows">
 						${items.map((item) => html`
@@ -1541,13 +1662,11 @@ export function App () {
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
-		let tasks;
-		let documents;
+		const wanted = listingRequests(slug, key, after, arranged);
+		let answers;
 
 		try {
-			[tasks, documents] = await Promise.all(
-				listingRequests(slug, key, after, arranged === "board").map(sent),
-			);
+			answers = await Promise.all(wanted.map(sent));
 		} catch (failure) {
 			/*
 				**A project named in an address may not be there any more, and that is the case
@@ -1569,24 +1688,20 @@ export function App () {
 			return load(slug, null, after);
 		}
 
-		const fetched = [
-			...tasks.items.map((row) => ({ ...row, kind: "task" })),
-			...documents.items.map((row) => ({ ...row, kind: "document" })),
-		];
+		const fetched = answers.flatMap((answer, at) =>
+			answer.items.map((row) => ({ ...row, kind: wanted[at].kind })));
 
 		/*
-			**Merged rather than appended, and re-merged over everything held** (`#660`).
+			**What the list becomes is `accumulated`, which is pure and driven** (`#660`, `#706`).
 
-			Appending was wrong twice: within a page it put every document under every task, and
-			across pages it was worse — a second page of tasks belongs *above* documents already
-			on screen, so after one *Show more* the list alternated between the two collections
-			and was in no order at all.
-
-			The cost is that *Show more* can insert rows above where a reader is looking. That is
-			inherent to two streams paged separately and is the right trade: a row in the wrong
-			place is a list you cannot trust, and a row appearing above the fold is one you can.
+			The cost of re-merging is that *Show more* can insert rows above where a reader is
+			looking. That is inherent to two streams paged separately and is the right trade: a row
+			in the wrong place is a list you cannot trust, and a row appearing above the fold is
+			one you can.
 		*/
-		setItems((held) => newestFirst(after ? [...held, ...fetched] : fetched));
+		setItems((existing) => accumulated(existing, fetched, {
+			appending: Boolean(after), collections: wanted.length,
+		}));
 
 		/*
 			**What was left behind, so the listing can say so.** The envelope has carried
@@ -1595,11 +1710,19 @@ export function App () {
 			rather than merely mis-sorted. A count is deliberately not asked for: §8.4 declines
 			`include_total` because it costs a second full scan, and "there is more" is the part
 			a reader acts on.
+
+			**A collection this view did not ask for has nothing left behind**, so it reports
+			null rather than being absent — `Listing` and `Board` both read both keys, and an
+			undefined would make *there are more* depend on which view was showing.
 		*/
-		setMore({
-			tasks: tasks.page.has_more ? tasks.page.next_cursor : null,
-			documents: documents.page.has_more ? documents.page.next_cursor : null,
+		const left = { tasks: null, documents: null };
+
+		answers.forEach((answer, at) => {
+			left[`${wanted[at].kind}s`] =
+				answer.page.has_more ? answer.page.next_cursor : null;
 		});
+
+		setMore(left);
 	}, []);
 
 	const roster = useCallback(async (slug) => {
@@ -2115,8 +2238,14 @@ export function App () {
 					agenda is chosen by the path and arranging it by status would answer a
 					question nobody asked of it.
 				*/ null}
+				${/*
+					**"Which view" rather than "how to arrange this"** (`#706`). The label was
+					written when both entries were arrangements of one set of rows; `done` is a
+					different set, so the old wording described two of the three and quietly
+					mis-announced the third to the readers who depend on it most.
+				*/ null}
 				${!open && agenda === null && html`
-					<nav class="views" aria-label="How to arrange this">
+					<nav class="views" aria-label="Which view">
 						${VIEWS.map((name) => html`
 							<button key=${name} class=${name === view ? "chosen" : ""}
 								aria-current=${name === view ? "true" : undefined}
@@ -2147,9 +2276,21 @@ export function App () {
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
 							project=${project} onWiden=${widen} />`
+						/*
+							**No capture box on the finished view** (`#706`). Adding from here
+							would report success over a page the new item cannot appear on — it is
+							open, and this view holds only what is over — which is `#515`'s shape:
+							every step reports success and the reader is left confirming the wrong
+							conclusion. `Row` already declines to offer *Complete* on finished work
+							by way of `completable` (`#724`), so `onComplete` is passed and simply
+							never applies; the add box has no such guard and is withheld here.
+						*/
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
-							project=${project} onWiden=${widen} />`}
+							onAdd=${view === "done" ? null : add} busy=${busy} more=${more}
+							onMore=${showMore} project=${project} onWiden=${widen}
+							empty=${view === "done"
+								? "Nothing has been finished here yet."
+								: "Nothing here yet."} />`}
 
 			<footer class="foot">
 				${/* **Counts what is on screen, not what was last fetched.** `items` is the

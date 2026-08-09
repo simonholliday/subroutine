@@ -66,6 +66,22 @@ upgrade involves.
   *most recently done first*. Unfinished work sorts last in both directions, so one query
   answers "what has been done lately" without a second filter.
 
+- **A third view shows what has been finished, most recently first.** *Done* sits beside *list*
+  and *board*, and like them it is part of the address — `/projects?view=done` is a link you can
+  send somebody.
+
+  It is what you look at to see progress rather than to plan: everything finished or cancelled,
+  newest finish at the top, narrowed to a project if the address names one. Every row says
+  **when** it finished rather than when it was due — a deadline on completed work is a date that
+  stopped mattering, and it is the field the page is sorted on, so the order is something you
+  can check rather than take on trust. A cancelled row says *cancelled*.
+
+  **It holds tasks only**, because only a task can be finished: a document's states are draft,
+  current, superseded and archived, and none of them means *done*.
+
+  There is no capture box on it. Anything you added there would be open, and this page shows
+  what is over — so it would report success over a list that could not change.
+
 - **An instance can have more than one administrator.** `subroutine user create <name>
   --superuser` grants it, and `POST /v1/users` takes `is_superuser`. Until now there was
   exactly one — the account `init` made — and nothing could create a second: the field was
@@ -82,6 +98,11 @@ upgrade involves.
   agent quietly making more of itself.
 
 ### Fixed
+
+- **Finished work is no longer offered a *Complete* button.** Every card in the board's *Done*
+  column carried one, and pressing it was not harmless: completing something that is already
+  complete moves the record of when it finished. A cancelled item had the same button on its own
+  page, because the check there knew about *done* and not about *cancelled*.
 
 - **A permission list now says that `task:write` covers documents.** There is no
   `document:read` or `document:write` — a document is a work item under the same permissions as
