@@ -14,6 +14,23 @@ upgrade involves.
 
 ## Unreleased
 
+### Added
+
+- **An instance can have more than one administrator.** `subroutine user create <name>
+  --superuser` grants it, and `POST /v1/users` takes `is_superuser`. Until now there was
+  exactly one — the account `init` made — and nothing could create a second: the field was
+  reported everywhere, rendered by `user list` as *instance admin*, and settable by no command
+  and no endpoint.
+
+  It matters because administering is the only way to create accounts and workspaces, and no
+  role can carry it. Without a second administrator you cannot delegate that, cannot keep a
+  spare against losing the first, and cannot give an agent the rights to create the things you
+  are asking it to create.
+
+  **An agent cannot grant it.** Handing out administration is a person's act — the same rule
+  that already stops an agent marking somebody as having left, and what stops an administering
+  agent quietly making more of itself.
+
 ### Fixed
 
 - **An agent asking its first question before you have run `subroutine init` is now told so.**

@@ -58,6 +58,21 @@ def create (
 			actor, subroutine.permissions.INSTANCE_USER_CREATE
 		)
 
+		# **An agent may not grant administration of the installation** (`#701`), which is the
+		# same rule as :func:`set_active` and :func:`transfer` one field along: those say an
+		# agent cannot decide somebody's standing or who answers for them, and this is deciding
+		# who administers the instance they all run on.
+		#
+		# It is what closes the loop the other way too. `authorize_instance` already requires
+		# the actor to be a superuser, so only an administrator reaches here at all — and
+		# without this an administering *agent* could make a second, and a third, none of which
+		# any person agreed to. `#356`'s rule for credentials, at the tier above them.
+		if is_superuser and actor.user.is_service_account:
+			raise subroutine.errors.Forbidden(
+				"An agent cannot make an account an administrator of this installation. "
+				"Handing out administration is a person's act.",
+				hint="Ask the person accountable for this agent to create it.",
+			)
 
 	name = subroutine.domain.text.fit(
 		subroutine.domain.text.require(username, field="username"),

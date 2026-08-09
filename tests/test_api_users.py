@@ -143,3 +143,85 @@ def test_a_refusal_arrives_as_a_refusal_rather_than_a_crash (
 
 	with _over_http(session, token) as client, pytest.raises(subroutine.errors.NotFound):
 		client.set_active(username="nobody-at-all", active=False)
+
+
+# ---- administering the installation (`SR#701`) ----------------------------------------------
+
+
+def test_a_second_administrator_can_be_created (session: sqlalchemy.orm.Session) -> None:
+	"""``SR#701``. Until this, an instance had exactly the one superuser ``init`` made.
+
+	``is_superuser`` is the **only** source of an instance-tier permission — no role can carry
+	one, because ``seed.py`` builds roles from ``permissions.WORKSPACE_LEVEL`` — and it was
+	reported by the view, rendered by ``user list`` as *instance admin*, and settable by
+	nothing: not the CLI, not ``POST /v1/users``, and by no update path. So an operator could
+	not delegate administration, could not keep a second admin against losing the first, and
+	could not give an agent the rights to create the accounts it was asked to create.
+
+	The model plainly expected more than one: ``_refuse_deactivating_the_last_administrator``
+	counts *other* active superusers before permitting a deactivation, which was a guard
+	defending a state nothing could reach.
+	"""
+
+	person, token = _instance(session)
+	client = _over_http(session, token)
+
+	made = client.create_user(username="deputy", is_superuser=True)
+
+	assert made.is_superuser, "the flag was accepted and did not reach the account"
+
+	# Driven rather than asserted on the field: the point of the flag is the permission.
+	stored = session.get(subroutine.db.models.identity.User, made.id)
+
+	assert stored is not None and stored.is_superuser
+	assert stored.id != person.id, "it made the caller rather than a second account"
+
+
+def test_an_ordinary_account_is_not_made_an_administrator_by_accident (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The default has to stay false, or every account created becomes an administrator.
+
+	Worth its own test because the field is new on a request model that already had four
+	booleans' worth of defaults, and a wrong default here is the failure nobody would report:
+	it grants rather than refuses, so nothing breaks and nobody looks.
+	"""
+
+	_person, token = _instance(session)
+
+	made = _over_http(session, token).create_user(username="ordinary")
+
+	assert not made.is_superuser
+
+
+def test_an_agent_cannot_make_an_administrator (session: sqlalchemy.orm.Session) -> None:
+	"""Handing out administration is a person's act — the rule ``set_active`` already states.
+
+	``authorize_instance`` requires the caller to be a superuser, so only an administrator
+	reaches this at all. Without the refusal an administering *agent* could make a second, and
+	a third, none of which any person agreed to — `SR#356`'s amplification rule at the tier
+	above credentials, where it has further to fall.
+	"""
+
+	person, _token = _instance(session)
+
+	agent = subroutine.domain.users.create(
+		session,
+		username="administering-agent",
+		is_service_account=True,
+		is_superuser=True,
+		responsible_user_id=person.id,
+	)
+	session.flush()
+
+	acting = subroutine.domain.authentication.Principal(user=agent, token=None)
+
+	# It may create an ordinary account: the refusal is about administration, not about agents.
+	subroutine.domain.users.create(session, username="fine", actor=acting)
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.users.create(
+			session, username="another-admin", is_superuser=True, actor=acting
+		)
+
+	assert "person's act" in str(refused.value.detail)

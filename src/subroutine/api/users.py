@@ -63,6 +63,17 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: the stand-up.
 	is_service_account: bool = False
 
+	#: Whether this account administers the installation — item ``#701``. **The only source of
+	#: an instance-tier permission there is**: no role can carry one, because ``seed.py`` builds
+	#: roles from :data:`subroutine.permissions.WORKSPACE_LEVEL`, so without this field an
+	#: instance has exactly the one superuser ``init`` made and no way to a second. The view has
+	#: reported it since M1 and nothing could set it.
+	#:
+	#: Refused for an agent asking, in the service layer: handing out administration is a
+	#: person's act, and an administering agent making more of itself is `#356`'s amplification
+	#: one tier up.
+	is_superuser: bool = False
+
 
 @router.post("", status_code=201, summary="Create an account")
 def create (
@@ -84,6 +95,7 @@ def create (
 		display_name=body.display_name,
 		timezone=body.timezone,
 		is_service_account=body.is_service_account,
+		is_superuser=body.is_superuser,
 		actor=actor,
 	)
 

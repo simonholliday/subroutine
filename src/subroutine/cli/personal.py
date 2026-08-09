@@ -3407,6 +3407,11 @@ def register (
 		agent: bool = typer.Option(
 			False, "--agent", help="A machine identity rather than a person."
 		),
+		superuser: bool = typer.Option(
+			False,
+			"--superuser",
+			help="Let them administer this installation: create accounts and workspaces.",
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Add somebody to this instance.
@@ -3416,6 +3421,12 @@ def register (
 		  subroutine user create thomas --name "Thomas Anderson"
 
 		  subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
+
+		  subroutine user create sam --superuser
+
+		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
+		way to grant that — no role carries it. Until '#701' there was exactly one, made by
+		'init', and no way to a second, which left an instance with nobody to hand over to.
 
 		A new account belongs to no workspace yet, and until it does there is nothing it can
 		see. 'subroutine user add' is the second half, and this command says so when it is
@@ -3437,6 +3448,7 @@ def register (
 				display_name=display_name.strip() or None,
 				email=email.strip() or None,
 				is_service_account=agent,
+				is_superuser=superuser,
 			)
 
 			settled = _keep_the_operators_own_list(world, before)

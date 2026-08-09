@@ -613,6 +613,7 @@ class Client:
 		email: str | None = None,
 		timezone: str | None = None,
 		is_service_account: bool = False,
+		is_superuser: bool = False,
 	) -> subroutine.views.User:
 		"""Add a person, or a machine identity, to this instance."""
 
@@ -632,6 +633,7 @@ class Client:
 				# `create_project` gives about `visibility`: `_given` drops a false, and a
 				# default in two places is two places to change.
 				"is_service_account": is_service_account,
+				"is_superuser": is_superuser,
 			},
 		)
 

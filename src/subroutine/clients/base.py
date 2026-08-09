@@ -562,6 +562,7 @@ class Client(typing.Protocol):
 		email: str | None = None,
 		timezone: str | None = None,
 		is_service_account: bool = False,
+		is_superuser: bool = False,
 	) -> subroutine.views.User:
 		"""Add a person, or a machine identity, to this instance.
 
