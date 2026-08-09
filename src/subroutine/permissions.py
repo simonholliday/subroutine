@@ -35,7 +35,7 @@ PROJECT_DELETE = "project:delete"
 
 #: Tasks and documents share these: a document is a work item under the same permissions
 #: as the task beside it, and giving it its own verbs would double the matrix to no end
-#: (SPEC.md §7.3a).
+#: (SPEC.md §7.3a). **That fact lived only here until `#703`** — see :data:`COVERAGE`.
 TASK_READ = "task:read"
 TASK_WRITE = "task:write"
 TASK_DELETE = "task:delete"
@@ -169,3 +169,51 @@ def sorted_permissions (candidates: typing.Iterable[str]) -> list[str]:
 	"""
 
 	return sorted(set(candidates))
+
+
+#: What a permission covers that its own name does not say — item ``#703``.
+#:
+#: **A permission is a promise to a reader who has no other source.** An agent asks what it may
+#: do, is handed a list of verbs, and acts on it; there is nothing else to consult. So a verb
+#: whose subject is wider than its prefix is a sentence that reads as complete and is not, and
+#: the reader's own care is what makes it wrong — they reason correctly from a true list to a
+#: false conclusion.
+#:
+#: That is not hypothetical. The agent on nuc14 read its grants, found no ``document:*``, wrote
+#: up a substantial measurement as a *comment* rather than as the finding it was, and asked for
+#: its credential to be widened — work that would have been done for nothing. It had held the
+#: capability all along. Driven against the served instance with that exact credential:
+#: ``POST /v1/documents`` answered **201**.
+#:
+#: Only entries whose subject is not simply their own prefix belong here. The rest would be
+#: §12.2a's column that says the same thing on every row, and a note beside ``comment:write``
+#: saying *comments* teaches nothing while making the two that matter harder to see.
+#:
+#: **Complete for documents by derivation, not by care.** ``tests/test_permissions.py`` reads
+#: the permissions ``domain/documents.py`` actually checks and fails if one of them has no
+#: entry here — so gating documents on a new verb cannot silently reintroduce this.
+COVERAGE: dict[str, str] = {
+	TASK_READ: "tasks and documents",
+	TASK_WRITE: "tasks and documents",
+	TASK_DELETE: "tasks and documents",
+	# Not instance-wide account administration, which is `instance:user_create` and is a tier
+	# up. This is membership of *this* workspace: inviting, removing, changing a role.
+	USER_ADMIN: "who belongs to this workspace",
+}
+
+
+def described (names: typing.Iterable[str]) -> list[str]:
+	"""Return each permission with what it covers, where the name does not already say.
+
+	**One renderer, because two would disagree.** The CLI's ``whoami`` and the MCP tool both
+	answer *what may I do here*, and this project's signature defect is two copies of one rule
+	drifting apart — most recently eleven copies of a project key's normalisation, all correct
+	while they agreed (`#508`).
+
+	A list rather than a joined string, so each surface keeps its own punctuation.
+	"""
+
+	return [
+		name if name not in COVERAGE else f"{name} ({COVERAGE[name]})"
+		for name in names
+	]

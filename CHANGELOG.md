@@ -62,6 +62,18 @@ upgrade involves.
 
 ### Fixed
 
+- **A permission list now says that `task:write` covers documents.** There is no
+  `document:read` or `document:write` — a document is a work item under the same permissions as
+  the task beside it — and nothing said so anywhere a person or an agent could read it. Both
+  `subroutine whoami` and `subroutine_whoami` now render it as
+  `task:write (tasks and documents)`.
+
+  It is worth a line in a changelog because of what it cost: an agent read its own grants,
+  found no document permission, wrote up a substantial piece of work as a comment rather than
+  as the document it should have been, and asked for its credential to be widened. It had held
+  the capability the whole time. A list that is true and reads as complete is worse than a
+  refusal, because there is nothing to argue with.
+
 - **An agent asking its first question before you have run `subroutine init` is now told so.**
   It used to receive a stream of objects that were not protocol messages at all — an internal
   error document with no envelope and nothing tying it to the question asked, for every message

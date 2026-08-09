@@ -39,6 +39,7 @@ import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.installations
 import subroutine.mcp.protocol
+import subroutine.permissions
 import subroutine.views
 
 #: How many rows a listing returns when the caller does not say. Smaller than the API's
@@ -989,7 +990,11 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 		lines.extend(
 			f"{workspace.slug}  {workspace.role or 'no role'}"
 			+ (
-				f"  may: {', '.join(workspace.permissions)}"
+				# **Described rather than listed** (`#703`), and this is the surface it cost
+				# something on: an agent here read `task:write`, found no `document:*`, and
+				# concluded it could not write up what it had concluded — which is the one
+				# thing the skill spends most of its words persuading it to do.
+				f"  may: {', '.join(subroutine.permissions.described(workspace.permissions))}"
 				if workspace.narrowed_by_credential
 				else ""
 			)

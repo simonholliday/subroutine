@@ -58,6 +58,7 @@ import subroutine.domain.schedule
 import subroutine.errors
 import subroutine.fanout
 import subroutine.installations
+import subroutine.permissions
 import subroutine.views
 
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
@@ -4128,7 +4129,12 @@ def register (
 			# workspace and not in another, and the row where it is narrowed is the row whose
 			# permissions somebody has to read.
 			if workspace.narrowed_by_credential:
-				cells.append(f"may: {', '.join(workspace.permissions)}")
+				# **Described rather than listed** (`#703`). A verb whose subject is wider than
+				# its own name is a list that reads as complete and is not — `task:write` is
+				# the only thing granting document writes, and nothing said so.
+				cells.append(
+					f"may: {', '.join(subroutine.permissions.described(workspace.permissions))}"
+				)
 
 			rows.append(f"  {'  '.join(cells)}".rstrip())
 

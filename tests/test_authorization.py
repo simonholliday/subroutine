@@ -7,6 +7,8 @@ that widens instead of narrowing, a private project that answers "forbidden" and
 confirms it exists.
 """
 
+import pathlib
+import re
 import typing
 import uuid
 
@@ -22,6 +24,7 @@ import subroutine.db.seed
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.documents
 import subroutine.permissions
 
 
@@ -765,3 +768,77 @@ def test_a_superuser_gets_the_workspace_tier_and_not_more (
 	)
 
 	assert granted == subroutine.permissions.WORKSPACE_LEVEL
+
+
+def _document_permissions () -> set[str]:
+	"""Return the permissions ``domain/documents.py`` actually checks, read from its source.
+
+	**Derived rather than listed**, which is the whole reason this guard is worth anything. A
+	hand-kept copy of "which verbs gate a document" would be a second statement of the rule, and
+	this codebase's record is that two copies agree until they do not — most recently eleven
+	copies of a project key's normalisation, every one correct while they matched (`SR#508`).
+	"""
+
+	source = pathlib.Path(subroutine.domain.documents.__file__).read_text(encoding="utf-8")
+	names = set(re.findall(r"subroutine\.permissions\.([A-Z_]+)", source))
+
+	return {
+		getattr(subroutine.permissions, name)
+		for name in names
+		if isinstance(getattr(subroutine.permissions, name, None), str)
+	}
+
+
+def test_every_permission_that_gates_a_document_says_so () -> None:
+	"""`SR#703`. There is no `document:*` verb, and nothing said which verb stands in for one.
+
+	**The failure this is written for happened, and it cost real work.** The agent on nuc14 read
+	its grants, found no document permission, wrote a substantial measurement up as a *comment*
+	rather than as the finding it was, and asked for its credential to be widened. It had held
+	the capability throughout: `POST /v1/documents` with that exact credential answered 201.
+
+	That is the worst shape a surface can have — not a refusal, but a true list a careful reader
+	draws a false conclusion from. Refusing would have been better, because a refusal is
+	something you argue with.
+	"""
+
+	gating = _document_permissions()
+
+	assert gating, "read no permissions out of documents.py, so this is checking nothing"
+
+	missing = gating - set(subroutine.permissions.COVERAGE)
+
+	assert not missing, (
+		f"{sorted(missing)} gate writes to documents and say nothing about it where an agent "
+		f"reads them. Add an entry to permissions.COVERAGE naming what the verb really covers."
+	)
+
+
+def test_nothing_is_described_as_covering_something_it_does_not () -> None:
+	"""`SR#405`: an allow-list needs the other direction, or a stale entry reads as a decision.
+
+	Both halves are cheap here and neither is implied by the other — a permission that no longer
+	exists, and a note that no longer says anything the name does not.
+	"""
+
+	gone = set(subroutine.permissions.COVERAGE) - subroutine.permissions.ALL
+
+	assert not gone, f"{sorted(gone)} are described and are not permissions"
+
+	for name, covers in subroutine.permissions.COVERAGE.items():
+		prefix = name.split(":")[0]
+
+		assert covers.replace(" ", "_") != f"{prefix}s", (
+			f"{name} is described as {covers!r}, which is what its own name already says — a "
+			f"note on every permission is §12.2a's column that says the same thing on every row"
+		)
+
+
+def test_a_described_permission_reads_as_a_permission_and_a_note () -> None:
+	"""What a reader is actually handed, rather than what the map holds."""
+
+	said = subroutine.permissions.described(
+		[subroutine.permissions.COMMENT_WRITE, subroutine.permissions.TASK_WRITE]
+	)
+
+	assert said == ["comment:write", "task:write (tasks and documents)"]
