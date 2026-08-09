@@ -46,6 +46,11 @@ ASSETS = subroutine.api.web.ASSETS
 #: never imports, inside the set a reader is invited to audit.
 TEST_VENDOR = pathlib.Path(__file__).resolve().parent / "vendor"
 
+#: The smallest document Preact will render into, so that effects run and `App` can be driven
+#: rather than only rendered — `SR#640`. Written here rather than copied from anywhere, which is
+#: why it sits outside :data:`TEST_VENDOR`.
+DOM = pathlib.Path(__file__).resolve().parent / "dom.js"
+
 #: The same record `subroutine.web.vendored` keeps, for the half that is not shipped.
 #:
 #: `#445`'s hole is the same either way — ``scripts/check_licences.py`` walks
@@ -313,6 +318,11 @@ def _staged (tmp_path: pathlib.Path) -> pathlib.Path:
 			resolved((TEST_VENDOR / entry.filename).read_text(encoding="utf-8")),
 			encoding="utf-8",
 		)
+
+	# **Ours rather than vendored, and beside them for the same reason** (`SR#640`): it is a
+	# test's tool and the page must never see it. `api/web._collected` walks the *served* vendor
+	# directory, so anything dropped in there reaches every reader.
+	(tmp_path / DOM.name).write_text(DOM.read_text(encoding="utf-8"), encoding="utf-8")
 
 	return tmp_path / "app.js"
 
@@ -2972,3 +2982,209 @@ def test_a_board_says_when_it_is_showing_only_part_of_the_work (
 
 	assert "There are more" in cut
 	assert "Show more" in cut
+
+
+# ---- driving the app, not only rendering it (`SR#640`) -------------------------------------
+
+
+def _driven (
+	tmp_path: pathlib.Path,
+	*,
+	pathname: str = "/",
+	search: str = "",
+	answers: typing.Mapping[str, typing.Any] | None = None,
+) -> dict[str, typing.Any]:
+	"""Mount the real app at one address and report what it asked the instance for.
+
+	**This is the half `_mounted` cannot reach.** `preact-render-to-string` runs `useState` and
+	`useCallback` and **not** `useEffect` — measured — so it sees the first paint and nothing
+	after it. `App` does all of its work in an effect, so every fetch, every write and every
+	decision about *what to ask for* was outside every test until this.
+
+	**The app is imported rather than rendered here**, because `app.js` mounts itself when a
+	`document` exists — which is what a browser does, boundary and all. Rendering it a second
+	time would be a mount this page never performs.
+
+	**Assert on the requests, not on the markup.** What went wrong five times was which of two
+	correct values a component passed, and that is visible in the request and invisible in the
+	HTML. Markup is `SAMPLES`' job and needs no DOM at all.
+	"""
+
+	module = _staged(tmp_path)
+	replies = dict(answers or {})
+
+	return dict(_ran(tmp_path, f"""
+		import {{ install }} from "{(tmp_path / DOM.name).as_uri()}";
+
+		const {{ written }} = install({json.dumps({"pathname": pathname, "search": search})});
+		const replies = {json.dumps(replies)};
+		const asked = [];
+
+		/* Enough of an answer for the app to carry on, and no more. A fixture that returned
+		   real-looking rows would invite assertions about rendering, which is not what this is
+		   for and is already covered without a DOM. */
+		function answered (path) {{
+			for (const [fragment, body] of Object.entries(replies)) {{
+				if (path.includes(fragment)) return body;
+			}}
+
+			if (path.includes("/me")) {{
+				return {{
+					user: {{ username: "si", is_service_account: false }},
+					workspaces: [{{ slug: "projects", id: "w1", role: "owner", permissions: [] }}],
+					instance_permissions: [],
+					credential: null,
+				}};
+			}}
+
+			return {{ items: [], page: {{ has_more: false, next_cursor: null, total: null }} }};
+		}}
+
+		globalThis.fetch = async (path, options = {{}}) => {{
+			asked.push({{ method: (options.method || "GET"), path }});
+
+			return {{
+				ok: true,
+				status: 200,
+				headers: {{ get: () => "application/json" }},
+				json: async () => answered(path),
+			}};
+		}};
+
+		await import("{module.as_uri()}");
+
+		/* Long enough for the mount, its effect, and everything that effect awaits — and far
+		   short of `POLL_MS`, so what is recorded is the *first* load rather than a poll
+		   quietly correcting it. That distinction is `SR#719`, which presented as the right
+		   rows arriving ten seconds late. */
+		await new Promise((done) => setTimeout(done, 300));
+
+		process.stdout.write(JSON.stringify({{ asked, written }}));
+
+		/* The poll's interval holds the process open, and a test that hangs is worse than one
+		   that fails. */
+		process.exit(0);
+	"""))
+
+
+def test_arriving_at_a_board_asks_for_finished_work_immediately (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#719`, and the reason this harness exists at all.
+
+	The defect: `load` took the arrangement from *state*, and `setView` does not land in the
+	render that calls it — so the first load after arriving at `?view=board` asked for the
+	list's rows and the poll asked for the board's ten seconds later. Simon reported it as
+	*"the completed column populates after a full 10 second wait"*, which is `POLL_MS` exactly.
+
+	**Nothing in the suite could see it.** The decision was pure and tested; what was wrong was
+	which of two correct values a component handed it. Falsified by reinstating the defect,
+	which fails this and nothing else.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?view=board")
+	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
+
+	assert tasks, f"the board asked for no tasks at all: {driven['asked']}"
+
+	assert "include_completed=true" in tasks[0]["path"], (
+		"the *first* load must ask for finished work, or the Done column fills a poll later — "
+		f"{tasks[0]['path']}"
+	)
+
+
+def test_arriving_at_a_listing_does_not_ask_for_finished_work (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The other direction, which is what stops the fix being 'always send it'.
+
+	A list answers *what do I have to do*, so it goes on hiding finished work; that asymmetry is
+	the qualification of decision `SR#649` recorded on it.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects/subroutine")
+	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
+
+	assert tasks, "the listing asked for no tasks at all"
+	assert all("include_completed" not in call["path"] for call in tasks)
+
+
+def test_arriving_at_the_root_asks_for_the_agenda_across_every_workspace (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#652`. `/` is the agenda, and naming a workspace would answer a different question.
+
+	Measured on the served instance: `projects` alone returns 153 unscheduled where naming
+	nothing returns 160 and an overdue row the narrower question cannot see. A scoped agenda
+	would look right — a shorter one is indistinguishable from a lighter day — which is why the
+	absence of the parameter is worth a test rather than a comment.
+	"""
+
+	driven = _driven(tmp_path)
+	agenda = [call for call in driven["asked"] if "/v1/agenda" in call["path"]]
+
+	assert len(agenda) == 1, f"expected one agenda request, got {driven['asked']}"
+	assert "workspace" not in agenda[0]["path"], agenda[0]["path"]
+
+	assert not any("/v1/tasks" in call["path"] for call in driven["asked"]), (
+		"the root is the agenda, so it must not also fetch a listing"
+	)
+
+
+def test_every_request_the_app_makes_on_arrival_is_a_declared_builder (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The static scan below this asserts the same thing by reading the source; this runs it.
+
+	Both are worth having and neither implies the other. A scan sees a builder that is never
+	called; this sees a request assembled by hand at a call site, which is the shape a scan
+	over exported names is structurally unable to notice.
+	"""
+
+	driven = _driven(tmp_path, pathname="/projects", search="?view=board")
+	paths = {call["path"].split("?")[0] for call in driven["asked"]}
+
+	assert paths, "the app made no request at all, so this is checking nothing"
+
+	known = {
+		"/v1/me", "/v1/meta", "/v1/agenda", "/v1/tasks", "/v1/documents", "/v1/changes",
+		"/v1/workspaces/projects/members",
+	}
+	invented = paths - known
+
+	assert not invented, f"{sorted(invented)} is fetched and is not a route the app declares"
+
+
+def test_the_shim_is_a_mount_and_not_a_browser () -> None:
+	"""`SR#640`'s scope, held by a test rather than by an intention.
+
+	**A harness that substitutes the mechanism under test can only ever confirm the half that
+	was not broken** — this repository's own words, about the version of this file that supplied
+	`htm` when the served page did not. `dom.js` is a substitute, and it is defensible only
+	while it does one narrow thing.
+
+	So the line is drawn where it was decided: the first test that wants to *click* needs a real
+	DOM, and this fails rather than letting the file grow into a worse one. There is no npm on
+	the development machine today, which is the whole reason a shim was the answer.
+	"""
+
+	#: **Comments stripped first**, because the first version of this failed on the word
+	#: *click* inside the sentence forbidding it. `SR#546`'s shape at its smallest: a scan that
+	#: reads prose is measuring the explanation rather than the thing.
+	code = re.sub(r"/\*.*?\*/", "", DOM.read_text(encoding="utf-8"), flags=re.S)
+	code = "\n".join(
+		line for line in code.splitlines() if line.strip() and not line.strip().startswith("//")
+	)
+
+	assert len(code.splitlines()) < 120, (
+		f"dom.js is {len(code.splitlines())} lines of code. It is meant to mount the app and "
+		f"nothing else; past this it is a bad browser rather than a small harness — jsdom."
+	)
+
+	for forbidden, why in (
+		("dispatchEvent", "dispatching an event is where a shim stops being honest"),
+		(".click", "clicking needs a real DOM, not a larger pretence"),
+		("querySelector", "finding nodes by selector is a browser's job, not a mount's"),
+		("innerHTML", "parsing HTML is the one thing this must never pretend to do"),
+	):
+		assert forbidden not in code, f"dom.js implements {forbidden!r}: {why}"
