@@ -1979,6 +1979,10 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("listingRequests", [
 			place.slug, None, {"tasks": place.cursor, "documents": place.cursor},
 		]),
+		# **The board's fetch, driven against the instance like every other** (`SR#718`). It
+		# differs from the list's by one parameter and that parameter is the whole bug: without
+		# it the *Done* column could never hold anything, which no test saw and one look did.
+		("listingRequests", [place.slug, None, None, True]),
 		("itemRequests", ["task", place.task, place.slug]),
 		("itemRequests", ["document", place.document, place.slug]),
 		("completeRequest", [{"ref": place.task}, place.slug]),
@@ -2903,3 +2907,68 @@ def test_a_board_shows_the_same_rows_the_list_does (tmp_path: pathlib.Path) -> N
 	assert sorted(placed) == [row["ref"] for row in rows], (
 		"every row the listing fetched must appear exactly once on the board"
 	)
+
+
+def test_the_board_asks_for_finished_work_and_the_list_does_not (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#718`. Without it the *Done* column is structurally incapable of holding anything.
+
+	Measured on the served instance the day the board shipped: the same request returned
+	`{'todo': 100}` without the parameter and `{'todo': 59, 'done': 41}` with it. So the column
+	was not showing a wrong number — it could not work, and the suite could not see it because
+	nothing here had ever asked what a *board* fetches.
+
+	**This qualifies decision `SR#649`** — the query changing a listing default — and that is
+	recorded on the decision rather than left as a contradiction.
+
+	**Tasks only, and the asymmetry is right.** `GET /v1/documents` does not accept the
+	parameter — it answers 422, which the driven-request guard caught before this shipped — and
+	needs no equivalent: a document's categories are `draft`, `current`, `superseded` and
+	`archived`, none of which means *stop showing me this*, so every document is in the listing
+	already. My first version sent it to both and asserted a symmetry that does not exist.
+	"""
+
+	plain = _built(tmp_path, [("listingRequests", ["personal", None, None])])
+	board = _built(tmp_path, [("listingRequests", ["personal", None, None, True])])
+
+	assert not any("include_completed" in request["path"] for request in plain), (
+		"the list must go on hiding finished work — it is the answer to 'what do I have to do'"
+	)
+
+	tasks = [request for request in board if "/tasks" in request["path"]]
+	documents = [request for request in board if "/documents" in request["path"]]
+
+	assert len(tasks) == 1 and len(documents) == 1
+
+	assert "include_completed=true" in tasks[0]["path"], (
+		"without it the Done column is empty by construction, not by chance"
+	)
+
+	assert "include_completed" not in documents[0]["path"], (
+		"the documents listing refuses it, and needs no equivalent"
+	)
+
+
+def test_a_board_says_when_it_is_showing_only_part_of_the_work (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#718`, and the correction of a claim I made in the same file the day before.
+
+	The comment beside the column tally said *a board is not paged, so the count is exact*. It
+	is paged — it renders the rows `load` fetched, and that fetch is capped at `PAGE`, measured
+	biting on this project's own board. A per-column number that reads as a total and is a page
+	count is worse on a board than a short list is, because a column is exactly where somebody
+	looks to conclude that nothing is left.
+	"""
+
+	whole = _rendered(tmp_path, {"Board": SAMPLES["Board"]})["Board"]
+
+	assert "There are more" not in whole
+
+	cut = _rendered(tmp_path, {
+		"Board": {**SAMPLES["Board"], "more": {"tasks": "cursor", "documents": None}}
+	})["Board"]
+
+	assert "There are more" in cut
+	assert "Show more" in cut

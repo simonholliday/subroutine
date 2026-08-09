@@ -317,7 +317,7 @@ export function rosterRequest (slug) {
 	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
 }
 
-export function listingRequests (slug, key = null, after = null) {
+export function listingRequests (slug, key = null, after = null, completed = false) {
 	/*
 		The list, which is tasks *and* documents.
 
@@ -341,8 +341,36 @@ export function listingRequests (slug, key = null, after = null) {
 	const narrowed = key ? `&project=${encodeURIComponent(key)}` : "";
 	const from = (cursor) => (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
 
+	/*
+		**Finished work is fetched for the board and not for the list** — `#718`, and it is a
+		qualification of decision `#649` rather than an oversight, recorded there.
+
+		`#649` says the path decides which rows there are and the query decides how they look.
+		This is the query changing a listing *default*, which the decision did not anticipate and
+		which its two worked concerns do not touch: an item's address is unchanged and the path
+		grammar is unchanged. The precedent is `cli/personal._listed`, which hides deferred work
+		for a human reader and not for `--json` — the same rows question answered differently by
+		presentation context, reasoned out and accepted.
+
+		The argument for it is simply that **without finished work a board is not a board**: the
+		*Done* column was structurally incapable of holding anything, measured on the served
+		instance the day it shipped.
+
+		**Tasks only, and the asymmetry is right rather than an omission.** `GET /v1/documents`
+		does not accept `include_completed` at all — measured, it answers 422 — because a
+		document has no completed axis: its categories are `draft`, `current`, `superseded` and
+		`archived`, and none of them means *stop showing me this*. A superseded specification is
+		still in the listing by default, so the board already receives every document there is.
+
+		I wrote this comment claiming both collections were asked the same, which asserted a
+		symmetry that does not exist. `test_every_request_the_browser_makes_is_one_the_instance_accepts`
+		refused the request before it shipped — the guard `#640` exists for, doing exactly its
+		job for the second time on this arc.
+	*/
+	const finished = completed ? "&include_completed=true" : "";
+
 	return [
-		{ path: scoped(`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}`
+		{ path: scoped(`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${finished}`
 			+ from(after && after.tasks), slug), method: "GET" },
 		{ path: scoped(`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
 			+ from(after && after.documents), slug), method: "GET" },
@@ -972,7 +1000,9 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 	`;
 }
 
-export function Board ({ items, onOpen, onComplete, onAdd, busy, project, onWiden }) {
+export function Board ({
+	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project,
+}) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
 
@@ -988,6 +1018,12 @@ export function Board ({ items, onOpen, onComplete, onAdd, busy, project, onWide
 	const arranged = columns(items);
 	const showKind = new Set(items.map((item) => item.kind)).size > 1;
 
+	/* The same test the listing makes, and it has to be the same: both render one page of two
+	   collections, and a column tally that reads as a total is worse on a board than a short
+	   list is, because a column is where somebody looks to see that nothing is left. */
+	const truncated = more !== null && more !== undefined
+		&& (more.tasks !== null || more.documents !== null);
+
 	return html`
 		<div class="listing board">
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
@@ -1002,8 +1038,16 @@ export function Board ({ items, onOpen, onComplete, onAdd, busy, project, onWide
 			<div class="columns">
 				${arranged.map((column) => html`
 					<section class="column" key=${column.key}>
-						${/* The count is what is *here*, and a board is not paged — so unlike the
-						     listing's `…and more` it is exact and needs no second scan. */ null}
+						${/*
+							**A count of what is on the page, which is not a total** (`#718`).
+							This comment used to say a board is not paged and that the number was
+							exact. It is not: the board renders the rows `load` fetched and that
+							fetch is capped at `PAGE`, which was measured biting on this
+							project's own board the day it shipped. The notice below is what
+							makes the number honest, and it is the listing's, for the reason
+							`#646` gives — a reader shown 100 of 142 with no way to tell had an
+							item they wrote minutes earlier become unfindable.
+						*/ null}
 						<h2>${column.label}${" "}<span class="tally">${column.items.length}</span></h2>
 
 						${column.items.length === 0
@@ -1020,6 +1064,15 @@ export function Board ({ items, onOpen, onComplete, onAdd, busy, project, onWide
 					</section>
 				`)}
 			</div>
+
+			${truncated && html`
+				<div class="cut">
+					<span>Showing ${items.length}. There are more.</span>
+					${onMore && html`
+						<button onClick=${onMore} disabled=${busy}>Show more</button>
+					`}
+				</div>
+			`}
 		</div>
 	`;
 }
@@ -1422,8 +1475,16 @@ export function App () {
 		);
 	}, []);
 
-	const load = useCallback(async (slug, key = null, after = null) => {
+	const load = useCallback(async (slug, key = null, after = null, arranged = view) => {
 		if (!slug) return;
+
+		/*
+			**`arranged` defaults to the view and is passed explicitly by anything that changes
+			it in the same breath.** The board asks for finished work and the list does not
+			(`#718`), so a reload that read a stale `view` would fetch the wrong rows — which is
+			precisely the stale-closure failure the poll's own comment documents at length, where
+			an interval created before `setProject` landed widened a list ten seconds later.
+		*/
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
@@ -1431,7 +1492,9 @@ export function App () {
 		let documents;
 
 		try {
-			[tasks, documents] = await Promise.all(listingRequests(slug, key, after).map(sent));
+			[tasks, documents] = await Promise.all(
+				listingRequests(slug, key, after, arranged === "board").map(sent),
+			);
 		} catch (failure) {
 			/*
 				**A project named in an address may not be there any more, and that is the case
@@ -1450,7 +1513,7 @@ export function App () {
 				+ `Showing the whole workspace.`, tone: "bad" });
 			setProject(null);
 
-			return load(slug, null, after);
+			return load(slug, null, after, arranged);
 		}
 
 		const fetched = [
@@ -1484,7 +1547,7 @@ export function App () {
 			tasks: tasks.page.has_more ? tasks.page.next_cursor : null,
 			documents: documents.page.has_more ? documents.page.next_cursor : null,
 		});
-	}, []);
+	}, [view]);
 
 	const roster = useCallback(async (slug) => {
 		/*
@@ -1931,19 +1994,33 @@ export function App () {
 		}
 	}, [go, load, roster]);
 
-	const chooseView = useCallback((wanted) => {
+	const chooseView = useCallback(async (wanted) => {
 		/*
-			**The address changes and the rows do not** — decision `#649`, and the line a test
-			holds. A view is a rendering of what `load` already fetched, so switching one must
-			not refetch: if it did, the query would be deciding which rows there are, which is
-			§14.10's *scoping bug wearing a formatting hat*.
+			**Switching does refetch, and the comment here used to say it must not.**
+
+			That sentence was written the same day and was wrong within hours: it argued that a
+			view is a rendering of rows `load` already has, so refetching would make the query
+			decide which rows exist. The consequence, which Simon found by opening the page, is
+			that the *Done* column was structurally incapable of holding anything — a listing
+			excludes finished work by default, so the board never received a single done row
+			(`#718`).
+
+			What is fetched is a listing **default**, not a scope. `#649`'s rule stands for what
+			it was decided about — the path grammar, and an item having one address — and this
+			is recorded on it as a qualification rather than left as a contradiction.
+
+			`wanted` is passed to `load` explicitly because `setView` has not landed in this
+			render, so the closure still holds the previous arrangement — the same reason `start`
+			passes `slug` rather than reading `workspace`.
 		*/
 		setView(wanted);
 		go(
 			listingAddress({ agenda: agenda !== null, workspace, project }),
 			{ arranged: wanted },
 		);
-	}, [agenda, go, project, workspace]);
+
+		if (agenda === null) await load(workspace, project, null, wanted);
+	}, [agenda, go, load, project, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -2011,7 +2088,8 @@ export function App () {
 						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
 					: view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${add} busy=${busy} project=${project} onWiden=${widen} />`
+							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
+							project=${project} onWiden=${widen} />`
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
 							project=${project} onWiden=${widen} />`}

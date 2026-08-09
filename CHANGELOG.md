@@ -30,6 +30,10 @@ upgrade involves.
   whose state this page does not recognise is shown under its own name rather than dropped.
   Nothing on the list is missing from the board.
 
+  The board shows finished work — a list hides it, because a list answers *what do I have to
+  do*, and a board answers *where is everything*. Like the list, it says when there is more
+  than fits on a page rather than leaving a column looking complete.
+
   **Cards cannot be dragged yet.** Moving one has nowhere to be recorded, so a card would not
   stay where you put it; that is coming separately.
 
