@@ -169,6 +169,37 @@ code, .ref, .priority, .broke .detail {
 .note button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .note .dismiss { border-color: transparent; font-size: 16px; line-height: 1; }
 
+/* ---- the agenda (`#652`) ------------------------------------------------ */
+
+/* Buckets are stacked headings over ordinary rows, not a new kind of list. The agenda answers
+   *when*, and the row is the same row it is everywhere else — a reader who has learned one has
+   learned both. */
+.agenda .bucket + .bucket { margin-top: 22px; }
+
+.agenda h2 {
+	margin: 0 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+
+/* **Colour marks the exception and says nothing on its own** (decision `#102`). Overdue is
+   already under a heading that says the word, so the hue is a second signal rather than the
+   only one — and it is a basic ANSI-equivalent token from the palette, never a hex value of
+   its own. */
+.agenda h2.overdue { color: var(--warn); }
+
+/* Where an add lands, said only where it is ambiguous — the agenda spans workspaces and a
+   listing does not. */
+.adding .lands {
+	flex-basis: 100%;
+	margin-top: 6px;
+	color: var(--ink-faint);
+	font-size: 13px;
+}
+
 /* ---- listing ----------------------------------------------------------- */
 
 .rows {

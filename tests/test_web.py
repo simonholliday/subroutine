@@ -86,6 +86,41 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"ref": 2, "kind": "document", "title": "A document", "status_is_default": True},
 		]
 	},
+	"Agenda": {
+		"buckets": [
+			{
+				"key": "overdue",
+				"label": "Overdue",
+				"items": [
+					{
+						"ref": 1, "kind": "task", "title": "Late already",
+						"workspace": "projects", "due_at": "2020-01-01T00:00:00Z",
+						"status_is_default": True,
+					}
+				],
+			},
+			{
+				"key": "unscheduled",
+				"label": "Unscheduled",
+				"items": [
+					{
+						"ref": 2, "kind": "task", "title": "Someday",
+						"workspace": "personal", "status_is_default": True,
+					}
+				],
+			},
+		],
+		"more": 12,
+		"where": "projects",
+	},
+	# **Found by the completeness guard on its first run** (`SR#652`): this is the app's whole
+	# trust boundary — the only `dangerouslySetInnerHTML` there is — and its template had never
+	# been rendered by the harness at all. What `markdown.render` emits is covered exhaustively;
+	# what wraps it was not.
+	"Prose": {
+		"text": "A description with a **word** in it, and a mention of #42.",
+		"where": "/projects",
+	},
 	"Facts": {
 		"item": {
 			"ref": 42,
@@ -1934,6 +1969,10 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
 		("assignRequest", [{"ref": place.task}, None, place.slug]),
 		("addRequest", ["Something new", place.slug]),
+		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
+		# across every workspace, so a request that named one would answer a different question
+		# and look right doing it.
+		("agendaRequest", []),
 	]
 
 
@@ -2335,3 +2374,306 @@ def test_the_listing_asks_for_the_field_it_orders_on () -> None:
 			f"{name} does not ask for the field the two collections are merged on, so every row "
 			f"will have an undefined key and the order will be whatever the two requests were"
 		)
+
+
+#: A component the render harness deliberately does not touch, and why. **Every entry needs
+#: something that makes it go away**, which is this repository's rule for an allow-list — see
+#: `tests/test_reach.py`'s `NOT_REACHED`. Deleting the entry is what closes the item.
+UNRENDERED: dict[str, str] = {
+	"App": (
+		"Uses hooks, so the harness cannot call it as a plain function — it would throw for "
+		"want of a renderer. `SR#640` is the item, and everything below `App` is written "
+		"without hooks precisely so it can be checked here."
+	),
+}
+
+
+def _components () -> set[str]:
+	"""Return every component `app.js` exports, by the capital-letter convention Preact uses."""
+
+	source = _served_modules()["app.js"]
+
+	# **Exported components only, because those are the ones the harness can reach** — it looks
+	# them up as `app[name]`. `Boundary` is a class and is deliberately not exported, so it is
+	# outside this question entirely rather than excused from it; `SR#680` measured that
+	# `preact-render-to-string` does not run error boundaries anyway, which is why the sentence
+	# it shows is a pure function checked on its own.
+	#
+	# `class` is matched as well as `function` so that an exported class component cannot slip
+	# past a scan that only ever looked for one of the two spellings.
+	return set(re.findall(r"^export (?:function|class) ([A-Z]\w*)", source, re.M))
+
+
+def test_every_component_the_app_exports_is_rendered_by_the_harness () -> None:
+	"""A component nobody renders is one whose template is checked by nothing.
+
+	The failure this is written for is the arc's own: an htm template that is malformed parses
+	perfectly and throws when it is *rendered*, which on this project's record is the shape that
+	ships and turns into a blank page. `test_every_component_renders` proves that of whatever
+	`SAMPLES` names — and until this, nothing said `SAMPLES` named them all.
+	"""
+
+	missing = _components() - set(SAMPLES) - set(UNRENDERED)
+
+	assert not missing, (
+		f"{sorted(missing)} are exported components with no entry in SAMPLES, so their "
+		f"templates are never rendered. Add a sample, or excuse it in UNRENDERED with a reason."
+	)
+
+
+def test_no_component_is_both_rendered_and_excused () -> None:
+	"""An excuse that outlived its reason reads exactly like a considered decision.
+
+	`SR#405`'s rule, and the second half of it: an allow-list that only fails when an entry is
+	*missing* lets a stale one sit there for ever, still naming an item, still reading as
+	deliberate. Three of those were found at once in `test_reach`.
+	"""
+
+	both = set(UNRENDERED) & set(SAMPLES)
+
+	assert not both, f"{sorted(both)} are excused from rendering and rendered anyway"
+
+	gone = set(UNRENDERED) - _components()
+
+	assert not gone, f"{sorted(gone)} are excused from rendering and no longer exist"
+
+
+def _agenda (
+	tmp_path: pathlib.Path, calls: typing.Sequence[tuple[str, typing.Any]]
+) -> list[typing.Any]:
+	"""Drive the agenda's pure functions directly — `SR#652`, and `SR#640`'s point again."""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const calls = {json.dumps(calls)};
+
+		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
+			name === "agendaBuckets" ? app.agendaBuckets(argument.agenda, argument.workspaces)
+			: name === "spansWorkspaces" ? app.spansWorkspaces(argument)
+			: name === "counted" ? app.counted(argument)
+			: app.agendaRequest())));
+	"""))
+
+
+def test_the_agenda_asks_across_every_workspace (tmp_path: pathlib.Path) -> None:
+	"""`SR#652`, decision `SR#649`: `/` is the agenda across all of them.
+
+	Measured on the instance rather than assumed: naming `projects` returns 153 unscheduled,
+	naming nothing returns 160 and an overdue row the narrower question cannot see. So sending a
+	workspace here would quietly answer a different question — and would look right, because a
+	shorter agenda is indistinguishable from a lighter day.
+	"""
+
+	[asked] = _agenda(tmp_path, [("agendaRequest", None)])
+
+	assert asked["path"] == "/agenda"
+	assert "workspace" not in asked["path"], "the agenda must not be scoped to one workspace"
+
+
+def test_a_bucket_with_nothing_in_it_is_not_shown (tmp_path: pathlib.Path) -> None:
+	"""Nothing overdue is good news, and a heading over an empty list makes a reader hunt.
+
+	**The opposite answer to a board's**, deliberately: a board with no `In progress` column
+	reads as broken because the columns are the structure, where an agenda's headings are only
+	what is there.
+	"""
+
+	[buckets] = _agenda(tmp_path, [(
+		"agendaBuckets",
+		{
+			"agenda": {
+				"overdue": [],
+				"today": [{"ref": 1, "title": "Today's", "workspace_id": "w1"}],
+				"upcoming": [],
+				"unscheduled": [],
+			},
+			"workspaces": [{"id": "w1", "slug": "projects"}],
+		},
+	)])
+
+	assert [bucket["key"] for bucket in buckets] == ["today"]
+
+
+def test_the_buckets_keep_the_order_a_day_is_read (tmp_path: pathlib.Path) -> None:
+	"""Overdue, today, next 7 days, unscheduled — the same words and order `today` prints.
+
+	§12.2 already decided what the agenda says, and one product answering one question two ways
+	is worse than either answer on its own.
+	"""
+
+	row = {"ref": 1, "title": "A task", "workspace_id": "w1"}
+	[buckets] = _agenda(tmp_path, [(
+		"agendaBuckets",
+		{
+			"agenda": {
+				"unscheduled": [row], "upcoming": [row], "today": [row], "overdue": [row],
+			},
+			"workspaces": [{"id": "w1", "slug": "projects"}],
+		},
+	)])
+
+	assert [bucket["label"] for bucket in buckets] == [
+		"Overdue", "Today", "Next 7 days", "Unscheduled",
+	]
+
+
+def test_every_agenda_row_is_told_which_workspace_it_came_from (tmp_path: pathlib.Path) -> None:
+	"""The response carries a uuid and nothing readable, so the slug is resolved here.
+
+	**This is the wire, and it is what `SR#640` keeps breaking.** A row opened or completed
+	against the switcher's workspace rather than its own is a 404 for an item the reader is
+	looking at — the rule right, the display right, and nothing joining them. Resolving the slug
+	onto the row is what lets `App` pass it, and this is the half that can be checked.
+	"""
+
+	[buckets] = _agenda(tmp_path, [(
+		"agendaBuckets",
+		{
+			"agenda": {
+				"overdue": [{"ref": 1, "title": "Elsewhere", "workspace_id": "w2"}],
+				"today": [], "upcoming": [], "unscheduled": [],
+			},
+			"workspaces": [{"id": "w1", "slug": "projects"}, {"id": "w2", "slug": "sandbox"}],
+		},
+	)])
+
+	assert buckets[0]["items"][0]["workspace"] == "sandbox"
+	assert buckets[0]["items"][0]["kind"] == "task", "an agenda holds tasks, and `show` needs it"
+
+
+def test_a_workspace_nobody_can_name_leaves_the_row_alone (tmp_path: pathlib.Path) -> None:
+	"""An id with no slug beside it is null rather than the uuid.
+
+	Printing the uuid would be worse than printing nothing: it reads as a name, it is not one,
+	and `SR#638` says an address is `{workspace}/{ref}` — a uuid there resolves to nothing.
+	"""
+
+	[buckets] = _agenda(tmp_path, [(
+		"agendaBuckets",
+		{
+			"agenda": {
+				"overdue": [{"ref": 1, "title": "Orphan", "workspace_id": "w9"}],
+				"today": [], "upcoming": [], "unscheduled": [],
+			},
+			"workspaces": [{"id": "w1", "slug": "projects"}],
+		},
+	)])
+
+	assert buckets[0]["items"][0]["workspace"] is None
+
+
+def test_the_workspace_is_shown_only_when_the_agenda_spans_more_than_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""§12.2a: a mark that says the same thing on every row says nothing.
+
+	On a single-workspace instance every row would carry the one name there is, which is noise
+	on every line for ever.
+	"""
+
+	one = [{"key": "today", "items": [{"ref": 1, "workspace": "projects"}]}]
+	two = [{"key": "today", "items": [
+		{"ref": 1, "workspace": "projects"}, {"ref": 2, "workspace": "sandbox"},
+	]}]
+
+	spread = _agenda(tmp_path, [("spansWorkspaces", one), ("spansWorkspaces", two)])
+
+	assert spread == [False, True]
+
+
+def test_the_agenda_counts_what_is_on_screen (tmp_path: pathlib.Path) -> None:
+	"""The footer counts rows across buckets, not the listing's state.
+
+	`items` is the listing's and is empty while the agenda is showing, so reading it there put
+	*0 items* under a full day.
+	"""
+
+	[total] = _agenda(tmp_path, [("counted", [
+		{"key": "overdue", "items": [{"ref": 1}]},
+		{"key": "today", "items": [{"ref": 2}, {"ref": 3}]},
+	])])
+
+	assert total == 3
+
+
+def test_a_day_with_nothing_in_it_says_so_once (tmp_path: pathlib.Path) -> None:
+	"""Rather than four headings over four empty lists."""
+
+	markup = _rendered(tmp_path, {"Agenda": {"buckets": [], "more": 0}})["Agenda"]
+
+	assert "Nothing is due" in markup
+	assert "Overdue" not in markup
+
+
+def test_an_agenda_row_from_elsewhere_is_addressed_by_its_workspace (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`sandbox/#1` beside a bare `#589` — the same answer `subroutine today` gives.
+
+	It goes in the ref cell rather than in a badge, because it is part of the address rather
+	than a fact beside it (`SR#638`).
+	"""
+
+	markup = _rendered(tmp_path, {"Agenda": SAMPLES["Agenda"]})["Agenda"]
+
+	assert "projects/#1" in markup and "personal/#2" in markup
+
+
+def test_the_unscheduled_bucket_says_how_much_it_is_not_showing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An exact count, because the endpoint already did the counting.
+
+	Unlike the listing's `…and more`, which declines one: §8.4 will not compute a total for a
+	listing, and `unscheduled_total` exists precisely because "an agenda that dumped a 400-item
+	backlog would not be an agenda".
+	"""
+
+	markup = _rendered(tmp_path, {"Agenda": SAMPLES["Agenda"]})["Agenda"]
+
+	assert "12 more unscheduled" in markup
+
+
+def test_the_agenda_can_add_something_and_says_where_it_lands (tmp_path: pathlib.Path) -> None:
+	"""§1.4: no entity may ever be *required* to create a task, and `/` is where a person lands.
+
+	Before `SR#652` the root was a listing and carried an add box. Moving the agenda in without
+	one would have made adding something require choosing a workspace first — which is the rule
+	broken by the change that was meant to make the page more welcoming.
+
+	It says where it lands because the agenda spans workspaces and a listing does not. The
+	listing deliberately says nothing: a line on every page naming the only workspace there is
+	would be §12.2a's column that says the same thing on every row.
+
+	**What this does not prove, measured rather than assumed: that `App` passes `onAdd`.**
+	`_rendered` supplies every handler the app uses, derived from the source, so a component
+	always receives one here whether or not anything gives it one in the real page. Deleting
+	`onAdd=` from `App`'s `Agenda` call leaves all of these green — falsified by doing it. That
+	is `SR#640` in its purest form: the component is right, the props are right, and nothing
+	checks the wire between them.
+	"""
+
+	agenda = _rendered(tmp_path, {"Agenda": SAMPLES["Agenda"]})["Agenda"]
+	listing = _rendered(tmp_path, {"Listing": SAMPLES["Listing"]})["Listing"]
+
+	# **The harness flattens to tag names and text**, so an attribute is invisible to it — the
+	# placeholder cannot be asserted on and the form and its button can.
+	assert "<form><input><button>Add" in agenda, "a person landing on `/` cannot add anything"
+	assert "Adds to projects." in agenda
+
+	assert "<form><input><button>Add" in listing
+	assert "Adds to" not in listing
+
+
+def test_a_day_with_nothing_in_it_can_still_be_added_to (tmp_path: pathlib.Path) -> None:
+	"""The empty state is the one most likely to be somebody's first sight of the product."""
+
+	markup = _rendered(
+		tmp_path, {"Agenda": {"buckets": [], "more": 0, "where": "projects"}}
+	)["Agenda"]
+
+	assert "Nothing is due" in markup
+	assert "<form><input><button>Add" in markup

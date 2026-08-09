@@ -16,6 +16,19 @@ upgrade involves.
 
 ### Added
 
+- **The browser opens on your day, not on a list.** `/` is now the agenda — what is overdue,
+  what is due today, what is due in the next seven days, and what is waiting — across **every**
+  workspace you can see, rather than the newest hundred things in whichever one came first.
+  It is the same four buckets, in the same words, that bare `subroutine` prints at a terminal.
+
+  A row from another workspace is addressed as `sandbox/#1`, exactly as `subroutine today`
+  writes it, and only when the page actually spans more than one — on a single-workspace
+  instance nothing is repeated on every line. Opening or completing one acts on the workspace
+  it came from rather than on whichever is selected.
+
+  It refreshes itself as work changes, and that refresh spans workspaces too. A workspace's own
+  list is still one click away, and every other address is unchanged.
+
 - **A listing can be asked for one kind of work rather than one named status.**
   `GET /v1/tasks?status_category=` takes `todo`, `in_progress`, `done` or `cancelled`, and both
   clients pass it. A status *key* is yours to rename, so anything built on `?status=done` breaks

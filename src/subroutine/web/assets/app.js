@@ -289,7 +289,16 @@ export function pollRequest (slug, since) {
 		? "/changes?newest=true&limit=1"
 		: `/changes?since=${encodeURIComponent(since)}&limit=1`;
 
-	return { path: scoped(asking, slug), method: "GET" };
+	/*
+		**A null slug asks across every workspace, which is what the agenda needs** (`#652`).
+		`/v1/changes` accepts an unnamed workspace where `/v1/tasks` refuses one — measured, and
+		the same asymmetry `/v1/agenda` has, for the same reason: both are questions about
+		*everything you can see* rather than about one place.
+
+		Scoping the agenda's poll to the workspace the switcher happens to hold would have made
+		it blind to a change anywhere else — the page it is refreshing spans them all.
+	*/
+	return { path: slug ? scoped(asking, slug) : asking, method: "GET" };
 }
 
 export function rosterRequest (slug) {
@@ -382,6 +391,26 @@ export function addRequest (text, slug) {
 		where this endpoint takes it — the only write here that does.
 	*/
 	return { path: "/tasks", method: "POST", body: { text, workspace_id: slug } };
+}
+
+export function agendaRequest () {
+	/*
+		What is due, across **every** workspace this reader can see — `#652`, decision `#649`.
+
+		**No `workspace_id`, and that is the whole point.** `GET /v1/tasks` refuses an ambiguous
+		workspace (§8.2); `/v1/agenda` deliberately does not, and answers for all of them —
+		measured against this instance, where naming `projects` returns 153 unscheduled and
+		naming nothing returns 160 with an overdue row the narrower question cannot see. §13.7
+		is the reason: `today` merges and `ls` groups, because a merged agenda with a dentist
+		appointment beside a stand-up is the worked example that rule exists for.
+
+		**No `timezone` either, and that is not an omission.** §6.5's chain is explicit → user →
+		workspace → instance, and a *user* has a timezone. Sending the browser's would beat a
+		setting the person deliberately made, on every request, silently — which is the opposite
+		of what an explicit level is for. `Intl` knows where the machine is; it does not know
+		where the reader keeps their diary.
+	*/
+	return { path: "/agenda", method: "GET" };
 }
 
 /* ---- addresses (`#638`) -------------------------------------------------- */
@@ -574,10 +603,102 @@ export function when (item) {
 	return null;
 }
 
+/* ---- the agenda (`#652`) ------------------------------------------------- */
+
+/*
+	**The four buckets, in the order a day is read.** Deliberately the same words `subroutine
+	today` prints, because §12.2 already decided what the agenda says and one product answering
+	one question two ways is worse than either answer.
+
+	`Next 7 days` rather than `Upcoming` for the same reason: the CLI says the horizon out loud
+	and a reader should not have to learn that two surfaces mean the same span.
+*/
+const BUCKETS = [
+	{ key: "overdue", label: "Overdue" },
+	{ key: "today", label: "Today" },
+	{ key: "upcoming", label: "Next 7 days" },
+	{ key: "unscheduled", label: "Unscheduled" },
+];
+
+export function agendaBuckets (agenda, workspaces = []) {
+	/*
+		Turn an agenda response into the buckets a page renders, and nothing else.
+
+		**A pure function on purpose** — `#640`, for the fourth time. The render harness calls
+		components as plain functions and so cannot touch one that uses a hook, which means
+		every decision left inside `App` is covered by nothing; four faults shipped from exactly
+		that gap in two days. `markdown.render`, `addressOf`, `parseAddress` and
+		`chosenWorkspace` are the best-covered code here for this reason, and this is the same
+		move.
+
+		**An empty bucket is dropped, and that is not the board's rule.** A day with nothing
+		overdue should not show the word *Overdue* — the absence is the good news and printing
+		a heading over nothing makes a reader look for what is missing. A *column* is different:
+		a board with no `In progress` column reads as broken rather than as empty, because the
+		columns are the structure. Same question, opposite answers, so it is worth saying which
+		is which rather than reaching for consistency.
+
+		**Each row is told which workspace it is from**, resolved here from `me.workspaces`,
+		because the response carries `workspace_id` as a uuid and nothing readable. Whether a
+		row *shows* it is the caller's decision and depends on the page.
+	*/
+	if (!agenda) return [];
+
+	const named = new Map(workspaces.map((space) => [space.id, space.slug]));
+
+	return BUCKETS
+		.map(({ key, label }) => ({
+			key,
+			label,
+			items: (agenda[key] || []).map((item) => ({
+				...item,
+				kind: "task",
+				workspace: named.get(item.workspace_id) || null,
+			})),
+		}))
+		.filter((bucket) => bucket.items.length > 0);
+}
+
+export function counted (buckets) {
+	/* How many rows an agenda is showing, across its buckets. */
+	return buckets.reduce((total, bucket) => total + bucket.items.length, 0);
+}
+
+export function spansWorkspaces (buckets) {
+	/*
+		Whether this agenda holds rows from more than one workspace.
+
+		**The same rule as the kind column** (§12.2a): a mark that says the same thing on every
+		row says nothing, and on a single-workspace instance every row would carry the one name
+		there is. The CLI answers this per row instead — `World.address_of` prints `sandbox/#1`
+		beside a bare `#589` — because it fans out across *connections* and a bare number beside
+		an item somewhere else is an invitation to act on the wrong one. Here there is one
+		instance, so the question is only ever about the page as a whole.
+	*/
+	const seen = new Set();
+
+	for (const bucket of buckets) {
+		for (const item of bucket.items) {
+			if (item.workspace) seen.add(item.workspace);
+		}
+	}
+
+	return seen.size > 1;
+}
+
 /* ---- views -------------------------------------------------------------- */
 
-export function Row ({ item, showKind, onOpen, onComplete }) {
+export function Row ({ item, showKind, showWhere, onOpen, onComplete }) {
 	const badges = marks(item, showKind);
+
+	/*
+		**The workspace goes in the ref cell, not in a badge** — the same answer `subroutine
+		today` gives, where a row from elsewhere prints `sandbox/#1` and one from here prints
+		`#589`. It belongs to the address rather than beside it: `#638` says an item has one
+		durable address and it is `{workspace}/{ref}`, so showing the prefix is showing more of
+		the address rather than adding a fact.
+	*/
+	const where = showWhere && item.workspace ? `${item.workspace}/` : "";
 
 	/*
 		**The two controls are siblings, not one inside the other.** A button nested in a button
@@ -590,7 +711,7 @@ export function Row ({ item, showKind, onOpen, onComplete }) {
 	return html`
 		<li>
 			<button class="row" onClick=${() => onOpen(item)}>
-				<span class="ref">#${item.ref}</span>
+				<span class="ref">${where}#${item.ref}</span>
 				<span class="title">${item.title}</span>
 				<span class="when">${when(item)}</span>
 				${badges.length > 0 && html`
@@ -609,7 +730,79 @@ export function Row ({ item, showKind, onOpen, onComplete }) {
 	`;
 }
 
-export function Adding ({ onAdd, busy }) {
+export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy }) {
+	/*
+		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
+
+		**Because bare `subroutine` already prints this** (§12.2). A person arriving at a
+		terminal is shown their day rather than a help wall; a person arriving at the page was
+		shown the newest hundred things in whichever workspace came first, which is a different
+		question with a similar shape. One product, one answer.
+
+		**A day with nothing in it says so once**, rather than four times under four headings.
+		`agendaBuckets` drops the empty ones, so this only has to handle all of them being gone
+		— which is the good day, and should read like one.
+	*/
+	const showWhere = spansWorkspaces(buckets);
+
+	/*
+		**The box has to be here, because `/` is now where a person lands.** Before `#652` the
+		root was a listing and carried one; moving the agenda in without it would have made
+		adding something require choosing a workspace first — §1.4's rule is that no entity may
+		ever be *required* to create a task, and that is exactly what it would have become.
+
+		**It files into the workspace the header shows**, which is the one honest answer on a
+		page spanning several: the switcher is right above it and says which. Named rather than
+		implied, so nobody has to guess where it went.
+	*/
+	const adding = onAdd && html`
+		<${Adding} onAdd=${onAdd} busy=${busy}
+			note=${where ? `Adds to ${where}.` : null} />
+	`;
+
+	if (buckets.length === 0) {
+		return html`
+			<div class="listing agenda">
+				${adding}
+				<div class="empty">Nothing is due, and nothing is waiting. </div>
+			</div>
+		`;
+	}
+
+	return html`
+		<div class="listing agenda">
+			${adding}
+
+			${buckets.map((bucket) => html`
+				<section class="bucket" key=${bucket.key}>
+					<h2 class=${bucket.key}>${bucket.label}</h2>
+					<ul class="rows">
+						${bucket.items.map((item) => html`
+							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
+								showKind=${false} showWhere=${showWhere}
+								onOpen=${onOpen} onComplete=${onComplete} />
+						`)}
+					</ul>
+				</section>
+			`)}
+
+			${/*
+				**The unscheduled bucket is capped by the endpoint and says so** — `unscheduled_total`
+				is reported precisely because "an agenda that dumped a 400-item backlog would not be
+				an agenda". Unlike the listing's `…and more` this is an exact count, because the
+				server already did the counting; §8.4 declines a total for a *listing* and this is
+				not one.
+			*/ null}
+			${more !== null && more !== undefined && more > 0 && html`
+				<div class="cut">
+					<span>${more} more unscheduled.</span>
+				</div>
+			`}
+		</div>
+	`;
+}
+
+export function Adding ({ onAdd, busy, note }) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
 		`~2h` and a date in words all work here exactly as they do at a terminal, which is why
@@ -641,6 +834,10 @@ export function Adding ({ onAdd, busy }) {
 			<input name="text" required disabled=${busy} aria-label="Add an item"
 				placeholder="Add something — try: call the dentist tomorrow +work !4/3" />
 			<button type="submit" disabled=${busy}>Add</button>
+			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
+			     every page would be the column that says the same thing on every row (§12.2a);
+			     the agenda spans them, so there the answer is worth a line (`#652`). */ null}
+			${note && html`<span class="lands">${note}</span>`}
 		</form>
 	`;
 }
@@ -967,7 +1164,23 @@ export function App () {
 	   beside the workspace rather than derived on each render, because the poll and every
 	   write reload the list and all of them have to narrow the same way. */
 	const [project, setProject] = useState(null);
+	/* The agenda, or null when the address names a workspace and the list is what is showing
+	   (`#652`). Null rather than a separate `showing` flag, because "there is an agenda to
+	   render" and "the agenda is what to render" are the same fact and two would drift. */
+	const [agenda, setAgenda] = useState(null);
+	const [unscheduled, setUnscheduled] = useState(0);
 	const since = useRef(null);
+
+	const readAgenda = useCallback(async (spaces) => {
+		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
+		   `agendaBuckets`). What is left here is holding the answer. */
+		const answered = await sent(agendaRequest());
+
+		setAgenda(agendaBuckets(answered, spaces));
+		setUnscheduled(
+			Math.max(0, (answered.unscheduled_total || 0) - (answered.unscheduled || []).length),
+		);
+	}, []);
 
 	const load = useCallback(async (slug, key = null, after = null) => {
 		if (!slug) return;
@@ -1073,12 +1286,19 @@ export function App () {
 
 		const tick = setInterval(async () => {
 			try {
-				const seen = await sent(pollRequest(workspace, since.current));
+				/* **The agenda spans workspaces, so its poll must too** (`#652`) — and it has
+				   to reload the thing on screen rather than the list underneath it. `agenda` is
+				   in the dependency array below for the reason `project` is: the interval
+				   closes over it, and an interval created while the list was showing would go
+				   on reloading the list for the life of the page. */
+				const showing = agenda !== null;
+				const seen = await sent(pollRequest(showing ? null : workspace, since.current));
 
 				if (seen.items.length === 0) return;
 
 				since.current = seen.items[seen.items.length - 1].seq;
-				await load(workspace, project);
+
+				await (showing ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
 			} catch (_) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -1087,7 +1307,7 @@ export function App () {
 		}, POLL_MS);
 
 		return () => clearInterval(tick);
-	}, [error, workspace, project, load]);
+	}, [error, workspace, project, agenda, me, load, readAgenda]);
 
 	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
@@ -1206,8 +1426,18 @@ export function App () {
 			*/
 			setProject(asked && asked.project);
 
+			/*
+				**`/` is the agenda, and every other address is a listing** — decision `#649`,
+				built by `#652`. The test is the address rather than a flag: an address naming
+				no workspace is somebody who has not asked for one, and what they want is their
+				day, which is what bare `subroutine` already gives them at a terminal (§12.2).
+
+				The workspace is still resolved and the roster still read, because the switcher
+				and every write need one — the agenda spans them all, but *adding* something
+				has to land somewhere.
+			*/
 			await Promise.all([
-				load(slug, asked && asked.project),
+				asked === null ? readAgenda(identity.workspaces) : load(slug, asked.project),
 				roster(slug),
 				asked && asked.ref !== null
 					? show({ ref: asked.ref }, { history: false, slug })
@@ -1218,7 +1448,7 @@ export function App () {
 		} finally {
 			setReady(true);
 		}
-	}, [load, roster, show, workspace]);
+	}, [load, readAgenda, roster, show, workspace]);
 
 	useEffect(() => {
 		start();
@@ -1244,10 +1474,21 @@ export function App () {
 			const asked = parseAddress(window.location.pathname);
 			const narrowed = (asked && asked.project) ?? null;
 
-			/* The filter is part of the address too (`#647`), so stepping back out of a
-			   project restores the whole workspace rather than leaving the list narrowed to
-			   something the address no longer says. */
-			if (narrowed !== project) {
+			/*
+				**Stepping back to `/` is stepping back to the agenda** (`#652`), and this has
+				to make the same decision `start` does or one address would mean two things
+				depending on how the reader got there. `#645`'s split — the arrival address is
+				`start`'s, every later one is this — is exactly what makes that a real risk.
+			*/
+			if (asked === null) {
+				setProject(null);
+				readAgenda(me ? me.workspaces : []);
+			} else if (agenda !== null || narrowed !== project) {
+				/* Leaving the agenda for a listing, or moving between listings. The filter is
+				   part of the address too (`#647`), so stepping back out of a project restores
+				   the whole workspace rather than leaving the list narrowed to something the
+				   address no longer says. */
+				setAgenda(null);
 				setProject(narrowed);
 				load(workspace, narrowed);
 			}
@@ -1263,15 +1504,20 @@ export function App () {
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, project, load, show]);
+	}, [ready, error, workspace, project, agenda, me, load, readAgenda, show]);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
 		   describing the state before the action. */
 		if (open && open.item.ref === row.ref && open.item.kind === row.kind) await show(row);
 
-		await load(workspace, project);
-	}, [load, open, project, show, workspace]);
+		/* **Refresh what is showing** (`#652`). Completing from the agenda used to reload the
+		   listing underneath it, so the row stayed on screen until the next poll — a write that
+		   reports success and visibly does nothing. */
+		await (agenda !== null
+			? readAgenda(me ? me.workspaces : [])
+			: load(workspace, project));
+	}, [agenda, load, me, open, project, readAgenda, show, workspace]);
 
 	const wrote = useCallback(async (row, said, run) => {
 		/*
@@ -1304,16 +1550,19 @@ export function App () {
 		}
 	}, [reread]);
 
-	const complete = useCallback((row) => wrote(
+	/* **`where` defaults to the switcher's workspace and the agenda overrides it** — a row
+	   there can be from anywhere, and completing it against the wrong workspace is a 404 for an
+	   item the reader is looking at. Remembered on the undo for the same reason. */
+	const complete = useCallback((row, where = workspace) => wrote(
 		row,
 		() => ({
 			text: `Completed #${row.ref} ${row.title}.`,
 			tone: "good",
 			/* What it was, so undo restores rather than guesses. `restoreRequest` is what
 			   carries it back; this is where it is remembered. */
-			undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status },
+			undo: { ref: row.ref, kind: row.kind, title: row.title, status: row.status, where },
 		}),
-		() => sent(completeRequest(row, workspace)),
+		() => sent(completeRequest(row, where)),
 	), [workspace, wrote]);
 
 	const undo = useCallback(async () => {
@@ -1325,7 +1574,9 @@ export function App () {
 		await wrote(
 			going,
 			() => ({ text: `#${going.ref} is back to ${going.status}.`, tone: "good" }),
-			() => sent(restoreRequest(going, workspace)),
+			/* Put it back where it came from. `complete` recorded that, because by now the
+			   switcher may hold a different workspace entirely. */
+			() => sent(restoreRequest(going, going.where || workspace)),
 		);
 	}, [note, workspace, wrote]);
 
@@ -1349,13 +1600,20 @@ export function App () {
 			const made = await sent(addRequest(text, workspace));
 
 			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
-			await load(workspace, project);
+
+			/* **Refresh what is on screen** (`#652`). Reloading the listing from the agenda
+			   would report success over a page that does not change — and a new task with no
+			   date belongs in *Unscheduled*, which is exactly where a reader would look for it
+			   and not find it. */
+			await (agenda !== null
+				? readAgenda(me ? me.workspaces : [])
+				: load(workspace, project));
 		} catch (failure) {
 			setNote({ text: `That was not added. ${failure.message}`, tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
-	}, [load, project, workspace]);
+	}, [agenda, load, me, project, readAgenda, workspace]);
 
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
@@ -1405,6 +1663,10 @@ export function App () {
 		setProject(null);
 		setNote(null);
 		setOpen(null);
+		/* **Choosing a workspace is leaving the agenda**, because the address it pushes names
+		   one and `/` is the only address the agenda has (`#649`). Set here rather than left to
+		   the effect: no `popstate` fires for a `pushState` we made ourselves. */
+		setAgenda(null);
 		window.history.pushState({}, "", `/${encodeURIComponent(slug)}`);
 
 		try {
@@ -1451,12 +1713,26 @@ export function App () {
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					onComplete=${complete} onAssign=${assign} />`
-				: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-					onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
-					project=${project} onWiden=${widen} />`}
+				: agenda !== null
+					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
+						onAdd=${add} busy=${busy} where=${workspace}
+						${/* **Each row is opened in its own workspace, not in the one the
+						     switcher holds.** The agenda spans them; `show` defaults its slug
+						     to `workspace`, so a row from `sandbox` would be looked up in
+						     `projects` and reported missing. `#640`'s exact shape — the rule
+						     right, the display right, and no wire between them — which is why
+						     `agendaBuckets` resolves the slug onto every row. */ null}
+						onOpen=${(row) => show(row, { slug: row.workspace || workspace })}
+						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
+					: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
+						onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
+						project=${project} onWiden=${widen} />`}
 
 			<footer class="foot">
-				<span>${items.length} items</span>
+				${/* **Counts what is on screen, not what was last fetched.** `items` is the
+				     listing's state and is empty while the agenda is showing, so leaving this
+				     alone would have put "0 items" under a full day (`#652`). */ null}
+				<span>${agenda !== null ? counted(agenda) : items.length} items</span>
 				<a href="/v1/docs/agent">API</a>
 				<a href="https://github.com/simonholliday/subroutine">Source</a>
 			</footer>
