@@ -1475,16 +1475,29 @@ export function App () {
 		);
 	}, []);
 
-	const load = useCallback(async (slug, key = null, after = null, arranged = view) => {
+	const load = useCallback(async (slug, key = null, after = null) => {
 		if (!slug) return;
 
 		/*
-			**`arranged` defaults to the view and is passed explicitly by anything that changes
-			it in the same breath.** The board asks for finished work and the list does not
-			(`#718`), so a reload that read a stale `view` would fetch the wrong rows — which is
-			precisely the stale-closure failure the poll's own comment documents at length, where
-			an interval created before `setProject` landed widened a list ten seconds later.
+			**The arrangement is read from the address, not from state and not from an argument**
+			— `#719`, and the parameter this replaces is the defect.
+
+			It was `arranged = view`, which reads the *state*, and `setView` does not land in the
+			render that calls this. So the first load after arriving at `/projects?view=board`
+			asked for the list's rows; ten seconds later the poll — recreated once `view` had
+			landed — asked for the board's. Right rows, one `POLL_MS` late, which is exactly how
+			Simon described it.
+
+			**The comment in `start` three lines from the call site says this precise thing about
+			`slug`**, and I quoted its reasoning elsewhere in the same commit without applying it
+			here. Passing the value at both sites would have worked and left the trap for the
+			next call site, so the parameter is gone instead.
+
+			The address is the one source that is never stale: `#651` made the view part of it,
+			`go()` writes it before any load that changes one, and `popstate` fires only after it
+			has already changed. Nothing to capture, nothing to forget.
 		*/
+		const arranged = viewOf(window.location.search).view;
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
@@ -1513,7 +1526,7 @@ export function App () {
 				+ `Showing the whole workspace.`, tone: "bad" });
 			setProject(null);
 
-			return load(slug, null, after, arranged);
+			return load(slug, null, after);
 		}
 
 		const fetched = [
@@ -1547,7 +1560,7 @@ export function App () {
 			tasks: tasks.page.has_more ? tasks.page.next_cursor : null,
 			documents: documents.page.has_more ? documents.page.next_cursor : null,
 		});
-	}, [view]);
+	}, []);
 
 	const roster = useCallback(async (slug) => {
 		/*
@@ -2014,12 +2027,16 @@ export function App () {
 			passes `slug` rather than reading `workspace`.
 		*/
 		setView(wanted);
+
+		/* **The address first, then the reload** — and the order is the whole of why `load`
+		   needs no argument for this: it reads the arrangement from the address, which `go` has
+		   already written. */
 		go(
 			listingAddress({ agenda: agenda !== null, workspace, project }),
 			{ arranged: wanted },
 		);
 
-		if (agenda === null) await load(workspace, project, null, wanted);
+		if (agenda === null) await load(workspace, project);
 	}, [agenda, go, load, project, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
