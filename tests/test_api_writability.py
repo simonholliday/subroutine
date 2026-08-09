@@ -84,6 +84,13 @@ DERIVED: dict[str, str] = {
 	),
 	"ref": "Allocated once per workspace and never reused (§6.2).",
 	"project_key": "The key of project_id, resolved for display.",
+	"claimed_by": (
+		"The username of claimed_by_id, resolved for display (`#726`) — the same shape as "
+		"`assignee` beside `assignee_id`. A lease is taken and given back by `claim` and "
+		"`release`, which decide the holder from the credential presenting them: naming "
+		"somebody else in a body would be claiming a lease on their behalf, which is the one "
+		"thing a lease must not allow."
+	),
 	"status_category": "The fixed category of the status (§5.5); an installation names statuses, not categories.",
 	"status_id": "The id of the status named by `status`.",
 	"status_is_default": (

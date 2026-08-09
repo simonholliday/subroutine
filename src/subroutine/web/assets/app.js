@@ -60,6 +60,11 @@ const PAGE = 100;
 const TASK_FIELDS = [
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
 	"status", "status_is_default", "status_category",
+	/* Who is holding a lease, and until when (`#726`). All three, because the mark says the
+	   holder's name, the id is what says anybody holds it at all, and the expiry is what says
+	   whether that still means anything — `claimed_by` alone would be null on an instance older
+	   than the field while the item was genuinely claimed. */
+	"claimed_by_id", "claimed_by", "claim_expires_at",
 	/* Rendered by `when` on anything finished, and the field the *done* view is ordered on
 	   (`#706`). §22 has no rule about showing the sort key and `#661` is the item that wants
 	   one; a page whose whole claim is *most recently finished first* had better say when each
@@ -806,6 +811,42 @@ export function completable (item) {
 	return item.kind === "task" && !FINISHED.has(item.status_category);
 }
 
+export function holding (item, now = null) {
+	/*
+		Who is holding this item, and whether the lease still means anything — `#726`.
+
+		**A claim is not a status and this is the whole reason it gets its own mark.** Simon:
+		*"the agent might be considering whether to start on the task, and decide not to — it
+		might release the claim while never progressing it."* So *somebody is on this* and *work
+		has begun* are two facts, and deriving either from the other would make the board assert
+		something nobody said. `in_progress` stays a declaration.
+
+		**Expired is a state worth showing, not one to hide.** `views.Task` reports an expired
+		lease deliberately — *"who was working on this is worth knowing even once the lease has
+		run out"* — and a claim that ran out unreleased is exactly *started and walked away
+		from*, which is the thing a person watching agents work most wants to see and today
+		cannot. So this reports it as `expired` rather than as nothing.
+
+		**The same reading `domain.claims.held_by` applies**, deliberately: a row still carries
+		the holder after expiry, and the comparison against the clock is what makes it stop
+		meaning anything. Two copies of that comparison, which is justified for the reason the
+		category set is — `claim_expires_at` is published so a client may answer this without a
+		request per row — and is why a test asserts the two agree on the same row.
+
+		`now` is an argument so this can be tested without waiting. `overdue` compares a server
+		timestamp against the client's clock in the same way; over a lease measured in hours,
+		ordinary skew cannot change the answer.
+	*/
+	if (!item.claimed_by_id || !item.claim_expires_at) return null;
+
+	const moment = now === null ? Date.now() : now;
+	const who = item.claimed_by || null;
+
+	return Date.parse(item.claim_expires_at) <= moment
+		? { held: false, who }
+		: { held: true, who };
+}
+
 export function marks (item, showKind) {
 	/*
 		The small labels under a title.
@@ -819,6 +860,27 @@ export function marks (item, showKind) {
 	if (showKind) found.push({ text: item.kind === "document" ? "Document" : "Task" });
 	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
 	if (overdue(item)) found.push({ text: `Overdue ${day(item.due_at)}`, tone: "late" });
+
+	/*
+		**Who is holding it, before the project and the assignee** (`#726`), because it is the
+		only mark here that is true *now* — the rest are properties of the item and this one
+		expires. Simon: *"I cannot see what is being worked on."*
+
+		**A name, or the fact without one.** `claimed_by` is the username, batch-loaded beside
+		the assignee's; an instance that predates the field defaults it to null and this still
+		says somebody holds the item, which is the half that matters.
+
+		**And it says the word, not only a colour** — decision `#102`, which is why *left* is
+		spelled out rather than being the same mark in a different hue.
+	*/
+	const lease = holding(item);
+
+	if (lease) {
+		found.push(lease.held
+			? { text: lease.who ? `${lease.who} is on it` : "Claimed", tone: "claimed" }
+			: { text: lease.who ? `${lease.who} left it` : "Claim expired", tone: "stale" });
+	}
+
 	if (item.project_key) found.push({ text: item.project_key });
 	if (item.assignee) found.push({ text: item.assignee });
 	if (item.status && !item.status_is_default) found.push({ text: item.status });

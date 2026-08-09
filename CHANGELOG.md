@@ -82,6 +82,21 @@ upgrade involves.
   There is no capture box on it. Anything you added there would be open, and this page shows
   what is over — so it would report success over a list that could not change.
 
+- **A list says who is holding an item.** A row now carries *`agent` is on it* while somebody
+  has claimed it, so you can see what is being worked on without opening anything.
+
+  **A claim that ran out says *`agent` left it***, which is a state nothing showed before: work
+  that was started and walked away from. A lease expires by itself so that a worker whose
+  context ends does not strand the task, and until now the only sign of that was the item
+  quietly becoming available again.
+
+  **It does not change the item's status, deliberately.** A claim is taken *before* the work and
+  may be given back without any being done — so *somebody is on this* and *this is in progress*
+  are two different statements, and only the second is one anybody made.
+
+  `GET /v1/tasks` reports `claimed_by` beside `claimed_by_id`, loaded in the same query as the
+  assignee's name, so reading a page costs no extra request.
+
 - **An instance can have more than one administrator.** `subroutine user create <name>
   --superuser` grants it, and `POST /v1/users` takes `is_superuser`. Until now there was
   exactly one — the account `init` made — and nothing could create a second: the field was

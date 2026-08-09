@@ -37,6 +37,7 @@ import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
+import subroutine.views
 
 
 def _person (
@@ -654,3 +655,34 @@ def test_deleting_the_holder_leaves_the_task_takeable_again (
 	taken = subroutine.domain.claims.claim(session, task, actor=owner)
 
 	assert taken.claimed_by_id == owner.user.id
+
+
+def test_a_claimed_task_reports_the_holder_by_name (session: sqlalchemy.orm.Session) -> None:
+	"""`#726`. A view reporting only ``claimed_by_id`` makes every surface resolve a uuid first.
+
+	The same shape as ``assignee`` beside ``assignee_id`` (`#511`), and the same reason: a
+	username is how a person is addressed, so a browser wanting to say *who is on this* would
+	otherwise need a request per row to find out.
+
+	**`views.Task` argued the opposite and cited `assignee_id` as its precedent** — which `#511`
+	had already moved. The comment went on supporting itself with the one thing that contradicted
+	it, which is why this test exists rather than only the field.
+	"""
+
+	_workspace, project, owner = _place(session)
+	task = _task(session, project)
+
+	before = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, [task]))
+
+	assert before.claimed_by is None, "an unclaimed task named a holder"
+
+	subroutine.domain.claims.claim(session, task, actor=owner)
+	session.flush()
+
+	after = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, [task]))
+
+	assert after.claimed_by == owner.user.username, (
+		f"a claimed task reports {after.claimed_by!r} rather than the username that took it"
+	)
+
+	assert after.claimed_by_id == owner.user.id, "the id and the name must name one account"

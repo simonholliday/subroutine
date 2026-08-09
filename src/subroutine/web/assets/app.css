@@ -389,6 +389,15 @@ code, .ref, .priority, .broke .detail {
 .mark.late { color: var(--warn); border-color: currentColor; }
 .mark.blocked { color: var(--warn); border-color: currentColor; }
 
+/*
+	Who is holding an item (`#726`). **Accent for a live lease, faint for one that ran out** —
+	and each says the word too, so a reader who cannot separate the hues loses nothing
+	(decision `#102`). *left it* is deliberately quieter than *is on it*: an expired claim is
+	worth seeing and is not an alarm.
+*/
+.mark.claimed { color: var(--accent); border-color: currentColor; }
+.mark.stale { color: var(--ink-faint); border-style: dashed; }
+
 /* ---- detail ------------------------------------------------------------ */
 
 .detail {

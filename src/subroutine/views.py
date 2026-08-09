@@ -185,10 +185,7 @@ class Task(pydantic.BaseModel):
 	project_key: str
 	parent_task_id: uuid.UUID | None
 
-	#: Who holds a lease on this, and until when (§14.11, `#350`). **Ids, not names**, which is
-	#: §8.5's rule for an unrequested relation and is how ``assignee_id`` is already reported —
-	#: a caller that needs the name asks once for the accounts rather than paying for one on
-	#: every row of every listing.
+	#: Who holds a lease on this, and until when (§14.11, `#350`).
 	#:
 	#: **An expired lease is still reported.** Who was working on this is worth knowing even
 	#: once the lease has run out, and ``claim_expires_at`` against the clock is what says
@@ -197,6 +194,18 @@ class Task(pydantic.BaseModel):
 	claimed_by_id: uuid.UUID | None = None
 	claimed_at: datetime.datetime | None = None
 	claim_expires_at: datetime.datetime | None = None
+
+	#: The holder's username, batch-loaded beside the assignee's (`#726`).
+	#:
+	#: **This said "ids, not names" and gave `assignee_id` as its precedent** — and `#511` then
+	#: gave the assignee a name, so the sentence went on citing as support the one thing that
+	#: contradicted it. The reasoning it rested on is the reasoning against it: a username is how
+	#: a person is addressed, so reporting only an id makes every surface resolve a UUID before
+	#: it can print anything, which is review dimension 4's second call multiplied by the page.
+	#:
+	#: Loaded in the same query as the assignee, so a page of rows costs no request it did not
+	#: already make. Defaulted for `#345`'s reason, like the three above it.
+	claimed_by: str | None = None
 
 	#: Whether something unfinished is blocking this — item `#425`, and **one query for the
 	#: page** rather than one per row (`#39`'s N+1, which is what kept it unreported).
@@ -1139,7 +1148,12 @@ class Vocabulary:
 			project_ids={task.project_id for task in tasks},
 			task_ids={task.id for task in tasks},
 			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id},
-			user_ids={task.assignee_id for task in tasks if task.assignee_id},
+			# **Both the assignee and the lease holder, in one query** (`#726`). They are
+			# usually the same account or absent, so the set is nearly always the size it was.
+			user_ids=(
+				{task.assignee_id for task in tasks if task.assignee_id}
+				| {task.claimed_by_id for task in tasks if task.claimed_by_id}
+			),
 		)
 
 	@classmethod
@@ -1196,6 +1210,7 @@ def task (
 		assignee=_username(vocabulary, row.assignee_id),
 		assigned_by_id=row.assigned_by_id,
 		claimed_by_id=row.claimed_by_id,
+		claimed_by=_username(vocabulary, row.claimed_by_id),
 		claimed_at=row.claimed_at,
 		claim_expires_at=row.claim_expires_at,
 		blocked=row.id in vocabulary.blocked,

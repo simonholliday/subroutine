@@ -12,6 +12,7 @@ parses perfectly and throws when it is rendered — which is a blank page for th
 green build for us. Syntax checking cannot see it; only rendering can.
 """
 
+import datetime
 import json
 import pathlib
 import re
@@ -34,6 +35,7 @@ import subroutine.api.routing
 import subroutine.api.web
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.claims
 import subroutine.domain.tasks
 import subroutine.web.vendored
 
@@ -464,6 +466,146 @@ def test_a_row_says_in_words_what_it_says_in_colour (tmp_path: pathlib.Path) -> 
 	assert "Blocked" in markup
 	assert "Overdue" in markup
 	assert "#42" in markup
+
+
+def _holding (
+	tmp_path: pathlib.Path, cases: typing.Sequence[tuple[dict[str, typing.Any], int]]
+) -> list[typing.Any]:
+	"""Ask the app who is holding each row, at the moment given with it."""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify(
+			{json.dumps([list(case) for case in cases])}.map(([item, now]) =>
+				app.holding(item, now))
+		));
+	"""))
+
+
+def test_a_row_says_who_is_holding_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#726`. Simon: *"I cannot see what is being worked on."*
+
+	**And not by inferring a status from it**, which was the first answer and was wrong: a claim
+	is taken *before* the work — Simon, *"the agent might be considering whether to start on the
+	task, and decide not to"* — and release has four possible destinations and cannot tell them
+	apart. So the lease is shown as what it is, and `in_progress` stays a declaration.
+
+	**Expired is its own mark rather than nothing.** A claim that ran out unreleased is *started
+	and walked away from*, which is the state a person watching agents work most wants and
+	cannot see at all today. `views.Task` reports an expired lease for exactly this reason.
+	"""
+
+	held = {"ref": 1, "kind": "task", "title": "Being done", "claimed_by_id": "u1",
+		"claimed_by": "agent", "claim_expires_at": "2026-08-09T18:00:00+00:00"}
+	stale = {**held, "claim_expires_at": "2026-08-09T09:00:00+00:00"}
+	free = {"ref": 2, "kind": "task", "title": "Nobody on it"}
+
+	# Computed rather than written as epoch milliseconds: the hand-typed one was wrong, and a
+	# magic number nobody can check by eye is the wrong kind of fixture for a clock comparison.
+	noon = int(
+		datetime.datetime(2026, 8, 9, 12, 0, tzinfo=datetime.UTC).timestamp() * 1000
+	)
+
+	assert _holding(tmp_path, [(held, noon), (stale, noon), (free, noon)]) == [
+		{"held": True, "who": "agent"},
+		{"held": False, "who": "agent"},
+		None,
+	]
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": held, "workspace": "projects"},
+		"Listing": {"items": [stale]},
+	})
+
+	assert "agent is on it" in rendered["Row"], (
+		f"a row does not say who is holding it: {rendered['Row']}"
+	)
+
+	assert "agent left it" in rendered["Listing"], (
+		f"an expired claim was shown as nobody, or as somebody still working: "
+		f"{rendered['Listing']}"
+	)
+
+
+def test_a_lease_with_no_name_still_says_somebody_holds_it (tmp_path: pathlib.Path) -> None:
+	"""An instance older than `claimed_by` defaults it to null, and the fact still matters.
+
+	`SR#345`'s direction: a client one commit ahead of an instance must read what it sends. The
+	half that survives is the one worth having — *somebody has this* — and reporting nothing
+	would make an older instance look idle rather than unreadable.
+	"""
+
+	nameless = {"ref": 3, "kind": "task", "title": "Held", "claimed_by_id": "u1",
+		"claim_expires_at": "2026-08-09T18:00:00+00:00"}
+
+	rendered = _rendered(tmp_path, {"Row": {"item": nameless, "workspace": "projects"}})["Row"]
+
+	assert "Claimed" in rendered, f"a lease with no name reported nobody: {rendered}"
+
+
+class _Leased:
+	"""The two attributes `claims.held_by` actually reads, and nothing else.
+
+	A real task through a real claim would be a database, a workspace and a principal to compare
+	one arithmetic expression — and it would compare the instance against a *fixture's* idea of
+	an expiry rather than against the moment itself. What matters here is the boundary.
+	"""
+
+	def __init__ (self, expires: datetime.datetime) -> None:
+		self.claimed_by_id = uuid.uuid4()
+		self.claim_expires_at = expires
+
+
+def test_the_browser_and_the_instance_read_a_lease_the_same_way (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""**Two copies of one comparison, so a test holds them together** (`SR#726`).
+
+	`domain.claims.held_by` answers this server-side and the browser answers it again, because
+	`claim_expires_at` is published precisely so a client need not ask per row. Same
+	justification as the finished-category set, and the same obligation: measure that they
+	agree rather than assume it.
+
+	**The exact boundary is the case worth having.** `held_by` treats `expires <= now` as gone,
+	so a lease is dead at the instant it expires rather than a millisecond after — and `<` for
+	`<=` is the likeliest way to write this wrong on either side, invisible to any test that
+	only ever asks about an hour before and an hour after.
+	"""
+
+	expires = datetime.datetime(2026, 8, 9, 12, 0, tzinfo=datetime.UTC)
+	task = _Leased(expires)
+	stamp = int(expires.timestamp() * 1000)
+
+	moments = [stamp - 60_000, stamp, stamp + 60_000]
+
+	instance = [
+		subroutine.domain.claims.held_by(
+			typing.cast(typing.Any, task),
+			now=datetime.datetime.fromtimestamp(at / 1000, tz=datetime.UTC),
+		)
+		is not None
+		for at in moments
+	]
+
+	row = {
+		"claimed_by_id": str(task.claimed_by_id),
+		"claim_expires_at": expires.isoformat(),
+		"claimed_by": "agent",
+	}
+	browser = [
+		answer is not None and answer["held"]
+		for answer in _holding(tmp_path, [(row, at) for at in moments])
+	]
+
+	assert instance == [True, False, False], f"the instance's own reading changed: {instance}"
+
+	assert browser == instance, (
+		f"a minute before expiry, at it, and a minute after, the browser reads {browser} where "
+		f"the instance reads {instance}"
+	)
 
 
 def test_a_row_is_a_link_to_the_item_it_names (tmp_path: pathlib.Path) -> None:
@@ -1801,15 +1943,33 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	So a row would quietly stop saying an item is blocked, or overdue, or whose it is, and look
 	exactly like an item that is none of those.
 
-	Derived from the four functions that are a row's whole surface, so adding a field to any of
-	them fails here until the request asks for it.
+	Derived from the four functions that are a row's whole surface, **and from anything in this
+	module they call** — so adding a field fails here until the request asks for it.
+
+	**That second half was a real hole, met by the change that needed it** (`SR#726`). The scan
+	named four functions; moving a decision out of `marks` into `holding` — which is the move
+	this project reaches for constantly, because a pure function is the only kind `SR#640`'s
+	harness can check — took its `item.` reads out of the scan entirely. So a guard whose whole
+	job is to notice a new field stopped noticing, in response to the refactor it should most
+	have been watching. One level of resolution closes it, and one level is enough because the
+	functions a row's surface calls are pure and shallow by design.
 	"""
 
 	source = _served_modules()["app.js"]
+	surface = ["Row", "marks", "when", "overdue"]
+	bodies = {name: _function_body(source, name) for name in surface}
+
+	for name in surface:
+		for called in re.findall(r"\b([a-z][A-Za-z0-9_]*)\s*\(", bodies[name]):
+			if called in bodies or f"export function {called} (" not in source:
+				continue
+
+			bodies[called] = _function_body(source, called)
+
 	rendered = set()
 
-	for name in ("Row", "marks", "when", "overdue"):
-		rendered |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", _function_body(source, name)))
+	for body in bodies.values():
+		rendered |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
 
 	asked = set(re.findall(r'"([a-z_]+)"', source[
 		source.index("const TASK_FIELDS = ["):source.index("].join(\",\");", source.index("const TASK_FIELDS = ["))
