@@ -5,65 +5,68 @@
 Your coding agent already does the work. Subroutine is where it keeps track of the work — on
 your machine, in a backlog it uses as fluently as you do.
 
-- **Your agent does the filing.** Ask it to track something and it does. You never type a ticket.
-- **Your data never leaves your machine.** Local SQLite. No account, no cloud, no telemetry.
-- **Agents get real credentials.** Narrower than yours, unable to widen, every action attributed.
-- **`--ready`, not "everything".** What can be started now, with nothing unfinished blocking it.
-- **One list across every machine.** Your laptop and the team's server in one `subroutine today`.
-- **Cheap for an agent to read.** Compact replies, and a tool surface held under a byte budget
-  by a test — a schema costs an agent context every session, whether it is called or not.
-- **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
+## TL;DR
 
-One person with a to-do list, or a team of developers and their agents on interconnected work:
-same schema, different defaults, so a shopping list never has to carry a workflow and six
-required fields. Backups go where you point them and are checked where they land.
-
-**This first release is for developers** — a terminal, an editor, a coding agent. No web UI yet.
-Ways in: the Claude Code plugin, any MCP client, any agent that can run a shell, or the HTTP API.
-FSL-1.1-ALv2 — run it freely, do not resell it. Thirteen direct dependencies, Python 3.11+.
-
-## TLDR; Getting up and running
-
-Three things you might want. Pick one; they compose.
-
-**A to-do list on your own machine.** Nothing to configure.
+You install one thing, your agent does the filing, and the plan outlives the context window.
 
 ```console
-$ uv tool install subroutine    # or: pipx install subroutine
-$ subroutine init
-$ subroutine add "Call the dentist before Sunday"
-$ subroutine today
-```
-
-**Your coding agent using it for you.** The Claude Code plugin brings the tools *and* the working
-practice — it keeps the backlog, records what it did, and adopts Subroutine into a project you
-are already working on. **You never have to learn the CLI.**
-
-```console
-$ uv tool install subroutine    # or: pipx install subroutine
+$ uv tool install subroutine
 $ subroutine init
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-One command to install Subroutine, one to make the database, two to add the plugin — and from
-then on it is your agent's job. The marketplace is a repository, so the third of those needs
-Git on your machine.
+From then on: *"file that as a bug"*, *"what can I actually start?"*, *"write down why we
+rejected the other approach."* You never type a ticket. When you want to look at it yourself,
+open the instance in a browser or run `subroutine today`.
 
-**A shared instance over HTTP**, for a team or for agents on other machines. Loopback by default;
-it refuses a wider bind without TLS in front of it.
+The marketplace is a Git repository and that command clones it, so you need Git on your
+machine — the one prerequisite here that is Claude Code's rather than ours.
 
-```console
-$ subroutine serve
-$ subroutine token create --title "CI" --scope task:read   # a credential that can only read
-```
+- **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it. No account, no cloud,
+  no telemetry, nothing phoning home.
+- **A real API first.** The CLI, the browser and your agent are all clients of it. Anything one
+  can do, another can.
+- **FSL-1.1-ALv2.** Run it, modify it, fork it, sell what you build with it — just don't resell
+  Subroutine itself as a service. Every release turns Apache-2.0 after two years.
 
-The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help` lists the
-commands and `subroutine explain dates` covers the ideas behind them.
+---
 
-**Reaching an instance somebody else runs is [docs/connecting.md](docs/connecting.md)**, which
-is organised by which of five situations you are in rather than by how the software is built.
-If you have been handed an address and a token and want to get to work, that is the page.
+## Why a coder wants this
+
+- **Your agent does the filing.** Ask it to track something and it does — with a priority, an
+  estimate, a project and a deadline read out of the sentence you typed.
+- **Every item has a number, and that number is permanent.** `#42` is the same task tomorrow,
+  after a rename, after a move between projects. Cite it in a commit message and it still
+  resolves in a year.
+- **`--ready`, not "everything".** What you can start *now* — nothing unfinished blocking it.
+  A backlog you can act on rather than one you have to re-read.
+- **Dependencies and priorities that hold a real project.** `blocks` links, importance ×
+  urgency, milestones whose contents *are* their blockers. Nothing falls behind a thing nobody
+  noticed was in the way.
+- **Delegate to agents, and to their sub-agents.** Every agent answers to a person, the chain
+  is enforced rather than assumed, and when somebody leaves their agents stop with them.
+- **Run several agents at once without collisions.** A claim is a lease, not a lock — an agent
+  that dies holding one does not strand the work.
+- **An audit trail nobody has to maintain.** Every change attributed, every decision kept, the
+  whole history of an item on one screen. Your context window ends; this does not.
+- **Cheap for an agent to read.** Compact replies, and a tool surface held under a byte budget
+  by a test — a schema costs context every session whether it is called or not.
+- **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
+
+### And nobody else is an afterthought
+
+The same instance, the same schema, different defaults — so a shopping list never has to carry
+a workflow and six required fields.
+
+- **There is a web interface**, served by the instance itself. See the list, read an item in
+  full, complete it, add one, hand it to somebody. No terminal, no install.
+- **Signing in is a link, not a password.** `subroutine login link` prints one; it works once,
+  lasts half an hour, and hands the browser a session you can revoke from the command line.
+- **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
+  tool, and not an agent framework with a read-only human view.
+- **One list across every machine.** Your laptop and the team's server in one
+  `subroutine today`, each row printing an address you can type back.
 
 > **My context window ends. The instance does not.**
 >
@@ -79,33 +82,109 @@ If you have been handed an address and a token and want to get to work, that is 
 
 ---
 
-## Install
+## Three ways in, and they compose
 
-Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
-start — SQLite is the default and `subroutine init` makes it.
+**1. Your coding agent using it for you** — the four commands at the top of this page. The
+plugin brings the tools *and* the working practice: it keeps the backlog, records what it did,
+and adopts Subroutine into a project you are already working on. **You never have to learn the
+CLI.**
 
-**Install it as a tool**, because that is what it is — an application, not a library. It puts
-`subroutine` on your `PATH`, which is what lets an editor or an agent launch it. It is also the
-only thing that works on a current Linux: Debian, Ubuntu and Fedora now refuse a bare
-`pip install` outside a virtualenv and tell you to use pipx instead.
-
-```console
-$ uv tool install subroutine
-$ pipx install subroutine        # the same thing, if you have pipx rather than uv
-```
-
-**Neither of them installed?** `sudo apt install pipx` on Debian or Ubuntu, `brew install pipx`
-on a Mac — or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which
-is one line and needs no Python. Either will do; you only need one.
-
-`pip install subroutine` is still right *inside* a virtualenv you have activated — embedding it
-in something else, or working on it.
-
-PostgreSQL when you outgrow SQLite — the extra goes on whichever you used:
+**2. A to-do list on your own machine.** Nothing to configure, no agent involved.
 
 ```console
-$ uv tool install "subroutine[postgres]"
+$ uv tool install subroutine    # or: pipx install subroutine
+$ subroutine init
+$ subroutine add "Call the dentist before Sunday"
+$ subroutine today
 ```
+
+**3. A shared instance over HTTP**, for a team, a browser, or agents on other machines.
+Loopback by default; it refuses a wider bind without TLS in front of it.
+
+```console
+$ subroutine serve
+$ subroutine login link                                    # sign in to the web interface
+$ subroutine token create --title "CI" --scope task:read   # a credential that can only read
+```
+
+The full hosting recipe is in [docs/hosting.md](docs/hosting.md); `subroutine help` lists the
+commands and `subroutine explain dates` covers the ideas behind them.
+
+**Reaching an instance somebody else runs is [docs/connecting.md](docs/connecting.md)**, which
+is organised by which of five situations you are in rather than by how the software is built.
+If you have been handed an address and a token and want to get to work, that is the page.
+
+---
+
+## What is built, and what is planned
+
+Everything in the first column works today and is covered by tests. The second is specified and
+not built — named here because a tool that overstates itself wastes your afternoon.
+
+### The work itself
+
+| | |
+| --- | --- |
+| Tasks and documents, sharing one numbering scheme | **Built** |
+| Projects, sub-projects and workspaces | **Built** |
+| Priorities — importance × urgency, ranked in bands | **Built** |
+| Deadlines, planned days, and deferring until later | **Built** |
+| `blocks` dependencies, and `--ready` to filter by them | **Built** |
+| Milestones — an item whose blockers are its contents | **Built** |
+| Comments (what happened) and documents (what you concluded) | **Built** |
+| Tags, custom statuses, per-workspace vocabulary | **Built** |
+| Full-text search across titles and descriptions | **Built** |
+| Capture grammar — `Fix the deploy script by friday !4/2 ~2h #ops +web` | **Built** |
+| Moving a task to another project | **Built** |
+| Recurring tasks — today the grammar recognises `every monday` well enough to leave it alone and tell you it did | Planned |
+| Acceptance criteria and verification gates | Planned |
+| Session handoffs between agents | Planned |
+| Ordering a backlog by hand | Planned |
+| Moving a sub-task under a different parent | Planned |
+| Attachments | Planned |
+| Time tracking — `~2h` records an estimate; it does not track one | Planned |
+
+### People and agents
+
+| | |
+| --- | --- |
+| Delegation — assign work to a person or an agent | **Built** |
+| Sub-agents, with an accountability chain that ends at a person | **Built** |
+| Claims — a lease, so two agents never take the same task | **Built** |
+| Service accounts, and credentials narrower than your own | **Built** |
+| Per-workspace roles; credentials scoped to a single project | **Built** |
+| Deactivate a person and their agents stop with them | **Built** |
+| Every change attributed to a principal, permanently | **Built** |
+| Email sign-in — today the link is printed at a terminal | Planned |
+| Notifications, webhooks, calendar feeds | Planned |
+
+### Ways in
+
+| | |
+| --- | --- |
+| HTTP API — OpenAPI at `/v1/openapi.json`, Swagger at `/docs` | **Built** |
+| CLI, progressive — a shopping list needs none of the above | **Built** |
+| Web interface — list, read, complete, add, reassign, Markdown, shareable addresses | **Built** |
+| Sign-in links, revocable from the command line | **Built** |
+| MCP over stdio (`subroutine mcp`) and over HTTP (`POST /mcp`) | **Built** |
+| Two Claude Code plugins — one local, one needing nothing installed | **Built** |
+| Multiple connections merged into one agenda | **Built** |
+| The agenda as the browser's front page | Planned |
+| Board and calendar views in the browser | Planned |
+
+### Running it
+
+| | |
+| --- | --- |
+| SQLite and PostgreSQL — every test runs against both | **Built** |
+| Migrations, with releases that announce a schema change in advance | **Built** |
+| Backups to wherever you point them, verified where they land | **Built** |
+| Restore, as a recovery or as a clone | **Built** |
+| Separate profiles on one machine | **Built** |
+| `subroutine doctor` — whether this machine's installation is coherent | **Built** |
+| Single-command deployment from a compose file | Planned |
+
+---
 
 ## The shape of it
 
@@ -114,13 +193,13 @@ $ subroutine init
   Ready. Try: subroutine add "something to do"
 
 $ subroutine add "Call the dentist before Sunday"
-  Added: Call the dentist  (due Sun 2 Aug)
+  Added: Call the dentist  (due Sun 9 Aug)
     Tip: subroutine today
 
 $ subroutine today
   Nothing due today.
   Next 7 days
-     #1  Call the dentist  (due Sun 2 Aug)
+     #1  Call the dentist  (due Sun 9 Aug)
 
     Tip: subroutine done 1
 
@@ -172,7 +251,60 @@ front (`public_url`) or an explicit `--insecure`.
 Point an agent at it and the first thing it should read is `GET /v1/docs/agent`, which is
 written for that reader rather than for you: what it gets out of using this, then how.
 
-### Giving an agent tools
+## In a browser
+
+The same instance serves a web interface at its own address. **TL;DR: `subroutine serve`, then
+`subroutine login link`, then open the link.**
+
+It shows one list — tasks and documents together, newest first, in the order the command line
+uses. Click one and you get it in full: the description, what it is linked to, and everything
+anybody has recorded against it. You can complete it, add something with one box that takes the
+same shorthand the CLI does, and hand a task to somebody from a list of the people in that
+workspace.
+
+- **Every item has an address you can send somebody**, and the project in the middle is there
+  for the reader rather than for the machine — rename it and old links still work.
+- **Descriptions and comments render as the Markdown they are written in.** Anything that looks
+  like HTML is shown as the text it is, so a description written by somebody else — or by an
+  agent repeating something it read — cannot become part of the page.
+- **Nothing asks you to confirm first.** A question before every action is a tax on being right;
+  completing something tells you what it did and offers to undo it.
+- **Signing in is a link.** No password to store, no reset flow, nothing worth stealing in a
+  breach. `subroutine login revoke <name>` ends every session that person holds and any link
+  they have not used, which is what a lost laptop needs.
+
+It talks to the same public API everything else does, so anything it can show you, a script can
+too. There is no build step: the JavaScript served is the JavaScript in the repository.
+
+## Install
+
+Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
+start — SQLite is the default and `subroutine init` makes it.
+
+**Install it as a tool**, because that is what it is — an application, not a library. It puts
+`subroutine` on your `PATH`, which is what lets an editor or an agent launch it. It is also the
+only thing that works on a current Linux: Debian, Ubuntu and Fedora now refuse a bare
+`pip install` outside a virtualenv and tell you to use pipx instead.
+
+```console
+$ uv tool install subroutine
+$ pipx install subroutine        # the same thing, if you have pipx rather than uv
+```
+
+**Neither of them installed?** `sudo apt install pipx` on Debian or Ubuntu, `brew install pipx`
+on a Mac — or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which
+is one line and needs no Python. Either will do; you only need one.
+
+`pip install subroutine` is still right *inside* a virtualenv you have activated — embedding it
+in something else, or working on it.
+
+PostgreSQL when you outgrow SQLite — the extra goes on whichever you used:
+
+```console
+$ uv tool install "subroutine[postgres]"
+```
+
+## Giving an agent tools
 
 An agent that can run a shell has everything it needs already. One that cannot — or one you
 would rather not give a shell — can reach the same instance over the **Model Context
@@ -182,8 +314,10 @@ Protocol**:
 $ subroutine mcp
 ```
 
-It speaks MCP on stdin and stdout, so a client starts it as a child process. There is no
-port and no listener: if your client is not running it, nothing is serving.
+That command speaks MCP on stdin and stdout, so a client starts it as a child process: no port,
+no listener, and if your client is not running it, nothing is serving. **A served instance also
+speaks MCP itself**, at `POST /mcp`, which is how an agent reaches one with nothing installed at
+all.
 
 **For Claude Code there is a plugin**, which is the easier half of this and the recommended
 one — it wires up the tools *and* carries the working practice for using them well:
@@ -270,10 +404,10 @@ ask what can actually be *started* rather than what merely exists, the differenc
 comment and a document, and how to adopt Subroutine in a project that does not use it yet —
 including which of those decisions are permanent and therefore worth asking you about.
 
-It costs about 130 tokens of every session and loads the rest only when it is relevant.
-Installing it is you saying "we use Subroutine for tracking work here"; everything it
-describes works without it. `add` takes one captured line rather than a dozen typed
-fields, because the grammar you already type is smaller than a schema describing it:
+Its description costs about 200 tokens of every session and it loads the rest only when it is
+relevant. Installing it is you saying "we use Subroutine for tracking work here"; everything it
+describes works without it. `add` takes one captured line rather than a dozen typed fields,
+because the grammar you already type is smaller than a schema describing it:
 
 ```
 subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops")
@@ -295,9 +429,9 @@ $ subroutine today
 
 ## Running it for a team
 
-The shape is deliberately ordinary — a Python process on loopback, your own TLS proxy in
-front, systemd keeping it alive, PostgreSQL underneath once more than one person is writing.
-Nothing to cluster, no message broker.
+**TL;DR: a Python process on loopback, your own TLS proxy in front, systemd keeping it alive,
+PostgreSQL underneath once more than one person is writing.** Nothing to cluster, no message
+broker. The whole recipe is [docs/hosting.md](docs/hosting.md).
 
 One thing is not optional, and the program enforces it rather than mentioning it in a footnote:
 **a bearer token sent over plain HTTP is a compromised token**, so `serve` refuses to listen
@@ -322,9 +456,10 @@ $ subroutine user list --workspace acme
 ```
 
 There is no password: Subroutine authenticates with tokens, so what Thomas needs next is
-`subroutine token create --username thomas`. That is for a person; `--service-account` is for an
-agent and creates the identity as it goes. Roles belong to a workspace, so `member` in one is
-not `member` in another, and the last account able to administer a workspace cannot be removed
+`subroutine token create --username thomas`, or `subroutine login link --username thomas` if he
+is going to use the browser. That is for a person; `--service-account` is for an agent and
+creates the identity as it goes. Roles belong to a workspace, so `member` in one is not
+`member` in another, and the last account able to administer a workspace cannot be removed
 from it.
 
 **[docs/hosting.md](docs/hosting.md)** is the whole recipe: the service account, the systemd
@@ -336,21 +471,6 @@ has been run, including the refusals.
 in the licence requires that of you** — it is a promise the product makes to whoever is using
 it, and it is a setting so that somebody running a fork can point at theirs rather than at this
 repository.
-
-## What is not here
-
-Named plainly, because a tool that overstates itself wastes your afternoon:
-
-- **No web UI.** A terminal, an editor, or an agent.
-- **No recurring tasks.** The grammar recognises `every monday` well enough to leave it alone
-  and tell you it did.
-- **No attachments, no calendar feeds, no notifications, no webhooks, no email.**
-- **No session handoffs, no verification gates, no acceptance criteria.** These are specified
-  in full and not built. What *is* built is the substrate they need: attribution on every
-  change, per-item history, documents linked to the work they came from, and a comment thread
-  per item.
-- **No manual reordering, no re-parenting, no time tracking.** `~2h` records an estimate; it
-  does not track one.
 
 ## Documentation
 
