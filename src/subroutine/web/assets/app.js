@@ -71,6 +71,10 @@ const TASK_FIELDS = [
    between "has no deadline" and "cannot have one", and only one of them is true. */
 const DOCUMENT_FIELDS = [
 	"ref", "title", "project_key", "status", "status_is_default",
+	/* Not rendered either — it is what the board groups on (`#653`). A document's categories
+	   are its own vocabulary, so it gets its own columns rather than being mapped onto a
+	   task's: `current` is not *in progress*, and saying so would be inventing a claim. */
+	"status_category",
 	/* As above: the merge key, not something a row shows (`#660`). */
 	"created_at",
 ].join(",");
@@ -447,6 +451,80 @@ export function addressOf (item, workspace) {
 		+ `/${item.ref}`;
 }
 
+/* ---- views (`#651`, decision `#649`) ------------------------------------- */
+
+/*
+	**The path says which rows there are; the query says how they look.** That is decision
+	`#649` and it is §14.10 applied to a second surface: `?fields=` and `?format=` already decide
+	how a row is *reported* while `domain/scoping.py` decides which rows exist, and
+	`api/shaping.py` takes already-rendered views specifically so a display parameter can never
+	reach the `WHERE` clause. A view is the same promise one layer out.
+
+	**The default is the absence of the parameter**, not `?view=list`. That is what lets it
+	become per-workspace and later per-user without invalidating an address anybody wrote down —
+	an address that spells out today's default would freeze it.
+*/
+export const VIEWS = ["list", "board"];
+
+export const DEFAULT_VIEW = "list";
+
+export function viewOf (search) {
+	/*
+		Which arrangement an address asks for, and whether it asked for one that does not exist.
+
+		**Refused rather than ignored, and named rather than blanked** — the two rules this app
+		already follows, from opposite directions. `api/query.py` refuses a query parameter a
+		route does not declare, because silently ignoring `fields` returns the whole object and
+		charges the caller for it. But a person types a URL, and replacing their page with a
+		failure over one wrong word is worse than showing them the list and saying so — which is
+		exactly the shape `chosenWorkspace` settled for a workspace nobody can see.
+
+		So: fall back, and hand the caller the word that was refused.
+	*/
+	const asked = new URLSearchParams(String(search || "")).get("view");
+
+	if (asked === null || asked === "") return { view: DEFAULT_VIEW, refused: null };
+
+	return VIEWS.includes(asked)
+		? { view: asked, refused: null }
+		: { view: DEFAULT_VIEW, refused: asked };
+}
+
+export function withView (path, view) {
+	/*
+		One address, carrying the arrangement — `#651`'s *survives navigation*.
+
+		Four places wrote an address before this and every one of them dropped the query, so
+		`/projects?view=board` became `/projects` the moment anything was opened. The view is not
+		state the app remembers; it is part of the address, which is what makes it something a
+		reader can send somebody.
+
+		**The default is written as an absence**, so an ordinary address stays ordinary and
+		nothing has to be stripped back out later.
+	*/
+	return !view || view === DEFAULT_VIEW ? path : `${path}?view=${encodeURIComponent(view)}`;
+}
+
+export function listingAddress (place) {
+	/*
+		The address of whatever listing is showing behind an open item.
+
+		**Closing an item used to push `/` unconditionally**, which was harmless while `/` was
+		the list and became a defect the moment `#652` made it the agenda: the address said the
+		agenda and the page went on showing a workspace listing, so reloading or stepping back
+		gave something the reader had not been looking at. Found by reading `close` while wiring
+		the view through it — nothing failed, because an address and a page disagreeing is not
+		something any test here can see.
+	*/
+	if (place.agenda) return "/";
+
+	if (!place.workspace) return "/";
+
+	const base = `/${encodeURIComponent(place.workspace)}`;
+
+	return place.project ? `${base}/${encodeURIComponent(place.project)}` : base;
+}
+
 function segment (raw) {
 	/*
 		One path segment as a name, tolerating an escape a browser would not have written —
@@ -601,6 +679,98 @@ export function when (item) {
 	if (item.planned_for) return `→ ${day(item.planned_for)}`;
 
 	return null;
+}
+
+/* ---- the board (`#653`) -------------------------------------------------- */
+
+/*
+	**The columns are what a task's status *category* can be**, not what this workspace calls
+	its statuses. A key is per-workspace and renameable — `open`, `blocked` and `needs_input`
+	are all `todo` here — so a board built on keys would show three columns that mean one thing
+	and break on the first installation that renames one. `category` is the fixed field
+	published beside the key precisely so a client may branch on it.
+*/
+const COLUMNS = [
+	{ key: "todo", label: "To do" },
+	{ key: "in_progress", label: "In progress" },
+	{ key: "done", label: "Done" },
+	{ key: "cancelled", label: "Cancelled" },
+];
+
+/*
+	A document's categories are a different vocabulary for a different reason — a superseded
+	specification is not "done" — so they get their own columns rather than being mapped onto
+	the task ones. Mapping would be inventing a claim; `current` is not *in progress*.
+*/
+const DOCUMENT_COLUMNS = [
+	{ key: "draft", label: "Draft" },
+	{ key: "current", label: "Current" },
+	{ key: "superseded", label: "Superseded" },
+	{ key: "archived", label: "Archived" },
+];
+
+export function columns (items) {
+	/*
+		Arrange the rows a listing already fetched into the board's columns — `#653`.
+
+		**Pure, and this is the fifth time that has been the point** (`#640`). The harness cannot
+		touch `App`, so every decision left inside it is covered by nothing; four faults shipped
+		from exactly that gap. `markdown.render`, `addressOf`, `parseAddress`, `chosenWorkspace`
+		and `agendaBuckets` are the best-covered code here for the same reason.
+
+		**A task column is shown even when empty; a document column is not.** They look like one
+		rule and are two questions. The task categories *are* the structure — a board with no
+		*In progress* reads as broken rather than as empty, and an empty column is where you
+		drag something to. Four empty document columns on a page holding no documents are
+		§12.2a's column that says the same thing on every row, four times over.
+
+		**The order inside a column is the order the rows arrived in**, which is the listing's
+		`-created_at`. Re-sorting by the reported `priority_score` would put a part-ranked item
+		below an unranked one — §6.3a's exact defect, reintroduced one layer up, because the
+		field a client reads is `importance * urgency` and the *ordering* of that name applies
+		three bands. Ranking a board is `?order=` on the fetch, where the database applies the
+		bands, and it is deliberately not done here.
+
+		A category the server grows and this does not know about still gets a column, so a new
+		one appears rather than taking its rows off the page.
+	*/
+	const held = new Map();
+
+	for (const item of items) {
+		const key = item.status_category || "";
+		const bucket = held.get(key);
+
+		if (bucket) bucket.push(item);
+		else held.set(key, [item]);
+	}
+
+	const known = new Set([...COLUMNS, ...DOCUMENT_COLUMNS].map((column) => column.key));
+	const extra = [...held.keys()]
+		.filter((key) => key !== "" && !known.has(key))
+		.map((key) => ({ key, label: key }));
+
+	/*
+		**A row with no category still gets somewhere to be** — caught by the test that asserts
+		every fetched row appears exactly once, which is decision `#649`'s line: a view that
+		dropped one would be the *query* deciding which rows exist, which §14.10 calls a scoping
+		bug wearing a formatting hat.
+
+		It should not happen — both views declare `status_category` as required and both field
+		lists ask for it. But a field left out of `?fields=` arrives as null rather than erroring
+		(the comment above `TASK_FIELDS` says so), and a client is the half that goes stale. The
+		failure worth preventing is silent: a labelled column is a reader noticing something odd,
+		a missing one is a task that has vanished.
+
+		Last, and only when occupied — the same rule the document columns follow.
+	*/
+	const loose = [{ key: "", label: "Other" }];
+
+	return [
+		...COLUMNS.map((column) => ({ ...column, items: held.get(column.key) || [] })),
+		...[...DOCUMENT_COLUMNS, ...extra, ...loose]
+			.filter((column) => held.has(column.key))
+			.map((column) => ({ ...column, items: held.get(column.key) })),
+	];
 }
 
 /* ---- the agenda (`#652`) ------------------------------------------------- */
@@ -798,6 +968,58 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 					<span>${more} more unscheduled.</span>
 				</div>
 			`}
+		</div>
+	`;
+}
+
+export function Board ({ items, onOpen, onComplete, onAdd, busy, project, onWiden }) {
+	/*
+		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
+
+		**Same rows, and that is the decision rather than an implementation detail** (`#649`):
+		the path chose them and the query only says how they look. So this takes the array
+		`Listing` takes and rearranges it — it fetches nothing, filters nothing, and cannot.
+
+		**No dragging yet, deliberately.** `position` exists on the model and is written by
+		nothing, so a card could be moved and would not stay where it was put. `#711` carries
+		that and is blocked by `#28`; a board that reads well is worth having first, which is
+		what `#445` §6 recommended and what unblocked this from a `!2/2` item.
+	*/
+	const arranged = columns(items);
+	const showKind = new Set(items.map((item) => item.kind)).size > 1;
+
+	return html`
+		<div class="listing board">
+			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
+
+			${project && html`
+				<div class="narrowed">
+					<span>Showing <strong>${project}</strong> and anything under it.</span>
+					${onWiden && html`<button onClick=${onWiden}>Show everything</button>`}
+				</div>
+			`}
+
+			<div class="columns">
+				${arranged.map((column) => html`
+					<section class="column" key=${column.key}>
+						${/* The count is what is *here*, and a board is not paged — so unlike the
+						     listing's `…and more` it is exact and needs no second scan. */ null}
+						<h2>${column.label}${" "}<span class="tally">${column.items.length}</span></h2>
+
+						${column.items.length === 0
+							? html`<p class="empty">Nothing</p>`
+							: html`
+								<ul class="rows">
+									${column.items.map((item) => html`
+										<${Row} key=${item.kind + item.ref} item=${item}
+											showKind=${showKind} onOpen=${onOpen}
+											onComplete=${onComplete} />
+									`)}
+								</ul>
+							`}
+					</section>
+				`)}
+			</div>
 		</div>
 	`;
 }
@@ -1169,7 +1391,25 @@ export function App () {
 	   render" and "the agenda is what to render" are the same fact and two would drift. */
 	const [agenda, setAgenda] = useState(null);
 	const [unscheduled, setUnscheduled] = useState(0);
+	/* How the rows are arranged, read from the address rather than remembered (`#651`). It is
+	   part of the address so that a reader can send somebody the thing they are looking at. */
+	const [view, setView] = useState(DEFAULT_VIEW);
 	const since = useRef(null);
+
+	const go = useCallback((path, { replace = false, arranged = view } = {}) => {
+		/*
+			**Every address this app writes goes through here**, carrying the arrangement.
+
+			Four places wrote one before `#651` and all four dropped the query, so
+			`/projects?view=board` became `/projects` the moment anything was opened — the view
+			would have been a setting that silently expired on the first click.
+		*/
+		const wanted = withView(path, arranged);
+
+		if (window.location.pathname + window.location.search === wanted) return;
+
+		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
+	}, [view]);
 
 	const readAgenda = useCallback(async (spaces) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
@@ -1348,13 +1588,7 @@ export function App () {
 				moment the item is read — `replaceState` rather than `pushState` for that, since
 				the stale spelling should not become a step in the reader's own history.
 			*/
-			const address = addressOf(found.item, slug);
-
-			if (window.location.pathname !== address) {
-				window.history[history ? "pushState" : "replaceState"](
-					{ ref: found.item.ref }, "", address,
-				);
-			}
+			go(addressOf(found.item, slug), { replace: !history });
 
 			window.scrollTo(0, 0);
 		} catch (failure) {
@@ -1376,15 +1610,20 @@ export function App () {
 
 			setError(failure);
 		}
-	}, [fetched, workspace]);
+	}, [fetched, go, workspace]);
 
 	const close = useCallback(({ history = true } = {}) => {
 		setOpen(null);
 
-		if (history && window.location.pathname !== "/") {
-			window.history.pushState({}, "", "/");
-		}
-	}, []);
+		/*
+			**Back to what is actually behind it**, which used to be a hard-wired `/` — harmless
+			while `/` was the list and wrong the moment `#652` made it the agenda, because the
+			address then said the agenda while the page went on showing a workspace listing.
+			Nothing failed: an address disagreeing with its page is not something any test here
+			can see, and it was found by reading this while wiring `#651`'s view through it.
+		*/
+		if (history) go(listingAddress({ agenda: agenda !== null, workspace, project }));
+	}, [agenda, go, project, workspace]);
 
 	const start = useCallback(async () => {
 		setError(null);
@@ -1392,12 +1631,22 @@ export function App () {
 		try {
 			const identity = await sent(identityRequest());
 			const asked = parseAddress(window.location.pathname);
+			const arrangement = viewOf(window.location.search);
+
+			setView(arrangement.view);
 			const { slug, refused } = chosenWorkspace(
 				asked, identity.workspaces.map((space) => space.slug), workspace,
 			);
 
 			setMe(identity);
 			setWorkspace(slug);
+
+			if (arrangement.refused !== null) {
+				setNote({
+					text: `There is no ${arrangement.refused} view. Showing the list.`,
+					tone: "bad",
+				});
+			}
 
 			if (refused !== null) {
 				setNote({
@@ -1473,6 +1722,11 @@ export function App () {
 		const arrive = () => {
 			const asked = parseAddress(window.location.pathname);
 			const narrowed = (asked && asked.project) ?? null;
+
+			/* The arrangement is in the address too (`#651`), so stepping back into a board
+			   restores the board rather than leaving the list under an address saying otherwise
+			   — which is the disagreement `close` used to create for the agenda. */
+			setView(viewOf(window.location.search).view);
 
 			/*
 				**Stepping back to `/` is stepping back to the agenda** (`#652`), and this has
@@ -1643,7 +1897,7 @@ export function App () {
 			so there is nothing for them to un-touch.
 		*/
 		setProject(null);
-		window.history.pushState({}, "", `/${encodeURIComponent(workspace)}`);
+		go(`/${encodeURIComponent(workspace)}`);
 
 		try {
 			await load(workspace, null);
@@ -1654,7 +1908,7 @@ export function App () {
 			   one being written the other way. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
-	}, [load, workspace]);
+	}, [go, load, workspace]);
 
 	const chooseWorkspace = useCallback(async (slug) => {
 		/* A workspace is the whole of it: a project from the one you were in does not exist
@@ -1667,7 +1921,7 @@ export function App () {
 		   one and `/` is the only address the agenda has (`#649`). Set here rather than left to
 		   the effect: no `popstate` fires for a `pushState` we made ourselves. */
 		setAgenda(null);
-		window.history.pushState({}, "", `/${encodeURIComponent(slug)}`);
+		go(`/${encodeURIComponent(slug)}`);
 
 		try {
 			await load(slug, null);
@@ -1675,7 +1929,21 @@ export function App () {
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [load, roster]);
+	}, [go, load, roster]);
+
+	const chooseView = useCallback((wanted) => {
+		/*
+			**The address changes and the rows do not** — decision `#649`, and the line a test
+			holds. A view is a rendering of what `load` already fetched, so switching one must
+			not refetch: if it did, the query would be deciding which rows there are, which is
+			§14.10's *scoping bug wearing a formatting hat*.
+		*/
+		setView(wanted);
+		go(
+			listingAddress({ agenda: agenda !== null, workspace, project }),
+			{ arranged: wanted },
+		);
+	}, [agenda, go, project, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -1705,6 +1973,23 @@ export function App () {
 					`}
 					${me && me.workspaces.length === 1 && html` · ${workspace}`}
 				</div>
+
+				${/*
+					**A control, because an address is not a way to find something** (`#651`).
+					`?view=board` is what the arrangement *is*, and a reader who has never seen
+					one cannot type a word they have not been told. It is on a listing only: the
+					agenda is chosen by the path and arranging it by status would answer a
+					question nobody asked of it.
+				*/ null}
+				${!open && agenda === null && html`
+					<nav class="views" aria-label="How to arrange this">
+						${VIEWS.map((name) => html`
+							<button key=${name} class=${name === view ? "chosen" : ""}
+								aria-current=${name === view ? "true" : undefined}
+								onClick=${() => chooseView(name)}>${name}</button>
+						`)}
+					</nav>
+				`}
 			</header>
 
 			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
@@ -1724,9 +2009,12 @@ export function App () {
 						     `agendaBuckets` resolves the slug onto every row. */ null}
 						onOpen=${(row) => show(row, { slug: row.workspace || workspace })}
 						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
-					: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-						onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
-						project=${project} onWiden=${widen} />`}
+					: view === "board"
+						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
+							onAdd=${add} busy=${busy} project=${project} onWiden=${widen} />`
+						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
+							onAdd=${add} busy=${busy} more=${more} onMore=${showMore}
+							project=${project} onWiden=${widen} />`}
 
 			<footer class="foot">
 				${/* **Counts what is on screen, not what was last fetched.** `items` is the

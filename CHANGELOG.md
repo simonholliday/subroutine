@@ -16,6 +16,23 @@ upgrade involves.
 
 ### Added
 
+- **Work can be seen as a board, in columns.** *List* and *board* sit at the top of the page,
+  and the choice is part of the address — `/projects?view=board` is a link you can send
+  somebody, and it survives opening an item and pressing back.
+
+  The columns are **to do, in progress, done and cancelled**, which is what a status *means*
+  rather than what you have named it. Rename `open` to `next up` and the board still works;
+  three of the statuses you start with are all *to do*, and they share a column. An empty
+  column is still shown, because the columns are the shape of the board rather than a summary
+  of what happens to be in it.
+
+  Documents get their own columns — a superseded specification is not *done* — and anything
+  whose state this page does not recognise is shown under its own name rather than dropped.
+  Nothing on the list is missing from the board.
+
+  **Cards cannot be dragged yet.** Moving one has nowhere to be recorded, so a card would not
+  stay where you put it; that is coming separately.
+
 - **The browser opens on your day, not on a list.** `/` is now the agenda — what is overdue,
   what is due today, what is due in the next seven days, and what is waiting — across **every**
   workspace you can see, rather than the newest hundred things in whichever one came first.

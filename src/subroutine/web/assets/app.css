@@ -169,6 +169,93 @@ code, .ref, .priority, .broke .detail {
 .note button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .note .dismiss { border-color: transparent; font-size: 16px; line-height: 1; }
 
+/* ---- the board (`#653`) ------------------------------------------------- */
+
+/* Columns scroll sideways rather than squeezing: four columns at a phone's width would make
+   every title a vertical stack of single words, and a board whose cards cannot be read is not
+   a board. */
+.board .columns {
+	display: flex;
+	gap: 14px;
+	align-items: flex-start;
+	overflow-x: auto;
+	padding-bottom: 6px;
+}
+
+.board .column {
+	flex: 1 0 260px;
+	min-width: 260px;
+}
+
+.board .column h2 {
+	margin: 0 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
+
+/* The count is exact, because a board is not paged — unlike the listing's `…and more`, which
+   declines a number because §8.4 will not compute a total. */
+.board .tally {
+	color: var(--ink-faint);
+	font-weight: 400;
+	letter-spacing: 0;
+}
+
+/* An empty column is deliberate — the categories are the structure — so it reads as a place
+   rather than as a gap. */
+.board .column .empty {
+	margin: 0;
+	padding: 14px;
+	border: 1px dashed var(--line);
+	border-radius: var(--radius);
+	background: none;
+	color: var(--ink-faint);
+	font-size: 13px;
+}
+
+/* A card is a row without the horizontal grid: in a 260px column a three-cell line wraps into
+   nonsense, so the title takes the width and everything else sits under it. */
+.board .row {
+	display: block;
+	padding: 10px 12px;
+}
+
+.board .row .ref { display: inline; margin-right: 6px; }
+.board .row .when { display: block; margin-top: 2px; }
+.board .row .marks { margin-top: 6px; }
+
+/* How the rows are arranged (`#651`). Two words, so it reads as a choice rather than as a
+   toolbar. */
+.views {
+	display: flex;
+	gap: 4px;
+	margin-top: 10px;
+}
+
+.views button {
+	padding: 3px 10px;
+	background: none;
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	color: var(--ink-faint);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.views button:hover { color: var(--ink-soft); }
+.views button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* **The chosen one is named as well as coloured** — `aria-current` in the markup, and here a
+   border rather than a hue alone (decision `#102`: no information exists only in a colour). */
+.views button.chosen {
+	border-color: var(--line-strong);
+	color: var(--ink);
+}
+
 /* ---- the agenda (`#652`) ------------------------------------------------ */
 
 /* Buckets are stacked headings over ordinary rows, not a new kind of list. The agenda answers

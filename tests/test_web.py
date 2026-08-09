@@ -86,6 +86,23 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"ref": 2, "kind": "document", "title": "A document", "status_is_default": True},
 		]
 	},
+	"Board": {
+		"items": [
+			{
+				"ref": 1, "kind": "task", "title": "Not started",
+				"status_category": "todo", "status_is_default": True,
+			},
+			{
+				"ref": 2, "kind": "task", "title": "Underway",
+				"status_category": "in_progress", "status": "in_progress",
+				"status_is_default": False,
+			},
+			{
+				"ref": 3, "kind": "document", "title": "A decision",
+				"status_category": "current", "status_is_default": True,
+			},
+		]
+	},
 	"Agenda": {
 		"buckets": [
 			{
@@ -2677,3 +2694,212 @@ def test_a_day_with_nothing_in_it_can_still_be_added_to (tmp_path: pathlib.Path)
 
 	assert "Nothing is due" in markup
 	assert "<form><input><button>Add" in markup
+
+
+def _views (
+	tmp_path: pathlib.Path, calls: typing.Sequence[tuple[str, typing.Any]]
+) -> list[typing.Any]:
+	"""Drive the view and board decisions directly — `SR#651`, `SR#653`, `SR#640`'s point again."""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const calls = {json.dumps(calls)};
+
+		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
+			name === "viewOf" ? app.viewOf(argument)
+			: name === "withView" ? app.withView(argument.path, argument.view)
+			: name === "listingAddress" ? app.listingAddress(argument)
+			: app.columns(argument))));
+	"""))
+
+
+def test_the_default_view_is_the_absence_of_the_parameter (tmp_path: pathlib.Path) -> None:
+	"""`SR#651`. What lets the default become per-workspace, and later per-user, later.
+
+	An address that spelled out today's default would freeze it: every link anybody saved would
+	carry `?view=list` and go on carrying it after the default moved.
+	"""
+
+	plain, empty, board = _views(tmp_path, [
+		("viewOf", ""), ("viewOf", "?view="), ("viewOf", "?view=board"),
+	])
+
+	assert plain == {"view": "list", "refused": None}
+	assert empty == {"view": "list", "refused": None}
+	assert board == {"view": "board", "refused": None}
+
+	[written] = _views(tmp_path, [("withView", {"path": "/projects", "view": "list"})])
+
+	assert written == "/projects", "the default must not be written into an address"
+
+
+def test_a_view_nobody_has_is_named_rather_than_blanking_the_page (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The same answer `chosenWorkspace` gives for a workspace nobody can see.
+
+	`api/query.py` refuses a query parameter a route does not declare, and is right to: an
+	ignored `fields` returns the whole object and charges for it. But a *person* types a URL,
+	and replacing their page with a failure over one wrong word is worse than showing the list
+	and saying so. Refused, named, and not fatal.
+	"""
+
+	[answered] = _views(tmp_path, [("viewOf", "?view=gantt")])
+
+	assert answered == {"view": "list", "refused": "gantt"}
+
+
+def test_the_arrangement_survives_being_written_into_an_address (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#651`'s *survives navigation*, at the one place an address is written.
+
+	Four places wrote one before this and every one dropped the query, so
+	`/projects?view=board` became `/projects` the moment anything was opened — a setting that
+	silently expired on the first click.
+	"""
+
+	kept, item = _views(tmp_path, [
+		("withView", {"path": "/projects", "view": "board"}),
+		("withView", {"path": "/projects/subroutine/42", "view": "board"}),
+	])
+
+	assert kept == "/projects?view=board"
+	assert item == "/projects/subroutine/42?view=board"
+
+
+def test_closing_an_item_returns_to_what_is_behind_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#652`'s regression, found by reading `close` while wiring `SR#651` through it.
+
+	It pushed `/` unconditionally — harmless while `/` was the list, and wrong the moment the
+	agenda moved there: the address said the agenda while the page went on showing a workspace
+	listing, so a reload or a step back gave something the reader had not been looking at.
+
+	**Nothing failed.** An address disagreeing with its page is not a thing any test here can
+	see, which is why the decision is a function now.
+	"""
+
+	root, space, narrowed = _views(tmp_path, [
+		("listingAddress", {"agenda": True, "workspace": "projects", "project": "ui"}),
+		("listingAddress", {"agenda": False, "workspace": "projects", "project": None}),
+		("listingAddress", {"agenda": False, "workspace": "projects", "project": "ui"}),
+	])
+
+	assert root == "/", "the agenda's only address is `/`"
+	assert space == "/projects"
+	assert narrowed == "/projects/ui", "the filter is part of the address too (`SR#647`)"
+
+
+def test_a_board_column_is_a_status_category_not_a_status_key (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#653`. Three seeded keys share `todo`, which is the whole argument for the field.
+
+	A board built on keys would show three columns meaning one thing, and break on the first
+	installation that renames one. `status_category` is published beside the renameable key
+	precisely so a client may branch on it.
+	"""
+
+	[arranged] = _views(tmp_path, [("columns", [
+		{"ref": 1, "status_category": "todo", "status": "open"},
+		{"ref": 2, "status_category": "todo", "status": "blocked"},
+		{"ref": 3, "status_category": "todo", "status": "needs_input"},
+		{"ref": 4, "status_category": "in_progress", "status": "in_progress"},
+	])])
+
+	held = {column["key"]: [item["ref"] for item in column["items"]] for column in arranged}
+
+	assert held["todo"] == [1, 2, 3], "three keys, one column"
+	assert held["in_progress"] == [4]
+
+
+def test_an_empty_task_column_is_shown_and_an_empty_document_column_is_not (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""They look like one rule and are two questions.
+
+	The task categories *are* the structure — a board with no *In progress* reads as broken
+	rather than as empty, and an empty column is where a card gets dragged to. Four empty
+	document columns on a page holding no documents are §12.2a's column that says the same
+	thing on every row, four times over.
+	"""
+
+	[tasks_only] = _views(tmp_path, [("columns", [{"ref": 1, "status_category": "todo"}])])
+
+	assert [column["key"] for column in tasks_only] == [
+		"todo", "in_progress", "done", "cancelled",
+	]
+
+	[mixed] = _views(tmp_path, [("columns", [
+		{"ref": 1, "status_category": "todo"},
+		{"ref": 2, "status_category": "current"},
+	])])
+
+	assert [column["key"] for column in mixed] == [
+		"todo", "in_progress", "done", "cancelled", "current",
+	]
+
+
+def test_a_category_this_build_does_not_know_still_gets_a_column (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A row must not leave the page because a client is older than its instance.
+
+	`SR#345`'s direction: the client is the half that goes stale, and the failure mode worth
+	preventing is silent. A column labelled with the raw key is a reader noticing something new;
+	a missing one is a task that has vanished.
+	"""
+
+	[arranged] = _views(tmp_path, [("columns", [
+		{"ref": 1, "status_category": "todo"},
+		{"ref": 2, "status_category": "deferred_forever"},
+	])])
+
+	held = {column["key"]: [item["ref"] for item in column["items"]] for column in arranged}
+
+	assert held["deferred_forever"] == [2]
+
+
+def test_a_board_keeps_the_order_the_rows_arrived_in (tmp_path: pathlib.Path) -> None:
+	"""And deliberately does not rank by the reported `priority_score`.
+
+	The field a client reads is `importance * urgency`, null unless both are set; the *ordering*
+	of that name applies §6.3a's three bands. Sorting a column by the reported field would put a
+	part-ranked item below an unranked one — the exact defect the bands were added to fix,
+	reintroduced one layer up and only in the board. Ranking is `?order=` on the fetch, where
+	the database applies them.
+	"""
+
+	[arranged] = _views(tmp_path, [("columns", [
+		{"ref": 1, "status_category": "todo", "importance": None, "urgency": None},
+		{"ref": 2, "status_category": "todo", "importance": 5, "urgency": None},
+		{"ref": 3, "status_category": "todo", "importance": 5, "urgency": 5},
+	])])
+
+	assert [item["ref"] for item in arranged[0]["items"]] == [1, 2, 3]
+
+
+def test_a_board_shows_the_same_rows_the_list_does (tmp_path: pathlib.Path) -> None:
+	"""Decision `SR#649`'s whole rule: the path says which rows, the query says how they look.
+
+	The line worth holding is that no row may be lost or invented in the rearranging — a view
+	that dropped one would be the query deciding which rows exist, which is §14.10's *scoping
+	bug wearing a formatting hat*.
+	"""
+
+	rows = [
+		{"ref": index, "status_category": category}
+		for index, category in enumerate(
+			["todo", "in_progress", "done", "cancelled", "current", "unheard_of", None], start=1
+		)
+	]
+
+	[arranged] = _views(tmp_path, [("columns", rows)])
+	placed = [item["ref"] for column in arranged for item in column["items"]]
+
+	assert sorted(placed) == [row["ref"] for row in rows], (
+		"every row the listing fetched must appear exactly once on the board"
+	)
