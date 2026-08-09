@@ -468,6 +468,18 @@ def test_a_row_says_in_words_what_it_says_in_colour (tmp_path: pathlib.Path) -> 
 	assert "#42" in markup
 
 
+def _from_now (*, hours: float) -> str:
+	"""An instant that many hours from this moment, as the API writes one.
+
+	**For any fixture a component compares against the wall clock** (`SR#737`). `marks` asks
+	`holding` without a moment, so it reads `Date.now()` — and a fixture written as a fixed
+	time of day is live until that hour and dead afterwards, which is a test that passes in the
+	morning and fails in the evening with nothing changed.
+	"""
+
+	return (datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=hours)).isoformat()
+
+
 def _holding (
 	tmp_path: pathlib.Path, cases: typing.Sequence[tuple[dict[str, typing.Any], int]]
 ) -> list[typing.Any]:
@@ -498,18 +510,25 @@ def test_a_row_says_who_is_holding_it (tmp_path: pathlib.Path) -> None:
 	cannot see at all today. `views.Task` reports an expired lease for exactly this reason.
 	"""
 
+	# **Relative to the moment this runs, not a date somebody typed** (`SR#737`). The first
+	# version put the expiry at 18:00 on the day it was written; the rendered assertions below
+	# go through `marks`, which reads the real clock, so they passed until six o'clock that
+	# evening and failed after it. A green gate says nothing about a test that turns over.
+	#
+	# `SAMPLES["Row"]` is the contrast: its `due_at` is 2020-01-01, which `overdue` answers the
+	# same way for ever. Far past, far future, or computed — never same-day.
 	held = {"ref": 1, "kind": "task", "title": "Being done", "claimed_by_id": "u1",
-		"claimed_by": "agent", "claim_expires_at": "2026-08-09T18:00:00+00:00"}
-	stale = {**held, "claim_expires_at": "2026-08-09T09:00:00+00:00"}
+		"claimed_by": "agent", "claim_expires_at": _from_now(hours=1)}
+	stale = {**held, "claim_expires_at": _from_now(hours=-1)}
 	free = {"ref": 2, "kind": "task", "title": "Nobody on it"}
 
-	# Computed rather than written as epoch milliseconds: the hand-typed one was wrong, and a
-	# magic number nobody can check by eye is the wrong kind of fixture for a clock comparison.
-	noon = int(
-		datetime.datetime(2026, 8, 9, 12, 0, tzinfo=datetime.UTC).timestamp() * 1000
-	)
+	# The pure function is asked at an explicit moment, which is the half that can be exact:
+	# a fixed lease read at a fixed instant has one right answer whenever it is run.
+	fixed = {**held, "claim_expires_at": "2026-08-09T18:00:00+00:00"}
+	expired = {**held, "claim_expires_at": "2026-08-09T09:00:00+00:00"}
+	noon = int(datetime.datetime(2026, 8, 9, 12, 0, tzinfo=datetime.UTC).timestamp() * 1000)
 
-	assert _holding(tmp_path, [(held, noon), (stale, noon), (free, noon)]) == [
+	assert _holding(tmp_path, [(fixed, noon), (expired, noon), (free, noon)]) == [
 		{"held": True, "who": "agent"},
 		{"held": False, "who": "agent"},
 		None,
@@ -539,7 +558,7 @@ def test_a_lease_with_no_name_still_says_somebody_holds_it (tmp_path: pathlib.Pa
 	"""
 
 	nameless = {"ref": 3, "kind": "task", "title": "Held", "claimed_by_id": "u1",
-		"claim_expires_at": "2026-08-09T18:00:00+00:00"}
+		"claim_expires_at": _from_now(hours=1)}
 
 	rendered = _rendered(tmp_path, {"Row": {"item": nameless, "workspace": "projects"}})["Row"]
 
