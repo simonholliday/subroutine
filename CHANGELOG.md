@@ -142,6 +142,19 @@ upgrade involves.
   It also means a screen reader announces each of them as a link, so listing the links on a page
   now finds the items on it.
 
+- **A restore now says *who* is using the database, and no longer refuses over a connection
+  that has already gone.** `subroutine db restore` will not write over a database something
+  else is connected to — that guard stays, because restoring underneath a running service
+  destroys the instance and reports success.
+
+  What it said was *"1 other connection to the database"*, which is the same sentence whether a
+  colleague is connected, your own service is running, or something is on its way out. It now
+  names each one — what kind of connection, what it is doing, and how long it has been there.
+
+  And it looks twice. A service holds its connection for as long as it runs, so a second look a
+  moment later cannot miss one; anything gone by then was not using the database. That costs a
+  quarter of a second, and only when the first look found something.
+
 - **Every link on the PyPI page now goes somewhere.** The project description is `README.md`,
   and it linked to `docs/hosting.md`, `docs/connecting.md`, the licence and how to report a
   vulnerability as paths relative to the repository. GitHub rewrites those; PyPI does not, so

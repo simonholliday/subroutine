@@ -27,6 +27,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import time
 
 import alembic.script
 import sqlalchemy
@@ -66,6 +67,12 @@ _INSERT_STATEMENT = re.compile(
 #: How long ``pg_dump`` and ``psql`` are given. Generous, because a large database on slow
 #: storage is not an error, and bounded, because a hung subprocess with a full pipe is.
 _SUBPROCESS_TIMEOUT_SECONDS = 600
+
+#: How long ``in_use_by`` waits before asking a second time (`#725`). Long enough that a
+#: backend on its way out has gone, short enough to be imperceptible on a command run once
+#: during a recovery — and it is only ever paid when the first answer found *something*, so a
+#: database nobody is touching costs nothing at all.
+_SETTLE_SECONDS = 0.25
 
 
 @dataclasses.dataclass(frozen=True)
@@ -413,16 +420,40 @@ def in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
 	is exactly the case a live server presents — and PostgreSQL answers from
 	``pg_stat_activity``. Both are the real question; scanning ``/proc`` would be a Linux-only
 	guess at it.
+
+	**Asked twice, and something that has gone by the second answer was not using it** (`#725`).
+	The gate refused a restore twice in one day over *"1 other connection"* that nothing could
+	account for, on a database the test had exclusively to itself — four hypotheses were put up
+	and measured away (a lingering ``pg_dump``, a disposed pool's backend, an autovacuum worker,
+	and 504 restore runs under eight-way parallel load without a reproduction), so the cause is
+	**not identified** and this does not claim to fix it.
+
+	What it does claim is narrower and holds whatever the cause turns out to be: **this guard
+	protects against a database somebody is *using*, and use persists.** A running service holds
+	its connection for as long as it runs, so a recheck a moment later cannot miss one — while
+	anything that has vanished in that moment was, by any reading of the word, not using it.
+
+	So the retry costs a quarter of a second on a command run rarely and under pressure, and it
+	buys back a refusal that an operator mid-recovery cannot diagnose and can only respond to by
+	guessing. The failure it removes is the expensive direction: this refuses *safe*, and a
+	guard that cries wolf during a recovery is one somebody learns to pass ``--force`` to.
 	"""
 
 	# Our own pool would otherwise answer for somebody else. This is called before anything is
 	# read or written, so there is nothing in flight to lose.
 	engine.dispose()
 
-	if _is_sqlite(engine):
-		return _sqlite_in_use_by(engine)
+	asked = _sqlite_in_use_by if _is_sqlite(engine) else _postgresql_in_use_by
+	holder = asked(engine)
 
-	return _postgresql_in_use_by(engine)
+	if holder is None:
+		return None
+
+	time.sleep(_SETTLE_SECONDS)
+
+	# **The second answer is the one reported**, not the first: if something really is holding
+	# the database, its description a moment later is the more current of the two.
+	return asked(engine)
 
 
 def _sqlite_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
@@ -566,16 +597,25 @@ def _holders_in_proc (path: pathlib.Path) -> list[int]:
 
 
 def _postgresql_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
-	"""Report how many other sessions are connected to the PostgreSQL database."""
+	"""Report who else is connected to the PostgreSQL database, and what they are doing.
+
+	**Named rather than counted** (`#725`). This said *"1 other connection to the database"*,
+	which is the same sentence whether a colleague is connected, your own service is running,
+	or something is on its way out — three situations with three different next actions, and an
+	operator halfway through a recovery cannot tell them apart. ``pg_stat_activity`` already
+	carries every column needed to say which it is.
+	"""
 
 	try:
 		with engine.connect() as connection:
 			others = connection.execute(
 				sqlalchemy.text(
-					"SELECT count(*) FROM pg_stat_activity "
+					"SELECT backend_type, state, application_name, "
+					"       extract(epoch from (now() - backend_start)) AS age "
+					"FROM pg_stat_activity "
 					"WHERE datname = current_database() AND pid <> pg_backend_pid()"
 				)
-			).scalar_one()
+			).all()
 
 	except sqlalchemy.exc.SQLAlchemyError:
 		# Same reasoning as the SQLite side: a database that cannot be reached is not one
@@ -585,7 +625,26 @@ def _postgresql_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
 	if not others:
 		return None
 
-	return f"{others} other connection{'' if others == 1 else 's'} to the database"
+	described = [
+		", ".join(
+			part for part in (
+				str(row.backend_type or "connection"),
+				str(row.state) if row.state else None,
+				f"as {row.application_name}" if row.application_name else None,
+				f"{float(row.age):.0f}s old" if row.age is not None else None,
+			) if part
+		)
+		# Three is enough to recognise what they are; a service with forty would otherwise
+		# fill the terminal with the same line.
+		for row in others[:3]
+	]
+
+	if len(others) > 3:
+		described.append(f"and {len(others) - 3} more")
+
+	plural = "" if len(others) == 1 else "s"
+
+	return f"{len(others)} other connection{plural} — {'; '.join(described)}"
 
 
 def check_unused (engine: sqlalchemy.engine.Engine) -> None:

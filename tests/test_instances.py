@@ -11,6 +11,7 @@ database is where every other test in the suite lives.
 
 import datetime
 import errno
+import itertools
 import os
 import pathlib
 import sqlite3
@@ -1395,3 +1396,132 @@ def test_counting_a_backup_never_turns_a_good_one_into_a_failure (
 	assert written.path.exists(), "the backup itself must still have been taken"
 	assert written.holdings == {}, "an uncountable backup is described as unknown, not refused"
 	assert "check the copy" in subroutine.cli.main._what_it_held(written)
+
+
+def test_a_connection_that_has_gone_by_the_second_look_is_not_using_the_database (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#725`. The gate refused a restore twice in one day over a connection nobody could name.
+
+	**The cause is not identified and this does not claim to fix it.** Four hypotheses were put
+	up and measured away — a lingering ``pg_dump``, a disposed pool's backend, an autovacuum
+	worker, and 504 restore runs under eight-way parallel load with no reproduction.
+
+	What is claimed is narrower and holds whatever the cause turns out to be: this guard is
+	about a database somebody is **using**, and use persists. A running service holds its
+	connection for as long as it runs, so a look a moment later cannot miss one — and anything
+	gone within that moment was not using it.
+
+	Driven through ``in_use_by``'s own entry point with the backend answer replaced, because the
+	real race is rare enough that 504 attempts did not produce it and a test that waits for it
+	would be the flake it is fixing.
+	"""
+
+	answers = iter(["1 other connection — client backend, idle", None])
+	asked = []
+
+	def _answered (engine: sqlalchemy.engine.Engine) -> str | None:
+		asked.append(engine)
+
+		return next(answers)
+
+	monkeypatch.setattr(subroutine.db.backup, "_postgresql_in_use_by", _answered)
+	monkeypatch.setattr(subroutine.db.backup, "_is_sqlite", lambda _engine: False)
+	# The wait itself is not what is being checked, and a test that pauses for it is a test
+	# that pauses.
+	monkeypatch.setattr(subroutine.db.backup, "_SETTLE_SECONDS", 0)
+
+	engine = sqlalchemy.create_engine("postgresql+psycopg:///nowhere")
+
+	try:
+		assert subroutine.db.backup.in_use_by(engine) is None, (
+			"a connection that had gone by the second look was still reported as a holder"
+		)
+
+	finally:
+		engine.dispose()
+
+	assert len(asked) == 2, f"the database was asked {len(asked)} times rather than twice"
+
+
+def test_something_still_there_on_the_second_look_is_reported (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The half that stops the retry becoming "never refuse".
+
+	Without it, `#725`'s fix and a deleted guard are indistinguishable — which is the shape
+	`#405` is about, and the reason a refusal test always needs its opposite beside it.
+
+	**The second answer is what is reported**, not the first: if something really is holding the
+	database, its description a moment later is the more current of the two.
+	"""
+
+	# The first look of every pair says "idle" and the second says "active", so both callers
+	# below get a fresh pair — `check_unused` asks `in_use_by`, which asks twice itself.
+	looks = itertools.count()
+
+	monkeypatch.setattr(
+		subroutine.db.backup,
+		"_postgresql_in_use_by",
+		lambda _engine: (
+			"1 other connection — idle" if next(looks) % 2 == 0
+			else "1 other connection — active"
+		),
+	)
+	monkeypatch.setattr(subroutine.db.backup, "_is_sqlite", lambda _engine: False)
+	# The wait itself is not what is being checked, and a test that pauses for it is a test
+	# that pauses.
+	monkeypatch.setattr(subroutine.db.backup, "_SETTLE_SECONDS", 0)
+
+	engine = sqlalchemy.create_engine("postgresql+psycopg:///nowhere")
+
+	try:
+		assert subroutine.db.backup.in_use_by(engine) == "1 other connection — active"
+
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			subroutine.db.backup.check_unused(engine)
+
+	finally:
+		engine.dispose()
+
+	assert "active" in str(refused.value)
+
+
+def test_a_refusal_says_who_is_holding_it_rather_than_how_many (
+	own_database: str,
+) -> None:
+	"""`#725`. *"1 other connection to the database"* is the same sentence for three situations.
+
+	A colleague connected, your own service running, and something on its way out all produced
+	it — three different next actions, and an operator halfway through a recovery could not tell
+	which they had. Every column needed to say so was already in ``pg_stat_activity``.
+
+	Driven against a real database holding a real second connection, because what is being
+	checked is that the *query* returns those columns — a hand-made row would only prove the
+	formatting.
+	"""
+
+	if own_database.startswith("sqlite"):
+		pytest.skip("the columns being checked are PostgreSQL's")
+
+	subroutine.db.migrate.upgrade(own_database)
+
+	held = subroutine.db.session.create_engine(own_database)
+	asking = subroutine.db.session.create_engine(own_database)
+
+	try:
+		with held.connect() as connection:
+			connection.execute(sqlalchemy.text("SELECT 1"))
+
+			said = subroutine.db.backup.in_use_by(asking)
+
+	finally:
+		held.dispose()
+		asking.dispose()
+
+	assert said is not None, "a database with another connection open reported nobody"
+
+	# What it is, not merely that there is one. `backend_type` is what separates a client from
+	# an autovacuum worker, which was one of the hypotheses this could not previously rule out.
+	assert "client backend" in said, f"the refusal does not say what is holding it: {said}"
+	assert "s old" in said, f"the refusal does not say how long it has been there: {said}"
