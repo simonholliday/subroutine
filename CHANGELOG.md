@@ -16,8 +16,8 @@ upgrade involves.
 
 ### Added
 
-- **Work can be seen as a board, in columns.** *List* and *board* sit at the top of the page,
-  and the choice is part of the address — `/projects?view=board` is a link you can send
+- **Work can be seen as a board, in columns.** *List*, *board* and *done* sit at the top of the
+  page, and the choice is part of the address — `/projects?view=board` is a link you can send
   somebody, and it survives opening an item and pressing back.
 
   The columns are **to do, in progress, done and cancelled**, which is what a status *means*
@@ -125,6 +125,15 @@ upgrade involves.
 
   It also means a screen reader announces each of them as a link, so listing the links on a page
   now finds the items on it.
+
+- **Completing something that is already complete no longer changes when it was finished.**
+  Every write of a finished status stamped the moment afresh, so a retried request, or a second
+  press of a button, moved a record of something that had happened hours earlier. Reopening
+  still clears it, and finishing it again after that is a new completion and is stamped anew.
+
+  It matters more than it did last week, because a list can now be ordered by when work
+  finished — so the old behaviour would have jumped a row to the top of that page for a reason
+  nobody intended.
 
 - **Finished work is no longer offered a *Complete* button.** Every card in the board's *Done*
   column carried one, and pressing it was not harmless: completing something that is already

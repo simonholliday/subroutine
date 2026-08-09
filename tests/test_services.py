@@ -10,7 +10,9 @@ invisible there by construction.
 """
 
 import concurrent.futures
+import datetime
 import typing
+import unittest.mock
 import uuid
 
 import pytest
@@ -1057,6 +1059,79 @@ def test_completing_a_task_records_when (session: sqlalchemy.orm.Session) -> Non
 	cancelled = task.completed_at
 
 	assert cancelled is not None, "cancelled is a finished category too"
+
+
+def test_finishing_something_twice_does_not_move_when_it_finished (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#723`. It records when the task became finished, and finishing it again is not a
+	second time.
+
+	**Measured before it was fixed**, on a throwaway instance: completing an already-complete
+	task moved the stamp by 51 seconds. `POST /v1/tasks/{ref}/complete` on finished work is a
+	200 that silently edits history, an ordinary retry does it, and so did the *Complete*
+	button that sat on every card in the board's *Done* column (`#724`).
+
+	**The reasoning was written out one function below, about `deleted_at`** — *"deleting twice
+	is not an error and does not move the timestamp"* — and only one of the two columns had it.
+
+	Asserted as *unchanged* rather than as *not null*, which is the difference between this and
+	the test above it: `assert task.completed_at is not None` passes against the defect.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	task = subroutine.domain.tasks.create(session, project=project, title="Finish me")
+
+	subroutine.domain.tasks.complete(session, task)
+	first = task.completed_at
+
+	assert first is not None
+
+	# **The clock is moved rather than waited on.** `utcnow()` at second resolution would make
+	# a real pause necessary and the test slow *and* flaky; patching the source the assignment
+	# reads makes the difference unmissable if it ever fires again.
+	later = first + datetime.timedelta(hours=1)
+
+	# Every read goes through a local, for the reason the test above states: asserting on the
+	# attribute narrows its type for the rest of the function, and mypy cannot see that the next
+	# update changes it. Written the other way first, and mypy called the last assertion
+	# unreachable — which is the same trap, one test later.
+	with unittest.mock.patch.object(subroutine.db.types, "utcnow", lambda: later):
+		subroutine.domain.tasks.complete(session, task)
+		again = task.completed_at
+
+		assert again == first, (
+			f"completing it a second time moved the record from {first} to {again}"
+		)
+
+		# The same through `update`, because `complete` is a thin wrapper over it and a caller
+		# setting the status directly must not get the other behaviour.
+		subroutine.domain.tasks.update(session, task, status_key="done")
+		restated = task.completed_at
+
+		assert restated == first, "setting the finished status again moved it"
+
+		# **Cancelled to done keeps the instant**: both are finished, and the work stopped when
+		# it stopped. A column that moved here would be reporting when the status last changed,
+		# which is `updated_at`.
+		subroutine.domain.tasks.update(session, task, status_key="cancelled")
+		switched = task.completed_at
+
+		assert switched == first, "changing which kind of finished moved it"
+
+		# And leaving a finished category still clears it, so the invariant stays two-way.
+		subroutine.domain.tasks.update(session, task, status_key="open")
+		reopened = task.completed_at
+
+		assert reopened is None, "reopening must still clear it"
+
+		subroutine.domain.tasks.update(session, task, status_key="done")
+		refinished = task.completed_at
+
+		assert refinished == later, (
+			"finishing it again after reopening is a new completion and must be stamped anew"
+		)
 
 
 def test_moving_a_project_moves_every_etag_it_changed (

@@ -775,9 +775,34 @@ def update (
 		# category is `done` or `cancelled`. Set here rather than by a database trigger,
 		# because the category lives on the status row and an installation may rename or
 		# add statuses freely.
-		task.completed_at = (
-			subroutine.db.types.utcnow() if status.category in FINISHED_CATEGORIES else None
-		)
+		#
+		# **It records when the task became finished, and finishing it again is not a second
+		# time** (`#723`). This stamped `utcnow()` on every write of a finished status, so
+		# completing something already complete moved the record by however long had passed —
+		# measured at 51 seconds on a throwaway, and a `POST /v1/tasks/{ref}/complete` on
+		# finished work is a 200 that silently edits history. An ordinary retry does it, and
+		# so does the *Complete* button that used to sit on every card in the board's *Done*
+		# column (`#724`).
+		#
+		# **The reasoning was already written out one function below, about `deleted_at`**:
+		# *"deleting twice is not an error and does not move the timestamp — when something
+		# was thrown away is a fact worth not overwriting, and a caller retrying a request
+		# should not change it."* Every word of it applies here and only one of the two
+		# columns had it, which is this codebase's signature defect — one rule applied to one
+		# side of a pair.
+		#
+		# **`completed_at is not None` is the test for "was it already finished", and that is
+		# not a shortcut**: it is the reading `readiness`, `scoping`, `links` and `schedule`
+		# all already apply, and this assignment is the only thing in the program that writes
+		# the column, so the invariant it maintains is the invariant it may rely on.
+		#
+		# `cancelled` to `done` therefore keeps the original instant. Both are finished, the
+		# work stopped when it stopped, and a column that moved on a change of *which kind* of
+		# finished would be reporting when the status last changed — which is `updated_at`.
+		if status.category not in FINISHED_CATEGORIES:
+			task.completed_at = None
+		elif task.completed_at is None:
+			task.completed_at = subroutine.db.types.utcnow()
 
 	if moving:
 		moved_from = task.project_id
