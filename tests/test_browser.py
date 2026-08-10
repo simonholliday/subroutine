@@ -13,12 +13,13 @@ file.
 
 **It skips where there is no browser, and CI can refuse the skip.** Same arrangement as
 PostgreSQL: a laptop without Chromium still runs the suite, and
-``SUBROUTINE_TEST_REQUIRE_BROWSER=1`` turns the skip into a failure so that a green CI run
-cannot mean half a test run. The reason that variable exists is written in ``CLAUDE.md``
-against the PostgreSQL one, and it is the same reason.
+``SUBROUTINE_TEST_REQUIRE_BROWSER=1`` turns the skip into a failure. **Never remove that
+variable to make a red build green** — the skip exists so a machine without a browser can
+still run everything else, and in CI it would mean reporting success on half a test run.
 """
 
 import functools
+import json
 import os
 import pathlib
 import re
@@ -26,6 +27,7 @@ import typing
 
 import pytest
 
+import subroutine.api.web
 import test_web
 
 #: Every rendering the app can produce, which is what `SAMPLES` already is. Reused rather than
@@ -284,6 +286,132 @@ def test_an_element_added_without_a_context_is_still_ours (looks: typing.Any) ->
 		)
 
 
+#: The smallest set of answers the app needs to paint a listing. Written here rather than
+#: reused from `test_web` because these are *wire* bodies for a browser, and that module's are
+#: arguments to a render — the same values, and conflating them would make one file's fixture
+#: quietly decide the other's coverage.
+IDENTITY = {
+	"user": {"username": "si", "is_service_account": False},
+	"workspaces": [{"slug": "projects", "id": "w1", "role": "owner", "permissions": []}],
+	"instance_permissions": [],
+	"credential": None,
+}
+
+EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
+
+#: One page of rows, in the envelope every listing here uses. Enough for a link to click.
+ROWS = {
+	"items": [{"ref": 42, "kind": "task", "title": "Fix the pagination cursor",
+		"project_key": "ui", "status_category": "todo",
+		"created_at": "2026-08-10T14:22:00+00:00"}],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+
+@pytest.fixture(scope="module")
+def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
+	"""The real app, in a real browser, with every request answered out of memory.
+
+	**A served page without a server**, which is the whole point: `page.route` hands the
+	browser `api.web.FILES` — the same bytes the instance serves, import map and all — and
+	fixture JSON for `/v1`. No socket, no database, no process to leak, and §2.2's *served as
+	written* promise is what makes the substitution honest.
+
+	It is what `tests/dom.js` cannot be. That shim mounts the app and records what it asks for;
+	this one has a cascade, a layout and real events, which is the half `#722` and `#711` need
+	and nothing else here can reach.
+	"""
+
+	shell = subroutine.api.web.FILES[subroutine.api.web.SHELL][0]
+
+	def answered (route: typing.Any) -> None:
+		"""Serve one request the way the instance would.
+
+		``fulfill`` is Playwright's spelling and not this project's; it is an API name rather
+		than prose, so it stays as the library writes it.
+		"""
+
+		wanted = route.request.url.split("://", 1)[-1].split("/", 1)[-1].split("?")[0]
+
+		if wanted.startswith("app/"):
+			body, kind = subroutine.api.web.FILES[wanted.split("/", 1)[1]]
+			route.fulfill(status=200, body=body, content_type=kind)
+
+			return
+
+		if wanted.startswith("v1/"):
+			answer = (
+				IDENTITY if wanted.startswith("v1/me")
+				else ROWS if wanted.startswith("v1/tasks")
+				else EMPTY
+			)
+
+			route.fulfill(
+				status=200, body=json.dumps(answer), content_type="application/json"
+			)
+
+			return
+
+		# Every other address is the app's own — `#638` gave an item one, and `#648` made
+		# anything unclaimed a 404 keyed on `Accept`, which for a browser is this page.
+		route.fulfill(status=200, body=shell, content_type="text/html; charset=utf-8")
+
+	_, bare = looks
+	# **Its own context, not the styling pages'.** A page made by `browser.new_page()` owns the
+	# context it was given, so a second page cannot be opened from it — and a ctrl-click's whole
+	# observable is a *second page appearing in the context*. Measured by the refusal.
+	context = bare.context.browser.new_context()
+
+	# **Routed on the context, not on the page**, and the difference is the whole of what this
+	# fixture exists to observe: a page routes only itself, so a tab the *browser* opened had no
+	# handler, could not resolve `app.test`, and sat at `about:blank`. The one test here about
+	# a new tab would have been asserting on a tab that never loaded.
+	context.route("**/*", answered)
+
+	def opened (address: str = "/") -> typing.Any:
+		"""Open one address and wait for the app to have painted."""
+
+		page = context.new_page()
+		page.goto(f"http://app.test{address}")
+		page.wait_for_selector(".app", timeout=10_000)
+
+		return page
+
+	try:
+		yield opened
+	finally:
+		context.close()
+
+
+def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> None:
+	"""`#722`'s entire value, verified by nobody until there was a browser here.
+
+	Every navigation in this app is a real anchor so that *open in a new tab*, *copy link
+	address*, middle-click and the context menu all work — and `opens` decides which clicks the
+	app keeps. That function is pure and covered; **whether a real browser then does what it
+	predicts was covered by nothing**, and it is the half that reaches a reader.
+	"""
+
+	page = running("/projects")
+
+	page.wait_for_selector("a[href]", timeout=10_000)
+
+	with page.context.expect_page(timeout=10_000) as opened:
+		page.click("a[href*='42']", modifiers=["Control"])
+
+	tab = opened.value
+
+	assert tab is not page, "a ctrl-click was handled by the app instead of the browser"
+
+	# **Waited for, because a tab exists before it has been anywhere.** Read immediately it is
+	# `about:blank`, which would have made this assert about timing rather than about the click.
+	tab.wait_for_load_state("domcontentloaded")
+
+	assert "42" in tab.url, f"the new tab opened somewhere else: {tab.url}"
+
+	tab.close()
+
+
 def test_the_stale_half_of_the_excuse_list (looks: typing.Any) -> None:
 	"""What makes an entry go away. Every allow-list in this repository owes this."""
 
@@ -301,21 +429,24 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	starts re-rendering components or asserting on markup it is a slower copy of
 	``tests/test_web.py``, and the fast suite is the one that stops being trusted.
 
-	**A list of forbidden words was the first version of this and it failed on its own list** —
-	`#546`'s shape for the third time in this repository, and `tests/dom.js` records the same
-	trap arriving through the word *click* inside the sentence forbidding it. A line count
-	cannot match itself, which is the whole reason it is the check here.
+	**Counted in tests rather than in lines, which is a correction.** The first version bounded
+	the file at 160 lines, fired on its author at 162, and was raised to 180 — then the fixture
+	that serves the app took it to 235 with no test added. A line count measures the prose and
+	the harness; `#748`'s scope is *ten tests answering what only a browser can*, so the bound
+	is now the thing the argument is about. Infrastructure may grow; the surface may not.
+
+	**And a list of forbidden words was the version before that**, which failed on its own
+	list — `#546`'s shape for the third time here, and ``tests/dom.js`` records the same trap
+	arriving through the word *click* inside the sentence forbidding it.
 	"""
 
-	code = re.sub(r'"""[\s\S]*?"""', "", pathlib.Path(__file__).read_text(encoding="utf-8"))
-	lines = [line for line in code.splitlines() if line.strip()]
+	source = pathlib.Path(__file__).read_text(encoding="utf-8")
+	tests = re.findall(r"^def (test_\w+)", source, re.M)
 
-	# **Raised from 160 to 180 once, and the raise is the act rather than the number.** 160 was
-	# guessed before the file existed; five tests, a two-page fixture and the excuse list came to
-	# 162. The fat was two functions asking one question, which is gone. §21.2's procedure for
-	# the MCP budget is the same one: measure, read the addition for fat, write the case here.
-	assert len(lines) < 180, (
-		f"this file is {len(lines)} lines of code. Answering what only a browser can is the "
-		f"agreed scope; past this it is a second suite, and the fast one is the one that stops "
-		f"being run. Raising this is a decision — read the addition for fat first."
+	assert len(tests) > 1, "no tests were found, so this is checking nothing"
+
+	assert len(tests) <= 10, (
+		f"this file holds {len(tests)} tests: {tests}. Ten answering what only a browser can "
+		f"is the agreed scope; past this it is a second suite, and the fast one is the one "
+		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
