@@ -26,6 +26,12 @@ upgrade involves.
   both are used the line still sets the title, and anything you picked in the form wins over
   what you typed.
 
+  Every control says what it holds: projects are indented under their parents as
+  `subroutine project list` shows them, the priority scale reads *1 — Very low* to *5 — Very
+  high* so it cannot be filled in backwards, an agent is listed as `claude (agent)` rather
+  than as a colleague, and each of the three dates carries the sentence `subroutine explain
+  dates` uses for it.
+
   A start day now shows on an item too. It could be set from a terminal and read back nowhere.
 
 - **`subr` is the same program under a shorter name.** Ten characters against sixteen, on
@@ -51,6 +57,12 @@ upgrade involves.
   plugin still needs nothing installed first; that is what `uvx` is for.
 
 ### Fixed
+
+- **The browser called a defer a start.** The date that hides a task until it is relevant was
+  labelled *Starts*, which is the one thing it does not mean — nothing begins on that day, the
+  task simply does not appear before it. It is *Hidden until* now, in the same words
+  `subroutine explain dates` has always used, and *Planned for* and *Due* say what they are
+  too.
 
 - **The address of one item is the address of one item.** Opening `/projects/ui/441` in the
   browser used to leave `/projects/ui/441?view=list` in the bar. *List* and *board* say how a

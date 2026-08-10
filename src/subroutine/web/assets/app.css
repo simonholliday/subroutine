@@ -194,6 +194,14 @@ code, .ref, .priority, .broke .detail {
 	font-size: 13px;
 }
 
+/* The three dates need a sentence each and the rest do not — `SR#769`. Quieter than the label,
+   because it is read once and then never again. */
+.adding .details small {
+	color: var(--ink-faint);
+	font-size: 12px;
+	line-height: 1.35;
+}
+
 .adding .details .wide { grid-column: 1 / -1; }
 
 /*

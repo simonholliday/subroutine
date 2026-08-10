@@ -599,17 +599,54 @@ export function vocabularyRequest (slug) {
 
 export function projectsRequest (slug) {
 	/*
-		Where a new item can be filed.
+		Where a new item can be filed, **in tree order** (`#770`).
 
-		**Three fields rather than the whole project**, on `#645`'s measurement: a listing that
+		**Four fields rather than the whole project**, on `#645`'s measurement: a listing that
 		asks for what it renders is the difference between 287 KB and 38 KB. `is_inbox` is here
 		because the Inbox is where an item with no project lands, so it is the one entry a form
 		can label as *what happens if you say nothing*.
+
+		**`path` orders and `depth` indents, and only one of them is a field.** `path` is
+		sortable and *not* selectable — measured, by asking for it and being told the twenty-one
+		fields a project has. So the shape of the tree arrives as an order plus a number, which
+		is enough: a flat list put `Web UI` beside `Websites` as though they were the same kind
+		of thing, when one is inside `Subroutine` and the other is a root.
 	*/
 	return {
-		path: scoped("/projects?fields=key,title,is_inbox&limit=200", slug),
+		path: scoped("/projects?fields=key,title,is_inbox,depth&order=path&limit=200", slug),
 		method: "GET",
 	};
+}
+
+export function people (roster) {
+	/*
+		Who work can be handed to, and **which of them is an agent** (`#770`).
+
+		The roster has published `is_service_account` since M1 and this app read the username and
+		threw the rest away — so on this workspace the control offered one person and four
+		agents, all looking like colleagues.
+
+		**That is worse than untidy.** `#473` made an agent answer to a person and `#474` is that
+		delegation has never once been used here; handing work to `claude-nuc14` in the belief it
+		is a colleague is the failure the accountability chain exists to prevent.
+
+		**Said in a word, not in a glyph or a colour** (`#102`): nothing may be information only
+		in how it looks, and an icon beside four of five names is exactly that. *(agent)* rather
+		than *(bot)* because agent is the word this product uses everywhere else — the spec, the
+		skill, `subroutine agent create` — and a second name for one thing is what this codebase
+		keeps paying for.
+
+		**The username is the label, not `display_name`.** A reader who picks *Claude on nuc14*
+		and then reads `claude-nuc14` back off the item has been shown two names for one
+		account, which is `#515`'s shape in miniature: every step works and the confirmation
+		does not match the choice.
+	*/
+	return (roster || []).map((row) => ({
+		username: row.user.username,
+		label: row.user.is_service_account
+			? `${row.user.username} (agent)`
+			: row.user.username,
+	}));
 }
 
 export function offered (vocabulary, kind) {
@@ -650,9 +687,16 @@ export function filableFor (projects, project) {
 		The same shape as `offered` on purpose, so both fill the same control and neither grows
 		its own idea of what a dropdown is.
 	*/
+	/*
+		**Indented by depth, which is what `subroutine project list` already does** — two spaces
+		per level, so the two surfaces render one tree the same way rather than each inventing a
+		shape for it. Non-breaking, because an `<option>` is the one place a browser may collapse
+		leading whitespace and the indent is the whole of what is being said.
+	*/
 	const known = (projects || []).map((one) => ({
 		key: one.key,
-		label: `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
+		label: "  ".repeat(one.depth || 0)
+			+ `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
 		chosen: project ? one.key === project : Boolean(one.is_inbox),
 	}));
 
@@ -1792,7 +1836,46 @@ export function Board ({
 	`;
 }
 
-export const PRIORITIES = [1, 2, 3, 4, 5];
+/*
+	The two axes of §6.3, **with which way they run said out loud** (`#770`).
+
+	*5 = most important/urgent. Higher is more* — Appendix A settled it as ambiguity A1, because
+	every `gte` filter depends on the answer. A bare 1–5 says none of that, and a reader who
+	guesses the other way files their whole backlog upside down and is never told.
+
+	**Ascending, so the number stays the thing.** `!4/3` is how a priority is written at a
+	terminal, in a captured line, in `Facts` and in every listing; a control that put 5 at the
+	top would be the one place the scale reads backwards, and the words already fix the
+	direction without moving anything.
+*/
+export const PRIORITIES = [
+	{ value: 1, label: "1 — Very low" },
+	{ value: 2, label: "2 — Low" },
+	{ value: 3, label: "3 — Medium" },
+	{ value: 4, label: "4 — High" },
+	{ value: 5, label: "5 — Very high" },
+];
+
+/*
+	**Three date fields, kept apart on purpose, in the words `subroutine explain dates` uses.**
+
+	`#769`: this said *Starts*, which is the one reading `start_at` explicitly is not. Appendix
+	A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or *earliest
+	permitted start*, and settled it as a **defer** — the task is not actionable before it and
+	views hide it by default (§6.5).
+
+	So the browser was a second copy of a vocabulary that disagreed with the first, on the one
+	surface with no `explain` to check against: a terminal reader can ask and a browser reader
+	has only the label. `cli/topics.py` is the original and a test holds these against it.
+
+	**Left to right is chronological** — hidden until, then planned for, then due — and it only
+	read as arbitrary while the first one claimed to be a start.
+*/
+export const DATE_FIELDS = [
+	["start", "Hidden until", "A defer. The task does not appear at all before this."],
+	["planned_for", "Planned for", "The day you intend to do it. This is what 'today' shows."],
+	["due", "Due", "A deadline. The date something has to be finished by."],
+];
 
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
@@ -1848,16 +1931,19 @@ export function Adding ({
 		— one field, both meanings, decided by what arrives. `datetime-local` would make every
 		deadline carry a time somebody had to invent; a time of day is what the line is for.
 	*/
-	const day = (name, label) => html`
-		<label><span>${label}</span>
-			<input type="date" name=${name} disabled=${busy} /></label>
+	const day = ([name, label, hint]) => html`
+		<label key=${name}><span>${label}</span>
+			<input type="date" name=${name} disabled=${busy} />
+			<small>${hint}</small></label>
 	`;
 
 	const rank = (name, label) => html`
 		<label><span>${label}</span>
 			<select name=${name} disabled=${busy}>
 				<option value="">—</option>
-				${PRIORITIES.map((one) => html`<option key=${one} value=${one}>${one}</option>`)}
+				${PRIORITIES.map((one) => html`
+					<option key=${one.value} value=${one.value}>${one.label}</option>
+				`)}
 			</select></label>
 	`;
 
@@ -1905,7 +1991,8 @@ export function Adding ({
 						<select name="assignee" disabled=${busy}>
 							<option value="">Nobody</option>
 							${(members || []).map((one) => html`
-								<option key=${one} value=${one}>${one}</option>
+								<option key=${one.username} value=${one.username}
+									>${one.label}</option>
 							`)}
 						</select></label>
 
@@ -1915,9 +2002,7 @@ export function Adding ({
 					<label><span>Estimate</span>
 						<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d" /></label>
 
-					${day("start", "Starts")}
-					${day("planned_for", "Planned")}
-					${day("due", "Due")}
+					${DATE_FIELDS.map(day)}
 
 					<label class="wide"><span>Tags</span>
 						<input name="tags" disabled=${busy} placeholder="health, admin" /></label>
@@ -2173,8 +2258,12 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 					<select disabled=${busy}
 						onChange=${(event) => onAssign(item, event.target.value || null)}>
 						<option value="" selected=${!item.assignee}>Nobody</option>
+						${/* **The same answer the add form gets** (`#770`): four of this workspace's
+					     five members are agents, and a control that says so on one surface and
+					     not on the other is two vocabularies for one roster. */ null}
 						${members.map((who) => html`
-							<option value=${who} selected=${who === item.assignee}>${who}</option>
+							<option value=${who.username} selected=${who.username === item.assignee}
+								>${who.label}</option>
 						`)}
 					</select>
 				</label>
@@ -2524,7 +2613,7 @@ export function App () {
 		try {
 			const found = await sent(rosterRequest(slug));
 
-			setMembers(found.items.map((row) => row.user.username));
+			setMembers(people(found.items));
 		} catch (_) {
 			setMembers([]);
 		}

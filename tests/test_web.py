@@ -34,6 +34,7 @@ import subroutine.api.app
 import subroutine.api.routing
 import subroutine.api.tasks
 import subroutine.api.web
+import subroutine.cli.topics
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
@@ -1567,6 +1568,160 @@ def test_a_dropdown_is_built_from_the_workspace_and_not_from_a_list (
 	assert absent == [] and unknown == []
 
 
+def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> None:
+	"""`SR#769`. The browser said *Starts*, which is the one reading `start_at` is not.
+
+	Appendix A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or
+	*earliest permitted start*, and settled it as a **defer**: not actionable before it, hidden
+	by default (§6.5). `subroutine explain dates` has said so since M1.
+
+	So this was a second copy of a vocabulary disagreeing with the first, on the one surface with
+	no `explain` to check against — a terminal reader can ask, a browser reader has the label and
+	nothing else. `cli/topics.py` is the original, and this makes the browser derive from it
+	rather than merely agree with it today.
+
+	**The sentences are compared exactly.** I wrote this to compare load-bearing words first, on
+	the grounds that a fixed-width table and a hint under a control want different prose — and
+	then it failed, because my own hint for `start` had drifted to two words in common. Reading
+	the terminal's three sentences showed they need no adaptation at all: they are already the
+	right length and the right voice for a form. So the weaker check was solving a problem that
+	did not exist, and equality is what *one* copy of a sentence actually means.
+
+	The labels stay a case-insensitive containment, because the terminal writes them lower case
+	inside a table and a control's label is capitalised.
+	"""
+
+	said = subroutine.cli.topics.find("dates")
+
+	assert said is not None, "the dates topic is gone, so this is checking nothing"
+
+	terminal = said.body.lower()
+	app = _served_modules()["app.js"]
+	found = re.search(r"export const DATE_FIELDS = \[(.*?)\n\];", app, re.S)
+
+	assert found is not None, "DATE_FIELDS is gone, so this is checking nothing"
+
+	fields = re.findall(r'\["(\w+)", "([^"]+)", "([^"]+)"\]', found.group(1))
+
+	assert len(fields) == 3, f"{len(fields)} date fields, and the terminal describes three"
+
+	for name, label, hint in fields:
+		assert label.lower() in terminal, (
+			f"the browser calls {name} {label!r} and `subroutine explain dates` has never used "
+			f"that phrase — one of the two is now teaching something the other contradicts"
+		)
+
+		assert hint in said.body, (
+			f"the browser explains {name} as {hint!r}, which appears nowhere in `subroutine "
+			f"explain dates` — two surfaces are now teaching two things about one field"
+		)
+
+	# **Chronological, and the reason is written down** so it is not reshuffled by taste: a defer
+	# comes before the day you mean to do it, which comes before the deadline. It only read as
+	# arbitrary while the first one claimed to be a start.
+	assert [name for name, _label, _hint in fields] == ["start", "planned_for", "due"]
+
+
+def test_the_priority_scale_says_which_way_it_runs (tmp_path: pathlib.Path) -> None:
+	"""`SR#770`. A bare 1 to 5 does not say whether 1 or 5 is the important end.
+
+	Appendix A's ambiguity A1: *1-5, 5 = most important/urgent. Higher is more (§6.3)* — settled
+	because every `gte` filter depends on it. A reader who guesses the other way files their
+	whole backlog upside down and is never told, which is the failure worth preventing rather
+	than the untidiness.
+
+	**The direction is asserted against the domain rather than against this docstring**, so a
+	control that ever lists *Very high* against 1 fails here.
+	"""
+
+	app = _served_modules()["app.js"]
+	found = re.search(r"export const PRIORITIES = \[(.*?)\n\];", app, re.S)
+
+	assert found is not None, "PRIORITIES is gone, so this is checking nothing"
+
+	rungs = re.findall(r'\{ value: (\d), label: "([^"]+)" \}', found.group(1))
+
+	assert [int(value) for value, _label in rungs] == list(
+		range(min(subroutine.domain.tasks.PRIORITY_RANGE), max(subroutine.domain.tasks.PRIORITY_RANGE) + 1)
+	), "the control offers a different range from the one the service accepts"
+
+	labels = {int(value): label.lower() for value, label in rungs}
+
+	assert "very high" in labels[max(labels)], (
+		f"the top of the scale is labelled {labels[max(labels)]!r}, and §6.3 says higher is more"
+	)
+	assert "very low" in labels[min(labels)], (
+		f"the bottom of the scale is labelled {labels[min(labels)]!r}, and §6.3 says higher is more"
+	)
+
+	# **Ascending, so the number stays the thing.** `!4/3` is how a priority is written at a
+	# terminal, in a captured line and in `Facts`; a control putting 5 at the top would be the
+	# one place the scale reads backwards.
+	assert [int(value) for value, _label in rungs] == sorted(int(v) for v, _ in rungs)
+
+
+def test_an_agent_is_not_offered_as_though_it_were_a_colleague (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#770`. The roster publishes `is_service_account` and the app threw it away.
+
+	Measured on this project's own workspace: **one person and four service accounts**, so the
+	assignment control offered five names that read as five colleagues.
+
+	That matters more than it looks. `SR#473` made an agent answer to a person and `SR#474` is
+	that delegation has never once been used on this instance — handing work to `claude-nuc14`
+	believing it is a colleague is the failure the accountability chain exists to prevent.
+
+	**Said in a word** (`SR#102`): nothing may be information only in how it looks, so an icon
+	beside four of five names would not do on its own.
+	"""
+
+	[said] = _views(tmp_path, [("people", {"roster": [
+		{"user": {"username": "si", "is_service_account": False, "display_name": None}},
+		{"user": {"username": "claude-nuc14", "is_service_account": True,
+			"display_name": "Claude on nuc14"}},
+	]})])
+
+	assert said[0] == {"username": "si", "label": "si"}
+	assert said[1]["label"] == "claude-nuc14 (agent)", (
+		f"an agent is offered as {said[1]['label']!r}, which reads as a person"
+	)
+
+	# **The username is the label, not `display_name`.** A reader who picks *Claude on nuc14* and
+	# reads `claude-nuc14` back off the item has been shown two names for one account.
+	assert said[1]["username"] == "claude-nuc14"
+
+
+def test_a_sub_project_cannot_be_mistaken_for_a_root_one (tmp_path: pathlib.Path) -> None:
+	"""`SR#770`. The projects are a tree and the control was flat.
+
+	On this instance that put `Web UI` — which is inside `Subroutine` — beside `Websites`, which
+	is a root, as though they were the same kind of thing.
+
+	**Indented by depth, two spaces per level, because that is what `subroutine project list`
+	already does.** One tree rendered the same way on both surfaces rather than each inventing a
+	shape for it. `path` orders and `depth` indents; `path` is sortable and not selectable, which
+	is why the shape arrives as an order plus a number.
+	"""
+
+	[said] = _views(tmp_path, [("filableFor", {"project": None, "projects": [
+		{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0},
+		{"key": "subroutine", "title": "Subroutine", "depth": 0},
+		{"key": "ui", "title": "Web UI", "depth": 1},
+		{"key": "websites", "title": "Websites", "depth": 0},
+	]})])
+
+	assert [one["label"] for one in said] == [
+		"Inbox (default)", "Subroutine", "\u00a0\u00a0Web UI", "Websites",
+	]
+
+	# **Non-breaking**, because an `<option>` is the one place a browser may collapse leading
+	# whitespace, and the indent is the whole of what is being said.
+	assert said[2]["label"].startswith("\u00a0\u00a0"), (
+		"the indent is ordinary whitespace, which an `<option>` may collapse"
+	)
+
+
 def test_a_new_item_goes_where_the_address_says (tmp_path: pathlib.Path) -> None:
 	"""Simon's requirement, verbatim: *if a project is already selected (in URL), that is default
 	project for the item to be added to*.
@@ -1650,10 +1805,17 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	#
 	# **Naming the helpers is a list, and a fourth one would fall off it** — but it falls off in
 	# the safe direction: the field then appears in `read` and not in `drawn`, and this fails
-	# saying the body reads something the form never draws. It caught its own first version that
-	# way, which had two of the three.
+	# saying the body reads something the form never draws. It has caught its own extraction
+	# falling behind twice — first with two of the three helpers, then when the three dates
+	# stopped being call sites and became a table.
 	drawn.discard("name")
 	drawn |= set(re.findall(r'(?:day|rank|vocabularySelect)\("(\w+)"', form))
+
+	dates = re.search(r"export const DATE_FIELDS = \[(.*?)\n\];", app, re.S)
+
+	assert dates is not None, "DATE_FIELDS is gone, so the dates are not being counted"
+
+	drawn |= set(re.findall(r'\["(\w+)",', dates.group(1)))
 
 	found = re.search(r"export const SAID_AS_WRITTEN = \[(.*?)\];", app, re.S)
 	numbers = re.search(r"export const SAID_AS_NUMBERS = \[(.*?)\];", app, re.S)
@@ -3674,6 +3836,7 @@ def _views (
 			: name === "filed" ? app.filed(argument.values, argument.slug)
 			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
 			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
+			: name === "people" ? app.people(argument.roster)
 			: app.columns(argument))));
 	"""))
 
