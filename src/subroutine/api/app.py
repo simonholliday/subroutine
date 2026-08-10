@@ -45,7 +45,7 @@ import subroutine.db.session
 #: or an agent deciding whether this endpoint does what they need, so it points at the two
 #: places that answer that rather than describing the product again.
 DESCRIPTION = """
-Project management for people and agents, in equal measure.
+Agent-native task management for your life, your projects and your team.
 
 `GET /v1/meta` reports this installation's vocabulary — its statuses, link types, field
 operators and date grammar — so a client can read them rather than assume them.
@@ -122,7 +122,7 @@ def create_app (
 
 	application = fastapi.FastAPI(
 		title="Subroutine",
-		summary="Project management for people and agents, in equal measure.",
+		summary="Agent-native task management for your life, your projects and your team.",
 		description=DESCRIPTION,
 		version=subroutine.API_VERSION,
 		openapi_url="/v1/openapi.json",

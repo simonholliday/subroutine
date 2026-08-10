@@ -17,8 +17,10 @@ import re
 import tomllib
 
 import pytest
+import typer.testing
 import yaml
 
+import subroutine.api.app
 import subroutine.cli.main
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -367,25 +369,94 @@ def test_one_sentence_describes_this_product_on_every_surface_that_carries_one (
 	)
 
 
+#: What this product used to call itself, refused everywhere `#731` did not reach.
+#:
+#: **`CHANGELOG.md` is excluded and must be**: a changelog's job is to quote what changed, so
+#: the entry announcing this replacement necessarily contains the old line. Excluding it is the
+#: one place where "still says the old thing" is correct rather than stale.
+RETIRED_DESCRIPTIONS = ("Project management for people and agents, in equal measure.",)
+
+
 def test_no_surface_still_carries_a_description_we_have_replaced () -> None:
 	"""`#405`'s other direction: agreeing on the new line is not the same as dropping the old.
 
-	The check above passes on a tree where every surface carries **both** — the new sentence
-	appended and the old one left above it. That is precisely what a half-finished rename looks
-	like, and it is the state this repository was in for the whole of 0.6.x: `#731` decided the
-	noun on 9 August and the rejected line was still on four surfaces the next day.
+	The check above passes on a tree where a surface carries **both** — the new sentence added
+	and the old one left in place. That is what a half-finished rename looks like, and it is what
+	this repository was in the middle of: `#731` decided the noun on 9 August and the rejected
+	line was still on four surfaces the next day.
+
+	**Scanned across the tree rather than over a list, which is `#753`.** The first version of
+	this walked `CARRIES_THE_DESCRIPTION` — a list I built from the surfaces I had already
+	corrected — so it could only find the old line where the new one had been put, which is
+	exactly where it would not be. It missed three: the CLI's `--help`, and the OpenAPI
+	description and summary. **A list of surfaces is a list of the ones somebody thought of**,
+	and the whole point of this direction is to catch the one they did not.
 	"""
 
-	retired = "Project management for people and agents, in equal measure."
-	found = [
-		name
-		for name in [*CARRIES_THE_DESCRIPTION, "README.md", "pyproject.toml"]
-		if retired in (ROOT / name).read_text(encoding="utf-8")
+	pages = [
+		*sorted(p.relative_to(ROOT) for p in (ROOT / "src").rglob("*.py")),
+		*sorted(p.relative_to(ROOT) for p in ROOT.glob("plugins/*/.claude-plugin/*.json")),
+		*sorted(p.relative_to(ROOT) for p in ROOT.glob("plugins/*/*.json")),
+		pathlib.Path("README.md"),
+		pathlib.Path("pyproject.toml"),
+		pathlib.Path(".claude-plugin/marketplace.json"),
 	]
 
+	# A floor: an empty walk finds nothing and would read as a clean tree.
+	assert len(pages) > 50, f"the scan read {len(pages)} files, so it is checking almost nothing"
+
+	found = {
+		str(name): retired
+		for name in pages
+		for retired in RETIRED_DESCRIPTIONS
+		if retired in (ROOT / name).read_text(encoding="utf-8")
+	}
+
 	assert not found, (
-		f"{found} still carry {retired!r}, which `#731` replaced. A surface holding both the "
-		f"old line and the new one reads as two products."
+		f"{found} still describe this product the way `#731` replaced. A surface holding both "
+		f"the old line and the new one reads as two products."
+	)
+
+
+def test_the_program_and_the_api_describe_themselves_the_way_the_package_does () -> None:
+	"""`#753`. The two surfaces `#731` missed, read off what runs rather than off the source.
+
+	`subroutine --help` opens with the app's own docstring and `/docs` renders the API's summary.
+	Both are places a reader meets a description of the product, and for an hour after `#731`
+	closed they carried the retired one — so the CLI and the API described a different product
+	from PyPI, the README, the marketplace and both plugins.
+
+	**Driven, not introspected.** `app.info.help` is a Typer placeholder — the help text comes
+	from the callback's docstring and is assembled at render time — so asking the object returns
+	something that is not what anybody reads. `--help` is run and its output is read, which is
+	also what makes this survive Typer changing where it keeps the string.
+
+	**Rewrapped before comparing**, because the help renderer folds to the terminal width and a
+	sentence longer than that arrives split across lines.
+	"""
+
+	sentence = _described()
+
+	printed = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["--help"])
+
+	assert printed.exit_code == 0, printed.output
+
+	unwrapped = " ".join(printed.output.split())
+
+	assert sentence in unwrapped, (
+		f"`subroutine --help` does not open with the published description. It says: "
+		f"{unwrapped[:160]!r}"
+	)
+
+	application = subroutine.api.app.create_app()
+
+	assert application.summary == sentence, (
+		f"the API's summary is {application.summary!r} and the package publishes {sentence!r}"
+	)
+
+	assert sentence in (application.description or ""), (
+		f"the API's description does not carry the published sentence: "
+		f"{(application.description or '')[:120]!r}"
 	)
 
 

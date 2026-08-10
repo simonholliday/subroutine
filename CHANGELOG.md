@@ -28,6 +28,10 @@ upgrade involves.
   one. Nothing about the product changed; the description now says what it is for rather than
   which category it is in.
 
+- **The command line and the API describe the product the same way everything else does.**
+  `subroutine --help` and the API's own `/docs` page were still opening with the old
+  description for an hour after everything else had changed.
+
 - **The README tells you and your agent apart.** Installing it for yourself and wiring it into
   Claude Code are two different jobs with two different answers, and the page used to give the
   agent's answer to both — so a person was shown `uvx subroutine …`, which costs a quarter of a

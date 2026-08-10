@@ -2823,7 +2823,7 @@ def _default (
 		help="Print the installed version and the schema it expects.",
 	),
 ) -> None:
-	"""Project management for people and agents, in equal measure.
+	"""Agent-native task management for your life, your projects and your team.
 
 	Examples:
 
