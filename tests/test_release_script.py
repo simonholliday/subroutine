@@ -424,6 +424,68 @@ def test_a_release_leaves_a_file_it_is_not_changing_byte_for_byte (
 	)
 
 
+def test_a_dry_run_names_only_the_files_that_would_change (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`SR#749`, one layer up — and this is the surface that gave false confidence.
+
+	Before `v0.6.2` the dry run was clean and read as proof. It listed the uvx pin being written
+	when the pin was already correct, so a line describing a **no-op** read exactly like a line
+	describing a change — and the release it approved went red on the tag.
+
+	A release is entitled to leave a file alone. A dry run that cannot say which files those are
+	is not answering the question somebody runs it to ask.
+	"""
+
+	# **Both files already say what this release wants**, which is the state `v0.6.2` was cut
+	# from: the manifest carries the number because the batch bumped it, and the pin names the
+	# series because it always did.
+	servers = repository / "plugins" / "subroutine" / ".mcp.json"
+	manifest = repository / "plugins" / "subroutine" / ".claude-plugin" / "plugin.json"
+
+	assert "subroutine~=0.1.0" in servers.read_text(encoding="utf-8"), (
+		"this test rests on the fixture's pin already naming the series being released"
+	)
+
+	carried = json.loads(manifest.read_text(encoding="utf-8"))
+	carried["version"] = "0.1.1"
+	manifest.write_text(json.dumps(carried, indent=2) + "\n", encoding="utf-8")
+	_git(repository, "commit", "-am", "the batch bumped the plugin to the number being released")
+
+	done = cut("0.1.1", "--dry-run")
+
+	assert done.returncode == 0, done.stderr
+
+	assert "uvx is pointed at" not in done.stdout, (
+		f"the dry run announced a write to a file it would leave alone:\n{done.stdout}"
+	)
+
+	assert "version becomes" not in done.stdout, (
+		f"the dry run announced setting a manifest to the version it already carries — the "
+		f"line that read as a change and described a no-op:\n{done.stdout}"
+	)
+
+	assert "2 already say what this release wants" in done.stdout, (
+		f"the dry run dropped both files silently instead of saying they need nothing:\n"
+		f"{done.stdout}"
+	)
+
+
+
+def test_a_dry_run_still_names_a_pin_that_would_move (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""The opposite direction, or "name nothing" would pass the test above."""
+
+	done = cut("0.2.0", "--dry-run")
+
+	assert done.returncode == 0, done.stderr
+
+	assert "uvx is pointed at 'subroutine~=0.2.0'" in done.stdout, (
+		f"a release moving the series did not say the pin would move:\n{done.stdout}"
+	)
+
+
 def test_a_release_still_writes_a_version_that_has_moved (
 	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
 ) -> None:

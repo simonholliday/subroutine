@@ -116,14 +116,39 @@ def main (argv: list[str] | None = None) -> int:
 	pinned = PIN.format(major=major, minor=minor)
 
 	if parsed.dry_run:
+		# **What would actually change, not what would be attempted** (`#749`). This listed every
+		# file the script *touches*, which is a different set — and the gap is exactly what gave
+		# false confidence before `v0.6.2`: it reported the uvx pin being written when the pin was
+		# already correct, so the line described a no-op and read like a change.
+		#
+		# A release is entitled to leave a file alone, and a dry run that cannot say which files
+		# those are is not answering the question somebody runs it to ask.
+		changing = [
+			f"  {CHANGELOG.name}: the Unreleased heading becomes '## {version} — {on}'"
+		]
+		changing += [
+			f"  {manifest.parent.parent.name}: version becomes {version}"
+			for manifest in PLUGINS
+			if json.loads(manifest.read_text(encoding="utf-8"))["version"] != version
+		]
+		changing += [
+			f"  {bootstrap.parent.name}: uvx is pointed at '{pinned}'"
+			for bootstrap in BOOTSTRAPS
+			if _pins_in(bootstrap) - {pinned}
+		]
+		changing.append(f"  {RELEASES.name}: {version} recorded at schema {head}")
+
 		print(f"Would release {version} ({on}):")
-		print(f"  {CHANGELOG.name}: the Unreleased heading becomes '## {version} — {on}'")
-		for manifest in PLUGINS:
-			print(f"  {manifest.parent.parent.name}: version becomes {version}")
-		for bootstrap in BOOTSTRAPS:
-			print(f"  {bootstrap.parent.name}: uvx is pointed at '{pinned}'")
-		print(f"  {RELEASES.name}: {version} recorded at schema {head}")
-		print(f"  commit all {2 + len(PLUGINS) + len(BOOTSTRAPS)}, then tag v{version}")
+
+		for line in changing:
+			print(line)
+
+		unchanged = (1 + len(PLUGINS) + len(BOOTSTRAPS) + 1) - len(changing)
+
+		already = "already says" if unchanged == 1 else "already say"
+
+		print(f"  commit {len(changing)}, then tag v{version}"
+		      + (f" — {unchanged} {already} what this release wants" if unchanged else ""))
 
 		return 0
 
@@ -402,19 +427,27 @@ def _write_uvx_pin (version: str) -> None:
 	wanted = PIN.format(major=major, minor=minor)
 
 	for path in BOOTSTRAPS:
-		servers = json.loads(path.read_text(encoding="utf-8"))
-		present = {
-			argument
-			for server in servers.get("mcpServers", {}).values()
-			for argument in (server.get("args") or [])
-			if argument.startswith("subroutine~=")
-		}
-
 		# **A bootstrap with no pin is left alone entirely** — the remote plugin needs no
 		# package, and rewriting its file to change nothing is what `#749` was.
-		for pin in present:
-			if pin != wanted:
-				_replace_json_value(path, pin, wanted)
+		for pin in _pins_in(path) - {wanted}:
+			_replace_json_value(path, pin, wanted)
+
+
+def _pins_in (path: pathlib.Path) -> set[str]:
+	"""Return every ``subroutine~=`` pin a bootstrap file names.
+
+	Shared by the writer and the dry run so the two cannot disagree about whether a file needs
+	touching — which is the shape `#749` was, one layer up.
+	"""
+
+	servers = json.loads(path.read_text(encoding="utf-8"))
+
+	return {
+		argument
+		for server in servers.get("mcpServers", {}).values()
+		for argument in (server.get("args") or [])
+		if argument.startswith("subroutine~=")
+	}
 
 
 def _git (*arguments: str) -> str:
