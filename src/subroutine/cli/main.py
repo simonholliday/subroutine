@@ -657,7 +657,17 @@ def serve (
 
 	shown = f"[{where}]" if ":" in where else where
 
-	_say(f"Serving on http://{shown}:{listening} — the agent guide is at /v1/docs/agent.")
+	# **What is running is read off the routes, not described here** (`#780`). This line used
+	# to name the agent guide and nothing else, so an MCP server started on every `serve` and
+	# said nothing — the one way into this product that needs nothing installed at the far end.
+	# `api.serving()` answers what is mounted; the widths are the only thing decided here.
+	surfaces = api.serving()
+	column = max((len(surface.path) for surface in surfaces), default=0)
+
+	_say(f"Serving on http://{shown}:{listening}")
+
+	for surface in surfaces:
+		_say(f"  {surface.path:<{column}}  {surface.what} — {surface.note}")
 
 	listen(
 		api.create_app(settings=settings),

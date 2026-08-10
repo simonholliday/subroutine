@@ -403,6 +403,31 @@ def test_the_agent_guide_names_no_endpoint_this_application_does_not_serve (
 	assert named <= served, f"the guide names endpoints that do not exist: {named - served}"
 
 
+def test_the_guide_names_every_transport_this_instance_answers (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#780`. The guard above only ever looked at ``/v1``, and MCP does not live there.
+
+	``POST /mcp`` was served from `#516` and named by neither channel a reader is guaranteed
+	— not the line ``subroutine serve`` prints, not this document. So the cheapest way into
+	this product, an address and a token with nothing installed at the far end, could be
+	found only by reading the source. Decision `#499` is the rule that was broken.
+
+	**Derived rather than listed.** ``app.serving()`` reads what is mounted, so a transport
+	added tomorrow fails this until the guide says it exists. The derivation lives in the
+	test for the same reason `#678` put one there: ``meta.py`` writes the prose and must not
+	have to import the application that mounts it.
+	"""
+
+	guide = world.call("GET", "/v1/docs/agent").text
+
+	for surface in subroutine.api.app.serving():
+		assert surface.path in guide, (
+			f"this instance answers {surface.path} ({surface.what}) and the guide never "
+			f"says so — an agent reading it has no other way to find out"
+		)
+
+
 @pytest.mark.parametrize(
 	"unbuilt", ["/v1/sessions", "/v1/decisions", "/v1/verifications", "/v1/claims"]
 )

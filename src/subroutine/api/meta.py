@@ -369,10 +369,26 @@ def guide_text () -> str:
 		"and exactly what you may do, already narrowed by your token — you never need to "
 		"work that out by being refused.",
 		"",
+		# **Below the two `/v1/me` paragraphs and not between them.** "It also reports" names
+		# that endpoint, so a paragraph inserted above it silently changes what "it" is — found
+		# by reading the rendered guide rather than the source, which is the only place the
+		# join between two paragraphs exists at all.
 		"It also reports `instance_version` and `schema_revision`: what this installation "
 		"runs, and which migration its database is at. Read them when a field you expected "
 		"is absent — a client ahead of its instance is ordinary, and looks from your side "
 		"exactly like a feature that was never built.",
+		"",
+		# `#780`. Served since `#516` and named by neither channel a reader is guaranteed, so
+		# an agent arriving with an address and a token could not learn that its own protocol
+		# was already answering at that address. Decision `#499` is the rule, and this is the
+		# one document its reader has. `tests/test_api_meta.py` derives the claim from the
+		# mounted routes rather than trusting this paragraph to keep in step.
+		"**This instance speaks MCP as well, at `POST /mcp`** — the same bearer credential, "
+		"and `?workspace=` chooses a default workspace. If your client speaks MCP, that is "
+		"one address and one token with nothing installed at your end, and the tools you get "
+		"are this instance's own, so they can never be older than it. They are a deliberately "
+		"small, opinionated surface over the same data; `subroutine_call_api` reaches the "
+		"rest of what is described below.",
 		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared — the only way to clear a date. **The names you write are not the names you "

@@ -32,6 +32,7 @@ import typer.main
 import typer.testing
 
 import subroutine
+import subroutine.api.app
 import subroutine.cli.main
 import subroutine.credentials
 import subroutine.domain.profiles
@@ -953,6 +954,40 @@ def test_serving_bounds_how_long_a_stopping_server_waits (
 		"an unbounded or very long graceful shutdown is systemd's SIGKILL timeout wearing "
 		"another name, and the operator did not choose that one either"
 	)
+
+
+def test_starting_a_server_says_every_transport_it_just_started (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#780`, and Simon's question is the test: *is that instance also running MCP?*
+
+	It is, on every ``serve``, and the line printed named only the agent guide. An operator
+	forms a belief about what they have just started and nothing corrects it — `#515`
+	inverted, where a plugin reported success with its server dead.
+
+	**Driven rather than asked.** ``api.app.serving()`` is a pure function and testing it
+	alone would prove only that it can answer; what shipped broken here was the wire between
+	a correct answer and the thing that prints it, six times over during the browser arc.
+	So this runs the real command, with only uvicorn replaced.
+	"""
+
+	run("init")
+
+	monkeypatch.setattr("uvicorn.run", lambda app, **given: None)
+
+	printed = run("serve").output
+
+	assert "Serving on http://127.0.0.1:" in printed
+
+	for surface in subroutine.api.app.serving():
+		assert surface.path in printed, f"{surface.path} was started and not mentioned"
+
+	assert "/v1/docs/agent" in printed, "the guide is still the thing to read next"
+	assert "nothing installed" in printed, "and MCP's line says what a caller needs"
+
+	# `#538`: two MCP paths reach an instance, and this is the one that needs nothing at the
+	# caller's end. Announcing the other would send an operator to install a package.
+	assert "subroutine mcp" not in printed, "the stdio server is not what just started"
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.1.2.3", "::1", "[::1]"])

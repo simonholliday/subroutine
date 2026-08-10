@@ -106,6 +106,68 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 )
 
 
+class Surface (typing.NamedTuple):
+	"""One protocol a started instance answers, in the terms somebody starting it needs."""
+
+	#: Where it answers. A prefix, so ``/v1`` covers every route mounted beneath it.
+	path: str
+
+	#: What it is, said plainly enough for an operator who has not met the acronym.
+	what: str
+
+	#: What a caller needs, or where to read next. The half that makes the line worth a line.
+	note: str
+
+
+#: What an instance serves, in the order somebody starting one should hear it.
+#:
+#: **A path here is a claim, and :func:`serving` checks it against the routes** — an
+#: announcement can never name a transport this application does not answer. The judgement
+#: is which of them an operator is owed a sentence about; the fact is whether it is mounted,
+#: and only the second is written down twice.
+#:
+#: `#780` is the other direction and is why this exists at all. ``POST /mcp`` has been served
+#: since `#516` — an agent reaches an instance with an address and a token and nothing
+#: installed at its end — and neither the startup line nor the agent guide said so, so the
+#: cheapest way into this product was discoverable only by reading the source. Decision `#499`
+#: is the rule that was broken: the channel a reader is guaranteed must name the ones they
+#: only get by going looking, and here both guaranteed channels were silent.
+SURFACES: tuple[Surface, ...] = (
+	Surface("/v1", "the HTTP API", "the guide written for an agent is at /v1/docs/agent"),
+	# **"over HTTP" is doing real work.** There are two MCP paths into an instance (`#538`) and
+	# they need different things: this one, and `subroutine mcp`, which is stdio and needs the
+	# program installed on the caller's own machine. Saying which one just started is the
+	# difference between an operator configuring a client correctly and configuring the other.
+	Surface(
+		subroutine.api.mcp.PATH,
+		"MCP over HTTP",
+		"an agent needs this address and a token, and nothing installed",
+	),
+)
+
+
+def serving (
+	routers: typing.Sequence[subroutine.api.routing.Mounting] = ROUTERS,
+) -> list[Surface]:
+	"""Return the surfaces these routers answer, so a caller can say what is running.
+
+	The routers are an argument rather than read from the module, which is what lets a test
+	hand in a set with one of them missing and watch the answer lose a line. A scanner that
+	cannot be given its subject can only ever confirm the arrangement it was written from
+	(`#405`), and this one exists to notice an arrangement changing.
+	"""
+
+	answered = {path for path, _methods, _route in subroutine.api.routing.mounted(routers)}
+
+	return [
+		surface
+		for surface in SURFACES
+		if any(
+			path == surface.path or path.startswith(f"{surface.path}/") for path in answered
+		)
+	]
+
+
 def create_app (
 	*,
 	settings: subroutine.config.Settings | None = None,

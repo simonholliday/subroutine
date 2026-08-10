@@ -99,6 +99,21 @@ upgrade involves.
   second and four characters on every command, for ever. Install it once and type `subr`. The
   plugin still needs nothing installed first; that is what `uvx` is for.
 
+- **Starting a server says what it started.** `subroutine serve` used to print one line
+  naming the agent guide. It now names each thing the instance answers:
+
+      Serving on http://127.0.0.1:8471
+        /v1   the HTTP API — the guide written for an agent is at /v1/docs/agent
+        /mcp  MCP over HTTP — an agent needs this address and a token, and nothing installed
+
+  **The second line is not new behaviour, only a new sentence.** Every served instance has
+  spoken MCP since 0.5.0, and nothing said so — so the cheapest way to give an agent access,
+  handing somebody an address and a token with nothing to install at their end, could be found
+  only by reading the source. The guide an agent reads at `/v1/docs/agent` now says it too.
+
+  What is listed is read from the routes the instance actually serves, so it cannot claim a
+  way in that is not there, or stay quiet about one that is.
+
 ### Fixed
 
 - **A project name it could not read is now said out loud.** Typing `+my/project` left the

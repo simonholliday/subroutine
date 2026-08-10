@@ -17,7 +17,9 @@ import sqlalchemy.orm
 import api_support
 import subroutine
 import subroutine.api.app
+import subroutine.api.mcp
 import subroutine.api.middleware
+import subroutine.api.routing
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
@@ -275,3 +277,87 @@ def test_an_injected_factory_leaves_the_application_without_an_engine (
 	application = api_support.build_app(api_support.factory_for(session))
 
 	assert application.state.engine is None
+
+
+# --- What a started instance says it is serving ----------------------------------------
+
+
+#: Addresses a started instance answers that are deliberately not announced, and why.
+#:
+#: **The list is the point rather than the contents.** `#780` happened because ``POST /mcp``
+#: was mounted and no channel a reader is guaranteed said so; the only way to notice the next
+#: one is to be made to write down why it needs no saying. Anything under ``/v1`` is the HTTP
+#: API itself and is announced as one line rather than sixty.
+#:
+#: **The reach this has is ``ROUTERS``**, so FastAPI's own ``/docs`` and ``/redoc`` are
+#: outside it — they are built into the application rather than mounted, and ``/v1/meta``
+#: publishes both. Said here rather than left to be discovered, because a guard's blind spot
+#: is worth more written down than a guard's coverage is.
+NOT_ANNOUNCED = {
+	"/healthz": "a liveness probe, read by whatever watches the process rather than by a person",
+	"/readyz": "the same, and docs/hosting.md names it where an operator configures one",
+	"/": "the browser app, which is what the address on the line above already opens",
+	"/app/{name}": "the browser app's own files, fetched by that page rather than by anybody",
+	"/signin": "how a person signs in, reached from the page rather than typed",
+}
+
+
+def test_a_transport_that_is_not_mounted_is_not_announced () -> None:
+	"""`#780`. The announcement is derived from the routes, so it cannot outlive one.
+
+	Falsified by handing in the routers with the MCP one taken out: the answer loses that
+	line. A function that read the module's own constant would pass this by saying the same
+	thing whatever it was given, which is `#405`'s whole complaint about a scanner that
+	cannot be handed its subject.
+	"""
+
+	whole = [surface.path for surface in subroutine.api.app.serving()]
+	without = [
+		surface.path
+		for surface in subroutine.api.app.serving(
+			tuple(
+				mounting
+				for mounting in subroutine.api.app.ROUTERS
+				if mounting[1] is not subroutine.api.mcp.router
+			)
+		)
+	]
+
+	assert subroutine.api.mcp.PATH in whole, "this instance serves MCP and should say so"
+	assert subroutine.api.mcp.PATH not in without
+	assert "/v1" in without, "and removing one transport must not remove the other"
+
+
+def test_every_address_a_started_instance_answers_is_announced_or_excused () -> None:
+	"""The direction `#780` came from: something is served and nothing mentions it.
+
+	Checking that what is announced exists is the easy half and catches a removal. This is
+	the half that catches an addition — a new root-level route is either something an
+	operator is told about when the server starts, or it is a written reason why not.
+	"""
+
+	answered = {
+		path
+		for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+		if not path.startswith("/v1")
+	}
+	announced = {surface.path for surface in subroutine.api.app.serving()}
+
+	unexplained = answered - announced - set(NOT_ANNOUNCED)
+
+	assert not unexplained, (
+		f"a started instance answers {sorted(unexplained)} and says nothing about it. "
+		f"Add it to api.app.SURFACES, or to NOT_ANNOUNCED with the reason it needs no line."
+	)
+
+
+def test_nothing_is_excused_from_the_announcement_that_no_longer_exists () -> None:
+	"""What makes an entry go away. Every allow-list here owes this test."""
+
+	answered = {
+		path
+		for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+	}
+	gone = set(NOT_ANNOUNCED) - answered
+
+	assert not gone, f"{sorted(gone)} is excused from the announcement and is not served"
