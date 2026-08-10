@@ -66,6 +66,16 @@ postgres = ["psycopg[binary]>=3.1"]
 dev = [
 	"hypothesis>=6.100",
 	"mypy>=1.10",
+	# Driving a real browser, for the questions a DOM without a cascade cannot answer — a
+	# computed colour, a layout, a modified click (`#748`). **Test-only and never a runtime
+	# dependency**, which is what keeps `check_licences.py` honest about it: it walks
+	# `importlib.metadata` and sees an Apache-2.0 Python package. The browser binaries it
+	# fetches are not a Python dependency and are not shipped.
+	#
+	# `tests/test_browser.py` **skips** where there is no browser, exactly as PostgreSQL does,
+	# and `SUBROUTINE_TEST_REQUIRE_BROWSER=1` turns that skip into a failure so a green run
+	# cannot mean half a test run.
+	"playwright>=1.44",
 	"pytest>=8.2",
 	"pytest-cov>=5.0",
 	# Reading the plugin skill's YAML frontmatter, which nothing parsed until a colon in it

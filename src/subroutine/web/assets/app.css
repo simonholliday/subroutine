@@ -63,6 +63,52 @@ code, .ref, .priority, .broke .detail {
 	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/*
+	**A base look for every element the browser would otherwise decide for us** — `#747`, and
+	`#740` is what its absence cost the one time it happened.
+
+	This file styles a link in five contexts — `.views a`, `.prose a`, `.comments .body a`,
+	`.foot a`, `.narrowed a.widen` — and that arrangement is right: a link inside prose and a
+	link replacing a button want opposite things. **The consequence is that a new anchor
+	anywhere falls through to the user agent**: browser blue, underlined, identical in both
+	themes. Not a mistake somebody makes once; it is what the stylesheet does to every link
+	added without a context, and it did it within a day of the arrangement existing.
+
+	**These change nothing visible today**, which is what makes them safe: every element
+	currently rendered has a context rule, and a bare element selector loses to all of them. It
+	is purely a floor — an element added without a rule is now *plain* rather than *foreign*.
+
+	**`tests/test_browser.py` is what says so rather than this paragraph.** `#747` argued that a
+	guard here would have to be a regex over selectors, which is guarding a spelling; that was
+	true until there was a CSS engine in the pipeline. There is one now, and it asks a browser
+	whether each rendered element looks like something we decided or like something it decided.
+*/
+a {
+	color: var(--accent);
+}
+
+button, input, select, textarea {
+	font: inherit;
+	color: var(--ink);
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+}
+
+button { cursor: pointer; }
+
+button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: 0.5; }
+
+/* **The border goes and the padding with it**, which is the one place a base rule is a
+   removal rather than a look. A fieldset's user-agent frame is a groove nobody in this design
+   asked for, and both of ours already draw their own boundary — so this makes the element
+   neutral rather than restyling it. */
+fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
 /* ---- frame ------------------------------------------------------------- */
 
 .app {
