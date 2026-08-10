@@ -12,6 +12,28 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **`subr` is the same program under a shorter name.** Ten characters against sixteen, on
+  something you type dozens of times a day: `subr today`, `subr add "…"`, `subr done 42`.
+  Every command answers to both, and `--help` says so.
+
+### Changed
+
+- **Subroutine describes itself differently.** It is *agent-native task management for your
+  life, your projects and your team* — one line, on the PyPI summary, the README, the
+  marketplace and both plugin manifests, where there used to be two variants of a different
+  one. Nothing about the product changed; the description now says what it is for rather than
+  which category it is in.
+
+- **The README tells you and your agent apart.** Installing it for yourself and wiring it into
+  Claude Code are two different jobs with two different answers, and the page used to give the
+  agent's answer to both — so a person was shown `uvx subroutine …`, which costs a quarter of a
+  second and four characters on every command, for ever. Install it once and type `subr`. The
+  plugin still needs nothing installed first; that is what `uvx` is for.
+
 ## 0.6.3 — 2026-08-10
 
 **0.6.2 was tagged and never published.** Its release commit re-formatted both plugin manifests

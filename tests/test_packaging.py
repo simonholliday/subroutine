@@ -19,6 +19,8 @@ import tomllib
 import pytest
 import yaml
 
+import subroutine.cli.main
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -246,6 +248,145 @@ def test_the_files_that_state_the_licence_all_exist () -> None:
 
 	for path in STATES_THE_LICENCE:
 		assert (ROOT / path).is_file(), f"{path} is listed here and is not in the repository"
+
+
+def test_the_program_is_installed_under_both_names_it_publishes () -> None:
+	"""`#752`. `subr` is what somebody types after the first day, and it must be the same program.
+
+	**Two entry points at one target, rather than an alias inside the app.** A Typer alias would
+	be a second command in the help output, which is what `ls` is deliberately hidden from being
+	— *a synonym a reader can see in a command list is a second thing to decide about*. This is
+	not in a command list: the choice is how much to type, not which command to run.
+
+	So there is nothing to keep in step, and this asserts exactly that: **the same target**, not
+	two that happen to work today.
+	"""
+
+	scripts = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["scripts"]
+
+	assert set(scripts) == {"subroutine", "subr"}, (
+		f"the package installs {sorted(scripts)}; the README teaches 'subroutine' and 'subr'"
+	)
+
+	assert len(set(scripts.values())) == 1, (
+		f"the two names point at {sorted(set(scripts.values()))} — they are one program under "
+		f"two names, so a second target is a second program that will drift"
+	)
+
+
+def test_the_short_name_is_named_where_every_reader_of_help_sees_it () -> None:
+	"""`#499`: the channel that is guaranteed must name every channel that is not.
+
+	`subr` is installed beside `subroutine` and is otherwise **undiscoverable** — it is in no
+	command list, and nothing about typing `subroutine` suggests a shorter spelling exists. A
+	capability nothing announces is one nobody has, which is the failure `#499` was written for
+	when 9.5 KB of agent documentation turned out to be unreachable.
+
+	`--help`'s epilog is what every reader of the help page gets, and `subroutine help` prints
+	the same page (`#154`).
+
+	**Read off the app rather than the source**, so a rewritten epilog that drops it fails here.
+
+	**Matched on a word boundary, and the first version was not.** `"subr" in epilog` passes on
+	an epilog that never mentions the short name at all, because the word *subroutine* contains
+	it — so deleting the sentence left this green. Found by falsification; nothing else could
+	have. It is this repository's most-repeated defect, met here inside a guard written about
+	something being undiscoverable.
+	"""
+
+	epilog = subroutine.cli.main.app.info.epilog or ""
+
+	assert re.search(r"\bsubr\b", epilog), (
+		f"nothing in the help page's epilog names the short spelling, so a reader meets it "
+		f"nowhere: {epilog!r}"
+	)
+
+
+#: Every surface that carries the one-line description, and what a reader is doing when they
+#: meet it. `#731`.
+#:
+#: **`pyproject.toml` is the source and everything else is checked against it**, which is the
+#: only form "derived rather than restated" can take here: a plugin manifest is static JSON that
+#: can import nothing, and a README is prose. So the derivation lives in this test rather than in
+#: the files, exactly as `#678` put `ROUTED_WORKSPACE_WORDS`' derivation in a test to keep
+#: `addressing.py` free of HTTP.
+#:
+#: **The GitHub repository description is deliberately absent**, and it is the one surface no
+#: test can reach — it lives on github.com, not in the tree. `#732` carries it, and it has to be
+#: pasted by a person. Listing it here would be an entry that can never be satisfied.
+CARRIES_THE_DESCRIPTION = {
+	".claude-plugin/marketplace.json": "the line under the marketplace's name in Claude Code",
+	"plugins/subroutine/.claude-plugin/plugin.json": "what a reader sees before installing it",
+	"plugins/subroutine-remote/.claude-plugin/plugin.json": "the same, for the remote plugin",
+}
+
+
+def _described () -> str:
+	"""Return the one line this package publishes about itself, from the source of truth."""
+
+	loaded = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+
+	return str(loaded["project"]["description"])
+
+
+def test_one_sentence_describes_this_product_on_every_surface_that_carries_one () -> None:
+	"""`#731`. Two variants of the line were live at once, which is the first defect.
+
+	The PyPI summary said one thing and Simon quoted another, and `#733` then measured the
+	construction they shared — *X for people and AI agents* — as the phrase **six** competitors
+	already use, with the closest one's line being ours with two words changed. A sentence that
+	is not the same everywhere cannot be fixed once, and a sentence nobody checks drifts back.
+
+	**Read from `pyproject.toml`, which is the summary PyPI actually publishes**, so this cannot
+	pass by comparing two copies of a constant with each other.
+	"""
+
+	sentence = _described()
+
+	# A floor, because every assertion below is satisfied by an empty string appearing everywhere.
+	assert len(sentence.split()) >= 6, (
+		f"the description read from pyproject.toml is {sentence!r}, which is too short to be "
+		f"the sentence this is checking — the scan has probably stopped reading the right key"
+	)
+
+	for name, why in CARRIES_THE_DESCRIPTION.items():
+		text = (ROOT / name).read_text(encoding="utf-8")
+
+		assert sentence in text, (
+			f"{name} does not carry the description pyproject.toml publishes — it is {why}, so "
+			f"a reader meets a different sentence there. Expected to find: {sentence!r}"
+		)
+
+	# The README states it as its standfirst, which is the first line a person reads on both
+	# GitHub and PyPI — the two surfaces `#716` is about.
+	readme = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+
+	assert readme[2] == f"**{sentence}**", (
+		f"README.md's standfirst is {readme[2]!r} and the published description is "
+		f"{sentence!r}. They are the same claim and must be the same words."
+	)
+
+
+def test_no_surface_still_carries_a_description_we_have_replaced () -> None:
+	"""`#405`'s other direction: agreeing on the new line is not the same as dropping the old.
+
+	The check above passes on a tree where every surface carries **both** — the new sentence
+	appended and the old one left above it. That is precisely what a half-finished rename looks
+	like, and it is the state this repository was in for the whole of 0.6.x: `#731` decided the
+	noun on 9 August and the rejected line was still on four surfaces the next day.
+	"""
+
+	retired = "Project management for people and agents, in equal measure."
+	found = [
+		name
+		for name in [*CARRIES_THE_DESCRIPTION, "README.md", "pyproject.toml"]
+		if retired in (ROOT / name).read_text(encoding="utf-8")
+	]
+
+	assert not found, (
+		f"{found} still carry {retired!r}, which `#731` replaced. A surface holding both the "
+		f"old line and the new one reads as two products."
+	)
 
 
 #: Where a link in the README has to point so that it works on **both** surfaces GitHub and

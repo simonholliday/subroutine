@@ -77,9 +77,13 @@ app = typer.Typer(
 	# **`subroutine help` prints this page too** (`#154`). The two used to differ, which made
 	# one question have two answers; now the epilog offers `explain` as a *second* thing to
 	# reach for rather than as a correction to what the reader just typed.
+	# **And it names the short spelling** (`#752`, `#499`'s rule): `subr` is installed beside
+	# `subroutine` and is otherwise undiscoverable — a capability nothing announces is one
+	# nobody has. The epilog is the channel every reader of `--help` gets.
 	epilog=(
 		"Try 'subroutine explain dates' for the ideas behind the commands — how a date is "
-		"written, what a number means, what the capture shorthand does."
+		"written, what a number means, what the capture shorthand does. "
+		"Every command here also answers to 'subr'."
 	),
 )
 

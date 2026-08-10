@@ -14,7 +14,7 @@ name = "subroutine"
 # and produces `0.1.dev1+g…`, so every workflow job that installs this package checks out with
 # `fetch-depth: 0`.
 dynamic = ["version"]
-description = "Project management for people and agents, in equal measure."
+description = "Agent-native task management for your life, your projects and your team."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "FSL-1.1-ALv2"
@@ -78,6 +78,16 @@ dev = [
 
 [project.scripts]
 subroutine = "subroutine.cli.main:main"
+# **A shorter name for the same program** (`#752`). Ten characters against sixteen, on a command
+# somebody types dozens of times a day. Not a Typer command and not an alias inside the app —
+# one entry point under two names, so there is nothing to keep in step and no second behaviour
+# to choose between.
+#
+# **The `ls` precedent cuts the other way and that is deliberate.** `ls` is hidden from `--help`
+# because a synonym a reader can *see* in a command list is a second thing to decide about. This
+# is not in a command list: the choice is how much to type, not which command to run, and a
+# reader who never meets it has lost nothing.
+subr = "subroutine.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/simonholliday/subroutine"

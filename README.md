@@ -1,29 +1,40 @@
 # Subroutine
 
-**Fast, self-hosted project management for people and AI agents, in equal measure.**
+**Agent-native task management for your life, your projects and your team.**
 
-Your coding agent already does the work. Subroutine is where it keeps track of the work — on
-your machine, in a backlog it uses as fluently as you do.
+Your own list and your work stay separate, and "what am I doing today?" reaches both. Your
+agent uses it as fluently as you do — from a terminal, an editor or a browser. On your machine:
+no account, nothing phoning home.
 
 ## TL;DR
 
-Nothing to install. Your agent does the filing, and the plan outlives the context window.
+**For you** — one install, then a short command for ever:
 
 ```console
-$ uvx subroutine init
+$ uv tool install subroutine
+$ subroutine init
+$ subroutine add "try this out ~10m"
+```
+
+Every command also answers to `subr` — `subr today` is `subroutine today`, for something you
+type all day.
+
+**For your agent** — a plugin, which needs nothing installed first:
+
+```console
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
 From then on: *"file that as a bug"*, *"what can I actually start?"*, *"write down why we
 rejected the other approach."* You never type a ticket. When you want to look at it yourself,
-open the instance in a browser or run `uvx subroutine today`.
+run `subroutine today` or open the instance in a browser.
 
-**`uvx` comes with [uv](https://docs.astral.sh/uv/getting-started/installation/)** and fetches
-Subroutine on first use rather than installing it — so the plugin works on arrival instead of
-after a trip to a terminal. Prefer it permanently on your `PATH`? `uv tool install subroutine`,
-and the plugin uses that copy instead. Git is needed too, for the marketplace command, which
-clones a repository — the one prerequisite here that is Claude Code's rather than ours.
+**The plugin fetches Subroutine itself, through
+[uv](https://docs.astral.sh/uv/getting-started/installation/)** — so it works on arrival on a
+machine where nobody has installed anything, and uses the copy above if you have one. Git is
+needed too, for the marketplace command, which clones a repository — the one prerequisite here
+that is Claude Code's rather than ours.
 
 - **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it. No account, no cloud,
   no telemetry, nothing phoning home.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "subroutine",
-  "description": "Project management for people and agents, in equal measure.",
+  "description": "Agent-native task management for your life, your projects and your team.",
   "owner": {
     "name": "Simon Holliday",
     "email": "simon.holliday@protonmail.com"

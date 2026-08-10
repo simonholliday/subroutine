@@ -856,15 +856,26 @@ def test_the_documented_agent_path_produces_a_working_agent (
 	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
 		monkeypatch.setenv(variable, str(home / variable.lower()))
 
-	block = next(one for one in _blocks(README) if _THE_AGENT_PATH in one)
+	# **Every block up to and including the agent's, in the order a reader meets them** — not
+	# the agent block alone. `#752` split the TL;DR in two, one for the person and one for the
+	# agent, and the second holds nothing but `claude` lines. Scanning it alone then found no
+	# `subroutine` command at all, which is the state this test's floor exists to refuse.
+	#
+	# A reader follows the page downwards, so what they have run by the time they reach the
+	# plugin is everything above it. That is the claim being checked, and it survives the page
+	# being reorganised again.
+	blocks = _blocks(README)
+	upto = next(i for i, one in enumerate(blocks) if _THE_AGENT_PATH in one)
 	ours = [
-		line.removeprefix("uvx ") for line in _typed(block)
+		line.removeprefix("uvx ")
+		for one in blocks[: upto + 1]
+		for line in _typed(one)
 		if line.startswith(("subroutine ", "uvx subroutine "))
 	]
 
 	assert ours, (
-		"the agent block asks nothing of subroutine itself, so a reader following it has no "
-		"instance — which is what `#399` was"
+		"nothing above the plugin block asks anything of subroutine itself, so a reader "
+		"following the page has no instance — which is what `#399` was"
 	)
 
 	runner = typer.testing.CliRunner()
