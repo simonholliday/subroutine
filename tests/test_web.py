@@ -213,6 +213,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 	},
 	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
+	"Saying": {"busy": False},
 	"Doing": {
 		"item": {
 			"ref": 42,
@@ -1649,6 +1650,91 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	[bare] = _views(tmp_path, [("fromItem", {"item": {"ref": 1, "version": 1, "title": "x"}})])
 
 	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
+
+
+def test_a_thread_says_who_spoke (tmp_path: pathlib.Path) -> None:
+	"""`SR#759`. A comment carries `author_id` and no name.
+
+	A thread that cannot say who spoke is a transcript with the names cut out — and on this
+	instance four of five members are agents (`SR#770`), so *who wrote this* is the difference
+	between a colleague's note and a machine's. `SR#474` is that delegation has never once been
+	used here; attribution is the half of it a reader actually sees.
+
+	**Null rather than a guess when the author is not on the roster.** Somebody who has left, or
+	an account this reader cannot see, resolves to nothing — and nothing is what should then be
+	shown. Inventing *Unknown* would claim the lookup happened and found an answer.
+	"""
+
+	members = [
+		{"id": "u-1", "username": "si", "label": "si"},
+		{"id": "u-2", "username": "claude", "label": "claude (agent)"},
+	]
+
+	person, agent, gone, nobody = _views(tmp_path, [
+		("authorOf", {"comment": {"author_id": "u-1"}, "members": members}),
+		("authorOf", {"comment": {"author_id": "u-2"}, "members": members}),
+		("authorOf", {"comment": {"author_id": "u-9"}, "members": members}),
+		("authorOf", {"comment": {"author_id": "u-1"}, "members": []}),
+	])
+
+	assert person == "si"
+	assert agent == "claude (agent)", "an agent's note is attributed as though a person wrote it"
+	assert gone is None, "an author nobody can resolve was named anyway"
+	assert nobody is None
+
+	# **Composed with the roster this page actually holds**, which is the half a hand-written
+	# `members` cannot check: `people` builds those rows, and it kept only the username until
+	# this — so a mutation dropping the id passed, because the only test of the reader had
+	# built its own input. Same shape as `refusal`, one commit earlier.
+	[roster] = _views(tmp_path, [("people", {"roster": [
+		{"user": {"id": "u-7", "username": "claude", "is_service_account": True}},
+	]})])
+
+	[resolved] = _views(tmp_path, [
+		("authorOf", {"comment": {"author_id": "u-7"}, "members": roster}),
+	])
+
+	assert resolved == "claude (agent)", (
+		"the roster this page holds cannot resolve an author, so no comment will be attributed"
+	)
+
+
+def test_a_comment_can_be_written_and_says_what_it_is_for (tmp_path: pathlib.Path) -> None:
+	"""`SR#759`. §5.10: a comment is what happened; a document is what you concluded.
+
+	**One textarea and nothing else**, which is the endpoint's whole request model — *a comment
+	that needed a title, a type or a project would be a document*. A form offering those fields
+	would be quietly proposing the other thing, and that distinction is the one this product is
+	least willing to blur.
+
+	**The heading shows with nothing under it once there is a box.** An empty thread with no way
+	to start one reads as absent rather than as empty, and *what happened* is the question a
+	reader arrives with.
+	"""
+
+	box = _rendered(tmp_path, {"Saying": {"busy": False}})["Saying"]
+
+	assert "<textarea" in box and "<button" in box
+	assert "<select" not in box and "<input" not in box, (
+		"the comment box offers a field that would make it a document"
+	)
+
+	shared = {"item": {"ref": 42, "title": "A task", "status": "open", "kind": "task"},
+		"links": [], "workspace": "projects", "members": []}
+
+	# **`onComment` is nulled explicitly rather than omitted.** The harness supplies every
+	# `onSomething=` it finds in the source, so leaving one out tests nothing at all — a fixture
+	# filling in the caller's wiring makes that wiring unfalsifiable, and those tests read
+	# exactly like coverage.
+	empty = _rendered(tmp_path, {"Detail": {**shared, "comments": []}})["Detail"]
+	mute = _rendered(tmp_path, {"Detail": {**shared, "comments": [], "onComment": None}})["Detail"]
+
+	assert "What happened" in empty and "<textarea" in empty, (
+		"an item with no comments offers no way to write the first one"
+	)
+	assert "What happened" not in mute, (
+		"a heading with nothing under it and no box, which is a section that is not there"
+	)
 
 
 def test_a_status_can_be_changed_without_opening_the_form (tmp_path: pathlib.Path) -> None:
@@ -3358,6 +3444,15 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# here and wrong for the form — a single control read and written in one gesture cannot
 		# be refused for a field somebody else moved and this reader never saw.
 		("statusRequest", [{"ref": place.task}, place.status, place.slug]),
+		# **Both kinds** (`SR#759`): a document is commented on exactly as a task is, and the
+		# collection in the path is the only difference — which is the sort of thing that is
+		# right for one and wrong for the other until something drives both.
+		("commentRequest", [
+			{"ref": place.task, "kind": "task"}, "What happened.", place.slug,
+		]),
+		("commentRequest", [
+			{"ref": place.document, "kind": "document"}, "What happened.", place.slug,
+		]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
@@ -4187,6 +4282,7 @@ def _views (
 			: name === "edited" ? app.edited(argument.values, argument.item)
 			: name === "fromItem" ? app.fromItem(argument.item)
 			: name === "conflictIn" ? app.conflictIn(argument.failure)
+			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
 			: name === "refused" ? (() => {{
 				const made = app.refusal(argument.status, argument.problem);
 				return {{ message: made.message, status: made.status,

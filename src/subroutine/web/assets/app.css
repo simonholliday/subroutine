@@ -221,6 +221,43 @@ code, .ref, .priority, .broke .detail {
 .edit:hover { color: var(--ink); border-color: var(--ink-soft); }
 .edit:disabled { opacity: 0.5; cursor: default; }
 
+/* Writing down what happened — `SR#759`. Wider than the add box because prose is what goes in
+   it, and stacked because the button has nothing to sit beside. */
+.saying {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-start;
+	margin-top: 12px;
+}
+
+.saying textarea {
+	width: 100%;
+	padding: 9px 12px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+	resize: vertical;
+}
+
+.saying textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.saying textarea::placeholder { color: var(--ink-faint); }
+
+.saying button {
+	padding: 8px 16px;
+	background: var(--accent);
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	color: var(--bg);
+	font: inherit;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.saying button:disabled { opacity: 0.45; cursor: default; }
+
 /* **A 409 is news, not a failure** — nothing was written and nothing typed was lost, so this
    is marked the way an exception is marked and says the whole of it in words (`SR#102`). */
 .conflict {

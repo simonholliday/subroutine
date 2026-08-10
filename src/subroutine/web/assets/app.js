@@ -501,6 +501,46 @@ export function itemRequests (kind, ref, slug) {
 	];
 }
 
+export function commentRequest (item, body, slug) {
+	/*
+		Say what happened — `#759`.
+
+		**Only a body**, which is the endpoint's whole request model: *a comment that needed a
+		title, a type or a project would be a document*, and §5.10's distinction is the one this
+		product is least willing to blur. A comment is what happened; a document is what you
+		concluded.
+
+		The collection is the item's kind, because a document is commented on exactly as a task
+		is — one thread, one grammar, and `#760` will want the same of links.
+	*/
+	const collection = item.kind === "document" ? "documents" : "tasks";
+
+	return {
+		path: scoped(`/${collection}/${item.ref}/comments`, slug),
+		method: "POST",
+		body: { body },
+	};
+}
+
+export function authorOf (comment, members) {
+	/*
+		Who said it — `#759`.
+
+		**The comment carries `author_id` and no name**, so this resolves it against the roster
+		the page already holds. A comment thread that cannot say who spoke is a transcript with
+		the names cut out, and on this instance four of five members are agents (`#770`): *who
+		wrote this* is the difference between a colleague's note and a machine's.
+
+		**Null rather than a guess when the author is not on the roster.** Somebody who has left
+		the workspace, or an account this reader cannot see, resolves to nothing — and nothing is
+		what should then be shown. Inventing "Unknown" would claim the lookup happened and found
+		an answer.
+	*/
+	const found = (members || []).find((one) => one.id === (comment || {}).author_id);
+
+	return found ? found.label : null;
+}
+
 export function completeRequest (row, slug) {
 	/* Done. A verb of its own rather than a status write, because completing is what the
 	   endpoint is for and it decides the status itself. */
@@ -846,6 +886,9 @@ export function people (roster) {
 		does not match the choice.
 	*/
 	return (roster || []).map((row) => ({
+		/* **The id as well as the name** (`#759`): a comment carries `author_id` and no
+		   username, so the only way to say who spoke is to resolve it against this. */
+		id: row.user.id,
 		username: row.user.username,
 		label: row.user.is_service_account
 			? `${row.user.username} (agent)`
@@ -2686,7 +2729,7 @@ export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, st
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
-	onStatus, statuses,
+	onStatus, statuses, onComment,
 }) {
 	const body = item.description || item.body;
 
@@ -2757,19 +2800,68 @@ export function Detail ({
 				</ul>
 			`}
 
-			${comments.length > 0 && html`
+			${/* **The heading shows even with nothing under it, once there is a box** (`#759`).
+			     An empty thread with no way to start one is a section that reads as absent
+			     rather than as empty, and "what happened" is the question a reader arrives
+			     with. */ null}
+			${(comments.length > 0 || onComment) && html`
 				<h3>What happened</h3>
 				<ul class="comments">
 					${comments.map((note) => html`
 						<li key=${note.id}>
-							<div class="said">${day(note.created_at)}</div>
+							<div class="said">
+								${/* **Who, then when.** A comment carries `author_id` and no
+								     name, so this is resolved against the roster the page
+								     already holds — and left out entirely when it cannot be,
+								     rather than guessed at. */ null}
+								${authorOf(note, members) && html`
+									<strong>${authorOf(note, members)}</strong>${" "}
+								`}
+								${moment(note.created_at)}
+							</div>
 							<${Prose} className="body" text=${note.body} where=${where}
 								onOpen=${onOpen} />
 						</li>
 					`)}
 				</ul>
+
+				${onComment && html`<${Saying} busy=${busy} onComment=${onComment} />`}
 			`}
 		</div>
+	`;
+}
+
+export function Saying ({ onComment, busy }) {
+	/*
+		Writing down what happened — `#759`.
+
+		**A comment is prose and nothing else**, so this is one textarea: no title, no type, no
+		project. §5.10's distinction is the one this product is least willing to blur, and a
+		form that offered those fields would be quietly proposing a document.
+
+		**Uncontrolled, and cleared on submit**, like every other form here — `#757`'s reason
+		holds: nothing needs remembering between keystrokes, and a re-render cannot then reach
+		in and take what somebody is typing.
+	*/
+	const submit = (event) => {
+		event.preventDefault();
+
+		const form = event.currentTarget;
+		const written = form.elements.body.value.trim();
+
+		if (written === "" || busy) return;
+
+		onComment(written);
+		form.reset();
+	};
+
+	return html`
+		<form class="saying" onSubmit=${submit}>
+			<textarea name="body" rows="3" required disabled=${busy}
+				aria-label="What happened"
+				placeholder="What happened? Markdown works, and #42 links."></textarea>
+			<button type="submit" disabled=${busy}>Add a note</button>
+		</form>
 	`;
 }
 
@@ -3477,6 +3569,20 @@ export function App () {
 		() => sent(statusRequest(row, where, workspace)),
 	), [workspace, wrote]);
 
+	const comment = useCallback(async (body) => {
+		/* **The item is re-read afterwards rather than the comment appended locally**, because
+		   what comes back is what the instance stored — a `#42` in it becomes a mention, and a
+		   thread assembled on this side would drift from the one everybody else sees. `wrote`
+		   does the re-read, which is why this goes through it like every other write. */
+		if (!open) return;
+
+		await wrote(
+			open.item,
+			() => ({ text: `Noted on #${open.item.ref}.`, tone: "good" }),
+			() => sent(commentRequest(open.item, body, workspace)),
+		);
+	}, [open, workspace, wrote]);
+
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
 		   rather than the page number, because keyset pagination is what the API offers and
@@ -3667,6 +3773,7 @@ export function App () {
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${save}
 					onStatus=${status} statuses=${vocabulary && vocabulary.statuses}
+					onComment=${comment}
 					vocabulary=${vocabulary} projects=${filable}
 					onEdit=${(wanted) => { setEditing(wanted); setConflict(null); }}
 					where=${mentionHref(workspace)} onBack=${() => close()}

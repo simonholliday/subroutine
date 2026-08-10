@@ -43,6 +43,13 @@ upgrade involves.
   so you can fold your change into theirs rather than losing one of them. That applies to an
   agent working on the same item as much as to another person.
 
+- **Notes can be written on an item in the browser.** *What happened* now has a box under it,
+  and Markdown and `#42` links work in it exactly as they do everywhere else. Documents take
+  them too.
+
+  The thread also says **who** wrote each note, which it did not before — and an agent is
+  marked as one, so a machine's note is not read as a colleague's.
+
 - **An item's status can be changed from the open item**, without opening the edit form —
   *to do* to *in progress* to *done* is the commonest thing anybody records. The options are
   your workspace's own, so a status you renamed or added is offered here too. It is available
