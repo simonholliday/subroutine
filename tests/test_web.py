@@ -31,6 +31,7 @@ import starlette.requests
 
 import api_support
 import subroutine.api.app
+import subroutine.api.documents
 import subroutine.api.routing
 import subroutine.api.tasks
 import subroutine.api.web
@@ -4618,6 +4619,10 @@ def _views (
 			: name === "touching"
 				? app.touching(argument.events, argument.open, argument.page)
 			: name === "orderedAs" ? app.orderedAs(argument.selection)
+			: name === "offeredOrders" ? app.offeredOrders().map(([key]) => key)
+			: name === "collectionsFor" ? app.collectionsFor(argument)
+			: name === "inOrder"
+				? app.inOrder(argument.rows, app.ORDERINGS[argument.order]).map((row) => row.ref)
 			: app.columns(argument))));
 	"""))
 
@@ -6179,17 +6184,42 @@ def test_every_field_an_ordering_names_is_one_the_listing_asks_for () -> None:
 		assert lists[name], f"{name} was not read, so this is checking nothing"
 
 	for order, ordering in _orderings().items():
-		field = ordering["field"].strip('"')
-
-		# The finished view is tasks only — `collectionsFor` drops documents from a selection
-		# they cannot answer — so `completed_at` is owed by the task list alone.
-		wanted = ["TASK_FIELDS"] if ordering.get("already") == "true" else list(lists)
+		both = ordering["both"] == "true"
+		# **Two different obligations.** `shows` is what a row renders and is owed by whichever
+		# collections receive the ordering; `field` is what `inOrder` merges on and is owed by
+		# both — but only when both are asked, since a tasks-only ordering never merges.
+		wanted = list(lists) if both else ["TASK_FIELDS"]
+		owed = set(ordering["shows"].strip('"').split(",")) | ({ordering["field"].strip('"')} if both else set())
 
 		for name in wanted:
-			assert field in lists[name], (
-				f"the list can be ordered by {order} and {name} does not ask for {field!r}, so "
-				f"a row cannot show the value it is sorted on"
-			)
+			for field in owed:
+				assert field in lists[name], (
+					f"the list can be ordered by {order} and {name} does not ask for {field!r}, "
+					f"so a row cannot show the value it is sorted on"
+				)
+
+
+def test_every_ordering_renders_by_a_name_the_app_knows () -> None:
+	"""`SR#782`. `render` is a name so the table stays readable; a typo would show nothing.
+
+	`orderingValue` returns null for anything it does not recognise, which is the safe half and
+	is indistinguishable from `none` — *the row already shows this* — at runtime. So the check
+	is here: every name in the table is one that function handles.
+	"""
+
+	source = _served_modules()["app.js"]
+	body = _function_body(source, "orderingValue")
+	handled = set(re.findall(r'ordering\.render === "(\w+)"', body)) | {"none"}
+
+	assert len(handled) > 1, "no render names were found, so this is checking nothing"
+
+	for order, ordering in _orderings().items():
+		name = ordering["render"].strip('"')
+
+		assert name in handled, (
+			f"{order} renders by {name!r} and orderingValue handles {sorted(handled)} — so its "
+			f"row would show nothing, exactly as if the field were unset"
+		)
 
 
 @pytest.mark.parametrize(
@@ -6221,8 +6251,8 @@ def test_a_row_shows_the_value_the_page_is_sorted_on (tmp_path: pathlib.Path) ->
 	written = _rendered(tmp_path, {"Row": {
 		"item": {"ref": 7, "kind": "task", "title": "Something",
 			"created_at": "2026-08-10T14:22:00+00:00"},
-		"ordering": {"sentence": "Newest first", "field": "created_at", "label": "written",
-			"already": False},
+		"ordering": {"sentence": "Newest first", "field": "created_at", "shows": "created_at",
+			"render": "moment", "label": "written", "both": True},
 	}})["Row"]
 
 	assert "written" in written and "14:22" in written, (
@@ -6242,7 +6272,7 @@ def test_a_row_does_not_say_twice_what_it_already_says_once (tmp_path: pathlib.P
 		"item": {"ref": 7, "kind": "task", "title": "Something", "status_category": "done",
 			"completed_at": "2026-08-10T14:22:00+00:00"},
 		"ordering": {"sentence": "Most recently finished first", "field": "completed_at",
-			"label": "finished", "already": True},
+			"shows": "completed_at", "render": "none", "label": "finished", "both": False},
 	}})["Row"]
 
 	assert written.count("14:22") == 1, f"the finished stamp is rendered twice: {written}"
@@ -6262,6 +6292,165 @@ def test_the_list_a_reader_arrives_at_says_how_it_is_ordered (tmp_path: pathlib.
 	assert "Newest first" in driven["said"], (
 		f"the list does not say how it is ordered: {driven['said'][:400]}"
 	)
+
+
+def test_every_order_a_reader_can_choose_is_one_the_api_can_sort_by (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#782`. The composition, and it is the half a pure test cannot reach.
+
+	`SELECTABLE.order` is a list in a JavaScript file; `SORTABLE` is what the two routes
+	actually accept. An order in the first and not the second is a **422 for the whole page**,
+	and the reader chose it from a control we drew — the worst version of this, because the
+	page they broke is the page they were on.
+
+	`collectionsFor` is what keeps them apart: an order documents cannot answer must read the
+	task collection alone, and this asserts the pairing rather than trusting it.
+	"""
+
+	sortable = {
+		"task": set(subroutine.api.tasks.SORTABLE),
+		"document": set(subroutine.api.documents.SORTABLE),
+	}
+	source = _served_modules()["app.js"]
+	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
+
+	assert block, "the app's selectable parameters could not be read"
+
+	orders = re.search(r"\n\torder: \[(.*?)\]", block.group(1), re.S)
+
+	assert orders, "SELECTABLE no longer declares an order"
+
+	for order in re.findall(r'"([^"]+)"', orders.group(1)):
+		field = order.lstrip("-")
+		reads = _views(tmp_path, [("collectionsFor", {"order": order})])[0]
+
+		assert reads, f"{order} reads no collection at all"
+
+		for kind in reads:
+			assert field in sortable[kind], (
+				f"the browser can be ordered by {order} and GET /v1/{kind}s cannot sort by "
+				f"{field!r} — that is a 422 for the whole page, chosen from a control we drew"
+			)
+
+
+def test_a_priority_ordering_is_tasks_alone (tmp_path: pathlib.Path) -> None:
+	"""Simon's decision, 2026-08-10 (`SR#782`), and the reason is in the data.
+
+	A document has no importance and no urgency, so a merged list cannot be put in one priority
+	order. Of drop, sink and do-not-offer, dropping needs no new machinery: `collectionsFor`
+	already drops documents from a selection they cannot answer.
+	"""
+
+	both, ranked = _views(tmp_path, [
+		("collectionsFor", {}),
+		("collectionsFor", {"order": "-priority_score"}),
+	])
+
+	assert both == ["task", "document"], "the ordinary list is both kinds (§6.2)"
+	assert ranked == ["task"]
+
+
+@pytest.mark.parametrize(
+	("order", "expected"),
+	[
+		# Written 1st, 2nd, 3rd; titles C, A, B. Refs are the tiebreak and follow the direction.
+		("-created_at", [3, 2, 1]),
+		("created_at", [1, 2, 3]),
+		("title", [2, 3, 1]),
+		("-updated_at", [1, 3, 2]),
+	],
+)
+def test_the_merge_follows_the_order_that_was_asked_for (
+	tmp_path: pathlib.Path, order: str, expected: list[int]
+) -> None:
+	"""`SR#782`. The list is two collections and one order, whichever order that is.
+
+	`newestFirst` merged on `created_at` because that is what the API sorts and pages both
+	collections by. The moment a reader can choose, a fixed merge key orders the page by one
+	thing while the cursor walks another — rows repeating or vanishing at a page boundary,
+	which is the defect keyset pagination exists to prevent and which looks nothing like a
+	sorting fault.
+	"""
+
+	rows = [
+		{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00",
+			"updated_at": "2026-08-09T09:00:00+00:00", "title": "Carrot"},
+		{"ref": 2, "created_at": "2026-08-02T09:00:00+00:00",
+			"updated_at": "2026-08-03T09:00:00+00:00", "title": "Apple"},
+		{"ref": 3, "created_at": "2026-08-03T09:00:00+00:00",
+			"updated_at": "2026-08-07T09:00:00+00:00", "title": "Banana"},
+	]
+
+	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": order})])[0] == expected
+
+
+def test_the_finished_order_is_not_offered_as_a_choice (tmp_path: pathlib.Path) -> None:
+	"""Decision `SR#649`: an arrangement never selects.
+
+	`-completed_at` is the *finished view's* order and is reached by the chip that also narrows
+	to finished work. Offering it beside the rest would be an ordering that silently changes
+	which rows there are — the exact thing `SR#738` took out of the view names.
+	"""
+
+	offered = _views(tmp_path, [("offeredOrders", {})])[0]
+
+	assert offered, "no order is offered, so the control would be empty"
+	assert "-completed_at" not in offered
+	assert "-created_at" in offered and "-priority_score" in offered
+
+
+def test_choosing_an_order_puts_it_in_the_address (tmp_path: pathlib.Path) -> None:
+	"""Driven, because `SR#640` has cost six defects that a pure test could not see.
+
+	Arriving at an address that names an order is the half a reader is *sent*; this asserts the
+	page asks the instance for what its address says, rather than for the default it would have
+	used anyway.
+	"""
+
+	rows = {"items": [{"ref": 7, "kind": "task", "title": "Something",
+		"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"}],
+		"page": {"has_more": False, "next_cursor": None, "total": None}}
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list&order=title",
+		answers={"/v1/tasks": rows},
+	)
+	tasks = [call for call in driven["asked"] if call["path"].startswith("/v1/tasks?")]
+	documents = [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")]
+
+	assert tasks and documents, "the list asked for one collection or none"
+	assert all("order=title" in call["path"] for call in tasks + documents), (
+		f"the order in the address did not reach both collections: "
+		f"{[call['path'] for call in tasks + documents]}"
+	)
+	assert "A to Z" in driven["said"], "the page does not say the order it was asked for"
+
+
+def test_a_ranked_page_asks_for_no_documents_and_says_why (tmp_path: pathlib.Path) -> None:
+	"""`SR#782` end to end, and the two halves fail differently.
+
+	Asking `GET /v1/documents` for `-priority_score` is a **422 for the whole page**, so the
+	request half is a page that does not load. Not saying so is quieter and worse: a reader who
+	orders by priority and finds their specifications gone has been told nothing, and *`SR#503`
+	the backlog is not a source of truth about the world* is the lesson about beliefs nobody
+	corrects.
+	"""
+
+	rows = {"items": [{"ref": 7, "kind": "task", "title": "Something", "importance": 4,
+		"urgency": 3, "created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"}],
+		"page": {"has_more": False, "next_cursor": None, "total": None}}
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list&order=-priority_score",
+		answers={"/v1/tasks": rows},
+	)
+
+	assert not [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")], (
+		"a ranked page asked for documents, which GET /v1/documents refuses outright"
+	)
+	assert "documents have no importance" in driven["said"], (
+		f"the page dropped every document and said nothing about it: {driven['said'][:300]}"
+	)
+	assert "!4/3" in driven["said"], "a ranked row does not show what it is ranked by"
 
 
 def test_a_background_read_stands_off_while_the_item_is_being_edited () -> None:

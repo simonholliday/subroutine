@@ -677,11 +677,42 @@ code, .ref, .priority, .broke .detail {
 	in, so on the ordinary page it must read as a caption rather than as news.
 */
 .ordered {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
 	margin-bottom: 10px;
 	padding: 0 2px;
 	color: var(--ink-faint);
 	font-size: 13px;
 }
+
+.ordered label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/*
+	The control (`#782`). Styled as `.assign select` is, one size smaller: both are a single
+	choice made in place rather than a form being filled in, and a new element landing on the
+	user agent's default is what `#747` is about — browser chrome, blind to both themes.
+*/
+.ordered select {
+	padding: 3px 6px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+}
+
+.ordered select:disabled { opacity: 0.5; }
+
+/* What the page is *doing*, beside what you may choose. A select names the options and says
+   nothing about the consequence — which for a ranked page is that it holds no documents. */
+.ordered .says { color: var(--ink-faint); }
 
 /* ---- detail ------------------------------------------------------------ */
 

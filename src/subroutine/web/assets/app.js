@@ -97,10 +97,19 @@ const TASK_FIELDS = [
 	   one; a page whose whole claim is *most recently finished first* had better say when each
 	   row finished, or the order is something a reader has to take on trust. */
 	"completed_at",
-	/* Not rendered — it is what the two collections are merged on (`#660`). The API sorts
-	   both by `-created_at` and pages on it, so ordering them together by anything else
-	   would put the client and the cursor into disagreement. */
+	/* The merge key (`#660`), and since `#661` the value a row shows when the page is in its
+	   default order. The API sorts both collections by `-created_at` and pages on it. */
 	"created_at",
+	/*
+		**Asked for because a reader can order by them** (`#782`), and for no other reason —
+		`marks` renders each only while the page is sorted on it, so on every other page these
+		three arrive and are never read.
+
+		That is the cost of a chosen ordering and it is small: three fields against a page that
+		already carries sixteen. The alternative is a request that changes shape with the
+		address, which would make `fields=` a second thing to keep in step with `ORDERINGS`.
+	*/
+	"updated_at", "importance", "urgency",
 ].join(",");
 
 /* A document has no dates and no assignee — `_when` returns nothing for one — so it asks for
@@ -112,8 +121,11 @@ const DOCUMENT_FIELDS = [
 	   are its own vocabulary, so it gets its own columns rather than being mapped onto a
 	   task's: `current` is not *in progress*, and saying so would be inventing a claim. */
 	"status_category",
-	/* As above: the merge key, not something a row shows (`#660`). */
+	/* As above: the merge key, and the value a row shows in the default order (`#660`, `#661`). */
 	"created_at",
+	/* One of the four keys both collections can be ordered by, so a reader who chooses
+	   *recently changed* can see it here as well as on a task (`#782`). */
+	"updated_at",
 ].join(",");
 
 class Refused extends Error {
@@ -227,13 +239,54 @@ export function newestFirst (rows) {
 		— two rows a microsecond apart tie here — and `ref` resolves exactly that, correctly,
 		because refs come from one counter in creation order.
 	*/
+	return inOrder(rows, ORDERINGS[DEFAULT_ORDER]);
+}
+
+export function inOrder (rows, ordering) {
+	/*
+		Put two collections into the one order the server put each of them in — `#782`.
+
+		**The key follows the ordering, and it has to.** `newestFirst` merged on `created_at`
+		because that is what the API sorts and pages both collections by; the moment a reader
+		can choose, merging on a fixed key would order the page by one thing while the cursor
+		walked another. That is the disagreement keyset pagination exists to prevent, and it
+		shows up as rows repeating or vanishing at a page boundary rather than as anything that
+		looks like a sorting bug.
+
+		**Only an ordering both collections answer reaches here with two of them.**
+		`collectionsFor` drops documents from one they cannot, and `accumulated` does not merge
+		a single collection at all — a server has already ordered it, and re-sorting would
+		overwrite that with whatever this function believes (`#706`).
+
+		**`ref` breaks a tie, following the ordering's direction**, because refs come from one
+		counter in creation order (§6.2) so they agree with the server's own tiebreaker.
+
+		Compared by kind rather than by field name: an instant through `Date.parse`, which is
+		right whatever the representation and truncates to the millisecond — which is exactly
+		what the ref tiebreak is for — and text through `localeCompare`, so `Ångström` sorts
+		where a reader expects rather than where its code point falls.
+	*/
+	const key = ordering ? ordering.field : DEFAULT_ORDER.slice(1);
+	const descending = !ordering || ordering.descending;
+	const way = descending ? -1 : 1;
+
+	const value = (row) => (ordering && ordering.compare === "instant"
+		? Date.parse(row[key])
+		: row[key]);
+
 	return [...rows].sort((one, other) => {
-		const first = Date.parse(one.created_at);
-		const second = Date.parse(other.created_at);
+		const first = value(one);
+		const second = value(other);
 
-		if (first !== second) return second - first;
+		if (first !== second) {
+			if (ordering && ordering.compare === "text") {
+				return way * String(first).localeCompare(String(second));
+			}
 
-		return other.ref - one.ref;
+			return way * (first < second ? -1 : 1);
+		}
+
+		return way * (one.ref - other.ref);
 	});
 }
 
@@ -486,7 +539,21 @@ export function collectionsFor (selection) {
 	*/
 	const asked = selection || {};
 
-	return asked.status_category === undefined ? ["task", "document"] : ["task"];
+	/*
+		**An order documents cannot answer reads one too** (`#782`), and it is the same rule
+		rather than a second one: `GET /v1/documents` sorts by `created_at`, `ref`, `title` and
+		`updated_at` and nothing else, so asking it for `-priority_score` is a 422 — a page that
+		does not load rather than a page that is missing half its rows.
+
+		Simon's decision of 2026-08-10 is that a priority ordering is **tasks only** and the page
+		says so. A document has no importance and no urgency, so there is no honest place to put
+		one in a ranked list; the two rejected answers and why are on `#782`.
+	*/
+	const ordering = ORDERINGS[asked.order];
+
+	if (asked.status_category !== undefined) return ["task"];
+
+	return ordering && !ordering.both ? ["task"] : ["task", "document"];
 }
 
 export function listingRequests (slug, key = null, after = null, selection = null) {
@@ -555,12 +622,27 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		.map((name) => `&${name}=${encodeURIComponent(chose[name])}`)
 		.join("");
 
+	/*
+		**The order goes to both collections, and it is the only part of the selection that
+		does** (`#782`). A merged list is safe only while both halves are sorted and paged by
+		one key: `accumulated` re-merges what arrives, and a client merging on a key the server
+		did not sort by is the disagreement keyset pagination exists to prevent.
+
+		Everything else in the selection is refused by `GET /v1/documents` — `status_category`
+		and `include_completed` are measured 422s — and `collectionsFor` drops the collection
+		rather than sending them. An order documents cannot answer takes the same route, so
+		anything reaching this line is one they can.
+	*/
+	const ordered = chose.order && ORDERINGS[chose.order] && ORDERINGS[chose.order].both
+		? `&order=${encodeURIComponent(chose.order)}`
+		: "";
+
 	const asks = {
 		task: { kind: "task", method: "GET", path: scoped(
 			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${rows}`
 			+ from(after && after.tasks), slug) },
 		document: { kind: "document", method: "GET", path: scoped(
-			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}`
+			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}${ordered}`
 			+ from(after && after.documents), slug) },
 	};
 
@@ -1281,13 +1363,21 @@ export const SELECTABLE = {
 	status_category: ["todo", "in_progress", "done", "cancelled"],
 	include_completed: ["true"],
 	/*
-		**One order, and it names its successor rather than pretending to be general.** `#661`
-		is what puts ordering in a reader's hands; until then the only order any control here
-		produces is the finished view's, and allowing more would be publishing an address whose
-		results nothing has driven. `-completed_at` rather than `-updated_at`: the tempting
-		proxy reorders the page whenever somebody edits a finished item, for a reason nobody did.
+		**Every order a reader can choose, and the finished view's** (`#782`, `#661`).
+
+		It was one value until `#782` — the finished view's — because until a control existed,
+		admitting more would have published addresses whose results nothing had driven.
+
+		**`ref` is deliberately absent.** One counter allocates refs in creation order (§6.2), so
+		*by number* and *oldest first* are the same page under two names, and a second name for
+		one ordering is a choice a reader has to make and cannot get right.
+
+		Each of these must have an `ORDERINGS` entry, which is what makes a listing able to say
+		how it is arranged; `tests/test_web.py` fails the build on one that does not.
 	*/
-	order: ["-completed_at"],
+	order: [
+		"-created_at", "created_at", "title", "-updated_at", "-priority_score", "-completed_at",
+	],
 	/*
 		**Free text, and the only one** (`#775`). Every other entry here maps a name to the
 		values it may carry, which is what stops the address becoming a passthrough to
@@ -1837,13 +1927,101 @@ export const DEFAULT_ORDER = "-created_at";
 */
 export const ORDERINGS = {
 	"-created_at": {
-		sentence: "Newest first", field: "created_at", label: "written", already: false,
+		sentence: "Newest first", offer: "Newest first", field: "created_at",
+		shows: "created_at", render: "moment", label: "written",
+		compare: "instant", descending: true, both: true,
+	},
+	"created_at": {
+		sentence: "Oldest first", offer: "Oldest first", field: "created_at",
+		shows: "created_at", render: "moment", label: "written",
+		compare: "instant", descending: false, both: true,
+	},
+	"title": {
+		/* **The row shows the title already**, so `render` is nothing at all. An ordering whose
+		   field is the row's own headline is the one case where saying the value would be
+		   printing the same string twice on one line. */
+		sentence: "A to Z", offer: "A to Z", field: "title",
+		shows: "title", render: "none", label: "",
+		compare: "text", descending: false, both: true,
+	},
+	"-updated_at": {
+		sentence: "Recently changed first", offer: "Recently changed", field: "updated_at",
+		shows: "updated_at", render: "moment", label: "changed",
+		compare: "instant", descending: true, both: true,
+	},
+	"-priority_score": {
+		/*
+			**Tasks only, and that is Simon's decision of 2026-08-10** (`#782`). A document has
+			no importance and no urgency to be ordered by, so a merged list cannot be put in one
+			priority order at all. Of the three answers — drop them, sink them, or do not offer
+			priority — dropping is the one that needs no new machinery: `collectionsFor` already
+			drops documents from a selection they cannot answer, which is how the finished view
+			is tasks-only today.
+
+			Sinking them was defensible from §6.3a's own three-band rule and was refused because
+			it renders as the defect `#660` fixed — *"I saw it is some way down the list"* — and
+			a rule a reader must learn to tell it from a bug reads as a bug.
+
+			**`!i/u` rather than the score**, because that is what this product calls it
+			everywhere else; `priority_score` is `importance * urgency` and a bare 20 says
+			nothing a reader can act on.
+		*/
+		sentence: "Most important first, and documents have no importance",
+		offer: "Most important", field: "priority_score",
+		shows: "importance,urgency", render: "priority", label: "",
+		compare: "number", descending: true, both: false,
 	},
 	"-completed_at": {
-		sentence: "Most recently finished first", field: "completed_at",
-		label: "finished", already: true,
+		/* Not offered as a choice: it is the *finished* view's order, reached by the chip that
+		   also narrows to finished work. Offering it beside the rest would be an ordering that
+		   silently changes which rows there are, which decision `#649` forbids. */
+		sentence: "Most recently finished first", offer: null, field: "completed_at",
+		shows: "completed_at", render: "none", label: "finished",
+		compare: "instant", descending: true, both: false,
 	},
 };
+
+export function orderingValue (ordering, item) {
+	/*
+		What a row shows of the field the page is sorted on, or nothing.
+
+		**`render` is a name rather than a function** so that `ORDERINGS` stays a table a guard
+		can read. A function here would make the whole thing opaque to
+		`tests/test_web.py`, which derives from it what the request must ask for — and a table
+		that cannot be read is a table nothing checks.
+
+		`none` is for an ordering the row already carries: `title` is the headline and
+		`completed_at` is printed by `when` (`#706`, `#746`).
+	*/
+	if (!ordering) return null;
+
+	if (ordering.render === "priority") {
+		return item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null;
+	}
+
+	if (ordering.render === "moment") {
+		return item[ordering.field] ? `${ordering.label} ${moment(item[ordering.field])}` : null;
+	}
+
+	/* **`none` lands here, and so does anything unrecognised** — deliberately, because saying
+	   nothing is the safe half. What stops an entry quietly showing nothing through a typo is
+	   `tests/test_web.py`, which fails a `render` this function does not handle. A runtime
+	   fallback cannot tell *the row already shows it* from *somebody misspelled it*. */
+	return null;
+}
+
+export function offeredOrders () {
+	/*
+		The orders a reader may choose, in the order they are offered — `#782`.
+
+		**Derived from `ORDERINGS` rather than listed beside it**, because a second list is what
+		this codebase gets wrong most: two copies agree until one of them is edited. `offer` is
+		null for an order that exists and is not a choice — the finished view's, which is
+		reached by the chip that also narrows to finished work, and offering it as an ordering
+		would be an ordering that silently changes which rows there are (decision `#649`).
+	*/
+	return Object.entries(ORDERINGS).filter(([, one]) => one.offer);
+}
 
 export function orderedAs (selection) {
 	/*
@@ -1888,9 +2066,9 @@ export function marks (item, showKind, ordering = null) {
 		of dates rendered a day at a time reads as one value for a whole screen, and an order
 		nobody can check is an order taken on trust.
 	*/
-	if (ordering && !ordering.already && item[ordering.field]) {
-		found.push({ text: `${ordering.label} ${moment(item[ordering.field])}`, tone: "quiet" });
-	}
+	const sorted = orderingValue(ordering, item);
+
+	if (sorted) found.push({ text: sorted, tone: "quiet" });
 	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
 	if (overdue(item)) {
 		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
@@ -2828,7 +3006,7 @@ export function Conflict ({ theirs }) {
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
-	empty = "Nothing here yet.", adding, ordering = null,
+	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -2864,7 +3042,27 @@ export function Listing ({
 				order to describe and the sentence would be a claim about nothing.
 			*/ null}
 			${ordering && items.length > 0 && html`
-				<div class="ordered"><span>${ordering.sentence}</span></div>
+				<div class="ordered">
+					${onOrder
+						? html`
+							<label>
+								<span>Order</span>
+								<select value=${order || DEFAULT_ORDER} disabled=${busy}
+									onChange=${(event) => onOrder(event.currentTarget.value)}>
+									${offeredOrders().map(([key, one]) => html`
+										<option value=${key} selected=${key === (order || DEFAULT_ORDER)}
+											>${one.offer}</option>
+									`)}
+								</select>
+							</label>
+						`
+						: html`<span>${ordering.sentence}</span>`}
+					${/* **The sentence stays beside the control rather than being replaced by it.**
+					     A select says what you may choose; it does not say what the page is
+					     doing, and `#661` is about the second. It also carries the part a
+					     control cannot — that a ranked page holds no documents. */ null}
+					${onOrder && html`<span class="says">${ordering.sentence}</span>`}
+				</div>
 			`}
 
 			${project && html`
@@ -4319,6 +4517,37 @@ export function App () {
 		}
 	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
+	const chooseOrder = useCallback(async (asked) => {
+		/*
+			**An order is how the rows look, so it goes in the address** — decision `#649`, and
+			the same path a search and a filter already take.
+
+			**Written out even when it is the default**, which is `#745`'s narrowing: what you
+			send somebody has to be what you were looking at, and an address omitting the order
+			hands its reader *their* default rather than the sender's page.
+
+			`reloads` is what stops a re-render when the reader picks what is already chosen —
+			the same guard `chooseSearch` uses, and the reason `withShowing` emits in
+			`SELECTABLE` order: one screen must produce one string, or a cursor taken on one
+			page is compared against a path spelled differently on the next.
+		*/
+		const wanted = {
+			view: showing.view,
+			selection: { ...showing.selection, order: asked },
+		};
+
+		if (!reloads(showing, wanted)) return;
+
+		nowShowing(wanted);
+		go(listingAddress({ agenda: agenda !== null, workspace, project }), { arranged: wanted });
+
+		try {
+			await load(workspace, project);
+		} catch (failure) {
+			setNote({ text: `That order was refused. ${failure.message}`, tone: "bad" });
+		}
+	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+
 	const chooseView = useCallback(async (wanted) => {
 		/*
 			**Switching refetches, and the comment here used to say it must not.**
@@ -4502,6 +4731,12 @@ export function App () {
 							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
 							ordering=${orderedAs(showing.selection)}
+							order=${showing.selection.order || null}
+							${/* **No control on the finished view** (`#782`). Its order is part of what
+							     that chip asked for, and changing it there would leave a page
+							     narrowed to finished work ordered by when it was written — an
+							     ordering that contradicts the selection it sits inside. */ null}
+							onOrder=${finishedOnly ? null : chooseOrder}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), showing)}
 							empty=${finishedOnly

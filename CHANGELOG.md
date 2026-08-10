@@ -114,10 +114,14 @@ upgrade involves.
   What is listed is read from the routes the instance actually serves, so it cannot claim a
   way in that is not there, or stay quiet about one that is.
 
-- **The list says how it is ordered, and shows what it is ordered on.** *Newest first* sits
-  above the rows, and each row carries the moment it was written — so the order is something
-  you can check rather than take on trust. The finished view already showed when each item
-  finished and is unchanged; it says *Most recently finished first* now.
+- **You choose how the list is ordered, and it says so.** *Order* above the rows: newest,
+  oldest, A to Z, recently changed, or most important. Whichever you pick, each row shows the
+  value it is sorted on — so the order is something you can check rather than take on trust.
+  The choice is in the address, so the page you send somebody is the page you were looking at.
+
+  **Ordering by importance shows tasks only, and the page says so.** A document has no
+  importance or urgency, so there is no honest place to put one in a ranked list. Every other
+  ordering holds across tasks and documents alike.
 
 - **An item open in the browser keeps up with itself.** Leave `/projects/subroutine/42` open
   and a comment somebody writes on it, a status an agent sets, or a description that gets
