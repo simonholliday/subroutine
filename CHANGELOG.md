@@ -12,7 +12,13 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## 0.6.2 — 2026-08-10
+## Unreleased
+
+**0.6.2 was tagged and never published.** Its release commit re-formatted both plugin manifests
+without changing anything in them, which the guard against an undeliverable plugin correctly
+refused — so the build went red on the tag and nothing reached PyPI. Everything 0.6.2 was going
+to contain is below, unchanged, and ships as 0.6.3. `v0.6.2` remains as a tag with a red build
+because that is what happened; there is no 0.6.2 to install and no release page for one.
 
 ### Added
 

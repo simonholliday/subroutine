@@ -299,15 +299,79 @@ def _write_plugin_version (version: str) -> None:
 	each is a cache key for its own plugin — but a release is one act and one tag, so a manifest
 	left behind is a plugin whose users are told a version exists that they cannot install.
 
-	Rewritten through ``json`` rather than by pattern, because a manifest that stops being
-	valid JSON is one nobody can install and the failure arrives at a stranger.
+	**And this docstring used to be false, which is how `#749` shipped.** It said the formatting
+	was left alone while the body parsed the document and wrote it back through ``json.dumps`` —
+	so every em dash in a description became ``\\u2014`` on every release, and a manifest already
+	at the release number was rewritten anyway. That churn was invisible for as long as the
+	version also moved, and `v0.6.2` was the release where it did not: the only change under
+	``plugins/`` was the escaping, the version could not move to announce it, and
+	``test_a_changed_plugin_carries_a_version_nobody_has_installed`` failed the tag. Both
+	workflows went red and nothing published.
 	"""
 
 	for path in PLUGINS:
-		manifest = json.loads(path.read_text(encoding="utf-8"))
-		manifest["version"] = version
+		_set_json_string(path, "version", version)
 
-		path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+def _set_json_string (path: pathlib.Path, key: str, value: str) -> None:
+	"""Set one top-level string in a JSON file, writing nothing if it is already that.
+
+	**Edited textually rather than round-tripped, and that is the whole of `#749`.** Parsing a
+	document and writing it back re-formats everything it did not come for: ``json.dumps``
+	escapes non-ASCII by default, so a description written with an em dash comes back as
+	``\\u2014``, and no serialiser preserves a human's line layout. Those diffs mean nothing to a
+	reader and everything to a guard — ``test_a_changed_plugin_carries_a_version_nobody_has_installed``
+	reads a change under ``plugins/`` as a plugin somebody's cache will never receive, correctly.
+
+	**Parsed first anyway, for the reason the old body gave**: a manifest that stops being valid
+	JSON is one nobody can install, and the failure arrives at a stranger. So this parses to
+	decide, edits the text, and parses again to prove the result still says what was intended.
+
+	**Nothing is written when the value is already right.** A release is entitled to be a no-op
+	on a file it is not changing, and making that structural is what stops the next unrelated
+	formatting habit reintroducing this.
+	"""
+
+	text = path.read_text(encoding="utf-8")
+	current = json.loads(text)[key]
+
+	if current == value:
+		return
+
+	_replace_json_value(path, current, value, key=key)
+
+
+def _replace_json_value (
+	path: pathlib.Path, current: str, value: str, key: str | None = None
+) -> None:
+	"""Replace one JSON string value in place, leaving every other byte as it was.
+
+	Matched with its quotes, and with its key too when there is one, so the pattern cannot land
+	on a substring of something else. **A count other than one is refused** rather than guessed
+	at: this edits a published artefact, and a second occurrence means the assumption that
+	makes a textual edit safe has stopped holding.
+	"""
+
+	text = path.read_text(encoding="utf-8")
+	target = f'"{key}": "{current}"' if key else f'"{current}"'
+	found = text.count(target)
+
+	if found != 1:
+		raise SystemExit(
+			f"{path} holds {found} occurrences of {target}, and this edits it by text — so "
+			f"one is the only count it can act on. Change it by hand, or give the writer a "
+			f"narrower pattern."
+		)
+
+	written = text.replace(target, f'"{key}": "{value}"' if key else f'"{value}"')
+
+	# Proof rather than trust: the result must still parse, and must now say what was asked.
+	reread = json.loads(written)
+
+	if key is not None and reread[key] != value:
+		raise SystemExit(f"{path}: setting {key!r} to {value!r} did not take.")
+
+	path.write_text(written, encoding="utf-8")
 
 
 #: How a plugin asks ``uvx`` for the program: the package, pinned to the release series it was
@@ -339,15 +403,18 @@ def _write_uvx_pin (version: str) -> None:
 
 	for path in BOOTSTRAPS:
 		servers = json.loads(path.read_text(encoding="utf-8"))
+		present = {
+			argument
+			for server in servers.get("mcpServers", {}).values()
+			for argument in (server.get("args") or [])
+			if argument.startswith("subroutine~=")
+		}
 
-		for server in servers.get("mcpServers", {}).values():
-			arguments = server.get("args") or []
-
-			for index, argument in enumerate(arguments):
-				if argument.startswith("subroutine~="):
-					arguments[index] = wanted
-
-		path.write_text(json.dumps(servers, indent=2) + "\n", encoding="utf-8")
+		# **A bootstrap with no pin is left alone entirely** — the remote plugin needs no
+		# package, and rewriting its file to change nothing is what `#749` was.
+		for pin in present:
+			if pin != wanted:
+				_replace_json_value(path, pin, wanted)
 
 
 def _git (*arguments: str) -> str:
