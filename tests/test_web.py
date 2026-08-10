@@ -3882,6 +3882,7 @@ def _views (
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "moment" ? app.moment(argument.value, argument.now)
+			: name === "calendarDay" ? app.calendarDay(argument.value, argument.zone)
 			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: name === "filed" ? app.filed(argument.values, argument.slug)
@@ -4337,6 +4338,126 @@ def test_a_deadline_stays_a_day (tmp_path: pathlib.Path) -> None:
 		assert not re.search(r"\d{1,2}:\d{2}", rendered), (
 			f"a date somebody chose was rendered with a time on it: {rendered}"
 		)
+
+
+def test_a_day_is_read_in_the_timezone_that_stored_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#773`, and it was live on the served instance when it was found.
+
+	`SR#589` is due all day on **Friday 14 August**, stored as `2026-08-14T23:59:59.999999Z`
+	because §6.5 puts an all-day deadline at the last instant of its day in the task's own
+	timezone. Rendered in the *reader's* timezone that is Saturday the 15th anywhere east of
+	UTC — so `subroutine today` printed `(due Fri 14 Aug)` and the browser printed 15 Aug, about
+	one item, at one moment.
+
+	**Wrong in both directions, for different fields**, which is why the fix is one function
+	rather than one adjustment:
+
+	| field | stored at | wrong for a reader |
+	| --- | --- | --- |
+	| an all-day `due_at` | the **end** of the day | **east** of the task |
+	| an all-day `start_at` | the **beginning** | **west** of the task |
+	| `planned_for` | not an instant at all | west of UTC, by being parsed |
+
+	**Sydney rather than London**, for `SR#532`'s reason: its abbreviations are never zone names
+	and it is far enough east to cross the end-of-day boundary, so this cannot pass by season
+	the way a London test would — UTC in winter, UTC+1 in summer, and CI is always UTC.
+	"""
+
+	east, west, plain, none = _views(tmp_path, [
+		# The real value off `SR#589`, read in a zone ten hours ahead.
+		("calendarDay", {"value": "2026-08-14T23:59:59.999999Z", "zone": "Etc/UTC"}),
+		("calendarDay", {"value": "2026-08-14T00:00:00Z", "zone": "Etc/UTC"}),
+		# **A bare date is returned untouched**, and that is not an optimisation: `planned_for`
+		# has no instant behind it, and `new Date("2026-08-13")` is UTC midnight — so parsing it
+		# moves it to the 12th anywhere west of UTC. Not parsing is the only exact answer.
+		#
+		# **West, and this assertion was Sydney until a surviving mutation corrected it.** UTC
+		# midnight is still the 13th anywhere *ahead* of UTC, so the short-circuit it is meant to
+		# be checking was doing nothing observable and removing it changed no answer.
+		("calendarDay", {"value": "2026-08-13", "zone": "America/Los_Angeles"}),
+		("calendarDay", {"value": None, "zone": "Etc/UTC"}),
+	])
+
+	assert east == "2026-08-14", "an all-day deadline moved to the next day"
+	assert west == "2026-08-14", "an all-day start moved to the previous day"
+	assert plain == "2026-08-13", "a calendar date was parsed as an instant and moved"
+	assert none is None
+
+	# The zone that stored it decides, so the *same instant* is two different days depending on
+	# whose day it was — which is the whole point, and the assertion that fails if the parameter
+	# is ever ignored.
+	[sydney] = _views(tmp_path, [
+		("calendarDay", {"value": "2026-08-14T23:59:59.999999Z", "zone": "Australia/Sydney"}),
+	])
+
+	assert sydney == "2026-08-15"
+
+
+def test_a_row_and_the_terminal_agree_about_a_deadline (tmp_path: pathlib.Path) -> None:
+	"""`SR#773`'s other half: the fix has to reach what a reader actually looks at.
+
+	`calendarDay` being right is worth nothing if `Facts` and `Row` go on calling `day` without
+	the task's timezone — the rule right, the display right, and no wire between them, which is
+	this app's signature fault and the one `SR#640` exists for.
+
+	Driven through `Row`, and the assertion is on the **day number** rather than on a whole
+	string, because the month name is the reader's locale and the machine running this is not
+	the machine reading it.
+	"""
+
+	# **Stored in a zone behind UTC, and that is the whole of what makes this falsifiable.** The
+	# fallback when no zone is passed is UTC, so a task whose own zone *is* UTC renders the same
+	# either way and dropping the parameter changes nothing — which is exactly what happened when
+	# this fixture said `Etc/UTC`, and a mutation that should have failed passed.
+	#
+	# End of 15 August in Los Angeles is 06:59 UTC on the **16th**, so the task's day and the
+	# UTC day are different numbers and only one of them is right.
+	rendered = _rendered(tmp_path, {"Row": {"workspace": "projects", "item": {
+		"ref": 589, "kind": "task", "title": "A second human has used this instance",
+		"due_at": "2126-08-16T06:59:59.999999Z", "timezone": "America/Los_Angeles",
+	}}})["Row"]
+
+	# A hundred years out, so it is never overdue and the row renders `due …` rather than the
+	# overdue badge — the same shape, without a fixture that expires.
+	assert "15" in rendered and "16" not in rendered, (
+		f"the row shows the deadline's UTC day rather than the task's own: {rendered}"
+	)
+
+
+#: The fields §6.5 stores as a *day* rather than as an instant, so rendering one needs the
+#: timezone that stored it. `updated_at`, `created_at` and `completed_at` are deliberately
+#: absent: those are moments the program recorded, and the reader's own zone is the right one.
+DAY_SCALE = ("due_at", "planned_for", "start_at")
+
+
+def test_every_day_scale_date_is_rendered_with_its_timezone () -> None:
+	"""`SR#773`, structurally, because one call site per test is a list that falls behind.
+
+	The driven test above proves the rule reaches `Row`. It said nothing about `Facts`, and a
+	mutation dropping the timezone there passed the whole suite — which is how this exists: the
+	rule right, the display right, and no wire between them, on the third call site.
+
+	**The fallback is what makes this invisible by hand.** `day` with no zone falls back to UTC,
+	which is the correct answer on an instance whose timezone is UTC and wrong on any other. So
+	a forgotten argument does nothing here and something on somebody else's machine.
+
+	Structural rather than driven, so a fourth reader of one of these fields is covered the day
+	it is written rather than the next time somebody notices.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	naked = re.findall(rf"day\(\s*\w+\.({'|'.join(DAY_SCALE)})\s*\)", source)
+
+	assert not naked, (
+		f"{sorted(set(naked))} are rendered by `day` with no timezone, so they will show the "
+		f"day either side of themselves for a reader whose instance is not on UTC"
+	)
+
+	dressed = re.findall(rf"day\(\s*\w+\.({'|'.join(DAY_SCALE)}),", source)
+
+	assert len(dressed) >= len(DAY_SCALE), (
+		f"only {len(dressed)} day-scale renders were found, so this is checking almost nothing"
+	)
 
 
 def test_only_a_change_of_selection_asks_the_instance_again (

@@ -58,6 +58,14 @@ upgrade involves.
 
 ### Fixed
 
+- **The browser showed some dates a day out.** A deadline set for *all day Friday* is stored at
+  the last instant of Friday, so reading it in a different timezone from the one that stored it
+  moved it to Saturday — and a planned day, which has no time in it at all, moved the other way.
+  The command line and the browser could disagree by a day about the same item. Days are now
+  read in the timezone that stored them, so they agree.
+
+  It was correct in winter and wrong in summer for anyone in the UK, which is why it lasted.
+
 - **An appointment later today was missing from today's agenda.** A task that starts at 2pm
   did not appear until 2pm — so a dentist appointment was invisible all morning, on the
   command line and in the browser alike, and `subroutine today` said *Nothing due today* about

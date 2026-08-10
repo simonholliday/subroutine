@@ -60,6 +60,13 @@ const PAGE = 100;
 const TASK_FIELDS = [
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
 	"status", "status_is_default", "status_category",
+	/* **Which timezone a day-scale date was stored in** (`#773`). §6.5 stores an all-day
+	   deadline at the last instant of its day *in the task's own zone*, so rendering it in the
+	   reader's shows the next day to anybody east of it — measured, and live: the terminal said
+	   `(due Fri 14 Aug)` while the browser said 15 Aug about one item. A row without this would
+	   fall back to UTC, which is the answer that happens to be right here and wrong for anybody
+	   whose instance is not. */
+	"timezone",
 	/* Who is holding a lease, and until when (`#726`). All three, because the mark says the
 	   holder's name, the id is what says anybody holds it at all, and the expiry is what says
 	   whether that still means anything — `claimed_by` alone would be null on an instance older
@@ -1161,12 +1168,68 @@ export function mentionHref (workspace) {
 
 /* ---- shaping ------------------------------------------------------------ */
 
-export function day (value) {
-	/* A date in the reader's own locale, because this is the one surface where the machine
-	   knows what that is. Time is dropped: everything shown here is a day-scale fact. */
+//: A date with no time in it, which is a calendar day rather than an instant.
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function calendarDay (value, zone = null) {
+	/*
+		The calendar day a value falls on, as ``YYYY-MM-DD`` — `#773`.
+
+		**A day-scale fact must be read in the timezone that stored it, not in the reader's.**
+		§6.5 stores an all-day deadline at the *last* instant of its day in the task's own
+		timezone, so `2026-08-14T23:59:59.999999Z` is *Friday the 14th* to the task and *Saturday
+		the 15th* to a browser in London. Measured against `#589` on the served instance: the
+		terminal said `(due Fri 14 Aug)` and the browser said 15 Aug, about one item, at one
+		moment.
+
+		It is wrong in both directions and for different fields, which is why the fix is one
+		function rather than one adjustment: an all-day *deadline* is stored at the end of the
+		day, so a reader **east** of the task sees the next one; an all-day *start* is stored at
+		the beginning, so a reader **west** sees the previous one.
+
+		**A bare `YYYY-MM-DD` is returned untouched, and that is not an optimisation.**
+		`planned_for` is a calendar date with no instant behind it at all, and `new Date(
+		"2026-08-13")` parses it as UTC midnight — so rendering it anywhere west of UTC moves it
+		to the 12th. Not parsing it is the only way to be exactly right.
+
+		**Seasonal, which is why nothing noticed.** London is UTC in winter and UTC+1 in summer,
+		so this is correct half the year — `#532`'s shape, where CI in UTC cannot see it.
+	*/
 	if (!value) return null;
 
-	return new Date(value).toLocaleDateString(undefined, {
+	const written = String(value);
+
+	if (CALENDAR_DAY.test(written)) return written;
+
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat("en-US", {
+			timeZone: zone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
+		}).formatToParts(new Date(written)).map((one) => [one.type, one.value]),
+	);
+
+	return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function day (value, zone = null) {
+	/*
+		A date in the reader's own locale, because this is the one surface where the machine
+		knows what that is. Time is dropped: everything shown here is a day-scale fact.
+
+		**`zone` is the timezone that stored the value**, and passing it is what makes the day
+		right — see `calendarDay`. Omitting it is correct for a genuine instant like
+		`updated_at`, where the question really is *when was this, where I am*.
+	*/
+	if (!value) return null;
+
+	const [year, month, date] = calendarDay(value, zone).split("-").map(Number);
+
+	/*
+		**Formatted from the parts rather than from the original value**, so the day cannot move
+		a second time on the way out. A `Date` built this way is local midnight of exactly the
+		day `calendarDay` decided on, and `toLocaleDateString` with no `timeZone` then renders
+		that day whatever the reader's offset is.
+	*/
+	return new Date(year, month - 1, date).toLocaleDateString(undefined, {
 		day: "numeric",
 		month: "short",
 		year: "numeric",
@@ -1290,7 +1353,9 @@ export function marks (item, showKind) {
 
 	if (showKind) found.push({ text: item.kind === "document" ? "Document" : "Task" });
 	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
-	if (overdue(item)) found.push({ text: `Overdue ${day(item.due_at)}`, tone: "late" });
+	if (overdue(item)) {
+		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
+	}
 
 	/*
 		**Who is holding it, before the project and the assignee** (`#726`), because it is the
@@ -1387,8 +1452,8 @@ export function when (item, now = null) {
 			+ `${moment(item.completed_at, now)}`;
 	}
 
-	if (item.due_at && !overdue(item)) return `due ${day(item.due_at)}`;
-	if (item.planned_for) return `→ ${day(item.planned_for)}`;
+	if (item.due_at && !overdue(item)) return `due ${day(item.due_at, item.timezone)}`;
+	if (item.planned_for) return `→ ${day(item.planned_for, item.timezone)}`;
 
 	return null;
 }
@@ -2155,9 +2220,9 @@ export function Facts ({ item }) {
 	   introduced: the form can set it, and a field a reader can write and never read back is
 	   `#515`'s shape — every step reports success and they are left confirming the wrong
 	   conclusion. The CLI has printed it as *from <date>* since M1. */
-	add("Starts", day(item.start_at));
-	add("Due", day(item.due_at));
-	add("Planned", day(item.planned_for));
+	add("Starts", day(item.start_at, item.timezone));
+	add("Due", day(item.due_at, item.timezone));
+	add("Planned", day(item.planned_for, item.timezone));
 	add("Estimate", item.estimate_human);
 	add("Tags", item.tags && item.tags.length > 0 ? item.tags.join(", ") : null);
 	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);
