@@ -522,6 +522,76 @@ export function commentRequest (item, body, slug) {
 	};
 }
 
+/*
+	What a **document** is, as against a task — `#761`.
+
+	A title, prose, a type and a status, and **no priority, no dates, no estimate and no
+	assignee**. Handing it the task form would offer eight fields it cannot have, which is
+	§12.2a's *a column that says the same thing on every row* wearing a different costume.
+
+	`project` is here because it decides who may read the document (§7.3a), which makes it a
+	permissions field rather than a filing one.
+*/
+export const DOCUMENT_SAID = ["body", "type", "status", "project"];
+
+export function written (values, item) {
+	/*
+		What a document form becomes on the wire — `#761`.
+
+		**The same split as a task's, for the same reason**: creating omits an empty control
+		because the endpoint refuses an empty type by name, and revising sends what it holds
+		because §8.3 says a field left out is unchanged. `title` is never null on either — a
+		document must have one, and the control is `required`.
+
+		**`expected_version` on a revision, and it matters more here than on a task** (§8.9).
+		`doc edit` is a whole-body replace, so what is at stake is the entire document rather
+		than one field — two people with it open, last save wins, and the other person's
+		paragraphs are gone with no record that they existed.
+	*/
+	const raw = values || {};
+	const said = (name) => {
+		const value = raw[name];
+
+		return typeof value === "string" ? value.trim() : value;
+	};
+
+	const revising = Boolean(item && item.version);
+	const body = revising ? { expected_version: item.version } : {};
+
+	if (said("title")) body.title = said("title");
+
+	DOCUMENT_SAID.forEach((name) => {
+		const value = said(name);
+
+		if (value) body[name] = value;
+		else if (revising && name === "body") body[name] = null;
+	});
+
+	return body;
+}
+
+export function documentRequest (values, item, slug) {
+	/*
+		Write a document, or revise one — `#761`.
+
+		**One builder for both**, because they are one act with one shape: the difference is a
+		method and a ref, and two builders would be two places for the field list to drift.
+	*/
+	if (item && item.ref) {
+		return {
+			path: scoped(`/documents/${item.ref}`, slug),
+			method: "PATCH",
+			body: written(values, item),
+		};
+	}
+
+	return {
+		path: "/documents",
+		method: "POST",
+		body: { ...written(values, null), workspace_id: slug },
+	};
+}
+
 export function linkRequest (item, target, linkType, kind, slug) {
 	/*
 		Join two items — `#760`.
@@ -2371,8 +2441,68 @@ export function Fields ({ busy, vocabulary, projects, members, project, values }
 	`;
 }
 
+/*
+	**The only place a browser-only reader learns §6.13 exists** — `#484` settled that the
+	capture grammar has exactly one delivery channel per surface, and a surface without one
+	silently stops using it. At a terminal that is `subroutine explain capture`; here there is
+	no terminal, so it is this placeholder or nothing.
+
+	Named rather than written into the markup because it now shares its attribute with a
+	ternary (`#761`), and a guard reading the first `placeholder="` in a component would find
+	whichever branch happened to be written first.
+*/
+export const CAPTURE_HINT = "Add something — try: call the dentist tomorrow +work !4/3";
+
+//: What the same box asks for when a document is being written. A title, not a captured line:
+//: the grammar is deliberately not applied to it (`#761`).
+export const DOCUMENT_HINT = "What did you conclude?";
+
+export function DocumentFields ({ busy, vocabulary, projects, project, values }) {
+	/*
+		A document's fields — `#761`. Deliberately not `Fields`.
+
+		A document has a title, prose, a type and a status, and **none of a task's eight**. The
+		body is the point of it, so the textarea is tall: a conclusion written into three rows
+		is a conclusion nobody will write.
+
+		**Type is not decoration here.** `#506` made `decision`, `finding` and `dead_end` start
+		*in force* rather than at `draft`, because `subroutine://conventions` publishes
+		`type=decision&status=active` — so a decision written at the wrong status is invisible to
+		the one channel built to deliver it. Both controls read the workspace's own vocabulary
+		and default to what it says, which is what keeps that right without teaching it here.
+	*/
+	const held = values || {};
+
+	const pick = (name, label, options) => html`
+		<label><span>${label}</span>
+			<select name=${name} disabled=${busy || options.length === 0}>
+				${options.map((one) => html`
+					<option key=${one.key} value=${one.key}
+						selected=${held[name] ? held[name] === one.key : one.chosen}>
+						${one.label}</option>
+				`)}
+			</select></label>
+	`;
+
+	return html`
+		<fieldset class="details">
+			<legend>The document</legend>
+
+			<label class="wide"><span>What it says</span>
+				<textarea name="body" rows="12" disabled=${busy}
+					placeholder="Markdown works, and #42 links."
+					defaultValue=${held.body || ""}></textarea></label>
+
+			${pick("type", "Type", offered(vocabulary && vocabulary.item_types, "document"))}
+			${pick("status", "Status", offered(vocabulary && vocabulary.statuses, "document"))}
+			${pick("project", "Project", filableFor(projects, held.project || project))}
+		</fieldset>
+	`;
+}
+
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
+	writing, onWriting,
 }) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
@@ -2403,24 +2533,48 @@ export function Adding ({
 
 		if (form.elements.text.value.trim() === "" || busy) return;
 
-		onAdd(readForm(form));
+		onAdd(readForm(form), Boolean(writing));
 		form.reset();
 	};
 
 	return html`
 		<form class="adding" onSubmit=${submit}>
 			<div class="line">
-				<input name="text" required disabled=${busy} aria-label="Add an item"
-					placeholder="Add something — try: call the dentist tomorrow +work !4/3" />
-				<button type="submit" disabled=${busy}>Add</button>
+				${/* **The same box whichever kind is being written** (§1.4). A document's title
+				     is a line of prose exactly as a task's is, and the capture grammar is
+				     simply not applied to it — so the control does not move, change size or
+				     acquire a second spelling for what somebody types into it. */ null}
+				<input name="text" required disabled=${busy}
+					aria-label=${writing ? "The document's title" : "Add an item"}
+					placeholder=${writing ? DOCUMENT_HINT : CAPTURE_HINT} />
+				<button type="submit" disabled=${busy}>${writing ? "Write" : "Add"}</button>
 				${onExpand && html`
 					<button type="button" class="more" aria-expanded=${expanded ? "true" : "false"}
 						onClick=${() => onExpand(!expanded)}>${expanded ? "Less" : "More"}</button>
 				`}
 			</div>
 
-			${expanded && html`<${Fields} busy=${busy} vocabulary=${vocabulary}
-				projects=${projects} members=${members} project=${project} />`}
+			${/* **The kind is a control inside the disclosure, not a third button beside the
+			     box** (`#761`). A document is not what a to-do list is for, so it stays behind
+			     the same *More* a task's other fields are behind — and the collapsed state,
+			     which is the one §1.4 protects, gains nothing at all. */ null}
+			${expanded && onWriting && html`
+				<div class="kind">
+					<label><span>Writing</span>
+						<select disabled=${busy}
+							onChange=${(event) => onWriting(event.target.value === "document")}>
+							<option value="task" selected=${!writing}>A task</option>
+							<option value="document" selected=${Boolean(writing)}
+								>A document</option>
+						</select></label>
+				</div>
+			`}
+
+			${expanded && (writing
+				? html`<${DocumentFields} busy=${busy} vocabulary=${vocabulary}
+					projects=${projects} project=${project} />`
+				: html`<${Fields} busy=${busy} vocabulary=${vocabulary}
+					projects=${projects} members=${members} project=${project} />`)}
 
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
 			     every page would be the column that says the same thing on every row (§12.2a);
@@ -3046,6 +3200,10 @@ export function App () {
 		complete and offers the wrong words.
 	*/
 	const [expanded, setExpanded] = useState(false);
+	/* Whether the disclosed form is writing a document rather than a task (`#761`). Beside
+	   `expanded` rather than inside it, because closing the form and reopening it should not
+	   silently change what it will write. */
+	const [writing, setWriting] = useState(false);
 	/* Whether the open item is being edited, and the version somebody else saved underneath it
 	   (`#757`). `conflict` holds *their* item rather than a flag, because the only useful thing
 	   to say about a 409 is what the item says now. */
@@ -3612,7 +3770,7 @@ export function App () {
 		() => sent(assignRequest(row, who, workspace)),
 	), [workspace, wrote]);
 
-	const add = useCallback(async (values) => {
+	const add = useCallback(async (values, asDocument) => {
 		/* **The reload afterwards keeps the filter the reader is looking at.** Without
 		   `project` declared below, adding an item inside a project answered by replacing the
 		   list with the whole workspace — the same stale closure as the poll, reached by a
@@ -3624,7 +3782,12 @@ export function App () {
 		setBusy(true);
 
 		try {
-			const made = await sent(addRequest(values, workspace));
+			/* **A document's title is the same box's text**, so it moves across rather than
+			   the form growing a second naming control (`#761`). `written` takes `title`,
+			   which is what that box is called on the other side. */
+			const made = await sent(asDocument
+				? documentRequest({ ...values, title: values.text }, null, workspace)
+				: addRequest(values, workspace));
 
 			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
 
@@ -3658,7 +3821,9 @@ export function App () {
 		setConflict(null);
 
 		try {
-			const saved = await sent(updateRequest(values, open.item, workspace));
+			const saved = await sent(open.item.kind === "document"
+				? documentRequest(values, open.item, workspace)
+				: updateRequest(values, open.item, workspace));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
 			setEditing(false);
@@ -3873,6 +4038,7 @@ export function App () {
 	*/
 	const adding = {
 		expanded, onExpand: setExpanded, vocabulary, projects: filable, members, project,
+		writing, onWriting: setWriting,
 	};
 
 	if (error) {

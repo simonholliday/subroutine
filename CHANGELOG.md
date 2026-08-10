@@ -43,6 +43,12 @@ upgrade involves.
   so you can fold your change into theirs rather than losing one of them. That applies to an
   agent working on the same item as much as to another person.
 
+- **Documents can be written and revised in the browser.** *More* beside the add box now asks
+  whether you are writing a task or a document, and a document gets the fields a document has —
+  prose, a type, a status and a project, and none of a task's priorities or dates. An open
+  document can be revised the same way an item is edited, and the same protection applies: if
+  somebody saved while you were writing, nothing is overwritten.
+
 - **Links can be made and removed in the browser**, on an item or a document, in whichever
   ways your workspace names — *blocks*, *relates to*, and anything you have added. Type a ref
   and pick a relationship; you do not have to say whether `#42` is a task or a document,

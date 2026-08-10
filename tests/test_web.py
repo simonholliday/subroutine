@@ -213,6 +213,15 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 	},
 	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
+	"DocumentFields": {
+		"busy": False,
+		"values": {"body": "Prose.", "type": "decision", "status": "active"},
+		"projects": [{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0}],
+		"vocabulary": {
+			"item_types": {"document": [{"key": "note", "label": "Note", "is_default": True}]},
+			"statuses": {"document": [{"key": "draft", "label": "Draft", "is_default": True}]},
+		},
+	},
 	"Saying": {"busy": False},
 	"Linking": {"busy": False, "types": [
 		{"key": "blocks", "title": "Blocks"},
@@ -1447,12 +1456,12 @@ def test_the_add_box_teaches_the_capture_grammar (tmp_path: pathlib.Path) -> Non
 	# The placeholder is read off the source, because `flatten` walks the tree rather than
 	# rendering attributes — so the assertion has to go where the words actually are.
 	#
-	# **Anchored on the capture box's own input** rather than taken as the first placeholder in
-	# the file. It was the first until `SR#756` put two more in the form below it, and a
-	# first-match regex over three of them is one edit away from checking a different control
-	# and passing about it.
+	# **Read from the named constant**, which is what it is for. It was anchored on
+	# `name="text"` until `SR#761` gave that attribute a ternary — a document's title asks a
+	# different question — and a regex over the markup would then find whichever branch was
+	# written first and check the wrong one.
 	source = _served_modules()["app.js"]
-	placeholder = re.search(r'name="text"[^>]*?placeholder="([^"]+)"', source, re.S)
+	placeholder = re.search(r'export const CAPTURE_HINT = "([^"]+)";', source)
 
 	assert placeholder is not None, "the add box stopped saying what can be typed into it"
 	assert "+" in placeholder.group(1) and "!" in placeholder.group(1), (
@@ -1654,6 +1663,108 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	[bare] = _views(tmp_path, [("fromItem", {"item": {"ref": 1, "version": 1, "title": "x"}})])
 
 	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
+
+
+def test_a_document_is_offered_only_the_fields_a_document_has (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#761`. A document is a different shape from a task.
+
+	It has a title, prose, a type and a status, and **no priority, no dates, no estimate and no
+	assignee**. Handing it the task form would offer eight fields it cannot have, which is
+	§12.2a's *a column that says the same thing on every row* wearing a different costume.
+
+	**The kind is a control inside the disclosure, not a third button beside the box.** A
+	document is not what a to-do list is for, so it stays behind the same *More* a task's other
+	fields are behind — and the collapsed state, which is the one §1.4 protects, gains nothing.
+	"""
+
+	vocabulary = {
+		"item_types": {"document": [
+			{"key": "note", "label": "Note", "is_default": True},
+			{"key": "decision", "label": "Decision"},
+		]},
+		"statuses": {"document": [
+			{"key": "draft", "label": "Draft", "is_default": True},
+			{"key": "active", "label": "Active"},
+		]},
+	}
+
+	paper = _rendered(tmp_path, {"DocumentFields": {
+		"busy": False, "vocabulary": vocabulary, "projects": [], "values": {},
+	}})["DocumentFields"]
+
+	assert "Decision" in paper and "Active" in paper, (
+		"the document form's vocabulary is not this workspace's"
+	)
+
+	for absent in ("Importance", "Urgency", "Estimate", "Assignee", "Due", "Planned",
+			"Hidden until", "Tags"):
+		assert absent not in paper, (
+			f"the document form offers {absent!r}, which a document does not have"
+		)
+
+	# **The disclosure carries the choice, and the collapsed box does not.**
+	# **`onWriting` is passed explicitly.** The harness supplies every handler it finds written
+	# as `onX=` in the source, and this one reaches `Adding` through a spread — so it is absent
+	# unless said, and the control would be missing for a reason that is not the code's.
+	shut = _rendered(tmp_path, {"Adding": {"expanded": False, "onWriting": True}})["Adding"]
+	open_ = _rendered(tmp_path, {"Adding": {"expanded": True, "onWriting": True}})["Adding"]
+
+	assert "A document" not in shut, "the collapsed box grew a control §1.4 protects it from"
+	assert "A document" in open_ and "A task" in open_
+
+	# **Choosing it has to reach the fields**, which rendering `DocumentFields` directly says
+	# nothing about — a mutation wiring `Adding` to the task fields whatever the choice passed
+	# everything above. The rule right, the display right, and no wire between them, for the
+	# sixth time in this arc.
+	chosen = _rendered(tmp_path, {"Adding": {
+		"expanded": True, "onWriting": True, "writing": True, "vocabulary": vocabulary,
+	}})["Adding"]
+
+	assert "What it says" in chosen, "choosing a document did not produce a document's fields"
+	assert "Estimate" not in chosen and "Tags" not in chosen, (
+		"choosing a document left a task's fields on screen"
+	)
+
+
+def test_a_revision_says_which_version_it_is_based_on (tmp_path: pathlib.Path) -> None:
+	"""`SR#761`, §8.9, and it matters more here than on a task.
+
+	`doc edit` is a whole-body replace, so what is at stake is the **entire document** rather
+	than one field: two people with it open, last save wins, and the other person's paragraphs
+	are gone with no record that they existed.
+
+	Writing a new one sends no version, because there is nothing to be based on — and the same
+	function does both, so that distinction is one branch rather than two builders whose field
+	lists drift.
+	"""
+
+	values = {"title": "A conclusion", "body": "Prose.", "type": "decision", "status": "active"}
+
+	fresh, revised, emptied = _views(tmp_path, [
+		("written", {"values": values, "item": None}),
+		("written", {"values": values, "item": {"ref": 4, "version": 6}}),
+		("written", {"values": {**values, "body": ""}, "item": {"ref": 4, "version": 6}}),
+	])
+
+	assert "expected_version" not in fresh, "a new document claimed to be based on a version"
+	assert revised["expected_version"] == 6, (
+		"a revision did not say which version it was based on, so it will overwrite a save it "
+		"never saw — and a document's whole body is what is at stake"
+	)
+
+	# **A body emptied on a revision is cleared**, for `SR#757`'s reason: §8.3 says a field left
+	# out is unchanged, so omitting it would make emptying a document impossible.
+	assert emptied["body"] is None
+
+	# **And omitted on a creation**, because there is nothing to clear and the endpoint would
+	# take the null as a value.
+	[bare] = _views(tmp_path, [
+		("written", {"values": {**values, "body": ""}, "item": None}),
+	])
+
+	assert "body" not in bare
 
 
 def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
@@ -2226,9 +2337,10 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	"""
 
 	app = _served_modules()["app.js"]
-	# `Fields` is where every control beyond the naming one is drawn, and `Adding`/`Editing`
-	# are where the naming one is — so the slice spans all three (`SR#757`).
-	form = app[app.index("export function Fields ("):app.index("export function Conflict (")]
+	# **Each form against its own rule** (`SR#761`). A document's fields are a different set
+	# from a task's — no priority, no dates, no estimate, no assignee — so one slice spanning
+	# both would compare each against the other's list and pass on the union.
+	form = app[app.index("export function Fields ("):app.index("export const CAPTURE_HINT")]
 
 	drawn = set(re.findall(r'name="(\w+)"', form)) | set(re.findall(r"name=\$\{(\w+)\}", form))
 	# `name=${name}` is a control built by one of the small helpers, so what it draws is whatever
@@ -2258,12 +2370,36 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	assert always is not None, "NEVER_CLEARED is gone, so `title` is not being counted"
 
 	read = set(re.findall(r'"([^"]+)"', found.group(1) + numbers.group(1) + always.group(1)))
-	read |= {"text", "tags"}
+	read |= {"tags"}
+	# `title` and `text` are the naming control, drawn by `Editing` and `Adding` rather than by
+	# `Fields`, so they are not in the slice above.
+	read -= {"title"}
 
 	assert drawn, "the form draws no named control at all, so this is checking nothing"
 	assert drawn == read, (
 		f"the form draws {sorted(drawn - read)} that the body ignores, and the body reads "
 		f"{sorted(read - drawn)} that the form never draws"
+	)
+
+	# **The document form against its own rule** (`SR#761`). Checking it against a task's list
+	# would pass on the union and say nothing about either.
+	papers = app[
+		app.index("export function DocumentFields ("):app.index("export function Adding (")
+	]
+	on_paper = set(re.findall(r'name="(\w+)"', papers))
+	on_paper |= set(re.findall(r'pick\("(\w+)"', papers))
+	on_paper.discard("name")
+
+	document = re.search(r"export const DOCUMENT_SAID = \[(.*?)\];", app, re.S)
+
+	assert document is not None, "DOCUMENT_SAID is gone, so the document form checks nothing"
+
+	wanted = set(re.findall(r'"([^"]+)"', document.group(1)))
+
+	assert on_paper, "the document form draws nothing, so this is checking nothing"
+	assert on_paper == wanted, (
+		f"the document form draws {sorted(on_paper - wanted)} that `written` ignores, and it "
+		f"reads {sorted(wanted - on_paper)} that the form never draws"
 	)
 
 
@@ -3561,6 +3697,17 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			place.slug,
 		]),
 		("unlinkRequest", [{"ref": place.task, "kind": "task"}, place.link, place.slug]),
+		# **Writing one and revising one** (`SR#761`), which are one builder and two methods.
+		# The revision carries `expected_version`, and `doc edit` is a whole-body replace — so
+		# what is at stake is the entire document rather than one field.
+		("documentRequest", [
+			{"title": "A conclusion", "body": "Prose.", "type": "decision", "status": "active"},
+			None, place.slug,
+		]),
+		("documentRequest", [
+			{"title": "Revised", "body": "More prose.", "type": "note", "status": "draft"},
+			{"ref": place.document, "version": 1}, place.slug,
+		]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
@@ -4392,6 +4539,7 @@ def _views (
 			: name === "conflictIn" ? app.conflictIn(argument.failure)
 			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
 			: name === "linkableTypes" ? app.linkableTypes(argument.vocabulary)
+			: name === "written" ? app.written(argument.values, argument.item)
 			: name === "refused" ? (() => {{
 				const made = app.refusal(argument.status, argument.problem);
 				return {{ message: made.message, status: made.status,

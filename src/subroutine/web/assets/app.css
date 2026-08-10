@@ -221,6 +221,23 @@ code, .ref, .priority, .broke .detail {
 .edit:hover { color: var(--ink); border-color: var(--ink-soft); }
 .edit:disabled { opacity: 0.5; cursor: default; }
 
+/* Which kind the disclosed form is about to write — `SR#761`. Above the fields it changes,
+   because it decides what they are. */
+.adding .kind {
+	margin-top: 12px;
+}
+
+.adding .kind label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.adding .kind span {
+	color: var(--ink-soft);
+	font-size: 13px;
+}
+
 /* Joining two items — `SR#760`. A row, because a type and a ref are one thought. */
 .linking {
 	display: flex;
