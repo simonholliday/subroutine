@@ -6453,6 +6453,75 @@ def test_a_ranked_page_asks_for_no_documents_and_says_why (tmp_path: pathlib.Pat
 	assert "!4/3" in driven["said"], "a ranked row does not show what it is ranked by"
 
 
+def test_the_top_of_the_page_offers_the_same_things_whatever_is_below_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#786`, Simon comparing two addresses on the live instance.
+
+	The header gated its search and its view chips on `!open`, and `.top` is
+	`justify-content: space-between` — so opening an item took two of four children away and
+	the box pushed the workspace switcher hard right. **Nothing moved; two things vanished.**
+
+	An item's address is a page somebody is *sent* (`SR#638`), so arriving there and finding no
+	way to search is `SR#651`'s fault again: an address is not a way to find something.
+
+	Compared as sets rather than asserted one by one, so a control added to the listing's header
+	and not to the item's fails this without anybody remembering to extend it.
+	"""
+
+	empty = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
+	listing = _driven(tmp_path, pathname="/projects", search="?view=list")
+	item = _driven(
+		tmp_path, pathname="/projects/42", search="?view=list",
+		answers={
+			"/v1/tasks/42/links": empty,
+			"/v1/tasks/42/comments": empty,
+			"/v1/tasks/42": {"ref": 42, "kind": "task", "title": "Open",
+				"status_category": "todo"},
+		},
+	)
+
+	views = {address for address in listing["links"] if "view=" in address}
+
+	assert views, "the listing offers no view chips, so this is checking nothing"
+
+	missing = views - set(item["links"])
+
+	assert not missing, (
+		f"the header loses {sorted(missing)} the moment an item is open, and the rest of it "
+		f"redistributes to fill the gap"
+	)
+
+	assert "Search" in item["said"] or "search" in item["said"].lower(), (
+		f"an item page offers no search: {item['said'][:300]}"
+	)
+
+
+def test_a_control_that_writes_a_listing_address_leaves_the_open_item () -> None:
+	"""`SR#786`'s other half, and it became reachable only because of the fix above.
+
+	Both controls call `go(listingAddress(…))`. While they were hidden over an open item that
+	was harmless; visible, it is an address saying the listing while the page shows the item —
+	which is exactly what `close` was fixed for, arriving from a third door.
+
+	**This checks the call, not the outcome**, and says so: choosing a view needs a click, and
+	`tests/dom.js` cannot dispatch one by decision. `SR#748` is the item for a machine that
+	could. What it buys is that removing the call fails a test rather than nothing.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+
+	for name in ("chooseSearch", "chooseView"):
+		opens, closes = _braced(source, f"const {name} = useCallback(")
+		inside = source[opens:closes]
+
+		assert "listingAddress(" in inside, f"{name} no longer writes a listing address"
+		assert "nowOpen(null)" in inside, (
+			f"{name} writes a listing address and leaves the item open, so the bar and the "
+			f"page would disagree about what the reader is looking at"
+		)
+
+
 def test_a_background_read_stands_off_while_the_item_is_being_edited () -> None:
 	"""`SR#657`, and this one is correctness rather than courtesy.
 

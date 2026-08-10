@@ -4506,6 +4506,11 @@ export function App () {
 		if (!reloads(showing, wanted)) return;
 
 		nowShowing(wanted);
+		/* **Searching leaves whatever item was open** (`#786`). The address this writes is the
+		   listing's, so keeping the item on screen would be the page and the bar disagreeing —
+		   which is what `close` was fixed for, arriving from a third door now that the control
+		   is reachable over an item at all. */
+		nowOpen(null);
 		go(listingAddress({ agenda: agenda !== null, workspace, project }), { arranged: wanted });
 
 		if (agenda !== null) return;
@@ -4515,7 +4520,7 @@ export function App () {
 		} catch (failure) {
 			setNote({ text: `That search was refused. ${failure.message}`, tone: "bad" });
 		}
-	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+	}, [agenda, go, load, nowOpen, nowShowing, project, showing, workspace]);
 
 	const chooseOrder = useCallback(async (asked) => {
 		/*
@@ -4573,6 +4578,9 @@ export function App () {
 
 		nowShowing(wanted);
 
+		/* As `chooseSearch`: this writes a listing address, so it leaves the item (`#786`). */
+		nowOpen(null);
+
 		/* **The address first, then the reload** — and the order is the whole of why `load`
 		   needs no argument for this: it reads the arrangement from the address, which `go` has
 		   already written. */
@@ -4582,7 +4590,7 @@ export function App () {
 		);
 
 		if (agenda === null && again) await load(workspace, project);
-	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+	}, [agenda, go, load, nowOpen, nowShowing, project, showing, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -4642,11 +4650,22 @@ export function App () {
 					${me && me.workspaces.length === 1 && html` · ${workspace}`}
 				</div>
 
-				${/* **A search is a control for the same reason the chips are** (`#651`): an
-				     address is not a way to find something, and a reader who has never seen one
-				     cannot type a word they have not been told. On a listing only — the agenda
-				     is a day rather than a set of rows to narrow. */ null}
-				${!open && agenda === null && html`
+				${/*
+					**A search is a control for the same reason the chips are** (`#651`): an
+					address is not a way to find something, and a reader who has never seen one
+					cannot type a word they have not been told.
+
+					**On a listing, and over an item opened from one** (`#786`). The condition
+					used to carry `!open` as well, and `.top` is `justify-content: space-between`
+					— so opening an item took two of the header's four children away and the box
+					pushed the workspace switcher hard right. Simon found it by comparing two
+					addresses. Nothing moved; two things vanished.
+
+					**The agenda half stays and has a reason the other half never had**: a day is
+					not a set of rows to narrow, and arranging it by status would answer a
+					question nobody asked of it.
+				*/ null}
+				${agenda === null && html`
 					<${Seeking} busy=${busy} onSearch=${chooseSearch}
 						asked=${showing.selection.q || ""} />
 				`}
@@ -4666,8 +4685,12 @@ export function App () {
 					**And each is a real link** (`#722`), so a reader can open the board in a tab
 					beside their list rather than replacing it. `chips` builds exactly the address
 					`chooseView` is about to write, which is what makes the two agree.
+
+					**Shown over an open item too** (`#786`), and `behind` is already the address
+					of the listing underneath — so a chip on an item page is the way back to that
+					listing, arranged as the reader asked.
 				*/ null}
-				${!open && agenda === null && html`
+				${agenda === null && html`
 					<nav class="views" aria-label="Which view">
 						${chips(behind, showing).map((chip) => html`
 							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}

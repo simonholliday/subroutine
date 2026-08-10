@@ -137,6 +137,12 @@ upgrade involves.
 
 ### Fixed
 
+- **The top of the page stays put when you open an item.** Search and the view switcher used
+  to disappear, and the header redistributed what was left — so the workspace dropdown moved
+  to the far right and the page looked like a different page. Both are there now, and using
+  either takes you back to the list. An item's address is a link somebody sends you, so it is
+  as likely to be where you arrive as the list is.
+
 - **The browser stops reloading itself every ten seconds.** It asked what had changed, was
   answered *the thing you already knew about*, and treated that as news — so it refetched the
   whole list on a timer whether or not anything had happened, on every page, all day. It now
