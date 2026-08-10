@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.6.3 — 2026-08-10
 
 **0.6.2 was tagged and never published.** Its release commit re-formatted both plugin manifests
 without changing anything in them, which the guard against an undeliverable plugin correctly
