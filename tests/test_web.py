@@ -4614,6 +4614,9 @@ def _views (
 					conflict: app.conflictIn(made) }};
 			}})()
 			: name === "people" ? app.people(argument.roster)
+			: name === "freshly" ? app.freshly(argument.items, argument.since)
+			: name === "touching"
+				? app.touching(argument.events, argument.open, argument.page)
 			: app.columns(argument))));
 	"""))
 
@@ -5460,6 +5463,7 @@ def _driven (
 	pathname: str = "/",
 	search: str = "",
 	answers: typing.Mapping[str, typing.Any] | None = None,
+	ticks: int = 0,
 ) -> dict[str, typing.Any]:
 	"""Mount the real app at one address and report what it asked the instance for.
 
@@ -5481,6 +5485,17 @@ def _driven (
 	down, which sentence it chooses. Those live inside a hook and so are reachable by nothing
 	else, which is the other half of `SR#640`. A test asserting on layout, class names or the
 	shape of a component's output is in the wrong place and belongs in `SAMPLES`.
+
+	**`ticks` runs the poll by hand**, because `POLL_MS` is ten seconds and a suite cannot wait
+	for two of them. `setInterval` is captured rather than left to fire, so a test says *now*
+	and reads what the page asked for — which is the only way to pose a question about the
+	**second** tick, and `SR#781` was a defect only the second tick could show.
+
+	This substitutes a second mechanism, on top of `fetch`, and the risk `tests/dom.js` names
+	applies: a harness that replaces the thing under test confirms only the half that was not
+	broken. It is defensible here because the interval is not the subject — what the callback
+	*decides* is — and `clearInterval` is honoured, so a stale interval from a re-run effect
+	cannot be run by mistake.
 	"""
 
 	module = _staged(tmp_path)
@@ -5494,6 +5509,22 @@ def _driven (
 		);
 		const replies = {json.dumps(replies)};
 		const asked = [];
+
+		/* **The poll, held rather than left to fire.** `clearInterval` really removes it, so an
+		   effect that re-ran leaves no second callback behind to be run by mistake. */
+		const running = new Map();
+		let handles = 0;
+
+		globalThis.setInterval = (run) => {{
+			handles += 1;
+			running.set(handles, run);
+
+			return handles;
+		}};
+
+		globalThis.clearInterval = (handle) => {{
+			running.delete(handle);
+		}};
 
 		/* Enough of an answer for the app to carry on, and no more. A fixture that returned
 		   real-looking rows would invite assertions about rendering, which is not what this is
@@ -5534,6 +5565,19 @@ def _driven (
 		   rows arriving ten seconds late. */
 		await new Promise((done) => setTimeout(done, 300));
 
+		/* Each tick is recorded separately, so a test can ask what the *second* one did rather
+		   than only what the page has asked for in total. */
+		const rounds = [];
+
+		for (let round = 0; round < {ticks}; round += 1) {{
+			const before = asked.length;
+
+			for (const run of [...running.values()]) await run();
+
+			await new Promise((done) => setTimeout(done, 50));
+			rounds.push(asked.slice(before));
+		}}
+
 		/* **Every address the mounted page offers** (`SR#722`). The view switcher and the
 		   detail page's controls are built inside `App`, so no component harness can reach
 		   them — and whether they are links is precisely what this change is about. Walking
@@ -5546,7 +5590,7 @@ def _driven (
 		}}
 
 		process.stdout.write(JSON.stringify(
-			{{ asked, written, said: text(root), links: addresses(root) }}
+			{{ asked, written, said: text(root), links: addresses(root), rounds }}
 		));
 
 		/* The poll's interval holds the process open, and a test that hangs is worse than one
@@ -5797,6 +5841,290 @@ def test_every_request_the_app_makes_on_arrival_is_a_declared_builder (
 	invented = paths - known
 
 	assert not invented, f"{sorted(invented)} is fetched and is not a route the app declares"
+
+
+# --- The poll: what it resumes from, and what it re-reads --------------------------------
+
+
+#: An empty collection, in the envelope every listing here uses.
+NOTHING = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
+
+
+def _feed (events: list[dict[str, typing.Any]], *, more: bool = False) -> dict[str, typing.Any]:
+	"""One answer from ``/v1/changes``, in the shape that endpoint actually returns."""
+
+	return {"items": events, "page": {"has_more": more, "next_cursor": None, "total": None}}
+
+
+def _event (seq: int, ref: int | None = None, kind: str = "task") -> dict[str, typing.Any]:
+	"""One event, carrying only the three fields the poll asks for."""
+
+	return {"seq": seq, "item_ref": ref, "workspace_id": "w1", "entity_type": kind}
+
+
+def _open_item (tmp_path: pathlib.Path) -> dict[str, typing.Any]:
+	"""What the fixture answers for one open task, narrowest paths first.
+
+	The order is load-bearing and the reason is `SR#722`'s: the fixture matches on a fragment
+	being *present*, and ``/v1/tasks/42`` is inside ``/v1/tasks/42/links``.
+	"""
+
+	return {
+		"/v1/tasks/42/links": NOTHING,
+		"/v1/tasks/42/comments": NOTHING,
+		"/v1/tasks/42": {"ref": 42, "kind": "task", "workspace_id": "w1", "version": 1,
+			"title": "Open", "status_category": "todo"},
+	}
+
+
+def test_a_poll_that_sees_nothing_new_reloads_nothing (tmp_path: pathlib.Path) -> None:
+	"""`SR#781`, and it takes **two** ticks to see, which is why nothing had.
+
+	``?since=`` is inclusive by decision (§5.11): the caller sends back the last seq it dealt
+	with and is handed that event again. The poll asked for one row, was given that row, and
+	tested ``items.length === 0`` — which could never be true. So the cursor never moved off
+	where ``start`` put it and the listing was refetched every ten seconds for ever, while the
+	change feed's answer was read only to be discarded.
+
+	**Nothing about that looks wrong from either side.** The endpoint answers correctly, the
+	caller reads a non-empty list, and the reader does see changes — ten seconds late, exactly
+	as designed. Only the reason was wrong.
+
+	Falsified by having `freshly` return what it was given: both rounds refetch and this fails.
+	"""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", ticks=2,
+		answers={"changes?newest": _feed([_event(7)]), "changes?since": _feed([_event(7)])},
+	)
+
+	assert len(driven["rounds"]) == 2, "the poll did not run, so this is checking nothing"
+
+	for number, round in enumerate(driven["rounds"], start=1):
+		polls = [call for call in round if "/v1/changes" in call["path"]]
+		reloads = [
+			call for call in round
+			if "/v1/tasks" in call["path"] or "/v1/documents" in call["path"]
+			or "/v1/agenda" in call["path"]
+		]
+
+		assert polls, f"round {number} did not ask what had changed"
+		assert not reloads, (
+			f"round {number} refetched {[call['path'] for call in reloads]} although the feed "
+			f"reported only the event the page had already dealt with"
+		)
+
+
+def test_a_poll_that_sees_something_new_reloads_the_listing (tmp_path: pathlib.Path) -> None:
+	"""The other half, so the test above cannot pass by the poll doing nothing at all.
+
+	A guard that only proves *nothing happened* is satisfied by a page that has stopped
+	working, which is the failure this pair exists to tell apart.
+	"""
+
+	driven = _driven(
+		tmp_path, pathname="/projects", ticks=1,
+		answers={
+			"changes?newest": _feed([_event(7)]),
+			"changes?since": _feed([_event(7), _event(8, ref=99)]),
+		},
+	)
+	reloaded = [call for call in driven["rounds"][0] if "/v1/tasks" in call["path"]]
+
+	assert reloaded, "an event nobody had seen left the listing unrefreshed"
+
+
+def test_a_change_to_the_open_item_re_reads_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#657`. Simon, watching an agent work with an item's own URL open in the browser.
+
+	The poll refreshed the listing behind the pane and never the pane. A status set by an agent,
+	a description revised, and above all **a comment written while somebody is reading the
+	item** appeared nowhere until the reader closed it and opened it again — with nothing on
+	screen saying it was stale. `SR#638` is what made that ordinary rather than marginal: an
+	item is a page somebody can be sent and can sit on.
+	"""
+
+	driven = _driven(
+		tmp_path, pathname="/projects/42", ticks=1,
+		answers={
+			"changes?newest": _feed([_event(7)]),
+			"changes?since": _feed([_event(7), _event(8, ref=42, kind="comment")]),
+			**_open_item(tmp_path),
+		},
+	)
+	reread = [
+		call for call in driven["rounds"][0]
+		if call["path"].split("?")[0] == "/v1/tasks/42"
+	]
+
+	assert reread, (
+		"a comment was written on the item this reader has open and the pane was not re-read: "
+		f"{[call['path'] for call in driven['rounds'][0]]}"
+	)
+
+
+def test_a_change_to_something_else_leaves_the_open_item_alone (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The pane is re-read because *it* moved, not because anything did.
+
+	Without this the test above passes for a page that refetches the open item on every tick,
+	which is the version of this feature that costs two requests a tick for ever.
+	"""
+
+	driven = _driven(
+		tmp_path, pathname="/projects/42", ticks=1,
+		answers={
+			"changes?newest": _feed([_event(7)]),
+			"changes?since": _feed([_event(7), _event(8, ref=99)]),
+			**_open_item(tmp_path),
+		},
+	)
+	reread = [
+		call for call in driven["rounds"][0]
+		if call["path"].split("?")[0] == "/v1/tasks/42"
+	]
+
+	assert not reread, "something else moved and the open item was re-read anyway"
+
+
+@pytest.mark.parametrize(
+	("events", "since", "kept"),
+	[
+		# The resumed event comes back every time, and is the whole of `SR#781`.
+		([7], 7, []),
+		([7, 8, 9], 7, [8, 9]),
+		# A first look has nothing to have dealt with already.
+		([7], None, [7]),
+		# A cursor behind the page — the catch-up case `?since=` exists for.
+		([4, 5, 6], 3, [4, 5, 6]),
+	],
+)
+def test_only_what_the_page_has_not_seen_counts_as_a_change (
+	tmp_path: pathlib.Path, events: list[int], since: int | None, kept: list[int]
+) -> None:
+	"""The rule on its own — `SR#781`. The tests above drive the wire to it."""
+
+	answer = _views(tmp_path, [
+		("freshly", {"items": [_event(seq) for seq in events], "since": since}),
+	])[0]
+
+	assert [one["seq"] for one in answer] == kept
+
+
+@pytest.mark.parametrize(
+	("events", "more", "expected", "why"),
+	[
+		([(8, 42, "task")], False, True, "the open item was updated"),
+		([(8, 99, "task")], False, False, "something else was updated"),
+		([(8, 99, "link")], False, True, "a link names one end and either could be this one"),
+		([(8, 99, "task")], True, True, "a batch that had to stop may have hidden it"),
+	],
+)
+def test_what_counts_as_touching_the_open_item (
+	tmp_path: pathlib.Path,
+	events: list[tuple[int, int, str]],
+	more: bool,
+	expected: bool,
+	why: str,
+) -> None:
+	"""`SR#657`'s decision, including the two cases that are deliberately generous.
+
+	**A link event names its source**, measured on the live instance: `entity_type: "link"`
+	carries the source item's ref. So linking #A to #B is invisible to #B, which is the end that
+	grew a backlink — and rather than reason about which end a reader is on, any link event
+	re-reads. **A truncated batch is treated as yes** for the same reason: the honest answer to
+	*I could not see all of it* is to look, and being wrong costs one request.
+	"""
+
+	answer = _views(tmp_path, [
+		("touching", {
+			"events": [_event(seq, ref, kind) for seq, ref, kind in events],
+			"open": {"ref": 42, "workspace_id": "w1"},
+			"page": {"has_more": more},
+		}),
+	])[0]
+
+	assert answer is expected, why
+
+
+def test_a_ref_in_another_workspace_is_not_this_item (tmp_path: pathlib.Path) -> None:
+	"""A ref is unique per workspace (§6.2) and the agenda's poll spans every one of them.
+
+	So the comparison carries the workspace beside the ref. Without it, #42 moving in a
+	colleague's workspace re-reads #42 here — harmless, and the same mistake one step further
+	along is how a listing comes to show somebody else's rows.
+	"""
+
+	answer = _views(tmp_path, [
+		("touching", {
+			"events": [{"seq": 8, "item_ref": 42, "workspace_id": "w2", "entity_type": "task"}],
+			"open": {"ref": 42, "workspace_id": "w1"},
+			"page": {"has_more": False},
+		}),
+	])[0]
+
+	assert answer is False
+
+
+def test_the_open_item_has_one_writer (tmp_path: pathlib.Path) -> None:
+	"""`SR#657`, and the same rule `test_what_is_showing_has_one_writer` holds for `showing`.
+
+	The poll's interval is built once per workspace and holds whatever `open` was then — which
+	is nothing, because a reader opens an item long after the page settles. So there is a ref
+	beside the state, and two copies of a fact are safe only while exactly one function moves
+	them together.
+
+	**What this cannot check**, said rather than implied: it finds the writes, not whether
+	`nowOpen` writes them correctly. The tests above drive that.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	writers = [found.start() for found in re.finditer(r"(?<![\w$.])setOpen\s*\(", source)]
+
+	assert writers, "no write of the open item was found, so this is checking nothing"
+
+	opens, closes = _braced(source, "const nowOpen = useCallback(")
+	inside = source[opens:closes]
+
+	assert "setOpen(" in inside and "held.current =" in inside, (
+		f"nowOpen is meant to write both copies of the open item; its body is {inside!r}"
+	)
+
+	stray = [at for at in writers if not opens <= at < closes]
+
+	assert not stray, (
+		f"{len(stray)} call(s) to setOpen sit outside nowOpen, at offsets {stray} — each one "
+		"moves the state without moving the ref, so the poll would re-read the item that was "
+		"open when its interval was built rather than the one on screen"
+	)
+
+
+def test_a_background_read_stands_off_while_the_item_is_being_edited () -> None:
+	"""`SR#657`, and this one is correctness rather than courtesy.
+
+	The edit form carries `expected_version` (§8.9), so replacing the open item underneath it
+	would replace the version too — and a save that should have been refused with *somebody
+	changed this while you were typing* would go through and overwrite them, silently. The 409
+	is the design; a background refresh must not defeat it.
+
+	**This checks the spelling and cannot check the thing**, which is said out loud because this
+	repository has been caught believing otherwise. Opening the editor needs a click and
+	`tests/dom.js` cannot dispatch one by decision, so the rule is unreachable by the harness
+	that drives everything else here. `SR#748` is the item for a machine that could. What this
+	does buy is that removing the check fails a test rather than nothing at all.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	opens, closes = _braced(source, "const refresh = useCallback(")
+	inside = source[opens:closes]
+
+	assert "held.current" in inside, "this is not the background read; the scan found the wrong body"
+
+	assert re.search(r"if\s*\(!\w+\s*\|\|\s*editing\)\s*return", inside), (
+		"the background read no longer stands off while the item is being edited, so a save "
+		f"carrying expected_version could overwrite somebody: {inside!r}"
+	)
 
 
 def test_the_shim_is_a_mount_and_not_a_browser () -> None:

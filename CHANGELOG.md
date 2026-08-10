@@ -114,7 +114,24 @@ upgrade involves.
   What is listed is read from the routes the instance actually serves, so it cannot claim a
   way in that is not there, or stay quiet about one that is.
 
+- **An item open in the browser keeps up with itself.** Leave `/projects/subroutine/42` open
+  and a comment somebody writes on it, a status an agent sets, or a description that gets
+  revised now appears there, without closing and reopening it. Your place on the page is kept:
+  nothing scrolls and nothing jumps.
+
+  If the item is deleted while you are reading it you are told, and what is on screen stays —
+  it is the last version you were shown, and losing it would lose the news along with it.
+
+  **While you are editing, nothing is replaced underneath you.** A save that clashes with
+  somebody else's is still refused and still shows you what they wrote, which is the point of
+  the check and is not something a background refresh should be able to slip past.
+
 ### Fixed
+
+- **The browser stops reloading itself every ten seconds.** It asked what had changed, was
+  answered *the thing you already knew about*, and treated that as news — so it refetched the
+  whole list on a timer whether or not anything had happened, on every page, all day. It now
+  reloads when something has actually changed.
 
 - **A project name it could not read is now said out loud.** Typing `+my/project` left the
   words in the title and filed the item wherever the default was, without saying so — while

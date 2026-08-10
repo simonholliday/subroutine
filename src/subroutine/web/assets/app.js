@@ -36,6 +36,26 @@ const html = htm.bind(h);
 */
 const POLL_MS = 10000;
 
+/*
+	How many events one poll reads.
+
+	**Not a ceiling on what happened**, which is why `has_more` is acted on rather than ignored:
+	a batch that had to stop is a batch that may have hidden the one event this reader cares
+	about, and the honest answer to *I could not see all of it* is to re-read the open item
+	rather than to assume. On this instance a busy minute is a few dozen events, so a hundred is
+	a tick's worth several times over.
+*/
+const POLL_PAGE = 100;
+
+/*
+	The three fields a poll reads, and it reads nothing else (§14.10).
+
+	`seq` is what the cursor resumes from. `item_ref` with `workspace_id` is what says whether
+	the item somebody has open is among them — the ref alone would not, because a ref is unique
+	*per workspace* (§6.2) and the agenda's poll spans all of them.
+*/
+const POLL_FIELDS = ["seq", "item_ref", "workspace_id", "entity_type"];
+
 /* How many rows to ask for. The listing says when it had to stop, so this is a page rather
    than a ceiling on what exists. */
 const PAGE = 100;
@@ -347,7 +367,21 @@ export function headRequest () {
 
 export function pollRequest (slug, since) {
 	/*
-		Whether anything has changed. One row is enough — the question is yes or no.
+		What has changed — and it has to be *what*, not *whether* (`#781`, `#657`).
+
+		**One row was enough while the answer was yes or no, and it never was.** `?since=` is
+		inclusive by decision (§5.11, "inclusive-with-dedupe"): the caller sends back the last
+		seq it dealt with and is handed that event again. With `limit=1` the answer is therefore
+		*always* one row and always the same row, so the caller's cursor could not advance and
+		its "did anything happen" test could never be false. Measured on the live instance:
+		`?since=4000&limit=1` returns event 4000, `has_more: true`.
+
+		So the page reloaded its listing every ten seconds for ever and the feed's answer was
+		read only to be thrown away. The dedupe the endpoint asks for is `App`'s to do, and this
+		asks for enough rows for it to be worth doing.
+
+		**Shaped, because only three fields are read** (§14.10) — the seq to resume from, and
+		the ref and workspace that say whether the item somebody has open is among them.
 
 		**With nothing to resume from, ask for the newest instead** (`#656`). A freshly
 		initialised instance holds no events at all, so the head is empty and there is no seq to
@@ -356,12 +390,13 @@ export function pollRequest (slug, since) {
 		that the poll swallows its own failures — so the cursor would stay at `0`, every tick
 		would be refused in the same way, and the page would simply never notice anything again.
 
-		**Omitting `since` would also be accepted and would be wrong**: with `limit=1` that
-		returns the *oldest* event, so the cursor would advance one seq per tick and crawl.
+		**Omitting `since` would also be accepted and would be wrong**: that returns the
+		*oldest* events, so a busy instance's page would be about last month.
 	*/
 	const asking = since === null || since === undefined
 		? "/changes?newest=true&limit=1"
-		: `/changes?since=${encodeURIComponent(since)}&limit=1`;
+		: `/changes?since=${encodeURIComponent(since)}&limit=${POLL_PAGE}`
+			+ `&fields=${POLL_FIELDS.join(",")}`;
 
 	/*
 		**A null slug asks across every workspace, which is what the agenda needs** (`#652`).
@@ -373,6 +408,50 @@ export function pollRequest (slug, since) {
 		it blind to a change anywhere else — the page it is refreshing spans them all.
 	*/
 	return { path: slug ? scoped(asking, slug) : asking, method: "GET" };
+}
+
+export function freshly (items, since) {
+	/*
+		The events in a poll's answer that the caller has not already dealt with — `#781`.
+
+		**This is the dedupe `/v1/changes` asks its callers to do**, in the one place that can
+		do it: *"you will see it again and should ignore what you already have"*. Skipping it
+		does not look like a bug from either side — the endpoint answers correctly and the
+		caller reads a non-empty list — and the consequence is a page that reloads on a timer
+		while believing it reloads on a change.
+
+		`since` of null is a first look, so everything in it is new.
+	*/
+	if (since === null || since === undefined) return items;
+
+	return items.filter((one) => one.seq > since);
+}
+
+export function touching (events, open, page = null) {
+	/*
+		Whether anything in this batch changed the item somebody has open — `#657`.
+
+		**A ref is compared with its workspace beside it.** Refs are unique per workspace and
+		the agenda's poll spans every one of them (§6.2, `#652`), so a bare ref match would
+		refetch #42 here because #42 moved somewhere else.
+
+		**A link event counts whichever end it names, and that is the interesting case.** The
+		event a link writes names its *source* — measured on the live instance, where
+		`entity_type: "link"` carries the source's `item_ref` — so linking #A to #B is invisible
+		to #B, which is exactly the end that grew a backlink. Rather than reason about which end
+		a reader is on, any link event re-reads the open item. They are rare, and a wasted read
+		is cheaper than a link that never appears.
+
+		**A batch that had to stop means the answer is unknown**, so it is treated as yes. The
+		cost of being wrong that way is one request; the other way it is the thing this exists
+		to fix.
+	*/
+	if (!open) return false;
+
+	if (page && page.has_more) return true;
+
+	return events.some((one) => one.entity_type === "link"
+		|| (one.item_ref === open.ref && one.workspace_id === open.workspace_id));
 }
 
 export function rosterRequest (slug) {
@@ -3313,6 +3392,28 @@ export function App () {
 		setShowing(next);
 	}, []);
 
+	/*
+		**The open item, where a callback can read it** — `#657`, and the same arrangement
+		`shown` has for the same reason.
+
+		The poll runs from an interval built once per workspace, so it holds whatever `open` was
+		when that interval was made — which is almost always nothing, because a reader opens an
+		item long after the page has settled. Putting `open` in the effect's dependency array
+		instead would restart the ten-second window every time anybody opened or closed
+		anything, which is the trade that was already refused for `project`.
+
+		It carries the workspace it was read from as well as the item, because a refetch has to
+		ask the same place the first read asked. Deriving it from state would be reading a
+		second fact from a third copy.
+	*/
+	const held = useRef(null);
+
+	const nowOpen = useCallback((next) => {
+		/* **One writer for both copies**, as above and held by the same kind of test. */
+		held.current = next;
+		setOpen(next);
+	}, []);
+
 	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
 		/*
 			**Every address this app writes goes through here**, carrying the arrangement and the
@@ -3483,51 +3584,6 @@ export function App () {
 		}
 	}, []);
 
-	useEffect(() => {
-		/*
-			**`project` is a dependency because the interval closes over it, not because it is
-			read during the effect.** Without it the page widened itself ten seconds after a
-			reader opened a project: `start` calls `setWorkspace` *before* awaiting the head of
-			the feed and `setProject` after, so the two land in different commits. This effect
-			re-ran on the workspace one — while the filter was still `null` — and the interval
-			it created kept that `null` for the life of the page. The first poll to see an event
-			then called `load(workspace, null)` and replaced a correct seven-item list with the
-			whole workspace, at an address that still said the project.
-
-			That is the shape worth remembering: nothing here is stale on the render, only in
-			the callback the render leaves behind. The list widened, the address did not, and
-			the reader is left with somebody else's backlog under their own project's URL.
-
-			The cost is that navigating between projects restarts the ten-second window. That is
-			the right trade — a poll that is late by one tick is invisible, and one that reloads
-			the wrong list is what this is fixing.
-		*/
-		if (error || !workspace) return undefined;
-
-		const tick = setInterval(async () => {
-			try {
-				/* **The agenda spans workspaces, so its poll must too** (`#652`) — and it has
-				   to reload the thing on screen rather than the list underneath it. `agenda` is
-				   in the dependency array below for the reason `project` is: the interval
-				   closes over it, and an interval created while the list was showing would go
-				   on reloading the list for the life of the page. */
-				const onAgenda = agenda !== null;
-				const seen = await sent(pollRequest(onAgenda ? null : workspace, since.current));
-
-				if (seen.items.length === 0) return;
-
-				since.current = seen.items[seen.items.length - 1].seq;
-
-				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
-			} catch (_) {
-				/* A poll that fails changes nothing on screen. The next one may work, and
-				   replacing a readable page with an error because a background request
-				   timed out is worse than being ten seconds stale. */
-			}
-		}, POLL_MS);
-
-		return () => clearInterval(tick);
-	}, [error, workspace, project, agenda, me, load, readAgenda]);
 
 	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
@@ -3560,7 +3616,10 @@ export function App () {
 		try {
 			const found = await fetched(row.ref, row.kind, slug);
 
-			setOpen(found);
+			/* **With the workspace it was read from**, so a background re-read asks the same
+			   place (`#657`). `slug` defaults to the current workspace and is overridden when a
+			   row from somewhere else is opened, so it is the only copy that is always right. */
+			nowOpen({ ...found, slug });
 
 			/*
 				**The address is written from what came back, not from what was clicked.** So a
@@ -3587,17 +3646,17 @@ export function App () {
 			*/
 			if (failure.status === 404) {
 				setNote({ text: `There is no #${row.ref} in ${slug}.`, tone: "bad" });
-				setOpen(null);
+				nowOpen(null);
 
 				return;
 			}
 
 			setError(failure);
 		}
-	}, [fetched, go, workspace]);
+	}, [fetched, go, nowOpen, workspace]);
 
 	const close = useCallback(({ history = true } = {}) => {
-		setOpen(null);
+		nowOpen(null);
 
 		/*
 			**Back to what is actually behind it**, which used to be a hard-wired `/` — harmless
@@ -3607,7 +3666,109 @@ export function App () {
 			can see, and it was found by reading this while wiring `#651`'s view through it.
 		*/
 		if (history) go(listingAddress({ agenda: agenda !== null, workspace, project }));
-	}, [agenda, go, project, workspace]);
+	}, [agenda, go, nowOpen, project, workspace]);
+
+	const refresh = useCallback(async () => {
+		/*
+			Read the open item again, in the background — `#657`.
+
+			**Not `show`, and the difference is the whole point.** `show` is somebody arriving:
+			it writes the address and scrolls to the top. Doing either underneath a reader who
+			has scrolled halfway down a description is worse than leaving them ten minutes
+			stale, which is the judgement `#597` already made about a failed poll.
+
+			**Never while the item is being edited**, and that is correctness rather than
+			courtesy. The form carries `expected_version` (§8.9), so swapping the item under it
+			would swap the version too — and the save that should have been refused with
+			*somebody changed this* would instead go through and overwrite them silently. The
+			409 is the design; this must not defeat it.
+
+			**Gone is a note, not the end of the page.** A 404 here says the item was deleted
+			while somebody was reading it. What is on screen is still the last thing they were
+			shown and is worth keeping — `#597` settled that a page is blanked only when nothing
+			on it is worth keeping, and this is not one of those.
+		*/
+		const reading = held.current;
+
+		if (!reading || editing) return;
+
+		try {
+			const found = await fetched(reading.item.ref, reading.item.kind, reading.slug);
+
+			if (found) nowOpen({ ...found, slug: reading.slug });
+		} catch (failure) {
+			if (failure.status === 404) {
+				setNote({
+					text: `#${reading.item.ref} is no longer there. What is on screen is the `
+						+ "last version you were shown.",
+					tone: "bad",
+				});
+
+				return;
+			}
+
+			/* Anything else is a background request that did not work, which is what the poll
+			   around it already swallows. The item on screen stays exactly as it was. */
+		}
+	}, [editing, fetched, nowOpen]);
+
+	useEffect(() => {
+		/*
+			**`project` is a dependency because the interval closes over it, not because it is
+			read during the effect.** Without it the page widened itself ten seconds after a
+			reader opened a project: `start` calls `setWorkspace` *before* awaiting the head of
+			the feed and `setProject` after, so the two land in different commits. This effect
+			re-ran on the workspace one — while the filter was still `null` — and the interval
+			it created kept that `null` for the life of the page. The first poll to see an event
+			then called `load(workspace, null)` and replaced a correct seven-item list with the
+			whole workspace, at an address that still said the project.
+
+			That is the shape worth remembering: nothing here is stale on the render, only in
+			the callback the render leaves behind. The list widened, the address did not, and
+			the reader is left with somebody else's backlog under their own project's URL.
+
+			The cost is that navigating between projects restarts the ten-second window. That is
+			the right trade — a poll that is late by one tick is invisible, and one that reloads
+			the wrong list is what this is fixing.
+		*/
+		if (error || !workspace) return undefined;
+
+		const tick = setInterval(async () => {
+			try {
+				/* **The agenda spans workspaces, so its poll must too** (`#652`) — and it has
+				   to reload the thing on screen rather than the list underneath it. `agenda` is
+				   in the dependency array below for the reason `project` is: the interval
+				   closes over it, and an interval created while the list was showing would go
+				   on reloading the list for the life of the page. */
+				const onAgenda = agenda !== null;
+				const seen = await sent(pollRequest(onAgenda ? null : workspace, since.current));
+
+				/* **The dedupe `?since=` asks its callers to do** (`#781`). It is inclusive, so
+				   the resumed event comes back every time and `seen.items` is never empty —
+				   which made the test below always true, left the cursor exactly where `start`
+				   put it, and reloaded the listing every ten seconds whether or not anything
+				   had happened. The feed was being called and its answer discarded. */
+				const fresh = freshly(seen.items, since.current);
+
+				if (fresh.length === 0) return;
+
+				since.current = fresh[fresh.length - 1].seq;
+
+				/* **The open item first, because it is what the reader is looking at** (`#657`).
+				   `held` rather than `open` for the reason `since` is a ref: this callback is
+				   left behind by a render that almost certainly had nothing open. */
+				if (touching(fresh, held.current && held.current.item, seen.page)) await refresh();
+
+				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
+			} catch (_) {
+				/* A poll that fails changes nothing on screen. The next one may work, and
+				   replacing a readable page with an error because a background request
+				   timed out is worse than being ten seconds stale. */
+			}
+		}, POLL_MS);
+
+		return () => clearInterval(tick);
+	}, [error, workspace, project, agenda, me, load, readAgenda, refresh]);
 
 	const start = useCallback(async () => {
 		setError(null);
@@ -3739,7 +3900,7 @@ export function App () {
 			}
 
 			if (asked === null || asked.ref === null) {
-				setOpen(null);
+				nowOpen(null);
 				return;
 			}
 
@@ -3749,7 +3910,7 @@ export function App () {
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, project, agenda, me, load, nowShowing, readAgenda, show]);
+	}, [ready, error, workspace, project, agenda, me, load, nowOpen, nowShowing, readAgenda, show]);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
@@ -4023,7 +4184,7 @@ export function App () {
 		setWorkspace(slug);
 		setProject(null);
 		setNote(null);
-		setOpen(null);
+		nowOpen(null);
 		/* **Choosing a workspace is leaving the agenda**, because the address it pushes names
 		   one and `/` is the only address the agenda has (`#649`). Set here rather than left to
 		   the effect: no `popstate` fires for a `pushState` we made ourselves. */
@@ -4036,7 +4197,7 @@ export function App () {
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [go, load, roster, words]);
+	}, [go, load, nowOpen, roster, words]);
 
 	const chooseSearch = useCallback(async (text) => {
 		/*
