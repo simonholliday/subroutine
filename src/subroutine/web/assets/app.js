@@ -748,15 +748,42 @@ export function agendaRequest () {
 	nothing.
 */
 
-export function addressOf (item, workspace) {
-	/* The address to put in the bar for one item: readable when we know enough, durable
-	   always. */
+export function addressOf (item, workspace, place = null) {
+	/*
+		The address to put in the bar for one item: readable when we know enough, durable
+		always.
+
+		**`place` keeps the reader where they were** (`#772`). Opening `#768` from
+		`/projects/websites/simonholliday-com` used to leave `/projects/simonholliday-com/768`
+		in the bar — the address still resolved, because everything before the ref is decoration
+		(`#638`), but the tree the reader had navigated was gone from it.
+
+		Only when the path they are on names *this item's own project*. From the agenda, from a
+		whole workspace, or by following a mention into somewhere else, there is no route to
+		preserve and the item's own form is the honest answer.
+
+		**Derived from the address rather than from the project tree, and that is the deciding
+		argument.** The tree would give a canonical ancestry for every item — nicer in principle
+		— but it arrives from a fetch, so the same click would produce a different address
+		depending on whether that fetch had landed. Every fault this app has shipped is that
+		shape. The reader's own path is already in `window.location` and cannot be half there.
+
+		**A row's `href` is deliberately left as the item's own form.** A link is about the item
+		— it gets copied, opened in a tab, sent to somebody — where the bar is about this visit.
+		Both resolve to the same item; only one of them should carry where you happened to come
+		from.
+	*/
 	const durable = `/${encodeURIComponent(workspace)}/${item.ref}`;
 
 	if (!item.project_key) return durable;
 
-	return `/${encodeURIComponent(workspace)}/${encodeURIComponent(item.project_key)}`
-		+ `/${item.ref}`;
+	const trail = place && place.workspace === workspace && place.trail
+		&& place.trail[place.trail.length - 1] === item.project_key
+		? place.trail
+		: [item.project_key];
+
+	return `/${encodeURIComponent(workspace)}`
+		+ `/${trail.map(encodeURIComponent).join("/")}/${item.ref}`;
 }
 
 /* ---- what is showing: an arrangement and a selection (`#651`, `#649`) ----- */
@@ -1086,6 +1113,11 @@ export function parseAddress (pathname) {
 	return {
 		workspace: segment(parts[0]),
 		project: middle.length > 0 ? segment(middle[middle.length - 1]) : null,
+		/* **The whole project path, not only its last segment** (`#772`). `project` is what
+		   narrows a listing and is deliberately the last one — a project key is unique in its
+		   workspace, so the segments before it are decoration. `trail` is that decoration, kept
+		   so that opening an item does not throw away the tree the reader navigated. */
+		trail: middle.map(segment),
 		ref: names,
 	};
 }
@@ -2704,7 +2736,11 @@ export function App () {
 				moment the item is read — `replaceState` rather than `pushState` for that, since
 				the stale spelling should not become a step in the reader's own history.
 			*/
-			go(addressOf(found.item, slug), { replace: !history });
+			/* **Under the path the reader is on** (`#772`), which `parseAddress` reads out of
+			   the bar rather than out of state — `go` has not written anything yet, so this is
+			   still the address they clicked from. */
+			go(addressOf(found.item, slug, parseAddress(window.location.pathname)),
+				{ replace: !history });
 
 			window.scrollTo(0, 0);
 		} catch (failure) {

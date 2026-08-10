@@ -58,11 +58,28 @@ upgrade involves.
 
 ### Fixed
 
+- **An appointment later today was missing from today's agenda.** A task that starts at 2pm
+  did not appear until 2pm — so a dentist appointment was invisible all morning, on the
+  command line and in the browser alike, and `subroutine today` said *Nothing due today* about
+  a day that had something in it. Anything written with a time is affected, because
+  `Dentist, 2pm–3pm` records a start as well as a deadline.
+
+  A defer now hides something until a **day** rather than until an o'clock: the agenda is a
+  view of one day, so a task starting later that day belongs to it and one starting tomorrow
+  does not. `?ready=` is unchanged — *what can I start now* is a different question, and at
+  9am the honest answer for a 2pm appointment is still "not yet".
+
 - **The browser called a defer a start.** The date that hides a task until it is relevant was
   labelled *Starts*, which is the one thing it does not mean — nothing begins on that day, the
   task simply does not appear before it. It is *Hidden until* now, in the same words
   `subroutine explain dates` has always used, and *Planned for* and *Due* say what they are
   too.
+
+- **Opening an item no longer flattens the project tree out of the address.** Viewing
+  `/personal/websites/my-site` and opening something in it left `/personal/my-site/42` in the
+  bar — still the right item, but the top-level project gone from where you were. It keeps
+  the path you are on when that path names the item's own project, and uses the item's own
+  address when it does not.
 
 - **The address of one item is the address of one item.** Opening `/projects/ui/441` in the
   browser used to leave `/projects/ui/441?view=list` in the bar. *List* and *board* say how a

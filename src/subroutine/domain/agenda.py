@@ -96,7 +96,7 @@ def build (
 	day_start = _boundary(day, timezone, end=False)
 	day_end = _boundary(day, timezone, end=True)
 
-	base = _visible(session, principal, workspace_ids, now=now)
+	base = _visible(session, principal, workspace_ids, until=day_end)
 
 	overdue = _run(
 		session,
@@ -170,7 +170,7 @@ def _visible (
 	principal: subroutine.domain.authentication.Principal,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	*,
-	now: datetime.datetime,
+	until: datetime.datetime,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
@@ -184,14 +184,31 @@ def _visible (
 
 	- **not finished** — ``completed_at`` is non-null exactly when the status category is
 	  done or cancelled (invariant 5), so this needs no join to the status;
-	- **not deferred** — ``start_at`` in the future means "don't show me this yet" (§6.5).
+	- **not deferred past the end of this day** — ``start_at`` beyond it means "don't show me
+	  this yet" (§6.5).
+
+	**``until`` is the end of the day being shown, not the current instant, and that is the
+	whole of `#771`.** It was ``now``, so a dentist appointment at 14:00 was hidden from the
+	morning's agenda — from *every* bucket at once, which is why a workspace holding one open
+	task reported ``unscheduled_total`` of zero. The capture grammar makes it systematic rather
+	than rare: ``Dentist appointment, 2pm-3pm`` sets a ``start_at`` of 14:00 as well as the
+	deadline and the day, so every appointment written with a time was invisible until it began.
+
+	**A defer hides something until a day, not until an o'clock.** The agenda is a day view, so
+	its horizon is that day: a task starting later today belongs to today, and one starting
+	tomorrow does not. ``planned_for`` of today is the reader saying *this belongs to this day*,
+	and a defer inside the same day may not overrule it.
+
+	:func:`subroutine.domain.readiness.undeferred` is unchanged and keeps comparing against an
+	instant, because ``?ready=`` asks *what can I start now* — a different question, to which an
+	appointment at 14:00 is honestly "not yet".
 	"""
 
 	model = subroutine.db.models.work.Task
 
 	return subroutine.domain.scoping.readable_tasks(
 		principal, workspace_ids=workspace_ids, include_completed=False
-	).where(subroutine.domain.readiness.undeferred(model, now=now))
+	).where(subroutine.domain.readiness.undeferred(model, now=until))
 
 
 def _run (

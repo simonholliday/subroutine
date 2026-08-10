@@ -234,6 +234,67 @@ def test_a_defer_that_has_already_lifted_does_not_hide_anything (
 	assert _titles(world.agenda().today) == ["Now actionable"]
 
 
+def test_an_appointment_later_today_is_on_today_s_agenda (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#771`, and the flagship command was wrong about the flagship question.
+
+	Simon's dentist appointment at 14:00 was missing from his morning. Every bucket narrowed by
+	``start_at <= now``, so it was hidden from **all four at once** — which is why a workspace
+	holding one open task reported ``unscheduled_total`` of zero.
+
+	**The capture grammar makes it systematic rather than rare.** ``Dentist appointment,
+	2pm-3pm`` sets a ``start_at`` of 14:00 as well as the deadline and the day, so every
+	appointment written with a time was invisible until it began. That is §1.4's audience on
+	§1.4's path, and the module's own docstring names the dentist as its example.
+
+	**A defer hides something until a day, not until an o'clock**: ``planned_for`` of today is
+	the reader saying *this belongs to this day*, and a defer inside that day may not overrule
+	it.
+
+	**No existing test could see this**, and the reason is worth more than the fix. Both sides
+	of the rule were held — deferred to September is hidden, lifted in July is shown — and both
+	put the defer in a *different day* from the clock. The defect lives strictly inside one day,
+	so a fixture that never builds one cannot reach it: *one of a thing* in its calendar form.
+	"""
+
+	world = World(session)
+
+	# 17:00 London on the day `NOW` falls in, which is two hours after `NOW` and still today.
+	world.task(
+		"Dentist appointment",
+		planned_for=TODAY,
+		start=datetime.datetime(2026, 7, 30, 16, 0, tzinfo=datetime.UTC),
+	)
+
+	assert _titles(world.agenda().today) == ["Dentist appointment"], (
+		"an appointment later today is hidden from today's agenda until it begins"
+	)
+
+
+def test_a_defer_into_tomorrow_still_hides_a_task_planned_for_today (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The bound on `SR#771`, without which the fix is "show everything".
+
+	The horizon is the end of the day being shown, so it moves from an instant to a day and no
+	further. A quarter of an hour past midnight is the case that separates the two — a defer
+	the reader means for tomorrow, on a task they planned for today.
+	"""
+
+	world = World(session)
+
+	# 00:15 London on the 31st, which is 23:15 UTC on the 30th — so a check comparing UTC
+	# calendar days rather than local ones would call this today and let it through.
+	world.task(
+		"Not until tomorrow",
+		planned_for=TODAY,
+		start=datetime.datetime(2026, 7, 30, 23, 15, tzinfo=datetime.UTC),
+	)
+
+	assert world.agenda().is_empty, "a defer into tomorrow no longer hides anything"
+
+
 def test_a_finished_task_is_gone_from_the_agenda (session: sqlalchemy.orm.Session) -> None:
 	"""An agenda that keeps showing completed work is one nobody reads."""
 

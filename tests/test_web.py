@@ -1954,7 +1954,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
 			name === "parseAddress" ? app.parseAddress(argument)
 			: name === "mentionHref" ? app.mentionHref(argument)(42)
-			: app.addressOf(argument.item, argument.workspace))));
+			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 
 
@@ -1994,6 +1994,57 @@ def test_a_stale_project_in_an_address_still_finds_the_item (tmp_path: pathlib.P
 	assert current["ref"] == 42 and current["workspace"] == "projects"
 	assert stale["ref"] == 42, "a retired project name broke the address"
 	assert deep["ref"] == 42, "extra segments were not ignored, so the path form cannot grow in"
+
+	# **The project is the last segment and the trail is all of them** (`SR#772`). A key is
+	# unique in its workspace, so what narrows a listing is the last one; the rest is the tree
+	# the reader walked, kept so that opening an item does not throw it away.
+	assert deep["project"] == "ui" and deep["trail"] == ["subroutine", "ui"]
+	assert current["trail"] == ["ui"]
+
+
+def test_opening_an_item_keeps_the_path_the_reader_is_on (tmp_path: pathlib.Path) -> None:
+	"""`SR#772`, Simon 2026-08-10.
+
+	Viewing `/projects/websites/simonholliday-com` and opening the item in it used to leave
+	`/projects/simonholliday-com/768` in the bar — the top-level project gone. The address still
+	resolved, because everything before the ref is decoration (`SR#638`), so nothing failed and
+	the tree the reader had navigated simply disappeared from where they were.
+
+	**Only when the path names this item's own project.** From the agenda, from a whole
+	workspace, or by following a mention into somewhere else there is no route to preserve, and
+	the item's own form is the honest answer rather than a borrowed one.
+
+	**Derived from the address, not from the project tree**, which is the deciding argument and
+	not merely the cheaper one: the tree arrives from a fetch, so a canonical ancestry would make
+	the same click produce a different address depending on whether that fetch had landed. Every
+	fault this app has shipped is that shape. `window.location` cannot be half there.
+	"""
+
+	nested = {"workspace": "projects", "project": "simonholliday-com",
+		"trail": ["websites", "simonholliday-com"], "ref": None}
+	item = {"ref": 768, "project_key": "simonholliday-com"}
+
+	kept, elsewhere, wider, agenda, other = _addressing(tmp_path, [
+		("addressOf", {"item": item, "workspace": "projects", "place": nested}),
+		# A mention followed into a different project: the path names somewhere this item is not.
+		("addressOf", {"item": {"ref": 5, "project_key": "ui"}, "workspace": "projects",
+			"place": nested}),
+		# The whole workspace — nothing to preserve, so the item's own form.
+		("addressOf", {"item": item, "workspace": "projects",
+			"place": {"workspace": "projects", "project": None, "trail": [], "ref": None}}),
+		("addressOf", {"item": item, "workspace": "projects", "place": None}),
+		# **The workspace has to match too.** An agenda row from another workspace would
+		# otherwise borrow this one's path and address the wrong tenant's project.
+		("addressOf", {"item": item, "workspace": "personal", "place": nested}),
+	])
+
+	assert kept == "/projects/websites/simonholliday-com/768", (
+		"opening an item flattened the tree the reader had navigated"
+	)
+	assert elsewhere == "/projects/ui/5", "an item borrowed a path naming a project it is not in"
+	assert wider == "/projects/simonholliday-com/768"
+	assert agenda == "/projects/simonholliday-com/768"
+	assert other == "/personal/simonholliday-com/768"
 
 
 def test_an_address_that_names_no_item_is_not_read_as_one (tmp_path: pathlib.Path) -> None:
