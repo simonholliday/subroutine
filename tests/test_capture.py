@@ -175,6 +175,63 @@ def test_the_preview_quotes_the_recurrence_a_person_actually_wrote () -> None:
 	assert _parse("Ask everyone about it").unparsed == ()
 
 
+def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
+	"""`SR#778`, Simon 2026-08-10, reading a title in the browser.
+
+	The same mistake had three different answers, and the best and worst were next to each
+	other. Measured on a disposable instance before this was written:
+
+	| typed | what happened |
+	| --- | --- |
+	| `+inbox` — exists | consumed and filed there |
+	| `+nosuchproject` — a key shape, no such project | **refused by name**, listing the real ones |
+	| `+subroutine/UI` — not a key shape at all | **silently left in the title**, filed at the default |
+
+	`_PROJECT` cannot read past the slash, so the token is ordinary prose and nothing notices
+	that a `+` went unclaimed. **Eight items were filed into the wrong project believing
+	otherwise**, and the titles carried the junk until somebody read a list.
+
+	§6.13 rule 1 is *the words stay and the caller is told*; this was the half without the
+	telling.
+	"""
+
+	captured = _parse("Fix the header +subroutine/UI")
+
+	assert captured.title == "Fix the header +subroutine/UI", "rule 1: the words are untouched"
+	assert captured.project_key is None, "an unreadable name must not be guessed at"
+	assert captured.unparsed == ("+subroutine/UI",)
+
+	explained = subroutine.domain.capture.explain(captured.unparsed)
+
+	assert explained is not None and "+subroutine/UI" in explained
+	assert "project" in explained, "the sentence does not say what kind of thing was not read"
+
+	# **A name the rules did read is not reported**, or every capture would carry a complaint.
+	assert _parse("Fix the header +web").unparsed == ()
+
+	# **Both kinds at once get both reasons**, which is why the sentence is built per kind
+	# rather than being one string with one ending.
+	both = subroutine.domain.capture.explain(_parse("Bins out every monday +a/b").unparsed)
+
+	assert both is not None
+	assert "recurring" in both and "project" in both
+
+
+def test_a_plus_inside_a_word_is_not_a_project_name () -> None:
+	r"""The bound on `SR#778`, without which the fix is *complain about every plus sign*.
+
+	**Safe by construction rather than by an exclusion list**: `_STARTS_A_WORD` is
+	`(?<![^\s])`, so a `+` has to begin a word, and a bare one between spaces has no `\S`
+	after it to match. That is the whole guard, and these are the cases it has to survive.
+	"""
+
+	for line in ("C++ is fine", "maths a+b holds", "one plus one is 1 + 1", "a trailing plus +"):
+		captured = _parse(line)
+
+		assert captured.unparsed == (), f"{line!r} was reported as a project name"
+		assert captured.title == line, f"{line!r} lost a word"
+
+
 def test_a_recurring_phrase_does_not_swallow_a_real_date () -> None:
 	"""Reserving the recurrence span must not cost the deadline beside it."""
 

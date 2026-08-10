@@ -101,6 +101,12 @@ upgrade involves.
 
 ### Fixed
 
+- **A project name it could not read is now said out loud.** Typing `+my/project` left the
+  words in the title and filed the item wherever the default was, without saying so — while
+  `+myproject` naming a project that does not exist has always been refused by name. The same
+  mistake got the best answer one way and the worst the other. It now says what it could not
+  read and what a project name looks like. `C++` and `a+b` are untouched.
+
 - **The browser showed some dates a day out.** A deadline set for *all day Friday* is stored at
   the last instant of Friday, so reading it in a different timezone from the one that stored it
   moved it to Saturday — and a planned day, which has no time in it at all, moved the other way.

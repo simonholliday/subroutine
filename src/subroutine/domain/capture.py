@@ -160,6 +160,12 @@ _PROJECT = re.compile(
 	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)[,.;:!?)\]]*(?=\s|$)"
 )
 
+#: A ``+`` that begins a word and carries something — whether or not any rule could read it.
+#: Compared against what the rules claimed, which is what makes an unreadable project name
+#: reportable rather than silent (`#778`).
+_SIGIL_LEFT = re.compile(rf"{_STARTS_A_WORD}\+\S+")
+
+
 def names_a_project (text: str) -> bool:
 	"""Whether a captured line says which project it belongs to, with ``+KEY``.
 
@@ -197,9 +203,16 @@ class Capture:
 	assignee: str | None = None
 	project_key: str | None = None
 
-	#: Tokens that look like grammar and were deliberately left in the title — today, only
-	#: ``every …``. Carried so a preview can say *why* something was not parsed rather than
-	#: leaving a user to wonder whether it was seen at all.
+	#: Tokens that look like grammar and were left in the title: ``every …``, which is
+	#: reserved for M7, and a ``+something`` no project rule could read (`#778`). Carried so a
+	#: preview can say *why* something was not parsed rather than leaving a user to wonder
+	#: whether it was seen at all.
+	#:
+	#: **One field for both, and the reason is read back off the token.** A second field would
+	#: have to be widened through ``clients.base.Captured`` and both transports before either
+	#: reporting surface could see it — for a sentence — and every surface that already carries
+	#: this one would have gained nothing. The `+` is not a proxy for the kind: it is the sigil
+	#: the writer typed, which is what makes reading it back honest rather than clever.
 	unparsed: tuple[str, ...] = ()
 
 
@@ -216,18 +229,43 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	and is the surface where it matters most. The CLI's own note says why: an agent is the
 	caller most likely to have written something it believes was understood.
 
-	The reason names recurrence because recurrence is the only thing reserved today (``_EVERY``
-	is the sole producer of ``unparsed``). When a second reservation arrives, this is the one
-	place that has to learn a second reason.
+	**The second reason arrived on 2026-08-10 and this is where it landed**, as the docstring
+	said it would. `#778`: a ``+something`` no project rule could read was left in the title in
+	silence, while a well-formed ``+nosuchproject`` was refused by name and an unreadable
+	recurrence was reported. The same mistake got the best answer when the key was well formed
+	and the worst when it was not — and eight items were filed into the wrong project believing
+	otherwise.
+
+	The kind is read back off the sigil rather than carried beside the token; the reason is on
+	:class:`Capture`.
+
+	**Neither sentence names a command, and the first draft of the second one did.** It said
+	*"'subroutine list --projects' shows the keys here"* — a flag that does not exist, caught by
+	running it. Two reasons it stays out even spelled correctly: this string is shared with the
+	MCP adapter, whose reader has no shell (`#548`), and the refusal for a project that is
+	merely *missing* already lists the real keys, which this cannot do from the domain.
 	"""
 
 	if not unparsed:
 		return None
 
-	return (
-		f"Left as written: {', '.join(unparsed)}"
-		" — recurring tasks are not supported yet."
-	)
+	said = [one for one in unparsed if one.startswith("+")]
+	timed = [one for one in unparsed if not one.startswith("+")]
+
+	clauses = []
+
+	if timed:
+		clauses.append(
+			f"Left as written: {', '.join(timed)} — recurring tasks are not supported yet."
+		)
+
+	if said:
+		clauses.append(
+			f"Left as written: {', '.join(said)} — a project is named like '+web': letters and "
+			"digits, hyphens inside, and nothing else."
+		)
+
+	return " ".join(clauses)
 
 
 def read_back (summary: str | None) -> str | None:
@@ -331,6 +369,19 @@ def parse (
 	_collect_dates(text, claimed, reserved, fields, today=today, now=now, timezone=timezone)
 	_collect_sigils(text, claimed, reserved, fields, tags)
 	_collect_bare_days(text, claimed, reserved, fields, today=today)
+
+	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
+	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
+	# the grammar could not parse — `+subroutine/UI`, whose slash the pattern cannot reach past.
+	#
+	# **Safe by construction rather than by an exclusion list.** `_STARTS_A_WORD` is
+	# `(?<![^\s])`, so the `+` has to begin a word: `C++`, `a+b` and `1+1` cannot match, and a
+	# bare `+` between spaces has no `\S` after it. Measured rather than reasoned about.
+	unparsed.extend(
+		match.group(0)
+		for match in _SIGIL_LEFT.finditer(text)
+		if not any(start < match.end() and match.start() < end for start, end in claimed)
+	)
 
 	return Capture(
 		title=_remaining(text, claimed),
