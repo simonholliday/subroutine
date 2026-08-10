@@ -1209,7 +1209,37 @@ export const SELECTABLE = {
 		proxy reorders the page whenever somebody edits a finished item, for a reason nobody did.
 	*/
 	order: ["-completed_at"],
+	/*
+		**Free text, and the only one** (`#775`). Every other entry here maps a name to the
+		values it may carry, which is what stops the address becoming a passthrough to
+		`api/query.py`; a search term cannot be enumerated, so `null` says *any value* and
+		`permits` is where that distinction lives rather than spread across two callers.
+
+		**The bound `#738` set still holds**, and it is worth restating because this is the
+		first entry to relax half of it: a selection parameter may only be one the caller could
+		have sent anyway, and may never widen what a credential can see. `q` **narrows** —
+		`domain/search.matching` is an extra predicate on a query `domain/scoping` has already
+		narrowed — so admitting any value here admits nothing a reader could not already read.
+	*/
+	q: null,
 };
+
+export function permits (name, value) {
+	/*
+		Whether a selection parameter may carry a value — `#775`.
+
+		Two rules in one place: an enumerated name takes what its list allows, and a free-text
+		one takes anything that is not empty. **An empty `q` is refused rather than sent**,
+		which is `domain/search.terms`' own rule said on this side: a query with no words in it
+		narrows nothing, and `q=" "` used to be a real filter matching every row containing a
+		space — a filter nobody asked for, answering a question nobody put.
+	*/
+	const allowed = SELECTABLE[name];
+
+	if (allowed === undefined) return false;
+
+	return allowed === null ? String(value).trim() !== "" : allowed.includes(value);
+}
 
 /* What the controls produce. Named because two places need each — the chip that writes the
    address and the test that drives it — and a second spelling is what drifts. */
@@ -1261,7 +1291,7 @@ export function selectionOf (search) {
 
 		if (value === null || value === "") return;
 
-		if (SELECTABLE[name].includes(value)) selection[name] = value;
+		if (permits(name, value)) selection[name] = value;
 		else refused.push(`${name}=${value}`);
 	});
 
@@ -3102,6 +3132,40 @@ export function Linking ({ onLink, types, busy }) {
 	`;
 }
 
+export function Seeking ({ onSearch, asked, busy }) {
+	/*
+		Finding something — `#775`.
+
+		**Submitted rather than searched on every keystroke.** `q` is `ILIKE '%term%'` on both
+		sides of the term, which §10.4 lists as one of exactly two predicates that **cannot use
+		an index** — so a request per character is a scan per character, and `#90` is the item
+		that will measure when that stops being free. A form also gives the browser's own
+		*search* keyboard behaviour for nothing.
+
+		**`key` is the asked-for text**, so stepping back to a different search rebuilds the
+		input rather than leaving the previous words in it. An uncontrolled input keeps what the
+		DOM holds, which is right while somebody types and wrong when the address changes
+		underneath them.
+
+		**Clearing it is submitting nothing**, which `chooseSearch` reads as *take the search
+		off* — one control, both directions, and no second button to explain.
+	*/
+	const submit = (event) => {
+		event.preventDefault();
+
+		onSearch(event.currentTarget.elements.q.value);
+	};
+
+	return html`
+		<form class="seeking" onSubmit=${submit} role="search">
+			<input key=${asked} name="q" type="search" disabled=${busy}
+				defaultValue=${asked} aria-label="Search"
+				placeholder="Search titles and descriptions" />
+			<button type="submit" disabled=${busy}>Search</button>
+		</form>
+	`;
+}
+
 export function Saying ({ onComment, busy }) {
 	/*
 		Writing down what happened — `#759`.
@@ -3974,6 +4038,40 @@ export function App () {
 		}
 	}, [go, load, roster, words]);
 
+	const chooseSearch = useCallback(async (text) => {
+		/*
+			**A search is a selection, so it goes in the address** — decision `#649`, and it is
+			what makes a search something a reader can send to somebody.
+
+			**Its refusal is a note, not the failure page.** `domain/search` caps a query at
+			`MAX_TERMS` words and says so by name, with a hint explaining that every word has
+			to appear so a longer search finds *less*. That arrives here as a 422 from `load`,
+			which every other caller lets through to `setError` — and blanking somebody's screen
+			because they typed too many words is the failure `viewOf` already declined for a
+			mistyped arrangement, arriving by a third door.
+		*/
+		const asked = text.trim();
+		const wanted = {
+			view: showing.view,
+			selection: asked === ""
+				? { ...showing.selection, q: undefined }
+				: { ...showing.selection, q: asked },
+		};
+
+		if (!reloads(showing, wanted)) return;
+
+		nowShowing(wanted);
+		go(listingAddress({ agenda: agenda !== null, workspace, project }), { arranged: wanted });
+
+		if (agenda !== null) return;
+
+		try {
+			await load(workspace, project);
+		} catch (failure) {
+			setNote({ text: `That search was refused. ${failure.message}`, tone: "bad" });
+		}
+	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+
 	const chooseView = useCallback(async (wanted) => {
 		/*
 			**Switching refetches, and the comment here used to say it must not.**
@@ -4067,6 +4165,15 @@ export function App () {
 					`}
 					${me && me.workspaces.length === 1 && html` · ${workspace}`}
 				</div>
+
+				${/* **A search is a control for the same reason the chips are** (`#651`): an
+				     address is not a way to find something, and a reader who has never seen one
+				     cannot type a word they have not been told. On a listing only — the agenda
+				     is a day rather than a set of rows to narrow. */ null}
+				${!open && agenda === null && html`
+					<${Seeking} busy=${busy} onSearch=${chooseSearch}
+						asked=${showing.selection.q || ""} />
+				`}
 
 				${/*
 					**Controls, because an address is not a way to find something** (`#651`). A

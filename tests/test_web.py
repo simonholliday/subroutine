@@ -223,6 +223,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 	},
 	"Saying": {"busy": False},
+	"Seeking": {"busy": False, "asked": ""},
 	"Linking": {"busy": False, "types": [
 		{"key": "blocks", "title": "Blocks"},
 		{"key": "relates_to", "title": "Relates to"},
@@ -1663,6 +1664,56 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	[bare] = _views(tmp_path, [("fromItem", {"item": {"ref": 1, "version": 1, "title": "x"}})])
 
 	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
+
+
+def test_a_search_is_free_text_and_is_still_bounded (tmp_path: pathlib.Path) -> None:
+	"""`SR#775`. The first selection parameter whose values cannot be enumerated.
+
+	`SR#738` put a bound on the address so it could never become a passthrough to
+	`api/query.py`: a name the browser does not know is refused here rather than forwarded, and
+	each name's values are a list. **A search term has no list**, so admitting it relaxes half
+	of that — and the half it relaxes is worth saying out loud rather than adding a key and
+	hoping.
+
+	**What still holds is the part that matters**: a selection may only be one the caller could
+	have sent anyway, and may never widen what a credential can see. `q` *narrows* —
+	`domain/search.matching` is an extra predicate on a query `domain/scoping` has already
+	narrowed — so any value admits nothing a reader could not already read.
+
+	**An empty search is refused rather than sent**, which is `domain/search.terms`' own rule
+	said on this side: a query with no words narrows nothing, and `q=" "` was once a real
+	filter matching every row containing a space.
+	"""
+
+	free, blank, spaces, listed, wrong, unknown = _views(tmp_path, [
+		("permits", {"name": "q", "value": "anything at all"}),
+		("permits", {"name": "q", "value": ""}),
+		("permits", {"name": "q", "value": "   "}),
+		("permits", {"name": "status_category", "value": "done"}),
+		("permits", {"name": "status_category", "value": "finished"}),
+		("permits", {"name": "colour", "value": "red"}),
+	])
+
+	assert free is True, "a search term was refused, so nothing can be searched for"
+	assert blank is False and spaces is False, (
+		"an empty search would be sent as a filter, which is a question nobody put"
+	)
+
+	# **The enumerated rule is untouched**, which is what stops this being a relaxation of the
+	# whole bound rather than of one entry.
+	assert listed is True
+	assert wrong is False, "a value outside its list was admitted"
+	assert unknown is False, "a name the browser does not know became a passthrough"
+
+	# And it survives the round trip through an address, which is where it is actually used.
+	#
+	# **An unknown name is ignored rather than refused**, and that is `selectionOf`'s existing
+	# shape rather than something this changed: it walks the names it knows and never looks at
+	# the rest, so nothing unknown can reach the query layer whatever `permits` would say about
+	# it. `permits` refusing one is the belt to that brace.
+	[read] = _views(tmp_path, [("selectionOf", "?q=render%20the%20backlog&colour=red")])
+
+	assert read == {"selection": {"q": "render the backlog"}, "refused": []}
 
 
 def test_a_document_is_offered_only_the_fields_a_document_has (
@@ -3564,7 +3615,23 @@ def _selections () -> list[dict[str, str]]:
 		for value in re.findall(r'"([^"]+)"', values)
 	]
 
+	# **A free-text parameter has no values to enumerate, so one is supplied** (`SR#775`). The
+	# derivation above reads array entries only, so `q: null` would have fallen out of it
+	# silently — every case still passing, and the one new parameter driven by nothing.
+	singles += [{name: "backlog"} for name in re.findall(r"\n\t(\w+): null,", block.group(1))]
+
 	assert singles, "no selectable parameter was found, so nothing would be driven"
+
+	# **Every name in `SELECTABLE` is represented**, whatever shape its values take. Without
+	# this the derivation is only as complete as the shapes somebody thought to match, which is
+	# how `q` would have arrived undriven.
+	declared = set(re.findall(r"\n\t(\w+): ", block.group(1)))
+	covered = {name for one in singles for name in one}
+
+	assert declared == covered, (
+		f"{sorted(declared - covered)} is selectable and is driven by nothing, and "
+		f"{sorted(covered - declared)} is driven and is not selectable"
+	)
 
 	return [{}] + singles + [_preset(source, name) for name in ("EVERYTHING", "ONLY_FINISHED")]
 
@@ -4540,6 +4607,7 @@ def _views (
 			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
 			: name === "linkableTypes" ? app.linkableTypes(argument.vocabulary)
 			: name === "written" ? app.written(argument.values, argument.item)
+			: name === "permits" ? app.permits(argument.name, argument.value)
 			: name === "refused" ? (() => {{
 				const made = app.refusal(argument.status, argument.problem);
 				return {{ message: made.message, status: made.status,

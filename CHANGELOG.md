@@ -43,6 +43,11 @@ upgrade involves.
   so you can fold your change into theirs rather than losing one of them. That applies to an
   agent working on the same item as much as to another person.
 
+- **The browser can search.** A box in the header narrows the list to what matches, the same
+  way `subroutine list --q` and the agent tools do — every word has to appear, and each may
+  appear in a title or a description. The search is part of the address, so you can send
+  somebody what you were looking at, and clearing the box takes it off again.
+
 - **Documents can be written and revised in the browser.** *More* beside the add box now asks
   whether you are writing a task or a document, and a document gets the fields a document has —
   prose, a type, a status and a project, and none of a task's priorities or dates. An open

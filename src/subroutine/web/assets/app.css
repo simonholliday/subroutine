@@ -221,6 +221,43 @@ code, .ref, .priority, .broke .detail {
 .edit:hover { color: var(--ink); border-color: var(--ink-soft); }
 .edit:disabled { opacity: 0.5; cursor: default; }
 
+/* Finding something — `SR#775`. In the header beside the switcher, because it is about which
+   rows there are rather than about the item under the cursor. */
+.seeking {
+	display: flex;
+	gap: 8px;
+	flex: 1 1 220px;
+	max-width: 420px;
+}
+
+.seeking input {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 7px 11px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+}
+
+.seeking input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.seeking input::placeholder { color: var(--ink-faint); }
+
+.seeking button {
+	flex: 0 0 auto;
+	padding: 7px 14px;
+	background: transparent;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	cursor: pointer;
+}
+
+.seeking button:hover { color: var(--ink); border-color: var(--ink-soft); }
+.seeking :disabled { opacity: 0.5; cursor: default; }
+
 /* Which kind the disclosed form is about to write — `SR#761`. Above the fields it changes,
    because it decides what they are. */
 .adding .kind {
