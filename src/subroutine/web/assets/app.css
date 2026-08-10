@@ -655,6 +655,34 @@ code, .ref, .priority, .broke .detail {
 .mark.claimed { color: var(--accent); border-color: currentColor; }
 .mark.stale { color: var(--ink-faint); border-style: dashed; }
 
+/*
+	The value the page is sorted on (`#661`). **No border**, because it is not a label on this
+	item the way *Blocked* or a project key is — it is the same field repeated down the whole
+	column, and giving it a chip's outline would make a reader read it row by row instead of
+	scanning it. Decision `#102` is untouched: nothing here is said in a colour, and this one is
+	quieter because it is *more* repetitive rather than less important.
+*/
+.mark.quiet {
+	border-color: transparent;
+	padding-left: 0;
+	color: var(--ink-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+/*
+	How the list is ordered, above the rows (`#661`).
+
+	Deliberately lighter than `.narrowed` beside it: that one describes a *filter somebody
+	chose* and offers the way out, so it is a notice. This describes the state a list is always
+	in, so on the ordinary page it must read as a caption rather than as news.
+*/
+.ordered {
+	margin-bottom: 10px;
+	padding: 0 2px;
+	color: var(--ink-faint);
+	font-size: 13px;
+}
+
 /* ---- detail ------------------------------------------------------------ */
 
 .detail {

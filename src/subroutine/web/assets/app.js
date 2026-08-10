@@ -1815,17 +1815,82 @@ export function holding (item, now = null) {
 		: { held: true, who };
 }
 
-export function marks (item, showKind) {
+export const DEFAULT_ORDER = "-created_at";
+
+/*
+	How each order this app can be in reads, and whether the row already shows what it is
+	sorted on — `#661`.
+
+	**Simon, 2026-08-08**: *"if the view does not show me how it is ordered, or show the values
+	of the fields on which it is ordered, it is unclear."* Two faults, and this is both answers
+	in one place so they cannot drift: the sentence a listing prints, and whether a row needs
+	the value adding.
+
+	**`already` is what stops the value being said twice.** The finished view is ordered on
+	`completed_at` and `when` has printed it since `#706` — with a time since `#746`, for exactly
+	this reason — so a second copy under the title would be noise. The default order has no such
+	cell, so it gets a mark.
+
+	**Keyed by what the address carries**, which is `SELECTABLE.order`'s vocabulary, so an order
+	that becomes reachable without a sentence here is a listing that cannot say how it is
+	ordered — which `tests/test_web.py` refuses.
+*/
+export const ORDERINGS = {
+	"-created_at": {
+		sentence: "Newest first", field: "created_at", label: "written", already: false,
+	},
+	"-completed_at": {
+		sentence: "Most recently finished first", field: "completed_at",
+		label: "finished", already: true,
+	},
+};
+
+export function orderedAs (selection) {
+	/*
+		How the list a selection asks for is ordered.
+
+		**The absence of `order` is the default rather than nothing** — `listingRequests` sends
+		none and the API applies `-created_at` (`ordering.DEFAULT_TASK_ORDER`), so a page with no
+		`order` in its address is not unordered, it is ordered by something the reader was never
+		told. That is the whole of `#661`.
+
+		Null for an order nobody wrote a sentence for, so a caller says nothing rather than
+		inventing a claim about how the rows are arranged.
+	*/
+	const asked = (selection || {}).order || DEFAULT_ORDER;
+
+	return ORDERINGS[asked] || null;
+}
+
+export function marks (item, showKind, ordering = null) {
 	/*
 		The small labels under a title.
 
 		**Every one says a word.** `#102`: colour marks an exception and never carries the
 		information by itself, so "overdue" is red *and* reads "overdue" — a reader who cannot
 		separate the hues loses nothing at all.
+
+		**One of them is the value the page is sorted on** (`#661`), when the row does not
+		already carry it. It is here rather than in a column of its own because it is the same
+		kind of thing as the rest — a small fact about this row — and because a column would be
+		empty on every page whose ordering field is already shown.
 	*/
 	const found = [];
 
 	if (showKind) found.push({ text: item.kind === "document" ? "Document" : "Task" });
+
+	/*
+		**Before everything else, because it is why the row is where it is.** A reader checking
+		an order reads down one edge; putting the value after the project and the assignee would
+		make it land in a different place on every line.
+
+		`moment` rather than `day` for the reason `#746` gave about the finished view: a column
+		of dates rendered a day at a time reads as one value for a whole screen, and an order
+		nobody can check is an order taken on trust.
+	*/
+	if (ordering && !ordering.already && item[ordering.field]) {
+		found.push({ text: `${ordering.label} ${moment(item[ordering.field])}`, tone: "quiet" });
+	}
 	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
 	if (overdue(item)) {
 		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
@@ -2154,8 +2219,12 @@ export function followed (event, act) {
 
 /* ---- views -------------------------------------------------------------- */
 
-export function Row ({ item, showKind, showWhere, workspace, onOpen, onComplete }) {
-	const badges = marks(item, showKind);
+export function Row ({
+	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null,
+}) {
+	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
+	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
+	const badges = marks(item, showKind, ordering);
 
 	/*
 		**The workspace goes in the ref cell, not in a badge** — the same answer `subroutine
@@ -2759,7 +2828,7 @@ export function Conflict ({ theirs }) {
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
-	empty = "Nothing here yet.", adding,
+	empty = "Nothing here yet.", adding, ordering = null,
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -2780,6 +2849,23 @@ export function Listing ({
 	return html`
 		<div class="listing">
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
+
+			${/*
+				**How the list is ordered, said rather than left to be inferred** (`#661`).
+
+				Simon: *"I'm sure the ordering is sensible, but if the view does not show me how
+				it is ordered … it is unclear."* The order was never arbitrary — `#646` chose
+				`-created_at` deliberately, over `-priority_score`, because a just-captured item
+				has neither axis set and §6.3a therefore sorts it to the bottom of its own page.
+				**A good default nobody is told about is indistinguishable from no order at all.**
+
+				Above the rows rather than below them, because it is the frame a reader needs
+				*before* reading the first one — and not on an empty page, where there is no
+				order to describe and the sentence would be a claim about nothing.
+			*/ null}
+			${ordering && items.length > 0 && html`
+				<div class="ordered"><span>${ordering.sentence}</span></div>
+			`}
 
 			${project && html`
 				<div class="narrowed">
@@ -2804,7 +2890,7 @@ export function Listing ({
 					<ul class="rows">
 						${items.map((item) => html`
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
-								workspace=${workspace} onOpen=${onOpen}
+								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
 								onComplete=${onComplete} />
 						`)}
 					</ul>
@@ -4415,6 +4501,7 @@ export function App () {
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
+							ordering=${orderedAs(showing.selection)}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), showing)}
 							empty=${finishedOnly

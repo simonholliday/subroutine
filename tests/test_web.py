@@ -4617,6 +4617,7 @@ def _views (
 			: name === "freshly" ? app.freshly(argument.items, argument.since)
 			: name === "touching"
 				? app.touching(argument.events, argument.open, argument.page)
+			: name === "orderedAs" ? app.orderedAs(argument.selection)
 			: app.columns(argument))));
 	"""))
 
@@ -6097,6 +6098,169 @@ def test_the_open_item_has_one_writer (tmp_path: pathlib.Path) -> None:
 		f"{len(stray)} call(s) to setOpen sit outside nowOpen, at offsets {stray} — each one "
 		"moves the state without moving the ref, so the poll would re-read the item that was "
 		"open when its interval was built rather than the one on screen"
+	)
+
+
+# --- How the list says it is ordered (`SR#661`) ------------------------------------------
+
+
+def _orderings () -> dict[str, dict[str, str]]:
+	"""Every order the app has a sentence for, read from `ORDERINGS` itself."""
+
+	source = _served_modules()["app.js"]
+	block = re.search(r"export const ORDERINGS = \{(.*?)\n\};", source, re.S)
+
+	assert block, "the app's orderings could not be read from app.js"
+
+	found = {
+		key: dict(re.findall(r"(\w+): (\"[^\"]*\"|true|false)", body))
+		for key, body in re.findall(r'"([^"]+)": \{(.*?)\},', block.group(1), re.S)
+	}
+
+	assert found, "no ordering was parsed, so anything derived from this checks nothing"
+
+	return found
+
+
+def test_every_order_an_address_can_carry_says_how_it_reads () -> None:
+	"""`SR#661`. An order a reader can reach and the page cannot describe is the defect itself.
+
+	`SELECTABLE.order` is what an address may carry, and `ORDERINGS` is what a listing can say
+	about one. Widening the first without the second gives a page that is ordered by something
+	and says nothing — which is exactly what Simon reported, arriving by a new route.
+
+	The default is in the set too, and has to be: `listingRequests` sends no `order` at all, so
+	the commonest page in the product is the one with nothing in its address to look up.
+	"""
+
+	source = _served_modules()["app.js"]
+	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
+
+	assert block, "the app's selectable parameters could not be read from app.js"
+
+	orders = re.search(r"\n\torder: \[([^\]]*)\]", block.group(1))
+
+	assert orders, "SELECTABLE no longer declares an order, so this is checking nothing"
+
+	reachable = set(re.findall(r'"([^"]+)"', orders.group(1)))
+	default = re.search(r'export const DEFAULT_ORDER = "([^"]+)"', source)
+
+	assert default, "the default order could not be read"
+
+	described = set(_orderings())
+	silent = (reachable | {default.group(1)}) - described
+
+	assert not silent, (
+		f"{sorted(silent)} can be asked for and no sentence describes it, so the list would be "
+		f"ordered by it and say nothing"
+	)
+
+
+def test_every_field_an_ordering_names_is_one_the_listing_asks_for () -> None:
+	"""`SR#661`, and the guard beside this one is structurally unable to see it.
+
+	*Every field a row renders is asked for* scans for `item.<name>`, and the ordering value is
+	read as `item[ordering.field]` — a name that does not exist in the source. So the field
+	could quietly leave `TASK_FIELDS`, arrive as null, and the mark would simply never appear:
+	a row showing nothing where the sort key should be, which is indistinguishable from a row
+	whose sort key is unset and is exactly the confusion this item exists to remove.
+
+	**Both collections**, because the list is tasks *and* documents (§6.2) and an ordering half
+	the rows cannot show is an order only half the page can be checked against.
+	"""
+
+	source = _served_modules()["app.js"]
+	lists = {}
+
+	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
+		opens = source.index(f"const {name} = [")
+		lists[name] = set(re.findall(r'"([a-z_]+)"', source[opens:source.index('].join(",");', opens)]))
+
+		assert lists[name], f"{name} was not read, so this is checking nothing"
+
+	for order, ordering in _orderings().items():
+		field = ordering["field"].strip('"')
+
+		# The finished view is tasks only — `collectionsFor` drops documents from a selection
+		# they cannot answer — so `completed_at` is owed by the task list alone.
+		wanted = ["TASK_FIELDS"] if ordering.get("already") == "true" else list(lists)
+
+		for name in wanted:
+			assert field in lists[name], (
+				f"the list can be ordered by {order} and {name} does not ask for {field!r}, so "
+				f"a row cannot show the value it is sorted on"
+			)
+
+
+@pytest.mark.parametrize(
+	("selection", "sentence"),
+	[
+		({}, "Newest first"),
+		({"status_category": "done", "order": "-completed_at"}, "Most recently finished first"),
+		({"order": "-created_at"}, "Newest first"),
+	],
+)
+def test_how_a_list_says_it_is_ordered (
+	tmp_path: pathlib.Path, selection: dict[str, str], sentence: str
+) -> None:
+	"""The rule on its own. An absent `order` is the default rather than no order at all."""
+
+	answer = _views(tmp_path, [("orderedAs", {"selection": selection})])[0]
+
+	assert answer is not None and answer["sentence"] == sentence
+
+
+def test_a_row_shows_the_value_the_page_is_sorted_on (tmp_path: pathlib.Path) -> None:
+	"""`SR#661`'s second half, which is the one Simon put first.
+
+	*"I believe that the fields which are used for ordering may not be displayed. This makes the
+	list hard to interpret."* The value is asked for already — it is the merge key `SR#660`
+	added — and was read by nothing, which is the cheapest possible version of this defect.
+	"""
+
+	written = _rendered(tmp_path, {"Row": {
+		"item": {"ref": 7, "kind": "task", "title": "Something",
+			"created_at": "2026-08-10T14:22:00+00:00"},
+		"ordering": {"sentence": "Newest first", "field": "created_at", "label": "written",
+			"already": False},
+	}})["Row"]
+
+	assert "written" in written and "14:22" in written, (
+		f"the row does not show what the page is ordered on: {written}"
+	)
+
+
+def test_a_row_does_not_say_twice_what_it_already_says_once (tmp_path: pathlib.Path) -> None:
+	"""The finished view prints `done <moment>` in its own cell and has since `SR#706`.
+
+	Without `already` the same instant would appear twice on every row of that page — which is
+	the shape `SR#582` is about: a guard, or a rule, that fires where the thing it is for is
+	already handled.
+	"""
+
+	written = _rendered(tmp_path, {"Row": {
+		"item": {"ref": 7, "kind": "task", "title": "Something", "status_category": "done",
+			"completed_at": "2026-08-10T14:22:00+00:00"},
+		"ordering": {"sentence": "Most recently finished first", "field": "completed_at",
+			"label": "finished", "already": True},
+	}})["Row"]
+
+	assert written.count("14:22") == 1, f"the finished stamp is rendered twice: {written}"
+
+
+def test_the_list_a_reader_arrives_at_says_how_it_is_ordered (tmp_path: pathlib.Path) -> None:
+	"""Driven, because `SR#640` has cost this project six defects that a pure test could not see.
+
+	`orderedAs` being right is worth nothing until something hands its answer to `Listing`.
+	"""
+
+	rows = {"items": [{"ref": 7, "kind": "task", "title": "Something",
+		"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"}],
+		"page": {"has_more": False, "next_cursor": None, "total": None}}
+	driven = _driven(tmp_path, pathname="/projects", answers={"/v1/tasks": rows})
+
+	assert "Newest first" in driven["said"], (
+		f"the list does not say how it is ordered: {driven['said'][:400]}"
 	)
 
 
