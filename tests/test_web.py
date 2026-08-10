@@ -214,6 +214,10 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
 	"Saying": {"busy": False},
+	"Linking": {"busy": False, "types": [
+		{"key": "blocks", "title": "Blocks"},
+		{"key": "relates_to", "title": "Relates to"},
+	]},
 	"Doing": {
 		"item": {
 			"ref": 42,
@@ -1650,6 +1654,88 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	[bare] = _views(tmp_path, [("fromItem", {"item": {"ref": 1, "version": 1, "title": "x"}})])
 
 	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
+
+
+def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
+	"""`SR#760`, and `SR#658` beside it.
+
+	**Removing matters as much as adding**, and there is evidence rather than a principle: on
+	2026-08-09 two items were linked to a stranger's `SR#731` by assuming a ref, and
+	`subroutine unlink` is what undid it. A browser that can only add is one that cannot fix a
+	mistake, which makes every reader careful in the way that stops them using it.
+
+	**`SR#658`: whether the other end is over.** The link view has carried `is_complete` since
+	M1 and nothing read it, so a reader looking at *Blocks #442* had to click through to find
+	out whether they were still blocked. Said in a word rather than in styling alone (`SR#102`).
+	"""
+
+	box = _rendered(tmp_path, {"Linking": {"busy": False, "types": [
+		{"key": "blocks", "title": "Blocks"},
+		{"key": "invented", "title": "Something this workspace added"},
+	]}})["Linking"]
+
+	assert "Something this workspace added" in box, (
+		"the link types are a literal list, so a workspace that adds one cannot use it"
+	)
+
+	# **Nothing to offer means no control.** A workspace with no link types would otherwise get
+	# an empty select and a button that always refuses.
+	assert _rendered(tmp_path, {"Linking": {"busy": False, "types": []}})["Linking"] == ""
+
+	shared = {"item": {"ref": 42, "title": "A task", "status": "open", "kind": "task"},
+		"comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	links = [
+		{"id": "l-1", "label": "Blocks", "direction": "outgoing",
+			"other": {"entity_type": "task", "ref": 9, "title": "Still going",
+				"is_complete": False}},
+		{"id": "l-2", "label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "document", "ref": 4, "title": "The decision",
+				"is_complete": True}},
+	]
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "links": links}})["Detail"]
+
+	assert shown.count("Remove") == 2, "a link cannot be taken apart from where it is shown"
+	assert "done" in shown, "a finished item at the other end of a link does not say so"
+	assert "Still going" in shown and "The decision" in shown
+
+	# **The section shows with nothing in it once there is a form**, for `SR#759`'s reason: an
+	# item with no links and no way to make one reads as a page that does not do links.
+	empty = _rendered(tmp_path, {"Detail": {**shared, "links": []}})["Detail"]
+	mute = _rendered(tmp_path, {"Detail": {**shared, "links": [], "onLink": None}})["Detail"]
+
+	assert "Links" in empty and "<form" in empty
+	assert "Links" not in mute
+
+
+def test_which_kind_a_ref_names_is_resolved_rather_than_asked (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#760`. One ref counter serves tasks and documents (§6.2).
+
+	So `#4` is a decision document on this instance and `#42` is a task, and a reader typing a
+	ref into a link box should not have to say which — `subroutine show 4` does not ask, and
+	neither does opening one in this app, which already tries each kind in turn.
+
+	**The order comes from `/v1/meta`**, so an installation that grows a third linkable kind is
+	tried too rather than being silently unreachable.
+	"""
+
+	published, absent, empty = _views(tmp_path, [
+		("linkableTypes", {"vocabulary": {"linkable_types": ["task", "document", "wibble"]}}),
+		("linkableTypes", {"vocabulary": None}),
+		("linkableTypes", {"vocabulary": {"linkable_types": []}}),
+	])
+
+	assert published == ["task", "document", "wibble"], (
+		"a kind this instance publishes is not tried, so a ref naming one is unreachable"
+	)
+
+	# **A fallback rather than nothing**, because the link box is worth more than it costs: an
+	# instance that published no list at all would otherwise refuse every link.
+	assert absent == ["task", "document"]
+	assert empty == ["task", "document"]
 
 
 def test_a_thread_says_who_spoke (tmp_path: pathlib.Path) -> None:
@@ -3174,6 +3260,9 @@ class Instance(typing.NamedTuple):
 	#: reads as a failure. `task` is patched three times over by assign, unassign and restore.
 	spare: int
 	spare_version: int
+	#: A link the fixture made, so removing one can be driven — a DELETE needs an id that
+	#: exists, and the ids the calls above create are not threaded back into this list.
+	link: str
 	document: int
 	username: str
 	status: str
@@ -3231,6 +3320,12 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	document = call("POST", f"/v1/documents{scope}", json={"title": "A note", "body": "Prose."})
 	assert document.status_code == 201, document.text
 
+	joined = call(
+		"POST", f"/v1/tasks/{refs[0]['ref']}/links{scope}",
+		json={"target": refs[1]["ref"], "link_type": "relates_to", "target_type": "task"},
+	)
+	assert joined.status_code == 201, joined.text
+
 	page = call("GET", f"/v1/tasks{scope}&limit=1")
 	assert page.status_code == 200, page.text
 
@@ -3254,6 +3349,7 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		task=refs[0]["ref"],
 		spare=refs[1]["ref"],
 		spare_version=refs[1]["version"],
+		link=joined.json()["id"],
 		document=document.json()["ref"],
 		username=setup.user.username,
 		status=refs[0]["status"],
@@ -3453,6 +3549,18 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("commentRequest", [
 			{"ref": place.document, "kind": "document"}, "What happened.", place.slug,
 		]),
+		# **Both ends of both kinds** (`SR#760`): a task linked to a document, and a document
+		# linked to a task. The collection in the path is the source and `target_type` is the
+		# other end, and getting one right says nothing about the other.
+		("linkRequest", [
+			{"ref": place.task, "kind": "task"}, place.document, "relates_to", "document",
+			place.slug,
+		]),
+		("linkRequest", [
+			{"ref": place.document, "kind": "document"}, place.spare, "relates_to", "task",
+			place.slug,
+		]),
+		("unlinkRequest", [{"ref": place.task, "kind": "task"}, place.link, place.slug]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
@@ -3496,7 +3604,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 	declared = _builders(_served_modules()["app.js"])
 	place = Instance(
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
-		task=1, spare=3, spare_version=1, document=2, username="si", status="open",
+		task=1, spare=3, spare_version=1, link="l", document=2, username="si", status="open",
 		cursor="c", since=1,
 	)
 	exercised = {name for name, _arguments in _calls(place)}
@@ -4283,6 +4391,7 @@ def _views (
 			: name === "fromItem" ? app.fromItem(argument.item)
 			: name === "conflictIn" ? app.conflictIn(argument.failure)
 			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
+			: name === "linkableTypes" ? app.linkableTypes(argument.vocabulary)
 			: name === "refused" ? (() => {{
 				const made = app.refusal(argument.status, argument.problem);
 				return {{ message: made.message, status: made.status,

@@ -43,6 +43,14 @@ upgrade involves.
   so you can fold your change into theirs rather than losing one of them. That applies to an
   agent working on the same item as much as to another person.
 
+- **Links can be made and removed in the browser**, on an item or a document, in whichever
+  ways your workspace names — *blocks*, *relates to*, and anything you have added. Type a ref
+  and pick a relationship; you do not have to say whether `#42` is a task or a document,
+  because it works that out.
+
+  **A linked item now says whether it is finished**, so *Blocks #442* tells you whether you
+  are still blocked without clicking through.
+
 - **Notes can be written on an item in the browser.** *What happened* now has a box under it,
   and Markdown and `#42` links work in it exactly as they do everywhere else. Documents take
   them too.

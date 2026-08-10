@@ -522,6 +522,61 @@ export function commentRequest (item, body, slug) {
 	};
 }
 
+export function linkRequest (item, target, linkType, kind, slug) {
+	/*
+		Join two items — `#760`.
+
+		**Both kinds, and that is not a detail.** One ref counter serves tasks and documents
+		(§6.2), so `#4` may be a specification; a link surface that worked on tasks alone would
+		be the half-a-rule this codebase keeps finding. The *source* is whichever the reader has
+		open and the *target* is `kind`, which the caller resolves rather than asks about — see
+		`linkableTypes`.
+	*/
+	const collection = item.kind === "document" ? "documents" : "tasks";
+
+	return {
+		path: scoped(`/${collection}/${item.ref}/links`, slug),
+		method: "POST",
+		body: { target: Number(target), link_type: linkType, target_type: kind },
+	};
+}
+
+export function unlinkRequest (item, linkId, slug) {
+	/*
+		Take one apart — `#760`.
+
+		**Removing matters as much as adding**, and there is evidence rather than a principle:
+		on 2026-08-09 two items were linked to a stranger's `#731` by assuming a ref, and
+		`subroutine unlink` is what undid it. A browser that can only add is one that cannot fix
+		a mistake, which makes every reader careful in the way that stops them using it.
+	*/
+	const collection = item.kind === "document" ? "documents" : "tasks";
+
+	return {
+		path: scoped(`/${collection}/${item.ref}/links/${linkId}`, slug),
+		method: "DELETE",
+	};
+}
+
+export function linkableTypes (vocabulary) {
+	/*
+		The kinds a link may point at, in the order to try them — `#760`.
+
+		**A ref does not say which table it is in**, because one counter serves both (§6.2), so
+		`#4` is a document on this instance and `#42` is a task. Asking the reader to say which
+		would be making them hold a fact the system has: `subroutine show 4` does not ask, and
+		neither should this.
+
+		So the target type is *resolved* — try each in turn and take the one that is not a 404,
+		which is exactly what `fetched` already does to open an item by ref. **The order comes
+		from `/v1/meta`'s `linkable_types`** rather than a literal pair, so an installation that
+		grows a third kind is tried too.
+	*/
+	const known = (vocabulary && vocabulary.linkable_types) || [];
+
+	return known.length > 0 ? known : ["task", "document"];
+}
+
 export function authorOf (comment, members) {
 	/*
 		Who said it — `#759`.
@@ -2729,7 +2784,7 @@ export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, st
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
-	onStatus, statuses, onComment,
+	onStatus, statuses, onComment, onLink, onUnlink,
 }) {
 	const body = item.description || item.body;
 
@@ -2777,7 +2832,7 @@ export function Detail ({
 						onOpen=${onOpen} />`}
 				`}
 
-			${links.length > 0 && html`
+			${(links.length > 0 || onLink) && html`
 				<h3>Links</h3>
 				<ul class="linked">
 					${links.map((link) => {
@@ -2794,10 +2849,27 @@ export function Detail ({
 										#${link.other.ref} ${link.other.title}</a>`
 									: html`<button onClick=${follow}>
 										#${link.other.ref} ${link.other.title}</button>`}
+								${/* **Whether the other end is over** (`#658`), which the link
+								     already carried and nothing read. A blocker is the case that
+								     matters: a reader looking at *Blocked by #442* has to click
+								     through to find out whether they are still blocked, and the
+								     answer was in the response all along. Said in a word rather
+								     than in styling alone (`#102`). */ null}
+								${link.other.is_complete && html`
+									<span class="over">done</span>
+								`}
+								${onUnlink && html`
+									<button class="unlink" disabled=${busy}
+										aria-label=${`Remove the link to #${link.other.ref}`}
+										onClick=${() => onUnlink(link)}>Remove</button>
+								`}
 							</li>
 						`;
 					})}
 				</ul>
+
+				${onLink && html`<${Linking} busy=${busy} onLink=${onLink}
+					types=${(vocabulary && vocabulary.link_types) || []} />`}
 			`}
 
 			${/* **The heading shows even with nothing under it, once there is a box** (`#759`).
@@ -2828,6 +2900,51 @@ export function Detail ({
 				${onComment && html`<${Saying} busy=${busy} onComment=${onComment} />`}
 			`}
 		</div>
+	`;
+}
+
+export function Linking ({ onLink, types, busy }) {
+	/*
+		Joining this item to another — `#760`.
+
+		**A ref and a type, and nothing about which table the other end is in.** One counter
+		serves tasks and documents (§6.2), so asking a reader to say *task or document* would be
+		making them hold a fact the system has; `linkableTypes` resolves it by trying each in
+		turn, which is what `fetched` already does to open an item by ref.
+
+		**The types come from the workspace**, never a literal list — `link_type` is
+		per-workspace vocabulary and an installation may add one. The label is the type's own
+		`title`, so *Blocks* reads as this instance writes it.
+
+		**`inputMode="numeric"` rather than `type="number"`.** A number input brings a spinner
+		and a scroll-to-change gesture for a value that is an identifier, not a quantity — and
+		on a phone the keypad is the whole of what is wanted.
+	*/
+	const submit = (event) => {
+		event.preventDefault();
+
+		const form = event.currentTarget;
+		const ref = form.elements.target.value.trim().replace(/^#/, "");
+
+		if (ref === "" || busy) return;
+
+		onLink(ref, form.elements.link_type.value);
+		form.reset();
+	};
+
+	if (types.length === 0) return null;
+
+	return html`
+		<form class="linking" onSubmit=${submit}>
+			<select name="link_type" disabled=${busy} aria-label="How they are related">
+				${types.map((one) => html`
+					<option key=${one.key} value=${one.key}>${one.title}</option>
+				`)}
+			</select>
+			<input name="target" required disabled=${busy} inputMode="numeric"
+				aria-label="Which item" placeholder="#42" />
+			<button type="submit" disabled=${busy}>Link</button>
+		</form>
 	`;
 }
 
@@ -3583,6 +3700,53 @@ export function App () {
 		);
 	}, [open, workspace, wrote]);
 
+	const link = useCallback(async (target, linkType) => {
+		/*
+			**Which kind the ref names is resolved rather than asked** (`#760`). One counter
+			serves tasks and documents (§6.2), so `#4` is a document here and `#42` is a task —
+			and `subroutine show 4` does not ask which, so neither does this. Each kind is tried
+			in turn and a 404 moves on, which is exactly what `fetched` does to open one.
+
+			**Only a 404 moves on.** A refusal for any other reason — no permission, a link that
+			would make a cycle — is the answer, and swallowing it to try the next kind would
+			report *there is no #42* about an item that is right there.
+		*/
+		if (!open) return;
+
+		setBusy(true);
+
+		try {
+			const kinds = linkableTypes(vocabulary);
+			let made = null;
+
+			for (const kind of kinds) {
+				try {
+					made = await sent(
+						linkRequest(open.item, target, linkType, kind, workspace),
+					);
+					break;
+				} catch (failure) {
+					if (failure.status !== 404 || kind === kinds[kinds.length - 1]) throw failure;
+				}
+			}
+
+			setNote({ text: `#${open.item.ref} ${made.label.toLowerCase()} `
+				+ `#${made.other.ref}.`, tone: "good" });
+			await show(open.item, { history: false });
+		} catch (failure) {
+			setNote({ text: `That link was not made. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [open, show, vocabulary, workspace]);
+
+	const unlink = useCallback((going) => wrote(
+		open ? open.item : { ref: 0 },
+		() => ({ text: `#${open.item.ref} no longer ${going.label.toLowerCase()} `
+			+ `#${going.other.ref}.`, tone: "good" }),
+		() => sent(unlinkRequest(open.item, going.id, workspace)),
+	), [open, workspace, wrote]);
+
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
 		   rather than the page number, because keyset pagination is what the API offers and
@@ -3773,7 +3937,7 @@ export function App () {
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${save}
 					onStatus=${status} statuses=${vocabulary && vocabulary.statuses}
-					onComment=${comment}
+					onComment=${comment} onLink=${link} onUnlink=${unlink}
 					vocabulary=${vocabulary} projects=${filable}
 					onEdit=${(wanted) => { setEditing(wanted); setConflict(null); }}
 					where=${mentionHref(workspace)} onBack=${() => close()}

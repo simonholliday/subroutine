@@ -221,6 +221,69 @@ code, .ref, .priority, .broke .detail {
 .edit:hover { color: var(--ink); border-color: var(--ink-soft); }
 .edit:disabled { opacity: 0.5; cursor: default; }
 
+/* Joining two items — `SR#760`. A row, because a type and a ref are one thought. */
+.linking {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
+	flex-wrap: wrap;
+}
+
+.linking select,
+.linking input {
+	padding: 7px 10px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+}
+
+.linking input { width: 7em; }
+
+.linking select:focus-visible,
+.linking input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.linking input::placeholder { color: var(--ink-faint); }
+
+.linking button {
+	padding: 7px 14px;
+	background: transparent;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	cursor: pointer;
+}
+
+.linking button:hover { color: var(--ink); border-color: var(--ink-soft); }
+.linking :disabled { opacity: 0.5; cursor: default; }
+
+/* **A word, never a colour alone** (`SR#102`) — `SR#658`: whether the other end of a link is
+   over, which the response has always carried and nothing read. */
+.linked .over {
+	margin-left: 6px;
+	padding: 1px 6px;
+	border: 1px solid var(--line-strong);
+	border-radius: 999px;
+	color: var(--ink-faint);
+	font-size: 12px;
+}
+
+.linked .unlink {
+	margin-left: 8px;
+	padding: 0;
+	background: none;
+	border: 0;
+	color: var(--ink-faint);
+	font: inherit;
+	font-size: 13px;
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.linked .unlink:hover { color: var(--warn); }
+.linked .unlink:disabled { opacity: 0.5; cursor: default; }
+
 /* Writing down what happened — `SR#759`. Wider than the add box because prose is what goes in
    it, and stacked because the button has nothing to sit beside. */
 .saying {
