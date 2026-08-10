@@ -704,7 +704,27 @@ export function withShowing (path, showing) {
 		**Emitted in `SELECTABLE` order rather than the order they were set**, so the same
 		screen always produces the same string — `go` compares the address it wants against the
 		one in the bar and would otherwise push a duplicate entry onto the history.
+
+		**An address naming one item takes neither, and that is enforced here rather than at the
+		call sites** (`#766`). Both halves describe a set of rows — which ones arrive and how they
+		are laid out — and an item address has one row that is not part of any set. Typing
+		`/projects/ui/441` used to leave `/projects/ui/441?view=list` in the bar: a parameter
+		saying nothing, in its default, about rows that are not there.
+
+		The app already disagreed with itself about it. Every link *to* an item — a listing row,
+		a prose mention, an entry in the Links list — is `addressOf`, which is a bare path. Only
+		the rewrite that followed the click added a query, so the href a reader could copy and
+		the address they landed on were two strings for one page, and the href was the honest one.
+
+		**Keyed on the path rather than on a flag the caller passes**, because a flag is a thing
+		to forget: `chips`, `backTo`, `widenTo` and `reloads` all build listing addresses and are
+		untouched, and a fifth writer added later cannot get this wrong. `parseAddress` is
+		already the one place that knows what an item address looks like.
 	*/
+	const place = parseAddress(path);
+
+	if (place !== null && place.ref !== null) return path;
+
 	const view = showing && showing.view;
 	const selection = (showing && showing.selection) || {};
 
@@ -2032,6 +2052,33 @@ export function App () {
 	const [showing, setShowing] = useState({ view: DEFAULT_VIEW, selection: {} });
 	const since = useRef(null);
 
+	/*
+		**The same fact again, where a callback can read it** — and the ref is the copy that is
+		never stale, which is why `since` is one too.
+
+		`load` used to take the selection from `window.location.search`, and `#719`'s reasoning
+		for that was sound while it held: the address is written by `go` before any load that
+		changes one, so it cannot lag the way `showing` lags the render that calls `load`.
+
+		**What `#766` took away is the premise.** An item's address carries no query, so while
+		one is open the bar says nothing about the listing behind it — and the poll goes on
+		calling `load` every ten seconds. Reading the address there would quietly refetch the
+		default selection under a reader who had chosen another, and they would not see it until
+		they closed the item and found the columns they asked for empty.
+
+		So the address is a valid source only while it *is* a listing address, and this is the
+		source that is valid always.
+	*/
+	const shown = useRef(showing);
+
+	const nowShowing = useCallback((next) => {
+		/* **One writer for both copies**, so the two cannot disagree — the whole hazard of
+		   keeping a second one. Every place that changes what is showing calls this and none
+		   calls `setShowing`, which `tests/test_web.py` holds. */
+		shown.current = next;
+		setShowing(next);
+	}, []);
+
 	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
 		/*
 			**Every address this app writes goes through here**, carrying the arrangement and the
@@ -2063,8 +2110,8 @@ export function App () {
 		if (!slug) return;
 
 		/*
-			**The arrangement is read from the address, not from state and not from an argument**
-			— `#719`, and the parameter this replaces is the defect.
+			**The selection is read from the ref, not from state and not from an argument** —
+			`#719`, and the parameter this replaces is the defect.
 
 			It was `arranged = view`, which reads the *state*, and `setView` does not land in the
 			render that calls this. So the first load after arriving at `/projects?view=board`
@@ -2077,11 +2124,12 @@ export function App () {
 			here. Passing the value at both sites would have worked and left the trap for the
 			next call site, so the parameter is gone instead.
 
-			The address is the one source that is never stale: `#651` made the view part of it,
-			`go()` writes it before any load that changes one, and `popstate` fires only after it
-			has already changed. Nothing to capture, nothing to forget.
+			It read `window.location.search` until `#766`, on the grounds that the address is the
+			one source that is never stale. `nowShowing` is that source now, and for the reason
+			written there: an item's address carries no query, so the bar stops answering this
+			question the moment one is open — and the poll keeps asking it.
 		*/
-		const chose = selectionOf(window.location.search).selection;
+		const chose = shown.current.selection;
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
@@ -2295,7 +2343,7 @@ export function App () {
 			const asked = parseAddress(window.location.pathname);
 			const arrangement = showingOf(window.location.search);
 
-			setShowing({ view: arrangement.view, selection: arrangement.selection });
+			nowShowing({ view: arrangement.view, selection: arrangement.selection });
 			const { slug, refused } = chosenWorkspace(
 				asked, identity.workspaces.map((space) => space.slug), workspace,
 			);
@@ -2363,7 +2411,7 @@ export function App () {
 		} finally {
 			setReady(true);
 		}
-	}, [load, readAgenda, roster, show, workspace]);
+	}, [load, nowShowing, readAgenda, roster, show, workspace]);
 
 	useEffect(() => {
 		start();
@@ -2394,7 +2442,7 @@ export function App () {
 			   — which is the disagreement `close` used to create for the agenda. */
 			const back = showingOf(window.location.search);
 
-			setShowing({ view: back.view, selection: back.selection });
+			nowShowing({ view: back.view, selection: back.selection });
 
 			/*
 				**Stepping back to `/` is stepping back to the agenda** (`#652`), and this has
@@ -2426,7 +2474,7 @@ export function App () {
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, project, agenda, me, load, readAgenda, show]);
+	}, [ready, error, workspace, project, agenda, me, load, nowShowing, readAgenda, show]);
 
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
@@ -2622,7 +2670,7 @@ export function App () {
 		*/
 		const again = reloads(showing, wanted);
 
-		setShowing(wanted);
+		nowShowing(wanted);
 
 		/* **The address first, then the reload** — and the order is the whole of why `load`
 		   needs no argument for this: it reads the arrangement from the address, which `go` has
@@ -2633,7 +2681,7 @@ export function App () {
 		);
 
 		if (agenda === null && again) await load(workspace, project);
-	}, [agenda, go, load, project, showing, workspace]);
+	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 

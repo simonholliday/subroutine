@@ -1932,6 +1932,69 @@ def test_a_hook_that_reads_the_project_filter_declares_it () -> None:
 	assert not problems, "\n".join(problems)
 
 
+def test_what_is_showing_has_one_writer () -> None:
+	"""`SR#766`. What keeps a second copy of a fact from becoming a second answer.
+
+	`load` used to read the selection from `window.location.search`, on `SR#719`'s reasoning: the
+	address is written by `go` before any load that changes one, so it cannot lag the way state
+	lags the render that calls a callback. Sound while it held.
+
+	**`SR#766` took the premise away.** An item's address carries no query, so while one is open
+	the bar says nothing about the listing behind it — and the poll goes on calling `load` every
+	ten seconds. Reading the address there would have refetched the default selection under a
+	reader who chose another, invisibly, until they closed the item and found the columns they
+	asked for empty. That is `SR#744` re-created by the fix for `SR#766`.
+
+	So there is a ref beside the state, and the ref is what a callback reads. Two copies of one
+	fact is this codebase's signature defect, and the only thing making it safe is that exactly
+	one function writes them — which is what this checks, by finding the writes rather than by
+	trusting the sentence above.
+
+	**What this cannot check**, stated rather than implied: the harness calls components as plain
+	functions and cannot execute a hook (`SR#640`), so nothing here proves `nowShowing` writes
+	the ref *correctly* — only that no other caller writes half the pair. `SR#748` is the item
+	for a machine that could answer the rest.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	writers = [found.start() for found in re.finditer(r"(?<![\w$.])setShowing\s*\(", source)]
+
+	assert writers, "no write of the showing state was found, so this is checking nothing"
+
+	opens, closes = _braced(source, "const nowShowing = useCallback(")
+	inside = source[opens:closes]
+
+	assert "setShowing(" in inside and "shown.current =" in inside, (
+		f"nowShowing is meant to write both copies of what is showing; its body is {inside!r}"
+	)
+
+	stray = [at for at in writers if not opens <= at < closes]
+
+	assert not stray, (
+		f"{len(stray)} call(s) to setShowing sit outside nowShowing, at offsets {stray} — each "
+		"one moves the state without moving the ref, so `load` and the render disagree about "
+		"which rows this page asked for"
+	)
+
+
+def _braced (source: str, opening: str) -> tuple[int, int]:
+	"""The span of the block a declaration opens, found by matching its braces."""
+
+	start = source.index(opening)
+	depth = 0
+
+	for index in range(source.index("{", start), len(source)):
+		if source[index] == "{":
+			depth += 1
+		elif source[index] == "}":
+			depth -= 1
+
+			if depth == 0:
+				return start, index
+
+	raise AssertionError(f"{opening!r} never closes")
+
+
 def _function_body (source: str, name: str) -> str:
 	"""Return the body of one top-level function in the app, by name."""
 
@@ -3343,9 +3406,9 @@ def test_the_arrangement_survives_being_written_into_an_address (
 
 	board = {"view": "board", "selection": {}}
 
-	kept, item, chosen, nothing = _views(tmp_path, [
+	kept, project, chosen, nothing = _views(tmp_path, [
 		("withShowing", {"path": "/projects", "showing": board}),
-		("withShowing", {"path": "/projects/subroutine/42", "showing": board}),
+		("withShowing", {"path": "/projects/subroutine", "showing": board}),
 		("withShowing", {"path": "/projects", "showing": {
 			"view": "list", "selection": {"status_category": "done"},
 		}}),
@@ -3353,7 +3416,7 @@ def test_the_arrangement_survives_being_written_into_an_address (
 	])
 
 	assert kept == "/projects?view=board"
-	assert item == "/projects/subroutine/42?view=board"
+	assert project == "/projects/subroutine?view=board"
 
 	# **A selection is written out even under the default arrangement** (`SR#738`), because
 	# there is no default to fall back to: the absence of one *is* the ordinary selection, so an
@@ -3363,6 +3426,57 @@ def test_the_arrangement_survives_being_written_into_an_address (
 	# **An address with no arrangement to write is left alone**, which is what keeps a bare
 	# `/projects` expressible at all — `listingAddress` builds one before a view is known.
 	assert nothing == "/projects"
+
+
+def test_an_address_naming_one_item_carries_neither (tmp_path: pathlib.Path) -> None:
+	"""`SR#766`, found by Simon typing one into the bar.
+
+	`/projects/ui/441` came back as `/projects/ui/441?view=list`. Both halves of a query here
+	describe a *set* of rows — which ones arrive and how they are laid out — and an item address
+	has one row that is part of no set. The parameter said nothing, in its default, about rows
+	that were not there.
+
+	**The app already disagreed with itself**, which is the sharper form of it: every link *to*
+	an item that this app renders is `addressOf`, a bare path, in a listing row, in a prose
+	mention and in the Links list. Only the rewrite after the click added a query, so the href a
+	reader could copy and the address they landed on were two strings for one page.
+
+	Parametrised over the shapes `parseAddress` distinguishes rather than over one example, so
+	the durable form and the readable form are both covered — a check written from one of them
+	would pass while the other kept its query.
+	"""
+
+	showing = {"view": "board", "selection": {"include_completed": "true"}}
+
+	durable, readable, workspace, project, agenda, blank = _views(tmp_path, [
+		("withShowing", {"path": "/projects/441", "showing": showing}),
+		("withShowing", {"path": "/projects/ui/441", "showing": showing}),
+		("withShowing", {"path": "/projects", "showing": showing}),
+		("withShowing", {"path": "/projects/ui", "showing": showing}),
+		("withShowing", {"path": "/", "showing": showing}),
+		("withShowing", {"path": "", "showing": showing}),
+	])
+
+	assert durable == "/projects/441", "an item address takes no query, in its durable form"
+	assert readable == "/projects/ui/441", "nor in its readable one"
+
+	# **The selection goes too, not only the arrangement.** Dropping the view and keeping
+	# `include_completed` would leave an address still describing a set of rows, which is the
+	# thing an item address has none of — and it would read as considered rather than as missed.
+	assert "include_completed" not in durable
+	assert "include_completed" not in readable
+
+	# Every listing address is untouched, which is what makes this a rule about the place rather
+	# than a retreat from `SR#651`: what is showing still survives navigation everywhere it means
+	# something.
+	assert workspace == "/projects?view=board&include_completed=true"
+	assert project == "/projects/ui?view=board&include_completed=true"
+	assert agenda == "/?view=board&include_completed=true"
+
+	# **`reloads` compares two selections by writing each onto the empty path**, so an empty path
+	# reading as an item address would make every selection equal to every other and the app
+	# would silently stop refetching when a chip was pressed.
+	assert blank == "?view=board&include_completed=true"
 
 
 def test_a_selection_nobody_can_send_is_refused_by_name_and_by_value (

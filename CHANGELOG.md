@@ -38,6 +38,15 @@ upgrade involves.
   second and four characters on every command, for ever. Install it once and type `subr`. The
   plugin still needs nothing installed first; that is what `uvx` is for.
 
+### Fixed
+
+- **The address of one item is the address of one item.** Opening `/projects/ui/441` in the
+  browser used to leave `/projects/ui/441?view=list` in the bar. *List* and *board* say how a
+  set of rows is laid out, and a single item is not a set of rows — so the link you copied out
+  of the page and the link you ended up with were two different strings for the same thing.
+  Links written before this still work and tidy themselves up when you follow one; closing the
+  item still takes you back to the list, board or filter you came from.
+
 ## 0.6.3 — 2026-08-10
 
 **0.6.2 was tagged and never published.** Its release commit re-formatted both plugin manifests
