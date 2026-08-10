@@ -16,6 +16,18 @@ upgrade involves.
 
 ### Added
 
+- **The browser can file an item with everything on it.** *More* beside the add box opens a
+  form: description, project, type, status, assignee, importance, urgency, estimate, a start
+  day, a planned day, a deadline and tags. If you are looking at a project, that is where it
+  goes; the types and statuses are your workspace's own, so renaming one renames it here too.
+
+  **The one-line box is unchanged and still first.** It is the same box — type `call the
+  dentist friday !4/3` and press Add exactly as before, whether or not the form is open. When
+  both are used the line still sets the title, and anything you picked in the form wins over
+  what you typed.
+
+  A start day now shows on an item too. It could be set from a terminal and read back nowhere.
+
 - **`subr` is the same program under a shorter name.** Ten characters against sixteen, on
   something you type dozens of times a day: `subr today`, `subr add "…"`, `subr done 42`.
   Every command answers to both, and `--help` says so.

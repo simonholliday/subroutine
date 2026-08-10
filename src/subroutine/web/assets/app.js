@@ -494,13 +494,171 @@ export function assignRequest (row, who, slug) {
 	};
 }
 
-export function addRequest (text, slug) {
+export function addRequest (values, slug) {
 	/*
-		`text` rather than a title, so the capture grammar runs (§6.13) and one box can set a
-		project, a priority, tags and a date. The workspace goes in the body because that is
-		where this endpoint takes it — the only write here that does.
+		The workspace goes *in* the body because that is where this endpoint takes it — the only
+		write here that does.
+
+		**It took a bare string until `#756`** and the capture line is still how a title arrives:
+		`text` rather than a title, so the grammar runs (§6.13) and one box can set a project, a
+		priority, tags and a date.
+
+		**`filed` is called here rather than by the caller**, so that the guard which drives every
+		builder against a real instance drives the body-building too. Handing this a body somebody
+		assembled elsewhere would leave the one function with a rule in it — the one that decides
+		what is worth sending — checked only against a body written by hand in a test.
 	*/
-	return { path: "/tasks", method: "POST", body: { text, workspace_id: slug } };
+	return { path: "/tasks", method: "POST", body: filed(values, slug) };
+}
+
+/*
+	The words a form sends, split by what has to happen to them on the way.
+
+	**Every one of these is omitted when it is empty rather than sent blank**, and that is not
+	tidiness — it is what the endpoint requires. Measured on 2026-08-10 against the served
+	instance: `assignee: ""` is *"There is nobody called ''"*, `type: ""` is *"No task type with
+	key ''"*, `estimate: ""` is *"A duration cannot be empty"*, and `title: ""` beside a `text`
+	is *"A title is required"*. A form's untouched control gives exactly that empty string, so a
+	body assembled by copying the controls would be refused by whichever field the reader left
+	alone first — which is every field, on the commonest submission there is.
+*/
+export const SAID_AS_WRITTEN = [
+	"description", "project", "type", "status", "assignee",
+	"estimate", "start", "planned_for", "due",
+];
+
+/*
+	**Sent as numbers, not as the strings a control holds** (`#549`). `{"today": "false"}` was
+	truthy in Python and the filter came on — a plausible, complete, wrong answer — because a
+	published schema was never used as a schema. `Create` declares these `int | None`; a lax
+	parser coercing `"4"` is a thing that happens to work rather than a thing that is promised.
+*/
+export const SAID_AS_NUMBERS = ["importance", "urgency"];
+
+export function filed (values, slug) {
+	/*
+		What a form submission becomes on the wire — pure, so the rule above is checkable.
+
+		**One line and a form are one submission, not two paths.** `POST /v1/tasks` takes `text`
+		*and* structured fields, and anything explicit wins over what the line said — measured:
+		`text: "… !4/3 ~1h #typed"` with `importance: 5` and `estimate: "30m"` stored importance
+		5, estimate 30m, urgency 3 and the tag. That is the whole of why the capture box does not
+		have to move or be duplicated to satisfy §1.4: it stays the title, in the same place,
+		doing the same thing, and the form is strictly additional.
+
+		**Tags arrive as one written field** rather than as a control per tag, and the `#` is
+		optional because that is how a person writes one — the sigil is the *capture line's*, and
+		typing it here should not produce a tag called `#home`.
+	*/
+	const raw = values || {};
+	const said = (name) => {
+		const value = raw[name];
+
+		return typeof value === "string" ? value.trim() : value;
+	};
+
+	const body = { workspace_id: slug };
+	const line = said("text");
+
+	if (line) body.text = line;
+
+	SAID_AS_WRITTEN.forEach((name) => {
+		const value = said(name);
+
+		if (value) body[name] = value;
+	});
+
+	SAID_AS_NUMBERS.forEach((name) => {
+		const value = said(name);
+
+		if (value) body[name] = Number(value);
+	});
+
+	const tags = String(said("tags") || "")
+		.split(/[\s,]+/)
+		.map((one) => one.replace(/^#/, ""))
+		.filter((one) => one !== "");
+
+	if (tags.length > 0) body.tags = tags;
+
+	return body;
+}
+
+export function vocabularyRequest (slug) {
+	/*
+		What this workspace calls things — the types, the statuses and the tags a form offers.
+
+		**`?workspace_id=` is not optional, and asking without it answers 200 with nothing.**
+		Measured: `/v1/meta` on this instance returns `"statuses":{}`, `"item_types":{}` and
+		`"link_types":[]` when no workspace is named, because they are per-workspace vocabulary
+		and it has not been told which. A form built from that answer would offer a type dropdown
+		with no types in it, and nothing would have failed — `#571` is the item for the shape.
+	*/
+	return { path: scoped("/meta", slug), method: "GET" };
+}
+
+export function projectsRequest (slug) {
+	/*
+		Where a new item can be filed.
+
+		**Three fields rather than the whole project**, on `#645`'s measurement: a listing that
+		asks for what it renders is the difference between 287 KB and 38 KB. `is_inbox` is here
+		because the Inbox is where an item with no project lands, so it is the one entry a form
+		can label as *what happens if you say nothing*.
+	*/
+	return {
+		path: scoped("/projects?fields=key,title,is_inbox&limit=200", slug),
+		method: "GET",
+	};
+}
+
+export function offered (vocabulary, kind) {
+	/*
+		The options for one dropdown, and which is chosen when nobody has chosen — `#756`.
+
+		**Never a literal array.** A type and a status are workspace vocabulary: renameable, and
+		an instance may add one. A form carrying its own list is wrong on the first workspace
+		that does either, and wrong silently, because the control still looks complete.
+
+		Reads `is_default` for the pre-selection rather than assuming a key, for the same reason:
+		`open` and `task` are what `seed.py` happens to install here, not what the model promises.
+	*/
+	const known = (vocabulary && vocabulary[kind]) || [];
+
+	return known.map((one) => ({
+		key: one.key,
+		label: one.label || one.key,
+		chosen: Boolean(one.is_default),
+	}));
+}
+
+export function filableFor (projects, project) {
+	/*
+		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
+
+		**The address decides**, which `#738` already settled: `/{workspace}/{project}` says
+		where rows come from, so it says where a new one goes. Nothing new is parsed. With no
+		project in the address — on the agenda, or on a whole workspace — it is the Inbox, which
+		is where an item with no project lands anyway.
+
+		**A project the address names and the listing does not hold is added rather than
+		ignored.** Otherwise nothing would be chosen, the browser would select the first option,
+		and the item would file into the Inbox under an address naming somewhere else — a wrong
+		destination, silently, which is worse than any refusal. It can happen: this asks for 200
+		projects and a workspace may hold more.
+
+		The same shape as `offered` on purpose, so both fill the same control and neither grows
+		its own idea of what a dropdown is.
+	*/
+	const known = (projects || []).map((one) => ({
+		key: one.key,
+		label: `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
+		chosen: project ? one.key === project : Boolean(one.is_inbox),
+	}));
+
+	if (!project || known.some((one) => one.chosen)) return known;
+
+	return [{ key: project, label: project, chosen: true }].concat(known);
 }
 
 export function agendaRequest () {
@@ -1446,7 +1604,7 @@ export function Row ({ item, showKind, showWhere, workspace, onOpen, onComplete 
 	`;
 }
 
-export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy }) {
+export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy, adding }) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
 
@@ -1471,15 +1629,15 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 		page spanning several: the switcher is right above it and says which. Named rather than
 		implied, so nobody has to guess where it went.
 	*/
-	const adding = onAdd && html`
-		<${Adding} onAdd=${onAdd} busy=${busy}
+	const box = onAdd && html`
+		<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}}
 			note=${where ? `Adds to ${where}.` : null} />
 	`;
 
 	if (buckets.length === 0) {
 		return html`
 			<div class="listing agenda">
-				${adding}
+				${box}
 				<div class="empty">Nothing is due, and nothing is waiting. </div>
 			</div>
 		`;
@@ -1487,7 +1645,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 
 	return html`
 		<div class="listing agenda">
-			${adding}
+			${box}
 
 			${buckets.map((bucket) => html`
 				<section class="bucket" key=${bucket.key}>
@@ -1524,7 +1682,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
-	widenTo, selection, finishedTo,
+	widenTo, selection, finishedTo, adding,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -1571,7 +1729,7 @@ export function Board ({
 
 	return html`
 		<div class="listing board">
-			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
+			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${project && html`
 				<div class="narrowed">
@@ -1634,7 +1792,11 @@ export function Board ({
 	`;
 }
 
-export function Adding ({ onAdd, busy, note }) {
+export const PRIORITIES = [1, 2, 3, 4, 5];
+
+export function Adding ({
+	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
+}) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
 		`~2h` and a date in words all work here exactly as they do at a terminal, which is why
@@ -1642,30 +1804,126 @@ export function Adding ({ onAdd, busy, note }) {
 		browser-only reader can learn that any of it exists.
 
 		Plain prose is a complete answer, and that is the point — nothing here is required.
+
+		**The form is a disclosure and the box is untouched** (`#756`, §1.4). *No entity from §14
+		or §15 may ever be required to create, find or complete a task*, so the rest of the fields
+		open **below** the same box rather than replacing it, and the box stays the only required
+		control. One `<form>`, one submission: the line becomes `text` and the controls become
+		explicit fields, which `POST /v1/tasks` takes together with explicit winning per field.
+
+		**No state of its own, deliberately.** `expanded` is a prop rather than a `useState` here
+		because a component that calls a hook cannot be rendered by this project's harness
+		(`#640`) — four faults shipped out of decisions left inside `App`, every one found by
+		Simon rather than by the build. The inputs are uncontrolled for the same reason and for
+		the one the original box had: a form cleared on submit needs nothing remembered between
+		keystrokes, and `required` hands the empty case to the browser, which says so in the
+		reader's own language rather than in ours.
 	*/
 	const submit = (event) => {
 		event.preventDefault();
 
 		const form = event.currentTarget;
-		const written = form.elements.text.value.trim();
 
-		if (written === "" || busy) return;
+		if (form.elements.text.value.trim() === "" || busy) return;
 
-		onAdd(written);
+		/* **Read off the form rather than tracked** — every named control, whatever the reader
+		   touched, handed to `filed` which decides what is worth sending. */
+		const values = {};
+
+		Array.from(form.elements).forEach((one) => {
+			if (one.name) values[one.name] = one.value;
+		});
+
+		onAdd(values);
 		form.reset();
 	};
 
+	const types = offered(vocabulary && vocabulary.item_types, "task");
+	const statuses = offered(vocabulary && vocabulary.statuses, "task");
+
 	/*
-		**An uncontrolled input, holding no state of its own.** A box that is cleared on submit
-		needs nothing remembered between keystrokes, so mirroring every one into a state
-		variable would be work with no reader — and `required` hands the empty case to the
-		browser, which says so in the reader's own language rather than in ours.
+		**Every date is a day, and the all-day flag follows from that** rather than being a
+		control of its own. Measured: `due: "2026-08-14"` is stored as the end of that day with
+		`due_is_all_day: true`, and `due: "2026-08-14T15:00"` is stored at 15:00 and not all-day
+		— one field, both meanings, decided by what arrives. `datetime-local` would make every
+		deadline carry a time somebody had to invent; a time of day is what the line is for.
 	*/
+	const day = (name, label) => html`
+		<label><span>${label}</span>
+			<input type="date" name=${name} disabled=${busy} /></label>
+	`;
+
+	const rank = (name, label) => html`
+		<label><span>${label}</span>
+			<select name=${name} disabled=${busy}>
+				<option value="">—</option>
+				${PRIORITIES.map((one) => html`<option key=${one} value=${one}>${one}</option>`)}
+			</select></label>
+	`;
+
+	const vocabularySelect = (name, label, options) => html`
+		<label><span>${label}</span>
+			<select name=${name} disabled=${busy || options.length === 0}>
+				${options.map((one) => html`
+					<option key=${one.key} value=${one.key} selected=${one.chosen}>
+						${one.label}</option>
+				`)}
+			</select></label>
+	`;
+
 	return html`
 		<form class="adding" onSubmit=${submit}>
-			<input name="text" required disabled=${busy} aria-label="Add an item"
-				placeholder="Add something — try: call the dentist tomorrow +work !4/3" />
-			<button type="submit" disabled=${busy}>Add</button>
+			<div class="line">
+				<input name="text" required disabled=${busy} aria-label="Add an item"
+					placeholder="Add something — try: call the dentist tomorrow +work !4/3" />
+				<button type="submit" disabled=${busy}>Add</button>
+				${onExpand && html`
+					<button type="button" class="more" aria-expanded=${expanded ? "true" : "false"}
+						onClick=${() => onExpand(!expanded)}>${expanded ? "Less" : "More"}</button>
+				`}
+			</div>
+
+			${expanded && html`
+				<fieldset class="details">
+					<legend>Everything else</legend>
+
+					<label class="wide"><span>Description</span>
+						<textarea name="description" rows="3" disabled=${busy}></textarea></label>
+
+					${/* **The Inbox is named rather than left blank**, because it is where an item
+					     with no project goes — a blank option here would be a control whose
+					     effect the reader has to already know. Which entry is chosen is
+					     `filableFor`, which is pure: *the project defaults from the address* is
+					     a closing condition of `#756`, and a claim nothing could check while it
+					     was an expression buried in this markup. */ null}
+					${vocabularySelect("project", "Project", filableFor(projects, project))}
+
+					${vocabularySelect("type", "Type", types)}
+					${vocabularySelect("status", "Status", statuses)}
+
+					<label><span>Assignee</span>
+						<select name="assignee" disabled=${busy}>
+							<option value="">Nobody</option>
+							${(members || []).map((one) => html`
+								<option key=${one} value=${one}>${one}</option>
+							`)}
+						</select></label>
+
+					${rank("importance", "Importance")}
+					${rank("urgency", "Urgency")}
+
+					<label><span>Estimate</span>
+						<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d" /></label>
+
+					${day("start", "Starts")}
+					${day("planned_for", "Planned")}
+					${day("due", "Due")}
+
+					<label class="wide"><span>Tags</span>
+						<input name="tags" disabled=${busy} placeholder="health, admin" /></label>
+				</fieldset>
+			`}
+
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
 			     every page would be the column that says the same thing on every row (§12.2a);
 			     the agenda spans them, so there the answer is worth a line (`#652`). */ null}
@@ -1676,7 +1934,7 @@ export function Adding ({ onAdd, busy, note }) {
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
-	empty = "Nothing here yet.",
+	empty = "Nothing here yet.", adding,
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -1696,7 +1954,7 @@ export function Listing ({
 
 	return html`
 		<div class="listing">
-			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} />`}
+			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${project && html`
 				<div class="narrowed">
@@ -1776,6 +2034,11 @@ export function Facts ({ item }) {
 		"Priority",
 		item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null,
 	);
+	/* **`start_at` was settable before it was showable**, which `#756` made worse rather than
+	   introduced: the form can set it, and a field a reader can write and never read back is
+	   `#515`'s shape — every step reports success and they are left confirming the wrong
+	   conclusion. The CLI has printed it as *from <date>* since M1. */
+	add("Starts", day(item.start_at));
 	add("Due", day(item.due_at));
 	add("Planned", day(item.planned_for));
 	add("Estimate", item.estimate_human);
@@ -2042,6 +2305,24 @@ export function App () {
 	const [agenda, setAgenda] = useState(null);
 	const [unscheduled, setUnscheduled] = useState(0);
 	/*
+		The add form: whether it is open, and the two answers it needs to draw its dropdowns
+		(`#756`).
+
+		**Fetched once the page is ready rather than when the form opens.** Two requests and
+		about 8 KB per workspace, against a poll that spends one every ten seconds for the life
+		of the page — so the cost is nothing and what it buys is the absence of a loading state
+		inside a form. Every fault this app has shipped came from something not having landed
+		yet in the render that read it; a disclosure that fetches on open is one more of those,
+		and this one would show a reader an empty type dropdown rather than a blank page.
+
+		**Keyed by nothing, cleared on a workspace change.** The vocabulary is per workspace, so
+		a cache carrying `personal`'s statuses into `projects` would be a control that looks
+		complete and offers the wrong words.
+	*/
+	const [expanded, setExpanded] = useState(false);
+	const [vocabulary, setVocabulary] = useState(null);
+	const [filable, setFilable] = useState([]);
+	/*
 		What is on screen — the arrangement and the selection — read from the address rather
 		than remembered (`#651`), so a reader can send somebody the thing they are looking at.
 
@@ -2194,6 +2475,42 @@ export function App () {
 		});
 
 		setMore(left);
+	}, []);
+
+	const words = useCallback(async (slug) => {
+		/*
+			What this workspace calls things, and where an item can be filed — the two answers
+			the add form's dropdowns are built from (`#756`).
+
+			**Called where `roster` is called rather than from an effect**, because it answers
+			the same question at the same moment: the workspace has changed, so everything
+			workspace-shaped has to be asked again. An effect would be a fourth thing watching
+			`workspace` and a fourth chance for it to run against a value that has not landed.
+
+			**Cleared first, so a failure cannot leave the previous workspace's words on screen.**
+			A type dropdown offering another workspace's types is worse than one offering none:
+			the second is visibly unfinished and the first is confidently wrong.
+
+			Its failure is survivable, like the roster's: the capture line does not need any of
+			this, and §1.4 says it must not.
+		*/
+		if (!slug) return;
+
+		setVocabulary(null);
+		setFilable([]);
+
+		try {
+			const [meta, projects] = await Promise.all([
+				sent(vocabularyRequest(slug)),
+				sent(projectsRequest(slug)),
+			]);
+
+			setVocabulary(meta);
+			setFilable(projects.items);
+		} catch (_) {
+			/* Left empty and disabled, which is what the form renders when it has nothing to
+			   offer. Nothing else on the page depends on it. */
+		}
 	}, []);
 
 	const roster = useCallback(async (slug) => {
@@ -2402,6 +2719,7 @@ export function App () {
 			await Promise.all([
 				asked === null ? readAgenda(identity.workspaces) : load(slug, asked.project),
 				roster(slug),
+				words(slug),
 				asked && asked.ref !== null
 					? show({ ref: asked.ref }, { history: false, slug })
 					: null,
@@ -2411,7 +2729,7 @@ export function App () {
 		} finally {
 			setReady(true);
 		}
-	}, [load, nowShowing, readAgenda, roster, show, workspace]);
+	}, [load, nowShowing, readAgenda, roster, show, words, workspace]);
 
 	useEffect(() => {
 		start();
@@ -2559,15 +2877,19 @@ export function App () {
 		() => sent(assignRequest(row, who, workspace)),
 	), [workspace, wrote]);
 
-	const add = useCallback(async (text) => {
+	const add = useCallback(async (values) => {
 		/* **The reload afterwards keeps the filter the reader is looking at.** Without
 		   `project` declared below, adding an item inside a project answered by replacing the
 		   list with the whole workspace — the same stale closure as the poll, reached by a
-		   button instead of a timer, and read as "adding a task loses my project". */
+		   button instead of a timer, and read as "adding a task loses my project".
+
+		   `values` is every named control on the form, raw; `filed` decides what is worth
+		   sending and is pure, which is where `#756`'s only real rule lives — an untouched
+		   control gives an empty string, and this endpoint refuses those by name. */
 		setBusy(true);
 
 		try {
-			const made = await sent(addRequest(text, workspace));
+			const made = await sent(addRequest(values, workspace));
 
 			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
 
@@ -2641,11 +2963,11 @@ export function App () {
 
 		try {
 			await load(slug, null);
-			await roster(slug);
+			await Promise.all([roster(slug), words(slug)]);
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [go, load, roster]);
+	}, [go, load, roster, words]);
 
 	const chooseView = useCallback(async (wanted) => {
 		/*
@@ -2698,6 +3020,20 @@ export function App () {
 		view in the first place, and it is what `#738` took out.
 	*/
 	const finishedOnly = showing.selection.status_category === "done";
+
+	/*
+		Everything the add form needs beyond what every caller of `Adding` already passes — one
+		prop rather than six threaded through `Agenda`, `Board` and `Listing`, none of which has
+		any business knowing what a dropdown is made of.
+
+		**`project` is the address's**, which `#738` already settled: `/{workspace}/{project}`
+		says where rows come from, so it says where a new one goes. Nothing new is parsed, and on
+		the agenda — which spans workspaces and narrows to nothing — it is null and the Inbox is
+		what the form offers.
+	*/
+	const adding = {
+		expanded, onExpand: setExpanded, vocabulary, projects: filable, members, project,
+	};
 
 	if (error) {
 		return html`
@@ -2764,7 +3100,7 @@ export function App () {
 					onComplete=${complete} onAssign=${assign} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
-						onAdd=${add} busy=${busy} where=${workspace}
+						onAdd=${add} busy=${busy} where=${workspace} adding=${adding}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -2775,7 +3111,7 @@ export function App () {
 						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
 					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more}
+							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							selection=${showing.selection}
@@ -2798,7 +3134,7 @@ export function App () {
 							such guard and is withheld here.
 						*/
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more}
+							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), showing)}

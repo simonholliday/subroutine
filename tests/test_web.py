@@ -32,6 +32,7 @@ import starlette.requests
 import api_support
 import subroutine.api.app
 import subroutine.api.routing
+import subroutine.api.tasks
 import subroutine.api.web
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -1412,12 +1413,299 @@ def test_the_add_box_teaches_the_capture_grammar (tmp_path: pathlib.Path) -> Non
 
 	# The placeholder is read off the source, because `flatten` walks the tree rather than
 	# rendering attributes — so the assertion has to go where the words actually are.
+	#
+	# **Anchored on the capture box's own input** rather than taken as the first placeholder in
+	# the file. It was the first until `SR#756` put two more in the form below it, and a
+	# first-match regex over three of them is one edit away from checking a different control
+	# and passing about it.
 	source = _served_modules()["app.js"]
-	placeholder = re.search(r'placeholder="([^"]+)"', source)
+	placeholder = re.search(r'name="text"[^>]*?placeholder="([^"]+)"', source, re.S)
 
 	assert placeholder is not None, "the add box stopped saying what can be typed into it"
 	assert "+" in placeholder.group(1) and "!" in placeholder.group(1), (
 		f"the placeholder {placeholder.group(1)!r} no longer shows any of the grammar"
+	)
+
+
+def test_the_capture_box_is_the_same_box_whether_the_form_is_open_or_not (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""§1.4, which `SR#756` is the first real test of in this app.
+
+	*No entity from §14 or §15 may ever be required to create, find or complete a task.* A form
+	carrying a type, a status and a project is exactly such an entity, so it is a **disclosure**:
+	the one line stays, stays first, and stays the only required control. A form that replaced
+	the box — or moved it, or made one of its own fields required — would be the thing §1.4
+	forbids while looking like an improvement.
+
+	Both states are rendered rather than reasoned about, because *"the box is still there"* is a
+	claim about a tree and this harness can walk one.
+	"""
+
+	shut = _rendered(tmp_path, {"Adding": {"expanded": False, "onExpand": True}})["Adding"]
+	open_ = _rendered(tmp_path, {"Adding": {"expanded": True, "onExpand": True}})["Adding"]
+
+	for markup in (shut, open_):
+		assert markup.index("<input") < markup.index("<button"), (
+			"the capture box is no longer the first control in the form"
+		)
+
+	assert "<fieldset" not in shut, "the form's fields are showing before anybody asked for them"
+	assert "<fieldset" in open_, "asking for the fields did not produce any"
+
+	# **Nothing in the disclosure is required.** `required` on a disclosed field would make the
+	# form refuse to submit for a reason the reader cannot see while it is shut.
+	#
+	# Comments are stripped first, or this counts the paragraphs explaining the rule — which is
+	# five hits and a guard that measures its own documentation. **`_without_comments` and not
+	# `_without_prose`**: the attribute lives inside a template literal, and the version that
+	# empties strings takes the thing being counted with it. Measured, after writing the wrong
+	# one first — it reported zero, which reads exactly like the box losing its `required`.
+	source = _without_comments(_served_modules()["app.js"])
+	form = source[source.index("export function Adding ("):source.index("export function Listing")]
+
+	assert form.count("required") == 1, (
+		"something other than the capture line is required, so the one-line path can be blocked "
+		"by a control that is not on screen"
+	)
+
+
+def test_a_control_nobody_touched_is_not_sent (tmp_path: pathlib.Path) -> None:
+	"""`SR#756`'s only real rule, and the one that would have shipped broken.
+
+	A form's untouched control gives an empty string, and this endpoint refuses those **by
+	name** — measured against the served instance on 2026-08-10:
+
+	| sent | answered |
+	| --- | --- |
+	| `assignee: ""` | *There is nobody called ''* |
+	| `type: ""` | *No task type with key ''* |
+	| `estimate: ""` | *A duration cannot be empty* |
+	| `title: ""` beside a `text` | *A title is required* |
+
+	So a body assembled by copying the controls is refused by whichever field the reader left
+	alone first — which is every field, on the commonest submission there is. `_calls` drives
+	exactly that submission against a real instance; this says what the body should be.
+	"""
+
+	[body] = _views(tmp_path, [("filed", {"slug": "projects", "values": {
+		"text": "buy milk",
+		"description": "", "project": "", "type": "", "status": "", "assignee": "",
+		"importance": "", "urgency": "", "estimate": "",
+		"start": "", "planned_for": "", "due": "", "tags": "",
+	}})])
+
+	assert body == {"workspace_id": "projects", "text": "buy milk"}, (
+		f"an untouched form sends {sorted(body)} when it should send the line and nothing else"
+	)
+
+
+def test_a_line_and_a_form_are_one_submission (tmp_path: pathlib.Path) -> None:
+	"""What makes the form a disclosure rather than a second way in.
+
+	`POST /v1/tasks` takes `text` **and** structured fields, and anything explicit wins over what
+	the line said. Measured: `text: "… !4/3 ~1h #typed"` with `importance: 5` and `estimate:
+	"30m"` stored importance 5, estimate 30m, urgency 3 from the line, and the tag from the line.
+
+	That is why the capture box does not have to move, be duplicated, or grow a rival title
+	field: it stays the title, doing exactly what it did, and the form adds the rest.
+
+	**Numbers are sent as numbers** (`SR#549`). `{"today": "false"}` was truthy in Python and a
+	filter came on — a plausible, complete, wrong answer — because a published schema was never
+	used as a schema. `Create` declares these `int | None`; a parser that coerces `"4"` is a
+	thing that happens to work rather than one that is promised.
+	"""
+
+	[body] = _views(tmp_path, [("filed", {"slug": "projects", "values": {
+		"text": "fix the header !2/2 ~1h",
+		"importance": "5", "urgency": "1", "estimate": "30m",
+		"type": "bug", "due": "2026-08-14", "tags": " #health,, admin  ",
+	}})])
+
+	assert body["text"] == "fix the header !2/2 ~1h", "the line is no longer sent as the line"
+	assert body["importance"] == 5 and body["urgency"] == 1, (
+		f"importance is {body['importance']!r}, which is a string where the schema says integer"
+	)
+
+	# **The `#` is optional and the separators are either**, because that is how a person writes
+	# a list of tags. The sigil belongs to the capture line; typing it here should not make a tag
+	# called `#health`.
+	assert body["tags"] == ["health", "admin"], f"tags parsed as {body['tags']}"
+
+
+def test_a_dropdown_is_built_from_the_workspace_and_not_from_a_list (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Types and statuses are workspace vocabulary: renameable, and an instance may add one.
+
+	A form carrying its own array is wrong on the first workspace that does either, and wrong
+	**silently** — the control still looks complete. `/v1/meta` publishes them, which is what it
+	is for.
+
+	**Which one is pre-selected is read too.** `task` and `open` are what `seed.py` happens to
+	install here, not something the model promises, so the default comes from `is_default`.
+	"""
+
+	vocabulary = {"task": [
+		{"key": "task", "label": "Task", "is_default": False},
+		{"key": "wibble", "label": "Wibble", "is_default": True},
+	], "document": [{"key": "note", "label": "Note", "is_default": True}]}
+
+	chosen, absent, unknown = _views(tmp_path, [
+		("offered", {"vocabulary": vocabulary, "kind": "task"}),
+		("offered", {"vocabulary": None, "kind": "task"}),
+		("offered", {"vocabulary": vocabulary, "kind": "sandwich"}),
+	])
+
+	assert [one["key"] for one in chosen] == ["task", "wibble"]
+	assert [one["chosen"] for one in chosen] == [False, True], (
+		"the pre-selection is not being read from the workspace's own default"
+	)
+
+	# **Nothing to offer is an empty list, never a guess.** The form disables a select it cannot
+	# fill, which is visibly unfinished; inventing `task` and `open` would be confidently wrong.
+	assert absent == [] and unknown == []
+
+
+def test_a_new_item_goes_where_the_address_says (tmp_path: pathlib.Path) -> None:
+	"""Simon's requirement, verbatim: *if a project is already selected (in URL), that is default
+	project for the item to be added to*.
+
+	`SR#738` had already settled the principle — `/{workspace}/{project}` says where rows come
+	from, so it says where a new one goes — so nothing new is parsed and this is only the wire.
+
+	**Pure so it can be checked at all.** It was an expression inside the markup first, and the
+	harness flattens attributes, so which option carried `selected` was invisible to every test
+	here — a closing condition of the item with nothing behind it. Lifting the decision out is
+	`SR#640`'s cheapest route and this is the fifth time it has been the answer.
+	"""
+
+	projects = [
+		{"key": "inbox", "title": "Inbox", "is_inbox": True},
+		{"key": "ui", "title": "Interface"},
+	]
+
+	named, none, missing = _views(tmp_path, [
+		("filableFor", {"projects": projects, "project": "ui"}),
+		("filableFor", {"projects": projects, "project": None}),
+		("filableFor", {"projects": projects, "project": "gone"}),
+	])
+
+	assert [one["chosen"] for one in named] == [False, True], "the address's project is not chosen"
+
+	# **No project in the address is the Inbox**, which is where an item with no project lands
+	# anyway — so the control agrees with what would happen if it were not there.
+	assert [one["chosen"] for one in none] == [True, False]
+
+	# **A project the address names and the listing does not hold is added rather than dropped.**
+	# Nothing chosen means the browser selects the first option, so the item would file into the
+	# Inbox under an address naming somewhere else — wrong, and silent, which is worse than any
+	# refusal. Reachable: this asks for 200 projects and a workspace may hold more.
+	assert missing[0] == {"key": "gone", "label": "gone", "chosen": True}
+	assert [one["chosen"] for one in missing[1:]] == [False, False]
+
+
+#: Fields of `POST /v1/tasks` the add form deliberately does not offer. **Each says what would
+#: make the entry go away**, which is the property every allow-list in this repository is held
+#: to — an excuse with no expiry is indistinguishable from an oversight.
+NOT_ON_THE_FORM = {
+	# The capture line *is* the title, and sending both with one empty is refused by name.
+	# Goes away if the line ever stops being the primary path, which §1.4 forbids.
+	"title": "the capture line is the title (§1.4)",
+	# Sub-tasks are not a browser concept yet, and `SR#17`/`SR#44` are open on what membership
+	# even means — whether a parent is `blocks` or `parent_task_id` is undecided.
+	"parent_task_id": "sub-tasks are undecided — SR#17, SR#44",
+	# **Derived from the value rather than chosen.** Measured: `2026-08-14` is stored as the end
+	# of that day and all-day, `2026-08-14T15:00` is stored at 15:00 and not. A checkbox beside
+	# each date would be a control whose only effect is to contradict the field next to it.
+	"due_is_all_day": "derived from whether the date carries a time",
+	"start_is_all_day": "derived from whether the date carries a time",
+	# The chain is explicit -> user -> workspace -> instance and null means *not stated* at every
+	# level. A form field would be a fourth place to get it wrong, on the one surface that
+	# already knows the reader's zone.
+	"timezone": "the timezone chain answers this without asking",
+}
+
+
+def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
+	"""**The rule right, the display right, and no wire between them** — `SR#640`'s exact shape.
+
+	`filed` reads controls by name off the submitted form; `Adding` writes those names into the
+	markup. Nothing joins the two, so a control called `plannedFor` beside a rule expecting
+	`planned_for` is a field that silently never arrives: the reader fills it in, the item is
+	created, and the value is gone. Every fault this app has shipped looked like that, and each
+	was found by Simon rather than by the build.
+
+	Both directions, because they fail differently. A name the form draws and the body ignores
+	is a dead control; a name the body expects and the form never draws is a rule with nothing
+	to apply to.
+	"""
+
+	app = _served_modules()["app.js"]
+	form = app[app.index("export function Adding ("):app.index("export function Listing")]
+
+	drawn = set(re.findall(r'name="(\w+)"', form)) | set(re.findall(r"name=\$\{(\w+)\}", form))
+	# `name=${name}` is a control built by one of the small helpers, so what it draws is whatever
+	# its caller passed — read those call sites rather than treating the parameter as a field.
+	#
+	# **Naming the helpers is a list, and a fourth one would fall off it** — but it falls off in
+	# the safe direction: the field then appears in `read` and not in `drawn`, and this fails
+	# saying the body reads something the form never draws. It caught its own first version that
+	# way, which had two of the three.
+	drawn.discard("name")
+	drawn |= set(re.findall(r'(?:day|rank|vocabularySelect)\("(\w+)"', form))
+
+	found = re.search(r"export const SAID_AS_WRITTEN = \[(.*?)\];", app, re.S)
+	numbers = re.search(r"export const SAID_AS_NUMBERS = \[(.*?)\];", app, re.S)
+
+	assert found and numbers, "the field lists are gone, so this is checking nothing"
+
+	read = set(re.findall(r'"([^"]+)"', found.group(1) + numbers.group(1))) | {"text", "tags"}
+
+	assert drawn, "the form draws no named control at all, so this is checking nothing"
+	assert drawn == read, (
+		f"the form draws {sorted(drawn - read)} that the body ignores, and the body reads "
+		f"{sorted(read - drawn)} that the form never draws"
+	)
+
+
+def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
+	"""`SR#756` is titled *with every field it can have*, so the claim is derived, not asserted.
+
+	`SR#427`'s lesson exactly, applied to the browser rather than to `clients/http.py`: a guard
+	comparing *names* misses a capability that is a field on a call both surfaces already make.
+	Four defects of that shape shipped before the reach guard compared fields — and the browser
+	is a client too, and is in none of it.
+
+	Read off `api.tasks.Create` rather than from a list here, so a twentieth field added to the
+	endpoint fails this until somebody has decided whether the form offers it.
+	"""
+
+	app = _served_modules()["app.js"]
+
+	def listed (name: str) -> list[str]:
+		found = re.search(rf"export const {name} = \[(.*?)\];", app, re.S)
+
+		assert found is not None, f"{name} is no longer declared, so this is checking nothing"
+
+		return re.findall(r'"([^"]+)"', found.group(1))
+
+	offers = set(listed("SAID_AS_WRITTEN")) | set(listed("SAID_AS_NUMBERS"))
+	offers |= {"text", "tags", "workspace_id"}
+
+	accepted = set(subroutine.api.tasks.Create.model_fields)
+	missing = accepted - offers - set(NOT_ON_THE_FORM)
+
+	assert accepted, "the endpoint declares no fields, so this is checking nothing"
+	assert not missing, (
+		f"POST /v1/tasks accepts {sorted(missing)} and the browser's form offers no way to set "
+		f"them — add a control, or an entry to NOT_ON_THE_FORM saying what would remove it"
+	)
+
+	stale = set(NOT_ON_THE_FORM) - accepted
+
+	assert not stale, (
+		f"NOT_ON_THE_FORM excuses {sorted(stale)}, which the endpoint no longer accepts"
 	)
 
 
@@ -2512,6 +2800,12 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# failures is what made it permanent.
 		("pollRequest", [place.slug, None]),
 		("rosterRequest", [place.slug]),
+		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
+		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
+		# and `link_types` all empty, so a form built from it offers a type dropdown with no
+		# types in it and nothing has failed.
+		("vocabularyRequest", [place.slug]),
+		("projectsRequest", [place.slug]),
 		("listingRequests", [place.slug, None, None]),
 		("listingRequests", [place.slug, place.project, None]),
 		("listingRequests", [
@@ -2523,7 +2817,39 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
 		("assignRequest", [{"ref": place.task}, None, place.slug]),
-		("addRequest", ["Something new", place.slug]),
+		# **Both shapes of the same write** (`SR#756`): the one-line box on its own, which is what
+		# §1.4 guarantees keeps working, and the box with every disclosed field filled in.
+		("addRequest", [{"text": "Something new"}, place.slug]),
+		("addRequest", [{
+			"text": "Something detailed",
+			"description": "why it matters",
+			"project": place.project,
+			# Seeded vocabulary, like `place.status` above, and deliberately **not** the default
+			# one: a dropped `type` would still produce a task, so driving the default would pass
+			# against a body that never sent the field.
+			"type": "bug",
+			"status": place.status,
+			"assignee": place.username,
+			"importance": "4",
+			"urgency": "3",
+			"estimate": "2h",
+			# Fixed days rather than ones computed from today. A deadline in the past is a legal
+			# thing to file, so nothing here expires — which is the trap a same-day fixture walks
+			# into, passing in the morning and failing in the evening.
+			"start": "2026-08-12",
+			"planned_for": "2026-08-13",
+			"due": "2026-08-14",
+			"tags": "health, #admin",
+		}, place.slug]),
+		# **Every disclosed control left alone**, which is the commonest submission there is and
+		# the one that would 422: an untouched control gives `""`, and this endpoint refuses an
+		# empty assignee, type, estimate and title by name.
+		("addRequest", [{
+			"text": "Something plain",
+			"description": "", "project": "", "type": "", "status": "", "assignee": "",
+			"importance": "", "urgency": "", "estimate": "",
+			"start": "", "planned_for": "", "due": "", "tags": "",
+		}, place.slug]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
@@ -3303,10 +3629,12 @@ def test_the_agenda_can_add_something_and_says_where_it_lands (tmp_path: pathlib
 
 	# **The harness flattens to tag names and text**, so an attribute is invisible to it — the
 	# placeholder cannot be asserted on and the form and its button can.
-	assert "<form><input><button>Add" in agenda, "a person landing on `/` cannot add anything"
+	assert "<form><div><input><button>Add" in agenda, (
+		"a person landing on `/` cannot add anything"
+	)
 	assert "Adds to projects." in agenda
 
-	assert "<form><input><button>Add" in listing
+	assert "<form><div><input><button>Add" in listing
 	assert "Adds to" not in listing
 
 
@@ -3318,7 +3646,7 @@ def test_a_day_with_nothing_in_it_can_still_be_added_to (tmp_path: pathlib.Path)
 	)["Agenda"]
 
 	assert "Nothing is due" in markup
-	assert "<form><input><button>Add" in markup
+	assert "<form><div><input><button>Add" in markup
 
 
 def _views (
@@ -3343,6 +3671,9 @@ def _views (
 			: name === "moment" ? app.moment(argument.value, argument.now)
 			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
+			: name === "filed" ? app.filed(argument.values, argument.slug)
+			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
+			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
 			: app.columns(argument))));
 	"""))
 
@@ -4401,7 +4732,7 @@ def test_every_request_the_app_makes_on_arrival_is_a_declared_builder (
 
 	known = {
 		"/v1/me", "/v1/meta", "/v1/agenda", "/v1/tasks", "/v1/documents", "/v1/changes",
-		"/v1/workspaces/projects/members",
+		"/v1/projects", "/v1/workspaces/projects/members",
 	}
 	invented = paths - known
 

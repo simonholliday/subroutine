@@ -98,14 +98,26 @@ code, .ref, .priority, .broke .detail {
 
 /* ---- adding, and what just happened ------------------------------------ */
 
-.adding {
+/*
+	**The one line is the row; everything else is disclosed below it** (`#756`, §1.4). The box
+	keeps its size, its place and its primacy whether or not the rest is open — a form that
+	pushed it aside would be the replacement §1.4 forbids rather than the disclosure it is.
+*/
+.adding { margin-bottom: 14px; }
+
+.adding .line {
 	display: flex;
 	gap: 8px;
-	margin-bottom: 14px;
 }
 
-.adding input {
-	flex: 1 1 auto;
+.adding .line input { flex: 1 1 auto; }
+
+/* One appearance for every control, so a field in the form and the box above it read as the
+   same kind of thing. `font: inherit` on all three because a browser's defaults for an input,
+   a select and a textarea are three different fonts at three different sizes. */
+.adding input,
+.adding select,
+.adding textarea {
 	min-width: 0;
 	padding: 9px 12px;
 	background: var(--bg-raised);
@@ -115,8 +127,14 @@ code, .ref, .priority, .broke .detail {
 	font: inherit;
 }
 
-.adding input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.adding textarea { resize: vertical; }
+
+.adding input:focus-visible,
+.adding select:focus-visible,
+.adding textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+
 .adding input::placeholder { color: var(--ink-faint); }
+.adding :disabled { opacity: 0.5; }
 
 .adding button {
 	flex: 0 0 auto;
@@ -130,8 +148,53 @@ code, .ref, .priority, .broke .detail {
 	cursor: pointer;
 }
 
+/* **Quieter than Add, because it is not the thing to do** — it opens the fields somebody wants
+   only when they want them, and two equally loud buttons would make that a choice rather than
+   an aside. */
+.adding button.more {
+	background: transparent;
+	border-color: var(--line-strong);
+	color: var(--ink-soft);
+	font-weight: 400;
+}
+
+.adding button.more:hover { color: var(--ink); border-color: var(--ink-soft); }
+
 .adding button:disabled { opacity: 0.45; cursor: default; }
 .adding button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/* Two columns where there is room and one where there is not, which is the whole of the
+   responsive behaviour a form of short fields needs. */
+.adding .details {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: 10px 12px;
+	margin-top: 12px;
+	padding: 14px;
+	background: var(--bg-raised);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+}
+
+.adding .details legend {
+	padding: 0 6px;
+	color: var(--ink-soft);
+	font-size: 13px;
+}
+
+.adding .details label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.adding .details label span {
+	color: var(--ink-soft);
+	font-size: 13px;
+}
+
+.adding .details .wide { grid-column: 1 / -1; }
 
 /*
 	What just happened. **The tone is a colour and says nothing on its own** (`#102`): the
@@ -292,7 +355,7 @@ code, .ref, .priority, .broke .detail {
 /* Where an add lands, said only where it is ambiguous — the agenda spans workspaces and a
    listing does not. */
 .adding .lands {
-	flex-basis: 100%;
+	display: block;
 	margin-top: 6px;
 	color: var(--ink-faint);
 	font-size: 13px;
