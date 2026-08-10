@@ -1651,6 +1651,50 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
 
 
+def test_a_status_can_be_changed_without_opening_the_form (tmp_path: pathlib.Path) -> None:
+	"""`SR#758`. *To do* → *in progress* → *done* is the commonest write anybody makes.
+
+	**The vocabulary comes from the workspace**, never a literal list: a status is renameable
+	and an installation may add one, so a control carrying its own three words is wrong on the
+	first instance that does either — and wrong silently, because it still looks complete.
+
+	**A status is not a claim and neither is derived from the other** (`SR#726`, Simon's
+	ruling), so the write has one field in it. It would be easy to make *in progress* claim the
+	item on the way past; that is a write nobody asked for, and it would make a claim's meaning
+	depend on which surface moved the status.
+	"""
+
+	statuses = {"task": [
+		{"key": "open", "label": "Open", "is_default": True},
+		{"key": "in_progress", "label": "In progress"},
+		{"key": "parked", "label": "Parked"},
+	]}
+	item = {"ref": 42, "kind": "task", "title": "A task", "status": "open",
+		"status_category": "todo"}
+
+	rendered = _rendered(tmp_path, {"Doing": {
+		"item": item, "members": [], "statuses": statuses, "onStatus": True, "busy": False,
+	}})["Doing"]
+
+	assert "Parked" in rendered, (
+		"a status this workspace has invented is not offered, so the control is a literal list"
+	)
+	assert "Complete" in rendered, "the quick path displaced the control it sits beside"
+
+	# **Available on something already over**, which is where it is most wanted and where the
+	# whole block used to disappear: `Doing` returned null unless the item was completable, so
+	# a cancelled item could not be moved back to open from here at all.
+	over = _rendered(tmp_path, {"Doing": {
+		"item": {**item, "status": "cancelled", "status_category": "cancelled"},
+		"members": [], "statuses": statuses, "onStatus": True, "busy": False,
+	}})["Doing"]
+
+	assert "Parked" in over, "a finished item offers no way back"
+	assert "Complete" not in over, (
+		"an item that is already over is offered Complete, whose only outcome is a refusal"
+	)
+
+
 def test_an_open_item_offers_an_edit_and_becomes_one (tmp_path: pathlib.Path) -> None:
 	"""`SR#757`. The rules being right is worth nothing if the page never reaches them.
 
@@ -3310,6 +3354,10 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"importance": "", "urgency": "", "estimate": "",
 			"start": "", "planned_for": "", "due": "", "tags": "",
 		}, {"ref": place.spare, "version": place.spare_version + 1}, place.slug]),
+		# **The quick path** (`SR#758`): one field and no `expected_version`, which is right
+		# here and wrong for the form — a single control read and written in one gesture cannot
+		# be refused for a field somebody else moved and this reader never saw.
+		("statusRequest", [{"ref": place.task}, place.status, place.slug]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.

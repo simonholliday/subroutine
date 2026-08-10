@@ -43,6 +43,14 @@ upgrade involves.
   so you can fold your change into theirs rather than losing one of them. That applies to an
   agent working on the same item as much as to another person.
 
+- **An item's status can be changed from the open item**, without opening the edit form —
+  *to do* to *in progress* to *done* is the commonest thing anybody records. The options are
+  your workspace's own, so a status you renamed or added is offered here too. It is available
+  on a cancelled item as well, which previously had no way back at all.
+
+  Changing a status changes nothing else: it does not claim the item, and claiming an item
+  does not move its status.
+
 - **`subr` is the same program under a shorter name.** Ten characters against sixteen, on
   something you type dozens of times a day: `subr today`, `subr add "…"`, `subr done 42`.
   Every command answers to both, and `--help` says so.

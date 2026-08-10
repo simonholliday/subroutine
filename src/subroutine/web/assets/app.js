@@ -737,6 +737,27 @@ export function edited (values, item) {
 	return body;
 }
 
+export function statusRequest (row, where, slug) {
+	/*
+		Move an item to a status, and **nothing else** — `#758`.
+
+		**A status and a claim are different facts and neither is derived from the other**
+		(`#726`, Simon's ruling), so this body has one field in it. It would be easy to make
+		*in progress* claim the item on the way past; that is a write nobody asked for, and it
+		would make the claim's meaning depend on which surface moved the status.
+
+		**No `expected_version`, deliberately, and this is the one place that is right.** §8.9 is
+		for a form somebody has been typing into while the world moved — `#757`. This is a single
+		control read and written in one gesture, and refusing it because an unrelated field
+		changed would be a conflict a person cannot act on and did not cause.
+	*/
+	return {
+		path: scoped(`/tasks/${row.ref}`, slug),
+		method: "PATCH",
+		body: { status: where },
+	};
+}
+
 export function conflictIn (failure) {
 	/*
 		The item as it now stands, when a refused save was somebody else getting there first —
@@ -2585,7 +2606,7 @@ export function Prose ({ text, className, where, onOpen }) {
 		dangerouslySetInnerHTML=${{ __html: rendered }}></div>`;
 }
 
-export function Doing ({ item, members, onComplete, onAssign, busy }) {
+export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, statuses }) {
 	/*
 		The two things a reader can do to an item from here.
 
@@ -2603,14 +2624,46 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 		opinion* — driven and confirmed rather than assumed, since the two readings of a null
 		are indistinguishable from the outside.
 	*/
-	if (!completable(item)) return null;
+	const where = offered(statuses, item.kind === "document" ? "document" : "task");
+
+	/*
+		**The status control is outside the completable gate, and the rest are inside it**
+		(`#758`). *Complete* on something already over is a control whose only outcome is a
+		refusal — but moving a **cancelled** item back to *open* is exactly the kind of thing a
+		person needs and had no way to do here at all, so gating the whole block on it made the
+		quick path unreachable precisely where it was most wanted.
+
+		**A status is not a claim and neither is derived from the other** (`#726`, Simon's
+		ruling). Setting one here touches nothing else: a claimed item does not become *in
+		progress*, and moving an item to *in progress* claims nothing.
+	*/
+	if (!completable(item) && where.length === 0) return null;
 
 	return html`
 		<div class="doing">
-			<button class="finish" disabled=${busy} onClick=${() => onComplete(item)}
-				aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+			${completable(item) && html`
+				<button class="finish" disabled=${busy} onClick=${() => onComplete(item)}
+					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+			`}
 
-			${members.length > 0 && html`
+			${onStatus && where.length > 0 && html`
+				${/* **The vocabulary comes from the workspace**, never a literal list: a status
+				     is renameable and an installation may add one, so a control carrying its
+				     own three words is wrong on the first instance that does either — and
+				     wrong silently, because it still looks complete. */ null}
+				<label class="assign">
+					<span>Status</span>
+					<select disabled=${busy}
+						onChange=${(event) => onStatus(item, event.target.value)}>
+						${where.map((one) => html`
+							<option key=${one.key} value=${one.key}
+								selected=${one.key === item.status}>${one.label}</option>
+						`)}
+					</select>
+				</label>
+			`}
+
+			${completable(item) && members.length > 0 && html`
 				<label class="assign">
 					<span>Assigned to</span>
 					<select disabled=${busy}
@@ -2633,6 +2686,7 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
+	onStatus, statuses,
 }) {
 	const body = item.description || item.body;
 
@@ -2672,7 +2726,8 @@ export function Detail ({
 
 					${onComplete && html`
 						<${Doing} item=${item} members=${members} onComplete=${onComplete}
-							onAssign=${onAssign} busy=${busy} />
+							onAssign=${onAssign} onStatus=${onStatus} statuses=${statuses}
+							busy=${busy} />
 					`}
 
 					${body && html`<${Prose} className="prose" text=${body} where=${where}
@@ -3416,6 +3471,12 @@ export function App () {
 		}
 	}, [open, show, workspace]);
 
+	const status = useCallback((row, where) => wrote(
+		row,
+		() => ({ text: `#${row.ref} is ${where.replace(/_/g, " ")}.`, tone: "good" }),
+		() => sent(statusRequest(row, where, workspace)),
+	), [workspace, wrote]);
+
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
 		   rather than the page number, because keyset pagination is what the API offers and
@@ -3605,6 +3666,7 @@ export function App () {
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${save}
+					onStatus=${status} statuses=${vocabulary && vocabulary.statuses}
 					vocabulary=${vocabulary} projects=${filable}
 					onEdit=${(wanted) => { setEditing(wanted); setConflict(null); }}
 					where=${mentionHref(workspace)} onBack=${() => close()}
