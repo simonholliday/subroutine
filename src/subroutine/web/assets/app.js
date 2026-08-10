@@ -97,11 +97,39 @@ const DOCUMENT_FIELDS = [
 ].join(",");
 
 class Refused extends Error {
-	/* Carries the status so the caller can tell "sign in" from "something went wrong". */
-	constructor (status, detail) {
+	/*
+		Carries the status so the caller can tell "sign in" from "something went wrong", and the
+		problem document so a caller can read what the refusal *carried*.
+
+		**The body was parsed and thrown away until `#757`**, which kept `detail` and nothing
+		else. §8.9's 409 attaches the current entity — `concurrency.reporting()` does it
+		deliberately, so a client can say what changed rather than only that something did — and
+		that was arriving and being discarded one line before anybody could read it.
+
+		`body` is null when the answer was not JSON, which is what stops a caller mistaking a
+		proxy's HTML error page for a problem document.
+	*/
+	constructor (status, detail, body = null) {
 		super(detail || `The instance answered ${status}.`);
 		this.status = status;
+		this.body = body;
 	}
+}
+
+export function refusal (status, problem) {
+	/*
+		What a refused request becomes — exported so the *composition* can be checked (`#757`).
+
+		`conflictIn` reads `failure.body.current`, and testing it against a hand-written object
+		says nothing about whether a real refusal ever carries one. It did not: `api` parsed the
+		problem document, kept `detail` and threw the rest away, one line before anybody could
+		read it — and a mutation putting that back passed the whole suite, because the only test
+		of the reader had built its own input.
+
+		So the two steps meet in a function, and a test can hand this a real problem document
+		and ask `conflictIn` what it makes of it.
+	*/
+	return new Refused(status, problem && problem.detail, problem);
 }
 
 async function api (path, { method = "GET", body = null } = {}) {
@@ -132,15 +160,15 @@ async function api (path, { method = "GET", body = null } = {}) {
 
 	/* A problem document carries `detail`; anything else is reported by its status alone
 	   rather than by guessing at a body we did not parse. */
-	let detail = null;
+	let problem = null;
 
 	try {
-		detail = (await answer.json()).detail;
+		problem = await answer.json();
 	} catch (_) {
-		detail = null;
+		problem = null;
 	}
 
-	throw new Refused(answer.status, detail);
+	throw refusal(answer.status, problem);
 }
 
 /* ---- one list, not two end to end (`#660`) ------------------------------- */
@@ -542,6 +570,20 @@ export const SAID_AS_WRITTEN = [
 */
 export const SAID_AS_NUMBERS = ["importance", "urgency"];
 
+/*
+	The fields an **edit** never sends as null — `#757`.
+
+	A task must have all four, and every control that carries one always holds a value, so
+	`null` here would mean *clear it* to a route that cannot. Everything else the edit form
+	shows is nulled when it is blank, which is the opposite of what creating does and is §8.3:
+	a field left out is unchanged, and only an explicit null clears it.
+
+	Named rather than written inline so that the guard comparing the controls the form draws
+	against the names the body reads can see them — `title` is drawn by `Editing` alone, and it
+	was invisible to that check until this existed.
+*/
+export const NEVER_CLEARED = ["title", "status", "type", "project"];
+
 export function filed (values, slug) {
 	/*
 		What a form submission becomes on the wire — pure, so the rule above is checkable.
@@ -589,6 +631,140 @@ export function filed (values, slug) {
 	if (tags.length > 0) body.tags = tags;
 
 	return body;
+}
+
+export function readForm (form) {
+	/* Every named control on a form, whatever the reader touched — handed to `filed` or
+	   `edited`, which decide what any of it means. Read off the DOM rather than tracked,
+	   which is what lets both forms hold no state. */
+	const values = {};
+
+	Array.from(form.elements).forEach((one) => {
+		if (one.name) values[one.name] = one.value;
+	});
+
+	return values;
+}
+
+export function fromItem (item) {
+	/*
+		An item as the edit form's starting values — `#757`.
+
+		**Every date goes through `calendarDay` with the item's own timezone** (`#773`). An
+		`<input type="date">` wants `YYYY-MM-DD`, and an all-day deadline is stored at the last
+		instant of its day in the *task's* zone — so reading it any other way puts the day after
+		the deadline into the box, and saving would then move it. A display bug becomes data
+		loss the moment a form is filled from the same value.
+
+		**Numbers and tags become the strings a control holds**, because that is what the form
+		compares against and what comes back out of it. `filed` and `edited` turn them back.
+	*/
+	const said = item || {};
+
+	return {
+		description: said.description || "",
+		project: said.project_key || "",
+		type: said.type || "",
+		status: said.status || "",
+		assignee: said.assignee || "",
+		importance: said.importance === null || said.importance === undefined
+			? "" : String(said.importance),
+		urgency: said.urgency === null || said.urgency === undefined
+			? "" : String(said.urgency),
+		estimate: said.estimate_human || "",
+		start: calendarDay(said.start_at, said.timezone) || "",
+		planned_for: calendarDay(said.planned_for, said.timezone) || "",
+		due: calendarDay(said.due_at, said.timezone) || "",
+		tags: (said.tags || []).join(", "),
+	};
+}
+
+export function edited (values, item) {
+	/*
+		What an edit becomes on the wire — pure, and **the opposite rule from `filed`**.
+
+		Creating omits an empty control, because `POST /v1/tasks` refuses an empty string by
+		name. Editing must send **`null`**, because §8.3 says a field left out is *unchanged* and
+		only an explicit null clears it. Reusing `filed` here would make clearing a deadline
+		impossible: blank the box, the field is omitted, the deadline stays, and the form reports
+		success. A silent no-op is the worst of the three possible failures.
+
+		**Everything the form shows is sent, unchanged values included.** The alternative —
+		sending only what moved — needs the form to compare `2026-09-01` against
+		`2026-09-01T23:59:59.999999Z`, which means re-deriving the server's own normalisation on
+		this side. That is a second copy of a rule, and this is not a place to keep one.
+
+		**`title`, `status`, `type` and `project` are never nulled.** A task must have all four,
+		the controls always hold one, and `null` would mean *clear it* to a route that cannot.
+
+		**`expected_version` is the whole point of the item** (§8.9). It is opt-in, and `None`
+		means *did not ask* rather than *asked and passed* — so a form omitting it silently wins
+		over whatever somebody saved while it was open. This is the first surface where an item
+		sits on screen long enough for that to be likely.
+	*/
+	const raw = values || {};
+	const said = (name) => {
+		const value = raw[name];
+
+		return typeof value === "string" ? value.trim() : value;
+	};
+
+	const body = { expected_version: (item || {}).version };
+
+	NEVER_CLEARED.forEach((name) => {
+		const value = said(name);
+
+		if (value) body[name] = value;
+	});
+
+	SAID_AS_WRITTEN.forEach((name) => {
+		if (NEVER_CLEARED.includes(name)) return;
+
+		body[name] = said(name) || null;
+	});
+
+	SAID_AS_NUMBERS.forEach((name) => {
+		const value = said(name);
+
+		body[name] = value ? Number(value) : null;
+	});
+
+	body.tags = String(said("tags") || "")
+		.split(/[\s,]+/)
+		.map((one) => one.replace(/^#/, ""))
+		.filter((one) => one !== "");
+
+	return body;
+}
+
+export function conflictIn (failure) {
+	/*
+		The item as it now stands, when a refused save was somebody else getting there first —
+		`#757`, §8.9. Null for every other refusal, which is then an ordinary note.
+
+		**Both halves are needed and the second is the one that would be forgotten.** A 409 says
+		the version moved; `current` is what `concurrency.reporting()` attaches so a client can
+		say *what* it moved to. An instance that did not attach it — an older one, or a proxy
+		that rewrote the body — would otherwise put an empty conflict on screen: a warning
+		naming nothing, which reads as a bug in the page rather than as news about the item.
+
+		Pure, because the decision is the part worth checking and `save` cannot be run by this
+		project's harness (`#640`).
+	*/
+	if (!failure || failure.status !== 409) return null;
+
+	return (failure.body && failure.body.current) || null;
+}
+
+export function updateRequest (values, item, slug) {
+	/* Save an edit. `edited` builds the body here for the reason `addRequest` calls `filed`:
+	   it is the guard that drives every builder against a real instance which then drives the
+	   body-building too. */
+	return {
+		path: scoped(`/tasks/${item.ref}`, slug),
+		method: "PATCH",
+		body: edited(values, item),
+	};
 }
 
 export function vocabularyRequest (slug) {
@@ -1974,6 +2150,108 @@ export const DATE_FIELDS = [
 	["due", "Due", "A deadline. The date something has to be finished by."],
 ];
 
+export function Fields ({ busy, vocabulary, projects, members, project, values }) {
+	/*
+		Every field beyond the one that names the item — shared by adding and editing (`#757`).
+
+		**One block, because they are one form.** The item Simon wrote asks for *the same form*,
+		and the alternative was two copies of thirteen controls whose only difference is what
+		they start out holding. Two copies of one rule is this codebase's signature defect, and
+		a control present on one and missing from the other would be invisible from either side.
+
+		**What differs between the two is not here**: the line above (a capture box against a
+		title), and what an empty control *means* on the way out. Creating omits it, because the
+		endpoint refuses an empty string by name; editing sends `null`, because §8.3 says a field
+		left out is unchanged and only an explicit null clears it. `filed` and `edited` are those
+		two rules, both pure, and neither belongs in markup.
+
+		**`defaultValue` rather than `value`, measured.** It renders as the `value` *attribute*,
+		which is what an uncontrolled input reads once and then leaves alone — so a re-render
+		while somebody is typing cannot reach in and reset what they have written. `#657` will
+		make that a real event rather than a theoretical one: the page polls, and an item open on
+		screen is about to start updating itself underneath an open form.
+	*/
+	const held = values || {};
+
+	const day = ([name, label, hint]) => html`
+		<label key=${name}><span>${label}</span>
+			<input type="date" name=${name} disabled=${busy}
+				defaultValue=${held[name] || ""} />
+			<small>${hint}</small></label>
+	`;
+
+	const rank = (name, label) => html`
+		<label><span>${label}</span>
+			<select name=${name} disabled=${busy}>
+				<option value="" selected=${!held[name]}>—</option>
+				${PRIORITIES.map((one) => html`
+					<option key=${one.value} value=${one.value}
+						selected=${String(held[name]) === String(one.value)}>${one.label}</option>
+				`)}
+			</select></label>
+	`;
+
+	const vocabularySelect = (name, label, options) => html`
+		<label><span>${label}</span>
+			<select name=${name} disabled=${busy || options.length === 0}>
+				${options.map((one) => html`
+					<option key=${one.key} value=${one.key}
+						selected=${held[name] ? held[name] === one.key : one.chosen}>
+						${one.label}</option>
+				`)}
+			</select></label>
+	`;
+
+	return html`
+		<fieldset class="details">
+			<legend>Everything else</legend>
+
+			<label class="wide"><span>Description</span>
+				<textarea name="description" rows="3" disabled=${busy}
+					defaultValue=${held.description || ""}></textarea></label>
+
+			${/* **The Inbox is named rather than left blank**, because it is where an item with
+			     no project goes — a blank option here would be a control whose effect the
+			     reader has to already know. Which entry is chosen is `filableFor`, which is
+			     pure: *the project defaults from the address* is a closing condition of `#756`,
+			     and a claim nothing could check while it was an expression buried in markup. */ null}
+			${vocabularySelect("project", "Project",
+				filableFor(projects, held.project || project))}
+
+			${vocabularySelect("type", "Type", offered(vocabulary && vocabulary.item_types, "task"))}
+			${vocabularySelect("status", "Status", offered(vocabulary && vocabulary.statuses, "task"))}
+
+			<label><span>Assignee</span>
+				<select name="assignee" disabled=${busy}>
+					<option value="" selected=${!held.assignee}>Nobody</option>
+					${(members || []).map((one) => html`
+						<option key=${one.username} value=${one.username}
+							selected=${held.assignee === one.username}>${one.label}</option>
+					`)}
+				</select></label>
+
+			${rank("importance", "Importance")}
+			${rank("urgency", "Urgency")}
+
+			<label><span>Estimate</span>
+				<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d"
+					defaultValue=${held.estimate || ""} /></label>
+
+			${/* **Every date is a day, and the all-day flag follows from that** rather than
+			     being a control of its own. Measured: `due: "2026-08-14"` is stored as the end
+			     of that day with `due_is_all_day: true`, and `due: "2026-08-14T15:00"` is stored
+			     at 15:00 and not all-day — one field, both meanings, decided by what arrives.
+			     `datetime-local` would make every deadline carry a time somebody had to
+			     invent; a time of day is what the capture line is for. */ null}
+			${DATE_FIELDS.map(day)}
+
+			<label class="wide"><span>Tags</span>
+				<input name="tags" disabled=${busy} placeholder="health, admin"
+					defaultValue=${held.tags || ""} /></label>
+		</fieldset>
+	`;
+}
+
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
 }) {
@@ -2006,53 +2284,9 @@ export function Adding ({
 
 		if (form.elements.text.value.trim() === "" || busy) return;
 
-		/* **Read off the form rather than tracked** — every named control, whatever the reader
-		   touched, handed to `filed` which decides what is worth sending. */
-		const values = {};
-
-		Array.from(form.elements).forEach((one) => {
-			if (one.name) values[one.name] = one.value;
-		});
-
-		onAdd(values);
+		onAdd(readForm(form));
 		form.reset();
 	};
-
-	const types = offered(vocabulary && vocabulary.item_types, "task");
-	const statuses = offered(vocabulary && vocabulary.statuses, "task");
-
-	/*
-		**Every date is a day, and the all-day flag follows from that** rather than being a
-		control of its own. Measured: `due: "2026-08-14"` is stored as the end of that day with
-		`due_is_all_day: true`, and `due: "2026-08-14T15:00"` is stored at 15:00 and not all-day
-		— one field, both meanings, decided by what arrives. `datetime-local` would make every
-		deadline carry a time somebody had to invent; a time of day is what the line is for.
-	*/
-	const day = ([name, label, hint]) => html`
-		<label key=${name}><span>${label}</span>
-			<input type="date" name=${name} disabled=${busy} />
-			<small>${hint}</small></label>
-	`;
-
-	const rank = (name, label) => html`
-		<label><span>${label}</span>
-			<select name=${name} disabled=${busy}>
-				<option value="">—</option>
-				${PRIORITIES.map((one) => html`
-					<option key=${one.value} value=${one.value}>${one.label}</option>
-				`)}
-			</select></label>
-	`;
-
-	const vocabularySelect = (name, label, options) => html`
-		<label><span>${label}</span>
-			<select name=${name} disabled=${busy || options.length === 0}>
-				${options.map((one) => html`
-					<option key=${one.key} value=${one.key} selected=${one.chosen}>
-						${one.label}</option>
-				`)}
-			</select></label>
-	`;
 
 	return html`
 		<form class="adding" onSubmit=${submit}>
@@ -2066,51 +2300,78 @@ export function Adding ({
 				`}
 			</div>
 
-			${expanded && html`
-				<fieldset class="details">
-					<legend>Everything else</legend>
-
-					<label class="wide"><span>Description</span>
-						<textarea name="description" rows="3" disabled=${busy}></textarea></label>
-
-					${/* **The Inbox is named rather than left blank**, because it is where an item
-					     with no project goes — a blank option here would be a control whose
-					     effect the reader has to already know. Which entry is chosen is
-					     `filableFor`, which is pure: *the project defaults from the address* is
-					     a closing condition of `#756`, and a claim nothing could check while it
-					     was an expression buried in this markup. */ null}
-					${vocabularySelect("project", "Project", filableFor(projects, project))}
-
-					${vocabularySelect("type", "Type", types)}
-					${vocabularySelect("status", "Status", statuses)}
-
-					<label><span>Assignee</span>
-						<select name="assignee" disabled=${busy}>
-							<option value="">Nobody</option>
-							${(members || []).map((one) => html`
-								<option key=${one.username} value=${one.username}
-									>${one.label}</option>
-							`)}
-						</select></label>
-
-					${rank("importance", "Importance")}
-					${rank("urgency", "Urgency")}
-
-					<label><span>Estimate</span>
-						<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d" /></label>
-
-					${DATE_FIELDS.map(day)}
-
-					<label class="wide"><span>Tags</span>
-						<input name="tags" disabled=${busy} placeholder="health, admin" /></label>
-				</fieldset>
-			`}
+			${expanded && html`<${Fields} busy=${busy} vocabulary=${vocabulary}
+				projects=${projects} members=${members} project=${project} />`}
 
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
 			     every page would be the column that says the same thing on every row (§12.2a);
 			     the agenda spans them, so there the answer is worth a line (`#652`). */ null}
 			${note && html`<span class="lands">${note}</span>`}
 		</form>
+	`;
+}
+
+export function Editing ({
+	item, busy, onSave, onCancel, vocabulary, projects, members, conflict,
+}) {
+	/*
+		The same form, filled from an item — `#757`.
+
+		**The title is an input here rather than a capture line.** Editing is not capturing:
+		re-running §6.13's grammar over a title somebody is correcting would eat `!4/3` out of
+		it and change two fields nobody touched. `Update` takes `title` and no `text`, which is
+		the API saying the same thing.
+
+		**`conflict` is the item as it now stands**, handed back by a 409 — see `Conflict` below.
+		The form keeps everything typed into it, because discarding somebody's work to tell them
+		their work could not be saved is the worst possible answer.
+	*/
+	const submit = (event) => {
+		event.preventDefault();
+
+		const form = event.currentTarget;
+
+		if (form.elements.title.value.trim() === "" || busy) return;
+
+		onSave(readForm(form));
+	};
+
+	return html`
+		<form class="adding editing" onSubmit=${submit}>
+			<div class="line">
+				<input name="title" required disabled=${busy} aria-label="Title"
+					defaultValue=${item.title} />
+				<button type="submit" disabled=${busy}>Save</button>
+				<button type="button" class="more" onClick=${onCancel}>Cancel</button>
+			</div>
+
+			${conflict && html`<${Conflict} theirs=${conflict} />`}
+
+			<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
+				members=${members} values=${fromItem(item)} />
+		</form>
+	`;
+}
+
+export function Conflict ({ theirs }) {
+	/*
+		What a 409 means, said to a person — `#757`, §8.9.
+
+		**Nothing was written**, which is the first thing to say: the refusal is the whole
+		write, so the item is exactly as it was and nothing has been half-applied. The problem
+		document says so too and this is where a reader will look.
+
+		**Their title, because it is the one field a reader can recognise the item by.** The
+		alternative — diffing every field and reporting what moved — reads as precision and is
+		mostly noise: what somebody needs is *this changed under you, look before you overwrite
+		it*, and then the item itself, which is one click behind the form.
+	*/
+	return html`
+		<div class="conflict" role="alert">
+			<strong>Somebody else saved this while you were editing.</strong>${" "}
+			Nothing you typed has been lost and nothing was written. It now reads
+			“${theirs.title}”. Look at it, fold in your change, and save again.
+		</div>
 	`;
 }
 
@@ -2371,7 +2632,7 @@ export function Doing ({ item, members, onComplete, onAssign, busy }) {
 
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
-	backTo, workspace,
+	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 }) {
 	const body = item.description || item.body;
 
@@ -2392,16 +2653,31 @@ export function Detail ({
 			${backTo
 				? html`<a class="back" href=${backTo} onClick=${back}>← All items</a>`
 				: html`<button class="back" onClick=${back}>← All items</button>`}
-			<h2>#${item.ref} ${item.title}</h2>
-			<${Facts} item=${item} />
+			${/* **Editing replaces the item's own display rather than sitting beside it**
+			     (`#757`). Two copies of a title on one screen, one of them stale, is the shape
+			     this project keeps paying for — and a reader has to be able to see what they
+			     are changing without a second version of it arguing. */ null}
+			${editing
+				? html`<${Editing} item=${item} busy=${busy} onSave=${onSave}
+					onCancel=${() => onEdit(false)} conflict=${conflict}
+					vocabulary=${vocabulary} projects=${projects} members=${members} />`
+				: html`
+					<h2>#${item.ref} ${item.title}</h2>
+					<${Facts} item=${item} />
 
-			${onComplete && html`
-				<${Doing} item=${item} members=${members} onComplete=${onComplete}
-					onAssign=${onAssign} busy=${busy} />
-			`}
+					${onEdit && html`
+						<button class="edit" disabled=${busy}
+							onClick=${() => onEdit(true)}>Edit</button>
+					`}
 
-			${body && html`<${Prose} className="prose" text=${body} where=${where}
-				onOpen=${onOpen} />`}
+					${onComplete && html`
+						<${Doing} item=${item} members=${members} onComplete=${onComplete}
+							onAssign=${onAssign} busy=${busy} />
+					`}
+
+					${body && html`<${Prose} className="prose" text=${body} where=${where}
+						onOpen=${onOpen} />`}
+				`}
 
 			${links.length > 0 && html`
 				<h3>Links</h3>
@@ -2506,6 +2782,11 @@ export function App () {
 		complete and offers the wrong words.
 	*/
 	const [expanded, setExpanded] = useState(false);
+	/* Whether the open item is being edited, and the version somebody else saved underneath it
+	   (`#757`). `conflict` holds *their* item rather than a flag, because the only useful thing
+	   to say about a 409 is what the item says now. */
+	const [editing, setEditing] = useState(false);
+	const [conflict, setConflict] = useState(null);
 	const [vocabulary, setVocabulary] = useState(null);
 	const [filable, setFilable] = useState([]);
 	/*
@@ -3097,6 +3378,44 @@ export function App () {
 		}
 	}, [agenda, load, me, project, readAgenda, workspace]);
 
+	const save = useCallback(async (values) => {
+		/*
+			**A 409 is an ordinary answer here, not a failure** (§8.9, `#757`). Somebody else
+			saved while this form was open; nothing was written, and the reader's typing is
+			still in the DOM where they left it.
+
+			So it is caught apart from every other refusal: `wrote` would report it as *"was not
+			changed"* beside a closed form, which is true and useless. What a person needs is
+			that the item moved, what it says now, and their own words still in front of them.
+		*/
+		if (!open) return;
+
+		setBusy(true);
+		setConflict(null);
+
+		try {
+			const saved = await sent(updateRequest(values, open.item, workspace));
+
+			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
+			setEditing(false);
+			await show(saved, { history: false });
+		} catch (failure) {
+			/* **The current item travels on the 409**, attached by `concurrency.reporting()`
+			   precisely so a client can say what changed rather than only that something did. */
+			const theirs = conflictIn(failure);
+
+			if (theirs) {
+				setConflict(theirs);
+
+				return;
+			}
+
+			setNote({ text: `#${open.item.ref} was not saved. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [open, show, workspace]);
+
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
 		   rather than the page number, because keyset pagination is what the API offers and
@@ -3285,6 +3604,9 @@ export function App () {
 
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
+					editing=${editing} conflict=${conflict} onSave=${save}
+					vocabulary=${vocabulary} projects=${filable}
+					onEdit=${(wanted) => { setEditing(wanted); setConflict(null); }}
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					backTo=${withShowing(behind, showing)} workspace=${workspace}
 					onComplete=${complete} onAssign=${assign} />`

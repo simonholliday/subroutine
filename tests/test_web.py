@@ -186,6 +186,33 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
 	"Adding": {"busy": False},
+	# **The shared field block** (`SR#757`), rendered with everything it can draw so that a
+	# malformed template in any one control fails here rather than in front of a reader.
+	"Fields": {
+		"busy": False,
+		"values": {"description": "why", "importance": "4", "due": "2026-09-01", "tags": "a, b"},
+		"projects": [{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0}],
+		"members": [{"username": "si", "label": "si"}],
+		"vocabulary": {
+			"item_types": {"task": [{"key": "task", "label": "Task", "is_default": True}]},
+			"statuses": {"task": [{"key": "open", "label": "Open", "is_default": True}]},
+		},
+	},
+	"Editing": {
+		"busy": False,
+		"item": {
+			"ref": 42, "title": "A task", "version": 3, "timezone": "Etc/UTC",
+			"description": "why", "status": "open", "type": "task", "tags": ["a"],
+			"due_at": "2026-09-01T23:59:59.999999Z",
+		},
+		"members": [{"username": "si", "label": "si"}],
+		"projects": [{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0}],
+		"vocabulary": {
+			"item_types": {"task": [{"key": "task", "label": "Task", "is_default": True}]},
+			"statuses": {"task": [{"key": "open", "label": "Open", "is_default": True}]},
+		},
+	},
+	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
 	"Doing": {
 		"item": {
 			"ref": 42,
@@ -1454,6 +1481,10 @@ def test_the_capture_box_is_the_same_box_whether_the_form_is_open_or_not (
 	assert "<fieldset" not in shut, "the form's fields are showing before anybody asked for them"
 	assert "<fieldset" in open_, "asking for the fields did not produce any"
 
+	# **Both states render the same single required control.** `Adding` and `Editing` share
+	# `Fields` since `SR#757`, so the count below is over `Adding` alone and the title input
+	# that `Editing` requires is deliberately outside it.
+
 	# **Nothing in the disclosure is required.** `required` on a disclosed field would make the
 	# form refuse to submit for a reason the reader cannot see while it is shut.
 	#
@@ -1463,7 +1494,7 @@ def test_the_capture_box_is_the_same_box_whether_the_form_is_open_or_not (
 	# empties strings takes the thing being counted with it. Measured, after writing the wrong
 	# one first — it reported zero, which reads exactly like the box losing its `required`.
 	source = _without_comments(_served_modules()["app.js"])
-	form = source[source.index("export function Adding ("):source.index("export function Listing")]
+	form = source[source.index("export function Adding ("):source.index("export function Editing (")]
 
 	assert form.count("required") == 1, (
 		"something other than the capture line is required, so the one-line path can be blocked "
@@ -1532,6 +1563,188 @@ def test_a_line_and_a_form_are_one_submission (tmp_path: pathlib.Path) -> None:
 	# a list of tags. The sigil belongs to the capture line; typing it here should not make a tag
 	# called `#health`.
 	assert body["tags"] == ["health", "admin"], f"tags parsed as {body['tags']}"
+
+
+def test_an_edit_clears_what_a_creation_would_omit (tmp_path: pathlib.Path) -> None:
+	"""`SR#757`, and it is the **opposite** rule from `SR#756`'s.
+
+	Creating omits an empty control, because `POST /v1/tasks` refuses an empty string by name.
+	Editing must send **`null`**, because §8.3 says a field left out is *unchanged* and only an
+	explicit null clears it.
+
+	**Reusing `filed` here would make clearing a deadline impossible**: blank the box, the field
+	is omitted, the deadline stays, and the form reports success. A silent no-op is the worst of
+	the three failures available — worse than a refusal, which a person can act on, and worse
+	than a wrong value, which they can see.
+
+	The measurement behind it, on the served instance: `{"due": null}` clears the deadline,
+	`{"tags": []}` clears the tags, and every other clearable field takes null the same way.
+	"""
+
+	item = {"ref": 42, "version": 7, "title": "Was", "timezone": "Etc/UTC"}
+
+	[body] = _views(tmp_path, [("edited", {"item": item, "values": {
+		"title": "Now", "status": "open", "type": "task", "project": "web",
+		"description": "", "assignee": "", "importance": "", "urgency": "", "estimate": "",
+		"start": "", "planned_for": "", "due": "", "tags": "",
+	}})])
+
+	assert body["due"] is None and body["planned_for"] is None and body["start"] is None, (
+		"a blanked date was omitted rather than cleared, so clearing one does nothing"
+	)
+	assert body["description"] is None and body["assignee"] is None
+	assert body["importance"] is None and body["urgency"] is None and body["estimate"] is None
+	assert body["tags"] == []
+
+	# **The four a task must have are never nulled.** Every control that carries one always
+	# holds a value, and `null` would mean *clear it* to a route that cannot.
+	assert body["title"] == "Now" and body["status"] == "open"
+	assert body["type"] == "task" and body["project"] == "web"
+
+	# **§8.9, and the whole reason this item is `!4/4`.** `expected_version` is opt-in and
+	# `None` means *did not ask* rather than *asked and passed* — so a form omitting it wins
+	# silently over whatever somebody saved while it was open.
+	assert body["expected_version"] == 7, (
+		"the edit did not say which version it was based on, so it will overwrite a save it "
+		"never saw"
+	)
+
+
+def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path) -> None:
+	"""`SR#757`. An edit form that starts empty is a delete with extra steps.
+
+	**Every date goes through the item's own timezone** (`SR#773`). An all-day deadline is
+	stored at the last instant of its day in the task's zone, so reading it any other way puts
+	the day *after* the deadline into the box — and then saving moves it. That is a display bug
+	becoming data loss the moment a form is filled from the same value, which is why `SR#773`
+	was fixed before this was built rather than after.
+	"""
+
+	[held] = _views(tmp_path, [("fromItem", {"item": {
+		"ref": 42, "version": 3, "title": "A task", "description": "why",
+		"project_key": "web", "type": "bug", "status": "open", "assignee": "si",
+		"importance": 4, "urgency": 3, "estimate_human": "90m",
+		# Stored in Los Angeles, so the task's day and the UTC day are different numbers.
+		"timezone": "America/Los_Angeles",
+		"due_at": "2126-08-16T06:59:59.999999Z",
+		"start_at": "2126-08-10T07:00:00Z",
+		"planned_for": "2126-08-12",
+		"tags": ["health", "admin"],
+	}})])
+
+	assert held["due"] == "2126-08-15", (
+		f"the form opened on {held['due']}, which is not the day the deadline is on"
+	)
+	assert held["start"] == "2126-08-10"
+	assert held["planned_for"] == "2126-08-12", "a calendar date was parsed and moved"
+
+	# **Everything as the string a control holds**, because that is what comes back out of one.
+	assert held["importance"] == "4" and held["urgency"] == "3"
+	assert held["tags"] == "health, admin"
+	assert held["estimate"] == "90m"
+	assert held["project"] == "web" and held["assignee"] == "si"
+
+	# **A field nobody set opens empty rather than absent**, so the control renders and the
+	# reader can fill it in — the opposite of §12.2c's display rule, and deliberately so.
+	[bare] = _views(tmp_path, [("fromItem", {"item": {"ref": 1, "version": 1, "title": "x"}})])
+
+	assert set(bare.values()) == {""}, f"an unset field opened holding {bare}"
+
+
+def test_an_open_item_offers_an_edit_and_becomes_one (tmp_path: pathlib.Path) -> None:
+	"""`SR#757`. The rules being right is worth nothing if the page never reaches them.
+
+	A mutation making `Detail` never render the form passed everything else, because every
+	other test of this arc checks a pure function. That is the fault this app keeps shipping —
+	the rule right, the display right, and no wire between them — and it is why `SR#640` says
+	to lift decisions out *and* drive the component that uses them.
+
+	**The form replaces the item's display rather than sitting beside it.** Two copies of a
+	title on one screen, one of them stale, is the shape this project keeps paying for; and a
+	reader has to be able to see what they are changing without a second version arguing with
+	it.
+	"""
+
+	item = {
+		"ref": 42, "title": "A task", "version": 3, "timezone": "Etc/UTC",
+		"description": "why", "status": "open", "type": "task", "tags": [],
+	}
+	shared = {"item": item, "links": [], "comments": [], "workspace": "projects",
+		"members": [{"username": "si", "label": "si"}]}
+
+	reading = _rendered(tmp_path, {"Detail": {**shared, "editing": False}})["Detail"]
+	writing = _rendered(tmp_path, {"Detail": {**shared, "editing": True}})["Detail"]
+
+	assert "Edit" in reading, "an open item offers no way to change it"
+	assert "<fieldset" not in reading, "the form is showing before anybody asked for it"
+
+	assert "<fieldset" in writing, "asking to edit produced no form"
+	assert "<h2>" not in writing, (
+		"the item's own title is still on screen beside the one being edited, so a reader has "
+		"two versions of it and one of them is stale"
+	)
+
+	# **A conflict is shown inside the form**, where the reader's typing still is — not in place
+	# of it. `SR#102`: the whole of it is in words, so nothing depends on the border colour.
+	clashed = _rendered(tmp_path, {"Detail": {
+		**shared, "editing": True, "conflict": {"ref": 42, "title": "What it says now"},
+	}})["Detail"]
+
+	assert "<fieldset" in clashed, "a conflict discarded the form somebody was typing into"
+	assert "What it says now" in clashed and "Somebody else saved this" in clashed
+
+
+def test_a_save_somebody_else_beat_is_news_rather_than_a_failure (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#757`, §8.9, and the reason `expected_version` is worth sending at all.
+
+	Sending it turns *last write wins* into a refusal, and a refusal is only an improvement if
+	the person on the other end of it is told something they can act on. The 409 carries the
+	current entity — `concurrency.reporting()` attaches it deliberately — and the browser
+	discarded it: `api` parsed the problem document, kept `detail` and threw the rest away, one
+	line before anybody could read it.
+
+	**A 409 with nothing attached is not a conflict to show.** An older instance, or a proxy
+	that rewrote the body, would otherwise put a warning on screen naming nothing — which reads
+	as a bug in the page rather than as news about the item. That is the half that would have
+	been forgotten, and it is why this is a function rather than an `if`.
+	"""
+
+	theirs = {"ref": 42, "title": "What it says now", "version": 8}
+
+	conflict, bare, refused, none = _views(tmp_path, [
+		("conflictIn", {"failure": {"status": 409, "body": {"current": theirs}}}),
+		("conflictIn", {"failure": {"status": 409, "body": {"detail": "Version conflict"}}}),
+		("conflictIn", {"failure": {"status": 422, "body": {"current": theirs}}}),
+		("conflictIn", {"failure": None}),
+	])
+
+	assert conflict == theirs
+	assert bare is None, "a 409 carrying nothing was shown as a conflict naming nothing"
+	assert refused is None, "an ordinary refusal was mistaken for a version conflict"
+	assert none is None
+
+	# **The two steps composed, which is the half a synthetic failure cannot check.** A mutation
+	# putting `api` back to discarding the body passed everything above, because the only test
+	# of the reader had built its own input — the rule right, the display right, and no wire
+	# between them, for the fourth time in this arc.
+	#
+	# The document below is the shape the served instance actually answered with, copied from a
+	# real 409 rather than invented.
+	[whole] = _views(tmp_path, [("refused", {"status": 409, "problem": {
+		"code": "version_conflict",
+		"detail": "#6 has changed since you read it: you have version 1, and it is now at 2.",
+		"expected_version": 1, "current_version": 2, "current": theirs,
+	}})])
+
+	assert whole["status"] == 409
+	assert "has changed since you read it" in whole["message"], (
+		"the instance's own words did not reach the reader"
+	)
+	assert whole["conflict"] == theirs, (
+		"a real refusal does not carry the item, so the conflict message would name nothing"
+	)
 
 
 def test_a_dropdown_is_built_from_the_workspace_and_not_from_a_list (
@@ -1797,7 +2010,9 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	"""
 
 	app = _served_modules()["app.js"]
-	form = app[app.index("export function Adding ("):app.index("export function Listing")]
+	# `Fields` is where every control beyond the naming one is drawn, and `Adding`/`Editing`
+	# are where the naming one is — so the slice spans all three (`SR#757`).
+	form = app[app.index("export function Fields ("):app.index("export function Conflict (")]
 
 	drawn = set(re.findall(r'name="(\w+)"', form)) | set(re.findall(r"name=\$\{(\w+)\}", form))
 	# `name=${name}` is a control built by one of the small helpers, so what it draws is whatever
@@ -1822,7 +2037,12 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	assert found and numbers, "the field lists are gone, so this is checking nothing"
 
-	read = set(re.findall(r'"([^"]+)"', found.group(1) + numbers.group(1))) | {"text", "tags"}
+	always = re.search(r"export const NEVER_CLEARED = \[(.*?)\];", app, re.S)
+
+	assert always is not None, "NEVER_CLEARED is gone, so `title` is not being counted"
+
+	read = set(re.findall(r'"([^"]+)"', found.group(1) + numbers.group(1) + always.group(1)))
+	read |= {"text", "tags"}
 
 	assert drawn, "the form draws no named control at all, so this is checking nothing"
 	assert drawn == read, (
@@ -2819,6 +3039,11 @@ class Instance(typing.NamedTuple):
 	slug: str
 	project: str
 	task: int
+	#: A second task that nothing else in `_calls` writes to, so its version is knowable — an
+	#: edit sends `expected_version` (§8.9) and a stale one is a 409, which the driving guard
+	#: reads as a failure. `task` is patched three times over by assign, unassign and restore.
+	spare: int
+	spare_version: int
 	document: int
 	username: str
 	status: str
@@ -2897,6 +3122,8 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		slug=slug,
 		project="web",
 		task=refs[0]["ref"],
+		spare=refs[1]["ref"],
+		spare_version=refs[1]["version"],
 		document=document.json()["ref"],
 		username=setup.user.username,
 		status=refs[0]["status"],
@@ -3063,6 +3290,26 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"importance": "", "urgency": "", "estimate": "",
 			"start": "", "planned_for": "", "due": "", "tags": "",
 		}, place.slug]),
+		# **An edit, sending `expected_version`** (`SR#757`, §8.9). Against a task nothing else
+		# here writes to, because a stale version is a 409 and this guard reads any 4xx as the
+		# page a reader would have got.
+		("updateRequest", [{
+			"title": "Edited through the form",
+			"description": "changed", "project": place.project, "type": "bug",
+			"status": place.status, "assignee": place.username,
+			"importance": "4", "urgency": "3", "estimate": "90m",
+			"start": "2026-08-12", "planned_for": "2026-08-13", "due": "2026-08-14",
+			"tags": "health",
+		}, {"ref": place.spare, "version": place.spare_version}, place.slug]),
+		# **Every clearable control blanked**, which is the half `filed`'s rule would break: an
+		# edit must send `null` where creating omits, or clearing a deadline is a silent no-op.
+		("updateRequest", [{
+			"title": "Cleared through the form",
+			"description": "", "project": place.project, "type": "task",
+			"status": place.status, "assignee": "",
+			"importance": "", "urgency": "", "estimate": "",
+			"start": "", "planned_for": "", "due": "", "tags": "",
+		}, {"ref": place.spare, "version": place.spare_version + 1}, place.slug]),
 		# **No arguments, and that is the thing being checked** (`SR#652`): the agenda asks
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
@@ -3106,7 +3353,8 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 	declared = _builders(_served_modules()["app.js"])
 	place = Instance(
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
-		task=1, document=2, username="si", status="open", cursor="c", since=1,
+		task=1, spare=3, spare_version=1, document=2, username="si", status="open",
+		cursor="c", since=1,
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 
@@ -3888,6 +4136,14 @@ def _views (
 			: name === "filed" ? app.filed(argument.values, argument.slug)
 			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
 			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
+			: name === "edited" ? app.edited(argument.values, argument.item)
+			: name === "fromItem" ? app.fromItem(argument.item)
+			: name === "conflictIn" ? app.conflictIn(argument.failure)
+			: name === "refused" ? (() => {{
+				const made = app.refusal(argument.status, argument.problem);
+				return {{ message: made.message, status: made.status,
+					conflict: app.conflictIn(made) }};
+			}})()
 			: name === "people" ? app.people(argument.roster)
 			: app.columns(argument))));
 	"""))

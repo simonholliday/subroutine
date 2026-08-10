@@ -204,6 +204,33 @@ code, .ref, .priority, .broke .detail {
 
 .adding .details .wide { grid-column: 1 / -1; }
 
+/* Editing an item is the same form with the title in place of the capture line — `SR#757`. */
+.adding.editing { margin: 0 0 14px; }
+
+.edit {
+	margin-bottom: 12px;
+	padding: 6px 12px;
+	background: transparent;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font: inherit;
+	cursor: pointer;
+}
+
+.edit:hover { color: var(--ink); border-color: var(--ink-soft); }
+.edit:disabled { opacity: 0.5; cursor: default; }
+
+/* **A 409 is news, not a failure** — nothing was written and nothing typed was lost, so this
+   is marked the way an exception is marked and says the whole of it in words (`SR#102`). */
+.conflict {
+	margin: 12px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--warn);
+	border-radius: var(--radius);
+	line-height: 1.5;
+}
+
 /*
 	What just happened. **The tone is a colour and says nothing on its own** (`#102`): the
 	sentence carries the outcome, so the border is a way to spot it rather than to read it.

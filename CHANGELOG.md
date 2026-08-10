@@ -34,6 +34,15 @@ upgrade involves.
 
   A start day now shows on an item too. It could be set from a terminal and read back nowhere.
 
+- **An item can be edited in the browser.** *Edit* on an open item opens the same form the add
+  box discloses, filled in with what the item already says, and every field can be changed or
+  emptied. Blanking a deadline clears it, rather than quietly leaving it alone.
+
+  **If somebody else saved while you were editing, nothing is overwritten.** The save is
+  refused, your typing stays exactly where it is, and you are told what the item says now —
+  so you can fold your change into theirs rather than losing one of them. That applies to an
+  agent working on the same item as much as to another person.
+
 - **`subr` is the same program under a shorter name.** Ten characters against sixteen, on
   something you type dozens of times a day: `subr today`, `subr add "…"`, `subr done 42`.
   Every command answers to both, and `--help` says so.
