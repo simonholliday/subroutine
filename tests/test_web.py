@@ -3277,16 +3277,25 @@ def _views (
 			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
+			: name === "moment" ? app.moment(argument.value, argument.now)
+			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: app.columns(argument))));
 	"""))
 
 
-def test_the_default_view_is_the_absence_of_the_parameter (tmp_path: pathlib.Path) -> None:
-	"""`SR#651`. What lets the default become per-workspace, and later per-user, later.
+def test_a_bare_address_still_reads_as_the_default_view (tmp_path: pathlib.Path) -> None:
+	"""`SR#745`. The half that has to survive a control writing the arrangement out.
 
-	An address that spelled out today's default would freeze it: every link anybody saved would
-	carry `?view=list` and go on carrying it after the default moved.
+	**This test used to assert the opposite** — that the default is the absence of the parameter,
+	so it could become per-workspace or per-user without invalidating a saved link (`SR#651`).
+	Simon's call on 2026-08-10 narrowed that: a control writes `?view=list`, because `SR#649` says
+	the address states what is showing *so what you send somebody is what you were looking at*, and
+	an address omitting the arrangement hands its reader their own default instead of the sender's
+	page.
+
+	What did not change, and what this now guards, is that **`/projects` typed by hand is still the
+	list**. The fallback is what makes an address a person can shorten work at all.
 	"""
 
 	plain, empty, board = _views(tmp_path, [
@@ -3301,7 +3310,9 @@ def test_the_default_view_is_the_absence_of_the_parameter (tmp_path: pathlib.Pat
 		("withShowing", {"path": "/projects", "showing": {"view": "list", "selection": {}}}),
 	])
 
-	assert written == "/projects", "the default must not be written into an address"
+	assert written == "/projects?view=list", (
+		"a control must write the arrangement it chose, including the default"
+	)
 
 
 def test_a_view_nobody_has_is_named_rather_than_blanking_the_page (
@@ -3332,12 +3343,13 @@ def test_the_arrangement_survives_being_written_into_an_address (
 
 	board = {"view": "board", "selection": {}}
 
-	kept, item, chosen = _views(tmp_path, [
+	kept, item, chosen, nothing = _views(tmp_path, [
 		("withShowing", {"path": "/projects", "showing": board}),
 		("withShowing", {"path": "/projects/subroutine/42", "showing": board}),
 		("withShowing", {"path": "/projects", "showing": {
 			"view": "list", "selection": {"status_category": "done"},
 		}}),
+		("withShowing", {"path": "/projects", "showing": {"view": None, "selection": {}}}),
 	])
 
 	assert kept == "/projects?view=board"
@@ -3346,7 +3358,11 @@ def test_the_arrangement_survives_being_written_into_an_address (
 	# **A selection is written out even under the default arrangement** (`SR#738`), because
 	# there is no default to fall back to: the absence of one *is* the ordinary selection, so an
 	# address that dropped it would show a different set of rows than the one it came from.
-	assert chosen == "/projects?status_category=done"
+	assert chosen == "/projects?view=list&status_category=done"
+
+	# **An address with no arrangement to write is left alone**, which is what keeps a bare
+	# `/projects` expressible at all — `listingAddress` builds one before a view is known.
+	assert nothing == "/projects"
 
 
 def test_a_selection_nobody_can_send_is_refused_by_name_and_by_value (
@@ -3461,9 +3477,9 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 	])
 
 	assert [chip["href"] for chip in plain] == [
-		"/projects",
+		"/projects?view=list",
 		"/projects?view=board&include_completed=true",
-		"/projects?status_category=done&order=-completed_at",
+		"/projects?view=list&status_category=done&order=-completed_at",
 	]
 
 	assert [chip["name"] for chip in plain if chip["chosen"]] == ["list"]
@@ -3473,9 +3489,13 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 		"a board narrowed to finished work is on the done control, not on the board one"
 	)
 
+	# **The done control shows a list whatever is showing** (`SR#745`). It used to keep the
+	# arrangement; driving it gave a board with one populated column and three empty ones, and
+	# the reason is that its `order=-completed_at` means nothing on a board — columns discard
+	# the sequence rows arrived in.
 	assert [chip["href"] for chip in finished][2] \
-		== "/projects?view=board&status_category=done&order=-completed_at", (
-			"the done control must keep the arrangement, or switching to it silently rearranges"
+		== "/projects?view=list&status_category=done&order=-completed_at", (
+			"the done control must show a list, since the order it asks for needs one"
 		)
 
 
@@ -3500,6 +3520,164 @@ def test_every_arrangement_this_app_has_can_be_reached_from_a_control (
 	assert set(_view_names()) <= named, (
 		f"an arrangement this app has is not on any control: {set(_view_names()) - named}"
 	)
+
+
+def test_a_board_never_hides_a_row_it_is_holding (tmp_path: pathlib.Path) -> None:
+	"""`SR#744`. Found by Simon on the first board he opened, and it was mine.
+
+	At `?view=board&status_category=done&order=-completed_at` every column read *Nothing* or
+	*Not shown* while the footer beneath them read **"Showing 100. There are more."** A hundred
+	rows had been fetched, were held in the component, and were rendered by nothing.
+
+	Two mistakes in one expression. It keyed on `include_completed` alone, when
+	`status_category=done` is the *other* way of asking for finished work — and it won over the
+	row branch entirely, so having rows could not save the column.
+
+	**The row count is the first term now**, and that ordering is the whole fix: `excluded` is a
+	model of what the instance did and can be wrong, where the rows are a fact. Being wrong about
+	an empty column costs a word; being wrong about a full one costs the page.
+	"""
+
+	done = {"ref": 1, "kind": "task", "title": "Finished", "status_category": "done",
+		"completed_at": _from_now(hours=-2)}
+
+	narrowed = _rendered(tmp_path, {"Board": {
+		"items": [done], "workspace": "projects",
+		"selection": {"status_category": "done", "order": "-completed_at"},
+	}})["Board"]
+
+	assert "Finished" in narrowed, (
+		f"a board holding a row rendered none of it: {narrowed}"
+	)
+
+	# **The Done column holds the row and the three the selection excluded say so.** Asserting
+	# "Not shown" is simply absent would be wrong and would pass for the wrong reason: the other
+	# three columns are genuinely not asked for and saying so is this whole feature.
+	held = narrowed.split("Done")[1]
+
+	assert "Not shown" not in held.split("Cancelled")[0], (
+		f"the column holding the rows said it was not shown: {narrowed}"
+	)
+
+	assert narrowed.count("Not shown") == 3, (
+		f"the three categories this selection excluded should each say so, and only those: "
+		f"{narrowed}"
+	)
+
+	# **The rows and the model disagreeing is the case the ordering is actually for**, and
+	# falsifying showed it is the only one that reaches it: with `excluded` correct, dropping
+	# the row-count term is invisible to the case above, because a done selection does not
+	# exclude the done column. So this is a board holding finished work under a selection that
+	# says finished work was not asked for — which is what a changed API default, or a caller
+	# passing one selection while another was fetched, looks like from here.
+	#
+	# `excluded` is a model of what the instance did. The rows are a fact. The fact wins.
+	contradicted = _rendered(tmp_path, {"Board": {
+		"items": [done], "workspace": "projects", "selection": {},
+	}})["Board"]
+
+	assert "Finished" in contradicted, (
+		f"a board threw away a row it was holding because its own model of the selection said "
+		f"the row should not exist: {contradicted}"
+	)
+
+
+def test_a_board_says_which_columns_a_selection_left_out (tmp_path: pathlib.Path) -> None:
+	"""`SR#744`. Three ways a column can be absent, and they are one question.
+
+	**The cancelled column has been lying since the board shipped**, which is `SR#718`'s defect
+	in the column beside the one `SR#718` was about. Measured on the served instance: a plain
+	listing of this project answers `{'todo': 143}` — no `done` and **no `cancelled`** — so the
+	default excludes both finished categories rather than only the completed one, and a board
+	without `include_completed` was reporting *Cancelled: Nothing* about work it never asked for.
+	"""
+
+	open_row = {"ref": 1, "kind": "task", "title": "Open", "status_category": "todo"}
+
+	plain, everything = (
+		_rendered(tmp_path, {"Board": {
+			"items": [open_row], "workspace": "projects", "selection": selection,
+		}})["Board"]
+		for selection in ({}, {"include_completed": "true"})
+	)
+
+	assert plain.count("Not shown") == 2, (
+		f"a board that did not ask for finished work must say so for *both* finished "
+		f"categories, not only for done: {plain}"
+	)
+
+	assert "Not shown" not in everything, (
+		f"a board that asked for everything still claimed a column was withheld: {everything}"
+	)
+
+	assert "Nothing" in everything, (
+		"a column that really is empty must still say so — the categories are the structure"
+	)
+
+
+def test_a_row_says_the_time_it_finished_and_names_today_and_yesterday (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#746`, Simon's, from driving `SR#729`.
+
+	> *Everything above the fold shows "done 9 Aug 2026" so the ordering is not apparent until I
+	> scroll down to see "done 8 Aug 2026".*
+
+	A page sorted on `completed_at` showed it as a day, so the order it claimed could not be
+	checked — `SR#661`'s complaint from the other side.
+
+	**`now` is passed in.** A fixture holding a fixed instant against the wall clock is a test
+	that passes in the morning and fails in the evening, which this repository shipped and pushed
+	on 2026-08-09 (`SR#737`).
+
+	**Compared as local midnights**, so a clock change cannot turn yesterday into two days ago.
+	"""
+
+	now = datetime.datetime(2026, 8, 10, 9, 30, tzinfo=datetime.UTC)
+	stamp = int(now.timestamp() * 1000)
+
+	def at (hours: float) -> str:
+		return (now + datetime.timedelta(hours=hours)).isoformat()
+
+	today, yesterday, older = _views(tmp_path, [
+		("moment", {"value": at(-2), "now": stamp}),
+		("moment", {"value": at(-14), "now": stamp}),
+		("moment", {"value": at(-72), "now": stamp}),
+	])
+
+	assert today.startswith("today "), f"a completion hours old was not today: {today!r}"
+	assert yesterday.startswith("yesterday "), f"the day before was not yesterday: {yesterday!r}"
+
+	assert not older.startswith(("today", "yesterday")), (
+		f"three days ago was named rather than dated: {older!r}"
+	)
+
+	for said in (today, yesterday, older):
+		assert re.search(r"\d{1,2}[:.]\d{2}", said), (
+			f"a finished stamp carried no time, so the order it is sorted on cannot be read: "
+			f"{said!r}"
+		)
+
+
+def test_a_deadline_stays_a_day (tmp_path: pathlib.Path) -> None:
+	"""`SR#746`'s other half, which is what stops the fix being "put a time on everything".
+
+	A deadline and a planned day are dates **somebody chose**. A time on one would be precision
+	the writer never supplied — 23:59 on a day meaning *that day*. Only the finished stamp is an
+	instant the program recorded.
+	"""
+
+	due = {"ref": 1, "kind": "task", "title": "Due", "due_at": _from_now(hours=48)}
+	planned = {"ref": 2, "kind": "task", "title": "Planned", "planned_for": _from_now(hours=48)}
+
+	for sample in (due, planned):
+		rendered = _rendered(
+			tmp_path, {"Row": {"item": sample, "workspace": "projects"}}
+		)["Row"]
+
+		assert not re.search(r"\d{1,2}:\d{2}", rendered), (
+			f"a date somebody chose was rendered with a time on it: {rendered}"
+		)
 
 
 def test_only_a_change_of_selection_asks_the_instance_again (
@@ -3983,9 +4161,9 @@ def test_each_view_can_be_opened_in_its_own_tab (tmp_path: pathlib.Path) -> None
 	driven = _driven(tmp_path, pathname="/projects")
 
 	wanted = (
-		"/projects",
+		"/projects?view=list",
 		"/projects?view=board&include_completed=true",
-		"/projects?status_category=done&order=-completed_at",
+		"/projects?view=list&status_category=done&order=-completed_at",
 	)
 
 	for address in wanted:

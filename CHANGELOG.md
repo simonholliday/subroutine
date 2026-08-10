@@ -32,9 +32,13 @@ upgrade involves.
 
   The board shows finished work — a list hides it, because a list answers *what do I have to
   do*, and a board answers *where is everything*. Like the list, it says when there is more
-  than fits on a page rather than leaving a column looking complete. Ask for a board **without**
-  finished work and the *Done* column says it is not being shown, and offers to show it, rather
-  than reporting that there is none.
+  than fits on a page rather than leaving a column looking complete.
+
+  **A column says when it was not asked for**, rather than reporting that there is nothing in
+  it. Ask for a board without finished work and *Done* and *Cancelled* say so and offer to show
+  it; narrow one to a single category and the others say so too. An empty column and a column
+  nobody asked about are different facts, and a board is exactly where somebody looks to
+  conclude nothing is left.
 
   **Cards cannot be dragged yet.** Moving one has nowhere to be recorded, so a card would not
   stay where you put it; that is coming separately.
@@ -75,8 +79,12 @@ upgrade involves.
   It is what you look at to see progress rather than to plan: everything finished or cancelled,
   newest finish at the top, narrowed to a project if the address names one. Every row says
   **when** it finished rather than when it was due — a deadline on completed work is a date that
-  stopped mattering, and it is the field the page is sorted on, so the order is something you
-  can check rather than take on trust. A cancelled row says *cancelled*.
+  stopped mattering. A cancelled row says *cancelled*.
+
+  **With the time, and today and yesterday by name** — *done yesterday 21:56*. It is the field
+  the page is sorted on, so a day alone left a screenful of rows all reading the same date and
+  an order you had to take on trust. A deadline stays a day, because that is a date somebody
+  chose rather than a moment anything recorded.
 
   **It holds tasks only**, because only a task can be finished: a document's states are draft,
   current, superseded and archived, and none of them means *done*.
@@ -98,6 +106,10 @@ upgrade involves.
 
   A word this page does not know is ignored and named rather than replacing your page with a
   failure, which is what already happened for an arrangement it does not have.
+
+  **Every control writes what it chose, including the default.** The address is what you send
+  somebody, so it says which arrangement you were looking at rather than leaving them their own.
+  A bare address still works: `/projects` typed by hand is the list.
 
 - **Agents are now told to claim work, say when they start it, and give it back.** Three acts
   around the job: take the task before touching anything, move it to *in progress* when you

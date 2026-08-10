@@ -688,10 +688,18 @@ export function withShowing (path, showing) {
 		Four places wrote an address before `#651` and every one of them dropped the query, so
 		`/projects?view=board` became `/projects` the moment anything was opened.
 
-		**The default arrangement is written as an absence**, so an ordinary address stays
-		ordinary and nothing has to be stripped back out later. **A selection is always written
-		out**, because there is no default to fall back to and the absence of one *is* the
-		ordinary selection.
+		**The arrangement is always written, including the default** (`#745`, Simon's). This
+		narrows a rule `#651` recorded — *the default is the absence of the parameter, so it can
+		become per-workspace and later per-user without invalidating an address anybody wrote
+		down* — and the narrowing is the point: `#649` says **the address states each of them, so
+		what you send somebody is what you were looking at**. An address omitting the arrangement
+		hands its reader *their* default rather than the sender's page.
+
+		A bare address still works and must: `viewOf` falls back exactly as before, so `/projects`
+		typed by hand is the list. What changed is only what a *control* writes.
+
+		**A selection is written out for the same reason**, and always was — there is no default
+		to fall back to, and the absence of one *is* the ordinary selection.
 
 		**Emitted in `SELECTABLE` order rather than the order they were set**, so the same
 		screen always produces the same string — `go` compares the address it wants against the
@@ -700,7 +708,7 @@ export function withShowing (path, showing) {
 	const view = showing && showing.view;
 	const selection = (showing && showing.selection) || {};
 
-	const parts = (view && view !== DEFAULT_VIEW ? [`view=${encodeURIComponent(view)}`] : [])
+	const parts = (view ? [`view=${encodeURIComponent(view)}`] : [])
 		.concat(Object.keys(SELECTABLE)
 			.filter((name) => selection[name] !== undefined && selection[name] !== null)
 			.map((name) => `${name}=${encodeURIComponent(selection[name])}`));
@@ -741,8 +749,13 @@ export function chips (behind, showing) {
 
 		**Two of them are arrangements and one is a selection, which is the whole of `#738`.**
 		They look alike deliberately: the taxonomy belongs in the address, not in the furniture.
-		*done* keeps whichever arrangement is showing, so a board of finished work is reachable
-		and is exactly what its address says it is.
+
+		**`done` shows a list, and it used to keep whichever arrangement was showing** — which I
+		argued for and which driving refuted at once: *board* then *done* gave a board with one
+		populated column and three empty ones. The principled statement, which is worth more than
+		"it looked wrong": the finished selection carries `order=-completed_at`, and **an order
+		means nothing on a board**, because a board groups rows into columns and discards the
+		sequence they arrived in. A selection carrying an order belongs in a list.
 
 		**Chosen is computed, never remembered.** An address no control produces —
 		`?status_category=in_progress`, say — highlights nothing, which is true rather than
@@ -753,7 +766,7 @@ export function chips (behind, showing) {
 	return [
 		{ name: "list", showing: { view: "list", selection: {} } },
 		{ name: "board", showing: { view: "board", selection: EVERYTHING } },
-		{ name: "done", showing: { view: showing.view, selection: ONLY_FINISHED } },
+		{ name: "done", showing: { view: DEFAULT_VIEW, selection: ONLY_FINISHED } },
 	].map((chip) => ({
 		name: chip.name,
 		href: withShowing(behind, chip.showing),
@@ -925,6 +938,36 @@ export function overdue (item) {
 */
 const FINISHED = new Set(["done", "cancelled"]);
 
+export function excluded (key, selection) {
+	/*
+		Whether a selection left this status category out — `#744`.
+
+		**Three ways a column can be absent and they are one question**: *did this selection ask
+		for this category?* Keying on any one of them is what shipped a board whose *Done* column
+		reported *Not shown* while holding a hundred rows, and a *Cancelled* column that has
+		always said *Nothing* on a board nobody asked for finished work on.
+
+		| Selection | Excluded |
+		| --- | --- |
+		| `status_category=X` | every category but `X` |
+		| no `include_completed` | `done` and `cancelled` |
+		| `include_completed=true` | nothing |
+
+		**Measured rather than read off the parameter's name**: a plain listing of this project on
+		the served instance returns `{'todo': 143}` — no `done`, and **no `cancelled` either**, so
+		the default excludes both finished categories rather than only the completed one.
+
+		This is a model of what the instance did, so it can be wrong; `Board` therefore never
+		lets it hide a row that actually arrived. Being wrong about an empty column costs a word,
+		and being wrong about a full one costs the page.
+	*/
+	const chose = selection || {};
+
+	if (chose.status_category !== undefined) return key !== chose.status_category;
+
+	return chose.include_completed !== "true" && FINISHED.has(key);
+}
+
 export function completable (item) {
 	/*
 		Whether finishing this is something a reader could still do.
@@ -1022,7 +1065,47 @@ export function marks (item, showKind) {
 	return found;
 }
 
-export function when (item) {
+export function moment (value, now = null) {
+	/*
+		An instant the program recorded, at the resolution somebody can read the order by —
+		`#746`, Simon's, from driving `#729`.
+
+		**A page sorted on a field must show enough of that field to check it.** The finished
+		view is ordered on `completed_at` and rendered it as a day, so everything above the fold
+		read *done 9 Aug 2026* and the ordering was invisible until you scrolled far enough to
+		meet a different date. That is `#661`'s complaint arriving from the other side: not a
+		listing failing to say how it is ordered, but one showing the ordering field too coarsely
+		to read the order by. A reader who cannot check the claim takes it on trust, which is what
+		`#706` chose `completed_at` over a proxy to avoid.
+
+		**Today and yesterday are named rather than dated**, because *done yesterday 21:56* is
+		read at a glance where *done 9 Aug 2026 21:56* is decoded against today's date first.
+
+		**Compared as local midnights**, not as a span of hours: "yesterday" is a calendar
+		question, and a clock change makes a day 23 or 25 hours long. Rounding the difference
+		between two midnights is right across both.
+
+		**`now` is injectable and the tests pass one.** A fixture holding a fixed instant against
+		the wall clock is a test that passes in the morning and fails in the evening, which this
+		repository shipped and pushed on 2026-08-09 (`#737`).
+	*/
+	if (!value) return null;
+
+	const at = new Date(value);
+	const today = now === null ? new Date() : new Date(now);
+	const midnight = (date) =>
+		new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+	const clock = at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+	const apart = Math.round((midnight(today) - midnight(at)) / 86400000);
+
+	if (apart === 0) return `today ${clock}`;
+	if (apart === 1) return `yesterday ${clock}`;
+
+	return `${day(value)} ${clock}`;
+}
+
+export function when (item, now = null) {
 	/*
 		The one date worth a column. A deadline outranks a plan, and neither is invented.
 
@@ -1039,10 +1122,15 @@ export function when (item) {
 		`completed_at` rather than the category, because a row is only worth a date it actually
 		has — a cancelled item carries one too, and *cancelled 3 Aug* is the honest thing to say
 		about it rather than nothing.
+
+		**Only the finished stamp carries a time** (`#746`). A deadline and a planned day stay
+		days: both are dates *somebody chose*, and a time on one would be precision the writer
+		never supplied. This is a stamp the program made, it is exact, and it is what the page is
+		ordered on.
 	*/
 	if (item.completed_at) {
 		return `${item.status_category === "cancelled" ? "cancelled" : "done"} `
-			+ `${day(item.completed_at)}`;
+			+ `${moment(item.completed_at, now)}`;
 	}
 
 	if (item.due_at && !overdue(item)) return `due ${day(item.due_at)}`;
@@ -1416,7 +1504,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy 
 
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
-	widenTo, finished, finishedTo,
+	widenTo, selection, finishedTo,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -1435,20 +1523,25 @@ export function Board ({
 
 	/*
 		**A column nothing was asked for must not report "Nothing"** (`#738`, and it is `#718`
-		arriving through a second door).
+		arriving through a second door) — **and a column holding rows must never say either**
+		(`#744`, which is the first version of this getting it wrong).
 
-		Finished work is a *selection* now — `?include_completed=true` — so a board reached
-		without it is a coherent thing to want and an empty *Done* column under it would be a
-		false statement rather than an empty one. This project's own repeated lesson is that
-		something which works and says something untrue about itself is worse than a failure
-		(`#564`, `#568`, `#570`, `#572`), and a column is exactly where a reader looks to
-		conclude nothing is left.
+		Finished work is a *selection*, so a board without it is a coherent thing to want and an
+		empty *Done* column under it would be a false statement rather than an empty one. This
+		project's own repeated lesson is that something which works and says something untrue
+		about itself is worse than a failure (`#564`, `#568`, `#570`, `#572`), and a column is
+		exactly where a reader looks to conclude nothing is left.
 
-		So the column says what is true — it was not asked for — and offers the address that
-		asks. Which also makes a board of *unfinished work only* reachable, and it was not while
-		the arrangement carried the selection.
+		**`column.items.length === 0` is the first term and that is the whole fix.** The version
+		this replaces asked only whether the category had been requested, and won over the row
+		branch — so `?view=board&status_category=done` rendered *Not shown* above a footer reading
+		"Showing 100. There are more." Found by Simon on the first page he opened.
+
+		`excluded` is a model of what the instance did and can be wrong. The rows are a fact.
+		Where they disagree, the rows win.
 	*/
-	const unasked = (column) => column.key === "done" && finished === false;
+	const unasked = (column) =>
+		column.items.length === 0 && excluded(column.key, selection);
 
 	/* The same test the listing makes, and it has to be the same: both render one page of two
 	   collections, and a column tally that reads as a total is worse on a board than a short
@@ -1491,9 +1584,9 @@ export function Board ({
 
 						${unasked(column)
 							? html`<p class="empty">Not shown.${" "}
-								${finishedTo
+								${finishedTo && FINISHED.has(column.key)
 									? html`<a href=${finishedTo}>Show finished work</a>`
-									: "Add ?include_completed=true to see it."}</p>`
+									: null}</p>`
 							: column.items.length === 0
 							? html`<p class="empty">Nothing</p>`
 							: html`
@@ -2637,10 +2730,14 @@ export function App () {
 							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more}
 							onMore=${showMore}
 							project=${project} workspace=${workspace} onWiden=${widen}
-							finished=${showing.selection.include_completed === "true"}
-							finishedTo=${withShowing(behind, {
-								view: "board", selection: EVERYTHING,
-							})}
+							selection=${showing.selection}
+							${/* **Offered only where one parameter is the whole remedy**: a board
+							     narrowed by `status_category` has every other column absent for a
+							     reason no single link undoes, and a link per column claiming to
+							     would be four ways to leave one state. */ null}
+							finishedTo=${showing.selection.status_category === undefined
+								? withShowing(behind, { view: "board", selection: EVERYTHING })
+								: null}
 							widenTo=${withShowing(listingAddress({ workspace }), showing)} />`
 						/*
 							**No capture box while only finished work is showing** (`#706`).
