@@ -154,6 +154,11 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **Both ends of a link can be chosen.** *Blocked by* is in the list beside *Blocks*, and
+  *Duplicated by* beside *Duplicates* — so you can say what an item is waiting on while you are
+  looking at it, rather than having to open the other one. *Relates to* still appears once,
+  because it means the same thing in both directions.
+
 - **A deadline or a defer can carry a time of day.** *Hidden until* and *Due* have a time box
   beside the date. Leave it empty and the date means the whole day, exactly as before; fill it
   in and an appointment at 14:00 is an appointment at 14:00. *Planned for* stays a day, because

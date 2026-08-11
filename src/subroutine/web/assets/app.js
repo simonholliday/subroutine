@@ -763,12 +763,31 @@ export function linkRequest (item, target, linkType, kind, slug) {
 		open and the *target* is `kind`, which the caller resolves rather than asks about — see
 		`linkableTypes`.
 	*/
-	const collection = item.kind === "document" ? "documents" : "tasks";
+	const { key, inverted } = linkAsked(linkType);
+	const mine = item.kind === "document" ? "documents" : "tasks";
+	const theirs = kind === "document" ? "documents" : "tasks";
+
+	/*
+		**An inverse is the same link written from the other end** (`#799`). *#42 blocked by
+		#43* is *#43 blocks #42*, so the request is posted to **their** links with this item as
+		the target — one endpoint, one link type, and no inverse for the instance to learn.
+
+		The kind being resolved swaps with it: it is the *target's* when the link runs outwards
+		and the item at the *path* when it runs inwards, which is the same 404-means-try-the-next
+		loop either way because both are the ref the reader typed.
+	*/
+	if (inverted) {
+		return {
+			path: scoped(`/${theirs}/${Number(target)}/links`, slug),
+			method: "POST",
+			body: { target: item.ref, link_type: key, target_type: item.kind },
+		};
+	}
 
 	return {
-		path: scoped(`/${collection}/${item.ref}/links`, slug),
+		path: scoped(`/${mine}/${item.ref}/links`, slug),
 		method: "POST",
-		body: { target: Number(target), link_type: linkType, target_type: kind },
+		body: { target: Number(target), link_type: key, target_type: kind },
 	};
 }
 
@@ -787,6 +806,41 @@ export function unlinkRequest (item, linkId, slug) {
 		path: scoped(`/${collection}/${item.ref}/links/${linkId}`, slug),
 		method: "DELETE",
 	};
+}
+
+export function linkChoices (vocabulary) {
+	/*
+		Every way a reader can say two items are related — **both ends of each** (`#799`).
+
+		Simon, driving `#755`: *"I cannot select 'blocked by' in the list, only 'blocked' — this
+		type of link has a direction, I should be able to select both."* Four of this instance's
+		five have one, and the control offered the near end of each. So *this blocks that* was
+		expressible and *this is blocked by that* was not — and the second is usually what
+		somebody opening an item means, because they are looking at the thing that is stuck.
+
+		**An inverse is not a second link type.** It is the same row with the ends swapped,
+		which is exactly what `/v1/meta`'s `inverse_title` is for, and `is_symmetric` is what
+		stops `relates_to` appearing twice saying one thing under one label. Both have been
+		published since M1 and read by nothing.
+
+		**Spelled `-key`, like an order** (`ORDERINGS`), so the value a control carries says
+		which direction it means without a second field to keep in step with it.
+	*/
+	return ((vocabulary && vocabulary.link_types) || []).flatMap((one) => [
+		{ value: one.key, label: one.title },
+		...(one.is_symmetric
+			? []
+			: [{ value: `-${one.key}`, label: one.inverse_title || `Inverse of ${one.title}` }]),
+	]);
+}
+
+export function linkAsked (value) {
+	/* Which type a choice names, and which way round. The sigil is the whole of the
+	   difference, so reading it back is the only place that has to know. */
+	const said = String(value || "");
+	const inverted = said.startsWith("-");
+
+	return { key: inverted ? said.slice(1) : said, inverted };
 }
 
 export function linkableTypes (vocabulary) {
@@ -3640,7 +3694,7 @@ export function Detail ({
 				</ul>
 
 				${onLink && html`<${Linking} busy=${busy} onLink=${onLink}
-					types=${(vocabulary && vocabulary.link_types) || []} />`}
+					types=${linkChoices(vocabulary)} />`}
 			`}
 
 			${/* **The heading shows even with nothing under it, once there is a box** (`#759`).
@@ -3709,7 +3763,7 @@ export function Linking ({ onLink, types, busy }) {
 		<form class="linking" onSubmit=${submit}>
 			<select name="link_type" disabled=${busy} aria-label="How they are related">
 				${types.map((one) => html`
-					<option key=${one.key} value=${one.key}>${one.title}</option>
+					<option key=${one.value} value=${one.value}>${one.label}</option>
 				`)}
 			</select>
 			<input name="target" required disabled=${busy} inputMode="numeric"

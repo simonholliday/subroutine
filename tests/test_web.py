@@ -1832,9 +1832,10 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 	out whether they were still blocked. Said in a word rather than in styling alone (`SR#102`).
 	"""
 
+	# **The shape `linkChoices` produces** (`SR#799`), which is what `Detail` hands it.
 	box = _rendered(tmp_path, {"Linking": {"busy": False, "types": [
-		{"key": "blocks", "title": "Blocks"},
-		{"key": "invented", "title": "Something this workspace added"},
+		{"value": "blocks", "label": "Blocks"},
+		{"value": "invented", "label": "Something this workspace added"},
 	]}})["Linking"]
 
 	assert "Something this workspace added" in box, (
@@ -4626,6 +4627,7 @@ def _views (
 			: name === "conflictIn" ? app.conflictIn(argument.failure)
 			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
 			: name === "linkableTypes" ? app.linkableTypes(argument.vocabulary)
+			: name === "linkChoices" ? app.linkChoices(argument.vocabulary)
 			: name === "written" ? app.written(argument.values, argument.item)
 			: name === "permits" ? app.permits(argument.name, argument.value)
 			: name === "refused" ? (() => {{
@@ -6653,6 +6655,68 @@ def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.
 	# from `DATE_FIELDS` is what makes them agree, so this is the check that says so.
 	assert set(_views(tmp_path, [("TIMED", {})])[0]) == drawn, (
 		"the fields the form draws a time on and the fields the body sends one for differ"
+	)
+
+
+#: This instance's own link types, as `/v1/meta` publishes them — four with a direction and
+#: one without, which is the case the control has to get right.
+LINK_TYPES = {"link_types": [
+	{"key": "blocks", "title": "Blocks", "inverse_title": "Blocked by", "is_symmetric": False},
+	{"key": "duplicates", "title": "Duplicates", "inverse_title": "Duplicated by",
+		"is_symmetric": False},
+	{"key": "relates_to", "title": "Relates to", "inverse_title": "Relates to",
+		"is_symmetric": True},
+]}
+
+
+def test_both_ends_of_a_directed_link_can_be_chosen (tmp_path: pathlib.Path) -> None:
+	"""`SR#799`, Simon driving `SR#755`: *"I cannot select 'blocked by' in the list, only
+	'blocked' — this type of link has a direction, I should be able to select both."*
+
+	`/v1/meta` has published `inverse_title` and `is_symmetric` since M1 and the browser read
+	neither, so it offered the near end of each. *Blocked by* is usually the one somebody
+	opening an item means, because they are looking at the thing that is stuck.
+
+	**`is_symmetric` is what stops `relates_to` appearing twice** saying one thing under one
+	label — which is the whole reason the field is published rather than inferred from the two
+	titles happening to match.
+	"""
+
+	choices = _views(tmp_path, [("linkChoices", {"vocabulary": LINK_TYPES})])[0]
+
+	assert [one["label"] for one in choices] == [
+		"Blocks", "Blocked by", "Duplicates", "Duplicated by", "Relates to"
+	]
+	assert [one["value"] for one in choices] == [
+		"blocks", "-blocks", "duplicates", "-duplicates", "relates_to"
+	]
+
+
+def test_an_inverse_link_is_the_same_link_written_from_the_other_end (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#799`. *#42 blocked by #43* is *#43 blocks #42*, and the instance learns no inverse.
+
+	So the request goes to **their** links with this item as the target, and the kind being
+	resolved swaps with it — outwards it is the target's, inwards it is the item at the path.
+	Both are the ref the reader typed, so the 404-means-try-the-next loop is the same either
+	way, which is what makes this a swap rather than a second code path.
+	"""
+
+	item = {"ref": 42, "kind": "task"}
+	outward, inward = _built(tmp_path, [
+		("linkRequest", [item, "43", "blocks", "task", "projects"]),
+		("linkRequest", [item, "43", "-blocks", "task", "projects"]),
+	])
+
+	assert outward["path"].startswith("/tasks/42/links")
+	assert outward["body"] == {"target": 43, "link_type": "blocks", "target_type": "task"}
+
+	assert inward["path"].startswith("/tasks/43/links"), (
+		"an inverse link was posted to the open item rather than to the other end"
+	)
+	assert inward["body"] == {"target": 42, "link_type": "blocks", "target_type": "task"}, (
+		"the ends were not swapped, or an inverse link type was invented for the instance"
 	)
 
 
