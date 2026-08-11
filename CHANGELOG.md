@@ -154,43 +154,6 @@ upgrade involves.
   somebody else's is still refused and still shows you what they wrote, which is the point of
   the check and is not something a background refresh should be able to slip past.
 
-### Security
-
-- **The web UI tells your browser what it is allowed to do.** Every response now carries a
-  content security policy, and it is a strict one: nothing may be loaded from another host,
-  nothing may be framed, and a form may only post back here. The app was already built that way
-  — it loads no fonts, no scripts and no styles from anywhere else — so the policy costs it
-  nothing and closes the gap if a defect ever appeared in the part that renders Markdown, which
-  is where text other people wrote ends up on your screen.
-
-  Responses also say `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so an
-  item's address is not handed to another site when you follow a link off this one.
-
-- **Credentials no longer reach the server's own access log.** A sign-in link travels in a URL
-  — it has to, because a link is opened by clicking it — so `GET /signin?link=…` used to be
-  written into the log in full. It now reads `link=REDACTED`, and so does an API token that
-  somebody has put in `?token=`, `?api_key=` or `?access_token=` by mistake: those are refused,
-  and the refusal already says to treat that token as compromised, so writing it down
-  afterwards helped nobody. Everything else in a request line is left alone.
-
-  **Your reverse proxy keeps its own log and we cannot reach that**, so
-  [docs/hosting.md](docs/hosting.md#keeping-credentials-out-of-your-logs) now says how to tell
-  it the same thing. A link is good for half an hour and works once, which is why this is worth
-  tidying rather than worrying about.
-
-- **A sign-in link can no longer quietly make a signed-in browser somebody else.** Opening a
-  link for a different account now stops and asks: the page names who you are signed in as and
-  who the link is for, and nothing happens until you say yes. Saying no leaves the link unused,
-  so you can still sign in with it later.
-
-  It matters because a sign-in link works by being *opened*, so anybody who can get you to
-  click one — in a message, on a page — could put your browser into their account without
-  saying so, and everything you wrote next would be filed there. Confirming has to be a button
-  press on this instance's own page, which is something only you can do.
-
-  Signing in normally is unchanged, and so is opening a second link for the account you are
-  already in.
-
 ### Fixed
 
 - **The top of the page stays put when you open an item.** Search and the view switcher used
@@ -282,6 +245,43 @@ upgrade involves.
   of the page and the link you ended up with were two different strings for the same thing.
   Links written before this still work and tidy themselves up when you follow one; closing the
   item still takes you back to the list, board or filter you came from.
+
+### Security
+
+- **A sign-in link can no longer quietly make a signed-in browser somebody else.** Opening a
+  link for a different account now stops and asks: the page names who you are signed in as and
+  who the link is for, and nothing happens until you say yes. Saying no leaves the link unused,
+  so you can still sign in with it later.
+
+  It matters because a sign-in link works by being *opened*, so anybody who can get you to
+  click one — in a message, on a page — could put your browser into their account without
+  saying so, and everything you wrote next would be filed there. Confirming has to be a button
+  press on this instance's own page, which is something only you can do.
+
+  Signing in normally is unchanged, and so is opening a second link for the account you are
+  already in.
+
+- **Credentials no longer reach the server's own access log.** A sign-in link travels in a URL
+  — it has to, because a link is opened by clicking it — so `GET /signin?link=…` used to be
+  written into the log in full. It now reads `link=REDACTED`, and so does an API token that
+  somebody has put in `?token=`, `?api_key=` or `?access_token=` by mistake: those are refused,
+  and the refusal already says to treat that token as compromised, so writing it down
+  afterwards helped nobody. Everything else in a request line is left alone.
+
+  **Your reverse proxy keeps its own log and we cannot reach that**, so
+  [docs/hosting.md](docs/hosting.md#keeping-credentials-out-of-your-logs) now says how to tell
+  it the same thing. A link is good for half an hour and works once, which is why this is worth
+  tidying rather than worrying about.
+
+- **The web UI tells your browser what it is allowed to do.** Every response now carries a
+  content security policy, and it is a strict one: nothing may be loaded from another host,
+  nothing may be framed, and a form may only post back here. The app was already built that way
+  — it loads no fonts, no scripts and no styles from anywhere else — so the policy costs it
+  nothing and closes the gap if a defect ever appeared in the part that renders Markdown, which
+  is where text other people wrote ends up on your screen.
+
+  Responses also say `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so an
+  item's address is not handed to another site when you follow a link off this one.
 
 ## 0.6.3 — 2026-08-10
 
