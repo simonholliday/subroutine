@@ -663,8 +663,23 @@ def serve (
 	# `api.serving()` answers what is mounted; the widths are the only thing decided here.
 	surfaces = api.serving()
 	column = max((len(surface.path) for surface in surfaces), default=0)
+	bound = f"http://{shown}:{listening}"
 
-	_say(f"Serving on http://{shown}:{listening}")
+	_say(f"Serving on {bound}")
+
+	# **Where somebody else reaches it, when that is not where it bound** (`#793`). The lines
+	# below tell an agent it needs *the address above*, and on the deployment this project
+	# actually runs that address is a loopback socket behind a proxy — it reaches nobody.
+	# `public_url` is what an operator has already said about this, and `_refuse_public_bind`
+	# reads it a few lines up to decide whether a public bind is safe at all; this is the same
+	# fact serving the same reader.
+	#
+	# Printed only when it differs, because a second line repeating the first is noise on the
+	# commonest case — a laptop, bound to loopback, reached at loopback.
+	reachable = (settings.public_url or "").rstrip("/")
+
+	if reachable and reachable != bound:
+		_say(f"Reached at {reachable}")
 
 	for surface in surfaces:
 		_say(f"  {surface.path:<{column}}  {surface.what} — {surface.note}")

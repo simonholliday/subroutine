@@ -989,6 +989,39 @@ def test_starting_a_server_says_every_transport_it_just_started (
 	# caller's end. Announcing the other would send an operator to install a package.
 	assert "subroutine mcp" not in printed, "the stdio server is not what just started"
 
+	# **No second address invented where there is none.** A laptop bound to loopback is reached
+	# at loopback, and a line repeating the one above it is noise on the commonest case.
+	assert "Reached at" not in printed, printed
+
+
+def test_a_proxied_instance_names_the_address_that_reaches_it (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#793`, from review `#789`. The line told an agent to use an address reaching nobody.
+
+	`serve` says, of `/mcp`, *an agent needs the address above and a token* — and on the
+	deployment this project actually runs, *above* was `http://127.0.0.1:8471` behind a proxy.
+	The operator has already said what the real one is: `public_url` is what
+	`_refuse_public_bind` reads four lines earlier to decide whether a public bind is safe, and
+	this is the same fact serving the same reader.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+
+	monkeypatch.setattr("uvicorn.run", lambda app, **given: None)
+
+	printed = run("serve", "--host", "0.0.0.0").output
+
+	assert "Reached at https://tasks.example.com" in printed, printed
+	assert "Serving on http://0.0.0.0:" in printed, "the socket it bound is still worth saying"
+
+	# The order matters: *the address above* has to be the reachable one by the time the
+	# surfaces are listed, or the sentence points at the wrong line.
+	assert printed.index("Reached at") < printed.index("/mcp"), printed
+
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.1.2.3", "::1", "[::1]"])
 def test_a_loopback_bind_is_recognised_however_it_is_written (host: str) -> None:

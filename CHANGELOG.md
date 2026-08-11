@@ -154,6 +154,10 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **A server behind a proxy says the address that reaches it.** `subroutine serve` tells an
+  agent it needs *the address above* — and on an instance behind a reverse proxy that was the
+  loopback socket, which reaches nobody. When `public_url` is set it now prints that too.
+
 - **An item you edited and then abandoned is up to date again.** If somebody changed it while
   your edit form was open, closing the form without saving used to leave the old version on
   screen with nothing saying so. It re-reads now. Saving was always safe — a clash is still

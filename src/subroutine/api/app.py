@@ -141,7 +141,7 @@ SURFACES: tuple[Surface, ...] = (
 	Surface(
 		subroutine.api.mcp.PATH,
 		"MCP over HTTP",
-		"an agent needs this address and a token, and nothing installed",
+		"an agent needs the address above and a token, and nothing installed",
 	),
 )
 
