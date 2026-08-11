@@ -156,6 +156,18 @@ upgrade involves.
 
 ### Security
 
+- **Credentials no longer reach the server's own access log.** A sign-in link travels in a URL
+  — it has to, because a link is opened by clicking it — so `GET /signin?link=…` used to be
+  written into the log in full. It now reads `link=REDACTED`, and so does an API token that
+  somebody has put in `?token=`, `?api_key=` or `?access_token=` by mistake: those are refused,
+  and the refusal already says to treat that token as compromised, so writing it down
+  afterwards helped nobody. Everything else in a request line is left alone.
+
+  **Your reverse proxy keeps its own log and we cannot reach that**, so
+  [docs/hosting.md](docs/hosting.md#keeping-credentials-out-of-your-logs) now says how to tell
+  it the same thing. A link is good for half an hour and works once, which is why this is worth
+  tidying rather than worrying about.
+
 - **A sign-in link can no longer quietly make a signed-in browser somebody else.** Opening a
   link for a different account now stops and asks: the page names who you are signed in as and
   who the link is for, and nothing happens until you say yes. Saying no leaves the link unused,

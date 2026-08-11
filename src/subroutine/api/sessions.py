@@ -76,6 +76,16 @@ LANDING = "/"
 #: which is the thing a person is handed and the thing that has to look like a sign-in.
 SWITCH = "/v1/session"
 
+#: What the sign-in link's secret is called, wherever it travels — the query parameter
+#: :func:`signin` declares, the field the confirmation form posts, and the name
+#: :mod:`subroutine.api.logs` keeps out of the access log (`#806`).
+#:
+#: **Named because three places have to agree and one of them is a security control.** A
+#: redaction list naming a parameter this route stopped using would go on passing while
+#: writing credentials down; ``tests/test_api_logs.py`` asserts this is a parameter ``/signin``
+#: really declares, rather than trusting the constant to be true.
+LINK_PARAMETER = "link"
+
 
 class SignInLinkRequest(pydantic.BaseModel):
 	"""Who to issue a sign-in link for."""
@@ -140,6 +150,26 @@ def signin (
 	that stays on screen is one somebody bookmarks, screenshots or pastes into a chat — and
 	although this one is already spent by the time the redirect is followed, a person cannot
 	tell a spent secret from a live one by looking at it.
+
+	**A secret in a query string is exactly what this application refuses elsewhere**, and
+	:data:`subroutine.api.security.TOKEN_PARAMETERS` names the three reasons: access logs,
+	browser history and referrer headers. All three were measured here rather than argued about
+	(`#806`), and the answers differ:
+
+	* **Referrer: never.** Every request the browser makes after signing in carries
+	  ``Referer: <root>/`` — a redirect keeps the *original* referrer rather than the redirecting
+	  URL, and the document that ends up loaded is the landing page. The 303 is what makes that
+	  true, so ``test_a_link_is_exchanged_for_a_cookie_and_a_redirect`` is what holds it.
+	* **History: no**, closed by the same 303, which is why it is a 303.
+	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
+	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
+
+	**And the confirmation below made a dead secret into a live one.** Until `#803` the logged
+	value was always spent by the time the line was written, because the line is written on
+	response. A confirmation deliberately does *not* spend the link — so this route can now log a
+	credential that still works, on exactly the path somebody meets when a link arrives that they
+	did not expect. That is the reason the redaction exists rather than a note saying it did not
+	matter.
 	"""
 
 	standing = _who_is_already_here(session, request)
@@ -224,14 +254,14 @@ async def _submitted_link (request: starlette.requests.Request) -> str:
 		)
 
 	fields = urllib.parse.parse_qs((await request.body()).decode("utf-8", "replace"))
-	link = fields.get("link", [""])[0]
+	link = fields.get(LINK_PARAMETER, [""])[0]
 
 	if not link:
 		raise subroutine.errors.ValidationError(
 			"This request carried no sign-in link to act on.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="link",
+					field=LINK_PARAMETER,
 					code="required",
 					message="A sign-in link is what says which session to open.",
 				)
@@ -323,7 +353,7 @@ def _ask_before_switching (
 		<p>If you did not expect this, somebody else may have sent you the link. Staying as
 		<strong>{was}</strong> changes nothing and leaves the link unused.</p>
 		<form method="post" action="{SWITCH}">
-			<input type="hidden" name="link" value="{html.escape(link)}">
+			<input type="hidden" name="{LINK_PARAMETER}" value="{html.escape(link)}">
 			<button type="submit">Continue as {now}</button>
 		</form>
 		<p><a href="{LANDING}">Stay signed in as {was}</a></p>
@@ -482,4 +512,7 @@ def _address (
 
 	root = (settings.public_url or "").strip() or str(request.base_url)
 
-	return f"{root.rstrip('/')}/signin?link={urllib.parse.quote(secret, safe='')}"
+	return (
+		f"{root.rstrip('/')}/signin"
+		f"?{LINK_PARAMETER}={urllib.parse.quote(secret, safe='')}"
+	)

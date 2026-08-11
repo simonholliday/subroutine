@@ -38,11 +38,14 @@ import subroutine.errors
 #: RFC 9110 requires; presented in its canonical form in ``WWW-Authenticate``.
 BEARER_SCHEME = "Bearer"
 
-#: Query parameters a caller might reasonably, and wrongly, put a token in. Tokens are
+#: Query parameters a caller might reasonably, and wrongly, put a token in. Public because
+#: `api/logs.py` derives what to keep out of the access log from it — a token sent this way is
+#: refused *and the refusal says to treat it as compromised*, so writing it down afterwards is
+#: the same mistake one layer on (`#806`). Tokens are
 #: never accepted from a query string — they end up in access logs, browser history and
 #: referrer headers (SPEC.md §7.4) — but silently ignoring one leaves the caller staring
 #: at a 401 with a credential they can plainly see in the URL, so the refusal says so.
-_TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
+TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
 
 #: A resolver: find a credential of one kind and identify its holder. ``None`` means "not
 #: my kind of credential"; raising means "my kind, and not acceptable".
@@ -447,7 +450,7 @@ def clear_session_cookie (
 def _how_to_authenticate (request: starlette.requests.Request) -> str:
 	"""Return a hint telling this particular caller what to do differently."""
 
-	misplaced = [name for name in _TOKEN_PARAMETERS if name in request.query_params]
+	misplaced = [name for name in TOKEN_PARAMETERS if name in request.query_params]
 
 	if misplaced:
 		return (

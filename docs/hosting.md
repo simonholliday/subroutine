@@ -1130,6 +1130,37 @@ there is no session to wait out. That is the answer to "a key leaked", and it is
 listing shows what each one can reach — the question at that moment is which of them could
 write.
 
+### Keeping credentials out of your logs
+
+**A sign-in link travels in a URL, so it reaches every access log that sees the request.** It
+has to: a link is opened by clicking one, and a click is a `GET`. `subroutine serve` redacts it
+from its own access log — you will see `GET /signin?link=REDACTED` rather than the secret — and
+it does the same for an API token somebody has wrongly put in `?token=`, `?api_key=` or
+`?access_token=`, which is refused but is a real credential by the time it is refused.
+
+**Your proxy logs the same request line, and we cannot reach that.** If you run one, tell it to
+drop the query string from the paths it records. In Nginx that is a `log_format` using `$uri`
+rather than `$request`:
+
+```nginx
+log_format subroutine '$remote_addr - "$request_method $uri" $status';
+access_log /var/log/nginx/subroutine.log subroutine;
+```
+
+Two things worth knowing rather than guessing:
+
+- **A logged link is usually already spent**, because the log line is written when the response
+  goes out and the link is consumed before that. The exception is the confirmation page — if
+  the browser was already signed in as somebody else, the link is deliberately left usable so
+  that saying *no* costs nothing, and it stays usable for the rest of its half hour.
+- **A link is good for thirty minutes and works once.** That is the reason a lapse here is
+  worth fixing rather than panicking about, and `subroutine login revoke <username>` cancels
+  every unspent link and live session that person has.
+
+**If you run the app under your own uvicorn or gunicorn rather than `subroutine serve`**, call
+`subroutine.api.logs.redact_access_logs()` before starting it; the filter belongs to a logger in
+your process, and nothing else installs it for you.
+
 ## Upgrading
 
 **Before and after, `subroutine doctor` says whether this machine is coherent.** One command:

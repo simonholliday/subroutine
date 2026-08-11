@@ -654,6 +654,18 @@ def serve (
 	from uvicorn import run as listen
 
 	from subroutine.api import app as api
+	from subroutine.api import logs as access
+
+	# **Before the server starts, because the filter belongs to a logger rather than to a
+	# request** (`#806`). A sign-in link travels in a query string and so lands in the access
+	# log — and since `#803` it can land there *unspent*, because a browser already signed in as
+	# somebody else is shown a confirmation and the link is left usable. An API token somebody
+	# wrongly put in `?token=` lands there too, having just been told to treat it as compromised.
+	#
+	# This reaches the log this process writes and no further. An operator's proxy logs the same
+	# request line on its own retention; `docs/hosting.md` carries that half as advice, because
+	# it is the only form we can give it in.
+	access.redact_access_logs()
 
 	shown = f"[{where}]" if ":" in where else where
 
