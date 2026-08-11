@@ -4717,3 +4717,103 @@ def test_the_command_that_merges_does_not_skip_the_duplicate_guard () -> None:
 	assert _commands_skipping_the_duplicate_guard(), (
 		"the scan found nothing at all, so it is not measuring the tree"
 	)
+
+
+def test_a_listing_is_narrowed_by_a_date (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``--filter created_at.gte=yesterday`` — item `#815`, and Simon's own question.
+
+	Everything here was created a moment ago, so *today onwards* holds it and *before today*
+	holds nothing. That is a weak-looking pair and it is the strongest one available without
+	reaching past the CLI to backdate a row: it catches a filter that never reaches the client,
+	which is the failure this whole layer is at risk of.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+
+	assert "Ordinary work" in run("list", "--filter", "created_at.gte=today").output
+	assert "Ordinary work" not in run("list", "--filter", "created_at.lt=today").output
+
+
+def test_a_date_a_document_has_not_got_returns_no_documents_rather_than_all_of_them (
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+) -> None:
+	"""**The failure mode is that narrowing a list makes it longer** (`#815`).
+
+	A document is not scheduled (§6.14), so it has no ``completed_at`` — and the document half
+	of this listing is a separate request. If that request simply dropped the filter it could
+	not honour, *what did I complete today* would answer with every decision in the workspace
+	beside the tasks. That is the ``--type bug`` defect that reached the real instance once
+	already, in the direction nobody checks.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	run("done", "1")
+	_a_document(home, title="How the thing works", body="It works like this.")
+
+	narrowed = run("list", "--filter", "completed_at.gte=2020-01-01").output
+
+	assert "How the thing works" not in narrowed, "the document half ignored the filter"
+
+	# **And the task is still there**, which is what makes the line above mean anything. An
+	# earlier version asserted the absence alone — and a document half that *refused* rather
+	# than skipping produces exactly that absence, by failing the whole command. Two opposite
+	# behaviours, one passing assertion; found by falsifying, which is the only thing that
+	# could have found it.
+	assert "Ordinary work" in narrowed, "the listing failed rather than skipping the documents"
+
+	# And a field both kinds have still reaches both, so the rule is about the field rather
+	# than about documents.
+	shared = run("list", "--filter", "created_at.gte=today").output
+
+	assert "How the thing works" in shared
+
+
+def test_a_filter_with_no_equals_is_refused_before_anything_is_asked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One message naming the shape, rather than one refusal per workspace per connection."""
+
+	run("init")
+
+	refused = run("list", "--filter", "yesterday", expect=1).output
+
+	assert "is not a filter" in refused
+	assert "created_at.gte=yesterday" in refused, "the refusal did not show the shape"
+
+
+def test_asking_when_something_was_completed_finds_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`#818`, and it is Simon's second question of `#815`.**
+
+	Finished work is hidden unless a caller says otherwise, and ``completed_at`` is null on
+	everything unfinished — so until the two were joined, *what did I complete today* answered
+	*nothing on your list* the same minute a task was completed. A plausible, complete, wrong
+	answer, and an empty list is the one a person is least likely to doubt.
+
+	The rule already existed one spelling along: naming a finished ``status_category`` implies
+	it. This is the same request written differently.
+	"""
+
+	run("init")
+	run("add", "A finished thing")
+	run("add", "An open thing")
+	run("done", "1")
+
+	completed = run("list", "--filter", "completed_at.gte=today").output
+
+	assert "A finished thing" in completed
+
+	# **And it widens nothing else.** The implication is carried by the field being asked
+	# about, so a filter on `created_at` still hides finished work as it always did — the
+	# failure in the other direction would be a backlog that grows every time you ask it a
+	# question about dates.
+	created = run("list", "--filter", "created_at.gte=today").output
+
+	assert "An open thing" in created
+	assert "A finished thing" not in created

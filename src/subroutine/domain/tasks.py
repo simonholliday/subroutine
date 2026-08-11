@@ -1338,8 +1338,10 @@ def statuses_in_category (
 	)
 
 
-def completion_wanted (category: str | None, asked: bool | None) -> bool:
-	"""Say whether a listing narrowed to ``category`` should reach finished work.
+def completion_wanted (
+	category: str | None, asked: bool | None, *, about_completion: bool = False
+) -> bool:
+	"""Say whether a listing should reach finished work.
 
 	**Here rather than in the router, because both transports have to agree** — the same reason
 	:mod:`subroutine.domain.ordering` exists. A rule applied on one side would make
@@ -1355,25 +1357,58 @@ def completion_wanted (category: str | None, asked: bool | None) -> bool:
 	"only cancelled work, and no finished work" that means anything, and this codebase's rule
 	on a listing is that a contradiction is named rather than quietly settled in one
 	parameter's favour.
+
+	**``about_completion`` is the same rule reaching a second spelling** (`#818`). A caller
+	filtering on ``completed_at`` is asking about finished work as unambiguously as one naming
+	a finished category — the column is null on everything else — so the paragraph above
+	applied to it word for word and did not reach it, because this function knew about
+	categories and not about filters. Measured on a fresh instance:
+	``list --filter completed_at.gte=today`` said *nothing on your list* the same minute a task
+	was completed.
 	"""
 
-	if category is None or category not in FINISHED_CATEGORIES:
+	wants_finished = about_completion or (
+		category is not None and category in FINISHED_CATEGORIES
+	)
+
+	if not wants_finished:
 		return bool(asked)
 
 	if asked is False:
 		raise subroutine.errors.ValidationError(
-			f"{category!r} is finished work, so excluding finished work leaves nothing.",
+			_excluding_all_of_it(category, about_completion),
 			errors=[
 				subroutine.errors.FieldError(
 					field="include_completed",
 					code="invalid_field_value",
 					message=(
-						f"status_category={category!r} asks only for finished work and "
-						"include_completed=false excludes all of it."
+						f"{_asking_for_it(category, about_completion)} asks only for finished "
+						"work and include_completed=false excludes all of it."
 					),
-					hint="Drop include_completed — narrowing to a finished category implies it.",
+					hint="Drop include_completed — asking about finished work implies it.",
 				)
 			],
 		)
 
 	return True
+
+
+def _asking_for_it (category: str | None, about_completion: bool) -> str:
+	"""Name whichever half of the request asked for finished work."""
+
+	if category is not None and category in FINISHED_CATEGORIES:
+		return f"status_category={category!r}"
+
+	return "a filter on completed_at"
+
+
+def _excluding_all_of_it (category: str | None, about_completion: bool) -> str:
+	"""Say what the contradiction was, in the caller's own terms."""
+
+	if category is not None and category in FINISHED_CATEGORIES:
+		return f"{category!r} is finished work, so excluding finished work leaves nothing."
+
+	return (
+		"completed_at is only ever set on finished work, so excluding finished work "
+		"leaves nothing."
+	)

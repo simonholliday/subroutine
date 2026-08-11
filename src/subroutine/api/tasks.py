@@ -36,6 +36,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.claims
+import subroutine.domain.filtering
 import subroutine.domain.hierarchy
 import subroutine.domain.links
 import subroutine.domain.ordering
@@ -360,7 +361,14 @@ def listing (
 
 	# Resolved in the domain rather than here, so the local client reaches the same rows for
 	# the same query — a narrowing that widened only over HTTP is the divergence S3-07 removed.
-	completion = subroutine.domain.tasks.completion_wanted(status_category, include_completed)
+	# **Asking *when* something was completed is asking for completed work** (`#818`), the same
+	# way naming a finished category is. Without it, the one field that is null on everything
+	# unfinished was compared against a set with all of it filtered out — and answered `[]`.
+	completion = subroutine.domain.tasks.completion_wanted(
+		status_category,
+		include_completed,
+		about_completion=dates.about(subroutine.domain.filtering.COMPLETION_FIELD),
+	)
 
 	statement = subroutine.domain.scoping.readable_tasks(
 		actor,

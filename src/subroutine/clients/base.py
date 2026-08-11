@@ -273,8 +273,16 @@ class Client(typing.Protocol):
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
+
+		``filters`` carries §9.6's date comparisons — ``{"created_at.gte": "yesterday"}``
+		(`#815`). **One parameter rather than one per field per direction**, which is the same
+		argument decision `#817` settled for the query string: there are seven fields and four
+		operators, and naming each pair would be about twenty keyword arguments on this method
+		for one kind of question. ``domain/filtering`` holds which pairs exist, so a client
+		gains a new field the day the registry does.
 
 		``assignee``, ``status``, ``type``, ``subtree``, ``due_before`` and ``due_after`` were
 		declared by ``GET /v1/tasks`` and passed by nothing until `#501`. **The one that was
@@ -348,6 +356,7 @@ class Client(typing.Protocol):
 		deleted: bool = False,
 		status: str | None = None,
 		type: str | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 

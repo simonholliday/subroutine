@@ -51,6 +51,7 @@ import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
+import subroutine.domain.filtering
 import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -1520,6 +1521,7 @@ def register (
 		assignee: str | None = None,
 		status: str | None = None,
 		type: str | None = None,
+		filters: dict[str, str] | None = None,
 	) -> None:
 		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
@@ -1553,6 +1555,7 @@ def register (
 				assignee=assignee,
 				status=status,
 				type=type,
+				filters=filters,
 			)
 
 			_report(world, gathered.failures)
@@ -1710,6 +1713,23 @@ def register (
 				piece for piece in super().collect_usage_pieces(ctx) if piece.strip("[]. ")
 			]
 
+	def _filters (dated: list[str] | None) -> dict[str, str]:
+		"""Read every ``--filter`` a command was given, refusing what is not one — `#815`.
+
+		**Through ``fail`` rather than by raising**, which is the difference between a sentence
+		somebody can act on and a traceback. A refusal raised in a command body escapes past
+		``opened``'s handler, and only ``main``'s outermost catch renders it — so a person sees
+		the right thing and anything driving the app through Click's runner sees nothing at all.
+		Here so that all three registrations share it, and so the message is asserted where it
+		is produced.
+		"""
+
+		try:
+			return subroutine.domain.filtering.parsed(dated or [])
+
+		except subroutine.errors.SubroutineError as error:
+			fail(error)
+
 	def _refuse_words (words: list[str] | None, looking_for: str) -> None:
 		"""Send somebody who tried to search a listing to the command that searches.
 
@@ -1776,6 +1796,11 @@ def register (
 		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
+		dated: list[str] | None = typer.Option(
+			None,
+			"--filter",
+			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+		),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
 		),
@@ -1796,6 +1821,10 @@ def register (
 		  subroutine list --project SR --order due_at
 
 		  subroutine list --assignee si --status blocked
+
+		  subroutine list --filter created_at.gte=yesterday
+
+		  subroutine list --filter completed_at.gte=2026-08-02 --filter completed_at.lt=today
 		"""
 
 		_refuse_words(words, looking_for)
@@ -1817,6 +1846,7 @@ def register (
 			# builtin and shadowing it inside a function that also annotates with `str | None`
 			# is how a signature comes to mean something it does not.
 			type=kind or None,
+			filters=_filters(dated),
 		)
 
 	@app.command()
@@ -1840,6 +1870,11 @@ def register (
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
+		dated: list[str] | None = typer.Option(
+			None,
+			"--filter",
+			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+		),
 	) -> None:
 		"""Find things by their words — in the title, and in what you wrote about them.
 
@@ -1851,6 +1886,8 @@ def register (
 		  subroutine search "dentist"
 
 		  subroutine search "pagination" --project SR
+
+		  subroutine search "boiler" --filter created_at.gte=yesterday
 		"""
 
 		_listed(
@@ -1863,6 +1900,7 @@ def register (
 			connection=connection or None,
 			deferred=deferred,
 			q=_asked(terms, "What are you looking for?"),
+			filters=_filters(dated),
 		)
 
 	@app.command()
@@ -1967,6 +2005,11 @@ def register (
 		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
+		dated: list[str] | None = typer.Option(
+			None,
+			"--filter",
+			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+		),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
 		),
@@ -1997,6 +2040,7 @@ def register (
 			assignee=assignee or None,
 			status=status or None,
 			type=kind or None,
+			filters=_filters(dated),
 		)
 
 	@app.command()
@@ -4844,6 +4888,7 @@ def register (
 		assignee: str | None = None,
 		status: str | None = None,
 		type: str | None = None,
+		filters: dict[str, str] | None = None,
 	) -> subroutine.fanout.Gathered[Listing]:
 		"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -4910,6 +4955,7 @@ def register (
 						assignee=assignee,
 						status=status,
 						type=type,
+						filters=filters,
 					)
 
 				except subroutine.errors.NotFound as absent:
@@ -4996,6 +5042,7 @@ def register (
 							assignee=assignee,
 							status=status,
 							type=type,
+							filters=filters,
 						)
 					)
 				# **A document has no assignee, so a list narrowed to one is a list of tasks**
@@ -5004,6 +5051,20 @@ def register (
 				# and "everything Simon is working on" ending in every specification in the
 				# workspace is worse than useless.
 				if assignee is not None:
+					continue
+
+				# **A date field a document has not got means *no* documents, never all of
+				# them** (`#815`). `completed_at`, `due_at`, `start_at` and `planned_for` are
+				# task fields — §6.14 says a document is not scheduled — so asking *what was
+				# completed yesterday* is a question about tasks, and a document half that
+				# ignored the filter would answer it by adding every decision in the workspace.
+				# That is precisely the `--type bug` defect described below, and the reason it
+				# is worth naming twice is that this one widens a list the user asked to narrow.
+				if any(
+					name.partition(subroutine.domain.filtering.SEPARATOR)[0]
+					not in subroutine.domain.filtering.DOCUMENT_FILTERS
+					for name in (filters or {})
+				):
 					continue
 
 				# **Asked of documents as well, and a kind without that key contributes
@@ -5023,6 +5084,7 @@ def register (
 						deleted=trash,
 						status=status,
 						type=type,
+						filters=filters,
 					)
 
 				except subroutine.errors.ValidationError as unknown:

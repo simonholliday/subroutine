@@ -31,8 +31,13 @@ reachable by one of them (`#501`, which is why ``ordering.PROJECT_FIELDS`` moved
 import datetime
 import typing
 
+import sqlalchemy.orm
+
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.errors
 
@@ -276,6 +281,78 @@ def names (entity: str) -> frozenset[str]:
 		for name, field in FILTERS.get(entity, {}).items()
 		for operator in field.kind.operators
 	)
+
+
+#: The field whose presence in a filter says the caller is asking about finished work —
+#: `#818`. Named here rather than spelled in each listing, because it is one fact and the
+#: places that need it are on both transports.
+COMPLETION_FIELD = "completed_at"
+
+
+def about (names: typing.Iterable[str], field: str) -> bool:
+	"""Report whether any of these dotted names filters on one field.
+
+	Reads the *field* half of each name rather than matching the whole thing, so it answers for
+	every operator at once — the question is "did they ask about this column", and
+	``completed_at.gte`` and ``completed_at.lt`` are both yes.
+	"""
+
+	return any(name.partition(SEPARATOR)[0] == field for name in names)
+
+
+def timezone_for (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+) -> str:
+	"""Return the zone a listing's dates are read in: §6.5's chain, assembled once.
+
+	**One function because there are three callers and being wrong is invisible.** A day read
+	in the wrong zone is right in winter and wrong in summer (`#773`), and the HTTP listing,
+	the local client's tasks and its documents would otherwise each assemble this — which is
+	this codebase's signature defect on the one rule with no visible symptom.
+	"""
+
+	return subroutine.domain.schedule.zone_for(
+		user=actor.user,
+		workspace=workspace,
+		instance=subroutine.domain.instances.get(session),
+	)
+
+
+def parsed (given: typing.Iterable[str]) -> dict[str, str]:
+	"""Read ``field.operator=value`` as somebody types it, refusing anything shapeless.
+
+	The form a *terminal* takes, since a query string's separator is not something to type by
+	hand. Here rather than in the CLI so that the refusal is one sentence wherever it is met,
+	and so a second surface taking the same spelling cannot invent a second one.
+
+	**The value is split on the first ``=`` only**, because a date expression may legitimately
+	contain one later and losing the tail would produce a filter that parses and means
+	something else.
+	"""
+
+	found = {}
+
+	for entry in given:
+		name, separator, value = entry.partition("=")
+
+		if not separator or not name.strip():
+			raise subroutine.errors.ValidationError(
+				f"{entry!r} is not a filter.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="filter",
+						code="invalid_field_value",
+						message=f"{entry!r} has no '=' in it.",
+						hint="Write it as field.operator=value, like created_at.gte=yesterday.",
+					)
+				],
+			)
+
+		found[name.strip()] = value.strip()
+
+	return found
 
 
 class Comparison (typing.NamedTuple):

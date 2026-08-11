@@ -227,44 +227,48 @@ class Client:
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
 		body = self._json(
 			"GET",
 			"/v1/tasks",
-			params=_given(
-				workspace_id=workspace,
-				limit=limit,
-				# **Three-valued on the wire, not two.** Sending nothing for `False` would make
-				# "no finished work" and "did not say" the same request, and `#710`'s refusal of
-				# the contradiction with a finished `status_category` could never fire remotely.
-				include_completed=(
-					None if include_completed is None else str(include_completed).lower()
+			params=_dated(
+				filters,
+				_given(
+					workspace_id=workspace,
+					limit=limit,
+					# **Three-valued on the wire, not two.** Sending nothing for `False` would make
+					# "no finished work" and "did not say" the same request, and `#710`'s refusal of
+					# the contradiction with a finished `status_category` could never fire remotely.
+					include_completed=(
+						None if include_completed is None else str(include_completed).lower()
+					),
+					order=order,
+					project=project,
+					# Sent as written and resolved at the far end (`#501`). A username looked up
+					# here would be a second copy of the rule and a second refusal to keep in step
+					# with the local client's.
+					assignee=assignee,
+					status=status,
+					status_category=status_category,
+					type=type,
+					due_before=None if due_before is None else due_before.isoformat(),
+					due_after=None if due_after is None else due_after.isoformat(),
+					subtree="true" if subtree else None,
+					# Refused here as well as at the far end, so a typo costs no round trip and
+					# is named the same way whether or not a server was reachable.
+					deferred=(
+						None
+						if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
+						else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+					),
+					q=q,
+					ready="true" if ready else None,
+					deleted="true" if deleted else None,
+					parent=parent,
 				),
-				order=order,
-				project=project,
-				# Sent as written and resolved at the far end (`#501`). A username looked up
-				# here would be a second copy of the rule and a second refusal to keep in step
-				# with the local client's.
-				assignee=assignee,
-				status=status,
-				status_category=status_category,
-				type=type,
-				due_before=None if due_before is None else due_before.isoformat(),
-				due_after=None if due_after is None else due_after.isoformat(),
-				subtree="true" if subtree else None,
-				# Refused here as well as at the far end, so a typo costs no round trip and
-				# is named the same way whether or not a server was reachable.
-				deferred=(
-					None
-					if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
-					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
-				),
-				q=q,
-				ready="true" if ready else None,
-				deleted="true" if deleted else None,
-				parent=parent,
 			),
 		)
 
@@ -300,21 +304,25 @@ class Client:
 		deleted: bool = False,
 		status: str | None = None,
 		type: str | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
 		body = self._json(
 			"GET",
 			"/v1/documents",
-			params=_given(
-				workspace_id=workspace,
-				limit=limit,
-				order=order,
-				project=project,
-				q=q,
-				deleted="true" if deleted else None,
-				status=status,
-				type=type,
+			params=_dated(
+				filters,
+				_given(
+					workspace_id=workspace,
+					limit=limit,
+					order=order,
+					project=project,
+					q=q,
+					deleted="true" if deleted else None,
+					status=status,
+					type=type,
+				),
 			),
 		)
 
@@ -1378,6 +1386,26 @@ def _given (**values: typing.Any) -> dict[str, typing.Any]:
 	"""
 
 	return {name: value for name, value in values.items() if value is not None}
+
+
+def _dated (
+	filters: dict[str, str] | None, params: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+	"""Add §9.6's date comparisons to a listing's query string — `#815`.
+
+	**Sent as written and refused at the far end**, like ``assignee`` and unlike ``deferred``.
+	A name checked here would be a second copy of ``domain/filtering``'s registry, and the two
+	would disagree the moment a field was added — where this way a client one release behind
+	its instance can still ask a question the instance understands.
+
+	A dotted name cannot collide with a flat one, since no endpoint declares a parameter with a
+	separator in it; the merge is one-way regardless, so a filter can never overwrite ``limit``.
+	"""
+
+	if not filters:
+		return params
+
+	return {**params, **filters}
 
 
 def opened (

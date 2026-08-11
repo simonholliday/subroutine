@@ -38,6 +38,28 @@ upgrade involves.
   is precise to the microsecond, so `created_at.eq=yesterday` would match nothing and read as an
   empty backlog rather than as a question that was not understood.
 
+- **`subroutine list --filter` and `subroutine search --filter` ask the same question from a
+  terminal.** Repeat it for a range:
+
+  ```
+  subroutine list --filter created_at.gte=yesterday
+  subroutine list --filter completed_at.gte=2026-08-02 --filter completed_at.lt=today
+  subroutine search "boiler" --filter created_at.gte=start_of_week
+  ```
+
+  `subroutine explain dates` covers it beside the rest of the date vocabulary. A field a
+  document has not got — a deadline, a planned day, a completion — asks about tasks, so
+  documents drop out of the answer rather than arriving unfiltered.
+
+### Fixed
+
+- **Asking when something was completed said that nothing was.** `completed_at` is only ever
+  set on finished work and a listing hides finished work unless asked — so
+  `subroutine list --filter completed_at.gte=today`, and the same request over HTTP, answered
+  with an empty list the same minute a task was completed. Asking about completion now reaches
+  completed work, exactly as naming a finished `status_category` already did, and asking for
+  both `completed_at` and `include_completed=false` is refused rather than quietly resolved.
+
 ## 0.6.4 — 2026-08-11
 
 ### Added

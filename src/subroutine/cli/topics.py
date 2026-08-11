@@ -89,7 +89,18 @@ Offset units are m minutes, h hours, d days, w weeks, M months, y years.
 Case matters: 'm' is minutes and 'M' is months.
 
 'Due Friday' means the end of Friday, so a task due Friday is not late on
-Friday morning. Everything is read in your own timezone."""
+Friday morning. Everything is read in your own timezone.
+
+The same words ask a list about the past:
+
+  subroutine list --filter created_at.gte=yesterday
+  subroutine list --filter completed_at.gte=start_of_week
+  subroutine list --filter created_at.gte=2026-08-02 --filter created_at.lt=today
+
+Write it as field.operator=value. The operators are gte and gt for 'from',
+lt and lte for 'until'; a bound takes in the whole day it names, so
+'created_at.lte=yesterday' includes all of yesterday. Repeat --filter for a
+range, and combine it with --project, --assignee or a search."""
 
 
 def _capture_body () -> str:

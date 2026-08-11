@@ -48,6 +48,7 @@ import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.filtering
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.links
@@ -334,6 +335,7 @@ class Client:
 		type: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -344,7 +346,15 @@ class Client:
 		# The same rule `GET /v1/tasks` applies, from the same function — a narrowing that
 		# widened on one transport and not the other is what `domain.ordering` exists to
 		# prevent for sorting, one filter along.
-		completion = subroutine.domain.tasks.completion_wanted(status_category, include_completed)
+		# **Asking *when* something was completed is asking for completed work** (`#818`), and
+		# it is decided here rather than in the router so both transports agree.
+		completion = subroutine.domain.tasks.completion_wanted(
+			status_category,
+			include_completed,
+			about_completion=subroutine.domain.filtering.about(
+				filters or {}, subroutine.domain.filtering.COMPLETION_FIELD
+			),
+		)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -482,6 +492,18 @@ class Client:
 					model.due_at > due_after
 				)
 
+			# §9.6's date comparisons, compiled by the domain rather than approximated here
+			# (`#815`) — so the two transports narrow by the same predicate, in the same zone,
+			# with the same refusal for a field neither has.
+			statement = statement.where(
+				*subroutine.domain.filtering.asked(
+					(filters or {}).items(),
+					entity="task",
+					now=subroutine.db.types.utcnow(),
+					timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
+				)
+			)
+
 			rows = list(
 				session.scalars(
 					# Built by the domain from the same vocabulary ``GET /v1/tasks`` uses,
@@ -530,6 +552,7 @@ class Client:
 		deleted: bool = False,
 		status: str | None = None,
 		type: str | None = None,
+		filters: dict[str, str] | None = None,
 	) -> list[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -583,6 +606,18 @@ class Client:
 						sqlalchemy.true()
 						if not q
 						else subroutine.domain.search.matching(q, model.title, model.body)
+					)
+					# §9.6's date comparisons (`#815`), compiled by the domain so that this and
+					# `GET /v1/documents` narrow by one predicate rather than by two spellings.
+					.where(
+						*subroutine.domain.filtering.asked(
+							(filters or {}).items(),
+							entity="document",
+							now=subroutine.db.types.utcnow(),
+							timezone=subroutine.domain.filtering.timezone_for(
+								session, actor, chosen
+							),
+						)
 					)
 					# Built by the domain from the vocabulary `GET /v1/documents` uses,
 					# rather than spelled out here — the ordering, its NULLS LAST (§10.3) and

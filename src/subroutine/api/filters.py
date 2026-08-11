@@ -28,8 +28,6 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.filtering
-import subroutine.domain.instances
-import subroutine.domain.schedule
 
 
 class Asked (typing.NamedTuple):
@@ -52,6 +50,17 @@ class Asked (typing.NamedTuple):
 
 		return subroutine.domain.filtering.predicates(
 			self.comparisons, now=now, timezone=timezone
+		)
+
+	def about (self, field: str) -> bool:
+		"""Report whether this request filtered on one named field — `#818`.
+
+		Asked before the values are read, because what it decides — whether the listing
+		reaches finished work — narrows the statement these predicates are added to.
+		"""
+
+		return subroutine.domain.filtering.about(
+			(comparison.name for comparison in self.comparisons), field
 		)
 
 
@@ -117,10 +126,8 @@ def narrowed (
 ) -> typing.Any:
 	"""Narrow a listing by whatever its dotted parameters asked, in the caller's timezone.
 
-	**One function rather than the same four lines in each listing.** What it assembles is
-	§6.5's chain — user, then workspace, then instance — and three copies of that would be this
-	codebase's signature defect on the one rule where being wrong is invisible: a day read in
-	the wrong zone is right in winter and wrong in summer (`#773`).
+	The zone comes from :func:`subroutine.domain.filtering.timezone_for`, which the local client
+	calls too — so a listing answers the same question the same way whichever transport asked.
 
 	A request that asked nothing narrows by nothing, so every listing calls this unconditionally
 	rather than testing first.
@@ -129,11 +136,7 @@ def narrowed (
 	return statement.where(
 		*asked.narrowing(
 			now=subroutine.db.types.utcnow(),
-			timezone=subroutine.domain.schedule.zone_for(
-				user=actor.user,
-				workspace=workspace,
-				instance=subroutine.domain.instances.get(session),
-			),
+			timezone=subroutine.domain.filtering.timezone_for(session, actor, workspace),
 		)
 	)
 

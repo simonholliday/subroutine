@@ -45,6 +45,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
+import subroutine.domain.filtering
 import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.tasks
@@ -2809,3 +2810,74 @@ def test_both_refuse_a_status_category_a_task_cannot_be_in (pair: Pair) -> None:
 			client.tasks(status_category="superseded")
 
 		assert "cancelled" in str(raised.value.errors[0].hint)
+
+
+@pytest.mark.parametrize(
+	"filters",
+	[
+		{"created_at.gte": "today"},
+		{"created_at.lt": "today"},
+		{"created_at.gte": "now-30d", "created_at.lt": "tomorrow"},
+		{"updated_at.gte": "start_of_week"},
+	],
+)
+def test_both_narrow_by_a_date_the_same_way (
+	pair: Pair, filters: dict[str, str]
+) -> None:
+	"""§9.6's dotted filters, over both transports — `#815`.
+
+	**The two sides do genuinely different things here**, which is why this is worth a case
+	rather than being covered by the listing test above: the local client compiles a predicate
+	against its own session, and the HTTP client puts the same words in a query string for the
+	far end to compile. One boundary rule, two places it could be applied — and a disagreement
+	would be a listing that answers differently depending on where the database is, which is
+	the divergence §13.7 exists to prevent.
+	"""
+
+	made = [make(pair, f"Task number {index}") for index in range(3)]
+
+	# **One of them backdated, so every case below has a mixed answer.** Without it three of
+	# the four filters returned the whole set either way — so a transport that ignored filters
+	# altogether was caught by exactly one case, and a parametrisation whose other rows cannot
+	# fail is a parametrisation pretending to be four tests.
+	pair.session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Task)
+		.where(subroutine.db.models.work.Task.id == made[0].id)
+		.values(
+			created_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC),
+			updated_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC),
+		)
+	)
+	pair.session.flush()
+
+	local, remote = pair.both()
+
+	assert local.tasks(filters=filters) == remote.tasks(filters=filters)
+	assert local.documents(filters=_shared(filters)) == remote.documents(
+		filters=_shared(filters)
+	)
+
+
+def _shared (filters: dict[str, str]) -> dict[str, str]:
+	"""Keep only the fields a document has, since it is not scheduled (§6.14)."""
+
+	return {
+		name: value
+		for name, value in filters.items()
+		if name.partition(".")[0] in subroutine.domain.filtering.DOCUMENT_FILTERS
+	}
+
+
+def test_both_refuse_an_unknown_filter_field_the_same_way (pair: Pair) -> None:
+	"""A misspelling is refused by name on either side, rather than matching nothing.
+
+	The local client could have quietly ignored it — it holds the registry and could have
+	skipped what it did not recognise — and that would be the failure `api/query.py` exists to
+	prevent, reproduced on the transport where nothing was watching for it.
+	"""
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as refused:
+			client.tasks(filters={"creatd_at.gte": "today"})
+
+		assert "creatd_at" in str(refused.value)

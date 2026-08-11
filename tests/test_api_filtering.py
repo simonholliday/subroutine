@@ -319,3 +319,44 @@ def published_path (published: list[str], entity: str) -> str:
 	return {"task": "/v1/tasks", "document": "/v1/documents", "project": "/v1/projects"}[
 		entity
 	]
+
+
+def test_asking_when_something_was_completed_reaches_finished_work (
+	world: World,
+) -> None:
+	"""**`#818`** — Simon's second question, which answered `[]` until the two rules met.
+
+	A listing hides finished work unless asked, and `completed_at` is null on everything that
+	is not finished. So the one field whose every value belongs to a finished task was compared
+	against a set with all of them already filtered out.
+
+	The precedent is exact and one spelling along: `tasks.completion_wanted` records that
+	`?status_category=done` answering `[]` on an instance full of finished work is *a plausible,
+	complete, wrong answer*. This is that request, differently written.
+	"""
+
+	answer = world.call("POST", "/v1/tasks/1/complete")
+
+	assert answer.status_code == 200, answer.text
+	assert world.titles("/v1/tasks?completed_at.gte=now-1y") == ["the 1st"]
+
+	# **And nothing else widens.** The implication belongs to the field being asked about, so a
+	# filter on `created_at` hides finished work exactly as before — a listing that grew every
+	# time it was asked about a date would be the same defect facing the other way.
+	assert "the 1st" not in world.titles("/v1/tasks?created_at.gte=now-1y")
+
+
+def test_asking_about_completion_and_excluding_it_is_refused (world: World) -> None:
+	"""A contradiction is named rather than settled in one parameter's favour.
+
+	There is no reading of *work finished yesterday, and no finished work* that means anything,
+	and the refusal is the same one a finished `status_category` already gets.
+	"""
+
+	answer = world.call(
+		"GET", "/v1/tasks?completed_at.gte=now-1y&include_completed=false"
+	)
+
+	assert answer.status_code == 422, answer.text
+	assert "completed_at" in answer.text
+	assert "include_completed" in answer.text
