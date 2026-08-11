@@ -4850,3 +4850,51 @@ def test_claiming_something_is_not_working_on_it (
 	run("release", "1")
 
 	assert run("list", "--filter", "touched_at.gte=today").output == before
+
+
+def test_the_trash_listing_offers_a_command_that_works_on_its_own_rows (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#693` — found three times, including on a built wheel, before it was fixed.
+
+	`list --trash` printed the generic tip, `subroutine show <ref>`, and `show` does not find a
+	deleted item — so the suggestion was wrong for **every row the trash can ever hold**, not
+	for an unlucky one. The refusal it earned then said to run plain `list`, which is exactly
+	where a deleted item is not.
+
+	**The tip is extracted and run**, rather than matched as a string. A test asserting the word
+	`restore` appears would pass on a tip naming a ref that does not exist, or a flag that was
+	renamed — and this defect was precisely a command that read correctly and did not work.
+	"""
+
+	run("init")
+	run("add", "Something to delete")
+	run("delete", "1")
+
+	listed = run("list", "--trash").output
+	suggested = re.search(r"Tip: (subroutine [^\n—]+)", listed)
+
+	assert suggested, f"the trash listing offered no tip at all:\n{listed}"
+
+	# Run it. `expect=0` is the assertion — the old tip exited 1 with "there is no task #1".
+	answered = run(*suggested.group(1).split()[1:])
+
+	assert "Something to delete" in answered.output
+
+
+def test_a_missing_ref_names_the_trash_as_somewhere_to_look (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The second half of `#693`, and phrased as a condition rather than as a claim.
+
+	The program does not know the item was deleted — it knows it is not here. So the remedy
+	says *if you deleted it*, which is `#265`'s rule about refusals that assert a cause they
+	have not established.
+	"""
+
+	run("init")
+
+	refused = run("show", "99", expect=1).output
+
+	assert "--trash" in refused, "the one other place it could be is not named"
+	assert "if you deleted it" in refused, "the refusal asserts a cause it cannot know"

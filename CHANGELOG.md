@@ -91,6 +91,32 @@ upgrade involves.
 
 ### Fixed
 
+- **`init` refused to set up an instance when the machine's username was a reserved word.**
+  A workspace's short name is derived from its title, and falls back to the username when the
+  title cannot produce a legal one — but the fallback was not itself checked, so
+  `subroutine init --username app --workspace MCP` created nothing and complained about a
+  field nobody had typed. A container running as `app` met this on installation.
+
+- **`subroutine list --trash` suggested a command that refused every row it had just printed.**
+  It offered `subroutine show <ref>`, which does not find a deleted item; it offers
+  `subroutine restore <ref>` now. And a missing ref names the trash as the other place to look,
+  phrased as a condition — the program knows the item is not here, not that you deleted it.
+
+- **`whoami` told you what your role may do only when your credential was restricted.** So an
+  agent learned *more* about its own permissions by being narrowed: a plain member was handed
+  the word *Member* and nothing else. The list now appears for any role short of holding
+  everything, on the command line and through `subroutine_whoami`.
+
+- **A link in stored text could reach another host behind a control character.** `//evil.example`
+  was refused; one invisible character before it was not, because that check read the raw
+  destination while the scheme check read the cleaned one. Both read the cleaned one now.
+  Nothing that was already allowed has changed.
+
+- **The API's own schema said a link event names nothing, and it names its source.** Published
+  in `/v1/openapi.json`, so a client reading it concluded it had to resolve link events itself.
+  It carries the item the link hangs off, exactly as a comment carries the item it was written
+  on — which also means a client watching one item sees links made *from* it and not *to* it.
+
 - **Asking when something was completed said that nothing was.** `completed_at` is only ever
   set on finished work and a listing hides finished work unless asked — so
   `subroutine list --filter completed_at.gte=today`, and the same request over HTTP, answered

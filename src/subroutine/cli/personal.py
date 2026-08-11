@@ -1120,7 +1120,8 @@ def register (
 			stop(
 				f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
 				f"{_in_place(world, named[1])}.",
-				"Run 'subroutine list' to see what there is.",
+				"Run 'subroutine list' to see what there is — or "
+				"'subroutine list --trash' if you deleted it.",
 			)
 
 		shown = [_absolute(world, item) for item in elsewhere]
@@ -1244,7 +1245,8 @@ def register (
 		if not candidates:
 			stop(
 				f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
-				"Run 'subroutine list' to see what there is.",
+				"Run 'subroutine list' to see what there is — or "
+				"'subroutine list --trash' if you deleted it.",
 			)
 
 		if len(candidates) == 1:
@@ -1649,10 +1651,19 @@ def register (
 			_say_where_a_bare_number_goes(world, console=console)
 
 			say("")
+
+			# **The trash gets its own tip, because the ordinary one refuses every row it was
+			# printed under** (`#693`). `show` does not find a deleted item, so the generic
+			# suggestion was wrong for the whole of this listing rather than for an unlucky
+			# row — and the refusal it earned then pointed at plain `list`, which is precisely
+			# where a deleted item is not. `restore` is what a reader of this list wants, and
+			# `delete` named it a moment earlier.
+			address = _typeable(world, rows[0][0], rows[0][1])
+
 			_suggest(
 				console,
-				f"subroutine show {_typeable(world, rows[0][0], rows[0][1])}",
-				"read one of them in full",
+				f"subroutine restore {address}" if trash else f"subroutine show {address}",
+				"put one of them back" if trash else "read one of them in full",
 			)
 
 	def _say_where_a_bare_number_goes (
@@ -4172,7 +4183,12 @@ def register (
 			# **Per row rather than per column.** One credential can be narrowed in one
 			# workspace and not in another, and the row where it is narrowed is the row whose
 			# permissions somebody has to read.
-			if workspace.narrowed_by_credential:
+			#
+			# **The test is whether the role holds everything, not whether the credential was
+			# narrowed** (`#717`). The old condition meant an agent learned *more* about what
+			# it could do by being restricted — a plain contributor got the word `Contributor`
+			# and nothing else, while the same account with a pinned token got the list.
+			if subroutine.permissions.worth_listing(workspace.permissions):
 				# **Described rather than listed** (`#703`). A verb whose subject is wider than
 				# its own name is a list that reads as complete and is not — `task:write` is
 				# the only thing granting document writes, and nothing said so.

@@ -207,6 +207,29 @@ COVERAGE: dict[str, str] = {
 }
 
 
+def worth_listing (names: typing.Iterable[str]) -> bool:
+	"""Report whether spelling out these permissions tells a reader anything — `#717`.
+
+	**Anything short of everything is worth listing.** ``whoami`` used to show the list only
+	when the *credential* had been narrowed, on the reasoning that "an unnarrowed owner would
+	otherwise be handed twenty keys it already holds". That reasoning is sound and it is about
+	the wrong case: an owner holding everything is exactly where a list says nothing, and a
+	contributor holds six of seventeen — the case where it says the most. So an agent learned
+	**more** about what it could do by being *restricted*, and a plain contributor credential
+	was handed the word *Contributor* and nothing else.
+
+	`GET /v1/me` carries the permissions either way, so this only ever governed the rendering —
+	which meant an agent reading `whoami`, the channel built for this question, was worse
+	informed than one calling `call_api` on `/v1/me`. `#499`'s rule points the other way.
+
+	Here rather than in either surface, for the reason :func:`described` gives one line below:
+	the CLI and the MCP tool answer the same question, and two copies of a rule is what this
+	project keeps finding wrong.
+	"""
+
+	return frozenset(names) != WORKSPACE_LEVEL
+
+
 def described (names: typing.Iterable[str]) -> list[str]:
 	"""Return each permission with what it covers, where the name does not already say.
 

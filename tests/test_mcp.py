@@ -3812,3 +3812,52 @@ def test_the_filter_schema_names_every_field_it_accepts (
 		"touched_by takes a username and is listed among the fields taking a date"
 	)
 	assert subroutine.domain.filtering.TOUCHED_BY in rest
+
+
+def test_asking_who_you_are_says_what_an_ordinary_role_may_do (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#717`, on the surface the item names beside the CLI — and the *unnarrowed* case.
+
+	The test above covers a credential bounded on purpose. This is the one that was silent: a
+	token with **no scopes, no project scope and no workspace pin**, belonging to somebody whose
+	role is not the owner's. It was handed the role's name and nothing else, so an agent learned
+	more about what it could do by being restricted than by being trusted.
+
+	The account is a second user with a member role rather than the instance's founder, because
+	the founder is a superuser and holding everything is the one case where listing says nothing
+	— which is the rule the fix keeps and the old condition never expressed.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	principal = subroutine.domain.authentication.Principal(user=setup.user, token=None)
+	colleague = subroutine.domain.users.create(
+		session, username=f"colleague-{uuid.uuid4().hex[:8]}", actor=principal
+	)
+	subroutine.domain.workspaces.add_member(
+		session, setup.workspace, colleague, role_key="member", actor=principal
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=colleague, title="unbounded"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed, text
+	assert "Narrowed to" not in text, "the fixture narrowed it, so it proves nothing"
+	assert "may: " in text, "a member was told its role and not what the role may do"
+	assert subroutine.permissions.TASK_READ in text

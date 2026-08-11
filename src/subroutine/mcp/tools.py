@@ -1045,7 +1045,9 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 				# concluded it could not write up what it had concluded — which is the one
 				# thing the skill spends most of its words persuading it to do.
 				f"  may: {', '.join(subroutine.permissions.described(workspace.permissions))}"
-				if workspace.narrowed_by_credential
+				# Anything short of everything (`#717`) — an owner holding all seventeen is the
+				# one case where the list says nothing, and it was the only case being served.
+				if subroutine.permissions.worth_listing(workspace.permissions)
 				else ""
 			)
 			for workspace in me.workspaces

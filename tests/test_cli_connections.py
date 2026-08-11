@@ -2696,3 +2696,36 @@ def test_a_marker_whose_workspace_is_on_two_connections_falls_back_rather_than_g
 
 	assert "Using" in said and "instead" in said, "today's behaviour, unchanged"
 	assert "its workspace is on" not in said, "two answers is not an answer"
+
+
+def test_whoami_lists_permissions_for_a_role_that_does_not_hold_everything (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#717` — an unnarrowed credential learned *less* about itself than a narrowed one.
+
+	The list used to appear only when the credential was narrowed, on the reasoning that an
+	unnarrowed owner would be handed twenty keys it already holds. True, and about the wrong
+	case: an owner holding everything is where a list says nothing, and a contributor holding
+	six of seventeen is where it says the most. So a plain contributor credential got the word
+	*Contributor* and no statement of what that meant.
+
+	Driven with a service account holding a role and **no scopes, no project scope and no
+	workspace pin** — the shape that was silent.
+	"""
+
+	run("init")
+	run("user", "create", "colleague")
+	run("user", "add", "colleague", "--workspace", "personal", "--role", "member")
+
+	# **No `--workspace` and no `--scope`**, which is the whole point: those pin and narrow the
+	# credential, and a narrowed one was already being served. This is the shape that was not.
+	issued = run("token", "create", "--username", "colleague", "--title", "Probe")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+
+	answer = run("whoami").output
+
+	assert "Narrowed to" not in answer, "the fixture narrowed the credential, so it proves nothing"
+	assert "may: " in answer, "a contributor was told its role and not what the role may do"
+	assert "task:read" in answer
