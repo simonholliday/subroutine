@@ -160,10 +160,23 @@ _PROJECT = re.compile(
 	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)[,.;:!?)\]]*(?=\s|$)"
 )
 
-#: A ``+`` that begins a word and carries something — whether or not any rule could read it.
-#: Compared against what the rules claimed, which is what makes an unreadable project name
-#: reportable rather than silent (`#778`).
-_SIGIL_LEFT = re.compile(rf"{_STARTS_A_WORD}\+\S+")
+#: A ``+`` that begins a word and could have been a project key — whether or not any rule could
+#: read the rest. Compared against what the rules claimed, which is what makes an unreadable
+#: project name reportable rather than silent (`#778`).
+#:
+#: **A letter after the sigil, and that is derived rather than chosen** (`#790`). A key begins
+#: with one — ``projects.KEY_PATTERN`` is ``[a-z][a-z0-9]*…`` and input is case-folded by
+#: ``normalize_key`` before it is checked — so a ``+`` carrying anything else was never an
+#: attempt at one. ``tests/test_capture.py`` holds the two rules against each other rather than
+#: trusting this paragraph, and it fails a version narrowed to lower case as well as a widened
+#: one.
+#:
+#: The first version was ``\+\S+`` and reported every ``+`` beginning a word, so *"Call +44
+#: 7911 123456"* was answered with *a project is named like '+web'*. The item is filed correctly
+#: and the words stay in the title either way, so nothing was lost but the sentence — and a
+#: sentence that misdescribes what happened is the failure §6.13 rule 1 exists to prevent,
+#: arriving from the side meant to fix it.
+_SIGIL_LEFT = re.compile(rf"{_STARTS_A_WORD}\+[A-Za-z]\S*")
 
 
 def names_a_project (text: str) -> bool:

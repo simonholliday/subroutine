@@ -154,6 +154,11 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **A phone number is no longer mistaken for a project name.** Typing `Call +44 7911 123456`
+  said *left as written: +44 — a project is named like '+web'*. The task was always filed
+  correctly and the number always stayed in the title; only the note was wrong, and it is gone.
+  An unreadable project name is still reported.
+
 - **The browser stops reloading itself every ten seconds.** It asked what had changed, was
   answered *the thing you already knew about*, and treated that as news — so it refetched the
   whole list on a timer whether or not anything had happened, on every page, all day. It now

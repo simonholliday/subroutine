@@ -19,6 +19,7 @@ import pytest
 
 import subroutine.domain.capture
 import subroutine.domain.dates
+import subroutine.domain.projects
 
 #: Thursday 30 July 2026. Sunday is the 2nd of August; next Friday is the 7th.
 NOW = datetime.datetime(2026, 7, 30, 14, 0, tzinfo=datetime.UTC)
@@ -230,6 +231,67 @@ def test_a_plus_inside_a_word_is_not_a_project_name () -> None:
 
 		assert captured.unparsed == (), f"{line!r} was reported as a project name"
 		assert captured.title == line, f"{line!r} lost a word"
+
+
+@pytest.mark.parametrize(
+	"line",
+	[
+		"Call +44 7911 123456",
+		"Buy a +1 adapter",
+		"Order +2 more chairs",
+		"Ring mum +447911123456 tomorrow",
+	],
+)
+def test_a_number_after_a_plus_is_not_a_project_name (line: str) -> None:
+	"""`SR#790`, found reviewing `SR#778` — the fix for silence over-fired into noise.
+
+	The pattern was `\\+\\S+`, so every `+` beginning a word was reported *with a sentence about
+	project names*: **"Call +44 7911 123456"** was answered with *a project is named like
+	'+web'*. The item is filed correctly and the words stay in the title either way, so nothing
+	was lost but the sentence — and a sentence that misdescribes what happened is the failure
+	§6.13 rule 1 exists to prevent, arriving from the side meant to fix it.
+
+	A phone number in a to-do list is not an exotic input, and this was silent before `SR#778`.
+	"""
+
+	captured = _parse(line)
+	number = next(word for word in line.split() if word.startswith("+"))
+
+	assert captured.unparsed == (), f"{line!r} was explained as a broken project name"
+
+	# **The number, not the whole line.** *"Ring mum … tomorrow"* legitimately loses its date to
+	# the grammar, and asserting on the whole string made this test about date parsing — which
+	# it is not, and which is already covered.
+	assert number in captured.title, f"{line!r} lost the number itself"
+	assert captured.project_key is None, "a number was read as a project"
+
+
+def test_what_can_be_reported_is_what_could_have_been_a_key () -> None:
+	"""`SR#790`. The bound is derived from the key rule rather than from the noise it removes.
+
+	**A project key begins with a letter** — `projects.KEY_PATTERN` is `[a-z][a-z0-9]*…` and
+	input is case-folded by `normalize_key` before it is checked — so a `+` carrying anything
+	else was never an attempt at one, and reporting it explains a mistake nobody made.
+
+	Written as an agreement between the two rules rather than as a list of characters, so a
+	`KEY_PATTERN` that one day admitted something else fails here rather than making the report
+	quietly narrower than the thing it describes.
+	"""
+
+	shape = subroutine.domain.projects.KEY_PATTERN
+	folded = subroutine.domain.projects.normalize_key
+
+	for first in ("a", "z", "A", "Z"):
+		assert shape.match(folded(first)), f"{first!r} no longer begins a key"
+		assert _parse(f"Fix it +{first}x/y").unparsed == (f"+{first}x/y",), (
+			f"a key could begin with {first!r} and a broken one starting with it is not reported"
+		)
+
+	for first in ("0", "9"):
+		assert not shape.match(folded(first)), f"{first!r} now begins a key"
+		assert _parse(f"Fix it +{first}x/y").unparsed == (), (
+			f"no key can begin with {first!r}, so a +{first}… is not a project somebody mistyped"
+		)
 
 
 def test_a_recurring_phrase_does_not_swallow_a_real_date () -> None:
