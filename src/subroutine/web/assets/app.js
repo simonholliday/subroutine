@@ -1202,6 +1202,34 @@ export function offered (vocabulary, kind) {
 	}));
 }
 
+export function statusFor (vocabulary, kind, category) {
+	/*
+		Which status a column means — `#711`.
+
+		**A board's columns are *categories* and the API takes a *status*.** The four categories
+		are fixed by the model, which is what lets a board have columns at all (`#653`); a status
+		is workspace vocabulary, renameable, and there may be several in one category — `open`,
+		`blocked` and `needs_input` are all `todo` here. So dropping a card on a column is a
+		question with more than one answer and something has to choose.
+
+		**The default of that category**, and the first one otherwise. `is_default` is what a
+		workspace has already said about *which of these is the ordinary one*, which is exactly
+		the question, and it is the same field `offered` reads for the same reason. Choosing by
+		key would be this app carrying its own vocabulary, which is wrong on the first instance
+		that renames anything and wrong silently.
+
+		**Null when a category has no status at all**, so a caller declines the drop rather than
+		sending a key nobody has. A workspace can be configured that way and a 422 for a gesture
+		is a worse answer than the gesture not being offered.
+	*/
+	const known = ((vocabulary && vocabulary[kind]) || [])
+		.filter((one) => one.category === category);
+
+	if (known.length === 0) return null;
+
+	return (known.find((one) => one.is_default) || known[0]).key;
+}
+
 export function filableFor (projects, project) {
 	/*
 		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
@@ -2398,11 +2426,32 @@ export function followed (event, act) {
 /* ---- views -------------------------------------------------------------- */
 
 export function Row ({
-	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null,
+	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
 	const badges = marks(item, showKind, ordering);
+
+	/*
+		**Draggable only where something can receive it** (`#711`), which is the board. A card
+		that lifts on a page with nowhere to drop it is a control whose only outcome is putting
+		it back — this project's own inert-control defect, in the one place a reader would feel
+		it rather than read about it.
+
+		The ref goes in the transfer rather than the item: a drop handler reads a string, and
+		the column it lands in has the row already. `text/plain` because every browser carries
+		it and a private type buys nothing when the two ends are one page.
+	*/
+	const lift = onDrag
+		? {
+			draggable: true,
+			onDragStart: (event) => {
+				event.dataTransfer.setData("text/plain", String(item.ref));
+				event.dataTransfer.effectAllowed = "move";
+				onDrag(item);
+			},
+		}
+		: {};
 
 	/*
 		**The workspace goes in the ref cell, not in a badge** — the same answer `subroutine
@@ -2453,8 +2502,12 @@ export function Row ({
 		`}
 	`;
 
+	/* **The `<li>` carries the gesture, not the anchor inside it.** A draggable anchor is
+	   draggable by the browser already — dragging one is *copy this link* — so putting the
+	   handler there would make one gesture mean two things depending on where the pointer went
+	   down. The row is the card; the card is what moves. */
 	return html`
-		<li>
+		<li ...${lift}>
 			${address
 				? html`<a class="row" href=${address} onClick=${open}>${cells}</a>`
 				: html`<button class="row" onClick=${open}>${cells}</button>`}
@@ -2544,7 +2597,8 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy,
 
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
-	widenTo, selection, finishedTo, adding,
+	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
+	over = null, onOver = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -2605,7 +2659,29 @@ export function Board ({
 
 			<div class="columns">
 				${arranged.map((column) => html`
-					<section class="column" key=${column.key}>
+					${/*
+						**A column is the drop target and a card is the thing dropped** (`#711`).
+						`preventDefault` on dragover is what *makes* an element a target — the
+						default is to refuse — so the handler that looks like it does nothing is
+						the one doing the work.
+
+						**A drop on the column an item is already in is not a write.** It is the
+						commonest way a drag ends, being what happens when somebody thinks better
+						of it, and reporting *#42 is in progress* about a card nobody moved is
+						the kind of true-sounding falsehood this project keeps finding.
+					*/ null}
+					<section class=${`column${over === column.key ? " over" : ""}`} key=${column.key}
+						onDragOver=${onMove ? ((event) => {
+							event.preventDefault();
+							event.dataTransfer.dropEffect = "move";
+
+							if (onOver && over !== column.key) onOver(column.key);
+						}) : undefined}
+						onDragLeave=${onOver ? (() => onOver(null)) : undefined}
+						onDrop=${onMove ? ((event) => {
+							event.preventDefault();
+							onMove(column.key);
+						}) : undefined}>
 						${/*
 							**A count of what is on the page, which is not a total** (`#718`).
 							This comment used to say a board is not paged and that the number was
@@ -2634,7 +2710,8 @@ export function Board ({
 									${column.items.map((item) => html`
 										<${Row} key=${item.kind + item.ref} item=${item}
 											showKind=${showKind} workspace=${workspace}
-											onOpen=${onOpen} onComplete=${onComplete} />
+											onOpen=${onOpen} onComplete=${onComplete}
+											onDrag=${onDrag} />
 									`)}
 								</ul>
 							`}
@@ -4354,11 +4431,73 @@ export function App () {
 		}
 	}, [open, show, workspace]);
 
+	/*
+		**The card in the air** (`#711`). A ref rather than the row, because the only thing a
+		drop needs is which item it was — and a ref is what the transfer already carries, so the
+		two halves cannot disagree about the subject.
+
+		A ref rather than state, for the reason `since` and `held` are refs: `onDrop` runs from a
+		listener the browser holds, and a render between the lift and the drop would leave the
+		handler reading whichever card was in the air when it was created.
+	*/
+	const lifted = useRef(null);
+	/* **Which column the pointer is over**, and this one is state rather than a ref because it
+	   is *rendered*. The pair is the split this app makes everywhere: a ref for what a callback
+	   reads, state for what a reader sees. */
+	const [over, setOver] = useState(null);
+
+	const dragged = useCallback((item) => {
+		lifted.current = item;
+	}, []);
+
 	const status = useCallback((row, where) => wrote(
 		row,
 		() => ({ text: `#${row.ref} is ${where.replace(/_/g, " ")}.`, tone: "good" }),
 		() => sent(statusRequest(row, where, workspace)),
 	), [workspace, wrote]);
+
+	const moved = useCallback((category) => {
+		/*
+			A card dropped on a column — `#711`.
+
+			**A column is a category and the API takes a status**, so something has to choose
+			which one: `statusFor` does, from the workspace's own vocabulary. Null means this
+			workspace has no status in that category, and the drop is declined rather than sent —
+			a 422 in answer to a gesture is worse than the gesture doing nothing.
+
+			**A drop on the column it came from is not a write.** That is how a drag ends when
+			somebody thinks better of it, and reporting *#42 is in progress* about a card nobody
+			moved is a true-sounding falsehood, which is the shape this project keeps finding.
+
+			**It goes through `status`, so it is the same write the select on an open item
+			makes** (`#758`) — one path, one refusal, one re-read. A second one would be two
+			answers to *what does moving an item mean*, and `#726`'s ruling — a status is not a
+			claim — would then have to hold in two places.
+		*/
+		const item = lifted.current;
+
+		lifted.current = null;
+		setOver(null);
+
+		if (!item || item.status_category === category) return;
+
+		const where = statusFor(
+			vocabulary && vocabulary.statuses,
+			item.kind === "document" ? "document" : "task",
+			category,
+		);
+
+		if (where === null) {
+			setNote({
+				text: `There is no status here that means ${category.replace(/_/g, " ")}.`,
+				tone: "bad",
+			});
+
+			return;
+		}
+
+		status(item, where);
+	}, [status, vocabulary]);
 
 	const comment = useCallback(async (body) => {
 		/* **The item is re-read afterwards rather than the comment appended locally**, because
@@ -4732,6 +4871,7 @@ export function App () {
 							onMore=${showMore}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							selection=${showing.selection}
+							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
 							${/* **Offered only where one parameter is the whole remedy**: a board
 							     narrowed by `status_category` has every other column absent for a
 							     reason no single link undoes, and a link per column claiming to

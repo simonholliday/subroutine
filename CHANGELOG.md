@@ -114,6 +114,17 @@ upgrade involves.
   What is listed is read from the routes the instance actually serves, so it cannot claim a
   way in that is not there, or stay quiet about one that is.
 
+- **Cards are dragged between columns on the board.** Pick one up, drop it on another
+  column, and its status moves — the same write the status control on an open item makes, so
+  there is one answer to what moving something means. Dropping a card back where it started
+  changes nothing, which is how most drags end.
+
+  **Which status a column means comes from your workspace.** If your *to do* holds *Triage*
+  and *Ready*, a card dropped there gets whichever one you marked as the ordinary one. A
+  column with no status behind it declines the drop and says so, rather than failing.
+
+  Reordering *within* a column is not this and is not built yet.
+
 - **You choose how the list is ordered, and it says so.** *Order* above the rows: newest,
   oldest, A to Z, recently changed, or most important. Whichever you pick, each row shows the
   value it is sorted on — so the order is something you can check rather than take on trust.

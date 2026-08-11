@@ -4619,6 +4619,8 @@ def _views (
 			: name === "touching"
 				? app.touching(argument.events, argument.open, argument.page)
 			: name === "orderedAs" ? app.orderedAs(argument.selection)
+			: name === "statusFor"
+				? app.statusFor(argument.vocabulary, argument.kind, argument.category)
 			: name === "offeredOrders" ? app.offeredOrders().map(([key]) => key)
 			: name === "collectionsFor" ? app.collectionsFor(argument)
 			: name === "inOrder"
@@ -6451,6 +6453,51 @@ def test_a_ranked_page_asks_for_no_documents_and_says_why (tmp_path: pathlib.Pat
 		f"the page dropped every document and said nothing about it: {driven['said'][:300]}"
 	)
 	assert "!4/3" in driven["said"], "a ranked row does not show what it is ranked by"
+
+
+#: A workspace whose statuses are its own, which is the case a literal list gets wrong.
+#: Three in one category, one renamed, and the default is not the first.
+RENAMED = {
+	"task": [
+		{"key": "triage", "label": "Triage", "category": "todo", "is_default": False},
+		{"key": "ready", "label": "Ready", "category": "todo", "is_default": True},
+		{"key": "doing", "label": "Under way", "category": "in_progress", "is_default": True},
+		{"key": "shipped", "label": "Shipped", "category": "done", "is_default": True},
+	],
+}
+
+
+@pytest.mark.parametrize(
+	("category", "expected"),
+	[
+		# Not the first in its category — the workspace said which is ordinary.
+		("todo", "ready"),
+		("in_progress", "doing"),
+		("done", "shipped"),
+		# Configured with nothing there, so a drop on it is declined rather than sent.
+		("cancelled", None),
+	],
+)
+def test_which_status_a_column_means (
+	tmp_path: pathlib.Path, category: str, expected: str | None
+) -> None:
+	"""`SR#711`. A board's columns are categories and the API takes a status.
+
+	The four categories are fixed by the model, which is what lets a board have columns at all
+	(`SR#653`); a status is workspace vocabulary, renameable, and there may be several in one
+	category — `open`, `blocked` and `needs_input` are all `todo` here. So a drop is a question
+	with more than one answer.
+
+	**Answered from `is_default`**, which is what a workspace has already said about *which of
+	these is the ordinary one*. Choosing by key would be this app carrying its own vocabulary,
+	wrong on the first instance that renames anything and wrong silently.
+	"""
+
+	answer = _views(tmp_path, [
+		("statusFor", {"vocabulary": RENAMED, "kind": "task", "category": category}),
+	])[0]
+
+	assert answer == expected
 
 
 def test_the_top_of_the_page_offers_the_same_things_whatever_is_below_it (

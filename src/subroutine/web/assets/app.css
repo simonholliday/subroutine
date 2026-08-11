@@ -760,6 +760,25 @@ fieldset {
    nothing about the consequence — which for a ranked page is that it holds no documents. */
 .ordered .says { color: var(--ink-faint); }
 
+/*
+	Dragging a card between columns (`#711`).
+
+	**The affordance is the cursor and the target is a border**, and both say what they mean
+	without colour carrying it (decision `#102`): the accent marks the column a drop would land
+	in, and the dashed edge says *here* whether or not a reader can separate the hues.
+
+	`grab` only where a card can be lifted — a row on a list is not draggable, so it must not
+	claim to be.
+*/
+.board .rows li[draggable="true"] .row { cursor: grab; }
+.board .rows li[draggable="true"] .row:active { cursor: grabbing; }
+
+.column.over {
+	border: 1px dashed var(--accent);
+	border-radius: var(--radius);
+	background: var(--bg-raised);
+}
+
 /* ---- detail ------------------------------------------------------------ */
 
 .detail {

@@ -299,11 +299,28 @@ IDENTITY = {
 
 EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
 
+#: A workspace's own vocabulary, which is what a column has to be resolved through. Renamed and
+#: with the default second, because a board choosing by key would be right only here.
+META = {
+	"statuses": {"task": [
+		{"key": "triage", "label": "Triage", "category": "todo", "is_default": False},
+		{"key": "ready", "label": "Ready", "category": "todo", "is_default": True},
+		{"key": "doing", "label": "Under way", "category": "in_progress", "is_default": True},
+	]},
+	"item_types": {}, "link_types": [], "linkable_types": [], "workspaces": [],
+}
+
+#: The one row every page here is built from. Named separately from the envelope because a
+#: write is answered with the *item* and a read with a collection, and inferring the pair from
+#: one literal gave the row a type nothing could index.
+CARD: dict[str, typing.Any] = {
+	"ref": 42, "kind": "task", "title": "Fix the pagination cursor", "project_key": "ui",
+	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
+}
+
 #: One page of rows, in the envelope every listing here uses. Enough for a link to click.
 ROWS = {
-	"items": [{"ref": 42, "kind": "task", "title": "Fix the pagination cursor",
-		"project_key": "ui", "status_category": "todo",
-		"created_at": "2026-08-10T14:22:00+00:00"}],
+	"items": [CARD],
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
@@ -323,6 +340,9 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	"""
 
 	shell = subroutine.api.web.FILES[subroutine.api.web.SHELL][0]
+	#: Every write the page made, so a gesture can be checked by what it sent rather than by
+	#: what the page then looks like — the request is the fact and the render is a consequence.
+	written: list[tuple[str, str, str | None]] = []
 
 	def answered (route: typing.Any) -> None:
 		"""Serve one request the way the instance would.
@@ -340,8 +360,24 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			return
 
 		if wanted.startswith("v1/"):
+			if route.request.method != "GET":
+				written.append((route.request.method, wanted, route.request.post_data))
+				route.fulfill(
+					status=200, body=json.dumps(CARD),
+					content_type="application/json",
+				)
+
+				return
+
+			# **The narrower path first**, and this one bit: `"v1/meta".startswith("v1/me")` is
+			# true, so the vocabulary was served the identity body — and the only symptom was a
+			# drop refusing itself with *there is no status here that means in progress*, which
+			# reads exactly like a workspace configured that way. `#722`'s fixture carries the
+			# same warning about `/v1/tasks/42` inside `/v1/tasks/42/links`; it is the same
+			# defect and this is the third place it has appeared.
 			answer = (
-				IDENTITY if wanted.startswith("v1/me")
+				META if wanted.startswith("v1/meta")
+				else IDENTITY if wanted.startswith("v1/me")
 				else ROWS if wanted.startswith("v1/tasks")
 				else EMPTY
 			)
@@ -378,7 +414,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		return page
 
 	try:
-		yield opened
+		yield opened, written
 	finally:
 		context.close()
 
@@ -392,7 +428,8 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	predicts was covered by nothing**, and it is the half that reaches a reader.
 	"""
 
-	page = running("/projects")
+	opened, _written = running
+	page = opened("/projects")
 
 	page.wait_for_selector("a[href]", timeout=10_000)
 
@@ -410,6 +447,93 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	assert "42" in tab.url, f"the new tab opened somewhere else: {tab.url}"
 
 	tab.close()
+
+
+def test_a_card_is_draggable_on_the_board_and_nowhere_else (running: typing.Any) -> None:
+	"""`#711`. A card that lifts with nowhere to drop it puts itself back.
+
+	That is this codebase's inert-control defect in the one place a reader *feels* rather than
+	reads — so the gesture is offered where a column can receive it and withheld on a list.
+
+	**Here rather than in ``tests/test_web.py``** because that harness carries `href` through
+	and nothing else by decision: it is a text harness, and an attribute is not text.
+	"""
+
+	opened, _written = running
+	board = opened("/projects?view=board")
+
+	board.wait_for_selector(".board .rows li", timeout=10_000)
+
+	assert board.eval_on_selector_all(".rows li[draggable='true']", "found => found.length"), (
+		"no card on the board can be lifted"
+	)
+
+	listed = opened("/projects?view=list")
+
+	listed.wait_for_selector(".listing .rows li", timeout=10_000)
+
+	assert not listed.eval_on_selector_all(
+		".rows li[draggable='true']", "found => found.length"
+	), "a row on a list claims to be draggable and has nowhere to be dropped"
+
+
+def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> None:
+	"""`#711`, and the gesture is the whole of what could not be checked before.
+
+	**Asserted on the request rather than on the page**: the write is the fact and the render is
+	a consequence of it, and a board that looked right while sending the wrong status is exactly
+	the shape this project keeps finding.
+
+	`ready` rather than `triage`, and that is the point of the fixture — this workspace's `todo`
+	holds two, and the one it calls ordinary is the second. A board choosing by key would pass
+	against `seed.py` and fail on the first instance that renames anything.
+	"""
+
+	opened, written = running
+	page = opened("/projects?view=board")
+
+	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
+	written.clear()
+
+	page.drag_and_drop(".rows li[draggable='true']", "section.column:nth-of-type(2)")
+	page.wait_for_timeout(300)
+
+	moves = [one for one in written if one[0] == "PATCH"]
+
+	assert moves, f"the drop wrote nothing: {written}"
+
+	_method, where, body = moves[0]
+
+	assert "42" in where, f"the write went to the wrong item: {where}"
+	assert body is not None and json.loads(body) == {"status": "doing"}, (
+		f"a drop on In progress sent {body!r} — a column is a category and the status has to "
+		f"come from the workspace's own vocabulary"
+	)
+
+
+def test_a_card_dropped_where_it_already_was_is_not_a_write (running: typing.Any) -> None:
+	"""`#711`. The commonest way a drag ends is somebody thinking better of it.
+
+	Reporting *#42 is in progress* about a card nobody moved is a true-sounding falsehood, which
+	is the shape this project keeps finding — and a wasted `PATCH` on every abandoned gesture
+	besides.
+
+	**Found by falsifying**: removing the guard left every test green, because the only drag
+	being driven went somewhere else. A mutation that survives is a finding about the tests.
+	"""
+
+	opened, written = running
+	page = opened("/projects?view=board")
+
+	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
+	written.clear()
+
+	page.drag_and_drop(".rows li[draggable='true']", "section.column:nth-of-type(1)")
+	page.wait_for_timeout(300)
+
+	assert not [one for one in written if one[0] != "GET"], (
+		f"a card dropped back where it started was written anyway: {written}"
+	)
 
 
 def test_the_stale_half_of_the_excuse_list (looks: typing.Any) -> None:
