@@ -154,6 +154,11 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **An item you edited and then abandoned is up to date again.** If somebody changed it while
+  your edit form was open, closing the form without saving used to leave the old version on
+  screen with nothing saying so. It re-reads now. Saving was always safe — a clash is still
+  refused and still shows you what they wrote — and nothing is replaced while you are typing.
+
 - **A card that cannot be moved says which thing it looked at.** Dragging one to a column
   when the page had not yet read your workspace's statuses reported *there is no status here
   that means in progress* — a claim about how your workspace is set up, when the real answer

@@ -4081,7 +4081,25 @@ export function App () {
 		*/
 		const reading = held.current;
 
-		if (!reading || editing) return;
+		if (!reading) return;
+
+		/*
+			**Standing off leaves a mark** (`#792`). The poll advances its cursor before asking
+			whether to re-read, so an event that touched this item while the form was open is
+			*consumed*: nothing would ever look at it again. Saving hides that, because `wrote`
+			re-reads and §8.9 catches the clash — **cancelling does not**, and the pane goes back
+			to showing an item that moved, with nothing saying so. That is the state `#657` exists
+			to remove, surviving in the one path it did not cover.
+
+			A mark rather than a re-read on every close: most edits are abandoned with nothing
+			having happened, and three requests each time would be the cost of a case that is
+			rare.
+		*/
+		if (editing) {
+			missed.current = true;
+
+			return;
+		}
 
 		try {
 			const found = await fetched(reading.item.ref, reading.item.kind, reading.slug);
@@ -4243,6 +4261,25 @@ export function App () {
 	useEffect(() => {
 		start();
 	}, []);
+
+	useEffect(() => {
+		/*
+			**Read what was missed, once the form is out of the way** — `#792`.
+
+			The stand-off itself is correctness rather than courtesy and stays: the form carries
+			`expected_version` (§8.9), so replacing the item under it would replace the version
+			too, and a save that should have been refused with *somebody changed this* would go
+			through and overwrite them.
+
+			So the news waits rather than being dropped. Silent, like every other background
+			read (`#657`): nothing scrolls, nothing moves, and the reader is looking at what the
+			instance holds rather than at what it held when they started typing.
+		*/
+		if (editing || !missed.current) return;
+
+		missed.current = false;
+		refresh();
+	}, [editing, refresh]);
 
 	/*
 		Every address a reader reaches with the back button.
@@ -4470,6 +4507,10 @@ export function App () {
 		listener the browser holds, and a render between the lift and the drop would leave the
 		handler reading whichever card was in the air when it was created.
 	*/
+	/* **Something moved while the form was open** (`#792`). A ref rather than state because
+	   nothing renders it: it is a note the poll leaves for the moment the editor closes. */
+	const missed = useRef(false);
+
 	const lifted = useRef(null);
 	/* **Which column the pointer is over**, and this one is state rather than a ref because it
 	   is *rendered*. The pair is the split this app makes everywhere: a ref for what a callback

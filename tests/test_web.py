@@ -6618,19 +6618,25 @@ def test_a_control_that_writes_a_listing_address_leaves_the_open_item () -> None
 		)
 
 
-def test_a_background_read_stands_off_while_the_item_is_being_edited () -> None:
-	"""`SR#657`, and this one is correctness rather than courtesy.
+def test_a_background_read_stands_off_and_does_not_lose_what_it_skipped () -> None:
+	"""`SR#657` and `SR#792`, which are two halves of one rule.
 
-	The edit form carries `expected_version` (§8.9), so replacing the open item underneath it
-	would replace the version too — and a save that should have been refused with *somebody
-	changed this while you were typing* would go through and overwrite them, silently. The 409
-	is the design; a background refresh must not defeat it.
+	**Standing off is correctness rather than courtesy.** The edit form carries
+	`expected_version` (§8.9), so replacing the open item underneath it would replace the
+	version too — and a save that should have been refused with *somebody changed this while
+	you were typing* would go through and overwrite them.
 
-	**This checks the spelling and cannot check the thing**, which is said out loud because this
+	**And the poll advances its cursor before it asks**, so an event skipped that way is
+	*consumed*. Saving hides it, because `wrote` re-reads; cancelling did not, and the pane went
+	back to showing an item that had moved with nothing saying so — the state `SR#657` exists to
+	remove, surviving in the one path it did not cover. So the skip leaves a mark and something
+	reads it.
+
+	**This checks the spelling and cannot check the thing**, said out loud because this
 	repository has been caught believing otherwise. Opening the editor needs a click and
-	`tests/dom.js` cannot dispatch one by decision, so the rule is unreachable by the harness
-	that drives everything else here. `SR#748` is the item for a machine that could. What this
-	does buy is that removing the check fails a test rather than nothing at all.
+	`tests/dom.js` cannot dispatch one by decision; `tests/test_browser.py` could, and its ten
+	slots are better spent on layout and `axe-core` than on this. `SR#748` is the item. What
+	this does buy is that removing either half fails a test rather than nothing at all.
 	"""
 
 	source = _without_prose(_served_modules()["app.js"])
@@ -6639,9 +6645,20 @@ def test_a_background_read_stands_off_while_the_item_is_being_edited () -> None:
 
 	assert "held.current" in inside, "this is not the background read; the scan found the wrong body"
 
-	assert re.search(r"if\s*\(!\w+\s*\|\|\s*editing\)\s*return", inside), (
+	assert re.search(r"if\s*\(editing\)\s*\{[^}]*missed\.current\s*=\s*true", inside), (
 		"the background read no longer stands off while the item is being edited, so a save "
 		f"carrying expected_version could overwrite somebody: {inside!r}"
+	)
+
+	# **And the other half**: a mark nothing reads is a skip by another name.
+	readers = [
+		at.start() for at in re.finditer(r"missed\.current", source)
+		if not opens <= at.start() < closes
+	]
+
+	assert readers, (
+		"nothing outside refresh looks at the mark it leaves, so a change made while the form "
+		"was open is still consumed and never re-read"
 	)
 
 
