@@ -896,6 +896,7 @@ export const SAID_AS_WRITTEN = [
 */
 export const SAID_AS_NUMBERS = ["importance", "urgency"];
 
+
 /*
 	The fields an **edit** never sends as null — `#757`.
 
@@ -938,7 +939,9 @@ export function filed (values, slug) {
 	if (line) body.text = line;
 
 	SAID_AS_WRITTEN.forEach((name) => {
-		const value = said(name);
+		const value = TIMED.includes(name)
+			? withTime(said(name), said(`${name}_time`))
+			: said(name);
 
 		if (value) body[name] = value;
 	});
@@ -972,6 +975,69 @@ export function readForm (form) {
 	return values;
 }
 
+export function localMoment (value, zone = null) {
+	/*
+		An instant as ``YYYY-MM-DDTHH:MM`` in the zone that stored it — what a
+		``datetime-local`` control takes (`#798`).
+
+		**The task's zone, not the reader's**, for `#773`'s reason from the other end: an
+		appointment written at 14:00 in London is 14:00 in London whoever opens it, and reading
+		it back through the browser's own zone would put a different time in the box — which
+		saving would then store.
+	*/
+	if (!value) return "";
+
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat("en-GB", {
+			timeZone: zone || "UTC", year: "numeric", month: "2-digit", day: "2-digit",
+			hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+		}).formatToParts(new Date(String(value))).map((one) => [one.type, one.value]),
+	);
+
+	return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+export function dateFor (value, allDay, zone) {
+	/* The day half of a date control. A day is what the item says whether or not it also says
+	   a time, so this is the same either way. */
+	return calendarDay(value, zone) || "";
+}
+
+export function timeFor (value, allDay, zone) {
+	/*
+		The time half, and empty unless the item has one — `#798`.
+
+		**`all_day` is the item's own answer**, and it is a fact rather than an inference: an
+		appointment at midnight and a deadline meaning *the end of that day* are the same
+		instant in some zones, so reading the clock and guessing would put `00:00` in the box
+		for every ordinary deadline and save it as a time somebody never chose.
+	*/
+	if (!value || allDay !== false) return "";
+
+	return localMoment(value, zone).slice(-5);
+}
+
+export function withTime (day, time) {
+	/*
+		The two halves back into one field for the wire — `#798`.
+
+		**A day alone stays a day**, which is what keeps `datetime-local` out of this form: the
+		control that forces a time would make every deadline carry one somebody had to invent.
+		`schedule.interpret` reads both shapes and sets `*_is_all_day` from which it was given,
+		so one field carries both meanings and the server decides — measured rather than assumed.
+
+		**A time with no day is nothing**, because there is no day for it to be on. Saying so
+		here rather than sending `T14:00` and letting the instance refuse it keeps the refusal
+		out of a place the reader cannot act on.
+	*/
+	const on = String(day || "").trim();
+	const at = String(time || "").trim();
+
+	if (!on) return "";
+
+	return at ? `${on}T${at}` : on;
+}
+
 export function fromItem (item) {
 	/*
 		An item as the edit form's starting values — `#757`.
@@ -998,9 +1064,11 @@ export function fromItem (item) {
 		urgency: said.urgency === null || said.urgency === undefined
 			? "" : String(said.urgency),
 		estimate: said.estimate_human || "",
-		start: calendarDay(said.start_at, said.timezone) || "",
+		start: dateFor(said.start_at, said.start_is_all_day, said.timezone),
+		start_time: timeFor(said.start_at, said.start_is_all_day, said.timezone),
 		planned_for: calendarDay(said.planned_for, said.timezone) || "",
-		due: calendarDay(said.due_at, said.timezone) || "",
+		due: dateFor(said.due_at, said.due_is_all_day, said.timezone),
+		due_time: timeFor(said.due_at, said.due_is_all_day, said.timezone),
 		tags: (said.tags || []).join(", "),
 	};
 }
@@ -1046,7 +1114,9 @@ export function edited (values, item) {
 	SAID_AS_WRITTEN.forEach((name) => {
 		if (NEVER_CLEARED.includes(name)) return;
 
-		body[name] = said(name) || null;
+		body[name] = (TIMED.includes(name)
+			? withTime(said(name), said(`${name}_time`))
+			: said(name)) || null;
 	});
 
 	SAID_AS_NUMBERS.forEach((name) => {
@@ -2796,11 +2866,40 @@ export const PRIORITIES = [
 	**Left to right is chronological** — hidden until, then planned for, then due — and it only
 	read as arbitrary while the first one claimed to be a start.
 */
+/*
+	The three dates, and **which of them can carry a time** — `#798`.
+
+	Simon, driving `#755`: *"My appointment starts at 14:00 and finishes at 15:00 but I cannot
+	express that via the UI."* Every control was `<input type="date">`, which is a day and
+	nothing else, on a product whose agenda has an appointment bucket.
+
+	**The instance was never the limit.** `schedule.interpret` already reads both shapes and
+	derives the flag from which it was given — measured: `2026-08-17` becomes the last instant
+	of that day with `all_day` true, and `2026-08-17T14:00` becomes that minute with `all_day`
+	false. So this is a control, and the `*_is_all_day` columns go on being written by the
+	server from what it was sent.
+
+	**`planned_for` stays a day and that is not an omission.** It goes through `interpret_day`
+	rather than `interpret`, and its own sentence says what it is: *the day you intend to do
+	it*. A time there would be a promise the field cannot keep.
+*/
 export const DATE_FIELDS = [
-	["start", "Hidden until", "A defer. The task does not appear at all before this."],
-	["planned_for", "Planned for", "The day you intend to do it. This is what 'today' shows."],
-	["due", "Due", "A deadline. The date something has to be finished by."],
+	["start", "Hidden until", "A defer. The task does not appear at all before this.", true],
+	["planned_for", "Planned for", "The day you intend to do it. This is what 'today' shows.",
+		false],
+	["due", "Due", "A deadline. The date something has to be finished by.", true],
 ];
+
+/*
+	The fields whose control is a day *and* a time — read off `DATE_FIELDS` so the form and the
+	request body cannot disagree about which is which (`#798`).
+
+	**Declared here rather than beside `SAID_AS_WRITTEN`**, because a `const` initialiser runs
+	where it is written: above the table it reads, this is the temporal dead zone and the whole
+	app throws on import. `filed` and `edited` read it inside a function body, so they are free
+	to sit anywhere. That is `#643` — a blank page from a declaration order — one module later.
+*/
+export const TIMED = DATE_FIELDS.filter(([, , , time]) => time).map(([name]) => name);
 
 export function Fields ({ busy, vocabulary, projects, members, project, values }) {
 	/*
@@ -2825,10 +2924,16 @@ export function Fields ({ busy, vocabulary, projects, members, project, values }
 	*/
 	const held = values || {};
 
-	const day = ([name, label, hint]) => html`
+	const day = ([name, label, hint, timed]) => html`
 		<label key=${name}><span>${label}</span>
-			<input type="date" name=${name} disabled=${busy}
-				defaultValue=${held[name] || ""} />
+			<span class="when">
+				<input type="date" name=${name} disabled=${busy}
+					defaultValue=${held[name] || ""} />
+				${timed && html`
+					<input type="time" name=${`${name}_time`} disabled=${busy}
+						aria-label=${`${label}, time`} defaultValue=${held[`${name}_time`] || ""} />
+				`}
+			</span>
 			<small>${hint}</small></label>
 	`;
 
@@ -2889,12 +2994,24 @@ export function Fields ({ busy, vocabulary, projects, members, project, values }
 				<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d"
 					defaultValue=${held.estimate || ""} /></label>
 
-			${/* **Every date is a day, and the all-day flag follows from that** rather than
-			     being a control of its own. Measured: `due: "2026-08-14"` is stored as the end
-			     of that day with `due_is_all_day: true`, and `due: "2026-08-14T15:00"` is stored
-			     at 15:00 and not all-day — one field, both meanings, decided by what arrives.
-			     `datetime-local` would make every deadline carry a time somebody had to
-			     invent; a time of day is what the capture line is for. */ null}
+			${/*
+				**Every date is a day, and a time beside it where one means something** (`#798`).
+
+				The all-day flag follows rather than being a control of its own. Measured:
+				`due: "2026-08-14"` is stored as the end of that day with `due_is_all_day: true`,
+				and `due: "2026-08-14T15:00"` is stored at 15:00 and not all-day — one field,
+				both meanings, decided by what arrives.
+
+				**Two controls rather than `datetime-local`**, and the reason is the one this
+				comment used to give for having no time at all: that control forces a time on
+				every deadline, and a person writing *by Friday* would have to invent one. A
+				time input left empty is a day, which is the ordinary case unharmed.
+
+				**And the sentence this replaces was wrong.** It said *a time of day is what the
+				capture line is for* — `#797` measured that the capture line cannot read a time
+				either, so the argument rested on a channel that does not exist. Simon found the
+				consequence by trying to write down a dentist appointment.
+			*/ null}
 			${DATE_FIELDS.map(day)}
 
 			<label class="wide"><span>Tags</span>

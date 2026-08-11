@@ -798,6 +798,19 @@ fieldset {
 	background: var(--bg-raised);
 }
 
+/*
+	A day and a time side by side (`#798`). The day takes the room it needs and the time takes
+	what is left, so a narrow column drops the time under it rather than squeezing both.
+*/
+.adding .when {
+	display: flex;
+	gap: 6px;
+	min-width: 0;
+	flex-wrap: wrap;
+}
+
+.adding .when input { flex: 1 1 8em; min-width: 0; }
+
 /* ---- detail ------------------------------------------------------------ */
 
 .detail {

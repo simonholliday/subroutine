@@ -2160,6 +2160,28 @@ def test_a_dropdown_is_built_from_the_workspace_and_not_from_a_list (
 	assert absent == [] and unknown == []
 
 
+def _date_fields () -> list[tuple[str, str, str]]:
+	"""The browser's three date fields, as `(name, label, hint)`.
+
+	**A trailing flag is allowed and the sentence is not** (`SR#798`): the entry grew a fourth
+	member saying whether the control carries a time, and the three that describe the field to a
+	reader are still read — and compared — exactly.
+	"""
+
+	app = _served_modules()["app.js"]
+	found = re.search(r"export const DATE_FIELDS = \[(.*?)\n\];", app, re.S)
+
+	assert found is not None, "DATE_FIELDS is gone, so this is checking nothing"
+
+	fields = re.findall(
+		r'\["(\w+)", "([^"]+)",\s*"([^"]+)",?\s*(?:true|false)?\s*\]', found.group(1), re.S
+	)
+
+	assert len(fields) == 3, f"{len(fields)} date fields were read, and there are three"
+
+	return fields
+
+
 def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> None:
 	"""`SR#769`. The browser said *Starts*, which is the one reading `start_at` is not.
 
@@ -2188,14 +2210,7 @@ def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> No
 	assert said is not None, "the dates topic is gone, so this is checking nothing"
 
 	terminal = said.body.lower()
-	app = _served_modules()["app.js"]
-	found = re.search(r"export const DATE_FIELDS = \[(.*?)\n\];", app, re.S)
-
-	assert found is not None, "DATE_FIELDS is gone, so this is checking nothing"
-
-	fields = re.findall(r'\["(\w+)", "([^"]+)", "([^"]+)"\]', found.group(1))
-
-	assert len(fields) == 3, f"{len(fields)} date fields, and the terminal describes three"
+	fields = _date_fields()
 
 	for name, label, hint in fields:
 		assert label.lower() in terminal, (
@@ -4604,6 +4619,10 @@ def _views (
 			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
 			: name === "edited" ? app.edited(argument.values, argument.item)
 			: name === "fromItem" ? app.fromItem(argument.item)
+			: name === "withTime" ? app.withTime(argument.day, argument.time)
+			: name === "TIMED" ? app.TIMED
+			: name === "timeFor"
+				? app.timeFor(argument.value, argument.allDay, argument.zone)
 			: name === "conflictIn" ? app.conflictIn(argument.failure)
 			: name === "authorOf" ? app.authorOf(argument.comment, argument.members)
 			: name === "linkableTypes" ? app.linkableTypes(argument.vocabulary)
@@ -6547,6 +6566,94 @@ def test_a_drop_that_cannot_be_read_says_which_thing_it_looked_at (
 	assert otherwise == "There is no status here that means in progress."
 	assert "read" not in otherwise, "the workspace's own answer blames the page"
 	assert nothing is None, "a status that was found needs no sentence"
+
+
+@pytest.mark.parametrize(
+	("day", "time", "expected"),
+	[
+		# A day alone stays a day, which is what keeps every ordinary deadline from carrying a
+		# time somebody had to invent.
+		("2026-08-17", "", "2026-08-17"),
+		("2026-08-17", "14:00", "2026-08-17T14:00"),
+		# A time with no day is nothing: there is no day for it to be on.
+		("", "14:00", ""),
+		("", "", ""),
+	],
+)
+def test_a_day_and_a_time_become_one_field (
+	tmp_path: pathlib.Path, day: str, time: str, expected: str
+) -> None:
+	"""`SR#798`, Simon driving `SR#755`: *"my appointment starts at 14:00 … but I cannot express
+	that via the UI."*
+
+	**The instance was never the limit.** `schedule.interpret` reads both shapes and sets
+	`*_is_all_day` from which it was given — measured: `2026-08-17` becomes the last instant of
+	that day with the flag true, `2026-08-17T14:00` becomes that minute with it false. So one
+	field carries both meanings and the server decides which.
+
+	**Two controls rather than `datetime-local`**, because that one forces a time on every
+	deadline and a person writing *by Friday* would have to invent one.
+	"""
+
+	assert _views(tmp_path, [("withTime", {"day": day, "time": time})])[0] == expected
+
+
+def test_a_time_control_starts_empty_unless_the_item_has_one (tmp_path: pathlib.Path) -> None:
+	"""`SR#798`. `all_day` is the item's own answer and is a fact rather than an inference.
+
+	Reading the clock and guessing would put `00:00` into the box for an ordinary deadline —
+	which is stored at the *last* instant of its day, so in some zones the two are one instant
+	— and saving would then write a time nobody chose. That is a display bug becoming data
+	loss the moment a form is filled from the same value, which is the trap `fromItem` already
+	names for the day half.
+	"""
+
+	timed, all_day, absent = _views(tmp_path, [
+		("timeFor", {"value": "2026-08-17T13:00:00+00:00", "allDay": False,
+			"zone": "Europe/London"}),
+		("timeFor", {"value": "2026-08-17T22:59:59.999999+00:00", "allDay": True,
+			"zone": "Europe/London"}),
+		("timeFor", {"value": None, "allDay": False, "zone": "Europe/London"}),
+	])
+
+	assert timed == "14:00", "an appointment does not read back at the time it was written"
+	assert all_day == "", "an all-day deadline put a clock in the box"
+	assert absent == ""
+
+
+def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.Path) -> None:
+	"""`SR#798`. A day for the day you intend to do it, a time for the two that are instants.
+
+	`planned_for` goes through `interpret_day` rather than `interpret`, and its own sentence
+	says what it is — *the day you intend to do it*. A time there would be a promise the field
+	cannot keep, so its absence is the design rather than an omission.
+	"""
+
+	markup = _rendered(tmp_path, {"Fields": SAMPLES["Fields"]})["Fields"]
+
+	# **Counted rather than named**, because `_rendered` is a text harness and carries `href`
+	# and nothing else through — an attribute is not text. Two inputs where a time is offered,
+	# one where it is not, which is the shape this harness can honestly see.
+	drawn = set()
+
+	for name, label, _hint in _date_fields():
+		at = markup.index(label)
+
+		if markup[at:markup.index("<small>", at)].count("<input>") == 2:
+			drawn.add(name)
+
+	assert drawn == {"start", "due"}, (
+		f"the form offers a time on {sorted(drawn)} — `planned_for` goes through "
+		f"`interpret_day` and its own sentence calls it a day"
+	)
+
+	# **The two halves compared, which is the invariant rather than the spelling.** `TIMED` is
+	# what `filed` and `edited` combine; `drawn` is what the reader is given. A field in one and
+	# not the other is a control nobody reads or a value nobody typed — and deriving `TIMED`
+	# from `DATE_FIELDS` is what makes them agree, so this is the check that says so.
+	assert set(_views(tmp_path, [("TIMED", {})])[0]) == drawn, (
+		"the fields the form draws a time on and the fields the body sends one for differ"
+	)
 
 
 def test_the_top_of_the_page_offers_the_same_things_whatever_is_below_it (
