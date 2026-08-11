@@ -6250,15 +6250,21 @@ def test_a_row_shows_the_value_the_page_is_sorted_on (tmp_path: pathlib.Path) ->
 	added — and was read by nothing, which is the cheapest possible version of this defect.
 	"""
 
+	stamp = "2026-08-10T14:22:00+00:00"
 	written = _rendered(tmp_path, {"Row": {
-		"item": {"ref": 7, "kind": "task", "title": "Something",
-			"created_at": "2026-08-10T14:22:00+00:00"},
+		"item": {"ref": 7, "kind": "task", "title": "Something", "created_at": stamp},
 		"ordering": {"sentence": "Newest first", "field": "created_at", "shows": "created_at",
 			"render": "moment", "label": "written", "both": True},
 	}})["Row"]
 
-	assert "written" in written and "14:22" in written, (
-		f"the row does not show what the page is ordered on: {written}"
+	# **What `moment` says, asked of `moment`** rather than spelled out here. It formats for the
+	# reader — 24-hour in London, 12-hour in New York — so a literal `14:22` is this machine's
+	# locale written into a test as if it were the product's. It passed here and failed in CI as
+	# `02:22 PM`, which is `SR#795`: the local gate and CI were not the same gate.
+	said = _views(tmp_path, [("moment", {"value": stamp, "now": None})])[0]
+
+	assert "written" in written and said in written, (
+		f"the row does not show what the page is ordered on: {written} (expected {said!r})"
 	)
 
 
@@ -6270,14 +6276,17 @@ def test_a_row_does_not_say_twice_what_it_already_says_once (tmp_path: pathlib.P
 	already handled.
 	"""
 
+	stamp = "2026-08-10T14:22:00+00:00"
 	written = _rendered(tmp_path, {"Row": {
 		"item": {"ref": 7, "kind": "task", "title": "Something", "status_category": "done",
-			"completed_at": "2026-08-10T14:22:00+00:00"},
+			"completed_at": stamp},
 		"ordering": {"sentence": "Most recently finished first", "field": "completed_at",
 			"shows": "completed_at", "render": "none", "label": "finished", "both": False},
 	}})["Row"]
+	# Asked of `moment` rather than spelled out, for the reason above (`SR#795`).
+	said = _views(tmp_path, [("moment", {"value": stamp, "now": None})])[0]
 
-	assert written.count("14:22") == 1, f"the finished stamp is rendered twice: {written}"
+	assert written.count(said) == 1, f"the finished stamp is rendered twice: {written}"
 
 
 def test_the_list_a_reader_arrives_at_says_how_it_is_ordered (tmp_path: pathlib.Path) -> None:

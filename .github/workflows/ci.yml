@@ -186,6 +186,53 @@ jobs:
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
         run: pytest
 
+  # **One job rather than a step in the matrix, and that is the cost decision** (`SR#795`).
+  # Chromium is ~400MB and the questions this file asks — is a computed colour ours, does a
+  # ctrl-click open a tab, does a drag write the right status — are not Python-version
+  # specific, so downloading it three times would buy nothing.
+  #
+  # It exists because the alternative is worse than not having it: `tests/test_browser.py`
+  # *skips* without a browser, so with no job here the suite would run on exactly one machine
+  # and a green CI would mean a suite that did not run. That is what happened for six commits.
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags, because the version is derived from them and an editable install without
+          # them claims to be a release nobody cut.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The fixtures render the app's components in Node before a browser ever sees them, so
+      # this job needs both runtimes for the same reason `tests/test_web.py` needs one.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+
+      # `--with-deps` is the system libraries Chromium needs on a bare runner, which are not
+      # in the image. Without it the browser installs and refuses to start.
+      - name: Install a browser
+        run: playwright install --with-deps chromium
+
+      # **The variable is the whole point of the job.** Without it an absent browser is a skip
+      # and this job would report success having run nothing — which is the defect it exists
+      # to close, reproduced one level up.
+      - name: Tests in a browser
+        env:
+          SUBROUTINE_TEST_REQUIRE_BROWSER: "1"
+        run: pytest tests/test_browser.py
+
   # Proves the thing a new user actually does, on a clean machine with nothing configured:
   # install the package, run one command, get a working database. It is separate from the
   # test job because it must not see the repository's test fixtures or a pre-made database.

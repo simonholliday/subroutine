@@ -76,26 +76,31 @@ def _unavailable () -> str | None:
 	return None
 
 
-def pytest_collection_modifyitems (
-	config: pytest.Config, items: list[pytest.Item]
-) -> None:
-	"""Skip this module without a browser — or fail, when CI says it must not skip."""
+#: Why this file cannot run here, or None. Worked out at import because that is where
+#: `pytestmark` needs it.
+UNAVAILABLE = _unavailable()
 
-	why = _unavailable()
-
-	if why is None:
-		return
-
-	demanded = os.environ.get("SUBROUTINE_TEST_REQUIRE_BROWSER") == "1"
-	mark = (
-		pytest.mark.xfail(reason=why, run=False, strict=True)
-		if demanded
-		else pytest.mark.skip(reason=why)
+#: **Refusing the skip is a collection error, not a mark** (`#795`). The first version of this
+#: was a `pytest_collection_modifyitems` hook in this module — and **pytest registers hooks from
+#: `conftest.py` and from plugins, never from a test module**, so it never ran. Every test here
+#: *errored* in CI for want of a browser instead of skipping, on six commits, while the local
+#: gate stayed green.
+#:
+#: It was undetectable from this machine by construction: Chromium launches here, so
+#: `UNAVAILABLE` is None and the skip path was dead from the day it was written. *A test that
+#: cannot fail reads exactly like the point of the test*, one layer out.
+if UNAVAILABLE is not None and os.environ.get("SUBROUTINE_TEST_REQUIRE_BROWSER") == "1":
+	raise RuntimeError(
+		f"SUBROUTINE_TEST_REQUIRE_BROWSER is set and {UNAVAILABLE}. Install one with "
+		f"'playwright install chromium', or unset the variable — but not to make a red build "
+		f"green: the skip exists so a machine without a browser can run everything else, and "
+		f"here it would mean reporting success on a suite that did not run."
 	)
 
-	for item in items:
-		if item.fspath is not None and pathlib.Path(str(item.fspath)).name == "test_browser.py":
-			item.add_marker(mark)
+#: Skipped rather than failed where there is simply no browser, exactly as PostgreSQL is.
+pytestmark = pytest.mark.skipif(
+	UNAVAILABLE is not None, reason=UNAVAILABLE or "a browser is available"
+)
 
 
 @pytest.fixture(scope="module")

@@ -88,6 +88,17 @@ CHECKS: tuple[Check, ...] = (
 		# unreachable PostgreSQL is a skip, and the run reports success on half a suite.
 		env=(("SUBROUTINE_TEST_REQUIRE_POSTGRES", "1"),),
 	),
+	# **Run again here, and the duplication is deliberate** (`SR#795`). In CI these tests skip
+	# in the job above — the runner has no browser — and this job is the only place they run at
+	# all. On a development machine they run in both, which costs half a minute and buys the
+	# thing that was missing: the variable makes a broken browser a failure rather than a skip,
+	# so the local gate stops being quietly narrower than CI.
+	Check(
+		job="Browser tests",
+		step="Tests in a browser",
+		command=("pytest", "tests/test_browser.py"),
+		env=(("SUBROUTINE_TEST_REQUIRE_BROWSER", "1"),),
+	),
 )
 
 #: CI steps this command deliberately does not run, each with the answer to "what makes this
@@ -101,6 +112,15 @@ NOT_LOCALLY: dict[tuple[str, str], str] = {
 	("Tests (Python ${{ matrix.python-version }})", "Install"): (
 		"The same, once per Python version. Locally there is one interpreter and it is "
 		"already installed."
+	),
+	("Browser tests", "Install"): (
+		"The same again. This job installs only the development extra, because it needs no "
+		"database of its own."
+	),
+	("Browser tests", "Install a browser"): (
+		"Downloads ~400MB of Chromium into the runner. A development machine has one already "
+		"— that is what makes these tests runnable here at all — and fetching another on "
+		"every gate run would be the slowest step by an order of magnitude."
 	),
 	("Dependency licences", "Install runtime dependencies only"): (
 		"Needs a clean environment holding runtime dependencies and nothing else."
