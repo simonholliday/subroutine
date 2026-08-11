@@ -148,20 +148,34 @@ export function target (raw) {
 	if (trimmed === "") return null;
 
 	/*
+		Control characters come off before anything is decided, and **every test below reads the
+		stripped form** (`#682`, review `#677` finding 5). A browser ignores tabs, newlines and
+		NULs inside a destination: `java&#9;script:` is a working `javascript:` URL that no
+		prefix test sees, and a leading NUL before `//evil.example/x` still resolves to another
+		host.
+
+		This used to strip only for the scheme and test `#`, `?` and `//` against the *trimmed*
+		form — so one leading control character skipped the protocol-relative refusal while
+		still being scheme-parsed. Two tests reading two values is the inconsistency, and it is
+		what becomes a real defect the first time somebody adds a branch depending on which.
+
+		What is *returned* is still `trimmed`: stripping decides, it does not rewrite what the
+		author wrote.
+	*/
+	const stripped = trimmed.replace(/[\u0000-\u0020]/g, "");
+
+	/*
 		A fragment or a query is this page; a single leading slash is this instance. `//` is
 		refused deliberately: it is protocol-relative and points at another host entirely,
 		which reads like a path and is not one.
 	*/
-	if (trimmed.startsWith("#") || trimmed.startsWith("?")) return trimmed;
-	if (trimmed.startsWith("/")) return trimmed.startsWith("//") ? null : trimmed;
+	if (stripped.startsWith("#") || stripped.startsWith("?")) return trimmed;
+	if (stripped.startsWith("/")) return stripped.startsWith("//") ? null : trimmed;
 
 	/*
-		The scheme is read after control characters are removed, never matched as a prefix.
-		A browser ignores tabs and newlines inside a scheme, so `java&#9;script:` is a working
-		`javascript:` URL that no prefix test sees; and schemes are case-insensitive, so
-		`JavaScript:` is another. Both reduce to the same name here before it is looked up.
+		The scheme is read from that same value, never matched as a prefix — schemes are
+		case-insensitive too, so `JavaScript:` reduces to the same name before it is looked up.
 	*/
-	const stripped = trimmed.replace(/[\u0000-\u0020]/g, "");
 	const scheme = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(stripped);
 
 	if (scheme === null) return trimmed;

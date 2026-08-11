@@ -1041,10 +1041,11 @@ def test_the_specifier_scan_ignores_prose () -> None:
 #: acts on — and asserting the exact HTML for each would pin the renderer's formatting rather
 #: than its safety, so a harmless change to spacing would read as a security failure.
 #:
-#: The last four are the ones a prefix test on the scheme lets through, which is why the
-#: scheme is parsed instead: two spellings of `javascript:` that a browser accepts and a
-#: literal check does not, a protocol-relative address that looks like a path, and a `data:`
-#: document that is same-origin in some browsers.
+#: Several are the ones a prefix test on the scheme lets through, which is why the scheme is
+#: parsed instead: two spellings of `javascript:` that a browser accepts and a literal check
+#: does not, a protocol-relative address that looks like a path, and a `data:` document that is
+#: same-origin in some browsers. **And one is protocol-relative behind a control character**
+#: (`#682`) — the case that showed the two checks were reading two different values.
 HOSTILE = [
 	"<script>alert(1)</script>",
 	"<img src=x onerror=alert(1)>",
@@ -1058,6 +1059,10 @@ HOSTILE = [
 	"[click](java\tscript:alert(1))",
 	"[click](java\nscript:alert(1))",
 	"[click](//evil.example/steal)",
+	# `#682`: one leading control character skipped the protocol-relative refusal, because that
+	# test read the trimmed destination while the *scheme* test read the stripped one. Measured
+	# before the fix — it came back unchanged, and a browser resolves it to evil.example.
+	"[click](\u0001//evil.example/steal)",
 	"[click](data:text/html,<script>alert(1)</script>)",
 	"[click](vbscript:msgbox(1))",
 	'![x](https://evil.example/p.gif" onerror="alert(1))',
@@ -1218,10 +1223,16 @@ def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
 			)
 
 		for href in re.findall(r'href="([^"]*)"', html):
-			scheme = href.split(":", 1)[0].lower() if ":" in href else ""
+			# **Read the way a browser reads it** (`#682`). A browser ignores control characters
+			# inside a destination, so `\u0001//evil.example` resolves off-origin — and the
+			# version of this loop that tested `href` directly could not see that, because the
+			# string does not *start* with `//`. It had exactly the defect it was guarding
+			# against: a check shaped around the same assumption as the code it checks.
+			bare = re.sub(r"[\x00-\x20]", "", href)
+			scheme = bare.split(":", 1)[0].lower() if ":" in bare else ""
 
 			assert scheme in ("", "http", "https", "mailto"), f"{source!r} linked to {href!r}"
-			assert not href.startswith("//"), f"{source!r} linked off-origin as {href!r}"
+			assert not bare.startswith("//"), f"{source!r} linked off-origin as {href!r}"
 
 
 def test_a_refused_link_shows_what_was_written (tmp_path: pathlib.Path) -> None:
