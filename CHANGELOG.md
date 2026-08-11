@@ -154,6 +154,11 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **A card can be dropped anywhere in a column.** Columns were only as tall as what was in
+  them, so dragging a card into an empty column worked in its top few centimetres and nowhere
+  else — which is the commonest move there is. Every column is now the full height of the
+  board, and a board with nothing on it yet still has somewhere to drop the first card.
+
 - **A server behind a proxy says the address that reaches it.** `subroutine serve` tells an
   agent it needs *the address above* — and on an instance behind a reverse proxy that was the
   loopback socket, which reaches nobody. When `public_url` is set it now prints that too.

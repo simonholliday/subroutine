@@ -323,9 +323,16 @@ CARD: dict[str, typing.Any] = {
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
+#: The row for :data:`CARD` itself, by its own address rather than by position.
+CARD_ROW = ".rows li:has(a[href$='/42'])"
+
+#: Five more cards in the same column, so the board has a tall column and an empty one — the
+#: shape `#796` failed on, and the one a person meets on their first board.
+CROWD = [dict(CARD, ref=100 + n, title=f"Task number {n}") for n in range(5)]
+
 #: One page of rows, in the envelope every listing here uses. Enough for a link to click.
 ROWS = {
-	"items": [CARD],
+	"items": [CARD, *CROWD],
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
@@ -348,6 +355,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: Every write the page made, so a gesture can be checked by what it sent rather than by
 	#: what the page then looks like — the request is the fact and the render is a consequence.
 	written: list[tuple[str, str, str | None]] = []
+	#: What `/v1/tasks` answers, so one test can ask about a board with rows and the same board
+	#: without them. A holder rather than an argument to `answered`, because the route is
+	#: registered on the context once and every page shares it.
+	listing: list[typing.Any] = [ROWS]
 
 	def answered (route: typing.Any) -> None:
 		"""Serve one request the way the instance would.
@@ -383,7 +394,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			answer = (
 				META if wanted.startswith("v1/meta")
 				else IDENTITY if wanted.startswith("v1/me")
-				else ROWS if wanted.startswith("v1/tasks")
+				else listing[0] if wanted.startswith("v1/tasks")
 				else EMPTY
 			)
 
@@ -409,8 +420,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# a new tab would have been asserting on a tab that never loaded.
 	context.route("**/*", answered)
 
-	def opened (address: str = "/") -> typing.Any:
+	def opened (address: str = "/", rows: typing.Any = None) -> typing.Any:
 		"""Open one address and wait for the app to have painted."""
+
+		listing[0] = ROWS if rows is None else rows
 
 		page = context.new_page()
 		page.goto(f"http://app.test{address}")
@@ -500,7 +513,9 @@ def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> Non
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
 	written.clear()
 
-	page.drag_and_drop(".rows li[draggable='true']", "section.column:nth-of-type(2)")
+	# **Named rather than *the first one***, because the board holds a crowd since `#796` and
+	# whichever card is first is an accident of ordering rather than the subject of this test.
+	page.drag_and_drop(f"{CARD_ROW}", "section.column:nth-of-type(2)")
 	page.wait_for_timeout(300)
 
 	moves = [one for one in written if one[0] == "PATCH"]
@@ -533,11 +548,72 @@ def test_a_card_dropped_where_it_already_was_is_not_a_write (running: typing.Any
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
 	written.clear()
 
-	page.drag_and_drop(".rows li[draggable='true']", "section.column:nth-of-type(1)")
+	page.drag_and_drop(f"{CARD_ROW}", "section.column:nth-of-type(1)")
 	page.wait_for_timeout(300)
 
 	assert not [one for one in written if one[0] != "GET"], (
 		f"a card dropped back where it started was written anyway: {written}"
+	)
+
+
+def test_a_column_is_a_drop_target_for_its_whole_height (running: typing.Any) -> None:
+	"""`#796`, and it is the finding Simon's first-contact run produced that no test could.
+
+	Measured before the fix, six cards in *To do* and none in *In progress*: **307px against
+	78px**. The drop handler is on the column, so dragging sideways from anywhere below those
+	78 pixels put the pointer over nothing — and *a full column to an empty one* is the
+	commonest drag there is. `#711` shipped a gesture that mostly did not connect.
+
+	**No test could see it and the reason matters.** `page.drag_and_drop` moves to the computed
+	*centre* of the target, so it hits however small the element is; a synthetic gesture that
+	teleports cannot discover that a target is too small to reach. The mechanism was right, the
+	wiring was right, and the geometry — which only a browser has — was what failed.
+
+	So this asks about the geometry, and then drops at the **bottom** of the empty column
+	rather than at its middle, which is the point the old layout had nothing under.
+	"""
+
+	opened, written = running
+	page = opened("/projects?view=board")
+
+	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
+
+	heights = page.eval_on_selector_all(
+		"section.column", "found => found.map((one) => one.getBoundingClientRect().height)"
+	)
+
+	assert len(heights) > 1, "a board with one column cannot show this"
+	assert max(heights) - min(heights) < 2, (
+		f"the columns are {heights} — a short one is a drop target only where it reaches, and "
+		f"a card dragged from further down the tall one lands on nothing"
+	)
+
+	written.clear()
+	page.drag_and_drop(
+		".rows li[draggable='true']",
+		"section.column:nth-of-type(2)",
+		target_position={"x": 120, "y": max(heights) - 20},
+	)
+	page.wait_for_timeout(300)
+
+	assert [one for one in written if one[0] == "PATCH"], (
+		f"a card dropped at the foot of the next column wrote nothing: {written}"
+	)
+
+	# **And a board with nothing on it yet**, which stretching alone does not answer: four
+	# columns of equal height are still four columns of almost no height, and the person moving
+	# their first card is exactly the one who cannot afford that. Falsifying the `min-height`
+	# left every check above green, because the tallest column had cards in it.
+	bare = opened("/projects?view=board", rows=EMPTY)
+
+	bare.wait_for_selector("section.column", timeout=10_000)
+	empty = bare.eval_on_selector_all(
+		"section.column", "found => found.map((one) => one.getBoundingClientRect().height)"
+	)
+
+	assert empty and min(empty) > 120, (
+		f"an empty board's columns are {empty} — a person's first card has almost nowhere to "
+		f"be dropped"
 	)
 
 

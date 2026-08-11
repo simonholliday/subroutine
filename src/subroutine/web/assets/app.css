@@ -472,10 +472,28 @@ fieldset {
 /* Columns scroll sideways rather than squeezing: four columns at a phone's width would make
    every title a vertical stack of single words, and a board whose cards cannot be read is not
    a board. */
+/*
+	**Columns are the same height, and that is what makes a drop work** (`#796`).
+
+	This was `align-items: flex-start`, so each column was exactly as tall as its contents —
+	measured with six cards in *To do* and none in *In progress*: 307px against 78px. The drop
+	handler is on the column, so dragging a card sideways from anywhere below those 78 pixels
+	put the pointer over nothing at all. **The commonest drag on a board is a full column to an
+	empty one**, and it worked in the top quarter of the screen.
+
+	`stretch` is the default and is all that was needed. `min-height` is for the other case the
+	first version could not do either: a board where *every* column is empty has no target
+	anywhere, and a person moving their first card is exactly who cannot afford that.
+
+	**No test could see it**, and that is worth knowing before trusting the next one:
+	`page.drag_and_drop` moves to the *computed centre* of the target, so it hits however small
+	the element is. `tests/test_browser.py` measures the heights now, because geometry is the
+	half a synthetic gesture cannot check.
+*/
 .board .columns {
 	display: flex;
 	gap: 14px;
-	align-items: flex-start;
+	align-items: stretch;
 	overflow-x: auto;
 	padding-bottom: 6px;
 }
@@ -483,6 +501,7 @@ fieldset {
 .board .column {
 	flex: 1 0 260px;
 	min-width: 260px;
+	min-height: 180px;
 }
 
 .board .column h2 {
