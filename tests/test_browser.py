@@ -617,6 +617,88 @@ def test_a_column_is_a_drop_target_for_its_whole_height (running: typing.Any) ->
 	)
 
 
+#: Two *sites*, not merely two origins. `SameSite` compares registrable domains, so a second
+#: port on one host would be same-site and the check below would pass by construction — which
+#: is the shape of a test that cannot fail.
+OURS = "http://app.test"
+THEIRS = "http://elsewhere.test"
+
+#: A form that submits itself, because what is under test is a page needing no cooperation
+#: from the reader. `#803`'s attack is a click, and this is the version of it that asks for
+#: nothing at all.
+POSTING = (
+	"<body onload='document.forms[0].submit()'>"
+	"<form method='post' action='{where}/v1/session'>"
+	"<input name='link' value='sr_lnk_whatever'></form></body>"
+)
+
+
+def test_a_lax_cookie_is_withheld_from_a_cross_site_post (looks: typing.Any) -> None:
+	"""**The one thing `#803`'s defence rests on, and only a browser can say it.**
+
+	The confirmation page stops nothing by itself: whoever can make a browser follow one link
+	can make it follow two. What stops the attack is that answering requires the *standing*
+	session cookie — so the whole control is the claim that a browser will not attach a
+	`SameSite=lax` cookie to a `POST` from another site.
+
+	`api_support` sends whatever cookies a test names, so the fast suite is structurally unable
+	to check this: it would be asserting on its own fixture. This drives Chromium.
+
+	**Both directions in one test**, because the withholding half alone would pass just as well
+	if cookies never worked here at all — *one of a thing* applied to a fixture.
+	"""
+
+	_showing, bare = looks
+	context = bare.context.browser.new_context()
+
+	#: Whether each submission arrived with the cookie, in the order the pages were opened.
+	#: **A list rather than a map keyed on the target**, which the first version was — the
+	#: target is `app.test` both times, so the cross-site run overwrote the same-site one and
+	#: the control half silently stopped being checked.
+	carried: list[bool] = []
+
+	def answered (route: typing.Any) -> None:
+		"""Serve the two sites, and record whether the write arrived with the cookie."""
+
+		if "/v1/session" in route.request.url:
+			carried.append("subroutine_session" in route.request.headers.get("cookie", ""))
+			route.fulfill(status=204, body="")
+
+			return
+
+		route.fulfill(status=200, content_type="text/html", body=POSTING.format(where=OURS))
+
+	context.route("**/*", answered)
+	context.add_cookies([{
+		"name": "subroutine_session", "value": "sr_web_pretend", "domain": "app.test",
+		"path": "/", "sameSite": "Lax",
+	}])
+
+	try:
+		for site in (OURS, THEIRS):
+			page = context.new_page()
+			page.goto(f"{site}/")
+			page.wait_for_timeout(500)
+			page.close()
+	finally:
+		context.close()
+
+	assert len(carried) == 2, (
+		f"{len(carried)} of 2 forms reached the endpoint, so this is not comparing two cases"
+	)
+
+	assert carried[0] is True, (
+		"the app's own page could not post its session cookie, so the case below proves "
+		"nothing — a fixture where cookies never work would pass it either way"
+	)
+
+	assert carried[1] is False, (
+		"a form on another site reached POST /v1/session carrying the session cookie. "
+		"`#803`'s confirmation is then a page that warns and stops nobody, because the "
+		"attacker can submit it as easily as they can send the link."
+	)
+
+
 def test_the_stale_half_of_the_excuse_list (looks: typing.Any) -> None:
 	"""What makes an entry go away. Every allow-list in this repository owes this."""
 
@@ -640,6 +722,13 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	the harness; `#748`'s scope is *ten tests answering what only a browser can*, so the bound
 	is now the thing the argument is about. Infrastructure may grow; the surface may not.
 
+	**Raised to eleven on 2026-08-11, and the case is the standard to hold a raise to**
+	(`#803`). The addition measures whether a browser withholds a `SameSite=lax` cookie from a
+	cross-site `POST` — which is not our code but is the entire defence behind the sign-in
+	confirmation, and `api_support` sends whatever cookies a test names, so the fast suite could
+	only ever assert on its own fixture. A security control resting on a browser behaviour is
+	what this file is for; a raise for anything a DOM could answer is not.
+
 	**And a list of forbidden words was the version before that**, which failed on its own
 	list — `#546`'s shape for the third time here, and ``tests/dom.js`` records the same trap
 	arriving through the word *click* inside the sentence forbidding it.
@@ -650,8 +739,8 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 10, (
-		f"this file holds {len(tests)} tests: {tests}. Ten answering what only a browser can "
+	assert len(tests) <= 11, (
+		f"this file holds {len(tests)} tests: {tests}. Eleven answering what only a browser can "
 		f"is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)

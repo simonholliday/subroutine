@@ -169,6 +169,71 @@ def redeem (
 	return opened, minted.value.get_secret_value()
 
 
+def would_sign_in (
+	session: sqlalchemy.orm.Session,
+	presented: str,
+	*,
+	now: datetime.datetime | None = None,
+) -> subroutine.db.models.identity.User | None:
+	"""Return who a link would sign in, without spending it — `#803`.
+
+	**Reading a link and spending one are different acts and this is the reading half.** A
+	browser already signed in as somebody else is shown a page naming both accounts before
+	anything happens, and naming the second one means looking the link up — while leaving it
+	usable, because a person who says *no* must not be left holding a link that was consumed by
+	being asked about.
+
+	``None`` for any link that would not work, in one answer rather than several. That is the
+	same silence :func:`redeem` keeps and for the same reason: an unknown link and a spent one
+	must not be distinguishable, or a prefix somebody guessed is confirmed for them. The caller
+	falls through to :func:`redeem`, which produces the one refusal both cases share — so this
+	function can never be the reason a message differs.
+
+	**It tells the holder of a link nothing they do not already hold.** They have the secret; the
+	only fact added is the username it belongs to, which redeeming would show them a moment
+	later anyway.
+	"""
+
+	parsed = subroutine.auth.parse_token(presented, kind=subroutine.auth.LOGIN_KIND)
+
+	if parsed is None:
+		return None
+
+	prefix, secret = parsed
+	moment = now if now is not None else subroutine.db.types.utcnow()
+
+	model = subroutine.db.models.identity.LoginLink
+	link = session.scalars(
+		sqlalchemy.select(model).where(model.token_prefix == prefix)
+	).one_or_none()
+
+	if link is None or not subroutine.auth.token_matches(secret, link.token_hash):
+		return None
+
+	if link.redeemed_at is not None or link.expires_at <= moment:
+		return None
+
+	user = session.get(subroutine.db.models.identity.User, link.user_id)
+
+	if user is None:
+		return None
+
+	# Asked the same way :func:`redeem` asks it, so a suspended account is not offered as a
+	# choice and then refused at the moment somebody takes it.
+	#
+	# **Both refusals, because that check raises two different classes.** An inactive account
+	# is an `AuthenticationError` and a service account is a `Forbidden` carrying its own
+	# wording — and falling through to `redeem` is what preserves that wording, since this
+	# function's silence is only ever an instruction to ask the real thing.
+	try:
+		_refuse_an_account_that_cannot_sign_in(user, prefix=prefix)
+
+	except (subroutine.domain.authentication.AuthenticationError, subroutine.errors.Forbidden):
+		return None
+
+	return user
+
+
 def authenticate (
 	session: sqlalchemy.orm.Session,
 	presented: str,

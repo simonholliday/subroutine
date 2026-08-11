@@ -146,6 +146,21 @@ upgrade involves.
   somebody else's is still refused and still shows you what they wrote, which is the point of
   the check and is not something a background refresh should be able to slip past.
 
+### Security
+
+- **A sign-in link can no longer quietly make a signed-in browser somebody else.** Opening a
+  link for a different account now stops and asks: the page names who you are signed in as and
+  who the link is for, and nothing happens until you say yes. Saying no leaves the link unused,
+  so you can still sign in with it later.
+
+  It matters because a sign-in link works by being *opened*, so anybody who can get you to
+  click one — in a message, on a page — could put your browser into their account without
+  saying so, and everything you wrote next would be filed there. Confirming has to be a button
+  press on this instance's own page, which is something only you can do.
+
+  Signing in normally is unchanged, and so is opening a second link for the account you are
+  already in.
+
 ### Fixed
 
 - **The top of the page stays put when you open an item.** Search and the view switcher used

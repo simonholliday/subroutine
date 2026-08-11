@@ -209,6 +209,14 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"with no cookie has no session to end, and one holding an API token is told so "
 		"rather than answered. `subroutine login revoke` is the operator's equivalent.",
 	),
+	("POST", "/v1/session"): (
+		"protocol",
+		"Confirming a switch of accounts in a browser (`#803`). It is submitted by a form on "
+		"a page this application served, in `application/x-www-form-urlencoded`, and it "
+		"refuses any caller whose credential is not a cookie — so a client method would be a "
+		"method nothing could call. It exists at all because `GET /signin` is public and "
+		"therefore has no origin check; this one has, by requiring the standing session.",
+	),
 	("POST", "/mcp"): (
 		"protocol",
 		"The MCP transport itself (`#516`). It carries the tools a client already reaches "

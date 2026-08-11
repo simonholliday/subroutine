@@ -710,3 +710,303 @@ def test_reaching_the_instance_directly_still_writes (
 	)
 
 	assert answer.status_code == 200, answer.text
+
+
+# ---- a browser is never silently made somebody else (`SR#803`) --------------
+
+
+def _second_person (
+	session: sqlalchemy.orm.Session,
+) -> subroutine.db.models.identity.User:
+	"""Somebody else with an account, which is all this attack needs the attacker to have."""
+
+	return subroutine.domain.users.create(
+		session, username=f"other-{uuid.uuid4().hex[:8]}", display_name="Somebody Else"
+	)
+
+
+def _unspent (session: sqlalchemy.orm.Session) -> int:
+	"""How many sign-in links are still usable, which is what *asking* must not change."""
+
+	model = subroutine.db.models.identity.LoginLink
+
+	return len(
+		session.scalars(
+			sqlalchemy.select(model).where(model.redeemed_at.is_(None))
+		).all()
+	)
+
+
+def test_a_link_for_somebody_else_asks_instead_of_switching (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**`SR#803`, and it was measured in a real browser before it was written here.**
+
+	`GET /signin` is public, so it resolves no principal, so `SR#639`'s origin check — which
+	lives inside the cookie resolver — never sees it. That makes the one state-changing `GET` in
+	this application the one write no guard covers, and Chromium confirmed the consequence: a
+	*click* on a cross-site link replaced the session, and the reader carried on typing into
+	somebody else's account.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+	other = _second_person(session)
+	theirs = _link(session, other)
+
+	before = _unspent(session)
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		f"/signin?link={theirs}",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 200, "it switched instead of asking"
+	assert "text/html" in answer.headers["content-type"]
+	assert setup.user.username in answer.text, "the page did not say who is signed in"
+	assert other.username in answer.text, "the page did not say who the link is for"
+
+	# **Nothing happened**, which is the whole property. A reader who says no must not be left
+	# holding a link that was spent by being asked about — and must still be themselves.
+	assert _unspent(session) == before, "asking spent the link"
+
+	still = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+	)
+
+	assert still.json()["user"]["username"] == setup.user.username
+
+
+def test_signing_in_again_as_yourself_does_not_ask (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""The ordinary path is untouched, and *this* is the test that says so.
+
+	A confirmation shown to somebody opening their own second link would be a question with one
+	answer, on the screen a person meets when their session has lapsed.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		f"/signin?link={_link(session, setup.user)}",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 303, answer.text
+
+
+def test_a_dead_cookie_is_the_same_as_no_cookie (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""Somebody whose session lapsed overnight is signing in, not switching.
+
+	Asking them to confirm a move away from an account they are no longer in would be a question
+	about nothing — so every refusal the standing cookie can raise is swallowed.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+	principal = subroutine.domain.sessions.authenticate(session, held)
+
+	assert principal.session is not None
+	subroutine.domain.sessions.sign_out(principal.session)
+
+	other = _second_person(session)
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		f"/signin?link={_link(session, other)}",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 303, answer.text
+
+
+def test_a_link_that_does_not_work_is_refused_rather_than_offered (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**The reading half can never be the reason a message differs.**
+
+	`would_sign_in` answers `None` for every link that would not work — unknown, expired, spent,
+	suspended — and the caller falls through to `redeem`, which raises the one refusal all of
+	those share. A confirmation page rendered for a bad link would say *this link signs you in
+	as somebody* about a link that does not.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+	other = _second_person(session)
+	theirs = _link(session, other)
+
+	subroutine.domain.sessions.redeem(session, theirs)
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		f"/signin?link={theirs}",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 401, answer.text
+	assert "does not work" in answer.json()["detail"]
+
+
+def test_confirming_switches_and_ends_the_session_it_replaced (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""Saying yes does what the page said it would, and tidies up after itself.
+
+	Replacing the cookie alone would leave a live session belonging to somebody who is no longer
+	at this browser — a credential nobody is holding, and not what *sign out, then sign in* would
+	have left behind.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+	other = _second_person(session)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		subroutine.api.sessions.SWITCH,
+		content=f"link={_link(session, other)}",
+		headers={"content-type": subroutine.api.sessions.FORM_ENCODING},
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 303, answer.text
+	assert answer.headers["location"] == subroutine.api.sessions.LANDING
+
+	became = answer.cookies[subroutine.api.security.SESSION_COOKIE]
+
+	who = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: became},
+	)
+
+	assert who.json()["user"]["username"] == other.username
+
+	gone = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+	)
+
+	assert gone.status_code == 401, "the session it replaced is still working"
+
+
+def test_confirming_needs_the_session_it_is_replacing (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**This is the control, and the page is only its wrapper.**
+
+	A page that merely warned would stop nobody: whoever can make a browser follow one link can
+	make it follow two. What stops the attack is that answering requires the *standing* cookie —
+	and `SameSite=lax` withholds a cookie from a cross-site `POST`, so a hostile page cannot
+	supply one.
+	"""
+
+	other = _second_person(session)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		subroutine.api.sessions.SWITCH,
+		content=f"link={_link(session, other)}",
+		headers={"content-type": subroutine.api.sessions.FORM_ENCODING},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 401, answer.text
+
+
+def test_confirming_from_a_sibling_subdomain_is_refused (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**The origin check the public `GET` could never have, inherited rather than invented.**
+
+	`SameSite` compares sites, so a sibling subdomain's page is same-site and its `POST` would
+	carry the cookie. Requiring the standing session is what puts this route behind
+	`PrincipalDep`, and `SR#639`'s check lives inside the resolver that dependency runs.
+	"""
+
+	application, held = _served(session, setup.user)
+	other = _second_person(session)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		subroutine.api.sessions.SWITCH,
+		content=f"link={_link(session, other)}",
+		headers={
+			"content-type": subroutine.api.sessions.FORM_ENCODING,
+			"origin": SIBLING,
+		},
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 403, answer.text
+	assert SIBLING in answer.json()["detail"]
+
+
+def test_confirming_with_an_api_token_is_refused_rather_than_pretended (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""A token is not a browser, and there is nothing for this endpoint to replace.
+
+	The same refusal as signing out with one, in the same words, because it is the same fact.
+	"""
+
+	other = _second_person(session)
+	_row, token = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="An agent"
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		subroutine.api.sessions.SWITCH,
+		content=f"link={_link(session, other)}",
+		headers={
+			"content-type": subroutine.api.sessions.FORM_ENCODING,
+			"authorization": f"Bearer {token.value.get_secret_value()}",
+		},
+		follow_redirects=False,
+	)
+
+	assert answer.status_code == 404, answer.text
+	assert "browser session" in answer.json()["detail"]
+
+
+def test_reading_a_link_does_not_spend_it (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""The reading half, on its own, because the page depends on it entirely.
+
+	Falsified by making `would_sign_in` call `redeem`: this fails, and so does the page test
+	above — which is the point of asking it twice, once at each level.
+	"""
+
+	secret = _link(session, setup.user)
+
+	assert subroutine.domain.sessions.would_sign_in(session, secret) is setup.user
+	assert subroutine.domain.sessions.would_sign_in(session, secret) is setup.user
+
+	opened, _held = subroutine.domain.sessions.redeem(session, secret)
+
+	assert opened.user_id == setup.user.id
+	assert subroutine.domain.sessions.would_sign_in(session, secret) is None
