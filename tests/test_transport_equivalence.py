@@ -2881,3 +2881,54 @@ def test_both_refuse_an_unknown_filter_field_the_same_way (pair: Pair) -> None:
 			client.tasks(filters={"creatd_at.gte": "today"})
 
 		assert "creatd_at" in str(refused.value)
+
+
+def test_both_answer_what_was_worked_on_the_same_way (pair: Pair) -> None:
+	"""`touched_at` over both transports — `#815`, and the one filter that leaves the row.
+
+	Worth its own case beside the date filters above because the two sides do more here than
+	compile the same comparison twice: the local client builds a correlated `EXISTS` against
+	its own session, and the HTTP client sends the words for the far end to build. A comment is
+	the discriminating fact — it moves nothing on the item, so a listing that quietly fell back
+	to `updated_at` would answer *nothing* on one side and the task on the other.
+	"""
+
+	made = make(pair, "Fix the boiler")
+	local, remote = pair.both()
+
+	pair.session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Task)
+		.where(subroutine.db.models.work.Task.id == made.id)
+		.values(updated_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC))
+	)
+	pair.session.flush()
+
+	touched = {"touched_at.gte": "today"}
+
+	assert local.tasks(filters=touched) == remote.tasks(filters=touched)
+	assert [task.title for task in local.tasks(filters=touched)] == ["Fix the boiler"]
+
+	# The row's own clock still says nothing happened, which is the whole point.
+	stale = {"updated_at.gte": "today"}
+
+	assert local.tasks(filters=stale) == remote.tasks(filters=stale) == []
+
+
+def test_both_resolve_a_username_the_same_way (pair: Pair) -> None:
+	"""`touched_by` takes a name, and an unknown one is refused identically on either side.
+
+	The local client could have matched it against nothing and returned an empty list, which
+	is the failure mode `#501` named when the same question was asked of `assignee`: a filter
+	that silently matches nobody reads as *this person did no work*.
+	"""
+
+	make(pair, "Fix the boiler")
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.NotFound):
+			client.tasks(filters={"touched_by.eq": "nobody-at-all"})
+
+	mine = {"touched_by.eq": pair.user.username}
+
+	assert pair.local.tasks(filters=mine) == pair.remote.tasks(filters=mine)
+	assert [task.title for task in pair.local.tasks(filters=mine)] == ["Fix the boiler"]

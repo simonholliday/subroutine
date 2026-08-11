@@ -14,7 +14,33 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `b1520dcd4afb`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+>
+> It adds one index to the event table and changes no data, so on any instance short of
+> a very large one it is a matter of seconds.
+
 ### Added
+
+- **A listing answers what was *worked on*, not only what changed.**
+  `?touched_at.gte=yesterday` — and `subroutine list --filter touched_at.gte=yesterday` — finds
+  what was created, edited, completed, commented on or moved through a status. Add
+  `touched_by.eq=<username>` for one person's.
+
+  **This is a different question from `updated_at` and the difference is the point.** Writing a
+  comment does not touch the commented-on item at all, so an item somebody spent an afternoon
+  discussing looks untouched by its own timestamps. `touched_at` reads the record of what
+  happened instead.
+
+  Claiming and releasing do not count — taking a lease on something to read it is not working
+  on it. Everything else does, including deletions, which show up when you ask to see the trash.
+
+  Work you *finished* in the period is included, since finishing something is the clearest case
+  of having worked on it. Ask for `include_completed=false` beside it if what you want is what
+  is still in flight.
 
 - **A listing can be asked about a date.** `GET /v1/tasks?created_at.gte=yesterday` — a field,
   one of `gt`, `gte`, `lt` or `lte`, and a day, an instant or any expression the rest of the

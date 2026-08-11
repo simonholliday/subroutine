@@ -20,6 +20,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.system
 import subroutine.db.models.work
@@ -122,10 +123,22 @@ def world (session: sqlalchemy.orm.Session) -> World:
 		# **Backdated after the fact, because the column is written by the database.** The row
 		# is what a filter reads, so setting it here is setting exactly what a task created on
 		# that day would carry.
+		identity = uuid.UUID(created.json()["id"])
+
 		session.execute(
 			sqlalchemy.update(subroutine.db.models.work.Task)
-			.where(subroutine.db.models.work.Task.id == uuid.UUID(created.json()["id"]))
+			.where(subroutine.db.models.work.Task.id == identity)
 			.values(created_at=when, updated_at=when)
+		)
+
+		# **And its events with it**, which the first version forgot. `touched_at` reads the
+		# feed rather than the row, so three tasks backdated to three days all carried a
+		# *created* event stamped now — and every activity question answered "all of them",
+		# which looked like a filter that was not applied at all.
+		session.execute(
+			sqlalchemy.update(subroutine.db.models.activity.Event)
+			.where(subroutine.db.models.activity.Event.entity_id == identity)
+			.values(created_at=when)
 		)
 
 	session.flush()
@@ -308,7 +321,18 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 	assert dotted == sorted(subroutine.domain.filtering.names(entity))
 
 	for name in dotted:
-		answer = world.call("GET", f"{published_path(published, entity)}?{name}=today")
+		# **The value follows the field's kind**, read from the registry rather than fixed —
+		# `touched_by` takes a username, and driving every combination with `today` refused it
+		# with *there is no account called 'today'*, which is the route working correctly.
+		value = (
+			world.user.username
+			if subroutine.domain.filtering.FILTERS[entity][
+				name.partition(".")[0]
+			].kind
+			is subroutine.domain.filtering.WHO
+			else "today"
+		)
+		answer = world.call("GET", f"{published_path(published, entity)}?{name}={value}")
 
 		assert answer.status_code == 200, f"{name} is published and refused: {answer.text}"
 
@@ -360,3 +384,140 @@ def test_asking_about_completion_and_excluding_it_is_refused (world: World) -> N
 	assert answer.status_code == 422, answer.text
 	assert "completed_at" in answer.text
 	assert "include_completed" in answer.text
+
+
+def test_a_comment_counts_as_having_worked_on_something (world: World) -> None:
+	"""**Simon's third question, and the whole reason this is an `EXISTS`** — `#815`, `#817`.
+
+	A comment does not move the commented-on item's `updated_at`. Measured on the live
+	instance: identical to the microsecond. So a filter built on the row's own timestamps would
+	answer *what did I work on yesterday* **wrongly rather than partially**, and nothing in the
+	answer would say which.
+
+	The task named here was created on the 1st and has not been edited since. It appears only
+	because somebody commented on it today.
+	"""
+
+	assert world.titles("/v1/tasks?updated_at.gte=today") == []
+
+	commented = world.call("POST", "/v1/tasks/1/comments", json={"body": "Looked at it."})
+
+	assert commented.status_code == 201, commented.text
+
+	# Still nothing by the row's own clock, which is the measurement this rests on.
+	assert world.titles("/v1/tasks?updated_at.gte=today") == []
+	assert world.titles("/v1/tasks?touched_at.gte=today") == ["the 1st"]
+
+
+def test_activity_answers_for_a_period_rather_than_a_moment (world: World) -> None:
+	"""Simon's fourth question: *what has been worked on since the 2nd August*."""
+
+	assert world.titles("/v1/tasks?touched_at.gte=2026-08-02") == ["the 3rd", "the 5th"]
+	assert world.titles(
+		"/v1/tasks?touched_at.gte=2026-08-02&touched_at.lt=2026-08-05"
+	) == ["the 3rd"]
+
+
+def test_claiming_something_is_not_working_on_it (world: World) -> None:
+	"""Decision `#817`: a lease is bookkeeping, and `#726` records the case it misreports.
+
+	Somebody may claim an item to *read* it and decide it is not for them, and then nothing was
+	ever worked on. Written as an exclusion rather than a list of what counts, so an action
+	added later is included by default — too many rows rather than work silently missing.
+	"""
+
+	assert world.titles("/v1/tasks?touched_at.gte=today") == []
+
+	claimed = world.call("POST", "/v1/tasks/1/claim")
+
+	assert claimed.status_code == 200, claimed.text
+	assert world.titles("/v1/tasks?touched_at.gte=today") == []
+
+	released = world.call("POST", "/v1/tasks/1/release")
+
+	assert released.status_code == 200, released.text
+	assert world.titles("/v1/tasks?touched_at.gte=today") == []
+
+
+def test_whose_activity_and_when_are_one_question (world: World) -> None:
+	"""**One correlated `EXISTS`, not two predicates** — decision `#817`.
+
+	Compiled independently they would mean *some event in the window* and *some event by si*,
+	possibly different ones — so an item somebody else touched today and si touched last week
+	would answer *what did si work on today*. This is the case that tells the two apart.
+	"""
+
+	world.call("POST", "/v1/tasks/1/comments", json={"body": "Looked at it."})
+
+	assert world.titles(
+		f"/v1/tasks?touched_at.gte=today&touched_by.eq={world.user.username}"
+	) == ["the 1st"]
+
+	# The 3rd was created on the 3rd by this same person, and not touched today. Asking for
+	# both together must not find it — two independent predicates would.
+	assert "the 3rd" not in world.titles(
+		f"/v1/tasks?touched_at.gte=today&touched_by.eq={world.user.username}"
+	)
+
+
+def test_asking_who_touched_it_names_an_account_that_does_not_exist (
+	world: World,
+) -> None:
+	"""A username is resolved rather than matched, so a typo is refused instead of matching none."""
+
+	answer = world.call("GET", "/v1/tasks?touched_by.eq=nobody")
+
+	assert answer.status_code == 404, answer.text
+	assert "nobody" in answer.text
+
+
+def test_not_touched_by_is_refused_rather_than_answered_ambiguously (
+	world: World,
+) -> None:
+	"""`ne` on `touched_by` reads as two different questions, so it is refused by name.
+
+	Inside one `EXISTS` it means *there is an event here somebody else wrote*, which is true of
+	anything two people have touched — not *this was not touched by them*. A filter with two
+	readings and one answer is the shape decision `#817` refused for `eq` on a timestamp.
+	"""
+
+	answer = world.call("GET", f"/v1/tasks?touched_by.ne={world.user.username}")
+
+	assert answer.status_code == 422, answer.text
+	assert "touched_by" in answer.text
+
+
+def test_asking_what_was_worked_on_reaches_what_was_finished (world: World) -> None:
+	"""**Simon's third question names *completed* among the things that count** — `#815`.
+
+	A listing hides finished work unless asked, so *what did I work on today* left out the one
+	task that was completed today — which is the item you most want to see when you ask. Found
+	by driving all five questions on a real instance rather than by reading: it was the only
+	row absent, and an absence is what nobody checks.
+
+	Decision `#817` settles the direction: the failure this filter must not have is work that
+	is silently missing.
+	"""
+
+	assert world.call("POST", "/v1/tasks/1/complete").status_code == 200
+	assert "the 1st" in world.titles("/v1/tasks?touched_at.gte=now-1y")
+
+
+def test_working_on_something_unfinished_is_a_question_you_may_still_ask (
+	world: World,
+) -> None:
+	"""And this is where it parts company with `completed_at` — `#818` refuses, this obeys.
+
+	*What did I work on today that is not finished yet* is an ordinary question, so saying no
+	is honoured rather than refused. Beside `completed_at` the same words ask for finished work
+	and no finished work, which means nothing and is turned down by name.
+	"""
+
+	assert world.call("POST", "/v1/tasks/1/complete").status_code == 200
+
+	answer = world.call(
+		"GET", "/v1/tasks?touched_at.gte=now-1y&include_completed=false"
+	)
+
+	assert answer.status_code == 200, answer.text
+	assert "the 1st" not in [item["title"] for item in answer.json()["items"]]

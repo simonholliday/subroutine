@@ -4817,3 +4817,36 @@ def test_asking_when_something_was_completed_finds_it (
 
 	assert "An open thing" in created
 	assert "A finished thing" not in created
+
+
+def test_a_comment_counts_as_having_worked_on_something (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`--filter touched_at.gte=` — `#815`'s third question, from a terminal.
+
+	The task is created and then commented on, and nothing else touches it. `updated_at` does
+	not move for a comment, so the pair below is the difference between *what changed* and
+	*what was worked on* — and the second is the question a person asks at the end of a week.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	run("comment", "1", "looked at it")
+
+	assert "Ordinary work" in run("list", "--filter", "touched_at.gte=today").output
+
+
+def test_claiming_something_is_not_working_on_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A lease is bookkeeping — decision `#817`, and `#726`'s distinction reaching a listing."""
+
+	run("init")
+	run("add", "Ordinary work")
+
+	# Created today, so it *is* activity; the point is what claiming adds, which is nothing.
+	before = run("list", "--filter", "touched_at.gte=today").output
+	run("claim", "1")
+	run("release", "1")
+
+	assert run("list", "--filter", "touched_at.gte=today").output == before

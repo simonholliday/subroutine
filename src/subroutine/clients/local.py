@@ -354,6 +354,9 @@ class Client:
 			about_completion=subroutine.domain.filtering.about(
 				filters or {}, subroutine.domain.filtering.COMPLETION_FIELD
 			),
+			about_activity=subroutine.domain.filtering.about(
+				filters or {}, subroutine.domain.filtering.TOUCHED_AT
+			),
 		)
 
 		with self._opened() as (session, actor):
@@ -501,6 +504,8 @@ class Client:
 					entity="task",
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
+					session=session,
+					workspace_ids=[chosen.id],
 				)
 			)
 
@@ -617,6 +622,8 @@ class Client:
 							timezone=subroutine.domain.filtering.timezone_for(
 								session, actor, chosen
 							),
+							session=session,
+							workspace_ids=[chosen.id],
 						)
 					)
 					# Built by the domain from the vocabulary `GET /v1/documents` uses,

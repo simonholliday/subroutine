@@ -368,6 +368,7 @@ def listing (
 		status_category,
 		include_completed,
 		about_completion=dates.about(subroutine.domain.filtering.COMPLETION_FIELD),
+		about_activity=dates.about(subroutine.domain.filtering.TOUCHED_AT),
 	)
 
 	statement = subroutine.domain.scoping.readable_tasks(

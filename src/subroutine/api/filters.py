@@ -17,7 +17,6 @@ with one. A route that declares no reader refuses a dotted name as an unknown pa
 is the right answer for a listing that cannot filter on dates.
 """
 
-import datetime
 import typing
 
 import fastapi
@@ -40,7 +39,7 @@ class Asked (typing.NamedTuple):
 	comparisons: list[subroutine.domain.filtering.Comparison]
 
 	def narrowing (
-		self, *, now: datetime.datetime, timezone: str
+		self, where: subroutine.domain.filtering.Where
 	) -> list[typing.Any]:
 		"""Return what to narrow the listing with, reading every value in one timezone.
 
@@ -48,9 +47,7 @@ class Asked (typing.NamedTuple):
 		``statement.where(*…)`` without testing it first.
 		"""
 
-		return subroutine.domain.filtering.predicates(
-			self.comparisons, now=now, timezone=timezone
-		)
+		return subroutine.domain.filtering.predicates(self.comparisons, where=where)
 
 	def about (self, field: str) -> bool:
 		"""Report whether this request filtered on one named field — `#818`.
@@ -135,8 +132,12 @@ def narrowed (
 
 	return statement.where(
 		*asked.narrowing(
-			now=subroutine.db.types.utcnow(),
-			timezone=subroutine.domain.filtering.timezone_for(session, actor, workspace),
+			subroutine.domain.filtering.Where(
+				now=subroutine.db.types.utcnow(),
+				timezone=subroutine.domain.filtering.timezone_for(session, actor, workspace),
+				session=session,
+				workspace_ids=[workspace.id],
+			)
 		)
 	)
 

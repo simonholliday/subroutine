@@ -42,6 +42,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
+import subroutine.domain.filtering
 import subroutine.domain.workspaces
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
@@ -1026,6 +1027,24 @@ def test_the_whole_tool_surface_stays_small (
 	  **The description is built from the registry rather than written**, so it cannot advertise
 	  a field the instance refuses. That is not a nicety: `#815` produced that exact defect twice
 	  in a day, once in `/v1/meta` and once in the guide.
+
+	* **`#815` again, to 10,700** — `touched_at` and `touched_by`, in the same item and against
+	  the raise above. Simon approved *a full description* over a surface of seven date fields;
+	  this is what that decision costs once the surface is nine and two of them are not dates.
+
+	  **Measured at +87 bytes** on top of the 401, so 488 in all — roughly 120 tokens a session.
+
+	  **A derived description still has to say what the registry means**, which is the lesson
+	  worth keeping. Deriving the field list from `TASK_FILTERS` was right and kept the schema
+	  honest about *which* fields exist — and it silently started calling `touched_by` a date
+	  field and claiming `eq` was day-only, because it was written when every filterable field
+	  was a timestamp. A guard against advertising a field that does not exist is not a guard
+	  against describing the ones that do incorrectly.
+
+	  **Fat was read for in the addition and 65 bytes were taken**, which is the first time
+	  since `#489` that reading found any: a second spelling of the value grammar, an
+	  enumeration of five activity verbs where one example carries it, and *(a day, an instant)*
+	  restating what "the date grammar" already means.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -1035,7 +1054,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 10600, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 10700, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -3759,3 +3778,37 @@ def test_a_date_a_document_has_not_got_returns_no_documents (
 
 	assert not failed, both
 	assert "How the thing works" in both
+
+
+def test_the_filter_schema_names_every_field_it_accepts (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""A published description is a contract, and this is the half a test can hold — `#815`.
+
+	The *wording* is judgement and is not asserted. What is derivable is that an agent reading
+	this schema and nothing else can name every field the tool will take: Simon's raise to
+	10,600 was bought specifically so the description would be complete enough to use without a
+	second call, and a field quietly missing from it spends the bytes and loses the reason.
+
+	It also catches the shape that actually went wrong. The description is *generated* from the
+	registry and stayed honest about which fields exist — while silently calling `touched_by` a
+	date field, because it was written when every filterable field was a timestamp. Deriving a
+	list is not the same as describing it correctly, so both halves are checked: every field is
+	named, and `touched_by` is not named among the ones taking the date grammar.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	listing = next(
+		tool for tool in answered[0]["result"]["tools"] if tool["name"] == "subroutine_list"
+	)
+	described = listing["inputSchema"]["properties"]["filter"]["description"]
+
+	for name in subroutine.domain.filtering.TASK_FILTERS:
+		assert name in described, f"{name} is accepted and not named in the schema"
+
+	grammar, _, rest = described.partition("values in the date grammar")
+
+	assert subroutine.domain.filtering.TOUCHED_BY not in grammar, (
+		"touched_by takes a username and is listed among the fields taking a date"
+	)
+	assert subroutine.domain.filtering.TOUCHED_BY in rest

@@ -90,6 +90,14 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 			"subject_id",
 			"seq",
 		),
+		# **The one index here keyed on a clock rather than on a sequence** (`#815`). Every
+		# other reader of this table pages by `seq` — a client resuming a feed asks *what is
+		# after 4,812* — but *what was worked on yesterday* is a question about **when**, and
+		# `seq` only correlates with time, it does not answer it. Without this, the `EXISTS`
+		# behind `touched_at` scans a workspace's whole history for every candidate row.
+		sqlalchemy.Index(
+			"ix_event_workspace_id_created_at", "workspace_id", "created_at"
+		),
 	)
 
 	seq: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(

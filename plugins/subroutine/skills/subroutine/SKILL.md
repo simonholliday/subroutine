@@ -244,6 +244,14 @@ Two entries make a range, and it narrows alongside `project`, `ready` and the re
 replacing them. This is the question to ask at the start of a session about work you did in the
 last one — `subroutine_changes` answers what *moved*, and this answers what a period contains.
 
+For *worked on* rather than *changed*, ask `touched_at` — it reads the event feed, so a comment
+or a status change counts where `updated_at` would say nothing happened:
+
+```
+subroutine_list(filter={"touched_at.gte": "yesterday"})
+subroutine_list(filter={"touched_at.gte": "start_of_week", "touched_by.eq": "si"})
+```
+
 **Take the task before you touch anything, say when you start, and give it back at the end.**
 Three calls around the work, in this order, every time:
 

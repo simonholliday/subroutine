@@ -30,15 +30,20 @@ reachable by one of them (`#501`, which is why ``ordering.PROJECT_FIELDS`` moved
 
 import datetime
 import typing
+import uuid
 
+import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.schedule
+import subroutine.domain.selection
 import subroutine.errors
 
 #: What separates a field from the operator applied to it. §9.6's spelling.
@@ -144,6 +149,24 @@ def _day_predicate (
 	return OPERATORS[operator](column, day)
 
 
+def _no_predicate_of_its_own (
+	column: typing.Any,
+	operator: str,
+	value: str,
+	field: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> typing.Any:
+	"""Refuse to compile a field that only means anything beside its group.
+
+	Reached only if a grouped field were declared with no group, which is a mistake in the
+	registry rather than anything a caller can do — so it raises rather than returning
+	something a listing would silently narrow by.
+	"""
+
+	raise AssertionError(f"{field!r} compiles as part of a group, not on its own")
+
+
 class Kind (typing.NamedTuple):
 	"""How a field's values are read, which comparisons it allows, and what a refusal says."""
 
@@ -192,14 +215,63 @@ DAY = Kind(
 )
 
 
+#: A username, for asking whose activity — `#815`. Resolved against the whole instance rather
+#: than one workspace, which is `#501`'s split: a *filter* must not refuse in a workspace
+#: somebody has not joined, where *assigning* work to them there would be unfair.
+#:
+#: **`eq` only, and `ne` is refused on purpose.** These compile into one correlated `EXISTS`,
+#: so `touched_by.ne=si` would mean *there is an event in the window that si did not write* —
+#: which is true of anything two people touched, and is not the question anybody is asking.
+#: *Not touched by si* is a different query and would need its own operator.
+WHO = Kind(
+	predicate=_no_predicate_of_its_own,
+	expects="a username",
+	operators=frozenset({"eq"}),
+)
+
+
 class Filterable (typing.NamedTuple):
 	"""One field a listing can be asked about."""
 
-	#: What it compares against in SQL.
+	#: What it compares against in SQL. For a field with no column of its own — `touched_at` —
+	#: this is the entity's identity, which is what the subquery correlates on.
 	column: typing.Any
 
 	#: How its value is read.
 	kind: Kind
+
+	#: Which fields compile *together*, or ``None`` for one that stands alone.
+	#:
+	#: **`touched_at` and `touched_by` are one predicate, not two** (decision `#817`). Compiled
+	#: independently they would mean *any event in the window* and *any event by si* — possibly
+	#: different events — so an item somebody else touched yesterday and si touched last month
+	#: would answer *what did si work on yesterday*. One correlated `EXISTS` is the difference.
+	group: str | None = None
+
+
+#: *When was this worked on* — created, edited, completed, commented on, linked, status
+#: changed. `#815`'s third and fourth questions, and the two this file exists for.
+TOUCHED_AT = "touched_at"
+
+#: *And by whom.* Beside :data:`TOUCHED_AT` it narrows the same events; on its own it means
+#: *worked on at any time by this person*.
+TOUCHED_BY = "touched_by"
+
+
+def _worked_on (identity: typing.Any) -> dict[str, Filterable]:
+	"""Declare the pair that asks about activity, for one entity's identity column.
+
+	**Not a stored column, and deliberately not one.** A maintained `last_activity_at` was
+	considered and deferred (decision `#817`): it is sortable, which an `EXISTS` is not
+	cheaply, and `events.record` is a single funnel so it would have one write site — but it
+	is a second copy of a fact, which is this codebase's named signature defect. The trigger
+	for revisiting it is somebody wanting to **sort** by activity rather than filter on it.
+	"""
+
+	return {
+		TOUCHED_AT: Filterable(column=identity, kind=INSTANT, group="touched"),
+		TOUCHED_BY: Filterable(column=identity, kind=WHO, group="touched"),
+	}
 
 
 def _instants (**fields: typing.Any) -> dict[str, Filterable]:
@@ -236,6 +308,7 @@ TASK_FILTERS: dict[str, Filterable] = {
 	"planned_for": Filterable(
 		column=subroutine.db.models.work.Task.planned_for, kind=DAY
 	),
+	**_worked_on(subroutine.db.models.work.Task.id),
 }
 
 #: What a document listing can be asked about.
@@ -244,11 +317,17 @@ TASK_FILTERS: dict[str, Filterable] = {
 #: planned day to ask about. It is here at all because one ref counter serves both (§6.2), so
 #: *"what was created yesterday"* answered for tasks alone would be wrong about half of what a
 #: number can name.
-DOCUMENT_FILTERS: dict[str, Filterable] = _instants(
-	created_at=subroutine.db.models.work.Document.created_at,
-	updated_at=subroutine.db.models.work.Document.updated_at,
-	content_updated_at=subroutine.db.models.work.Document.content_updated_at,
-)
+DOCUMENT_FILTERS: dict[str, Filterable] = {
+	**_instants(
+		created_at=subroutine.db.models.work.Document.created_at,
+		updated_at=subroutine.db.models.work.Document.updated_at,
+		content_updated_at=subroutine.db.models.work.Document.content_updated_at,
+	),
+	# **A document is worked on too**, and a comment on one moves nothing in its row — which is
+	# the whole reason this is an `EXISTS`. `#815`'s question is about items, and a ref names
+	# either kind (§6.2).
+	**_worked_on(subroutine.db.models.work.Document.id),
+}
 
 #: What a project listing can be asked about.
 PROJECT_FILTERS: dict[str, Filterable] = _instants(
@@ -417,27 +496,167 @@ def understood (
 	return comparisons
 
 
+class Where (typing.NamedTuple):
+	"""What compiling a filter needs beyond the value the caller wrote.
+
+	``now`` and ``timezone`` are passed in rather than read, so every expression in one request
+	resolves against one instant: §9.3's rule, and the reason ``start_of_day`` and
+	``end_of_day`` in a single filter cannot land on different days.
+
+	The rest is only needed by a group that reaches another table. ``touched_at`` joins through
+	:func:`subroutine.domain.scoping.visible_events`, because §5.11a makes an event exactly as
+	visible as the item it describes — without it a reader would learn an item exists from an
+	event they may not read.
+	"""
+
+	now: datetime.datetime
+	timezone: str
+
+	#: Only for a group that resolves a name. ``touched_by`` takes a username.
+	session: sqlalchemy.orm.Session | None = None
+
+	#: Which workspaces the listing is already narrowed to, so a subquery over another table
+	#: can reach an index keyed on one. **Not a visibility control** — :func:`_touched` explains
+	#: why the join decision `#817` called for turned out to narrow nothing.
+	workspace_ids: typing.Sequence[uuid.UUID] = ()
+
+
 def predicates (
-	comparisons: typing.Iterable[Comparison], *, now: datetime.datetime, timezone: str
+	comparisons: typing.Iterable[Comparison], *, where: Where
 ) -> list[typing.Any]:
 	"""Read each comparison's value and return what to narrow a listing with.
 
-	``now`` and ``timezone`` are passed in rather than read here, so that every expression in
-	one request resolves against one instant: §9.3's rule, and the reason ``start_of_day`` and
-	``end_of_day`` in a single filter cannot land on different days.
+	**Fields declaring a group compile together, once.** Everything else is one predicate per
+	comparison, which is the ordinary case and the reason a group is opt-in rather than the
+	shape everything is forced into.
 	"""
 
-	return [
-		comparison.against.kind.predicate(
-			comparison.against.column,
-			comparison.operator,
-			comparison.value,
-			comparison.field,
-			now,
-			timezone,
+	alone = []
+	grouped: dict[str, list[Comparison]] = {}
+
+	for comparison in comparisons:
+		if comparison.against.group is not None:
+			grouped.setdefault(comparison.against.group, []).append(comparison)
+
+			continue
+
+		alone.append(
+			comparison.against.kind.predicate(
+				comparison.against.column,
+				comparison.operator,
+				comparison.value,
+				comparison.field,
+				where.now,
+				where.timezone,
+			)
 		)
-		for comparison in comparisons
+
+	return alone + [
+		GROUPS[name](members, where) for name, members in sorted(grouped.items())
 	]
+
+
+#: Actions that say somebody *administered* an item rather than worked on it — decision `#817`.
+#:
+#: **An exclusion rather than a list of what counts**, deliberately: a sixth action added later
+#: is included by default, so the failure direction is too many rows rather than work that is
+#: silently missing. Measured on this instance, claiming and releasing are about a fifth of the
+#: event volume, and `#726` records the case they would misreport — a claim is a lease somebody
+#: may take to *read* an item and then decide it is not for them.
+BOOKKEEPING = frozenset(
+	{
+		subroutine.domain.events.EventAction.CLAIMED,
+		subroutine.domain.events.EventAction.RELEASED,
+	}
+)
+
+
+def _touched (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile *worked on* — one correlated ``EXISTS`` over the event feed.
+
+	**Because `updated_at` cannot see a comment.** Measured on the live instance: a task read
+	before and after a comment carries the same `updated_at`, to the microsecond. Simon's
+	question names *commented on* explicitly, so a filter built on the row's own timestamps
+	would answer it **wrongly rather than partially**, and nothing in the answer would say so.
+
+	**Both ends of the event are matched.** An edit names the item as its `entity`; a comment
+	or a link names it as its `subject` (`#252`). Matching only the first would lose exactly
+	the case that made a stored column insufficient.
+
+	**Links are counted against the item that was edited**, which is Simon's principle and
+	already what the code does — an event names the item somebody was working on, not the far
+	end. `#816` is the single exception, where the browser's inverse control swaps the ends;
+	`#815` ships with that documented as a false positive, which a reader can see, rather than
+	as missing work, which they cannot.
+
+	**The workspace clause is here for the index and not for visibility, and that is worth
+	saying plainly** because decision `#817` says to join through
+	:func:`subroutine.domain.scoping.visible_events` and this does not. That was written before
+	the code existed, and building it showed the join narrows nothing: this subquery correlates
+	on the outer row's **own identity**, the outer statement is already narrowed by
+	``readable_tasks``, and §5.11a makes an event exactly as visible as the entity it describes
+	— so every event it can match belongs to an item the reader may already read. Measured
+	rather than argued: removing it failed no test in ``test_isolation``, ``test_scoping``,
+	``test_multi_user`` or ``test_events_scoping``, which is what a control that does nothing
+	looks like. What it *would* have cost is real — several correlated ``EXISTS`` clauses
+	evaluated once per candidate row.
+
+	``workspace_id`` stays because ``ix_event_workspace_id_created_at`` leads on it. Measured on
+	SQLite's planner, 2026-08-11: *SEARCH event USING INDEX ix_event_workspace_id_created_at
+	(workspace_id=? AND created_at>?)*. Without it the index this filter exists to use cannot
+	be reached at all.
+	"""
+
+	event = subroutine.db.models.activity.Event
+	identity = comparisons[0].against.column
+
+	narrowing = [
+		sqlalchemy.or_(
+			event.entity_id == identity, event.subject_id == identity
+		),
+		event.action.notin_([action.value for action in BOOKKEEPING]),
+	]
+
+	if where.workspace_ids:
+		narrowing.append(event.workspace_id.in_(list(where.workspace_ids)))
+
+	for comparison in comparisons:
+		if comparison.field == TOUCHED_BY:
+			narrowing.append(event.actor_user_id == _whoever(comparison, where))
+
+			continue
+
+		moment = subroutine.domain.schedule.interpret(
+			comparison.value,
+			boundary=BOUNDARIES[comparison.operator],
+			timezone=where.timezone,
+			now=where.now,
+			field=comparison.field,
+		)
+
+		if moment.instant is None:
+			raise _unreadable(comparison.field, comparison.value)
+
+		narrowing.append(
+			OPERATORS[comparison.operator](event.created_at, moment.instant)
+		)
+
+	return sqlalchemy.exists().where(*narrowing)
+
+
+def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:
+	"""Resolve the username ``touched_by`` names, refusing one that is nobody."""
+
+	if where.session is None:
+		raise AssertionError("touched_by needs a session to resolve a username")
+
+	return subroutine.domain.selection.user(where.session, comparison.value).id
+
+
+#: Which fields compile together, and what compiles them. One entry, so far.
+GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
+	"touched": _touched,
+}
 
 
 def asked (
@@ -446,6 +665,8 @@ def asked (
 	entity: str,
 	now: datetime.datetime,
 	timezone: str,
+	session: sqlalchemy.orm.Session | None = None,
+	workspace_ids: typing.Sequence[uuid.UUID] = (),
 ) -> list[typing.Any]:
 	"""Compile every dotted parameter into predicates, refusing anything it cannot.
 
@@ -453,7 +674,12 @@ def asked (
 	local client, and every test of the grammar itself.
 	"""
 
-	return predicates(understood(parameters, entity=entity), now=now, timezone=timezone)
+	return predicates(
+		understood(parameters, entity=entity),
+		where=Where(
+			now=now, timezone=timezone, session=session, workspace_ids=workspace_ids
+		),
+	)
 
 
 def _no_such_field (

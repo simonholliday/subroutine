@@ -64,6 +64,34 @@ DEFAULT_LIMIT = 20
 #: Measuring it in the test is what makes the argument checkable rather than dated.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
 
+#: Named separately in the description because it is not a date and the derived list would
+#: otherwise call it one — which the first version did, having been written when every
+#: filterable field was a timestamp. A description built from a registry still has to say what
+#: the registry means.
+_DATED = frozenset({subroutine.domain.filtering.TOUCHED_AT})
+
+
+def _fields_of (
+	kind: subroutine.domain.filtering.Kind,
+	without: frozenset[str] = frozenset(),
+) -> str:
+	"""List a task's filterable fields of one kind, for the schema below.
+
+	**Not ``_named``**, which this was called first and which is already the name of the
+	function rendering an event's item further down — so the schema was built from one and the
+	change feed from the other, by luck of definition order. Caught by mypy rather than by any
+	test, because both happened to work.
+	"""
+
+	return ", ".join(
+		sorted(
+			name
+			for name, field in subroutine.domain.filtering.TASK_FILTERS.items()
+			if field.kind is kind and name not in without
+		)
+	)
+
+
 #: Asking a listing about a date — `#815`, Simon's decision of 2026-08-11 to spend the budget.
 #:
 #: **Built from `domain/filtering`'s registry rather than written out**, so it cannot advertise
@@ -74,12 +102,12 @@ DATE_FILTER = {
 	"type": "object",
 	"additionalProperties": {"type": "string"},
 	"description": (
-		"Narrow by date: {'created_at.gte': 'yesterday'}. Two entries make a range. "
-		f"Fields: {', '.join(sorted(subroutine.domain.filtering.TASK_FILTERS))}. "
-		f"Operators: {', '.join(sorted(subroutine.domain.filtering.INSTANT.operators))} "
-		f"({', '.join(sorted(subroutine.domain.filtering.DAY.operators - subroutine.domain.filtering.INSTANT.operators))} "
-		"only on a day field). Values take the date grammar: a day, an instant, "
-		"'yesterday', 'start_of_week'."
+		"Narrow by when and by whom: {'created_at.gte': 'yesterday'}; two entries make a "
+		f"range. gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}, "
+		"values in the date grammar ('yesterday', 'start_of_week'). "
+		f"{_fields_of(subroutine.domain.filtering.DAY)} is a day and takes eq too. "
+		"touched_at is *worked on* — a comment or status change counts, which no other "
+		"field sees. touched_by takes a username and pairs with it."
 	),
 }
 

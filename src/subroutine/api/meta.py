@@ -438,6 +438,20 @@ def guide_text () -> str:
 		"listing accepts; equality is refused on a timestamp, because it would compare against "
 		"one microsecond and match nothing.",
 		"",
+		# `#815`'s third and fourth questions. Named separately from the paragraph above,
+		# because it is the one filter that is not a column — an agent reading it as "another
+		# date field" reaches for `updated_at` and is told, wrongly, that nothing happened.
+		"**`touched_at` is the one to reach for when you mean *worked on*.** "
+		"`?touched_at.gte=yesterday` finds what was created, edited, completed, commented on "
+		"or moved through a status — **including changes that move no field on the item "
+		"itself**, which is exactly why `updated_at` is a different question: writing a comment "
+		"does not touch the commented-on item's `updated_at` at all. `?touched_by.eq=<username>` "
+		"narrows it to one person, and the two are one question rather than two, so they match "
+		"the same events. Claiming and releasing do not count — that is bookkeeping, not work "
+		"— and work you finished in the period is included, since finishing something is the "
+		"clearest case of having worked on it. `include_completed=false` beside it narrows to "
+		"what is still in flight.",
+		"",
 		# "a comment" was removed from this list while comments had no API, per the rule in
 		# this function's docstring — a reader told that references work in comments would
 		# have gone looking for an endpoint that was not there. It is back because the
@@ -761,6 +775,14 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"filter narrows alongside every other one rather than replacing it.",
 		"GET",
 		"/v1/tasks?created_at.gte=now-30d&created_at.lt=today&format=ids&limit=5",
+		None,
+	),
+	(
+		"What was *worked on* recently? `touched_at` reads the event feed rather than the "
+		"row, so a comment or a status change counts — neither of which moves `updated_at` "
+		"on the item itself. Add `touched_by.eq=<username>` for one person's.",
+		"GET",
+		"/v1/tasks?touched_at.gte=now-7d&fields=ref,title&limit=5",
 		None,
 	),
 	(

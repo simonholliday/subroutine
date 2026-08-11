@@ -1339,7 +1339,11 @@ def statuses_in_category (
 
 
 def completion_wanted (
-	category: str | None, asked: bool | None, *, about_completion: bool = False
+	category: str | None,
+	asked: bool | None,
+	*,
+	about_completion: bool = False,
+	about_activity: bool = False,
 ) -> bool:
 	"""Say whether a listing should reach finished work.
 
@@ -1365,6 +1369,18 @@ def completion_wanted (
 	categories and not about filters. Measured on a fresh instance:
 	``list --filter completed_at.gte=today`` said *nothing on your list* the same minute a task
 	was completed.
+
+	**``about_activity`` is the same argument with a different ending** (`#815`). Asking
+	``touched_at.gte=today`` — *what did I work on today* — must reach something finished
+	today, because Simon's own wording of the question names *completed* among the things that
+	count, and decision `#817`'s rule for this filter is that the failure direction is too many
+	rows rather than work that is silently missing. Found by driving the five questions on a
+	real instance: the finished task was the only one absent.
+
+	**But it is not a contradiction to say no**, which is where the two part company. *What did
+	I work on today that is not finished yet* is an ordinary question, so
+	``include_completed=false`` is honoured here rather than refused — where beside
+	``completed_at`` it asks for finished work and no finished work, which means nothing.
 	"""
 
 	wants_finished = about_completion or (
@@ -1372,7 +1388,9 @@ def completion_wanted (
 	)
 
 	if not wants_finished:
-		return bool(asked)
+		# Not `bool(asked)`: three-valued, so *did not say* means include and *said no* means
+		# exclude. Collapsing them would make the answer ignore a caller who was explicit.
+		return asked is not False if about_activity else bool(asked)
 
 	if asked is False:
 		raise subroutine.errors.ValidationError(

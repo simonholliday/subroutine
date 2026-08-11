@@ -1,6 +1,6 @@
 {
   "name": "subroutine-remote",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Agent-native task management for your life, your projects and your team. Connects this session to a Subroutine instance somebody else runs — an address and a token, and nothing to install. It is a Claude Code plugin, so it runs and is configured wherever those run. A hosted surface that adds servers as connectors instead — claude.ai, and the apps that offer an 'Add custom connector' dialog — cannot use it: a connector authenticates with OAuth, which Subroutine does not offer yet, so there is nowhere to put the token you were given. Use 'subroutine' instead if your work lives on this machine.",
   "author": {
     "name": "Simon Holliday",

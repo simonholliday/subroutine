@@ -100,7 +100,15 @@ The same words ask a list about the past:
 Write it as field.operator=value. The operators are gte and gt for 'from',
 lt and lte for 'until'; a bound takes in the whole day it names, so
 'created_at.lte=yesterday' includes all of yesterday. Repeat --filter for a
-range, and combine it with --project, --assignee or a search."""
+range, and combine it with --project, --assignee or a search.
+
+For what was *worked on* rather than what changed, ask touched_at:
+
+  subroutine list --filter touched_at.gte=yesterday
+  subroutine list --filter touched_at.gte=start_of_week --filter touched_by.eq=si
+
+That covers a comment or a status change as well as an edit — neither of which
+moves updated_at on the item itself. Claiming something does not count."""
 
 
 def _capture_body () -> str:
