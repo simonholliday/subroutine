@@ -51,6 +51,18 @@ upgrade involves.
   document has not got — a deadline, a planned day, a completion — asks about tasks, so
   documents drop out of the answer rather than arriving unfiltered.
 
+- **An agent can ask the same question**, without dropping to a raw API call:
+
+  ```
+  subroutine_list(filter={"created_at.gte": "yesterday"})
+  subroutine_list(filter={"completed_at.gte": "start_of_week"})
+  ```
+
+  The MCP tool surface grew by 401 bytes to carry it — roughly 100 tokens of every session —
+  which is a deliberate act rather than a rounding error. The capability was already reachable
+  through `subroutine_call_api`; what the bytes buy is that a model can *find* it, since a
+  model deciding what it can do reads tool names rather than every schema in full.
+
 ### Fixed
 
 - **Asking when something was completed said that nothing was.** `completed_at` is only ever

@@ -35,8 +35,10 @@ import subroutine.config
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
+import subroutine.domain.filtering
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.errors
 import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.permissions
@@ -61,6 +63,25 @@ DEFAULT_LIMIT = 20
 #: paragraph directly below this module's own note that a count belongs somewhere it can fail.
 #: Measuring it in the test is what makes the argument checkable rather than dated.
 WORKSPACE = {"type": "string", "description": "Workspace name or id."}
+
+#: Asking a listing about a date — `#815`, Simon's decision of 2026-08-11 to spend the budget.
+#:
+#: **Built from `domain/filtering`'s registry rather than written out**, so it cannot advertise
+#: a field the instance refuses or omit one it accepts. That is what `#815` itself cost twice:
+#: `/v1/meta` nearly published `created_at.eq`, and the agent guide nearly hard-coded an
+#: operator list that had moved the day before.
+DATE_FILTER = {
+	"type": "object",
+	"additionalProperties": {"type": "string"},
+	"description": (
+		"Narrow by date: {'created_at.gte': 'yesterday'}. Two entries make a range. "
+		f"Fields: {', '.join(sorted(subroutine.domain.filtering.TASK_FILTERS))}. "
+		f"Operators: {', '.join(sorted(subroutine.domain.filtering.INSTANT.operators))} "
+		f"({', '.join(sorted(subroutine.domain.filtering.DAY.operators - subroutine.domain.filtering.INSTANT.operators))} "
+		"only on a day field). Values take the date grammar: a day, an instant, "
+		"'yesterday', 'start_of_week'."
+	),
+}
 
 #: The type of an argument that names an item — `#549`. **Both spellings, because both work
 #: and only one was published.**
@@ -480,6 +501,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"type": "boolean",
 						"description": "The agenda: overdue, due today, and planned next.",
 					},
+					"filter": DATE_FILTER,
 					"workspace": WORKSPACE,
 				},
 			},
@@ -1141,6 +1163,12 @@ def _listed (
 		return "\n".join(rows) if rows else "Nothing on today."
 
 	project = _text(arguments, "project")
+
+	# §9.6's date comparisons (`#815`). Refused by the far end rather than checked here, like
+	# every other vocabulary an agent sends — so a misspelled field is named once, in the one
+	# place that holds the registry.
+	filters = _filters(arguments)
+
 	tasks = client.tasks(
 		workspace=workspace,
 		project=project,
@@ -1148,6 +1176,7 @@ def _listed (
 		order=_text(arguments, "order"),
 		ready=ready,
 		q=query,
+		filters=filters,
 	)
 
 	# **`limit` bounds the answer, not each kind.** Asking for five and receiving five tasks
@@ -1157,11 +1186,19 @@ def _listed (
 	# **Never documents when `ready` was asked for.** §6.14 says a document is not scheduled
 	# and nothing blocks one, so every specification and decision in the instance would report
 	# as ready — true, useless, and enough of them to bury the tasks the caller asked about.
+	# **A date a document has not got means *no* documents, never all of them** (`#815`). A
+	# document is not scheduled (§6.14), so *what did I complete yesterday* is a question about
+	# tasks — and a second call that dropped the filter it could not honour would answer it by
+	# adding every decision in the workspace.
 	documents = (
 		client.documents(
-			workspace=workspace, project=project, limit=limit - len(tasks), q=query
+			workspace=workspace,
+			project=project,
+			limit=limit - len(tasks),
+			q=query,
+			filters=filters,
 		)
-		if len(tasks) < limit and not ready
+		if len(tasks) < limit and not ready and _asks_only_of_documents(filters)
 		else []
 	)
 	rows = [_line(task) for task in tasks] + [_line(document) for document in documents]
@@ -1170,6 +1207,62 @@ def _listed (
 		return "Nothing open."
 
 	return "\n".join(rows)
+
+
+def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
+	"""Read the ``filter`` argument, refusing values the declared schema does not allow.
+
+	**Only what the generic check cannot reach**, which was measured rather than assumed. `#549`
+	made ``protocol._wrongly_typed`` refuse an argument whose value does not match its declared
+	``type``, so ``filter="created_at.gte=today"`` is already turned down by name before this
+	runs — and the first version of this function checked that again. Found by falsifying: the
+	mutation that removed the check *passed*, which is a finding about the code rather than
+	about the test.
+
+	What that check does not do is recurse: it reads the property's own ``type`` and knows
+	nothing about ``additionalProperties``. So ``{"created_at.gte": 5}`` reaches here, and this
+	is the only place that can refuse it.
+
+	The *names* are not checked here either. Those belong to ``domain/filtering``'s registry,
+	which lives on the instance — so a misspelled field is refused once, by the side that knows,
+	and a client one release behind can still ask a question its instance understands.
+	"""
+
+	given = arguments.get("filter")
+
+	if not isinstance(given, dict):
+		return {}
+
+	if not all(
+		isinstance(name, str) and isinstance(value, str) for name, value in given.items()
+	):
+		raise subroutine.errors.ValidationError(
+			"'filter' takes a field.operator and a value, both written as text.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="filter",
+					code="invalid_field_value",
+					message="One of the entries in 'filter' was not a pair of strings.",
+					hint="Write it as {\"created_at.gte\": \"yesterday\"}.",
+				)
+			],
+		)
+
+	return dict(given)
+
+
+def _asks_only_of_documents (filters: dict[str, str]) -> bool:
+	"""Report whether every filter names a field a document actually has — `#815`.
+
+	The same rule the CLI applies, and here for the same reason: a second call that dropped a
+	filter it could not honour would make a narrowed list *longer*.
+	"""
+
+	return all(
+		name.partition(subroutine.domain.filtering.SEPARATOR)[0]
+		in subroutine.domain.filtering.DOCUMENT_FILTERS
+		for name in filters
+	)
 
 
 def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:

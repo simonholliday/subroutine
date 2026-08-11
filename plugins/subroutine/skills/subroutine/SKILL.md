@@ -232,6 +232,18 @@ subroutine_list(ready=true, order="-priority_score")
 `ready` leaves out anything blocked by unfinished work and anything deferred to a later date.
 Without it you get a backlog in priority order, which includes things nobody can act on yet.
 
+**Ask what happened, not only what is left.** A date field takes `.gte`, `.gt`, `.lt` and
+`.lte`, and the value is the same date grammar a write accepts:
+
+```
+subroutine_list(filter={"created_at.gte": "yesterday"})
+subroutine_list(filter={"completed_at.gte": "start_of_week"})
+```
+
+Two entries make a range, and it narrows alongside `project`, `ready` and the rest rather than
+replacing them. This is the question to ask at the start of a session about work you did in the
+last one — `subroutine_changes` answers what *moved*, and this answers what a period contains.
+
 **Take the task before you touch anything, say when you start, and give it back at the end.**
 Three calls around the work, in this order, every time:
 

@@ -996,6 +996,36 @@ def test_the_whole_tool_surface_stays_small (
 	stating a condition becomes false when the condition changes, silently, which is the
 	argument `#139` settled about item titles and applies to a comment just as well (`#198`).
 	Do not trust it; run the test and read what it says.
+
+	* **`#815`, to 10,600** — a `filter` argument on `subroutine_list`, so an agent can ask
+	  *what was created yesterday*. Simon's decision, 2026-08-11, taken against the measured
+	  alternatives rather than in the abstract.
+
+	  **Measured at +401 bytes**, roughly 100 tokens a session. The capability was not absent:
+	  `subroutine_call_api` has reached `GET /v1/tasks?created_at.gte=yesterday` since `#485`,
+	  and both `/v1/meta` and `/v1/docs/agent` now describe the grammar. So this raise buys
+	  **discoverability**, which is the same case `#282` made for `subroutine_search` and named
+	  as the weakest of its kind — a model deciding what it can do reads tool *names*, and a
+	  capability reachable only through another tool's escape hatch is found by reading every
+	  schema in full, which is what a model reliably does not do.
+
+	  What makes it stronger than `#282`'s is that the question is one a person asked for. `#815`
+	  is Simon's own request, and its stated requirement is that *an agent can generate the
+	  request* — which an agent that never learns the grammar exists cannot.
+
+	  **The cheaper description was measured and refused.** A terse form came to 10,393, seven
+	  bytes under the standing cap, and taking it would have been exactly the theatre the
+	  paragraph below warns about: a cap satisfied by editing prose has stopped measuring
+	  anything. The bytes it saved were the field list, which is the part an agent needs to use
+	  the argument without a second call.
+
+	  **Fat was read for first and none was taken, for the ninth time.** The addition itself was
+	  read too — `#489`'s lesson — and the one thing removed was a second example of the value
+	  grammar, which `/v1/docs/agent` already carries in full.
+
+	  **The description is built from the registry rather than written**, so it cannot advertise
+	  a field the instance refuses. That is not a nicety: `#815` produced that exact defect twice
+	  in a day, once in `/v1/meta` and once in the guide.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -1005,7 +1035,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 10400, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 10600, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -3618,3 +3648,114 @@ def test_an_answer_that_is_not_a_json_rpc_message_becomes_one (
 
 	assert "could not read its own vocabulary" in said, f"its own words were dropped: {said}"
 	assert "Check that the database is migrated." in said, "the hint was dropped"
+
+
+def test_an_agent_can_ask_what_was_created_recently (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""**`#815`'s requirement in the words it was asked in**: an agent generates the request.
+
+	The whole case for spending 401 bytes of every session's context on this argument is that a
+	model reads tool *names* — so a capability reachable only through `subroutine_call_api` is
+	one it never finds. That is worth nothing unless the argument actually narrows, which is
+	what this drives.
+	"""
+
+	_called(bound, "subroutine_add", text="Fix the boiler")
+
+	recent, failed = _called(
+		bound, "subroutine_list", filter={"created_at.gte": "today"}
+	)
+
+	assert not failed, recent
+	assert "Fix the boiler" in recent
+
+	older, failed = _called(bound, "subroutine_list", filter={"created_at.lt": "today"})
+
+	assert not failed, older
+	assert "Fix the boiler" not in older
+
+
+def test_a_misspelled_filter_field_is_refused_by_name (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""Refused by the instance, which is the side holding the registry.
+
+	The tool checks the *shape* and not the names — so a field added to the registry is
+	accepted the day it exists, and a client one release behind cannot refuse a question its
+	instance understands.
+	"""
+
+	answered, failed = _called(
+		bound, "subroutine_list", filter={"creatd_at.gte": "today"}
+	)
+
+	assert failed
+	assert "creatd_at" in answered
+	assert "created_at" in answered, "the refusal did not name the fields that do exist"
+
+
+def test_a_filter_that_is_not_an_object_is_refused_rather_than_guessed (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#549`'s rule reaching a new argument, from **two** places — and that split was measured.
+
+	``protocol._wrongly_typed`` refuses an argument whose value does not match its declared
+	``type``, so the string below never reaches the tool. It does not recurse, though: it reads
+	the property's own type and knows nothing about ``additionalProperties``, so a *value* of
+	the wrong kind is the tool's to refuse.
+
+	Both cases are here because the first version of ``_filters`` checked the top level as well
+	— and the falsification that removed that check **passed**, which is how the duplication was
+	found. A second copy of a rule is this codebase's signature defect, and it is invisible
+	exactly while the two agree.
+	"""
+
+	# Refused by the protocol layer, before the tool is called at all.
+	answered, failed = _called(bound, "subroutine_list", filter="created_at.gte=today")
+
+	assert failed
+	assert "object" in answered
+	assert "created_at.gte" in answered, "the refusal did not quote what was sent"
+
+	# Refused by the tool, because nothing else looks inside.
+	answered, failed = _called(bound, "subroutine_list", filter={"created_at.gte": 5})
+
+	assert failed
+	assert "created_at.gte" in answered
+	assert "yesterday" in answered, "the refusal did not show the shape"
+
+
+def test_a_date_a_document_has_not_got_returns_no_documents (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""**Narrowing a list must not make it longer** — `#815`, the same rule the CLI applies.
+
+	`subroutine_list` fills whatever the task rows leave with documents, in a second call. A
+	document is not scheduled (§6.14), so it has no `completed_at` — and a second call that
+	dropped the filter it could not honour would answer *what did I complete today* by adding
+	every decision in the workspace.
+
+	The task has to be *there* in the narrowed answer for this to mean anything: a listing that
+	refused outright would produce the same absence, and the two are opposite behaviours.
+	"""
+
+	_called(bound, "subroutine_add", text="Fix the boiler")
+	_called(bound, "subroutine_done", ref=1)
+	_called(
+		bound, "subroutine_document", title="How the thing works", body="Like this."
+	)
+
+	answered, failed = _called(
+		bound, "subroutine_list", filter={"completed_at.gte": "today"}
+	)
+
+	assert not failed, answered
+	assert "Fix the boiler" in answered, "the listing refused rather than skipping documents"
+	assert "How the thing works" not in answered, "the document half ignored the filter"
+
+	# A field both kinds have still reaches both, so the rule is about the field.
+	both, failed = _called(bound, "subroutine_list", filter={"created_at.gte": "today"})
+
+	assert not failed, both
+	assert "How the thing works" in both
