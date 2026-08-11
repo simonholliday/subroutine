@@ -432,9 +432,17 @@ class Event(pydantic.BaseModel):
 	#: subject's when there is one, the entity's otherwise, so a comment reports the item
 	#: somebody wrote on rather than the comment row, which has neither.
 	#:
-	#: **Both null where there is nothing to name**: a workspace, a link, an item outside the
-	#: three that carry titles. `item_ref` is null for a project too, which addresses itself by
-	#: key and never had one (§6.2).
+	#: **Both null where there is nothing to name**: a workspace, an item outside the three that
+	#: carry titles. `item_ref` is null for a project too, which addresses itself by key and
+	#: never had one (§6.2).
+	#:
+	#: **A link event names its *source*, and this used to say it named nothing** (`#783`). That
+	#: was true when written and stopped being true with `#252`, which gave link events a
+	#: `subject_id` so the change feed could scope them — so a link reports the item it hangs
+	#: off, exactly as a comment reports the item it was written on. A client watching one item
+	#: therefore sees a link created **from** it and not one created **to** it, although the
+	#: backlink appears on both ends; a client that needs both must re-read on any link event.
+	#: Published as this model's OpenAPI description, so it is a statement to every caller.
 	#:
 	#: Here rather than left to each client because the alternative is every client resolving
 	#: the same ids again — a CLI, an agent and a browser writing three answers to one

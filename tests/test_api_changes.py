@@ -381,6 +381,15 @@ def test_a_link_event_reaches_the_feed_through_the_item_it_hangs_off (
 	assert reported[0]["subject_type"] == "task"
 	assert reported[0]["item_ref"] == first["ref"]
 
+	# **The source and not the target, said as its own assertion** (`#783`). `views.Event`
+	# published the opposite — *a link names nothing* — for as long as it took somebody to read
+	# the schema and believe it, which is the whole cost of a docstring that is also a contract.
+	# The line above already pinned this by equality; this one says *which* fact it is pinning,
+	# so a reader of either the schema or the test finds the same sentence.
+	assert reported[0]["item_ref"] != second["ref"], (
+		"a link event named its target, so a client watching an item would see links made to it"
+	)
+
 
 def test_actor_me_reports_only_this_credential (session: sqlalchemy.orm.Session) -> None:
 	"""`#158`, and **the credential rather than the user** is the whole of the distinction.
