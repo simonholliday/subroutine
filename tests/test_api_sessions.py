@@ -1010,3 +1010,105 @@ def test_reading_a_link_does_not_spend_it (
 
 	assert opened.user_id == setup.user.id
 	assert subroutine.domain.sessions.would_sign_in(session, secret) is None
+
+
+# ---- what naming an origin now also permits (`SR#804`) ---------------------
+
+
+#: An origin an operator has deliberately named, as somebody running a second front end would.
+NAMED = "https://ui.example.test"
+
+
+def _served_allowing (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*allowed: str,
+) -> tuple[fastapi.FastAPI, str]:
+	"""An instance that names some origins in `cors_origins`, and a live session for it."""
+
+	_row, secret = subroutine.domain.sessions.redeem(session, _link(session, user))
+
+	return (
+		api_support.build_app(
+			api_support.factory_for(session),
+			public_url=INSTANCE,
+			cors_origins=list(allowed),
+		),
+		secret,
+	)
+
+
+def test_an_origin_the_operator_named_may_write_with_a_session (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**`cors_origins` stopped being only about reads when `SR#639` shipped, and nothing said so.**
+
+	The check inside the cookie resolver honours it deliberately: somebody who named an origin
+	has already said a browser there may make credentialed requests, so refusing its writes would
+	break a configuration they made on purpose.
+
+	That is a reasonable decision and it was **enforced by code and checked by nobody** until
+	this — which is why `docs/hosting.md` could go on describing the setting as *browser origins
+	allowed to call the API* long after it also decided who may act as a signed-in reader.
+	"""
+
+	application, held = _served_allowing(session, setup.user, NAMED)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": NAMED},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+
+def test_an_origin_the_operator_did_not_name_still_cannot (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""The other half, without which the one above passes on an instance that refuses nothing."""
+
+	application, held = _served_allowing(session, setup.user, NAMED)
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": SIBLING},
+	)
+
+	assert answer.status_code == 403, answer.text
+
+
+def test_a_wildcard_gives_the_defence_up_entirely (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**Pinned so that changing it has to be a decision, not so that it is a good idea.**
+
+	`*` is honoured, and it hands every site on the internet the ability to act as any signed-in
+	reader of this instance. Measured on a running instance during review `SR#807`: Starlette
+	echoes the requesting origin rather than sending `*`, with `allow-credentials: true`, so the
+	*read* works too — the wildcard is not the inert setting a browser's own rules usually make
+	of it.
+
+	This is what `docs/hosting.md` now warns about in the operator's own terms. A test is where
+	the warning stops being prose.
+	"""
+
+	application, held = _served_allowing(session, setup.user, "*")
+
+	answer = api_support.call(
+		application,
+		"POST",
+		f"/v1/users/{setup.user.username}/signout",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		headers={"origin": SIBLING},
+	)
+
+	assert answer.status_code == 200, (
+		"a wildcard no longer gives this up — which may well be an improvement, and is a change "
+		"to what docs/hosting.md tells an operator, so it is a decision rather than a tidy-up"
+	)

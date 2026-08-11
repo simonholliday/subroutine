@@ -584,7 +584,27 @@ class Settings(pydantic_settings.BaseSettings):
 	secret_key: str | None = None
 	dev_mode: bool = False
 	log_level: str = "INFO"
+
+	# Other origins a browser may reach this API from — **and act as a signed-in reader from**,
+	# which is the half nobody had written down (`#804`).
+	#
+	# It began as an ordinary CORS list: who may call the API from a page and read the reply.
+	# `#639` gave it a second job without renaming it. A write authenticated by a session cookie
+	# is refused unless the page making it is one this instance serves, and this list is how an
+	# operator says another origin counts as one — deliberately, because naming an origin is
+	# already a statement that a browser there may act on your behalf.
+	#
+	# **The browser app needs no entry here**, and that is the mistake the setting invites: it is
+	# served by this instance, from this instance's own address, so it was never cross-origin.
+	# `docs/hosting.md` said "right until there is a web UI" for as long as there was not one.
+	#
+	# **`*` is honoured and gives the defence up entirely** — measured, because a wildcard is
+	# usually toothless with credentials and here is not: Starlette echoes the requesting origin
+	# back with `allow-credentials`, so any page anywhere can both read and write as any signed-in
+	# reader who visits it. `tests/test_api_sessions.py` pins all three cases, so changing any of
+	# them is a decision rather than a tidy-up.
 	cors_origins: list[str] = pydantic.Field(default_factory=list)
+
 	default_timezone: str = pydantic.Field(default_factory=system_timezone)
 
 	# Which account local mode acts as, when the database holds more than one (SPEC.md

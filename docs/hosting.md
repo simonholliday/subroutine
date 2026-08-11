@@ -148,7 +148,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `rate_limit_per_minute` | `120` | Requests per credential per minute, once limiting is on |
 | `rate_limit_failures_per_minute` | `20` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
-| `cors_origins` | `[]` | Browser origins allowed to call the API. Empty means none, which is right until there is a web UI |
+| `cors_origins` | `[]` | Other origins a browser may call this API from — **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |
 | `dev_mode` | `false` | Development only. Substitutes a fixed, well-known signing key when `secret_key` is unset, so a throwaway instance starts without one. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
@@ -544,6 +544,42 @@ and any caller can choose which bucket it is counted in, which is worse than lea
 
 Left empty the header is ignored entirely, which is the right behaviour when nothing is in
 front.
+
+### `cors_origins` decides more than it used to
+
+**Almost everybody should leave this empty, and that includes anybody who has just noticed the
+web UI.** The browser app is served by this instance, from this instance's own address, so it
+is not a cross-origin caller and needs no entry here. Adding one because a web interface now
+exists is the one mistake this setting invites.
+
+**What an entry does, in full.** It lets a page on that origin call this API from a browser
+*and read the replies* — which is what CORS has always been — **and it lets that page act as
+somebody who is signed in here.** Since browser sessions arrived, a write authenticated by a
+session cookie is refused unless the page making it is one this instance serves, and this list
+is how you say another origin counts as one. That is deliberate: naming an origin is already a
+statement that a browser there may act on your behalf. It is worth knowing you are making it.
+
+**`*` gives that up to every site on the internet.** Not in the toothless way a wildcard usually
+is — this application echoes the requesting origin back with credentials allowed, so a page
+anywhere can read your data and change it, using the session of any of your people who happens
+to visit it while signed in. There is no case where a self-hosted instance needs this.
+
+So:
+
+```toml
+# Only if you run a *separate* front end on another address.
+cors_origins = ["https://boards.example.com"]
+```
+
+**And a way to check you meant it**, which is what an operator can actually run:
+
+```console
+$ curl -si https://subroutine.example.com/v1/meta -H 'Origin: https://somewhere-else.example' \
+    | grep -i access-control-allow-origin
+```
+
+Nothing back is what you want. A line naming `somewhere-else.example` means this instance is
+answering an origin you did not intend to name.
 
 ## Adding the people
 
