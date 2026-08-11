@@ -22,6 +22,14 @@ Three properties come free from being an ordinary route, and each was expensive 
   ``security.resolve``, not a bearer-token reader of its own, so a second credential type
   (§7.5) reaches this endpoint the day it reaches the others — or is refused here by a
   deliberate decision rather than by an omission nobody noticed.
+
+  **That sentence was written before the second type existed, and then the omission happened
+  anyway** (`#809`). `#248` added the cookie resolver to the chain and this endpoint began
+  answering a person's browser, for three days, until security review `#802` measured it. A
+  browser session is refused now — see
+  :func:`_refuse_a_credential_this_transport_does_not_take` for why that is a decision about
+  *shape* rather than a hole being closed. **Predicting a decision is not taking one**, which
+  is worth more here than the fix is.
 * **Scope, workspace pin and permissions are untouched.** They live below the client, in the
   service layer, so an agent over HTTP is bounded by exactly what bounds it over stdio.
 
@@ -48,6 +56,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.domain.authentication
 import subroutine.domain.instances
+import subroutine.errors
 import subroutine.mcp.protocol
 import subroutine.mcp.session
 
@@ -147,6 +156,7 @@ def call (
 	"""
 
 	_refuse_a_foreign_origin(request, settings)
+	_refuse_a_credential_this_transport_does_not_take(actor)
 
 	# **`actor` is declared and deliberately not passed on.** Declaring it is what authenticates
 	# this route and what puts §7.7's limiters in front of it, and what
@@ -179,6 +189,53 @@ def call (
 		content=json.dumps(answer, separators=(",", ":")),
 		media_type="application/json",
 		status_code=400 if failed_to_parse else 200,
+	)
+
+
+def _refuse_a_credential_this_transport_does_not_take (
+	actor: subroutine.domain.authentication.Principal,
+) -> None:
+	"""Refuse a browser session here — decided with Simon on 2026-08-11, item `#809`.
+
+	**This endpoint accepted one because nobody ever said what it should accept.** `#516` built
+	it reading the ``Authorization`` header itself; `#539` replaced that with
+	:func:`subroutine.api.security.resolve` — correctly, because a second copy of the
+	authentication rule sitting on an authentication path is this codebase's signature defect —
+	and `#248` then added the cookie resolver to that chain. Two right decisions and one
+	absence, and the result was a transport built for agents answering a person's browser.
+
+	**It was never an escalation, so this is not a hole being closed.** Security review `#802`
+	measured every way it could have been one: same person, same permissions, origin-checked by
+	both this module's list and the cookie's, rate-limited, and no `#565` deadlock because
+	:class:`subroutine.api.security.Resolver` is a protocol that forces every credential type to
+	honour ``record_use``.
+
+	**It is refused because the one plausible use for it is the one to reject** (`#808`). The
+	cheap way to expose this product to an agent standing in a browser is to declare the
+	fourteen MCP tools as page tools and have each one post here with the cookie — attractive
+	because that surface already exists and is budgeted. It is wrong because the surface includes
+	``subroutine_call_api``, an escape hatch reaching any route the credential allows, driven by
+	an agent reading item text that **anybody with a credential may have written, including on
+	somebody else's item**. Page tools, if they are ever built, want to be narrow and to call
+	``/v1``, which needs none of this.
+
+	**A refusal about which credential a transport takes, not about how one is resolved.** The
+	chain is untouched, which is what keeps `#539`'s argument intact: there is still one place
+	that decides who a caller is, and this only says that one kind of answer does not belong at
+	this door.
+
+	Forbidden rather than unauthenticated, because the credential is real and was presented
+	properly. Nothing is wrong with it except where it was sent.
+	"""
+
+	if actor.session is None:
+		return
+
+	raise subroutine.errors.Forbidden(
+		"This transport does not accept a browser session.",
+		hint="MCP is reached with an API token: send 'Authorization: Bearer sr_…', and create "
+		"one with 'subroutine token create'. A page served by this instance should call /v1 "
+		"directly, which is what its own browser app does.",
 	)
 
 

@@ -83,6 +83,14 @@ upgrade involves.
 
 ### Changed
 
+- **`POST /mcp` takes an API token and says so.** It used to accept a browser session cookie as
+  well — not deliberately, and nothing documented it. MCP is how an agent reaches this instance
+  with a URL and a token; a page in a browser should call `/v1`, which is what the web UI does.
+  A request carrying only a session is now refused with a message saying what to send instead.
+
+  Nothing that follows the documented way in is affected: an agent sends
+  `Authorization: Bearer sr_…` exactly as before.
+
 - **Subroutine describes itself differently.** It is *agent-native task management for your
   life, your projects and your team* — one line, on the PyPI summary, the README, the
   marketplace and both plugin manifests, where there used to be two variants of a different

@@ -30,6 +30,7 @@ import api_support
 import conftest
 import subroutine.api.app
 import subroutine.api.mcp
+import subroutine.api.security
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -37,6 +38,7 @@ import subroutine.db.base
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.sessions
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
 import subroutine.mcp.session
@@ -709,3 +711,66 @@ def test_the_address_this_request_arrived_at_is_not_an_origin_it_answers (
 		f"the origin the request arrived at was answered, which is the rebinding attack: "
 		f"{arrived.text[:200]}"
 	)
+
+
+# ---- which credential this transport takes (`SR#809`) ----------------------
+
+
+def test_a_browser_session_is_not_a_credential_for_this_transport (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**Decided rather than inherited** — Simon, 2026-08-11, on review `SR#807`.
+
+	This endpoint used to accept a cookie, and nobody chose that: `SR#516` read the header
+	itself, `SR#539` replaced that with the application's own resolver chain because a second
+	copy of an authentication rule is this codebase's signature defect, and `SR#248` then put
+	the cookie resolver in that chain. Two right decisions and one absence.
+
+	It was never an escalation — `SR#802` measured that — so what this refuses is a *shape*: the
+	cheap way to give a browser-side agent this product is to declare these fourteen tools as
+	page tools posting here with the cookie, and that hands `subroutine_call_api` to something
+	reading text anybody with a credential may have written (`SR#808`).
+	"""
+
+	world = test_api_tasks._world(session)
+	_row, secret = subroutine.domain.sessions.mint_link(session, user=world.user)
+	_opened, cookie = subroutine.domain.sessions.redeem(session, secret)
+
+	refused = api_support.call(
+		world.application,
+		"POST",
+		subroutine.api.mcp.PATH,
+		content=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+		headers={"content-type": "application/json"},
+		cookies={subroutine.api.security.SESSION_COOKIE: cookie},
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert "browser session" in refused.json()["detail"]
+	assert "token create" in refused.json()["hint"], "the refusal did not say what to send"
+
+	# **The same cookie still works everywhere else**, which is what says this is a rule about
+	# one door rather than about the credential. Without it, a mutation revoking the session
+	# would pass the assertion above for entirely the wrong reason.
+	elsewhere = api_support.call(
+		world.application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: cookie},
+	)
+
+	assert elsewhere.status_code == 200, "the refusal reached past the route it belongs to"
+	assert elsewhere.json()["credential"]["kind"] == "web_session"
+
+
+def test_a_token_is_untouched_by_that_refusal (world: test_api_tasks.World) -> None:
+	"""The half that would break every agent if the scoping were got wrong.
+
+	`SR#639`'s lesson, one layer over: a rule about one credential type has to be written so it
+	cannot reach the others, and the only way to know it was is to drive the one that matters.
+	"""
+
+	answered = _message(world, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+	assert answered.status_code == 200, answered.text
+	assert answered.json()["result"]["tools"], "a bearer token stopped reaching the tools"
