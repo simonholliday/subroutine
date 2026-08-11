@@ -316,10 +316,11 @@ def test_a_title_that_derives_a_claimed_slug_falls_back () -> None:
 	turns somebody's perfectly reasonable workspace title into a failure to create the
 	database at all.
 
-	**The fallback itself is still unchecked, and that is item ``#690``** rather than an
-	oversight here: a username that is *also* reserved comes straight back out and is then
-	refused by ``workspaces.create``. Reachable, driven, and widened by this change, because
-	``app`` is an ordinary service-account name where ``me`` and ``self`` were not.
+	**The fallback obeys the same rule since ``#690``**, and this docstring used to say it did
+	not. A username that was *also* reserved came straight back out and was refused by
+	``workspaces.create``, so ``init --username app --workspace MCP`` created nothing at all —
+	widened into reach by ``#678``, because ``app`` is an ordinary service-account name where
+	``me`` and ``self`` were not.
 
 	Reaching past the underscore is deliberate. The public way in is ``init``, which builds a
 	database and an entire instance to answer a question about one string.
@@ -327,6 +328,28 @@ def test_a_title_that_derives_a_claimed_slug_falls_back () -> None:
 
 	assert subroutine.domain.bootstrap._derived_slug("MCP", "si") == "si"
 	assert subroutine.domain.bootstrap._derived_slug("Acme Ltd", "si") == "acme-ltd"
+
+	# Both reserved: the title's slug and the username's. There is still an answer.
+	assert (
+		subroutine.domain.bootstrap._derived_slug("MCP", "app")
+		== subroutine.domain.bootstrap.LAST_RESORT_SLUG
+	)
+
+
+def test_the_last_resort_slug_is_one_a_workspace_can_actually_have () -> None:
+	"""The end of the chain, checked against the list that could move under it — ``#690``.
+
+	``_derived_slug`` tries the title, then the username, then a constant. The constant is the
+	only one that cannot be re-derived from somebody's input, so it is the only one that could
+	quietly become illegal — and it would do so exactly the way this defect arrived in the
+	first place: by somebody widening the reserved words for an unrelated reason.
+
+	Asserted through ``_usable`` rather than by re-stating the rule, so the two cannot disagree.
+	"""
+
+	assert subroutine.domain.bootstrap._usable(
+		subroutine.domain.bootstrap.LAST_RESORT_SLUG
+	), "the last resort is itself refused, so a doubly-reserved name has no answer"
 
 
 def test_every_mounted_route_commits_before_it_answers () -> None:

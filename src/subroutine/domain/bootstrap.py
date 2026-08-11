@@ -181,6 +181,13 @@ def _describe (
 	)
 
 
+#: What the first workspace is called when neither its title nor the username can produce a
+#: legal short name — `#690`. The default title's own slug, so the commonest instance and the
+#: last-resort one are addressed the same way. ``tests/test_bootstrap.py`` asserts it survives
+#: the reserved list, which is the half that could otherwise rot.
+LAST_RESORT_SLUG = "personal"
+
+
 def _derived_slug (title: str, username: str) -> str:
 	"""Return a short name for the first workspace, from its title.
 
@@ -198,6 +205,18 @@ def _derived_slug (title: str, username: str) -> str:
 	to §5.4's leading-letter rule and to the reserved words: a title that cannot produce a legal
 	slug falls back to the username rather than becoming a refusal, because the user asked for a
 	*workspace* and the short name is this function's problem.
+
+	**And the fallback obeys the same rule, which it did not until `#690`.** The username was
+	taken unchecked, so when *both* the title and the username derived a reserved word,
+	``workspaces.create`` refused and ``init`` created nothing — the exact failure the paragraph
+	above says this function exists to prevent, with the refusal naming ``slug``, a field the
+	user never typed, on their first command. Driven:
+	``init --username app --workspace MCP`` said *'app' cannot be a workspace's short name*.
+
+	It needed `#678` to become plausible: the reserved words used to be ``all``, ``default``,
+	``local``, ``me`` and the like, and `#678` added ``app``, ``mcp``, ``v1`` and ``signin`` —
+	and **``app`` is an ordinary name for a service account**, so a container running as one
+	meets this on installation.
 	"""
 
 	candidate = subroutine.domain.workspaces.normalize_slug(title)
@@ -209,12 +228,26 @@ def _derived_slug (title: str, username: str) -> str:
 		spare = candidate.rsplit("-", 1)[0]
 		candidate = spare if len(spare) >= subroutine.domain.workspaces.MAX_SLUG_LENGTH // 2 else candidate
 
-	candidate = candidate.strip("-")
-	usable = (
+	# **Every candidate in turn, against one rule.** The last is a constant rather than
+	# somebody's input precisely so that there is an end to the chain: a test asserts it is
+	# itself usable, so this cannot come to have no answer if the reserved list grows again.
+	for found in (
+		candidate.strip("-"),
+		subroutine.domain.workspaces.normalize_slug(username),
+		LAST_RESORT_SLUG,
+	):
+		if _usable(found):
+			return found
+
+	return LAST_RESORT_SLUG
+
+
+def _usable (candidate: str) -> bool:
+	"""Report whether a derived slug is one ``workspaces.create`` will accept."""
+
+	return bool(
 		candidate
 		and candidate[0].isascii()
 		and candidate[0].isalpha()
 		and not subroutine.addressing.is_reserved_workspace_word(candidate)
 	)
-
-	return candidate if usable else subroutine.domain.workspaces.normalize_slug(username)
