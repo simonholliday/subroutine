@@ -169,9 +169,21 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
 
   # `push` can only mean a tag here, since that is this workflow's only push trigger — so the
-  # condition says "a release, not a rehearsal" rather than restating the trigger. Guarded by
-  # the `pypi` environment as well, so a required reviewer on it makes the upload a decision
-  # somebody takes rather than a consequence of pushing a tag.
+  # condition says "a release, not a rehearsal" rather than restating the trigger.
+  #
+  # **The `pypi` environment is where the trusted publisher is scoped, not a gate** (`SR#814`).
+  # It is what lets the OIDC exchange below authenticate with no stored credential, and it puts
+  # the deployment URL on the run. A GitHub environment *can* carry a required reviewer, and
+  # this one does not — so **pushing the tag is what publishes**, unattended, minutes later.
+  #
+  # This comment used to say a reviewer made the upload "a decision somebody takes rather than a
+  # consequence of pushing a tag", and `#242`'s step 5 said so outright. Neither was true, and
+  # the property they promised is the one a person leans on: that a tag can be pushed and then
+  # reconsidered. **The last reversible moment is before `git push origin vX.Y.Z`**, because
+  # PyPI burns a version the moment it accepts one and refuses a re-upload for ever after.
+  #
+  # Adding a reviewer to the environment is a settings change, not a change here — which is also
+  # why no file in this repository can check this and no test can reach it.
   pypi:
     name: PyPI
     needs: build
