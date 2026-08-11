@@ -1218,16 +1218,46 @@ export function statusFor (vocabulary, kind, category) {
 		key would be this app carrying its own vocabulary, which is wrong on the first instance
 		that renames anything and wrong silently.
 
-		**Null when a category has no status at all**, so a caller declines the drop rather than
-		sending a key nobody has. A workspace can be configured that way and a 422 for a gesture
-		is a worse answer than the gesture not being offered.
+		**No key, and *why* there is none** (`#791`). Two different things reach here as an absent
+		status and only one is about the workspace: a category genuinely holding none, and a page
+		that has not read `/v1/meta` yet — `words` clears the vocabulary before it fetches and
+		treats its own failure as survivable (§1.4), so null is a state this app reaches on a
+		failed or in-flight request rather than only on an unusual configuration.
+
+		Collapsing them made a drop say *"There is no status here that means in progress"* about
+		a workspace that has one, which is a refusal naming a cause it has not established — the
+		rule the CLI already follows, broken here.
 	*/
-	const known = ((vocabulary && vocabulary[kind]) || [])
-		.filter((one) => one.category === category);
+	if (!vocabulary) return { key: null, because: "unread" };
 
-	if (known.length === 0) return null;
+	const known = (vocabulary[kind] || []).filter((one) => one.category === category);
 
-	return (known.find((one) => one.is_default) || known[0]).key;
+	if (known.length === 0) return { key: null, because: "absent" };
+
+	return { key: (known.find((one) => one.is_default) || known[0]).key, because: null };
+}
+
+export function unmovable (because, category) {
+	/*
+		What to say when a card cannot be moved — `#791`.
+
+		A sentence per reason, and each says what was actually looked at. **The unread one offers
+		the remedy**, because there is one and it is *wait a moment or reload*; the absent one
+		does not, because nothing the reader can do from here changes their workspace's statuses.
+
+		Pure so both readings are driven. The wire from here to `setNote` is two lines inside
+		`App` and is reachable by no harness this project has (`#640`, `#748`).
+	*/
+	const named = String(category || "").replace(/_/g, " ");
+
+	if (because === "unread") {
+		return "This page has not read what this workspace calls things, so it cannot tell "
+			+ `which status means ${named}. Reload and try again.`;
+	}
+
+	if (because === "absent") return `There is no status here that means ${named}.`;
+
+	return null;
 }
 
 export function filableFor (projects, project) {
@@ -4481,22 +4511,19 @@ export function App () {
 
 		if (!item || item.status_category === category) return;
 
-		const where = statusFor(
+		const chosen = statusFor(
 			vocabulary && vocabulary.statuses,
 			item.kind === "document" ? "document" : "task",
 			category,
 		);
 
-		if (where === null) {
-			setNote({
-				text: `There is no status here that means ${category.replace(/_/g, " ")}.`,
-				tone: "bad",
-			});
+		if (chosen.key === null) {
+			setNote({ text: unmovable(chosen.because, category), tone: "bad" });
 
 			return;
 		}
 
-		status(item, where);
+		status(item, chosen.key);
 	}, [status, vocabulary]);
 
 	const comment = useCallback(async (body) => {

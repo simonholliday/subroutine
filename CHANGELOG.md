@@ -154,6 +154,12 @@ upgrade involves.
   either takes you back to the list. An item's address is a link somebody sends you, so it is
   as likely to be where you arrive as the list is.
 
+- **A card that cannot be moved says which thing it looked at.** Dragging one to a column
+  when the page had not yet read your workspace's statuses reported *there is no status here
+  that means in progress* — a claim about how your workspace is set up, when the real answer
+  was that a request had not arrived. The two now say different things, and only the one you
+  can do something about offers a remedy.
+
 - **A phone number is no longer mistaken for a project name.** Typing `Call +44 7911 123456`
   said *left as written: +44 — a project is named like '+web'*. The task was always filed
   correctly and the number always stayed in the title; only the note was wrong, and it is gone.

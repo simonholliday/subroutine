@@ -4621,6 +4621,7 @@ def _views (
 			: name === "orderedAs" ? app.orderedAs(argument.selection)
 			: name === "statusFor"
 				? app.statusFor(argument.vocabulary, argument.kind, argument.category)
+			: name === "unmovable" ? app.unmovable(argument.because, argument.category)
 			: name === "offeredOrders" ? app.offeredOrders().map(([key]) => key)
 			: name === "collectionsFor" ? app.collectionsFor(argument)
 			: name === "inOrder"
@@ -6506,7 +6507,46 @@ def test_which_status_a_column_means (
 		("statusFor", {"vocabulary": RENAMED, "kind": "task", "category": category}),
 	])[0]
 
-	assert answer == expected
+	assert answer["key"] == expected
+	assert answer["because"] == (None if expected else "absent")
+
+
+def test_a_drop_that_cannot_be_read_says_which_thing_it_looked_at (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#791`, from the review `SR#789`. Two absences reached the reader as one sentence.
+
+	A category genuinely holding no status is a fact about the workspace. **A vocabulary that
+	has not arrived is not** — `words` clears it before fetching and treats its own failure as
+	survivable (§1.4), so null is a state this app reaches on a failed or in-flight request. The
+	drop said *"There is no status here that means in progress"* for both, which is a refusal
+	naming a cause it has not established: the rule the CLI already follows, broken here.
+
+	**The remedy is offered only where there is one.** A reader can reload; a reader cannot add
+	a status to their workspace from a board.
+	"""
+
+	unread, absent, fine = _views(tmp_path, [
+		("statusFor", {"vocabulary": None, "kind": "task", "category": "in_progress"}),
+		("statusFor", {"vocabulary": {"task": []}, "kind": "task", "category": "in_progress"}),
+		("statusFor", {"vocabulary": RENAMED, "kind": "task", "category": "in_progress"}),
+	])
+
+	assert unread == {"key": None, "because": "unread"}
+	assert absent == {"key": None, "because": "absent"}
+	assert fine["key"] == "doing" and fine["because"] is None
+
+	said, otherwise, nothing = _views(tmp_path, [
+		("unmovable", {"because": "unread", "category": "in_progress"}),
+		("unmovable", {"because": "absent", "category": "in_progress"}),
+		("unmovable", {"because": None, "category": "in_progress"}),
+	])
+
+	assert "in progress" in said and "Reload" in said, said
+	assert "not read" in said, "the unread sentence does not say what was not read"
+	assert otherwise == "There is no status here that means in progress."
+	assert "read" not in otherwise, "the workspace's own answer blames the page"
+	assert nothing is None, "a status that was found needs no sentence"
 
 
 def test_the_top_of_the_page_offers_the_same_things_whatever_is_below_it (
