@@ -64,10 +64,25 @@ def apply_headers (
 	because a response produced by the outermost handler — the one that catches what
 	nothing else did — never passes back through the middleware that would have stamped
 	it. The 500 is the response that needs its id most.
+
+	**§7's policy headers ride here for exactly that reason** (`#805`). Four things serve HTML —
+	the shell, the 404 fallback, the app's own assets and `#803`'s confirmation — and a helper
+	each of them had to remember would be forgotten by the fifth. This function is already the
+	one place every response passes through, including the ones no route produced.
+
+	**Read off the application rather than imported**, which is what keeps the import graph
+	acyclic: the policy is derived from the served page, so a module here that computed it would
+	import ``api.web``, which imports ``api.problems``, which imports this. ``api.app`` builds it
+	once and puts it on the state, the same arrangement as the rate limiter's. Absent — an
+	application assembled by a test without it — leaves a response unstamped rather than raising,
+	because a missing header must never be the reason a request fails.
 	"""
 
 	response.headers[REQUEST_ID_HEADER] = request_id(request)
 	response.headers[API_VERSION_HEADER] = subroutine.API_VERSION
+
+	for name, value in getattr(request.app.state, "policy_headers", {}).items():
+		response.headers[name] = value
 
 
 async def correlate (

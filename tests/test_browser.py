@@ -27,6 +27,7 @@ import typing
 
 import pytest
 
+import subroutine.api.policy
 import subroutine.api.web
 import test_web
 
@@ -45,6 +46,12 @@ STYLED_BY_DEFAULT = ("a", "button", "input", "select", "textarea", "fieldset")
 #: may legitimately agree with the user agent on any single property, and requiring agreement
 #: on *all* of them is what says nothing was styled at all.
 TELLS = ("color", "background-color", "font-family", "border-top-width")
+
+#: The policy headers this instance really sends (`#805`). Taken from the module that builds
+#: them rather than written out, because the value under test is the one an operator gets — and
+#: the import map is allowed by a *hash* of the served bytes, so a copy here would be right only
+#: until the map changed and the symptom would be a blank page.
+POLICY = subroutine.api.policy.headers()
 
 #: An element deliberately left looking like the browser's own, with the reason.
 #:
@@ -352,6 +359,12 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	"""
 
 	shell = subroutine.api.web.FILES[subroutine.api.web.SHELL][0]
+	#: Every page here is served under the policy the instance really sends (`#805`), so all
+	#: five tests below run against it rather than one test asserting a header string. A policy
+	#: that blocked the import map would show up as the app never painting — which is what
+	#: `opened` already waits for, so the failure lands on whichever test met it with the reason
+	#: in `violations`.
+	violations: list[str] = []
 	#: Every write the page made, so a gesture can be checked by what it sent rather than by
 	#: what the page then looks like — the request is the fact and the render is a consequence.
 	written: list[tuple[str, str, str | None]] = []
@@ -406,7 +419,9 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 		# Every other address is the app's own — `#638` gave an item one, and `#648` made
 		# anything unclaimed a 404 keyed on `Accept`, which for a browser is this page.
-		route.fulfill(status=200, body=shell, content_type="text/html; charset=utf-8")
+		route.fulfill(
+			status=200, body=shell, content_type="text/html; charset=utf-8", headers=POLICY
+		)
 
 	_, bare = looks
 	# **Its own context, not the styling pages'.** A page made by `browser.new_page()` owns the
@@ -426,8 +441,35 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		listing[0] = ROWS if rows is None else rows
 
 		page = context.new_page()
+		page.on(
+			"console",
+			lambda message: violations.append(message.text)
+			if "Content Security Policy" in message.text
+			else None,
+		)
 		page.goto(f"http://app.test{address}")
-		page.wait_for_selector(".app", timeout=10_000)
+
+		# **The policy is checked on the way past rather than in a test of its own.** A directive
+		# too narrow for what the app does has two symptoms and they need different handling: a
+		# blocked *module* means nothing paints, so the wait below times out with nothing to say;
+		# a blocked *feature* paints fine and fails silently. Reporting the violations covers
+		# both, and turns a thirty-second timeout into a diagnosis.
+		try:
+			page.wait_for_selector(".app", timeout=10_000)
+		except Exception:
+			assert not violations, (
+				f"the app never painted, and it broke its own Content-Security-Policy first: "
+				f"{violations}. The policy is built from the served page, so this usually means "
+				f"the import map changed and its hash did not follow."
+			)
+
+			raise
+
+		assert not violations, (
+			f"the app broke its own Content-Security-Policy: {violations}. It painted anyway, so "
+			f"nothing else here would have failed — a directive too narrow for what the app does "
+			f"shows up as a feature quietly not working."
+		)
 
 		return page
 

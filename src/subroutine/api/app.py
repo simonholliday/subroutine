@@ -28,6 +28,7 @@ import subroutine.api.limits
 import subroutine.api.mcp
 import subroutine.api.meta
 import subroutine.api.middleware
+import subroutine.api.policy
 import subroutine.api.problems
 import subroutine.api.projects
 import subroutine.api.routing
@@ -201,6 +202,14 @@ def create_app (
 	# limit. Read from settings rather than from the `serve` flag, so an application started
 	# by gunicorn or by a test gets the same answer as one started by the CLI.
 	application.state.limits = subroutine.api.limits.Limits(resolved, host=resolved.host)
+
+	# **Built once, here, because it is derived from the page this instance serves** (`#805`).
+	# The import map is inline by necessity and is allowed by hash, so the policy depends on the
+	# shell's bytes — which are read at import and cannot change while the process runs.
+	# `api/middleware.apply_headers` reads this off the state rather than importing the module
+	# that computes it, which is what keeps `web` -> `problems` -> `middleware` from closing
+	# into a cycle.
+	application.state.policy_headers = subroutine.api.policy.headers()
 
 	application.state.engine = None
 	application.state.session_factory = session_factory

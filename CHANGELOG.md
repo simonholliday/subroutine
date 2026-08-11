@@ -156,6 +156,16 @@ upgrade involves.
 
 ### Security
 
+- **The web UI tells your browser what it is allowed to do.** Every response now carries a
+  content security policy, and it is a strict one: nothing may be loaded from another host,
+  nothing may be framed, and a form may only post back here. The app was already built that way
+  — it loads no fonts, no scripts and no styles from anywhere else — so the policy costs it
+  nothing and closes the gap if a defect ever appeared in the part that renders Markdown, which
+  is where text other people wrote ends up on your screen.
+
+  Responses also say `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, so an
+  item's address is not handed to another site when you follow a link off this one.
+
 - **Credentials no longer reach the server's own access log.** A sign-in link travels in a URL
   — it has to, because a link is opened by clicking it — so `GET /signin?link=…` used to be
   written into the log in full. It now reads `link=REDACTED`, and so does an API token that
