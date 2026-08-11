@@ -23,6 +23,7 @@ import starlette.requests
 
 import subroutine.api.concurrency
 import subroutine.api.dependencies
+import subroutine.api.filters
 import subroutine.api.pagination
 import subroutine.api.query
 import subroutine.api.routing
@@ -263,6 +264,7 @@ def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
+	dates: subroutine.api.filters.TaskFilters,
 	workspace_id: str | None = fastapi.Query(
 		None, description="Which workspace, by id or slug. Needed when you can reach several."
 	),
@@ -466,6 +468,15 @@ def listing (
 
 	if due_after is not None:
 		statement = statement.where(model.due_at > due_after)
+
+	# **§9.6's dotted filters, read here because reading them needs the workspace** (`#815`).
+	# The names were resolved before this handler ran; what is left is the values, and they take
+	# a timezone — §6.5's chain, with the workspace in it, which is why this cannot be a
+	# dependency. `due_before` and `due_after` above are the older spelling of one of these and
+	# keep working: they take an instant, where `due_at.lte` also takes `end_of_week`.
+	statement = subroutine.api.filters.narrowed(
+		statement, dates, session=session, actor=actor, workspace=workspace
+	)
 
 	return _page(
 		session,

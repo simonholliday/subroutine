@@ -20,6 +20,7 @@ import starlette.requests
 
 import subroutine.api.concurrency
 import subroutine.api.dependencies
+import subroutine.api.filters
 import subroutine.api.pagination
 import subroutine.api.query
 import subroutine.api.routing
@@ -171,6 +172,7 @@ def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
+	dates: subroutine.api.filters.DocumentFilters,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 	project: str | None = fastapi.Query(None, description="Restrict to one project."),
 	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
@@ -241,6 +243,13 @@ def listing (
 		statement = statement.where(
 			subroutine.domain.search.matching(q, model.title, model.body)
 		)
+
+	# **§9.6's dotted filters** (`#815`). Documents are here because one ref counter serves both
+	# kinds (§6.2), so *what was created yesterday* answered for tasks alone would be wrong
+	# about half of what a number can name.
+	statement = subroutine.api.filters.narrowed(
+		statement, dates, session=session, actor=actor, workspace=workspace
+	)
 
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id

@@ -10,10 +10,12 @@ once rather than discovering it by being refused (SPEC.md §13.1).
 
 *Nothing is published that is not implemented.* §6.13 already states it for the recurrence
 row — "publishing a grammar the installation does not implement is worse than publishing a
-smaller one" — and it applies to the §9 filter operators too, which are specified and not
-built. So this reports the query parameters the listings *actually* accept, read from the
-application's own OpenAPI document, and the sort fields they *actually* offer, read from
-the routers' own constants. Neither can drift, because neither is a second copy.
+smaller one" — and it applies to §9's filter grammar, of which **§9.6's comparison operators
+are built and the rest is not** (`#815`). So this reports the query parameters the listings
+*actually* accept, read from the application's own OpenAPI document; the dotted filters they
+*actually* compile, read from the registry that compiles them; and the sort fields they
+*actually* offer, read from the routers' own constants. None can drift, because none is a
+second copy.
 
 *Nothing is published at unbounded size.* The tag list is capped and says so. §13.1 exists
 to keep this response small, and a workspace with four thousand tags would otherwise make
@@ -47,6 +49,7 @@ import subroutine.domain.authentication
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
+import subroutine.domain.filtering
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.scoping
@@ -421,6 +424,20 @@ def guide_text () -> str:
 		"in all three, so pagination does not change. `fields` and `format` cannot be "
 		"combined. `GET /v1/meta` lists the selectable fields and formats per entity.",
 		"",
+		# `#815`, and it is in the guaranteed channel by decision `#499`: an agent asked *what
+		# was created yesterday* has no other way to learn that the question is expressible.
+		# The names are not spelled out here because `/v1/meta`'s `listings` publishes them from
+		# the registry that enforces them — a second copy in prose is what goes stale.
+		"**Ask a listing about a date**: `?<field>.<operator>=<when>`, where the operator is "
+		f"one of {_operators()} and `<when>` is a day, an instant or any expression "
+		"from the date grammar below. `GET /v1/tasks?created_at.gte=yesterday` and "
+		"`?completed_at.gte=start_of_week` answer *what happened recently*; two of them make a "
+		"window. Days are read in your timezone and a bound takes in the whole day it names, so "
+		"`created_at.lte=yesterday` includes all of yesterday. Combine them freely with "
+		"`project`, `assignee`, `q` and the rest. `GET /v1/meta` lists which fields each "
+		"listing accepts; equality is refused on a timestamp, because it would compare against "
+		"one microsecond and match nothing.",
+		"",
 		# "a comment" was removed from this list while comments had no API, per the rule in
 		# this function's docstring — a reader told that references work in comments would
 		# have gone looking for an endpoint that was not there. It is back because the
@@ -455,6 +472,21 @@ def guide_text () -> str:
 		sections.append("")
 
 	return "\n".join(sections)
+
+
+def _operators () -> str:
+	"""Name the comparisons a date filter takes, read from the kind that enforces them.
+
+	**Not written out in the guide**, because a list in prose is a second copy of a rule and
+	this one has already moved once: `eq` and `ne` were accepted when the compiler was written
+	and refused a day later (`#817`). A guide naming an operator the listing declines is worse
+	than one naming fewer.
+	"""
+
+	return ", ".join(
+		f"`{operator}`"
+		for operator in sorted(subroutine.domain.filtering.INSTANT.operators)
+	)
 
 
 def _sole (reachable: typing.Sequence[typing.Any]) -> typing.Any:
@@ -584,8 +616,15 @@ def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listi
 
 	The filters come out of the generated OpenAPI document and the sort fields out of the
 	routers' own ``SORTABLE`` constants, so both are the live values rather than a
-	description of them. §9's full filter grammar is specified and not built; publishing it
-	here would be publishing a language this installation does not speak.
+	description of them.
+
+	**§9.6's dotted filters are added from the registry that enforces them** (`#815`), because
+	they are not OpenAPI parameters — one name stands for a whole family and FastAPI has no way
+	to declare that. Read from :func:`subroutine.domain.filtering.names` rather than described
+	here, so this cannot advertise a combination the listing refuses. The rest of §9 — a JSON
+	body, boolean composition, string and collection operators — is specified and not built, and
+	is deliberately still absent: publishing it would be publishing a language this installation
+	does not speak.
 	"""
 
 	schema = application.openapi()
@@ -602,7 +641,7 @@ def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listi
 
 		found[entity] = subroutine.views.Listing(
 			path=path,
-			filters=sorted(parameters),
+			filters=sorted(parameters + list(subroutine.domain.filtering.names(entity))),
 			sortable=sorted(sortable),
 			selectable=sorted(selectable),
 			formats=list(subroutine.api.shaping.FORMATS),
@@ -704,6 +743,24 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"alone, then fetch the few you actually want.",
 		"GET",
 		"/v1/tasks?format=ids&limit=5",
+		None,
+	),
+	# `#815`. Two examples rather than one, because the pair is the point: the first is the
+	# question Simon actually asked, and the second is the answer to "can I combine it with the
+	# filters I already use", which is the reason this is a filter and not a second endpoint.
+	(
+		"What was worked on recently? A date field takes `.gte`, `.gt`, `.lt` and `.lte`, and "
+		"the value is the same date grammar a write accepts — so `yesterday` and "
+		"`start_of_week` work, read in your timezone.",
+		"GET",
+		"/v1/tasks?updated_at.gte=start_of_week&fields=ref,title,updated_at&limit=5",
+		None,
+	),
+	(
+		"What was created in a window, in one project? Two bounds make a range, and a date "
+		"filter narrows alongside every other one rather than replacing it.",
+		"GET",
+		"/v1/tasks?created_at.gte=now-30d&created_at.lt=today&format=ids&limit=5",
 		None,
 	),
 	(

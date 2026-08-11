@@ -29,6 +29,8 @@ import typing
 import fastapi
 import starlette.requests
 
+import subroutine.api.filters
+import subroutine.domain.filtering
 import subroutine.errors
 
 
@@ -45,7 +47,7 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 	if accepted is None:
 		return
 
-	unknown = sorted(set(request.query_params) - accepted)
+	unknown = sorted(_asked_about(request) - accepted)
 
 	if not unknown:
 		return
@@ -67,6 +69,26 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 		hint="Refused rather than ignored, because a listing that quietly ignores 'fields' "
 		"returns the whole object and charges you for it.",
 	)
+
+
+def _asked_about (request: starlette.requests.Request) -> set[str]:
+	"""Return the parameter names this function is responsible for.
+
+	**Everything except §9.6's dotted form, and only where a route declares a reader for it**
+	(`#815`). The two halves are deliberately blind to each other's vocabulary: this owns the
+	flat names, :mod:`subroutine.api.filters` owns the ones carrying a separator, and neither
+	holds a list of the other's — which is what stops them drifting into disagreement.
+
+	A listing that declares no reader is unchanged, so ``?created_at.gte=`` on an endpoint
+	that cannot filter on dates is still refused by name rather than ignored.
+	"""
+
+	names = set(request.query_params)
+
+	if subroutine.api.filters.declared_by(request.scope.get("route")) is None:
+		return names
+
+	return {name for name in names if subroutine.domain.filtering.SEPARATOR not in name}
 
 
 def _accepted (request: starlette.requests.Request) -> frozenset[str] | None:

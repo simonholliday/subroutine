@@ -15,6 +15,7 @@ import starlette.requests
 
 import subroutine.api.concurrency
 import subroutine.api.dependencies
+import subroutine.api.filters
 import subroutine.api.pagination
 import subroutine.api.query
 import subroutine.api.routing
@@ -151,6 +152,7 @@ def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
+	dates: subroutine.api.filters.ProjectFilters,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 	parent: str | None = fastapi.Query(None, description="Only projects directly inside this one."),
 	visibility: str | None = fastapi.Query(None, description="'public' or 'private'."),
@@ -189,6 +191,11 @@ def listing (
 
 	if visibility is not None:
 		statement = statement.where(model.visibility == visibility)
+
+	# §9.6's dotted filters (`#815`), on the two fields a project has.
+	statement = subroutine.api.filters.narrowed(
+		statement, dates, session=session, actor=actor, workspace=workspace
+	)
 
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id

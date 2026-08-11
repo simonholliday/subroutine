@@ -12,6 +12,32 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **A listing can be asked about a date.** `GET /v1/tasks?created_at.gte=yesterday` — a field,
+  one of `gt`, `gte`, `lt` or `lte`, and a day, an instant or any expression the rest of the
+  program already takes: `today`, `now-7d`, `start_of_week`, `start_of_month+1M`. Two of them
+  make a window. It works on tasks, documents and projects, and on `created_at`, `updated_at`,
+  `completed_at`, `due_at`, `start_at`, `content_updated_at` and `planned_for` as each of them
+  applies.
+
+  **It narrows alongside every other filter rather than replacing them**, so *what did I finish
+  in this project last week* is one request: `?completed_at.gte=start_of_week&project=web`.
+
+  Days are read in your timezone — yours, then the workspace's, then the instance's — and a
+  bound takes in the whole day it names, so `created_at.lte=yesterday` includes all of
+  yesterday rather than its first moment.
+
+  `GET /v1/meta` lists which fields each listing accepts, so this can be discovered rather than
+  remembered, and `GET /v1/docs/agent` describes it for an agent. `due_before` and `due_after`
+  keep working and are unchanged.
+
+  Equality on a timestamp is refused by name, with the range to write instead: a stored instant
+  is precise to the microsecond, so `created_at.eq=yesterday` would match nothing and read as an
+  empty backlog rather than as a question that was not understood.
+
 ## 0.6.4 — 2026-08-11
 
 ### Added

@@ -31,8 +31,6 @@ reachable by one of them (`#501`, which is why ``ordering.PROJECT_FIELDS`` moved
 import datetime
 import typing
 
-import sqlalchemy
-
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.schedule
@@ -68,7 +66,8 @@ OPERATORS: dict[str, typing.Callable[[typing.Any, typing.Any], typing.Any]] = {
 #: short list. The rule is that the **inclusive** operators take in the whole day and the
 #: **exclusive** ones leave it out — so `gte` and `lt` want its start, `gt` and `lte` its end.
 #:
-#: `eq` is neither, and is handled separately below.
+#: These four are exactly :data:`INSTANT`'s operators, which is what lets the lookup be direct
+#: rather than defaulted — `eq` and `ne` are refused before anything reaches here.
 BOUNDARIES: dict[str, subroutine.domain.schedule.Boundary] = {
 	"gte": subroutine.domain.schedule.Boundary.START,
 	"lt": subroutine.domain.schedule.Boundary.START,
@@ -94,15 +93,16 @@ def _instant_predicate (
 	by reading it, on the example this was built for: *what items were created before the 4th
 	August*.
 
-	**`eq` against a whole day is a range, not an instant.** Somebody writing
-	`created_at.eq=yesterday` means the day, and an equality against one microsecond of it
-	would match nothing and look like an empty backlog rather than a misunderstanding. A value
-	naming a *time* is compared exactly, because then they said which instant they meant.
+	**Every operator that reaches here has a boundary**, because :data:`INSTANT` allows only
+	those four — so the fallback in :data:`BOUNDARIES` is unreachable and the `eq` handling this
+	function used to carry is gone with it. It was written before Simon's decision and left
+	behind after it: a branch no caller can take, which is the shape this project keeps finding
+	as a control that does nothing.
 	"""
 
 	moment = subroutine.domain.schedule.interpret(
 		value,
-		boundary=BOUNDARIES.get(operator, subroutine.domain.schedule.Boundary.START),
+		boundary=BOUNDARIES[operator],
 		timezone=timezone,
 		now=now,
 		field=field,
@@ -111,21 +111,7 @@ def _instant_predicate (
 	if moment.instant is None:
 		raise _unreadable(field, value)
 
-	if operator != "eq":
-		return OPERATORS[operator](column, moment.instant)
-
-	if not moment.is_all_day:
-		return column == moment.instant
-
-	ends = subroutine.domain.schedule.interpret(
-		value,
-		boundary=subroutine.domain.schedule.Boundary.END,
-		timezone=timezone,
-		now=now,
-		field=field,
-	)
-
-	return sqlalchemy.and_(column >= moment.instant, column <= ends.instant)
+	return OPERATORS[operator](column, moment.instant)
 
 
 def _day_predicate (
@@ -292,27 +278,44 @@ def names (entity: str) -> frozenset[str]:
 	)
 
 
-def asked (
-	parameters: typing.Iterable[tuple[str, str]],
-	*,
-	entity: str,
-	now: datetime.datetime,
-	timezone: str,
-) -> list[typing.Any]:
-	"""Compile every dotted parameter into predicates, refusing anything it cannot.
+class Comparison (typing.NamedTuple):
+	"""One question a caller asked, with the field and the operator already resolved."""
+
+	#: As the caller wrote it, so a refusal about the value names the parameter they sent.
+	name: str
+
+	#: The field's own name, for a message that talks about the field rather than the pair.
+	field: str
+
+	#: Which of :data:`OPERATORS`.
+	operator: str
+
+	#: What it compares against, and how its value is read.
+	against: Filterable
+
+	#: Exactly as it arrived. Reading it needs a timezone, which is why this is not a moment.
+	value: str
+
+
+def understood (
+	parameters: typing.Iterable[tuple[str, str]], *, entity: str
+) -> list[Comparison]:
+	"""Resolve every dotted parameter to a field and an operator, refusing anything else.
 
 	**Every parameter carrying the separator belongs to this function**, which is what lets
 	``api/query.refuse_unknown`` keep owning the flat names without either of them holding a
 	list of the other's. A misspelled field is refused *here*, by name, with the vocabulary —
 	so nothing is quietly ignored, which is the property that module exists for.
 
-	``now`` and ``timezone`` are passed in rather than read here, so that every expression in
-	one request resolves against one instant: §9.3's rule, and the reason ``start_of_day`` and
-	``end_of_day`` in a single filter cannot land on different days.
+	**Separate from :func:`predicates` because the two need different things.** Resolving a
+	name needs only the registry, so it can run as a request dependency — before the handler,
+	where forgetting it is impossible. Reading a *value* needs the timezone, which is not known
+	until the workspace has been resolved inside the handler. Doing both late would mean
+	``refuse_unknown`` had to let dotted names through on faith.
 	"""
 
 	available = FILTERS.get(entity, {})
-	predicates = []
+	comparisons = []
 
 	for name, value in parameters:
 		if SEPARATOR not in name:
@@ -330,11 +333,50 @@ def asked (
 		if operator not in found.kind.operators:
 			raise _wrong_operator_for_the_field(name, field, operator, found.kind)
 
-		predicates.append(
-			found.kind.predicate(found.column, operator, value, field, now, timezone)
+		comparisons.append(
+			Comparison(name=name, field=field, operator=operator, against=found, value=value)
 		)
 
-	return predicates
+	return comparisons
+
+
+def predicates (
+	comparisons: typing.Iterable[Comparison], *, now: datetime.datetime, timezone: str
+) -> list[typing.Any]:
+	"""Read each comparison's value and return what to narrow a listing with.
+
+	``now`` and ``timezone`` are passed in rather than read here, so that every expression in
+	one request resolves against one instant: §9.3's rule, and the reason ``start_of_day`` and
+	``end_of_day`` in a single filter cannot land on different days.
+	"""
+
+	return [
+		comparison.against.kind.predicate(
+			comparison.against.column,
+			comparison.operator,
+			comparison.value,
+			comparison.field,
+			now,
+			timezone,
+		)
+		for comparison in comparisons
+	]
+
+
+def asked (
+	parameters: typing.Iterable[tuple[str, str]],
+	*,
+	entity: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> list[typing.Any]:
+	"""Compile every dotted parameter into predicates, refusing anything it cannot.
+
+	Both halves in one call, for a caller that has everything it needs at once — the CLI's
+	local client, and every test of the grammar itself.
+	"""
+
+	return predicates(understood(parameters, entity=entity), now=now, timezone=timezone)
 
 
 def _no_such_field (
