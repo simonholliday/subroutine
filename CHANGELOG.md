@@ -212,8 +212,9 @@ upgrade involves.
   wants only the browser, which it previously had no reader for at all. `subroutine explain
   connecting` says it too.
 
-- **An image written in a description came out as a link.** Markdown's image syntax — a `!`
-  in front of the usual link form — rendered as a clickable anchor labelled with the alt text,
+- **An image written in a description came out as a link.** Markdown's image syntax —
+  `![alt](url)`, the usual link form with a `!` in front — rendered as a clickable anchor
+  labelled with the alt text,
   so a reader saw a link where somebody had written a picture, and following it went wherever
   the image had been. If the destination was one the renderer refuses, the `!` was dropped from
   the text it fell back to as well. Images are still not rendered; they are now shown exactly

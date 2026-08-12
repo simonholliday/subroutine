@@ -126,6 +126,89 @@ def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> No
 #: doing its job and the reason they were widened rather than the README exempted.
 _OUR_BLOB = re.compile(r"^https://github\.com/simonholliday/subroutine/blob/[^/]+/")
 
+#: A fence opening or closing a code block, indented up to the three spaces Markdown allows
+#: before it stops being one.
+_FENCE = re.compile(r"^\s{0,3}(?P<fence>`{3,}|~{3,})")
+
+#: A run of backticks. Its *length* is what matters: a code span is closed by the next run of
+#: exactly the same length, which is the rule that makes ``a `` ` `` b`` mean what it looks like.
+_BACKTICKS = re.compile(r"`+")
+
+
+def _outside_code_fences (text: str) -> str:
+	"""Return the page with its fenced blocks removed.
+
+	A fenced block is shown to the reader as characters rather than as Markdown, so nothing
+	inside one is a heading or a link however it is spelled. ``docs/hosting.md`` quotes 33
+	shell comments beginning with ``#``, every one of which was being read as a heading — so
+	a link to a section that no longer exists could resolve against a line of shell.
+	"""
+
+	kept = []
+	closing = None
+
+	for line in text.splitlines():
+		found = _FENCE.match(line)
+
+		if closing is not None:
+			# Closed only by the same character, at least as long, per Markdown's own rule.
+			if found is not None and found.group("fence").startswith(closing):
+				closing = None
+
+			continue
+
+		if found is not None:
+			closing = found.group("fence")
+
+			continue
+
+		kept.append(line)
+
+	return "\n".join(kept)
+
+
+def _prose (text: str) -> str:
+	"""Return the page with everything it quotes as code removed.
+
+	``[a](b)`` inside backticks is a page *showing* link syntax, which the browser's own
+	renderer arrived to make worth doing — and the checks below split on ``](`` and knew
+	nothing about code spans, so correct prose failed and had to be reworded into worse prose
+	(`#836`). Rewording is the wrong repair: the guard should read what renders.
+
+	Scanned over the whole page rather than line by line, deliberately. Sixteen of this
+	repository's code spans are wrapped across two lines by the paragraph width, and a
+	per-line scan would see an unmatched backtick on each half — which is this project's
+	twice-recorded trap of a scan defeated by where Markdown wrapped.
+	"""
+
+	body = _outside_code_fences(text)
+	out = []
+	at = 0
+
+	while True:
+		opened = _BACKTICKS.search(body, at)
+
+		if opened is None:
+			out.append(body[at:])
+
+			return "".join(out)
+
+		closed = _BACKTICKS.search(body, opened.end())
+
+		while closed is not None and closed.group() != opened.group():
+			closed = _BACKTICKS.search(body, closed.end())
+
+		if closed is None:
+			# An unmatched run is literal text, and so is the rest of the page. Keeping it
+			# is what stops one stray backtick hiding every link below it from the check.
+			out.append(body[at:])
+
+			return "".join(out)
+
+		out.append(body[at : opened.start()])
+		out.append(" ")
+		at = closed.end()
+
 
 def _in_repository (page: pathlib.Path, target: str) -> pathlib.Path | None:
 	"""Return the file a link names in this repository, or ``None`` if it points elsewhere.
@@ -143,6 +226,36 @@ def _in_repository (page: pathlib.Path, target: str) -> pathlib.Path | None:
 	return page.parent / target
 
 
+def _missing_targets (page: pathlib.Path, text: str) -> tuple[list[str], int]:
+	"""Return the links in this page that name a file this repository does not have.
+
+	Takes the text rather than reading it, so a page built to carry a known broken link can
+	be put through the same code the real pages go through — `#405`'s rule, which is the only
+	way to tell a checker that reads nothing from one that reads everything.
+	"""
+
+	missing = []
+	checked = 0
+
+	for fragment in _prose(text).split("](")[1:]:
+		target = fragment.split(")")[0].split("#")[0]
+
+		if not target:
+			continue
+
+		where = _in_repository(page, target)
+
+		if where is None:
+			continue
+
+		if not where.exists():
+			missing.append(target)
+
+		checked += 1
+
+	return missing, checked
+
+
 @pytest.mark.parametrize(
 	"page", [HOSTING, CONNECTING, README, CHANGELOG], ids=lambda path: path.name
 )
@@ -154,26 +267,38 @@ def test_published_pages_link_only_to_files_that_exist (page: pathlib.Path) -> N
 	GitHub renders first is read as a project that has stopped being maintained.
 	"""
 
-	text = page.read_text(encoding="utf-8")
-	checked = 0
+	missing, checked = _missing_targets(page, page.read_text(encoding="utf-8"))
 
-	for fragment in text.split("](")[1:]:
-		target = fragment.split(")")[0].split("#")[0]
-
-		if not target:
-			continue
-
-		where = _in_repository(page, target)
-
-		if where is None:
-			continue
-
-		assert where.exists(), f"{page.name} links to a missing {target}"
-		checked += 1
+	assert not missing, f"{page.name} links to a missing {', '.join(missing)}"
 
 	# Otherwise this passes just as happily on a page whose links have all been deleted, which
 	# is the failure mode a link checker is least able to notice about itself.
 	assert checked, f"{page.name} has no links into the repository — has this stopped reaching them?"
+
+
+def test_the_link_check_reads_the_prose_and_not_the_code_it_quotes () -> None:
+	"""A page may *show* link syntax, and showing it is not a promise about a file.
+
+	Both halves have to hold at once, which is why they are one page rather than two tests:
+	a fix that simply stopped looking would pass the second assertion and fail the first, and
+	the reverse — the reword `#836` was filed for — passes the first and fails the second.
+	"""
+
+	page = ROOT / "README.md"
+	missing, checked = _missing_targets(
+		page,
+		"A real one: [gone](docs/no-such-page.md).\n"
+		"Shown rather than followed: `![alt](docs/also-missing.md)`.\n"
+		"And one wrapped by the paragraph width, `![alt](docs/\n"
+		"wrapped-and-missing.md)`, which a line-by-line reader would still follow.\n"
+		"```\n"
+		"[fenced](docs/fenced-and-missing.md)\n"
+		"```\n"
+		"A working one: [the changelog](CHANGELOG.md).\n",
+	)
+
+	assert missing == ["docs/no-such-page.md"]
+	assert checked == 2
 
 
 def _anchors (page: pathlib.Path) -> set[str]:
@@ -183,16 +308,45 @@ def _anchors (page: pathlib.Path) -> set[str]:
 	and hyphens dropped, spaces turned into hyphens — because that is what the link resolves
 	against. Reading the headings and trusting a hand-written anchor beside them would check
 	the wrong half.
+
+	Fenced blocks are dropped and code spans are *not*: a ``#`` opening a line of shell is not
+	a heading, while a heading naming ``config.toml`` in backticks anchors on the word.
 	"""
 
 	found = set()
 
-	for line in page.read_text(encoding="utf-8").splitlines():
+	for line in _outside_code_fences(page.read_text(encoding="utf-8")).splitlines():
 		if line.startswith("#"):
 			heading = line.lstrip("#").strip()
 			found.add(re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-"))
 
 	return found
+
+
+def test_a_line_of_shell_is_not_a_heading_a_link_can_resolve_against (tmp_path: pathlib.Path) -> None:
+	"""``docs/hosting.md`` quotes 33 shell comments, and every one was an anchor.
+
+	Which is the check failing in the direction nobody notices: an anchor link is compared
+	against the headings a page has, so a *surplus* heading means a link to a section somebody
+	has since renamed goes on passing — against a line of shell that happens to read alike.
+	None of the four pages relies on one today, measured, so removing them costs nothing now
+	and is worth having before it does.
+
+	The code span in the real heading is the other half. GitHub anchors on the words inside
+	one, so dropping spans as well as fences here would quietly break every link to a section
+	named after a file.
+	"""
+
+	page = tmp_path / "page.md"
+	page.write_text(
+		"## Installing it as `subroutine`\n"
+		"```\n"
+		"# useradd --system subroutine\n"
+		"```\n",
+		encoding="utf-8",
+	)
+
+	assert _anchors(page) == {"installing-it-as-subroutine"}
 
 
 @pytest.mark.parametrize(
@@ -211,7 +365,7 @@ def test_every_anchor_a_published_page_links_to_exists (page: pathlib.Path) -> N
 	text = page.read_text(encoding="utf-8")
 	checked = 0
 
-	for fragment in text.split("](")[1:]:
+	for fragment in _prose(text).split("](")[1:]:
 		target = fragment.split(")")[0]
 
 		if "#" not in target:
