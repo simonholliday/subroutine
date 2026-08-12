@@ -1436,6 +1436,46 @@ def _item (
 	return document, "document"
 
 
+def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]:
+	"""Return the facts ``show`` promises that a listing row leaves out (`#674`).
+
+	Each is something somebody *chose*, which is `_facts`'s rule at the command line and the
+	reason this is not simply the whole view: a status nobody set and a project nobody picked
+	are the absence of a decision, and reporting them would bury the ones that are news.
+
+	**The status is the one that matters most here**, because this surface is where an agent
+	is told to set it. It sends ``update(ref, status='in_progress')``, is answered *Changed*,
+	and then no tool in the catalogue would ever say so again — so it cannot tell its own
+	write from a write it only thinks it made. Left out when the item is finished, where
+	``done <date>`` says it better, and when it is the one everything starts in.
+
+	Dates are ISO here where the command line renders them for a reader, and the project
+	carries the ``+`` a capture line uses. Both for `#151`'s reason: what a caller is shown
+	should be what it can send back.
+	"""
+
+	facts = []
+
+	if not item.status_is_default and item.status_category != "done":
+		facts.append(item.status)
+
+	if isinstance(item, subroutine.views.Task):
+		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
+		# one that has come round is still the answer to why this was not on the list in June.
+		if item.start_at is not None:
+			facts.append(f"from {item.start_at.date().isoformat()}")
+
+		if item.completed_at is not None:
+			facts.append(f"done {item.completed_at.date().isoformat()}")
+
+	# The project only when somebody filed it somewhere. The Inbox is where things go when
+	# nobody said, so naming it would be reporting the absence of a decision.
+	if item.project_key and item.project_key.lower() != "inbox":
+		facts.append(f"+{item.project_key}")
+
+	return facts
+
+
 def _shown (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -1446,6 +1486,12 @@ def _shown (
 	found, kind = _item(client, ref, workspace)
 
 	parts = [_line(found)]
+
+	# **In `show` rather than in `_line`**, on `#819`'s argument: this is the tool that
+	# promises *in full*, and a listing row stays as terse as it was for both kinds.
+	if more := _more(found):
+		parts.append("  ".join(more))
+
 	body = (
 		found.description if isinstance(found, subroutine.views.Task) else found.body
 	)

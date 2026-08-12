@@ -108,6 +108,22 @@ upgrade involves.
   through `subroutine_call_api`; what the bytes buy is that a model can *find* it, since a
   model deciding what it can do reads tool names rather than every schema in full.
 
+- **A scripted listing reports who has the work, and whether it can be started.**
+  `subroutine list --json` carries `assignee`, `blocked`, `parent_ref` and `status_category`
+  beside the fields it already had. The terminal has shown all four for some time; the
+  scripted path had none of them, so a script or an agent reading the same listing could not
+  see that anything had been handed over, and would recommend starting an item that was
+  blocked.
+
+  `status_category` is there beside `status` because a status key is a workspace's own word
+  and can be renamed; the category is the axis that cannot move.
+
+- **`subroutine_show` reports the status, the deferral and the project.** An agent could set
+  a status through these tools, be told *Changed*, and then find no tool in the catalogue that
+  would ever mention it again — so it could not tell its own write from one it only thought it
+  had made. The same reading now also shows a `from` date somebody deferred to, when the work
+  was completed, and the project it was filed in.
+
 ### Security
 
 - **A restricted API token could sign in as its owner and come back unrestricted.** A sign-in

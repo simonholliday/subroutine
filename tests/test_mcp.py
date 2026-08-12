@@ -30,6 +30,7 @@ import api_support
 import subroutine.api.app
 import subroutine.api.routing
 import subroutine.cli.main
+import subroutine.cli.personal
 import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.clients.opening
@@ -4059,3 +4060,131 @@ def test_the_link_tool_does_not_hard_code_a_renameable_vocabulary (
 		f"the schema lists link type keys, so it can be incomplete or stale: {sorted(named)}"
 	)
 	assert "meta" in described, "nothing points at where this workspace's list actually is"
+
+
+def _read_by (module: typing.Any, function: str, variable: str) -> set[str]:
+	"""Return the view fields one renderer reads off the item it is given.
+
+	Derived by reading the renderer rather than listed beside it, which is the only reason
+	this comparison stays true as either surface grows — `#427`'s method.
+	"""
+
+	tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
+	found = set()
+
+	for node in ast.walk(tree):
+		if not isinstance(node, ast.FunctionDef) or node.name != function:
+			continue
+
+		found |= {
+			read.attr
+			for read in ast.walk(node)
+			if isinstance(read, ast.Attribute)
+			and isinstance(read.value, ast.Name)
+			and read.value.id == variable
+		}
+
+	return found
+
+
+#: A fact the command line's ``show`` reads that the agent's ``show`` deliberately does not,
+#: and why. Each has to say what an agent gets instead — `#820`'s rule, applied to a register
+#: about a rendering rather than about a column.
+NOT_SHOWN_TO_AN_AGENT: dict[str, str] = {
+	"timezone": (
+		"Used to render an instant in the zone that stored it, which is a courtesy to a "
+		"person reading a day name. This surface sends ISO instants and lets the model do "
+		"its own arithmetic, so there is nothing to render *into*."
+	),
+	"status_is_default": (
+		"The rule rather than the fact. Both surfaces read it to decide whether a status is "
+		"news; neither reports it."
+	),
+	"estimate_minutes": (
+		"Reported as `estimate_human`, which is §6.4's grammar — the spelling an agent would "
+		"send back, and what `_line` has always carried."
+	),
+}
+
+
+def test_the_agents_show_reports_what_the_command_lines_show_reports () -> None:
+	"""One item, two renderings, and nothing compared them (`#674`).
+
+	``subroutine_show`` gave a model the type, the rank and the estimate and left out the
+	project, the deferral and — worst — the **status**, on the one surface whose own
+	instructions tell an agent to set it. It could write ``in_progress``, be answered
+	*Changed*, and never see the word again.
+
+	Half the item had already closed itself: `#673` added the planned day and the deadline,
+	`#511` the assignee, `#425` the blocked flag and `#819` the tags, each fixing one field
+	because somebody noticed that one. This is the comparison that would have found them
+	together, and it is the same guard `#583` puts on the terminal's own two renderings.
+	"""
+
+	terminal = _read_by(subroutine.cli.personal, "_facts", "item")
+
+	# Three renderers, because ``show`` is assembled from three: the row a listing also uses,
+	# the facts only this tool promises, and the tool itself, which reports the tags and the
+	# body under their own headings rather than as cells.
+	agent = (
+		_read_by(subroutine.mcp.tools, "_line", "item")
+		| _read_by(subroutine.mcp.tools, "_more", "item")
+		| _read_by(subroutine.mcp.tools, "_shown", "found")
+	)
+
+	assert terminal, "No fact renderer was read at the command line."
+	assert agent, "No fact renderer was read on the agent's surface."
+
+	missing = sorted(terminal - agent - set(NOT_SHOWN_TO_AN_AGENT))
+
+	assert not missing, (
+		f"'subroutine show' reports {missing} and 'subroutine_show' does not. Report them, or "
+		f"record in NOT_SHOWN_TO_AN_AGENT what an agent gets instead."
+	)
+
+
+def test_every_fact_excused_from_the_agents_show_is_still_read_at_the_command_line () -> None:
+	"""So the register cannot go on excusing a fact nobody renders any more."""
+
+	terminal = _read_by(subroutine.cli.personal, "_facts", "item")
+	unknown = sorted(field for field in NOT_SHOWN_TO_AN_AGENT if field not in terminal)
+
+	assert not unknown, f"NOT_SHOWN_TO_AN_AGENT names {unknown}, which 'show' no longer reads."
+
+
+def test_the_agents_show_puts_those_facts_in_what_it_returns (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The half the comparison above structurally cannot see, and it was needed immediately.
+
+	That guard reads the renderers and asks whether one names a fact the other does not — so
+	it goes on passing when the renderer is fine and **nothing calls it**. Deleting the call
+	to ``_more`` from ``_shown`` left it green, which is `test_reach`'s recorded blind spot
+	(it verifies a client method with the right *name* exists, never that it calls the route
+	it is mapped to) turning up in a guard written the same afternoon.
+
+	So this drives the tool and reads the answer. A pure function is not enough on its own —
+	lift the decision out, then drive the thing that uses it.
+	"""
+
+	_called(bound, "subroutine_project", key="ops", title="Operations")
+	added, failed = _called(bound, "subroutine_add", text="Rotate the certificates +ops")
+
+	assert not failed, added
+
+	numbered = re.search(r"#(\d+)", added)
+
+	assert numbered is not None, f"nothing in the echo names the item that was made: {added}"
+
+	ref = int(numbered.group(1))
+
+	_called(bound, "subroutine_update", ref=ref, status="in_progress")
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+
+	# The status is the one this surface's own instructions tell an agent to set, and the one
+	# it could not read back — it wrote `in_progress`, was answered *Changed*, and no tool in
+	# the catalogue would ever say so again.
+	assert "in_progress" in shown, shown
+	assert "+ops" in shown, shown

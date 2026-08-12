@@ -10,6 +10,7 @@ most likely to break are the ones only the wiring exercises: the config file, th
 directory, the local-mode principal, and the numbering that makes ``done 1`` work.
 """
 
+import ast
 import datetime
 import json
 import os
@@ -808,6 +809,103 @@ def test_json_output_carries_enough_to_act_on (
 	assert document["unscheduled"][0]["title"] == "Buy milk"
 	assert document["unscheduled"][0]["ref"]
 	assert document["timezone"] == "Europe/London"
+
+
+def _read_by_the_terminal_row () -> dict[str, str]:
+	"""Return each view field the terminal listing puts in a cell, by the cell that reads it.
+
+	**Derived by reading the renderers, not listed.** A column added tomorrow is compared
+	tomorrow — `#427`'s method, and the only thing that makes this a guard rather than a
+	second list to keep up to date. Every cell in that listing is a module-level function
+	named ``_…_cell`` taking one ``item``, so what it reads off that item is what the reader
+	is shown.
+	"""
+
+	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
+	found: dict[str, str] = {}
+
+	for node in ast.parse(source).body:
+		if not isinstance(node, ast.FunctionDef) or not node.name.endswith("_cell"):
+			continue
+
+		for read in ast.walk(node):
+			if (
+				isinstance(read, ast.Attribute)
+				and isinstance(read.value, ast.Name)
+				and read.value.id == "item"
+			):
+				found.setdefault(read.attr, node.name)
+
+	return found
+
+
+#: A field the terminal row shows and the scripted row deliberately does not carry under that
+#: name, and what a script gets instead. Same rule as the registers in
+#: ``test_api_writability.py``, and for the same reason: "the JSON does not have it" describes
+#: the code rather than giving a reason, and `#820` is what happens when nothing checks one.
+RENDERED_ONLY: dict[str, str] = {
+	"estimate_human": (
+		"Carried as `estimate_minutes`. §6.4's grammar is a rendering — a script handed '2h' "
+		"has to parse the terminal's prose back into the number it was made from."
+	),
+	"description": (
+		"`_match_cell` reads it to say *why* a search matched, and a listing row carries "
+		"neither body — §14.10 makes response size a first-order cost, and the whole "
+		"description on every row of a search is the opposite of that. What a scripted "
+		"search cannot see is the match *reason*, which is `#840`."
+	),
+	"body": "The same, for a document.",
+}
+
+
+def test_the_scripted_row_carries_what_the_terminal_row_shows (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One row, two renderings, and until now nothing compared them.
+
+	``subroutine list --json`` returned fifteen fields and ``assignee`` was not among them,
+	while the terminal put ``@si`` on the row beside it (`#583`). `#511` had shipped the
+	column and the human half only; `#674` is the same shape again on the agent's surface.
+	Neither was reachable by ``test_reach``, which compares what a *client* can call — these
+	two renderings are the same call, rendered twice.
+
+	The comparison is what was missing, so this is deliberately not a list of the fields a row
+	ought to have: it reads the cells the terminal renders and asks the scripted row for each
+	one. The row is driven rather than constructed, because a guard that reads both sides
+	statically confirms two spellings agree and nothing about what a caller receives.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something to hand over @si !4/3 ~2h #urgent by friday")
+
+	rows = json.loads(run("list", "--json").output)
+	shown = _read_by_the_terminal_row()
+
+	assert shown, "No cell renderer was read — has the listing stopped being built this way?"
+	assert rows, "Nothing was listed, so the scripted row cannot be compared against anything."
+
+	missing = sorted(
+		field for field in shown if field not in RENDERED_ONLY and field not in rows[0]
+	)
+
+	assert not missing, (
+		f"The terminal row shows {missing} and the scripted row does not carry them. Add them "
+		f"to `_as_json`, or record in RENDERED_ONLY what a script gets instead."
+	)
+
+
+def test_every_field_excused_from_the_scripted_row_is_still_rendered () -> None:
+	"""So this file cannot go on excusing a column the terminal has stopped having.
+
+	The stale half of the guard above, and the one every register in this repository is
+	required to have: an entry describing a cell nobody renders any more reads as a considered
+	decision and silently excuses whatever later takes the name.
+	"""
+
+	shown = _read_by_the_terminal_row()
+	unknown = sorted(field for field in RENDERED_ONLY if field not in shown)
+
+	assert not unknown, f"RENDERED_ONLY names {unknown}, which no cell on the row reads."
 
 
 def test_a_weekday_names_a_day_wherever_a_day_is_named (

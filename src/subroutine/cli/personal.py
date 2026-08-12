@@ -5981,6 +5981,12 @@ def _as_json (
 		"title": item.title,
 		"type": item.type,
 		"status": item.status,
+		# **The renameable key and the fixed axis, both** (`#583`). A status key is a
+		# workspace's own word for a stage, so a script branching on `status == "done"` is
+		# reading a label somebody may rename this afternoon; the category is the thing that
+		# cannot move. `Status` publishes the pair for exactly this reason and this row
+		# carried only the half that rots.
+		"status_category": item.status_category,
 		# **Shared since `#819`**, when a document gained tags from the same vocabulary. A
 		# scripted reader that could see a task's tags and not a document's would be the
 		# §12.2a drift this function's own docstring is about.
@@ -6006,6 +6012,20 @@ def _as_json (
 		"importance": task.importance,
 		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,
+		# **Who has it** (`#583`). `#511` put the assignee on the terminal row and stopped
+		# there, so the one reader most likely to be automating a handover — a script, or an
+		# agent reading this listing — could not see that anything had been handed over.
+		"assignee": task.assignee,
+		# **Whether it can be started** (`#425`). A default listing puts a blocked item above
+		# the thing blocking it, and the terminal marks it; a script sorting the same rows
+		# had no way to tell, so it would confidently recommend starting the one that cannot
+		# be started. `?ready=true` is a filter, and `#425`'s whole finding is that a filter
+		# is not a signal.
+		"blocked": task.blocked,
+		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
+		# own is work whose context is one field away, and the number is what a script types
+		# back.
+		"parent_ref": task.parent_ref,
 	}
 
 
