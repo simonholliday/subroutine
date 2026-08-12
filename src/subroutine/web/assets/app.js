@@ -3404,6 +3404,35 @@ export function Note ({ note, onUndo, onDismiss }) {
 	`;
 }
 
+export function Foot ({ count, version }) {
+	/*
+		What is on screen, which instance served it, and the two ways out.
+
+		**Which instance is `#784`, and it is Simon's.** This browser has one reader and he is
+		on another machine, so every defect he finds arrives as prose — and whether the page he
+		is describing is the code in this tree was unknowable to either of us. `whoami` ends
+		with the same sentence for a terminal (`#381`); this is it for the fourth surface.
+
+		**The instance's version, never the page's**, because the page has none: §22.3 forbids
+		a build step, which is the thing that would put one there. It rides in on `/v1/me`,
+		which has carried `instance_version` all along and is already the first request this
+		app makes — so it costs nothing on the wire. `#785` is the half that notices it moved.
+
+		A component rather than markup inside `App` for the reason every component here is one:
+		`App` uses hooks, so the render harness cannot call it and nothing checks what it says
+		(`#640`). Written without hooks, this can be checked.
+	*/
+	return html`
+		<footer class="foot">
+			${/* **Counts what is on screen, not what was last fetched** (`#652`). */ null}
+			<span>${count} items</span>
+			${version ? html`<span title="This instance's version">${version}</span>` : null}
+			<a href="/v1/docs/agent">API</a>
+			<a href="https://github.com/simonholliday/subroutine">Source</a>
+		</footer>
+	`;
+}
+
 export function Facts ({ item }) {
 	/*
 		**A field nobody set is not printed** (§12.2c). That rule is what lets `subroutine show`
@@ -5145,14 +5174,10 @@ export function App () {
 								? "Nothing has been finished here yet."
 								: "Nothing here yet."} />`}
 
-			<footer class="foot">
-				${/* **Counts what is on screen, not what was last fetched.** `items` is the
-				     listing's state and is empty while the agenda is showing, so leaving this
-				     alone would have put "0 items" under a full day (`#652`). */ null}
-				<span>${agenda !== null ? counted(agenda) : items.length} items</span>
-				<a href="/v1/docs/agent">API</a>
-				<a href="https://github.com/simonholliday/subroutine">Source</a>
-			</footer>
+			${/* `items` is the listing's state and is empty while the agenda is showing, so
+			     counting it unconditionally put "0 items" under a full day (`#652`). */ null}
+			<${Foot} count=${agenda !== null ? counted(agenda) : items.length}
+				version=${me ? me.instance_version : null} />
 		</div>
 	`;
 }

@@ -247,6 +247,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"undo": {"ref": 42, "kind": "task", "title": "Fix it", "status": "open"},
 		}
 	},
+	"Foot": {"count": 7, "version": "0.6.7"},
 }
 
 #: The one case with its own branch, and the one a reader is likeliest to meet: a page loaded
@@ -6921,3 +6922,48 @@ def test_an_ordinary_link_still_renders (tmp_path: pathlib.Path) -> None:
 
 	assert '<a href="https://example.com/docs"' in rendered, rendered
 	assert "the docs" in rendered
+
+
+def test_the_footer_says_which_instance_served_the_page (tmp_path: pathlib.Path) -> None:
+	"""`#784`, Simon's, and the argument is about who reads this page.
+
+	It has one reader and he is on another machine, so every defect arrives as prose — *the
+	dropdown is top-right*, *the column populates after ten seconds* — and whether the page he
+	is describing is the code in this tree was unknowable to both of us. I push, he pulls, he
+	restarts the service, and nothing on screen said which of those had happened.
+
+	`#380`/`#393` are the same shape one layer up: a cached plugin predating the feature it was
+	installed for, reporting success and changing nothing. A page has every one of those
+	properties.
+	"""
+
+	rendered = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
+
+	assert "0.6.7" in rendered, "the page does not say which instance answered it"
+	assert "7 items" in rendered
+
+
+def test_the_footer_says_nothing_about_a_version_it_has_not_been_given (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An instance that has not answered yet is not an instance with no version.
+
+	``/v1/me`` is the first request this app makes and the footer renders before it lands, so
+	the honest reading of a missing value is *not known yet*. Printing an empty pair of
+	parentheses, or the word ``undefined``, would be this project's own defect of reporting the
+	absence of a fact as though it were one.
+
+	**Counted rather than read, because both readable versions of this cannot fail.** Preact
+	renders ``null`` as nothing, so dropping the guard leaves an empty ``<span>`` and
+	*"undefined is not in the output"* is true either way. Asserting on the element's ``title``
+	fails too — this harness emits an element's children and its ``href`` and drops the rest,
+	so a check on any other attribute is a check on something it never writes. Both of those
+	passed against the mutation before this one was counted.
+	"""
+
+	rendered = _rendered(tmp_path, {"Foot": {"count": 0, "version": None}})["Foot"]
+
+	assert "0 items" in rendered
+	assert rendered.count("<span") == 1, (
+		f"an empty element is still a claim that there is a version: {rendered}"
+	)

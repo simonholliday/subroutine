@@ -133,6 +133,10 @@ upgrade involves.
   had made. The same reading now also shows a `from` date somebody deferred to, when the work
   was completed, and the project it was filed in.
 
+- **The web page says which version of Subroutine served it**, in the footer beside the item
+  count. If you are describing what you see on a page to somebody else — or wondering whether
+  the fix you just deployed is the one you are looking at — that is the number that answers it.
+
 ### Fixed
 
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and
