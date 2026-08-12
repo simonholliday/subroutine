@@ -6,6 +6,7 @@ answered, and that a failure looks the same whether a service refused it, the ro
 found it, or something broke.
 """
 
+import json
 import pathlib
 import typing
 
@@ -95,6 +96,12 @@ def test_readiness_refuses_an_unmigrated_database (tmp_path: pathlib.Path) -> No
 	assert "subroutine init" in body["hint"]
 
 
+#: What SQLite says when the directory above the database does not exist. Pinned as a constant
+#: because two tests need the same string to mean opposite things — one asserts it arrives and
+#: the other that it does not, and a typo in either would quietly make that test vacuous.
+DRIVER_SAYS = "unable to open database file"
+
+
 def test_readiness_reports_an_unreachable_database (tmp_path: pathlib.Path) -> None:
 	"""A database that cannot be opened is reported as such, with the reason."""
 
@@ -113,6 +120,58 @@ def test_readiness_reports_an_unreachable_database (tmp_path: pathlib.Path) -> N
 	assert response.status_code == 503
 	assert response.json()["code"] == "service_unavailable"
 	assert "database_url" in response.json()["hint"]
+
+	# **The detail, not only the hint** (`#832`). This test asserted the code and the hint and
+	# never looked at what the detail contained, which is the half that discloses — so it was
+	# green throughout the period the endpoint was handing the driver's error to anybody.
+	assert DRIVER_SAYS in response.json()["detail"], (
+		"a private instance should still report the driver's own cause"
+	)
+
+
+def test_readiness_keeps_the_cause_to_itself_once_the_instance_is_public (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#832`. The driver's error names things a stranger could not learn by connecting.
+
+	An unreachable host, a database name, or — as here — a **filesystem path**. On a served
+	instance that is the layout of somebody's machine, handed to anybody who can reach a URL
+	that is public by design and has no credential to check.
+
+	**Keyed on ``public_url`` rather than on the bind**, which is `#286`'s ordering and the
+	whole reason this is answerable at all: the arrangement ``docs/hosting.md`` recommends
+	terminates TLS at a proxy and binds the application to loopback, so the socket says
+	"private" about an instance on the public internet.
+	"""
+
+	unreachable = tmp_path / "no-such-directory" / "subroutine.db"
+	engine = subroutine.db.session.create_engine(f"sqlite:///{unreachable}")
+
+	try:
+		application = api_support.build_app(
+			subroutine.db.session.create_session_factory(engine),
+			public_url="https://work.example.com",
+		)
+		response = api_support.call(application, "GET", "/readyz")
+
+	finally:
+		engine.dispose()
+
+	assert response.status_code == 503
+	assert response.json()["code"] == "service_unavailable"
+
+	# The fact still arrives, and so does the remedy — what goes is the cause.
+	assert "not ready" in response.json()["detail"]
+	assert "database_url" in response.json()["hint"]
+
+	# **Asserted on the string the private case actually discloses**, not on the path. SQLite
+	# reports "unable to open database file" and never names the file, so a check for the path
+	# would pass here whatever the endpoint did — an absence both behaviours produce, which is
+	# a test that cannot fail. The PostgreSQL failure the review measured names a host instead;
+	# what is common to both, and what this pins, is that the driver's words do not travel.
+	assert DRIVER_SAYS not in json.dumps(response.json()), (
+		"the driver's cause must not survive anywhere in the body"
+	)
 
 
 def test_every_response_carries_the_correlation_and_version_headers (

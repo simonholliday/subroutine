@@ -151,6 +151,17 @@ upgrade involves.
 
   Found by the same review, which named three places saying it; there were five.
 
+- **`/readyz` no longer tells the world why your database is unreachable.** The endpoint is
+  public by design, and it was putting the driver's own error into the response — which is an
+  internal hostname, a database name, or a filesystem path, depending on what went wrong.
+
+  **Nothing changes on an instance only you can reach**, which is where the message earns its
+  keep: setting one up, you still get the cause. Once `public_url` is set the caller is told
+  the instance is not ready and the cause goes to the log instead. The remedy — check
+  `database_url` — is still in both.
+
+  Found by the same review.
+
 ### Fixed
 
 - **An agent was shown three of this workspace's five link types**, and the two missing were

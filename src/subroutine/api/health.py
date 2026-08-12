@@ -11,10 +11,18 @@ common way to turn a brief database hiccup into an outage (SPEC.md §8.6):
   migrations have not been run answers queries against columns that are not there, and it
   should be held back rather than allowed to fail one request at a time.
 
-Both are unauthenticated: whatever is probing them runs before any credential exists, and
-neither reveals anything an unauthenticated caller could not learn by connecting.
+Both are unauthenticated: whatever is probing them runs before any credential exists.
+
+**What a failure says depends on who can reach this instance** (`#832`). While nothing outside
+the machine can, ``/readyz`` reports the driver's own error — an unreachable host, a refused
+connection, a database path — because the reader is the person trying to get the instance
+running and "not ready" on its own sends them to the logs for something the probe already
+knows. Once ``public_url`` is set, that same failure is a generic refusal and the cause goes to
+the log instead: an internal hostname, a database name or a filesystem path is not something a
+stranger could learn by connecting, and this file used to claim it was.
 """
 
+import logging
 import typing
 
 import fastapi
@@ -23,8 +31,13 @@ import starlette.requests
 
 import subroutine
 import subroutine.api.routing
+import subroutine.config
 import subroutine.db.migrate
 import subroutine.errors
+
+#: The same logger the rest of the API writes to, so an operator following a served instance
+#: sees the cause `/readyz` stopped telling the caller (`#832`).
+_logger = logging.getLogger("subroutine.api")
 
 router = fastapi.APIRouter(
 	tags=["health"],
@@ -51,11 +64,24 @@ def readiness (request: starlette.requests.Request) -> dict[str, typing.Any]:
 			revision = subroutine.db.migrate.revision_on(opened.connection())
 
 	except sqlalchemy.exc.SQLAlchemyError as error:
-		# The cause is reported rather than hidden: this endpoint exists to be read by
-		# whoever is trying to get the instance running, and "not ready" on its own sends
-		# them to the logs for something the probe already knows.
+		# The cause is reported rather than hidden *while only this machine can read it*: the
+		# endpoint exists for whoever is trying to get the instance running, and "not ready"
+		# alone sends them to the logs for something the probe already knows. Once anybody can
+		# reach it the driver's error is an internal hostname, a database name or a filesystem
+		# path, so it goes to the log and the caller gets the fact without the detail (`#832`).
+		settings = request.app.state.settings
+		cause = getattr(error, "orig", None) or error
+
+		if subroutine.config.reachable_by_strangers(settings, host=settings.host):
+			_logger.warning("readiness check failed: %s", cause)
+
+			raise subroutine.errors.ServiceUnavailable(
+				"This instance is not ready to serve requests.",
+				hint="Check that the database is running and that 'database_url' is right.",
+			) from error
+
 		raise subroutine.errors.ServiceUnavailable(
-			f"The database cannot be reached: {getattr(error, 'orig', None) or error}",
+			f"The database cannot be reached: {cause}",
 			hint="Check that the database is running and that 'database_url' is right.",
 		) from error
 

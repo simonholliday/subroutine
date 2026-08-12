@@ -214,6 +214,29 @@ def is_loopback (host: str) -> bool:
 	return address.is_loopback
 
 
+def reachable_by_strangers (settings: "Settings", *, host: str) -> bool:
+	"""Report whether somebody other than this machine's owner can reach this instance.
+
+	Two signals, and the first is the stronger one. ``public_url`` is the operator saying *a
+	proxy serves this to other people*, which is the fact that matters and is invisible from
+	the socket: the arrangement ``docs/hosting.md`` recommends terminates TLS at a proxy and
+	binds the application to ``127.0.0.1``, so asking the bind alone answers "private" about
+	an instance on the public internet. `#286` established that ordering for rate limiting.
+
+	**Lifted out of :func:`subroutine.api.limits.wanted` rather than called through it**
+	(`#832`). That function answers *should this instance rate limit*, which folds in an
+	explicit ``rate_limit`` override — and an operator turning limiting off has said nothing
+	whatever about who can reach them. Reusing it would have tied what ``/readyz`` discloses to
+	a setting about throughput, which is two questions sharing one answer: the shape this
+	codebase keeps finding.
+	"""
+
+	if (settings.public_url or "").strip():
+		return True
+
+	return not is_loopback(host)
+
+
 def config_home () -> pathlib.Path:
 	"""Return the directory holding the configuration file."""
 

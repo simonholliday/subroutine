@@ -168,10 +168,9 @@ def wanted (settings: subroutine.config.Settings, *, host: str) -> bool:
 	if settings.rate_limit is not None:
 		return settings.rate_limit
 
-	if (settings.public_url or "").strip():
-		return True
-
-	return not subroutine.config.is_loopback(host)
+	# The reachability half lives in `config` now, because `/readyz` asks the same question
+	# about what it may disclose (`#832`). Only the override above is this function's own.
+	return subroutine.config.reachable_by_strangers(settings, host=host)
 
 
 class Limits:
