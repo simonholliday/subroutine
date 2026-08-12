@@ -126,6 +126,18 @@ upgrade involves.
 
   Found by an outside review of the whole codebase.
 
+- **Rate limiting stopped counting new callers on a busy instance.** A bucket was created and
+  then immediately discarded by the housekeeping sweep that ran on the next line, because a
+  fresh allowance looks exactly like one that has finished refilling. Below a few thousand
+  tracked keys nothing swept and nothing was wrong; above it, every request from every new key
+  went uncounted — measured at 200 allowed against a limit of 30.
+
+  It matters most for the limiter that counts **failed** authentication, which is keyed on
+  where a request came from so that guessing cannot buy a fresh allowance per guess. What it
+  protects is a 256-bit random token, so this was a safeguard not working rather than a way in.
+
+  Found by the same review.
+
 ### Fixed
 
 - **An agent was shown three of this workspace's five link types**, and the two missing were

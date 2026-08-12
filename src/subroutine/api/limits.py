@@ -100,10 +100,21 @@ class Limiter:
 			bucket = self._buckets.get(key)
 
 			if bucket is None:
+				# **Sweep before inserting, never after** (`#830`). A bucket created for a new
+				# key is full, and a full bucket is exactly what `_sweep` drops — so sweeping
+				# afterwards removed the key on the line that added it, leaving the caller
+				# counted against an object nothing held. The request was then allowed, the
+				# spend was lost, and while the map stayed above `SWEEP_ABOVE` every request
+				# from every new key repeated it: measured at 200 of 200 allowed against a
+				# limit of 30.
+				#
+				# The sweep's own justification is what made this invisible — *a bucket that
+				# has refilled completely is indistinguishable from one that never existed* is
+				# true, and a brand new one is indistinguishable from both.
+				self._sweep(now)
+
 				bucket = Bucket(tokens=self.capacity, at=now)
 				self._buckets[key] = bucket
-
-				self._sweep(now)
 
 			bucket.tokens = min(
 				self.capacity, bucket.tokens + (now - bucket.at) * self.per_minute / 60.0

@@ -334,3 +334,58 @@ def test_no_client_at_all_is_counted_rather_than_raising () -> None:
 	"""An ASGI transport carrying no client — the test suite is one."""
 
 	assert subroutine.api.limits._where_from(_arriving(None), frozenset()) == "unknown"
+
+
+def test_a_new_key_is_counted_once_the_map_is_big_enough_to_sweep () -> None:
+	"""A key arriving after the sweep threshold is still limited — `#830`.
+
+	**The sweep drops buckets that have fully refilled, and a bucket created for a new key is
+	full.** So inserting first and sweeping second removed the key on the line that added it:
+	the caller was decremented against an object nothing held, the request was allowed, and
+	while the map stayed above ``SWEEP_ABOVE`` *every* request from *every* new key repeated
+	the cycle.
+
+	**Driven above the threshold, because that is the only place it can fail.** All sixteen
+	cases written before this one run with a handful of buckets, so the limiter they exercise
+	is one where ``_sweep`` returns immediately — which is why a control that was off entirely
+	for new callers passed a full suite.
+
+	The chaff is *partially drained* deliberately. Buckets that had refilled would be swept
+	legitimately, the map would fall back under the threshold, and the case would prove
+	nothing.
+	"""
+
+	now = 1000.0
+	limiter = subroutine.api.limits.Limiter(per_minute=30, clock=lambda: now)
+
+	for which in range(subroutine.api.limits.SWEEP_ABOVE + 1):
+		limiter.take(f"chaff-{which}")
+		limiter.take(f"chaff-{which}")
+
+	allowed = sum(1 for _ in range(200) if limiter.take("a-new-caller") is None)
+
+	assert allowed == 30, f"the limit is 30 a minute and {allowed} requests got through"
+
+
+def test_the_sweep_still_forgets_a_bucket_that_has_refilled () -> None:
+	"""The other half, so `#830`'s fix cannot be "never sweep".
+
+	The sweep exists because the map otherwise grows once per distinct address for the life of
+	the process. A fix that kept every bucket would close the finding and reintroduce the leak
+	it was written to prevent, and nothing above would notice.
+	"""
+
+	moment = 1000.0
+	limiter = subroutine.api.limits.Limiter(per_minute=30, clock=lambda: moment)
+
+	for which in range(subroutine.api.limits.SWEEP_ABOVE + 1):
+		limiter.take(f"spent-{which}")
+
+	assert len(limiter._buckets) > subroutine.api.limits.SWEEP_ABOVE
+
+	# A whole minute later every one of those has refilled, so the next new key sweeps them.
+	moment += 60.0
+	limiter.take("the-one-that-triggers-it")
+
+	assert len(limiter._buckets) == 1, "a refilled bucket should be forgotten"
+	assert "the-one-that-triggers-it" in limiter._buckets, "and the new one should survive"
