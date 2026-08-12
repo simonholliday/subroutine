@@ -1810,11 +1810,45 @@ def _remarked (
 def _completed (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
-	"""Finish a task."""
+	"""Finish a task, and say what the claim on it is still doing — `#777`.
+
+	**`#705` mandated claiming on 2026-08-09 and nothing changed.** Measured the next day: nine
+	items opened and closed, none claimed, none passed through `in_progress`, and the event
+	history empty of both. Measured again by `#777`: still true. The instruction shipped and
+	the behaviour did not, for the one agent working here, which is the whole population.
+
+	It went into the skill, and the skill reaches a session through a **plugin cache that
+	lags** — installed 0.6.1 against a manifest at 0.6.4, and 0.6.1's copy did not carry the
+	sequence at all. So the item's third condition is that whatever notices must survive that.
+	**This does, structurally rather than by luck**: since `#539` these tools run on the
+	*instance*, so a caller's cached plugin cannot be a version of this behind.
+
+	Two clauses, and only ever one of them:
+
+	- **Still claimed.** ``done`` does not release, measured rather than assumed — so an agent
+	  following half the advice leaves a trail of claims on finished work. The one clause here
+	  that is actionable at the moment it is read.
+	- **Never claimed.** Advice about the next item rather than this one, which is the honest
+	  framing: a claim cannot be taken retroactively. It is here because the moment of closing
+	  is when the sequence is most legible, and because the guaranteed channel is the program.
+
+	**On this surface and not at the command line.** §1.4: a person finishing *buy milk* has
+	not asked about claims and must not be told about them. `#705`'s rule is for agents, and
+	this is the agents' surface.
+	"""
 
 	finished = client.complete(ref=_ref(arguments), workspace=_text(arguments, "workspace"))
 
-	return f"Done: {finished.title}"
+	if finished.claimed_by:
+		return (
+			f"Done: {finished.title}. Still claimed by @{finished.claimed_by} — "
+			f"subroutine_claim(ref={finished.ref}, release=true) hands it back."
+		)
+
+	return (
+		f"Done: {finished.title}. It was not claimed — claim one before you start it, so "
+		f"nobody else takes the same work."
+	)
 
 
 def _ref (arguments: dict[str, typing.Any]) -> int:

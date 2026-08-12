@@ -4360,3 +4360,47 @@ def test_the_abandoned_half_is_reported_where_nothing_has_been_decided (
 
 	assert "Nothing is marked as in force" in published, "the decisions half stopped answering"
 	assert "Peppering token hashes" in published
+
+
+def test_finishing_something_nobody_claimed_says_so (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#777`. `#705` mandated claiming and the behaviour did not change.
+
+	Measured the day after it shipped: nine items opened and closed, none claimed, none through
+	`in_progress`, the event history empty of both — and measured again by this item with the
+	same answer. **The instruction went into the skill, and the skill reaches a session through
+	a plugin cache that lags**, so a session can be told nothing and be none the wiser.
+
+	This is on the surface that runs on the *instance* (`#539`), which is why a caller's stale
+	plugin cannot be a version of it behind — the item's third condition, met structurally.
+	"""
+
+	ref = _added(bound, "Something nobody took")
+	answered, failed = _called(bound, "subroutine_done", ref=ref)
+
+	assert not failed, answered
+	assert "not claimed" in answered, answered
+
+
+def test_finishing_something_still_held_says_how_to_hand_it_back (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""**Finishing does not release**, measured rather than assumed.
+
+	So an agent that follows half the advice leaves a trail of claims on finished work, and
+	this is the one clause here that is actionable at the moment it is read. The other is
+	about the next item, because a claim cannot be taken retroactively.
+	"""
+
+	ref = _added(bound, "Something taken properly")
+
+	claimed, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, claimed
+
+	answered, failed = _called(bound, "subroutine_done", ref=ref)
+
+	assert not failed, answered
+	assert "release=true" in answered, answered
+	assert "not claimed" not in answered, "it was claimed, and this says the opposite"

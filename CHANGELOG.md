@@ -146,6 +146,14 @@ upgrade involves.
   That half is the one a newcomer cannot work out for themselves: a decision leaves a rule
   behind, and a path not taken leaves nothing at all.
 
+- **Finishing a task through the agent tools says what the claim on it is still doing.**
+  Completing something does not release it, so an agent that claims work and finishes it left
+  the claim behind with nothing to say so; and one that never claimed it at all was told
+  nothing either. The reply now names whichever of those happened.
+
+  The command line is deliberately unchanged: somebody finishing *buy milk* has not asked
+  about claims.
+
 ### Fixed
 
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and
