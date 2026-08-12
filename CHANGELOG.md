@@ -42,6 +42,22 @@ upgrade involves.
   of having worked on it. Ask for `include_completed=false` beside it if what you want is what
   is still in flight.
 
+- **A document can be tagged.** `#design`, `#security`, `#adr` — the same words and the same
+  tags a task uses, because a tag belongs to a workspace rather than to a kind. Set them when
+  you write one and change them afterwards:
+
+  ```
+  subroutine doc create "Why we chose Preact" --tag design --tag web
+  subroutine doc edit 42 --tag settled
+  ```
+
+  Also on `POST` and `PATCH /v1/documents`, and reported by `subroutine show`, the JSON
+  listing and every document the API returns. Tags **replace** rather than merge, as every
+  other field on a `PATCH` does, so `--tag` with nothing after it clears them.
+
+  The table for this has been in the database since the first release and nothing could write
+  to it, so no upgrade is needed — only a version that reaches it.
+
 - **A listing can be asked about a date.** `GET /v1/tasks?created_at.gte=yesterday` — a field,
   one of `gt`, `gte`, `lt` or `lte`, and a day, an instant or any expression the rest of the
   program already takes: `today`, `now-7d`, `start_of_week`, `start_of_month+1M`. Two of them

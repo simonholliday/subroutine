@@ -85,6 +85,12 @@ class Create(subroutine.api.schemas.RequestModel):
 	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
+
+	#: Tag names, without the `#` — `["decision", "security"]`. The same words a task takes,
+	#: from the same per-workspace vocabulary (`#819`), and refused on the same rule: a name of
+	#: only digits is a reference, not a tag (§6.2).
+	tags: list[str] | None = None
+
 	supersedes: subroutine.api.schemas.Reference | None = None
 
 
@@ -101,6 +107,11 @@ class Update(subroutine.api.schemas.RequestModel):
 	type: str | None = None
 	status: str | None = None
 	owner_id: uuid.UUID | None = None
+
+	#: The document's tags, **replacing** whatever it had (§8.3, like every other field here).
+	#: `[]` clears them, which is how a mistyped tag is removed; omitting the field leaves them
+	#: alone.
+	tags: list[str] | None = None
 
 	#: The project to file it under, by key — `#294`. Accepted on create since M1 and here by
 	#: nothing, so a conclusion written before anybody decided where it belonged stayed in the
@@ -151,6 +162,7 @@ def create (
 			None if body.parent is None else _resolve(session, actor, workspace, str(body.parent))
 		),
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
+		tags=body.tags,
 		supersedes=(
 			None
 			if body.supersedes is None
@@ -353,7 +365,13 @@ def change (
 
 	supplied = body.model_fields_set
 	changes: dict[str, typing.Any] = {
-		name: getattr(body, name) for name in ("title", "body", "owner_id") if name in supplied
+		name: getattr(body, name)
+		# **`tags` is in this loop rather than beside it**, because it is one of the fields
+		# where `null` means *clear* rather than *leave alone* — and `model_fields_set` is the
+		# only thing that tells those apart (§8.3). The three `if … is not None` blocks below
+		# are the fields that cannot be cleared.
+		for name in ("title", "body", "owner_id", "tags")
+		if name in supplied
 	}
 
 	if "status" in supplied and body.status is not None:

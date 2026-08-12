@@ -771,6 +771,7 @@ class Client(typing.Protocol):
 		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
+		tags: typing.Sequence[str] | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document — a conclusion the next reader needs (§5.10).
 
@@ -804,6 +805,7 @@ class Client(typing.Protocol):
 		type: str = UNSET,
 		status: str = UNSET,
 		project: str = UNSET,
+		tags: typing.Sequence[str] | None = UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).
 

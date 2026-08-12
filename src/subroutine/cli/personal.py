@@ -2749,6 +2749,9 @@ def register (
 			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
 		),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		tag: list[str] | None = typer.Option(
+			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Write a document — a decision, a finding, a design, a dead end.
@@ -2782,6 +2785,7 @@ def register (
 				type=kind.strip() or None,
 				status=status.strip() or None,
 				project=project.strip() or None,
+				tags=tag or None,
 				workspace=_writing_workspace(world),
 			)
 
@@ -2821,6 +2825,9 @@ def register (
 		),
 		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		tag: list[str] | None = typer.Option(
+			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Revise a document you have already written.
@@ -2902,6 +2909,10 @@ def register (
 				type=kind.strip() or subroutine.clients.base.UNSET,
 				status=status.strip() or subroutine.clients.base.UNSET,
 				project=project.strip() or subroutine.clients.base.UNSET,
+				# **`--tag` given no value clears them**, which is §8.3's null and the only way
+				# to take a mistyped tag off. Typer gives an empty list when the flag is absent,
+				# so "not asked" and "asked for none" are told apart by `None`.
+				tags=subroutine.clients.base.UNSET if tag is None else tag,
 			)
 
 			if json_output:
@@ -5798,8 +5809,13 @@ def _facts (located: Located) -> list[str]:
 		if item.assignee:
 			facts.append(f"@{item.assignee}")
 
-		if item.tags:
-			facts.extend(f"#{tag}" for tag in item.tags)
+	# **Outside the task block since `#819`**, because both kinds carry tags now and from one
+	# vocabulary. It sat inside for as long as only a task could have them — so a document
+	# tagged through the API rendered nothing here, which is the *stored and shown nowhere*
+	# half of the same defect. Last of the task facts either way, so nothing about a task's
+	# line moved.
+	if item.tags:
+		facts.extend(f"#{tag}" for tag in item.tags)
 
 	# The project only when it is one somebody filed this in. The Inbox is where things go
 	# when nobody said, so naming it would be reporting the absence of a decision.
@@ -5965,6 +5981,10 @@ def _as_json (
 		"title": item.title,
 		"type": item.type,
 		"status": item.status,
+		# **Shared since `#819`**, when a document gained tags from the same vocabulary. A
+		# scripted reader that could see a task's tags and not a document's would be the
+		# §12.2a drift this function's own docstring is about.
+		"tags": list(item.tags),
 	}
 
 	if not isinstance(item, subroutine.views.Task):
@@ -5986,7 +6006,6 @@ def _as_json (
 		"importance": task.importance,
 		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,
-		"tags": list(task.tags),
 	}
 
 

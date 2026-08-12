@@ -372,3 +372,106 @@ def test_a_specification_can_be_written_and_the_work_derived_from_it (
 	assert from_task[0]["other"]["ref"] == spec["ref"]
 	assert from_task[0]["other"]["entity_type"] == "document"
 	assert from_task[0]["label"] == "Derives from"
+
+
+def test_a_document_can_be_tagged (world: test_api_tasks.World) -> None:
+	"""`#819`, and Simon's question that found it: *documents can't be tagged, can they?*
+
+	They could not. `document_tag` has existed since the initial migration and was written and
+	read by nothing — the second signature defect of this codebase, and the largest instance of
+	it, because the guard written to notice exactly that carried an excuse for the table naming
+	a field that did not exist (`#820`).
+	"""
+
+	created = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "How the thing works", "body": ".", "tags": ["design", "api"]},
+	)
+
+	assert created.status_code == 201, created.text
+	assert created.json()["tags"] == ["api", "design"], "alphabetical, like a task's"
+
+	# And read back on the listing, which loads them per page rather than per row.
+	listed = world.call("GET", "/v1/documents")
+
+	assert listed.status_code == 200, listed.text
+	assert listed.json()["items"][0]["tags"] == ["api", "design"]
+
+
+def test_a_document_and_a_task_share_one_tag (world: test_api_tasks.World) -> None:
+	"""**Simon's decision, 2026-08-12: one tag namespace.**
+
+	A tag is scoped to a workspace rather than to a kind, which is what both association tables
+	already assumed by referencing `tag.id`. So `#health` on a document and on a task are the
+	same row, unlike a status or an item type — §5.5 keeps those per kind because *done* means
+	nothing about a specification.
+
+	Checked through `/v1/meta`'s tag list, which counts usage across the workspace: one tag
+	used twice rather than two tags used once.
+	"""
+
+	world.call("POST", "/v1/tasks", json={"title": "Fix it", "tags": ["health"]})
+	world.call(
+		"POST", "/v1/documents", json={"title": "Why", "body": ".", "tags": ["health"]}
+	)
+
+	published = world.call("GET", "/v1/meta").json()["tags"]
+	health = [tag for tag in published["items"] if tag["name"] == "health"]
+
+	assert len(health) == 1, f"the two kinds made two tags: {published['items']}"
+
+
+def test_a_documents_tags_are_replaced_rather_than_merged (
+	world: test_api_tasks.World,
+) -> None:
+	"""§8.3, and the same answer a task gives — a `PATCH` assigns, it does not merge.
+
+	A `tags` that merged would be the only field on this endpoint a caller could not use to
+	*remove* anything, and clearing is how a mistyped tag is taken off.
+	"""
+
+	created = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "A conclusion", "body": ".", "tags": ["draft", "api"]},
+	).json()
+
+	revised = world.call(
+		"PATCH", f"/v1/documents/{created['ref']}", json={"tags": ["api"]}
+	)
+
+	assert revised.status_code == 200, revised.text
+	assert revised.json()["tags"] == ["api"]
+
+	cleared = world.call("PATCH", f"/v1/documents/{created['ref']}", json={"tags": []})
+
+	assert cleared.status_code == 200, cleared.text
+	assert cleared.json()["tags"] == []
+
+	# Omitting the field leaves them alone, which is the other half of §8.3 and the half a
+	# test of "it replaces" cannot see on its own.
+	world.call("PATCH", f"/v1/documents/{created['ref']}", json={"tags": ["kept"]})
+	untouched = world.call(
+		"PATCH", f"/v1/documents/{created['ref']}", json={"title": "Renamed"}
+	)
+
+	assert untouched.json()["tags"] == ["kept"]
+
+
+def test_a_tag_of_only_digits_is_refused_on_a_document_too (
+	world: test_api_tasks.World,
+) -> None:
+	"""§6.2's rule reaches this by construction, and that is why it goes through `ensure`.
+
+	A name of only digits is a *reference*, not a tag — `#12` means item 12. The rule lives in
+	`tags.ensure`, which every tag passes through however it arrived, so a second entry point
+	inherits it rather than needing its own copy.
+	"""
+
+	refused = world.call(
+		"POST", "/v1/documents", json={"title": "x", "body": ".", "tags": ["404"]}
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "404" in refused.text

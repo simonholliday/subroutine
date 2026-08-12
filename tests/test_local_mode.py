@@ -265,7 +265,7 @@ def test_a_captured_line_becomes_a_task_with_its_tags (
 	assert task.importance == 3
 	assert task.estimate_minutes == 120
 	assert captured.tags == ("work",)
-	assert [tag.name for tag in subroutine.domain.tags.for_task(session, task)] == ["work"]
+	assert [tag.name for tag in subroutine.domain.tags.on(session, task)] == ["work"]
 
 	# No project named, so it lands in the Inbox — the one project the personal path never
 	# mentions (SPEC.md §6.8).

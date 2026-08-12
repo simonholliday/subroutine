@@ -775,6 +775,7 @@ class Client:
 		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
+		tags: typing.Sequence[str] | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -789,6 +790,7 @@ class Client:
 				type=type,
 				status=status,
 				project=project,
+				tags=None if tags is None else list(tags),
 				workspace_id=workspace,
 			),
 		)
@@ -1025,6 +1027,7 @@ class Client:
 		type: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
+		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document, over the wire.
 
@@ -1041,6 +1044,9 @@ class Client:
 			"type": type,
 			"status": status,
 			"project": project,
+			# **`None` survives here and `UNSET` does not**, which is the whole of §8.3 on the
+			# wire: sending `"tags": null` clears them, and omitting the key leaves them alone.
+			"tags": tags if tags is subroutine.clients.base.UNSET else list(tags or ()),
 		}
 		answered = self._json(
 			"PATCH",

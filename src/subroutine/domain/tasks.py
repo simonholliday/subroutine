@@ -275,7 +275,7 @@ def create (
 		# Applied after the flush, because the join row needs the task's id. `ensure` is what
 		# holds §6.2's rule that a name of only digits is a reference and not a tag, however
 		# the tag arrived — a captured `#health`, a structured field, or an importer.
-		subroutine.domain.tags.apply_to_task(
+		subroutine.domain.tags.apply_to(
 			session,
 			task,
 			subroutine.domain.tags.ensure(
@@ -843,7 +843,7 @@ def update (
 		# **Replaces, so an empty list clears.** Every other field on a PATCH is assigned
 		# rather than merged, and a `tags` that merged would be the only one a caller could
 		# not use to remove anything — which is how a mistyped tag became permanent.
-		subroutine.domain.tags.set_on_task(session, task, wanted_tags)
+		subroutine.domain.tags.set_on(session, task, wanted_tags)
 		touches_content = True
 
 	if assignee_id is not subroutine.domain.patch.UNSET:
@@ -1164,7 +1164,7 @@ def _snapshot (
 		# **Read rather than taken off the row**, which is why this needs a session at all.
 		# Tags live in a join table, so there is no attribute to compare; a sorted list of
 		# names is what makes "did the tags change" a value comparison.
-		"tags": subroutine.domain.tags.names_on_task(session, task),
+		"tags": subroutine.domain.tags.names_on(session, task),
 		"description": task.description,
 		"status_id": task.status_id,
 		"type_id": task.type_id,

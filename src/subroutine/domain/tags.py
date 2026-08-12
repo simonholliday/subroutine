@@ -129,12 +129,61 @@ def ensure (
 	return resolved
 
 
-def apply_to_task (
+class Joined (typing.NamedTuple):
+	"""How one kind of item is joined to the tags on it."""
+
+	#: The association model — ``TaskTag``, ``DocumentTag``.
+	rows: typing.Any
+
+	#: Its column naming the item, so a query can be written once for both.
+	owner: typing.Any
+
+
+#: Which kinds carry tags, keyed by the item's own model — `#819`.
+#:
+#: **One tag vocabulary across both, decided with Simon on 2026-08-12**, and it is what the
+#: schema already assumed: both association tables reference ``tag.id``, and a tag is scoped to
+#: a *workspace* rather than to a kind. So ``#health`` on a document and ``#health`` on a task
+#: are the same tag, unlike a status or an item type, which §5.5 keeps per kind.
+#:
+#: **Keyed by the item rather than passed as a pair**, so a caller hands over the thing it has
+#: and cannot put a document's id into a task's join table. That mattered enough to shape the
+#: signatures: every function below takes the item.
+#:
+#: ``document_tag`` has existed since the initial migration and was read and written by nothing
+#: until this — the second signature defect of this codebase (`#247`, `#251`, `#303`, `#443`),
+#: and the largest instance of it so far, because the table was not merely unused: the guard
+#: written to notice exactly that carried an excuse for it naming a field that did not exist
+#: (`#820`).
+JOINS: dict[typing.Any, Joined] = {
+	subroutine.db.models.work.Task: Joined(
+		rows=subroutine.db.models.work.TaskTag,
+		owner=subroutine.db.models.work.TaskTag.task_id,
+	),
+	subroutine.db.models.work.Document: Joined(
+		rows=subroutine.db.models.work.DocumentTag,
+		owner=subroutine.db.models.work.DocumentTag.document_id,
+	),
+}
+
+
+def _joined (item: typing.Any) -> Joined:
+	"""Return how this item is joined to its tags, refusing a kind that carries none."""
+
+	found = JOINS.get(type(item))
+
+	if found is None:
+		raise TypeError(f"{type(item).__name__} does not carry tags")
+
+	return found
+
+
+def apply_to (
 	session: sqlalchemy.orm.Session,
-	task: subroutine.db.models.work.Task,
+	item: typing.Any,
 	tags: typing.Sequence[subroutine.db.models.vocabulary.Tag],
 ) -> None:
-	"""Attach tags to a task, skipping any it already carries.
+	"""Attach tags to an item, skipping any it already carries.
 
 	Idempotent rather than clever: the join row's primary key would refuse a duplicate, and
 	a caller re-applying a tag has not done anything wrong.
@@ -143,11 +192,11 @@ def apply_to_task (
 	if not tags:
 		return
 
-	model = subroutine.db.models.work.TaskTag
+	join = _joined(item)
 
 	already = set(
 		session.scalars(
-			sqlalchemy.select(model.tag_id).where(model.task_id == task.id)
+			sqlalchemy.select(join.rows.tag_id).where(join.owner == item.id)
 		)
 	)
 
@@ -155,60 +204,66 @@ def apply_to_task (
 		if tag.id in already:
 			continue
 
-		session.add(model(task_id=task.id, tag_id=tag.id))
+		session.add(join.rows(**{join.owner.key: item.id, "tag_id": tag.id}))
 		already.add(tag.id)
 
 	session.flush()
 
 
-def for_task (
-	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+def on (
+	session: sqlalchemy.orm.Session, item: typing.Any
 ) -> list[subroutine.db.models.vocabulary.Tag]:
-	"""Return a task's tags, in a stable order."""
+	"""Return an item's tags, in a stable order."""
 
 	tag = subroutine.db.models.vocabulary.Tag
-	join = subroutine.db.models.work.TaskTag
+	join = _joined(item)
 
 	return list(
 		session.scalars(
 			sqlalchemy.select(tag)
-			.join(join, join.tag_id == tag.id)
-			.where(join.task_id == task.id)
+			.join(join.rows, join.rows.tag_id == tag.id)
+			.where(join.owner == item.id)
 			.order_by(tag.name_normalized)
 		)
 	)
 
 
-def names_for_tasks (
-	session: sqlalchemy.orm.Session, task_ids: typing.Iterable[uuid.UUID]
+def names_for (
+	session: sqlalchemy.orm.Session,
+	kind: typing.Any,
+	identifiers: typing.Iterable[uuid.UUID],
 ) -> dict[uuid.UUID, list[str]]:
-	"""Return the tag names on each of these tasks, as one query keyed by task id.
+	"""Return the tag names on each of these items, as one query keyed by id.
 
-	The batched form of :func:`for_task`, for rendering a page. Calling that one per row is
-	fifty queries for a listing of fifty, and a listing is the thing this program does most.
+	The batched form of :func:`on`, for rendering a page. Calling that one per row is fifty
+	queries for a listing of fifty, and a listing is the thing this program does most.
+
+	**The only one that takes the kind rather than the item**, because it is handed ids — a
+	renderer has already loaded its rows and knows what they are, and asking it for one item
+	back just to read its class would be a query to save an argument.
 
 	Only the names are read. A renderer needs the word, never the row, and loading whole tag
 	objects to take one string off each is a cost paid on every page.
 	"""
 
-	wanted = {identifier for identifier in task_ids if identifier is not None}
+	wanted = {identifier for identifier in identifiers if identifier is not None}
 
 	if not wanted:
 		return {}
 
 	tag = subroutine.db.models.vocabulary.Tag
-	join = subroutine.db.models.work.TaskTag
+	join = JOINS[kind]
 
 	rows = session.execute(
-		sqlalchemy.select(join.task_id, tag.name, tag.name_normalized)
-		.join(tag, tag.id == join.tag_id)
-		.where(join.task_id.in_(wanted))
+		sqlalchemy.select(join.owner, tag.name, tag.name_normalized)
+		.join(tag, tag.id == join.rows.tag_id)
+		.where(join.owner.in_(wanted))
 	).all()
 
 	found: dict[uuid.UUID, list[tuple[str, str]]] = {}
 
-	for task_id, name, normalized in rows:
-		found.setdefault(task_id, []).append((normalized, name))
+	for owner_id, name, normalized in rows:
+		found.setdefault(owner_id, []).append((normalized, name))
 
 	# **Sorted here, not by the database.** PostgreSQL's collation on this machine is
 	# `en_GB.UTF-8` and does not sort byte-wise, so `ORDER BY name_normalized` put `ähnlich`
@@ -217,57 +272,57 @@ def names_for_tasks (
 	# deployment and `#apple #ähnlich` on the other, and the transport-equivalence test could
 	# not see it because both of its sides run on one backend (SPEC.md §10.3).
 	return {
-		task_id: [name for _key, name in sorted(pairs)] for task_id, pairs in found.items()
+		owner_id: [name for _key, name in sorted(pairs)] for owner_id, pairs in found.items()
 	}
 
 
-def set_on_task (
+def set_on (
 	session: sqlalchemy.orm.Session,
-	task: subroutine.db.models.work.Task,
+	item: typing.Any,
 	tags: typing.Sequence[subroutine.db.models.vocabulary.Tag],
 ) -> None:
-	"""Make a task's tags exactly these, adding what is missing and removing what is not.
+	"""Make an item's tags exactly these, adding what is missing and removing what is not.
 
 	**Replaces rather than adds**, which is what §8.3 means by a field on a ``PATCH``: every
 	other field there is assigned, not merged, and a ``tags`` that merged would be the only
 	one a caller could not use to *remove* anything. An empty sequence therefore clears them,
 	which is the same statement as sending ``null`` for a scalar.
 
-	The counterpart is :func:`apply_to_task`, which is additive and is what quick capture
-	wants — ``#health`` in a captured line adds a tag to whatever is already there.
+	The counterpart is :func:`apply_to`, which is additive and is what quick capture wants —
+	``#health`` in a captured line adds a tag to whatever is already there.
 
-	Rows are added and deleted rather than the set being rebuilt, so a tag a task already
+	Rows are added and deleted rather than the set being rebuilt, so a tag an item already
 	carries keeps its join row. Nothing depends on that yet; it will the moment anything
 	records when a tag was applied.
 	"""
 
-	model = subroutine.db.models.work.TaskTag
+	join = _joined(item)
 	wanted = {tag.id for tag in tags}
 
 	already = set(
-		session.scalars(sqlalchemy.select(model.tag_id).where(model.task_id == task.id))
+		session.scalars(sqlalchemy.select(join.rows.tag_id).where(join.owner == item.id))
 	)
 
 	for tag_id in already - wanted:
 		session.execute(
-			sqlalchemy.delete(model).where(model.task_id == task.id, model.tag_id == tag_id)
+			sqlalchemy.delete(join.rows).where(join.owner == item.id, join.rows.tag_id == tag_id)
 		)
 
 	for tag in tags:
 		if tag.id not in already:
-			session.add(model(task_id=task.id, tag_id=tag.id))
+			session.add(join.rows(**{join.owner.key: item.id, "tag_id": tag.id}))
 
 	session.flush()
 
 
-def names_on_task (
-	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+def names_on (
+	session: sqlalchemy.orm.Session, item: typing.Any
 ) -> list[str]:
-	"""Return a task's tag names, ordered, for comparing one state against another.
+	"""Return an item's tag names, ordered, for comparing one state against another.
 
 	Its own function because an event's before-and-after has to be built the same way twice,
 	and a sorted list of names is what makes "did the tags change" a value comparison rather
 	than a set of join rows nobody can diff.
 	"""
 
-	return [tag.name for tag in for_task(session, task)]
+	return [tag.name for tag in on(session, item)]

@@ -38,6 +38,7 @@ import subroutine.connections
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -2932,3 +2933,57 @@ def test_both_resolve_a_username_the_same_way (pair: Pair) -> None:
 
 	assert pair.local.tasks(filters=mine) == pair.remote.tasks(filters=mine)
 	assert [task.title for task in pair.local.tasks(filters=mine)] == ["Fix the boiler"]
+
+
+def test_both_tag_a_document_the_same_way (pair: Pair) -> None:
+	"""`#819` over both transports, because the two reach the join table differently.
+
+	The local client calls `documents.create` and the HTTP one sends a JSON body for the far
+	end to call it — so a field added to one and forgotten in the other is the divergence §13.7
+	exists to prevent, and it is invisible to a test that only drives one.
+	"""
+
+	local, remote = pair.both()
+
+	here = local.create_document(title="Written here", body=".", tags=["design"])
+	there = remote.create_document(title="Written there", body=".", tags=["design"])
+
+	assert here.tags == ["design"]
+	assert there.tags == here.tags
+
+	# **One vocabulary**, which is what makes the two documents' tags the same row rather than
+	# two rows spelled alike — Simon's decision of 2026-08-12. Counted in the database, since
+	# that is where "one row or two" is a fact rather than a rendering.
+	assert pair.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(
+			subroutine.db.models.vocabulary.Tag
+		)
+	) == 1
+
+
+def test_both_replace_a_documents_tags_the_same_way (pair: Pair) -> None:
+	"""§8.3 through both, including the two nulls that are easy to get backwards.
+
+	Omitting the field leaves them alone and sending an empty list clears them — and the HTTP
+	client has to keep those apart on the wire, where the local one has an `UNSET` sentinel in
+	hand. That asymmetry is exactly where this would diverge.
+	"""
+
+	for client in pair.both():
+		written = client.create_document(
+			title=f"Via {client.connection.name}", body=".", tags=["draft", "api"]
+		)
+
+		assert written.tags == ["api", "draft"]
+
+		narrowed = client.update_document(ref=written.ref, tags=["api"])
+
+		assert narrowed.tags == ["api"]
+
+		untouched = client.update_document(ref=written.ref, title="Renamed")
+
+		assert untouched.tags == ["api"], "an omitted field cleared them"
+
+		cleared = client.update_document(ref=written.ref, tags=[])
+
+		assert cleared.tags == []

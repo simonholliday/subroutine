@@ -4898,3 +4898,45 @@ def test_a_missing_ref_names_the_trash_as_somewhere_to_look (
 
 	assert "--trash" in refused, "the one other place it could be is not named"
 	assert "if you deleted it" in refused, "the refusal asserts a cause it cannot know"
+
+
+def test_a_document_can_be_tagged_from_the_command_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#819` — `--tag`, repeatable, and the same tags a task uses.
+
+	Driven through `show`, which is where a person actually looks: a field that is stored and
+	rendered nowhere is the half of this defect that would survive fixing the other half.
+	"""
+
+	run("init")
+	run("doc", "create", "Why we chose Preact", "--body", ".", "--tag", "design", "--tag", "web")
+
+	shown = run("show", "1").output
+
+	assert "design" in shown
+	assert "web" in shown
+
+
+def test_a_documents_tags_are_replaced_from_the_command_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And `--tag` given nothing clears them, which is §8.3's null.
+
+	Typer hands an empty list when the flag is absent, so *not asked* and *asked for none* are
+	told apart by `None` — the distinction every `PATCH` field here depends on, and the one a
+	repeatable flag makes easy to lose.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", ".", "--tag", "draft")
+	run("doc", "edit", "1", "--title", "Renamed", "--body", ".")
+
+	assert "draft" in run("show", "1").output, "an untouched edit cleared them"
+
+	run("doc", "edit", "1", "--tag", "settled", "--body", ".")
+
+	shown = run("show", "1").output
+
+	assert "settled" in shown
+	assert "draft" not in shown, "the tags were merged rather than replaced"

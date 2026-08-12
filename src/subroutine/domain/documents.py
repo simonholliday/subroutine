@@ -35,6 +35,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.refs
+import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -94,6 +95,7 @@ def create (
 	parent: subroutine.db.models.work.Document | None = None,
 	owner_id: uuid.UUID | None = None,
 	supersedes: subroutine.db.models.work.Document | None = None,
+	tags: typing.Sequence[str] | None = None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
@@ -159,6 +161,19 @@ def create (
 	session.add(document)
 	session.flush()
 
+	if tags:
+		# After the flush, because the join row needs the document's id — and through `ensure`,
+		# which is what holds §6.2's rule that a name of only digits is a reference rather than
+		# a tag, however the tag arrived. The same call a task makes, against the same
+		# workspace-scoped vocabulary (`#819`).
+		subroutine.domain.tags.apply_to(
+			session,
+			document,
+			subroutine.domain.tags.ensure(
+				session, workspace_id=project.workspace_id, names=list(tags)
+			),
+		)
+
 	if supersedes is not None:
 		_retire(session, supersedes, document, actor=actor)
 
@@ -195,6 +210,7 @@ def update (
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	supersedes: subroutine.db.models.work.Document | None = subroutine.domain.patch.UNSET,
+	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
@@ -366,6 +382,27 @@ def update (
 		if document.supersedes_id != wanted:
 			changes["supersedes_id"] = {"from": document.supersedes_id, "to": wanted}
 			document.supersedes_id = wanted
+
+	# **Tags replace rather than merge**, which is what §8.3 means by a field on a `PATCH` —
+	# every other field here is assigned, and a `tags` that merged would be the only one a
+	# caller could not use to *remove* anything. `None` clears, exactly as `[]` does.
+	#
+	# Compared by name before and after so the event carries a change somebody can read, and
+	# so an update that re-sends the same tags records nothing — the rule `if not changes`
+	# below depends on.
+	if tags is not subroutine.domain.patch.UNSET:
+		was = subroutine.domain.tags.names_on(session, document)
+		subroutine.domain.tags.set_on(
+			session,
+			document,
+			subroutine.domain.tags.ensure(
+				session, workspace_id=document.workspace_id, names=list(tags or ())
+			),
+		)
+		now = subroutine.domain.tags.names_on(session, document)
+
+		if was != now:
+			changes["tags"] = {"from": was, "to": now}
 
 	if moving:
 		# Captured before the assignment, because the descendants' events are recorded after

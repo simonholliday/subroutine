@@ -683,6 +683,7 @@ class Client:
 		type: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
+		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
 
@@ -696,6 +697,7 @@ class Client:
 			"body": body,
 			"status_key": status,
 			"type_key": type,
+			"tags": tags,
 		}
 		changes: dict[str, typing.Any] = {
 			name: value
@@ -1389,6 +1391,7 @@ class Client:
 		status: str | None = None,
 		project: str | None = None,
 		workspace: str | None = None,
+		tags: typing.Sequence[str] | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -1408,6 +1411,7 @@ class Client:
 				# document it is the attribution that makes §5.10's "what you concluded" mean
 				# anything, since a conclusion with no author is a rumour.
 				owner_id=actor.user.id,
+				tags=tags,
 				actor=actor,
 			)
 

@@ -1005,6 +1005,16 @@ class Document(pydantic.BaseModel):
 	type_id: uuid.UUID
 
 	owner_id: uuid.UUID | None
+
+	#: The tag names on this document, alphabetical — `#819`. **The same vocabulary a task's
+	#: tags come from**, decided with Simon: a tag is scoped to a workspace rather than to a
+	#: kind, so `#health` here and `#health` on a task are one tag. Unlike a status or an item
+	#: type, which §5.5 keeps per kind because *done* means nothing about a specification.
+	#:
+	#: `document_tag` has existed since the initial migration and nothing wrote to it until now,
+	#: which is why this field is new on a table that is not.
+	tags: list[str] = pydantic.Field(default_factory=list)
+
 	supersedes_id: uuid.UUID | None
 
 	archived_at: datetime.datetime | None
@@ -1098,6 +1108,7 @@ class Vocabulary:
 		type_ids: typing.Iterable[uuid.UUID] = (),
 		project_ids: typing.Iterable[uuid.UUID] = (),
 		task_ids: typing.Iterable[uuid.UUID] = (),
+		document_ids: typing.Iterable[uuid.UUID] = (),
 		parent_ids: typing.Iterable[uuid.UUID] = (),
 		user_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
@@ -1119,7 +1130,19 @@ class Vocabulary:
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
 		)
-		self.tags = subroutine.domain.tags.names_for_tasks(session, wanted)
+		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
+		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
+		# question of either. Two queries rather than one because the join tables are two —
+		# and `names_for` returns immediately on an empty set, so a page of one kind pays for
+		# one.
+		self.tags = {
+			**subroutine.domain.tags.names_for(
+				session, subroutine.db.models.work.Task, wanted
+			),
+			**subroutine.domain.tags.names_for(
+				session, subroutine.db.models.work.Document, set(document_ids)
+			),
+		}
 
 		# **One query for the whole page, which is the only reason this is affordable**
 		# (`#425`). Readiness is a filter by design (`#69`), so asking it per row is `#39`'s
@@ -1177,6 +1200,7 @@ class Vocabulary:
 			status_ids={document.status_id for document in documents},
 			type_ids={document.type_id for document in documents},
 			project_ids={document.project_id for document in documents},
+			document_ids={document.id for document in documents},
 		)
 
 	@classmethod
@@ -1279,6 +1303,7 @@ def document (
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_id=row.type_id,
 		owner_id=row.owner_id,
+		tags=vocabulary.tags.get(row.id, []),
 		supersedes_id=row.supersedes_id,
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
