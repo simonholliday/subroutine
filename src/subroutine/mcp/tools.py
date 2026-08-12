@@ -1069,12 +1069,32 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 	# reaches no workspace is the single most likely reason somebody asks this question, and
 	# it was the one branch that would have answered without saying which versions were in
 	# play — the answer missing from exactly the case that needs it.
+	# **Whether these tools can see the caller's machine at all** (`#564`). Since `#539` they
+	# run wherever the *instance* runs: in the relay's own process for a local connection —
+	# which is the process the plugin started, so its environment is the caller's — and on a
+	# server for a remote one, where the caller is on another machine entirely.
+	#
+	# `installations.plugin()` reads `CLAUDE_PLUGIN_ROOT` out of the environment, so **a value
+	# here is proof of standing in the caller's process**. A null is not proof of the opposite,
+	# which is why this errs the way it does: reporting `installations.program()` regardless
+	# gave *"Program X, instance X"* with X the instance twice and one of them labelled as the
+	# caller's, and an agent read that as "no version problem". Saying nothing is a worse answer
+	# than saying nothing *confidently*.
+	#
+	# The cost is a hand-started `subroutine mcp` on a local connection with no plugin, which is
+	# beside the caller and is told this cannot be seen. Over-cautious in the safe direction,
+	# and the only way to do better is for the caller to send what it is running — the header
+	# `#564` records, which this does not build.
+	beside_the_caller = subroutine.installations.plugin()
+
 	lines.append("")
 	lines.extend(
 		subroutine.views.versions(
 			me,
-			program=subroutine.installations.program(),
-			plugin=subroutine.installations.plugin(),
+			program=(
+				None if beside_the_caller is None else subroutine.installations.program()
+			),
+			plugin=beside_the_caller,
 		)
 	)
 

@@ -46,6 +46,7 @@ import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.workspaces
+import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
 import subroutine.mcp.session
@@ -2530,14 +2531,50 @@ def test_asking_who_you_are_says_which_versions_are_in_play (
 	already where it goes when something does not add up, and the skill already tells it to
 	ask on its first call — so the answer to "which versions?" costs no new tool and no new
 	schema against §21.2's budget.
+
+	**This asserted `Program X, instance X` until `#564`, which is the shape that was wrong.**
+	These tools run where the *instance* runs, so with no plugin in the environment there is
+	nothing here that knows what the caller is running — and reporting the instance's own
+	version under the word *Program* was `#381`'s comparison answering with one value supplied
+	twice. An agent read that and concluded there was no version problem.
 	"""
 
 	text, failed = _called(bound, "subroutine_whoami")
 
 	assert not failed
-	expected = f"Program {subroutine.__version__}, instance {subroutine.__version__}, schema "
+	assert f"Instance {subroutine.__version__}, schema " in text
 
-	assert expected in text
+	assert f"Program {subroutine.__version__}" not in text, (
+		"the instance's own version is being reported as the caller's, which is `#564`"
+	)
+	assert "not visible from here" in text, (
+		"the answer does not say the caller's own versions were never compared"
+	)
+
+
+def test_asking_who_you_are_beside_the_caller_reports_all_three (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#564`'s other half: where the caller *can* be seen, `#381`'s check is genuinely three-way.
+
+	A local connection is answered in the relay's own process — the process the plugin started
+	— so its environment is the caller's, and `CLAUDE_PLUGIN_ROOT` being readable is the proof
+	of that. Without this case the fix above could be "never report anything", which would
+	close `#564` by deleting the feature it is about.
+	"""
+
+	monkeypatch.setenv(
+		subroutine.installations.PLUGIN_ROOT,
+		str(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"),
+	)
+
+	text, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed
+	assert "Plugin " in text, f"a visible plugin is not reported: {text}"
+	assert f"program {subroutine.__version__}" in text
+	assert f"instance {subroutine.__version__}" in text
+	assert "not visible from here" not in text
 
 
 def test_the_versions_are_reported_even_when_nothing_can_be_read (
@@ -2583,7 +2620,10 @@ def test_the_versions_are_reported_even_when_nothing_can_be_read (
 
 	assert not failed
 	assert "No workspace here can be read with this credential." in text
-	assert f"Program {subroutine.__version__}" in text
+
+	# `#564`: the version answer is still here, and it is the honest one — this branch runs
+	# server-side like every other, so the caller's own installations are not readable from it.
+	assert f"Instance {subroutine.__version__}" in text
 
 
 def test_a_comment_can_be_taken_back_out (bound: subroutine.mcp.protocol.Server) -> None:

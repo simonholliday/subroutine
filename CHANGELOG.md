@@ -183,6 +183,16 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine_whoami` reported the instance's version twice and called one of them yours.**
+  Asked over a served instance, it answered `Program X, instance X` — the same number supplied
+  twice, because these tools run on the instance and cannot see the machine that called them —
+  and said nothing at all about the plugin. The intended three-way version check was inert in
+  the direction that reassures: an agent read it as "no version problem".
+
+  It now names the instance, and says plainly that what you are running is not visible from
+  there. Where it *is* visible — a local connection, answered in the process your plugin
+  started — all three are reported and compared as before.
+
 - **An agent on a machine with no instance was told to run a command that machine does not
   have.** The plugin starts through `uvx`, which runs from a cache and installs nothing, so
   `Run 'subroutine init'` answered `command not found` for exactly the people who had followed

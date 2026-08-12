@@ -1849,7 +1849,7 @@ def answering_to (
 	return sorted(found.values())
 
 
-def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
+def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list[str]:
 	"""Say which installations answered this call, and whether any of them disagree — ``#381``.
 
 	**One renderer for the same reason :func:`narrowing` is one** (`#357`): the CLI's
@@ -1858,8 +1858,18 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 
 	Three things can be in play and each upgrades separately — the plugin the editor cached,
 	the program on the machine, and the instance on the far end. ``plugin`` is ``None`` when
-	no plugin started this process, which is every command line; ``program`` is required,
-	because a caller that could not say what it is running has nothing to report.
+	no plugin started this process, which is every command line.
+
+	**``program`` is ``None`` when the caller's own installation is not visible from where this
+	is rendered, and that is a different answer from every other** (`#564`). Since `#539` the
+	MCP tools run *server-side*, so on a served instance ``installations.program()`` is the
+	instance's own version and ``installations.plugin()`` is null — the caller's environment is
+	on another machine. Passing those through produced *"Program X, instance X"* with X the same
+	value twice, one of them labelled as the caller's, and no plugin line at all. An agent read
+	that and concluded there was no version problem, which is the worst thing a check can do:
+	`#381`'s three-way comparison was **inert in the direction that reassures**.
+
+	So this says what it does not know rather than reporting a comparison it did not make.
 
 	**Every installation is named, even when they all agree**, which is the one place this
 	module departs from its own rule that a value repeated on every row says nothing. The
@@ -1899,13 +1909,24 @@ def versions (me: Me, *, program: str, plugin: str | None = None) -> list[str]:
 	# predates this field, which is itself the answer to "why does the feature I read about
 	# not work" — so it is worded as a finding rather than left blank.
 	instance = me.instance_version or "too old to say"
+	schema = "" if me.schema_revision is None else f", schema {me.schema_revision}"
+
+	# **Nothing to compare, so nothing is claimed** (`#564`). Every clause below asks whether
+	# two versions agree, and there is only one version here — so they are skipped rather than
+	# fed the instance twice, which is precisely how this reported agreement with itself.
+	if program is None:
+		return [
+			f"Instance {instance}{schema}.",
+			"What you are running is not visible from here — these tools answer on the "
+			"instance, and your plugin and program are on your own machine. Run 'subroutine "
+			"whoami' in a terminal there to compare all three.",
+		]
 
 	seen = [] if plugin is None else [f"plugin {plugin}"]
 
 	seen.extend([f"program {program}", f"instance {instance}"])
 
 	where = ", ".join(seen)
-	schema = "" if me.schema_revision is None else f", schema {me.schema_revision}"
 	lines = [f"{where[0].upper()}{where[1:]}{schema}."]
 
 	# Each disagreement names the failure it actually produced, on 2026-08-03, rather than
