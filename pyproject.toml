@@ -32,12 +32,19 @@ classifiers = [
 	# was misled into a failing install, which is why it was not a release blocker on its own;
 	# it was a claim nothing checked, which is the shape of most of what has gone wrong here.
 	#
-	# `tests/test_packaging.py` holds this to the CI matrix, so widening the claim is done by
-	# running the suite somewhere and letting the guard notice — never by editing this list.
+	# `tests/test_packaging.py` holds both the platform and the Python versions below to what CI
+	# actually runs, so widening either claim is done by adding to the matrix and letting the
+	# guard notice — never by editing this list.
+	#
+	# **That sentence used to say "this" and cover only the platform** (`#835`). The three
+	# version lines beneath it were guarded by nothing, so the comment asserted a protection
+	# they did not have — which is worse than no comment, and it misled the cold review `#828`
+	# into recommending a procedure that would have quietly hand-edited a claim.
 	"Operating System :: POSIX :: Linux",
 	"Programming Language :: Python :: 3.11",
 	"Programming Language :: Python :: 3.12",
 	"Programming Language :: Python :: 3.13",
+	"Programming Language :: Python :: 3.14",
 	"Topic :: Office/Business :: Scheduling",
 	"Typing :: Typed",
 ]

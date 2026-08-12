@@ -519,3 +519,60 @@ def test_every_repository_link_in_the_description_names_a_file_that_exists () ->
 		f"README.md points at {missing}, which are not in the repository — so the link is "
 		f"broken on GitHub as well as on PyPI"
 	)
+
+
+def _tested_versions () -> set[str]:
+	"""Return every Python anything in CI actually runs the suite on.
+
+	Read off ``strategy.matrix.python-version`` for the same reason :func:`_runners` reads
+	``runs-on``: a list of what CI does, kept beside what CI does, is the copy that goes stale.
+
+	**A job pinning one version in ``setup-python`` is deliberately not counted.** Ruff, mypy
+	and the plugin validation each pin 3.12, and none of them runs the test suite — so counting
+	them would let the package claim a version on the strength of a lint job. What earns the
+	claim is the suite passing, which is the matrix.
+	"""
+
+	found: set[str] = set()
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+		for job in (loaded.get("jobs") or {}).values():
+			matrix = (job.get("strategy") or {}).get("matrix") or {}
+
+			# YAML reads an unquoted 3.10 as a float and loses the zero, which is the classic
+			# way this breaks. The workflow quotes them; `str` is what makes that not matter.
+			found.update(str(version) for version in matrix.get("python-version") or [])
+
+	return found
+
+
+def test_the_pythons_claimed_are_the_ones_the_suite_actually_runs_on () -> None:
+	"""`#835`. The version classifiers were a claim nothing checked.
+
+	**`#245` fixed this for the platform and left the version standing**, which nobody noticed
+	because ``pyproject.toml``'s comment says the guard covers it — four lines above the three
+	version classifiers it did not cover. So the file asserted a protection that was not there,
+	which is worse than saying nothing: the cold review `#828` read that comment and recommended
+	a procedure it describes rather than one that works.
+
+	Both directions, exactly as the operating-system check does it. Adding a version to the
+	matrix fails this until the classifier catches up; dropping the last job running one fails
+	it until the claim comes back down.
+	"""
+
+	tested = _tested_versions()
+
+	assert tested, "no `python-version` matrix was found — has this stopped reading the workflows?"
+
+	claimed = {
+		line.rsplit("::", 1)[-1].strip()
+		for line in _classifiers()
+		if line.startswith("Programming Language :: Python :: ")
+	}
+
+	assert claimed == tested, (
+		f"the package claims Python {sorted(claimed)} and CI runs the suite on "
+		f"{sorted(tested)}. Add the version to the matrix, or stop claiming it."
+	)

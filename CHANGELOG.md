@@ -162,6 +162,12 @@ upgrade involves.
 
   Found by the same review.
 
+### Added
+
+- **Python 3.14 is tested and claimed.** It was already permitted by `requires-python`, tested
+  by no job and claimed by no classifier — so an install on it worked and the package said
+  nothing about whether that was meant to.
+
 ### Fixed
 
 - **An image written in a description came out as a link.** Markdown's image syntax — a `!`
