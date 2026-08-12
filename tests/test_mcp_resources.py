@@ -310,20 +310,30 @@ def test_the_conventions_resource_lists_what_is_in_force_and_nothing_else () -> 
 	57 governing documents were open on this project's instance and the one file a session is
 	guaranteed to read named 24 — so ten decisions were reachable only by searching, and
 	nothing prompted a search. Decision `#499` one level up.
+
+	**Two calls since `#590`, and this used to assert one.** The resource answers what binds
+	you *and* what has been closed off, which are two listings; the intent being checked was
+	always the *filters* rather than the count, so the assertion moved rather than being
+	relaxed. Left as `assert_called_once_with` it would have failed whoever added the second
+	half — a guard demanding the shape it was written from.
 	"""
 
 	client = _client()
-	client.documents.return_value = [
-		unittest.mock.MagicMock(ref=47, title="No work without an item first"),
-		unittest.mock.MagicMock(ref=102, title="Colour marks exceptions"),
+	client.documents.side_effect = [
+		[
+			unittest.mock.MagicMock(ref=47, title="No work without an item first"),
+			unittest.mock.MagicMock(ref=102, title="Colour marks exceptions"),
+		],
+		[],
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
 	text = answer["result"]["contents"][0]["text"]
 
-	client.documents.assert_called_once_with(
-		workspace=None, type="decision", status="active"
-	)
+	assert client.documents.call_args_list == [
+		unittest.mock.call(workspace=None, type="decision", status="active"),
+		unittest.mock.call(workspace=None, type="dead_end", status="active"),
+	]
 
 	assert "#47" in text and "No work without an item first" in text
 	assert "#102" in text

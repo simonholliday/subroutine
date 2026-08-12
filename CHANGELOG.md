@@ -137,6 +137,15 @@ upgrade involves.
   count. If you are describing what you see on a page to somebody else — or wondering whether
   the fix you just deployed is the one you are looking at — that is the number that answers it.
 
+- **An agent is told what a workspace has abandoned, not only what it decided.**
+  `subroutine://conventions` — the document an agent is pointed at before its first write —
+  listed the decisions in force and nothing else, so a route that had been tried and closed
+  reached nobody. It carries both now, and a client that does not read resources is told both
+  addresses.
+
+  That half is the one a newcomer cannot work out for themselves: a decision leaves a rule
+  behind, and a path not taken leaves nothing at all.
+
 ### Fixed
 
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and

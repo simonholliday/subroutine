@@ -271,11 +271,12 @@ def references (
 		subroutine.mcp.protocol.Resource(
 			uri="subroutine://conventions",
 			name="conventions",
-			title="What this workspace has decided",
+			title="What this workspace has decided, and what it has closed off",
 			description=(
 				"The decisions in force here — how work is filed, what a title has to say, what "
-				"needs an item first. Written by the people and agents already working in this "
-				"workspace, and binding on the next one. Read it before your first write."
+				"needs an item first — and the routes already tried and abandoned. Written by "
+				"the people and agents already working in this workspace, and binding on the "
+				"next one. Read it before your first write."
 			),
 			mime_type="text/markdown",
 			read=lambda: _conventions(client, workspace),
@@ -419,7 +420,10 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 			"and `subroutine_document` records a new one.",
 		]
 
-		return "\n".join(lines)
+		# **Still asked, because the two halves are independent** (`#590`). A workspace can
+		# have closed a route off without ever marking a decision in force, and returning here
+		# would have made the negative half reachable only through the positive one.
+		return "\n".join(lines + _abandoned(client, workspace))
 
 	lines += [f"- **#{document.ref}** — {document.title}" for document in found]
 	lines += [
@@ -428,7 +432,45 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		"they describe rather than bind. `subroutine_list` with a `type` finds those.",
 	]
 
-	return "\n".join(lines)
+	return "\n".join(lines + _abandoned(client, workspace))
+
+
+def _abandoned (client: subroutine.clients.base.Client, workspace: str | None) -> list[str]:
+	"""Return what this workspace has tried and closed off, as a second section — `#590`.
+
+	**A decision says what to do and a dead end says what not to bother with, and only the
+	first had a way of reaching anybody.** ``subroutine://conventions`` was built from
+	``type=decision`` alone, so the negative half of what a workspace knows was invisible to
+	the one channel `#499` calls guaranteed — and negative knowledge is the half a newcomer
+	cannot reconstruct by reading the code, because what is not there leaves no trace.
+
+	The cost of the gap is specific: an agent re-proposes something that was measured and
+	rejected, and the only evidence against it is that somebody remembers. That is expensive
+	twice — once to try it, once to argue about it.
+
+	**Silence when there are none, unlike the decisions above.** An empty decisions list is
+	answered in prose because a resource with nothing in it otherwise reads as *there are no
+	rules here*, which is a false claim about any instance in use. This section is different:
+	the reader has already been told what binds them, and a heading saying "nothing has been
+	abandoned" on every workspace that has never used the type is a line of noise on every
+	read. It appears when there is something to say.
+	"""
+
+	found = client.documents(workspace=workspace, type="dead_end", status="active")
+
+	if not found:
+		return []
+
+	return [
+		"",
+		"## What has been tried here and does not work",
+		"",
+		"Routes that were taken and closed. Read one before proposing something it covers:",
+		"the reason a path is not taken leaves no trace in the code, so this is the only",
+		"record that it was considered at all.",
+		"",
+		*[f"- **#{document.ref}** — {document.title}" for document in found],
+	]
 
 
 def catalogue (

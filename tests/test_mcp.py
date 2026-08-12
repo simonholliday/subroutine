@@ -4267,3 +4267,96 @@ def test_writing_a_document_with_neither_a_title_nor_a_ref_is_refused_by_name (
 	assert failed, answered
 	assert "title" in answered
 	assert "ref" in answered
+
+
+def _bound_to (session: sqlalchemy.orm.Session, workspace: str) -> str:
+	"""Return ``subroutine://conventions`` as a session pinned to one workspace reads it."""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client, workspace=workspace),
+			name="subroutine",
+			version="0",
+			resources=subroutine.mcp.tools.references(client, workspace=workspace),
+		)
+		answered = _exchange(
+			server,
+			{
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "resources/read",
+				"params": {"uri": "subroutine://conventions"},
+			},
+		)
+
+	assert "error" not in answered[0], answered[0]
+
+	published: str = answered[0]["result"]["contents"][0]["text"]
+
+	return published
+
+
+def test_the_conventions_resource_carries_what_was_abandoned_as_well (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#590`. A decision says what to do; a dead end says what not to bother with.
+
+	Only the first had a way of reaching anybody: this resource was built from
+	``type=decision`` alone, so the negative half of what a workspace knows was invisible to
+	the one channel `#499` calls guaranteed. **That half is the one a newcomer cannot
+	reconstruct**, because a route not taken leaves nothing in the code to read.
+	"""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		client.create_document(
+			workspace=first, type="decision", title="Work is filed against an item first",
+		)
+		client.create_document(
+			workspace=first,
+			type="dead_end",
+			title="A half-open range over path does not substitute for a prefix match",
+		)
+
+	session.flush()
+
+	published = _bound_to(session, first)
+
+	assert "Work is filed against an item first" in published
+	assert "half-open range" in published, (
+		"the workspace has closed a route off and the guaranteed channel does not say so"
+	)
+
+
+def test_the_abandoned_half_is_reported_where_nothing_has_been_decided (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The two halves are independent, and the obvious shape of this function makes them not.
+
+	`_conventions` answers the no-decisions case in prose and **returns there**, so the second
+	section was reachable only through the first — a workspace that had closed a route off
+	without marking any decision in force would have been told nothing about it. Found by
+	writing this rather than by reading, and the returning branch is easy to miss because the
+	one above it reads as the special case.
+	"""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		client.create_document(
+			workspace=first, type="dead_end", title="Peppering token hashes with the secret key",
+		)
+
+	session.flush()
+
+	published = _bound_to(session, first)
+
+	assert "Nothing is marked as in force" in published, "the decisions half stopped answering"
+	assert "Peppering token hashes" in published
