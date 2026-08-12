@@ -33,6 +33,7 @@ The second direction is checked too: a name recorded here that the view no longe
 failure, so this file cannot quietly describe a model that has moved on.
 """
 
+import re
 import typing
 import uuid
 
@@ -614,6 +615,101 @@ def test_every_unreported_column_names_the_item_tracking_it () -> None:
 
 	for column, reason in UNREPORTED.items():
 		assert "#" in reason, f"{column!r} is recorded as a gap with no item tracking it."
+
+
+#: A reason pointing at the place a reader gets the content instead — ``Task.tags``,
+#: ``Member.role``. Capitalised on the left, because that is what tells a view apart from a
+#: module (``views.Vocabulary``) or a setting; and both halves bare, so ``kind='web_session'``
+#: and ``?include=backlinks`` are prose about a mechanism rather than a citation.
+_CITED = re.compile(r"`([A-Z]\w*)\.(\w+)`")
+
+
+def _citations (registers: dict[str, dict[str, str]]) -> list[tuple[str, str, str, str]]:
+	"""Return every *"reaches a client as ``X.y``"* claim these registers make.
+
+	Takes the registers rather than reading the module ones, so a synthetic entry naming a
+	field nobody built can be put through the real scan — `#405`'s rule, and the only thing
+	separating this from a check that reads nothing and approves everything.
+	"""
+
+	return [
+		(label, entry, view, field)
+		for label, register in registers.items()
+		for entry, reason in register.items()
+		for view, field in _CITED.findall(reason)
+	]
+
+
+#: Every register whose entries carry a written reason. All of them, deliberately: the six
+#: citations that exist today sit in two, and a rule about how a reason is written should not
+#: depend on which list somebody put the entry in.
+EXCUSES: dict[str, dict[str, str]] = {
+	"NOT_VIEWED": NOT_VIEWED,
+	"DERIVED": DERIVED,
+	"WRITTEN_AS": WRITTEN_AS,
+	"INTERNAL": INTERNAL,
+	"UNBUILT": UNBUILT,
+	"UNREPORTED": UNREPORTED,
+	"AT_CREATION": AT_CREATION,
+	"UNSETTABLE": UNSETTABLE,
+}
+
+
+def test_an_excuse_naming_where_a_reader_gets_it_instead_is_checked_against_that_place () -> None:
+	"""An excuse can describe something nobody built, and prose is compared to nothing.
+
+	``NOT_VIEWED`` said of ``DocumentTag``: *"The same, as ``Document.tags``."* — and
+	``views.Document`` had no ``tags`` field. The entry had read as a considered decision since
+	`#443`, and it was a description of a destination that did not exist (`#820`). ``#819``
+	later built the field, so the sentence is true now by accident of a feature landing three
+	days afterwards, which is exactly the accident a guard should not depend on.
+
+	**Every other stale-entry test in this repository asks whether an entry is still needed.
+	This is the first that asks whether it was ever true.**
+
+	Deliberately narrow. A reason may legitimately point at a mechanism (``?include=backlinks``)
+	or at another item, so only the citation form is resolved and the rest of the prose is left
+	alone — imposing a grammar on written reasons would cost more than it caught.
+	"""
+
+	found = _citations(EXCUSES)
+
+	for label, entry, view, field in found:
+		reported = getattr(subroutine.views, view, None)
+
+		assert reported is not None and hasattr(reported, "model_fields"), (
+			f"{label}[{entry!r}] says a reader gets this as {view}.{field}, and there is no "
+			f"{view} view."
+		)
+
+		assert field in reported.model_fields, (
+			f"{label}[{entry!r}] says a reader gets this as {view}.{field}, and {view} has no "
+			f"{field}. The excuse names a place nobody built."
+		)
+
+	# A scan that matched nothing would approve every register in this file, which is the
+	# failure this whole guard exists to describe.
+	assert found, "No excuse cites where a reader gets the content — has this stopped reading?"
+
+
+def test_the_citation_check_can_see_a_place_that_was_never_built () -> None:
+	"""Fed the entry as it stood, through the real scan.
+
+	Written because the check above passes today for two reasons that look identical from the
+	outside: every citation resolves, *and* a regex that matched nothing would say the same.
+	"""
+
+	as_it_stood = {"NOT_VIEWED": {"DocumentTag": "The same, as `Document.nothing_like_this`."}}
+	found = _citations(as_it_stood)
+
+	assert found == [("NOT_VIEWED", "DocumentTag", "Document", "nothing_like_this")]
+	assert "nothing_like_this" not in subroutine.views.Document.model_fields
+
+	# And the forms that are prose rather than a citation stay out of it, which is what keeps
+	# the rule from spreading to reasons that name a mechanism.
+	assert not _citations(
+		{"NOT_VIEWED": {"Mention": "Reported through `?include=backlinks`, by `views.Vocabulary`."}}
+	)
 
 
 def test_a_column_ahead_of_its_feature_names_the_milestone () -> None:
