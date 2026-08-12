@@ -5042,3 +5042,41 @@ def test_a_documents_tags_are_replaced_from_the_command_line (
 
 	assert "settled" in shown
 	assert "draft" not in shown, "the tags were merged rather than replaced"
+
+
+def test_an_item_in_the_trash_can_be_read_and_says_it_is_in_the_trash (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#700`. ``list --trash`` listed it, ``restore`` worked on it, ``show`` denied it existed.
+
+	Three commands, one item, and one of them saying it is not there. The refusal came from a
+	*sub-resource* — ``show`` resolves the item and then asks separately for its links, its
+	comments and its children, and two of those three lookups excluded deleted rows locally
+	where the HTTP side has included them since `#140`. What reached the reader was the
+	sub-resource's message, which reads as the item being gone.
+
+	The other half is that being told nothing is worse than being refused: once it *was*
+	shown, it rendered exactly like a live item — so it could be read, acted on, and never
+	known to have been deleted.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Bin me")
+	run("add", "Keep me")
+	run("delete", "1")
+
+	binned = run("show", "1").output
+
+	assert "Bin me" in binned
+	assert "deleted" in binned
+
+	# The way back, rather than an invitation to comment on something nobody will read. It is
+	# what `list --trash` already offers, so the two agree about what a deleted row is for.
+	assert "subroutine restore 1" in binned
+
+	# And a live item is untouched by any of it — the fact is about the trash, not a new column.
+	alive = run("show", "2").output
+
+	assert "Keep me" in alive
+	assert "deleted" not in alive
+	assert "subroutine comment 2" in alive

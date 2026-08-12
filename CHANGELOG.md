@@ -133,6 +133,19 @@ upgrade involves.
   had made. The same reading now also shows a `from` date somebody deferred to, when the work
   was completed, and the project it was filed in.
 
+### Fixed
+
+- **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and
+  `restore` put it back.** Three commands, one item, and one of them denying it was there.
+
+  It reads it now, says `deleted <date>` on the line beneath the title, and offers
+  `subroutine restore` rather than inviting a comment nobody will read. Being shown without
+  that marker was the other half of the same problem: an item in the trash rendered exactly
+  like a live one, so it could be read, acted on, and never known to have been deleted.
+
+  This affected a Subroutine installed on your own machine. Reaching the same instance over
+  HTTP always worked, which is why it went unnoticed.
+
 ### Security
 
 - **A restricted API token could sign in as its owner and come back unrestricted.** A sign-in

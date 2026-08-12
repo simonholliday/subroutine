@@ -2136,10 +2136,22 @@ def register (
 
 			_render_item(world, located, links, remarks, children, events, console=console)
 			say("")
+
+			# **What to do next depends on where it is** (`#700`). Inviting somebody to comment
+			# on something in the trash offers the one act that changes nothing anybody will
+			# read; `restore` is the question they actually have, and it is the same command
+			# `list --trash` already ends with, so the two agree about what a deleted row is
+			# for.
+			addressed = world.address_of_located(located).replace(
+				subroutine.domain.refs.SIGIL, ""
+			)
+
 			_suggest(
 				console,
-				f"subroutine comment {world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')} "
-				f'"what happened"',
+				f"subroutine restore {addressed}"
+				if located.item.deleted_at is not None
+				else f'subroutine comment {addressed} "what happened"',
+				"put it back" if located.item.deleted_at is not None else None,
 			)
 
 	# **Named `start_item`/`stop_item`, not `start`/`stop`.** `stop` is the refusal helper this
@@ -5821,6 +5833,16 @@ def _facts (located: Located) -> list[str]:
 	# when nobody said, so naming it would be reporting the absence of a decision.
 	if item.project_key and item.project_key.lower() != "inbox":
 		facts.append(item.project_key)
+
+	# **Last, and it is the one fact here that is not about a choice somebody made** (`#700`).
+	# Everything above earns its place by having been chosen; this earns it by changing what
+	# all of them mean. An item in the trash rendered exactly like a live one — no marker, no
+	# date — so it could be read, acted on, and never known to have been deleted.
+	#
+	# ``getattr`` for the zone because a document has none: §6.14 says a document is not
+	# scheduled, so it carries no timezone and `_render_date` falls back to the default.
+	if item.deleted_at is not None:
+		facts.append(f"deleted {_render_date(item.deleted_at, getattr(item, 'timezone', None))}")
 
 	return facts
 

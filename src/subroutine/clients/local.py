@@ -417,9 +417,18 @@ class Client:
 				# Resolved through the same scoped statement the listing uses, so a parent
 				# this caller cannot see is absent rather than forbidden — and the children
 				# of something invisible are not disclosed by an empty list either.
+				#
+				# **Deleted parents included, for `_subject`'s reason** (`#700`). An item in
+				# the trash is still an item, and the HTTP side answers this with an empty
+				# list where this refused outright — so ``subroutine show`` on something
+				# deleted failed here after it had already been found. Being unreadable is
+				# what hides a parent; being deleted is not.
 				above = session.scalars(
 					subroutine.domain.scoping.readable_tasks(
-						actor, workspace_ids=[chosen.id], include_completed=True
+						actor,
+						workspace_ids=[chosen.id],
+						include_completed=True,
+						include_deleted=True,
 					).where(model.ref == parent)
 				).first()
 

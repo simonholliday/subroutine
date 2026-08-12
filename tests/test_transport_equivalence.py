@@ -3005,8 +3005,14 @@ def test_an_items_record_is_readable_after_it_goes_to_the_trash (pair: Pair) -> 
 	it.
 
 	The divergence was not in what either client *returns*: ``task()`` agrees on both, deleted
-	or not. It was in what one of them **asks for**, one layer down. That is worth the test
-	rather than the fix, because the next one will be in a different sub-resource.
+	or not. It was in what one of them **asks for**, one layer down.
+
+	**And it was in two sub-resources, not one, which is why this asks for all three.** Fixing
+	the comments lookup moved the refusal to the *children* lookup, which resolves the parent
+	through its own statement and refused a deleted one where HTTP answered with an empty
+	list. The message changed, so it read as progress; it was the next site in the same chain.
+	``show`` asks for links, comments and children separately, so any one of them refusing
+	looks to a reader exactly like the item not existing.
 	"""
 
 	made = pair.local.capture(text="Something to bin")
@@ -3027,3 +3033,6 @@ def test_an_items_record_is_readable_after_it_goes_to_the_trash (pair: Pair) -> 
 
 		assert [remark.body for remark in remarks] == ["said before it went"]
 		assert client.links(ref=ref, entity_type="task") == []
+
+		# The third sub-resource, and the one that was still refusing after the first fix.
+		assert client.tasks(parent=ref, include_completed=True) == []

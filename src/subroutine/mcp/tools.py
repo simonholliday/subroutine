@@ -1473,6 +1473,12 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	if item.project_key and item.project_key.lower() != "inbox":
 		facts.append(f"+{item.project_key}")
 
+	# **Last, and it matters more here than at the terminal** (`#700`). A person reading an
+	# item in the trash is at least reading it; a model may act on what it read. This is the
+	# one fact in the list that is not about a choice — it changes what all the others mean.
+	if item.deleted_at is not None:
+		facts.append(f"deleted {item.deleted_at.date().isoformat()}")
+
 	return facts
 
 
