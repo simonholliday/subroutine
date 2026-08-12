@@ -620,16 +620,17 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 		),
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_document",
-			title="Write a document",
+			title="Write or revise a document",
 			description=(
 				"Record a conclusion the next session needs — a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
-				"concluded. A '#42' in the body becomes a link on item 42. A conclusion is "
-				"not immutable — revise one through subroutine_call_api."
+				"concluded. A '#42' in the body becomes a link on item 42. Pass ref to "
+				"revise one rather than writing a second."
 			),
 			schema={
 				"type": "object",
 				"properties": {
+					"ref": {"type": A_REF, "description": "Revise this one. Omitted stays."},
 					"title": {"type": "string", "description": "What it concludes, in one line."},
 					"body": {"type": "string", "description": "The reasoning, in Markdown."},
 					"type": {
@@ -644,7 +645,6 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					},
 					"workspace": WORKSPACE,
 				},
-				"required": ["title"],
 			},
 			call=lambda arguments: _wrote(client, arguments),
 			annotations=ADDS,
@@ -1637,24 +1637,76 @@ def _added (
 def _wrote (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
-	"""Write a document and name it back by the ref it was given.
+	"""Write a document, or revise the one a ref names.
 
 	**The tool this adapter told agents to use and did not have** (`#138`). Until 2026-07-31
 	``subroutine_comment``'s own description said "for a conclusion the next session needs,
 	write a document instead", and there was no way to — a sentence in the agent-facing surface
 	pointing at something that surface could not do.
+
+	**And then it said the same thing about revising one** (`#822`). Its description ended
+	"revise one with 'subroutine doc edit 42'" — a shell command, on the surface whose premise
+	is having no shell. That half was corrected to name ``subroutine_call_api``, which was
+	true and still asked an agent to leave the catalogue, read a schema and compose a PATCH in
+	order to correct a sentence it had just written. What actually happens instead is a second
+	document, which is the duplication `#47` exists to prevent.
+
+	**One tool rather than two**, on ``subroutine_claim``'s precedent: writing a conclusion and
+	correcting it are one capability in two directions, and an agent that has found the first
+	has found the second in a description it reads whole. A separate tool would spend a name
+	and a schema in every session on a verb reached only after this one.
+
+	``title`` is no longer required by the schema, because a revision that only changes the
+	body should not have to restate the title — restating it is how a document is silently
+	renamed by a model reconstructing it from memory. So the pair is refused here instead,
+	naming both arguments this tool actually has (`#547`).
 	"""
 
-	document = client.create_document(
-		title=_text(arguments, "title") or "",
-		body=_text(arguments, "body"),
-		type=_text(arguments, "type"),
-		project=_text(arguments, "project"),
-		tags=_words(arguments, "tags"),
+	ref = arguments.get("ref")
+
+	if ref is None:
+		if not _text(arguments, "title"):
+			raise ValueError("Pass title to write a document, or ref to revise one.")
+
+		document = client.create_document(
+			title=_text(arguments, "title") or "",
+			body=_text(arguments, "body"),
+			type=_text(arguments, "type"),
+			project=_text(arguments, "project"),
+			tags=_words(arguments, "tags"),
+			workspace=_text(arguments, "workspace"),
+		)
+
+		return "Wrote " + _line(document)
+
+	# **Omitted is unchanged, and that is the whole reason this is worth a ref** (§8.3). An
+	# agent correcting one paragraph sends the body; the type, the project and the tags it
+	# decided on when it wrote the thing stay as they were.
+	#
+	# ``UNSET`` rather than ``None`` for each, because on this signature ``None`` *clears* the
+	# field. A comprehension splatting only what was given reads more neatly and is untypeable
+	# — mypy sees one value type for the whole mapping, which is exactly the looseness §6.3a's
+	# ``typing.Any`` lesson says is where the next defect hides.
+	def said (name: str) -> typing.Any:
+		"""Return one argument, or the sentinel meaning the caller did not mention it."""
+
+		value = _text(arguments, name)
+
+		return subroutine.clients.base.UNSET if value is None else value
+
+	tags = _words(arguments, "tags")
+
+	revised = client.update_document(
+		ref=_ref(arguments),
+		title=said("title"),
+		body=said("body"),
+		type=said("type"),
+		project=said("project"),
+		tags=subroutine.clients.base.UNSET if tags is None else tags,
 		workspace=_text(arguments, "workspace"),
 	)
 
-	return "Wrote " + _line(document)
+	return "Revised " + _line(revised)
 
 
 def _remarked (

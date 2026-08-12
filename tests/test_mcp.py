@@ -2765,12 +2765,19 @@ def test_the_document_tool_says_how_to_revise_one (
 	reaching the same wrong conclusion. `#488` fixed the refusal it met; this is the other half,
 	correcting the belief *before* it forms rather than at the moment it does.
 
-	**Not a `ref` argument on this tool**, which was the leading option. The CLI has `doc create`
-	and `doc edit` as two commands, so create-or-update here would make the surfaces disagree
-	about whether writing and revising are one act or two — and it carries two silent failures a
-	pointer does not: omit the `ref` and you get a duplicate document, pass a stale one and you
-	overwrite somebody's conclusion. `#822` re-opens that as a budget question rather than a
-	settled one.
+	**It is a `ref` argument on this tool since `#822`, and that reverses what was decided
+	here.** The objection recorded at the time was that the CLI has `doc create` and `doc edit`
+	as two commands, so create-or-update would make the surfaces disagree about whether writing
+	and revising are one act or two. What answered it is `subroutine_claim`'s precedent: taking
+	and giving back are one capability in two directions on this surface and two verbs at the
+	terminal, deliberately, because a model reads tool *names* and a person reads a help page.
+
+	Of the two silent failures it also named, one is answered and one is not. **Omitting the
+	ref no longer writes a duplicate** — with `title` no longer required by the schema, neither
+	given is refused by name. **A stale ref still overwrites somebody's conclusion**, because
+	nothing here sends `expected_version` and `doc edit` is a whole-body replace; the browser
+	does send one and argues it matters more on a document than on a task. That is `#842`, and
+	it is filed rather than folded in because it needs the byte cap raised.
 
 	**What it must name changed with `#822`, and this test used to demand the defect.** It
 	asserted the description said ``doc edit`` — a *shell command*, on the surface whose whole
@@ -2794,8 +2801,17 @@ def test_the_document_tool_says_how_to_revise_one (
 	# lesson aimed at the right registry. `test_plugin` asks this of the skill against the tool
 	# catalogue and the Typer app; a description on *this* surface may only name the former,
 	# because an agent holding a URL and a token has no other.
+	#
+	# **This tool's own arguments count, and did not have to before `#822`.** The answer used
+	# to live somewhere else — a shell command, then `subroutine_call_api` — so naming a *tool*
+	# was the only way to be followable. Revising is an argument here now, which is a better
+	# answer to the same question and one this check would have called unreachable.
 	named = {word.strip(".,'\"") for word in described.split()}
-	reachable = set(tools) | {"subroutine://meta", "subroutine://docs/examples"}
+	reachable = (
+		set(tools)
+		| set(tools["subroutine_document"]["inputSchema"]["properties"])
+		| {"subroutine://meta", "subroutine://docs/examples"}
+	)
 
 	assert named & reachable, (
 		f"the description names no tool this surface has: {sorted(named)}"
@@ -4188,3 +4204,66 @@ def test_the_agents_show_puts_those_facts_in_what_it_returns (
 	# the catalogue would ever say so again.
 	assert "in_progress" in shown, shown
 	assert "+ops" in shown, shown
+
+
+def test_an_agent_can_revise_a_conclusion_it_has_re_read (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#822`. A conclusion that cannot be corrected is a record of what you concluded once.
+
+	The description had said "revise one with 'subroutine doc edit 42'" — a shell command, on
+	the surface whose premise is having no shell (`#548`, in the one place its translation
+	does not reach). Corrected to name ``subroutine_call_api``, which was true and still asked
+	an agent to leave the catalogue, read a schema and compose a PATCH to fix a sentence it
+	had just written. What happens instead is a second document, which is the duplication
+	`#47` exists to prevent.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="Use SQLite", body="Because it is one file.",
+		type="decision", tags=["storage"],
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	ref = int(numbered.group(1))
+	revised, failed = _called(
+		bound, "subroutine_document", ref=ref, body="Because it is one file, and it locks."
+	)
+
+	assert not failed, revised
+	assert revised.startswith("Revised"), revised
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+	assert "and it locks" in shown
+
+	# **Omitted is unchanged**, which is the whole reason this is a ref rather than a second
+	# tool: an agent correcting one paragraph must not have to restate the title, the type and
+	# the tags it decided on when it wrote the thing. Restating them from memory is how a
+	# document is silently renamed.
+	assert "Use SQLite" in shown
+	assert "#storage" in shown
+
+
+def test_writing_a_document_with_neither_a_title_nor_a_ref_is_refused_by_name (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``title`` stopped being required by the schema, so the pair is refused here instead.
+
+	It had to stop: a revision that only changes the body should not have to resend the title.
+	The refusal names both arguments this tool actually has, which is `#547`'s rule — a
+	refusal naming a field no tool declares is unfollowable, and the agent surface is where
+	that costs most.
+	"""
+
+	answered, failed = _called(bound, "subroutine_document", body="Reasoning with no heading.")
+
+	assert failed, answered
+	assert "title" in answered
+	assert "ref" in answered

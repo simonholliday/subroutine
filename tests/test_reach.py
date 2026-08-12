@@ -369,18 +369,6 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"(decision `#484`), so it is worth saying which half is now load-bearing: the refusal "
 		"is, and this entry is the note explaining why no tool is coming."
 	),
-	"update_document": (
-		"budget",
-		"`#293` is **closed**, and this entry's reason changed with it rather than surviving it. "
-		"It used to say the capability was missing and tracked; it is not missing — "
-		"`subroutine_call_api` reaches `PATCH /v1/documents/{ref}` (`#485`), and "
-		"`subroutine_document`'s description says how (`#484`, decision 4).\n\n"
-		"What is left is an ordinary budget decision: a named tool for revising a document "
-		"would cost a whole schema in every session for an act measured as rare, and the "
-		"alternative is one call away and pointed at from the place an agent forms the belief. "
-		"**Raise it to a tool if revising turns out to be frequent** — on measured frequency, "
-		"not on one document-heavy session, which is what `#484` declined to decide from.",
-	),
 	"create_workspace": (
 		"disclosure",
 		"`#300`. A tenancy boundary, and an instance-tier permission no role can carry — only "
@@ -783,6 +771,13 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# `subroutine://docs/agent` and `subroutine://meta` carry the same vocabulary to an agent
 	# that has no shell at all. Teaching a shell-out for something MCP cannot do is a gap;
 	# teaching one for something it can do more clumsily is advice.
+	# **Unchanged at 6 for `#822`, and the composition changed under it, which is worth saying
+	# rather than sliding through.** `doc` left: `subroutine_document` takes a `ref` now, so
+	# naming `subroutine doc edit 42` would be teaching a shell-out for something this surface
+	# does directly — the one thing this guard exists to catch, arrived at by *closing* a gap
+	# rather than by adding a sentence. `token` took the slot, and it is the stronger kind of
+	# entry: `token create` is genuinely unreachable from here (`#484`), where `doc` and
+	# `explain` are the softer "better with a shell" case.
 	assert len(commands) <= 6, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"

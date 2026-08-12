@@ -418,9 +418,10 @@ reports it. A raw call is the one place this tool surface cannot help you.
 So: **the tools are a budget, and the command line is the whole product.** There are fourteen
 tools because each one costs context in every session whether you call it or not — not because
 the product does fourteen things. **If `subroutine` is on your `PATH`**, `subroutine --help` and
-`subroutine explain <topic>` are complete, and `subroutine doc edit 42` is how a document is
-revised. Check before recommending it: a session connected to a server by address has the whole
-tool surface and no command line at all, and `subroutine_call_api` is its escape hatch instead.
+`subroutine explain <topic>` are complete, and setting anything up — `subroutine token create`
+for another agent, for instance — exists only there. Check before recommending one: a session
+connected to a server by address has the whole tool surface and no command line at all, and
+`subroutine_call_api` is its escape hatch instead.
 
 **Two things to read before constructing a call.** `subroutine://meta` is this workspace's
 vocabulary — status keys, item types, what each listing filters and sorts by. The keys are

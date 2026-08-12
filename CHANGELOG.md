@@ -118,6 +118,15 @@ upgrade involves.
   `status_category` is there beside `status` because a status key is a workspace's own word
   and can be renamed; the category is the axis that cannot move.
 
+- **An agent can revise a document it has written.** `subroutine_document` takes a `ref` and
+  changes that document instead of writing a new one; fields you leave out are unchanged. It
+  could only ever *add* before, so an agent that re-read its own conclusion and wanted to
+  correct it wrote a second document saying something different — which is the duplication a
+  single record exists to prevent.
+
+  The tool surface grew by 53 bytes, taken from the headroom already there rather than by
+  raising the cap.
+
 - **`subroutine_show` reports the status, the deferral and the project.** An agent could set
   a status through these tools, be told *Changed*, and then find no tool in the catalogue that
   would ever mention it again — so it could not tell its own write from one it only thought it
