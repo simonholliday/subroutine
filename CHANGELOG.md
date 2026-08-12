@@ -183,6 +183,15 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent on a machine with no instance was told to run a command that machine does not
+  have.** The plugin starts through `uvx`, which runs from a cache and installs nothing, so
+  `Run 'subroutine init'` answered `command not found` for exactly the people who had followed
+  the plugin's promise and installed only `uv`.
+
+  It now checks whether the command exists and says whichever remedy works — and the `uvx` form
+  it gives is pinned to the same release series as the program giving it, so following the
+  advice cannot create an instance newer than the program that will read it.
+
 - **The hosting guide handed a colleague the wrong credential for the browser.** Its *Adding
   the people* section offered only `subroutine token create`, so an operator following the
   detailed document gave somebody a bearer token when what they wanted was a web page. The

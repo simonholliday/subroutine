@@ -25,6 +25,7 @@ is about, one layer up.
 
 import json
 import re
+import shutil
 import typing
 
 import httpx
@@ -129,7 +130,7 @@ def answering (
 				return _refused(
 					raw,
 					"No Subroutine instance has been set up on this machine yet.",
-					"Run 'subroutine init' in a terminal to create one. It takes no arguments.",
+					_how_to_make_one(),
 				)
 
 			# **Its own words when it has any.** A problem document already carries a `detail`
@@ -295,6 +296,42 @@ def _in_this_machines_terms (
 	answered["result"]["instructions"] = said
 
 	return answered
+
+
+def _how_to_make_one () -> str:
+	"""Return the remedy that works on *this* machine for creating an instance — `#734`.
+
+	**The same sentence is right one file away and wrong here, and the difference is who is
+	reading.** ``clients/local.py`` says *"run 'subroutine init'"* to somebody who is running
+	the CLI, so they demonstrably have it. This fires for an agent whose plugin launched
+	``uvx subroutine~=X.Y mcp``, and ``uvx`` runs from a cache and puts nothing on ``PATH`` —
+	so the same advice answers ``command not found`` for exactly the audience `#585` created by
+	making the plugin work on arrival.
+
+	**Measured rather than assumed.** Whether the command exists is a fact about this machine
+	and :func:`shutil.which` is how you ask; guessing from *how the relay was started* would be
+	the same mistake one level along, since somebody may have both. A machine that has the
+	command gets the short answer it has always had.
+
+	**Version-matched, and that is not fussiness.** Plain ``uvx subroutine init`` fetches the
+	newest release, which can create an instance whose schema is ahead of the program that will
+	read it — `#250`'s skew, manufactured by our own advice. The pin is derived from the running
+	program because the relay *is* what the plugin's pin launched, so it can report itself
+	instead of guessing; a second copy of ``~=0.6.0`` here would be one more thing to move at
+	release, which is why ``scripts/release.py`` reads the pin out of the manifests rather than
+	naming it.
+	"""
+
+	if shutil.which("subroutine") is not None:
+		return "Run 'subroutine init' in a terminal to create one. It takes no arguments."
+
+	series = ".".join(subroutine.__version__.split(".")[:2])
+
+	return (
+		f"Run 'uvx subroutine~={series} init' in a terminal to create one. That needs only "
+		"'uv' installed, which is what launched this. To have 'subroutine' as a command as "
+		"well, 'uv tool install subroutine' first."
+	)
 
 
 def _refused (raw: str, detail: str, hint: str | None) -> dict[str, typing.Any] | None:

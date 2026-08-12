@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import time
 import typing
 import unittest.mock
@@ -3607,7 +3608,15 @@ def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 	The sentence is the one ``clients/local.py`` already gives a person, and the predicate is
 	the same: a missing SQLite file is a *fact*, where an unreachable PostgreSQL might be
 	absent, asleep or firewalled, and guessing produces confident bad advice.
+
+	**The remedy depends on the machine and this pins which machine it is** (`SR#734`). The
+	assertion below used to be `"subroutine init" in said` with nothing controlling whether that
+	command exists — so it asserted the installed-CLI branch by accident of the environment it
+	ran in, and would have gone on passing while the other audience got advice that answers
+	`command not found`.
 	"""
+
+	monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/subroutine")
 
 	answered = _relayed(
 		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
@@ -3623,6 +3632,38 @@ def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 
 	assert "no Subroutine instance" in said.lower() or "No Subroutine instance" in said
 	assert "subroutine init" in said, f"the remedy is not named: {said}"
+
+
+def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_run (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#734`. The audience `SR#585` created, meeting its first wall.
+
+	The plugin launches `uvx subroutine~=X.Y mcp`, and `uvx` runs from a cache and puts nothing
+	on `PATH` — so somebody who followed the plugin's own promise and installed only `uv` was
+	told to run `subroutine init`, which answers `command not found`.
+
+	**The version is pinned in the advice for a reason.** Plain `uvx subroutine init` fetches
+	the newest release, which can create an instance whose schema is ahead of the program that
+	will read it — `SR#250`'s skew, manufactured by our own remedy. The series comes from the
+	running program because the relay *is* what the plugin's pin launched.
+	"""
+
+	monkeypatch.setattr(shutil, "which", lambda name: None)
+
+	answered = _relayed(
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n',
+		_nowhere(tmp_path, monkeypatch),
+		monkeypatch,
+	)
+
+	said = answered[0]["error"]["message"]
+	series = ".".join(subroutine.__version__.split(".")[:2])
+
+	assert "uvx" in said, f"the remedy names a command this machine does not have: {said}"
+	assert f"subroutine~={series} init" in said, (
+		f"the remedy is unpinned, so it can create an instance ahead of this program: {said}"
+	)
 
 
 def test_a_notification_is_not_answered_even_when_it_fails (
