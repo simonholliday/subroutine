@@ -2987,3 +2987,43 @@ def test_both_replace_a_documents_tags_the_same_way (pair: Pair) -> None:
 		cleared = client.update_document(ref=written.ref, tags=[])
 
 		assert cleared.tags == []
+
+
+def test_an_items_record_is_readable_after_it_goes_to_the_trash (pair: Pair) -> None:
+	"""`#700`. One database, one moment, two clients, opposite answers.
+
+	``_subject`` — the lookup that turns a ref into the id a comment or a link hangs off —
+	excluded deleted rows locally, where ``api/tasks._resolve`` has included them since `#140`
+	on the argument that *a reference to something in the trash is more useful than a dangling
+	one*. Its own docstring asserted the two transports resolve identically, which is this
+	project's recorded shape of a claim nothing checks.
+
+	**What made it expensive is where the refusal surfaced.** ``subroutine show`` resolves the
+	item, then asks separately for its links and its comments. The item was found; the comments
+	lookup refused with *"There is no task #1 here."*, and that is what a reader saw — so the
+	command denied the item existed while ``list --trash`` listed it and ``restore`` worked on
+	it.
+
+	The divergence was not in what either client *returns*: ``task()`` agrees on both, deleted
+	or not. It was in what one of them **asks for**, one layer down. That is worth the test
+	rather than the fix, because the next one will be in a different sub-resource.
+	"""
+
+	made = pair.local.capture(text="Something to bin")
+	ref = made.task.ref
+
+	pair.local.remark(ref=ref, body="said before it went")
+	pair.local.discard(ref=ref)
+	pair.session.flush()
+	pair.session.expire_all()
+
+	for client in pair.both():
+		found = client.task(ref=ref)
+
+		assert found is not None, "a ref in the trash still names something"
+		assert found.deleted_at is not None
+
+		remarks = client.comments(ref=ref, entity_type="task")
+
+		assert [remark.body for remark in remarks] == ["said before it went"]
+		assert client.links(ref=ref, entity_type="task") == []

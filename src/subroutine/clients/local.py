@@ -2056,6 +2056,18 @@ class Client:
 		keeps the two transports asking the same question: the HTTP client hands the ref
 		straight to a route that resolves it identically, so a ref that names nothing must fail
 		the same way on both sides.
+
+		**That sentence was a claim rather than a fact until `#700`**, and the exception was the
+		trash. ``api/tasks._resolve`` has included deleted rows since `#140` — "a reference to
+		something in the trash is more useful than a dangling one" — and this did not, so one
+		database answered two ways in the same second: over HTTP the comments came back, and
+		locally the *item* was reported not to exist. That message is what a reader saw, so
+		``subroutine show`` on something in the trash denied it existed while ``list --trash``
+		listed it and ``restore`` worked on it.
+
+		Worth seeing rather than fixing quietly: the divergence was not in what either client
+		*returns* — ``task()`` agrees on both, deleted or not — but in what one of them **asks
+		for** one layer down, on the lookup that fetches an item's comments.
 		"""
 
 		model: typing.Any = (
@@ -2065,11 +2077,15 @@ class Client:
 		)
 		statement = (
 			subroutine.domain.scoping.readable_tasks(
-				actor, workspace_ids=[workspace_id], include_completed=True, include_archived=True
+				actor,
+				workspace_ids=[workspace_id],
+				include_completed=True,
+				include_archived=True,
+				include_deleted=True,
 			)
 			if entity_type == "task"
 			else subroutine.domain.scoping.readable_documents(
-				actor, workspace_ids=[workspace_id], include_archived=True
+				actor, workspace_ids=[workspace_id], include_archived=True, include_deleted=True
 			)
 		)
 
