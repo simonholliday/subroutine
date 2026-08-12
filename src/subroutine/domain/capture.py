@@ -108,6 +108,54 @@ _BARE_DAY = re.compile(
 	re.IGNORECASE,
 )
 
+#: A time of day — ``18:30``, ``9:05``, ``2pm``, ``2:30 pm`` — optionally introduced by ``at``
+#: (`#797`).
+#:
+#: **Two alternatives rather than one, because a 24-hour clock needs the colon and a meridiem
+#: does not.** ``2pm`` is a time and a bare ``2`` is not, so the meridiem is what licenses the
+#: minute-less form; requiring two digits after the colon is what keeps ``1:1`` out, which is
+#: how a weekly one-to-one is written and is not 1 minute past one.
+#:
+#: **A signal is required, and that is this module's whole philosophy applied to clocks.** The
+#: date vocabulary is closed because a library that guessed read ``may`` and ``march`` as dates;
+#: a rule that read every ``3pm`` would do the same to ``Email Bob re: 3pm``, which
+#: `tests/test_capture.py` has guarded since the grammar existed — *"there is no rule that looks
+#: at a bare time of day and hopes"*. So a time is read only when the writer signalled it: either
+#: introduced by ``at``, or **immediately following a date phrase this grammar already read**.
+#: ``from monday 09:00`` qualifies on the second; ``Dentist appointment Monday 14:00`` qualifies
+#: on neither, because a bare weekday is not read — so the time is reported rather than guessed,
+#: and whether *that* should change is `#797`'s open question about weekdays.
+#:
+#: **A range is deliberately not matched.** ``14:00-15:00`` is an appointment with an end, and
+#: an end has nowhere to go (`#798` records that ``estimate`` is a duration rather than a
+#: finish). Matching the first half would silently keep the start and drop the finish, so the
+#: lookahead refuses the whole thing and it is reported instead — which is `#778`'s rule, that
+#: the grammar says when it saw something it could not use.
+_TIME = re.compile(
+	rf"{_STARTS_A_WORD}(?P<at>at\s+)?(?:"
+	r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>[ap]m)"
+	r"|"
+	r"(?P<hour24>\d{1,2}):(?P<minute24>\d{2})(?!\s*[ap]m)"
+	# The en dash is written as an escape rather than typed: ruff flags the literal as
+	# confusable with a hyphen, and it is — which is the reason both are in the class.
+	r")(?!\d)(?!\s*[-\u2013]\s*\d)(?!\w)",
+	re.IGNORECASE,
+)
+
+#: A day the writer named that this grammar does not read on its own — a bare weekday, or a
+#: `today` that is not last. Used only to stop :func:`_apply_time` inventing *today* beside a
+#: word that says otherwise; nothing reads a date from it.
+_UNREAD_DAY = re.compile(
+	rf"{_STARTS_A_WORD}(?:{_WEEKDAY_ALTERNATION}|{'|'.join(BARE_PLANNED_WORDS)})(?!\w)",
+	re.IGNORECASE,
+)
+
+#: What a time-shaped thing that could not be read is called back to the writer. Named here
+#: rather than inline so the refusal and the test cannot drift.
+_TIME_LOOKS_LIKE = re.compile(
+	rf"{_STARTS_A_WORD}(?:at\s+)?\d{{1,2}}(?::\d{{2}})?\s*(?:[ap]m|:\d{{2}})", re.IGNORECASE
+)
+
 #: Punctuation that ends a sentence rather than belonging to the value beside it. Trimmed
 #: from every sigil, because ``#hashtag,`` created a tag literally named "hashtag," — a
 #: permanent piece of litter, since tags are auto-created and never reviewed — and
@@ -379,9 +427,42 @@ def parse (
 
 	reserved = [match.span() for match in _EVERY.finditer(text)]
 
+	before = len(claimed)
+
 	_collect_dates(text, claimed, reserved, fields, today=today, now=now, timezone=timezone)
+
+	# Where the date phrases landed, so a time can be recognised as belonging to one. Taken as
+	# a slice rather than returned, because `_collect_dates` appends to `claimed` and that is
+	# the only place the spans exist — a second list would be a second copy to keep in step.
+	dated = list(claimed[before:])
+
 	_collect_sigils(text, claimed, reserved, fields, tags)
+
+	# **Before the bare day, and that ordering is the whole fix** (`#797`). `_collect_bare_days`
+	# searches the line with claimed spans blanked out, so a time claimed here turns
+	# `Solar eclipse today at 18:30` into `Solar eclipse today` for its purposes — and the
+	# end-anchor that makes `today` mean something, which is deliberate and well argued, needs
+	# no change at all. Reading the time was the missing half; the anchor was never the defect.
+	at = _collect_times(text, claimed, reserved, unparsed, after=dated)
+
 	_collect_bare_days(text, claimed, reserved, fields, today=today)
+
+	used = _apply_time(
+		fields,
+		None if at is None else at[0],
+		today=today,
+		unread_day=bool(_UNREAD_DAY.search(_blanked(text, claimed))),
+	)
+
+	# **A time that is read and then not used has to go back into the title** (§6.13 rule 1).
+	# Claiming it is what lets the bare day be seen as last, and the decision about where it
+	# belongs cannot be taken until after that — so the claim is provisional, and this is where
+	# it is either kept or given back. Written after driving `Dentist appointment Monday 14:00`
+	# and finding the title had lost `14:00` while no field had gained it, which is precisely
+	# the outcome this module exists to make impossible.
+	if at is not None and not used:
+		claimed.remove(at[1])
+		unparsed.append(text[at[1][0]:at[1][1]])
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
@@ -514,6 +595,137 @@ def _collect_sigils (
 			continue
 
 		claimed.append(match.span())
+
+
+def _collect_times (
+	text: str,
+	claimed: list[tuple[int, int]],
+	reserved: list[tuple[int, int]],
+	unparsed: list[str],
+	*,
+	after: list[tuple[int, int]],
+) -> tuple[datetime.time, tuple[int, int]] | None:
+	"""Consume a time of day, and report anything time-shaped that could not be read.
+
+	**The first readable one wins**, matching every other field here: a line naming two times
+	is naming a range, and a range has no home (`#798`).
+
+	Returns the time rather than writing a field, because where it belongs depends on what the
+	*rest* of the line said and the bare day has not been read yet. :func:`_apply_time` decides.
+	"""
+
+	found: tuple[datetime.time, tuple[int, int]] | None = None
+
+	for match in _TIME.finditer(text):
+		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
+			continue
+
+		if found is not None:
+			continue
+
+		# **Signalled, or attached to a date already read.** Without one of the two this is a
+		# bare number in prose — `Email Bob re: 3pm` — and reading it is exactly the guessing
+		# the closed date vocabulary exists to refuse.
+		signalled = match.group("at") is not None or any(
+			text[end:match.start()].strip() == "" for _start, end in after
+		)
+
+		if not signalled:
+			continue
+
+		hour = int(match.group("hour") or match.group("hour24"))
+		minute = int(match.group("minute") or match.group("minute24") or 0)
+		meridiem = (match.group("meridiem") or "").lower()
+
+		if meridiem:
+			# 12am is midnight and 12pm is noon, which is the one place a modulus is needed
+			# rather than an addition — `12 + 12` is 24 and there is no such hour.
+			hour = hour % 12 + (12 if meridiem == "pm" else 0)
+
+		if not (0 <= hour <= 23 and 0 <= minute <= 59):
+			continue
+
+		found = (datetime.time(hour=hour, minute=minute), match.span())
+
+		claimed.append(match.span())
+
+	# **Said out loud when nothing could be read** (`#778`, and `#797`'s own recommendation).
+	# A range, a `25:00`, a second time — each looks like an attempt at a time, and silence is
+	# what made `#797` cost two sightings before anybody filed it.
+	#
+	# Reported here rather than at each rejection above, because the two paths overlap: a
+	# `25:00` fails the loop *and* matches this scan, and reporting in both put it in the list
+	# twice. One scan over what is left is the whole rule.
+	for match in _TIME_LOOKS_LIKE.finditer(text):
+		if not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved):
+			unparsed.append(match.group(0))
+
+	return found
+
+
+def _apply_time (
+	fields: dict[str, typing.Any],
+	at: datetime.time | None,
+	*,
+	today: datetime.date,
+	unread_day: bool,
+) -> bool:
+	"""Attach a time of day to whichever date the line established, or to today.
+
+	**A preposition wins, because the writer said which field they meant.** ``due today at
+	17:00`` is a deadline with a time; ``from friday 09:00`` is a defer with one.
+
+	**A bare day plus a time becomes a start rather than a plan** — Simon's decision,
+	2026-08-12. ``planned_for`` is a date and cannot hold a time, so the two cannot both be
+	honoured; and a line carrying a clock time is describing something that *happens* at a
+	moment rather than a day's worth of work, which is what ``start_at`` and the agenda's
+	appointment bucket are for. So the plan is replaced rather than kept beside it.
+
+	**With no day at all the time is today's**, never tomorrow's. A start already past is
+	harmless — it simply means nothing is hidden — where guessing forward invents a date the
+	writer did not give.
+
+	**But only when the writer named no day this grammar could not read**, which is the
+	correction this function needed and got by driving it. ``Dentist appointment Monday
+	14:00`` — `#797`'s original case — has a bare weekday, and a bare weekday needs a
+	preposition, so nothing reads it. Falling back to today then set a start of *today* while
+	the title still said *Monday*: a date that contradicts the words printed beside it, which
+	is worse than the silence being fixed. Where a day is named and unread, the time is
+	reported instead and nothing is set.
+
+	**Whether a bare weekday should be read at all is deliberately not decided here.** `#797`
+	records it as a genuine trade — it is how people write, and it would make ``Monday`` in an
+	ordinary title into a date nobody asked for.
+
+	Left alone where the field already carries an instant or an unresolved expression: a
+	literal ``2026-08-20T17:00`` has said its own time, and combining a clock with a keyword
+	string is a second grammar nobody asked for.
+	"""
+
+	if at is None:
+		return False
+
+	for field, flag in (("due", "due_is_all_day"), ("start", "start_is_all_day")):
+		value = fields.get(field)
+
+		if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+			fields[field] = datetime.datetime.combine(value, at)
+			fields[flag] = False
+
+			return True
+
+	day = fields.pop("planned_for", None)
+
+	if day is None:
+		if unread_day:
+			return False
+
+		day = today
+
+	fields["start"] = datetime.datetime.combine(day, at)
+	fields["start_is_all_day"] = False
+
+	return True
 
 
 def _collect_bare_days (

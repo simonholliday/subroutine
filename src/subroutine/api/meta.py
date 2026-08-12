@@ -697,11 +697,22 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				"+project",
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.PLANNED_WORDS)),
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.DEADLINE_WORDS)),
+				# **Published because it has to be signalled** (`#797`). A time is read only
+				# after `at`, or immediately after a date this grammar already read — so unlike
+				# the words above, a caller who does not know the rule writes something that
+				# stays in the title. That makes it the row an agent most needs and the one it
+				# could least infer from the others.
+				#
+				# `#838` is the neighbouring gap this sits next to: `DEFER_WORDS` are published
+				# to a terminal and not here, and are deliberately left for that item rather
+				# than fixed in passing.
+				"at <time>, or <date> <time>",
 			],
 			examples=[
 				"Renew the domain by friday !4",
 				"Fix the header +web #bug ~2h @alice",
 				"Call the dentist tomorrow",
+				"Solar eclipse today at 18:30",
 			],
 		),
 	}

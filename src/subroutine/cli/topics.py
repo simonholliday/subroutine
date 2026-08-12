@@ -124,6 +124,7 @@ def _capture_body () -> str:
 		),
 		(", ".join(subroutine.domain.capture.BARE_PLANNED_WORDS), "the same, said shorter"),
 		(f"{', '.join(subroutine.domain.capture.DEFER_WORDS)} <date>", "hides it until then"),
+		("at <time>", "the time of day, after a date or on its own"),
 		("#tag", "labels it, creating the tag if it is new — but #12 means task 12"),
 		("@name", "assigns it to somebody"),
 		("!1 to !5", "how important it is"),

@@ -164,6 +164,19 @@ upgrade involves.
 
 ### Added
 
+- **A captured line can carry a time of day.** `Solar eclipse today at 18:30` sets the day and
+  the time; so do `Call the dentist tomorrow at 9am`, `Report due today at 17:00` and
+  `Standup from monday 09:00`. A time behind `due`, `before` or `by` sets the deadline;
+  otherwise it sets when the thing starts.
+
+  **A time has to be signalled** — written after `at`, or straight after a date already
+  recognised. That is what keeps `Email Bob re: 3pm` as a title rather than an appointment,
+  and it is the same reason the date words are a closed list.
+
+  **Anything it will not read stays in the title and is reported back**, which is new for times
+  and is the more useful half: a range like `14:00-15:00` names an end, and there is nowhere
+  to put an end yet, so it says so rather than quietly keeping the start.
+
 - **Python 3.14 is tested and claimed.** It was already permitted by `requires-python`, tested
   by no job and claimed by no classifier — so an install on it worked and the package said
   nothing about whether that was meant to.

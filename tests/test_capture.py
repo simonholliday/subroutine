@@ -772,3 +772,129 @@ def test_the_summary_never_claims_a_field_the_grammar_did_not_set () -> None:
 	assert ("@" in summary) is (read.assignee is not None)
 	assert ("#" in summary) is bool(read.tags)
 	assert ("+" in summary) is (read.project_key is not None)
+
+
+#: Times this grammar reads, and where each one lands. The clock is Thursday 30 July 2026, so
+#: `today` is the 30th, `tomorrow` the 31st, and `monday` the 3rd of August.
+#:
+#: **Parametrised over the signal rather than over the format**, because the signal is what was
+#: decided: a time is read when introduced by `at`, or when it follows a date already read.
+READS_A_TIME = (
+	("Solar eclipse today at 18:30", "Solar eclipse", "start", datetime.datetime(2026, 7, 30, 18, 30)),
+	("Ship it tomorrow at 9am", "Ship it", "start", datetime.datetime(2026, 7, 31, 9, 0)),
+	("Call Bob at 3pm", "Call Bob", "start", datetime.datetime(2026, 7, 30, 15, 0)),
+	("Book table at 7:45pm today", "Book table", "start", datetime.datetime(2026, 7, 30, 19, 45)),
+	("Report due today at 17:00", "Report", "due", datetime.datetime(2026, 7, 30, 17, 0)),
+	("Standup from monday 09:00", "Standup", "start", datetime.datetime(2026, 8, 3, 9, 0)),
+	("Backup at 12am", "Backup", "start", datetime.datetime(2026, 7, 30, 0, 0)),
+	("Lunch at 12pm", "Lunch", "start", datetime.datetime(2026, 7, 30, 12, 0)),
+)
+
+
+@pytest.mark.parametrize(
+	("text", "title", "field", "expected"), READS_A_TIME, ids=[one[0] for one in READS_A_TIME]
+)
+def test_a_time_of_day_is_read_into_the_field_the_line_named (
+	text: str, title: str, field: str, expected: datetime.datetime
+) -> None:
+	"""`#797`. A captured line could carry a day and never a time.
+
+	**Simon met this twice** — `Dentist appointment Monday 14:00` while driving `#755`, and
+	`Solar eclipse today at 18:30` in his own workspace three days later, where the whole line
+	stayed in the title and nothing was set.
+
+	**A preposition wins where there is one**, so `due … at 17:00` is a deadline; otherwise a
+	time makes a start, which is Simon's decision of 2026-08-12 and the direction the machinery
+	already assumed — the agenda's appointment bucket is keyed on `start_at`.
+
+	`12am` and `12pm` are here because they are the one pair a naive `hour + 12` gets wrong.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == title
+	assert getattr(captured, field) == expected
+	assert getattr(captured, f"{field}_is_all_day") is False
+	assert captured.unparsed == ()
+
+
+def test_a_time_and_a_bare_day_make_a_start_rather_than_a_plan () -> None:
+	"""The decision that is easiest to get backwards, so it is asserted rather than implied.
+
+	`Solar eclipse today` plans; `Solar eclipse today at 18:30` does not — it is an appointment.
+	`planned_for` is a date and cannot hold a time, so the two cannot both be honoured, and a
+	line carrying a clock is describing something that happens at a moment.
+	"""
+
+	planned = _parse("Solar eclipse today")
+
+	assert planned.planned_for == datetime.date(2026, 7, 30)
+	assert planned.start is None
+
+	timed = _parse("Solar eclipse today at 18:30")
+
+	assert timed.planned_for is None
+	assert timed.start == datetime.datetime(2026, 7, 30, 18, 30)
+
+
+#: Lines carrying something time-shaped that is deliberately not read, and what survives.
+#:
+#: **Every one keeps its title whole**, which is §6.13 rule 1 and the reason this grammar
+#: refuses rather than guesses.
+LEAVES_A_TIME = (
+	# Prose. Guarded since the grammar existed: "there is no rule that looks at a bare time of
+	# day and hopes" — `at` and adjacency are what separate a signal from a number.
+	("Email Bob re: 3pm", "3pm"),
+	# A bare weekday is not read, so there is no day to attach a time to. Inventing *today*
+	# here set a start that contradicted the word `Monday` printed beside it.
+	("Dentist appointment Monday 14:00", "14:00"),
+	# **The one that reaches the give-back**, and the reason this list is not just the four
+	# obvious shapes. `at` signals a time, so the span is claimed before anybody knows whether
+	# it can be placed — and `Monday` is unread, so it cannot. Without giving the claim back
+	# the title loses `at 14:00` and nothing reports it. Every other row here is refused
+	# earlier, so none of them exercises that path at all.
+	("Dentist appointment Monday at 14:00", "at 14:00"),
+	# A range names an end, and an end has nowhere to go (`#798`).
+	("Meeting 14:00-15:00", "14:00"),
+	# Not a time at all.
+	("Broken at 25:00", "at 25:00"),
+)
+
+
+@pytest.mark.parametrize(("text", "reported"), LEAVES_A_TIME, ids=[one[0] for one in LEAVES_A_TIME])
+def test_a_time_that_cannot_be_placed_stays_in_the_title_and_is_reported (
+	text: str, reported: str
+) -> None:
+	"""Rule 1, on the field that was added last — and it failed here first.
+
+	**`Dentist appointment Monday 14:00` lost `14:00` from its title and set nothing**, because
+	claiming the span is what lets a bare day be seen as last, and that claim has to happen
+	before anybody knows whether the time can be used. The claim is provisional now and is
+	given back.
+
+	**And the reporting is `#797`'s own recommendation** — *the cheapest honest half is the
+	telling*. Silence is what cost two sightings before this was filed.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == text, "a time this grammar will not use must stay where it was"
+	assert captured.start is None
+	assert captured.due is None
+	assert captured.planned_for is None
+	assert reported in captured.unparsed
+
+
+def test_a_one_to_one_is_not_one_minute_past_one () -> None:
+	"""The case a looser pattern gets wrong, and it is how people write a recurring meeting.
+
+	Two digits after the colon is what refuses it, so this is asserting the reason rather than
+	the symptom — `1:1` and `3:5` are not times and never reach the hour check.
+	"""
+
+	for text in ("Weekly 1:1 with Bob", "Ratio is 3:5"):
+		captured = _parse(text)
+
+		assert captured.title == text
+		assert captured.start is None
+		assert captured.unparsed == ()
