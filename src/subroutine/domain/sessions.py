@@ -61,6 +61,9 @@ def mint_link (
 	_refuse_an_account_that_cannot_sign_in(user)
 
 	moment = now if now is not None else subroutine.db.types.utcnow()
+
+	_refuse_a_credential_that_would_be_widened(actor, now=moment)
+
 	minted = subroutine.auth.generate_token(kind=subroutine.auth.LOGIN_KIND)
 
 	link = subroutine.db.models.identity.LoginLink(
@@ -381,6 +384,68 @@ def _refuse_administering_somebody_else (
 	from subroutine.domain import authorization as permits
 
 	permits.authorize_instance(actor, subroutine.permissions.INSTANCE_USER_CREATE)
+
+
+def _refuse_a_credential_that_would_be_widened (
+	actor: subroutine.domain.authentication.Principal | None,
+	*,
+	now: datetime.datetime,
+) -> None:
+	"""Refuse minting a sign-in link for a credential a session would be wider than.
+
+	**A session cannot be narrowed, so the only place to check is here** (`#829`). Every
+	narrowing an API token expresses is a column on the token, and
+	:class:`~subroutine.db.models.identity.WebSession` has none of them — so a link redeemed
+	from a bounded credential hands back strictly more authority than the one that asked, on
+	all four axes at once. That is what :func:`authentication._refuse_amplification` exists to
+	prevent, arriving through the one door it cannot see: it compares a *requested* narrowing
+	against the presenter's, and a link requests none.
+
+	**The argument was already written one function down and applied to half the cases.**
+	:func:`_refuse_an_account_that_cannot_sign_in` refuses a service account because *"an
+	agent's credential is issued deliberately, with a scope and a reach, and a session carries
+	neither"*. That reasoning does not turn on the account being a service account — it turns
+	on the credential being bounded — and a person's ``--scope task:read`` token is bounded in
+	exactly the same way. `#829` is that half, and it was reachable from the CLI, the API and
+	MCP alike.
+
+	**Expiry is refused on the same rule as `#356` and only in the amplifying direction.** A
+	credential with no expiry may mint anything; one that outlives the session it would buy is
+	not being widened, so it passes. Only a credential the session would outlive is refused.
+
+	``None`` is §12.1a, somebody at a terminal with the database file, and is not narrowed by
+	any of this — which is also what keeps `#248`'s recovery path working, since a locked-out
+	self-hoster mints from the console rather than over HTTP.
+
+	**A signed-in browser is refused by the expiry rule, and that is a decision rather than a
+	side effect.** A session always expires sooner than the fortnight a fresh one would buy, so
+	it always fails the comparison — and it should, because a session minting links for itself
+	is a session that never ends. Nothing reaches this today: the browser does not call the
+	route and the CLI presents a token or nothing. If `#599` ever offers *send me a link* from a
+	signed-in page, this is the line it will meet, and the question it should reopen is whether
+	renewal is a different act from minting rather than whether this rule is too strict.
+	"""
+
+	if actor is None or actor.is_local:
+		return
+
+	if actor.narrows:
+		raise subroutine.errors.Forbidden(
+			"A bounded credential cannot mint a sign-in link.",
+			hint="A browser session carries no scopes, no project scope and no workspace "
+			"pin, so signing in with one would hand back more authority than the "
+			"credential you presented. Use an unrestricted credential, or run "
+			"'subroutine login link' at the instance itself.",
+		)
+
+	expires_at = actor.expires_at
+
+	if expires_at is not None and expires_at < now + SESSION_LIFETIME:
+		raise subroutine.errors.Forbidden(
+			"A sign-in link would outlive the credential that asked for it.",
+			hint=f"The session it buys lasts {SESSION_LIFETIME.days} days, and the "
+			"credential you presented expires before that.",
+		)
 
 
 def _refuse_an_account_that_cannot_sign_in (

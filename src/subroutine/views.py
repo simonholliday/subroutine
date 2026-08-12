@@ -1633,10 +1633,12 @@ def credential (
 			)
 		),
 		workspace_id=row.workspace_id,
-		narrows=bool(row.scopes)
-		or row.project_scope is not None
-		or row.project_write_scope is not None
-		or row.workspace_id is not None,
+		narrows=subroutine.domain.authentication.narrowing(
+			scopes=row.scopes,
+			project_scope=row.project_scope,
+			project_write_scope=row.project_write_scope,
+			workspace_id=row.workspace_id,
+		),
 		expires_at=row.expires_at,
 		last_used_at=row.last_used_at,
 	)
@@ -1993,10 +1995,12 @@ def token (
 			)
 		),
 		"workspace_id": row.workspace_id,
-		"narrows": bool(row.scopes)
-		or row.project_scope is not None
-		or row.project_write_scope is not None
-		or row.workspace_id is not None,
+		"narrows": subroutine.domain.authentication.narrowing(
+			scopes=row.scopes,
+			project_scope=row.project_scope,
+			project_write_scope=row.project_write_scope,
+			workspace_id=row.workspace_id,
+		),
 		"usable": row.revoked_at is None
 		and (row.expires_at is None or row.expires_at > moment),
 		"created_at": row.created_at,

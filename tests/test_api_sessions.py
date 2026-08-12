@@ -6,6 +6,7 @@ credentials arrive, whether a route with no principal is rate-limited, and wheth
 carries the attributes that make it a CSRF defence rather than a liability.
 """
 
+import datetime
 import typing
 import uuid
 
@@ -19,10 +20,12 @@ import subroutine.api.security
 import subroutine.api.sessions
 import subroutine.config
 import subroutine.db.models.identity
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.sessions
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.permissions
 
 
 class Setup(typing.NamedTuple):
@@ -1112,3 +1115,134 @@ def test_a_wildcard_gives_the_defence_up_entirely (
 		"a wildcard no longer gives this up — which may well be an improvement, and is a change "
 		"to what docs/hosting.md tells an operator, so it is a decision rather than a tidy-up"
 	)
+
+
+#: One case per axis a token can be narrowed on, because a session expresses none of them and
+#: the escalation `#829` records loses all four at once. Parametrised over the *axes* rather
+#: than over a list of examples, so a fifth axis added to `authentication.narrowing` and not to
+#: this table shows up as a case nobody wrote.
+NARROWINGS: tuple[tuple[str, dict[str, typing.Any]], ...] = (
+	("scopes", {"scopes": [subroutine.permissions.TASK_READ]}),
+	("project_scope", {"project_scope": [str(uuid.uuid4())]}),
+	("project_write_scope", {"project_write_scope": [str(uuid.uuid4())]}),
+)
+
+
+@pytest.mark.parametrize(("axis", "narrowing"), NARROWINGS, ids=[one[0] for one in NARROWINGS])
+def test_a_narrowed_credential_cannot_mint_a_sign_in_link (
+	session: sqlalchemy.orm.Session,
+	setup: Setup,
+	axis: str,
+	narrowing: dict[str, typing.Any],
+) -> None:
+	"""A session carries no narrowing, so minting one from a bounded credential widens it.
+
+	**This is `#829`, found by the cold review of 2026-08-12 and driven end to end before it
+	was filed**: a ``task:read`` token was refused ``POST /v1/tasks`` and then minted a link,
+	redeemed it without presenting anything, and wrote. Every axis is lost at once, which is
+	why this is parametrised over them rather than over the one that was reported.
+
+	The refusal has to happen here because there is nowhere else it could: a
+	:class:`~subroutine.db.models.identity.WebSession` has no columns to carry a scope into,
+	so ``_refuse_amplification``'s compare-the-request approach has nothing to compare.
+	"""
+
+	_row, secret = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="A bounded token", **narrowing
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		"/v1/login-links",
+		json={},
+		headers={"Authorization": f"Bearer {secret.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 403, f"{axis} did not stop a link being minted"
+	assert "bounded credential" in answer.json()["detail"]
+
+
+def test_a_credential_the_session_would_outlive_cannot_mint_a_link (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`#356`'s rule, on the credential a link is really issuing.
+
+	A token bounded to a month may not buy a fortnight's session *after* it expires, which is
+	the same amplification `#356` closed for token issuing — an agent undoing its own bound on
+	the first day.
+	"""
+
+	soon = subroutine.db.types.utcnow() + datetime.timedelta(days=1)
+
+	_row, secret = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Expiring tomorrow", expires_at=soon
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		"/v1/login-links",
+		json={},
+		headers={"Authorization": f"Bearer {secret.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 403
+	assert "outlive" in answer.json()["detail"]
+
+
+def test_an_unrestricted_credential_still_mints_a_link (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""The control, and the half that matters more than the refusal.
+
+	`#248` names this route as what makes browser sign-in safe to ship — a self-hoster whose
+	mail relay is broken has to have a way back in. A guard that closed `#829` by refusing
+	everybody would take that with it and no test above would notice.
+	"""
+
+	_row, secret = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="An ordinary token"
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"POST",
+		"/v1/login-links",
+		json={},
+		headers={"Authorization": f"Bearer {secret.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 201
+
+
+def test_the_axes_a_link_is_refused_for_are_the_ones_narrowing_knows_about () -> None:
+	"""Derive the case list from the rule, so a fifth axis cannot be added in silence.
+
+	``NARROWINGS`` above is a hand-written table, and a hand-written table falls behind — the
+	shape this repository keeps finding. This asserts the two agree by *driving*
+	``narrowing`` with each axis set alone, which is what makes adding an axis to the rule
+	fail here rather than pass quietly.
+	"""
+
+	empty: dict[str, typing.Any] = {
+		"scopes": [],
+		"project_scope": None,
+		"project_write_scope": None,
+		"workspace_id": None,
+	}
+
+	assert not subroutine.domain.authentication.narrowing(**empty)
+
+	covered = {axis for axis, _ in NARROWINGS} | {"workspace_id"}
+
+	for axis in empty:
+		assert axis in covered, f"{axis} narrows and no case above sets it"
+
+		alone = {**empty, axis: [subroutine.permissions.TASK_READ] if axis == "scopes" else (
+			[str(uuid.uuid4())] if axis.endswith("scope") else uuid.uuid4()
+		)}
+
+		assert subroutine.domain.authentication.narrowing(**alone), (
+			f"{axis} set alone is not reported as a narrowing"
+		)

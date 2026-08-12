@@ -108,6 +108,24 @@ upgrade involves.
   through `subroutine_call_api`; what the bytes buy is that a model can *find* it, since a
   model deciding what it can do reads tool names rather than every schema in full.
 
+### Security
+
+- **A restricted API token could sign in as its owner and come back unrestricted.** A sign-in
+  link is redeemed for a browser session, and a session carries no scopes, no project scope and
+  no workspace pin — so a token narrowed to, say, `task:read` could mint a link, redeem it, and
+  write freely as the person it belongs to. Every bound was lost at once, including an expiry.
+
+  **A bounded credential is refused now**, on all four axes and on expiry, and the refusal says
+  which. Two things are deliberately unchanged: an unrestricted token mints links as before, and
+  so does `subroutine login link` at the instance itself — which is the way back in for a
+  self-hoster whose mail relay is broken, and it must not depend on anything.
+
+  Service accounts were never affected: an agent's credential could not sign in to a browser
+  already. **If you have issued somebody a narrowed token and expect them to use the web
+  interface, they now need a sign-in link handed to them** rather than minting their own.
+
+  Found by an outside review of the whole codebase.
+
 ### Fixed
 
 - **An agent was shown three of this workspace's five link types**, and the two missing were

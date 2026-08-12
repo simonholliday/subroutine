@@ -190,6 +190,27 @@ class Principal:
 		return None if self.token is None else self.token.workspace_id
 
 	@property
+	def narrows (self) -> bool:
+		"""Whether this credential is bounded more tightly than its owner's own authority.
+
+		The four axes a token can be narrowed on, asked as one question. A session and a
+		person at a terminal both report ``False``, which is the truth about each: neither
+		carries a narrowing at all.
+
+		**What this is for is deciding what a credential may be traded in for** (`#829`).
+		Anything that hands back authority the presenter cannot express — a browser session
+		has no scopes, no project scope and no workspace pin — has to be able to ask whether
+		the presenter was bounded, and it is not free to answer that its own way.
+		"""
+
+		return narrowing(
+			scopes=self.scopes,
+			project_scope=self.project_scope,
+			project_write_scope=self.project_write_scope,
+			workspace_id=self.pinned_workspace_id,
+		)
+
+	@property
 	def is_superuser (self) -> bool:
 		"""Report whether this user bypasses role checks.
 
@@ -296,6 +317,38 @@ def issue_token (
 	session.flush()
 
 	return token, issued
+
+
+def narrowing (
+	*,
+	scopes: typing.Sequence[str],
+	project_scope: typing.Sequence[str] | None,
+	project_write_scope: typing.Sequence[str] | None,
+	workspace_id: uuid.UUID | None,
+) -> bool:
+	"""Whether these four values bound a credential below its owner's own authority.
+
+	**One definition, because the rule was written twice and is now asked in three places.**
+	``views.py`` computed it identically at two sites for the token view and the token row,
+	and `#829`'s fix needed it a third time — which is the point at which two copies that
+	happen to agree become this codebase's signature defect rather than a near miss.
+
+	The emptiness of each side means opposite things and that is the whole difficulty: ``[]``
+	scopes and a ``None`` project scope are *no narrowing*, so a truthiness test is right for
+	the first and an identity test for the other three.
+
+	**Expiry is deliberately not one of the axes.** It bounds how long a credential lasts
+	rather than what it reaches, `#356` handles it with a one-sided comparison that needs two
+	expiries to compare, and this is published as ``narrows`` on the token view — so adding a
+	fifth axis here would change an answer callers already read.
+	"""
+
+	return (
+		bool(scopes)
+		or project_scope is not None
+		or project_write_scope is not None
+		or workspace_id is not None
+	)
 
 
 def _refuse_amplification (
