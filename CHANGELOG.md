@@ -58,6 +58,9 @@ upgrade involves.
   The table for this has been in the database since the first release and nothing could write
   to it, so no upgrade is needed — only a version that reaches it.
 
+  An agent can tag one too — `subroutine_document(title=…, tags=["design"])` — and
+  `subroutine_show` now lists an item's tags.
+
 - **A listing can be asked about a date.** `GET /v1/tasks?created_at.gte=yesterday` — a field,
   one of `gt`, `gte`, `lt` or `lte`, and a day, an instant or any expression the rest of the
   program already takes: `today`, `now-7d`, `start_of_week`, `start_of_month+1M`. Two of them
@@ -106,6 +109,15 @@ upgrade involves.
   model deciding what it can do reads tool names rather than every schema in full.
 
 ### Fixed
+
+- **An agent was shown three of this workspace's five link types**, and the two missing were
+  `derives_from` and `documents` — the pair that join a piece of work to the document
+  explaining it. The tool points at the workspace's own list now rather than carrying a copy,
+  which is also what makes it survive somebody renaming one.
+
+- **The tool that writes a document told an agent to revise it with a terminal command.**
+  An agent reaching an instance over the network has no terminal. It names something it can
+  actually call.
 
 - **`init` refused to set up an instance when the machine's username was a reserved word.**
   A workspace's short name is derived from its title, and falls back to the username when the

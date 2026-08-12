@@ -103,8 +103,7 @@ DATE_FILTER = {
 	"additionalProperties": {"type": "string"},
 	"description": (
 		"Narrow by when and by whom: {'created_at.gte': 'yesterday'}; two entries make a "
-		f"range. gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}, "
-		"values in the date grammar ('yesterday', 'start_of_week'). "
+		f"range. gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}; "
 		f"{_fields_of(subroutine.domain.filtering.DAY)} is a day and takes eq too. "
 		"touched_at is *worked on* — a comment or status change counts, which no other "
 		"field sees. touched_by takes a username and pairs with it."
@@ -502,9 +501,9 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			name="subroutine_list",
 			title="List work",
 			description=(
-				"List open items — tasks and documents — from the backlog. Default order is "
-				"newest first; pass order='-priority_score' for what to work on next, which "
-				"ranks assessed items above half-assessed ones above unranked."
+				"List open items — tasks and documents — from the backlog. Newest first; "
+				"order='-priority_score' is what to work on next, ranking assessed items "
+				"above half-assessed above unranked."
 			),
 			schema={
 				"type": "object",
@@ -625,8 +624,8 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"Record a conclusion the next session needs — a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
-				"concluded. A '#42' in the body becomes a link on item 42. Revise one with "
-				"'subroutine doc edit 42' — a conclusion is not immutable."
+				"concluded. A '#42' in the body becomes a link on item 42. A conclusion is "
+				"not immutable — revise one through subroutine_call_api."
 			),
 			schema={
 				"type": "object",
@@ -638,6 +637,11 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"description": "note, spec, design, decision, finding or dead_end.",
 					},
 					"project": {"type": "string", "description": "Project key."},
+					"tags": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Labels, without the '#'. The same tags tasks use.",
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["title"],
@@ -689,7 +693,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			name="subroutine_link",
 			title="Join two items",
 			description=(
-				"Say how two items are related: blocks, relates_to, duplicates, derives_from. "
+				"Say how two items are related. "
 				"'blocks' is what readiness reads — a task with an unfinished blocker is not "
 				"listed as ready. Pass remove=true to withdraw the link instead."
 			),
@@ -697,7 +701,15 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"type": "object",
 				"properties": {
 					"ref": {"type": A_REF, "description": "The item's number."},
-					"type": {"type": "string", "description": "blocks, relates_to, duplicates."},
+					"type": {
+						"type": "string",
+						# **Not a list of keys** (`#821`). Five are seeded, this named three, and
+						# the two it left out — `derives_from` and `documents` — are the pair
+						# that join work to the conclusions about it, which is the loop the
+						# skill exists to push an agent into. They are renameable per workspace
+						# (§5.5), so the list belongs where it is per workspace.
+						"description": "A link type key; subroutine://meta lists this workspace's.",
+					},
 					"other": {"type": A_REF, "description": "The other item's number."},
 					"remove": {"type": "boolean", "description": "Withdraw it instead."},
 					"workspace": WORKSPACE,
@@ -1422,6 +1434,15 @@ def _shown (
 		parts.append("")
 		parts.append(body)
 
+	# **Echoed because this tool accepts them** (`#819`). `#673`'s lesson is quoted in `_line`
+	# below and applies here: the skill tells an agent to check the line it gets back, so a
+	# surface that takes `tags` and reports none leaves it unable to tell applied from ignored.
+	# In `show` rather than `_line`, because this is the tool that promises *in full* — a
+	# listing row stays as terse as it was, for both kinds.
+	if item_tags := list(found.tags):
+		parts.append("")
+		parts.append("  ".join(f"#{tag}" for tag in item_tags))
+
 	links = client.links(ref=ref, entity_type=kind, workspace=workspace)
 
 	if links:
@@ -1563,6 +1584,7 @@ def _wrote (
 		body=_text(arguments, "body"),
 		type=_text(arguments, "type"),
 		project=_text(arguments, "project"),
+		tags=_words(arguments, "tags"),
 		workspace=_text(arguments, "workspace"),
 	)
 
@@ -1806,6 +1828,43 @@ def _text (arguments: dict[str, typing.Any], name: str) -> str | None:
 	value = arguments.get(name)
 
 	return value if isinstance(value, str) and value else None
+
+
+def _words (arguments: dict[str, typing.Any], name: str) -> list[str] | None:
+	"""Return one array-of-strings argument, refusing anything the schema does not allow.
+
+	**Both halves are this function's, and that is unlike every other argument here.**
+	``protocol._wrongly_typed`` refuses a value whose type does not match the schema — but its
+	``_ACCEPTS`` deliberately knows nothing about ``array``, and its own comment says why: a
+	schema growing one should be a rule somebody adds rather than something that quietly starts
+	being rejected. So a bare string reaches here, and so does a list carrying a number.
+
+	Returning ``None`` for either would be `#379` exactly — an argument swallowed, with the
+	caller told nothing and the write proceeding as though they had asked for it.
+
+	``None`` *is* right for an absent argument and for an empty list, because both mean "no
+	tags" on a create and there is nothing to clear on something that does not exist yet.
+	"""
+
+	given = arguments.get(name)
+
+	if given is None:
+		return None
+
+	if not isinstance(given, list) or not all(isinstance(word, str) for word in given):
+		raise subroutine.errors.ValidationError(
+			f"{name!r} takes a list of words.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=name,
+					code="invalid_field_value",
+					message=f"{name!r} was {type(given).__name__}, not a list of strings.",
+					hint='Write it as ["design", "security"].',
+				)
+			],
+		)
+
+	return given or None
 
 
 def _updated (

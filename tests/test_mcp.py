@@ -37,6 +37,7 @@ import subroutine.connections
 import subroutine.context
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.seed
 import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -1045,6 +1046,36 @@ def test_the_whole_tool_surface_stays_small (
 	  since `#489` that reading found any: a second spelling of the value grammar, an
 	  enumeration of five activity verbs where one example carries it, and *(a day, an instant)*
 	  restating what "the date grammar" already means.
+
+	* **`#819`, to 10,800** — `tags` on ``subroutine_document``, so a conclusion can be labelled
+	  by the surface that writes it. Simon's decision, 2026-08-12, taken after a measured pass
+	  over the whole surface rather than before one.
+
+	  **Measured at +124 bytes, against 112 found by reading** — so the raise buys 12 bytes and
+	  the rest was already there. That order matters and is §21.2's own: measure, read for fat,
+	  *then* raise. The alternative was to take a further 60 by shortening the ``workspace``
+	  description on twelve tools, which would have landed 8 bytes under the standing cap — the
+	  theatre this file already warns about, where a number satisfied by editing prose has
+	  stopped measuring anything.
+
+	  **Three of the four things read for were corrections, not trims**, which is the finding
+	  worth keeping about this exercise: reading a schema for *bytes* is what made anybody read
+	  it at all.
+
+	  - `#821`: ``subroutine_link``'s ``type`` listed three of five seeded link types, and the
+	    two missing were ``derives_from`` and ``documents`` — the pair that join work to the
+	    conclusions about it, which is the loop the skill spends most of its words on. It points
+	    at ``subroutine://meta`` now, which is 19 bytes cheaper *and* right, and stops the schema
+	    holding a literal copy of vocabulary §5.5 makes renameable.
+	  - `#822`: ``subroutine_document`` told an agent to revise with ``subroutine doc edit 42``
+	    — a shell command, on the surface whose premise is having no shell. `#548` fixed that
+	    class for *refusals*, and ``protocol.INSTEAD_OF`` does not reach a tool description.
+	  - The date grammar was spelled out twice in ``filter``, and the ranking rule twice in
+	    ``list`` — once in the tool's description and again in the property's.
+
+	  **``title`` was considered and kept.** Dropping it from all fourteen saves 356 bytes, far
+	  more than everything above, and it is what a *person* reads in an approval dialog — which
+	  is the moment `#489` raised this cap to protect.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -1054,7 +1085,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 10700, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 10800, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -2696,38 +2727,41 @@ def test_the_document_tool_says_how_to_revise_one (
 	and `doc edit` as two commands, so create-or-update here would make the surfaces disagree
 	about whether writing and revising are one act or two — and it carries two silent failures a
 	pointer does not: omit the `ref` and you get a duplicate document, pass a stale one and you
-	overwrite somebody's conclusion.
+	overwrite somebody's conclusion. `#822` re-opens that as a budget question rather than a
+	settled one.
+
+	**What it must name changed with `#822`, and this test used to demand the defect.** It
+	asserted the description said ``doc edit`` — a *shell command*, on the surface whose whole
+	premise is a reader with no shell (`#516`). `#548` settled that class for refusals, and
+	``protocol.INSTEAD_OF`` translates them; it does not reach a tool description, so this was
+	the one place the rule did not arrive. The intent is unchanged and is the part worth
+	keeping: the only tool that writes a document has to say how one is revised, or an agent
+	reasonably concludes it cannot be.
 	"""
 
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
 	described = tools["subroutine_document"]["description"]
 
-	assert "doc edit" in described, (
+	assert "revise" in described.lower(), (
 		"the only tool that writes a document must say how one is revised, or an agent "
 		"reasonably concludes it cannot be"
 	)
 
-	# **The command it names has to exist**, which is `#134`/`#136`/`#138`'s lesson: prose in a
-	# schema is context every session carries and nothing had ever asked whether it named
-	# something callable. `test_plugin` asks this of the skill; a tool description is the surface
-	# with no delivery failure at all, so it is the one that must not lie.
-	groups = {
-		group.name: group for group in subroutine.cli.main.app.registered_groups if group.name
-	}
+	# **And it must name something this reader can reach**, which is `#134`/`#136`/`#138`'s
+	# lesson aimed at the right registry. `test_plugin` asks this of the skill against the tool
+	# catalogue and the Typer app; a description on *this* surface may only name the former,
+	# because an agent holding a URL and a token has no other.
+	named = {word.strip(".,'\"") for word in described.split()}
+	reachable = set(tools) | {"subroutine://meta", "subroutine://docs/examples"}
 
-	assert "doc" in groups, "the description names 'subroutine doc', which must be a command"
+	assert named & reachable, (
+		f"the description names no tool this surface has: {sorted(named)}"
+	)
 
-	nested = groups["doc"].typer_instance
-
-	assert nested is not None, "'doc' is a group with nothing registered under it"
-
-	within = {
-		command.name or (command.callback.__name__ if command.callback else "")
-		for command in nested.registered_commands
-	}
-
-	assert "edit" in within, f"'doc edit' is named by a tool description and is not real: {within}"
+	for word in named:
+		if word.startswith("subroutine_"):
+			assert word in tools, f"{word!r} is named by a tool description and does not exist"
 
 
 class _Recorded:
@@ -3806,7 +3840,7 @@ def test_the_filter_schema_names_every_field_it_accepts (
 	for name in subroutine.domain.filtering.TASK_FILTERS:
 		assert name in described, f"{name} is accepted and not named in the schema"
 
-	grammar, _, rest = described.partition("values in the date grammar")
+	grammar, _, rest = described.partition("touched_at is")
 
 	assert subroutine.domain.filtering.TOUCHED_BY not in grammar, (
 		"touched_by takes a username and is listed among the fields taking a date"
@@ -3861,3 +3895,86 @@ def test_asking_who_you_are_says_what_an_ordinary_role_may_do (
 	assert "Narrowed to" not in text, "the fixture narrowed it, so it proves nothing"
 	assert "may: " in text, "a member was told its role and not what the role may do"
 	assert subroutine.permissions.TASK_READ in text
+
+
+def test_an_agent_can_tag_a_conclusion (bound: subroutine.mcp.protocol.Server) -> None:
+	"""`#819` reaching the surface that writes documents.
+
+	The skill spends most of its words persuading an agent to write a document rather than a
+	comment. A document it cannot label is one nobody finds again by subject, which is what a
+	tag is for — and the tags are a task's tags, from one workspace vocabulary.
+	"""
+
+	answered, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Why we chose Preact",
+		body="Because it is 4 KB.",
+		tags=["design", "web"],
+	)
+
+	assert not failed, answered
+
+	shown, failed = _called(bound, "subroutine_show", ref=1)
+
+	assert not failed, shown
+	assert "design" in shown
+	assert "web" in shown
+
+
+def test_a_tag_that_is_not_a_word_is_refused_by_the_tool (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#549`'s split again: the protocol checks the declared type, the tool checks inside it.
+
+	``protocol._wrongly_typed`` refuses a bare string here, because ``tags`` declares ``array``.
+	It does not recurse into ``items``, so an array carrying a number reaches the tool — and
+	this is the only place that can turn it down.
+	"""
+
+	# **Refused by the tool, not by the protocol.** `_ACCEPTS` knows `string`, `integer`,
+	# `boolean` and `object` and deliberately not `array`, so this one reaches `_words` — and
+	# returning `None` for it would be `#379`: an argument swallowed and the write proceeding.
+	answered, failed = _called(bound, "subroutine_document", title="x", tags="design")
+
+	assert failed
+	assert "list of words" in answered
+
+	# Refused by the tool, because nothing else looks inside.
+	answered, failed = _called(
+		bound, "subroutine_document", title="x", tags=["design", 5]
+	)
+
+	assert failed
+	assert "tags" in answered
+	assert "design" in answered, "the refusal did not show the shape"
+
+
+def test_the_link_tool_does_not_hard_code_a_renameable_vocabulary (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#821` — five link types are seeded and the schema published three.
+
+	The two it left out were `derives_from` and `documents`, which are the pair that join work
+	to the conclusions about it — so the surface that most wants an agent writing documents gave
+	it no way to attach one. And because the omission was from the *seeded* set rather than a
+	stale default, the usual correction never fired: an agent does not send `documents` and get
+	refused, it never learns the word.
+
+	Asserted as *does not enumerate* rather than *enumerates all five*, because §5.5 makes these
+	renameable per workspace — a complete list would be right today and wrong on any instance
+	that renamed one.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	tools = {tool["name"]: tool for tool in answered[0]["result"]["tools"]}
+	link = tools["subroutine_link"]
+	described = link["description"] + link["inputSchema"]["properties"]["type"]["description"]
+
+	seeded = {seed.key for seed in subroutine.db.seed._LINK_TYPES}
+	named = {key for key in seeded if key in described}
+
+	assert named <= {"blocks"}, (
+		f"the schema lists link type keys, so it can be incomplete or stale: {sorted(named)}"
+	)
+	assert "meta" in described, "nothing points at where this workspace's list actually is"
