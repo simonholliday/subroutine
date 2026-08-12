@@ -479,8 +479,8 @@ $ subroutine user list --workspace acme
 ```
 
 There is no password: Subroutine authenticates with tokens, so what Thomas needs next is
-`subroutine token create --username thomas`, or `subroutine login link --username thomas` if he
-is going to use the browser. That is for a person; `--service-account` is for an agent and
+`subroutine token create --username thomas`, or `subroutine login link --username thomas` if
+they are going to use the browser. That is for a person; `--service-account` is for an agent and
 creates the identity as it goes. Roles belong to a workspace, so `member` in one is not
 `member` in another, and the last account able to administer a workspace cannot be removed
 from it.

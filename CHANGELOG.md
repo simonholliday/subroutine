@@ -183,6 +183,16 @@ upgrade involves.
 
 ### Fixed
 
+- **The hosting guide handed a colleague the wrong credential for the browser.** Its *Adding
+  the people* section offered only `subroutine token create`, so an operator following the
+  detailed document gave somebody a bearer token when what they wanted was a web page. The
+  README had both halves; the page it sends you to for more had less.
+
+  Both are there now, chosen by what the person is going to use — a link for the browser, a
+  token for a terminal or an agent — and `docs/connecting.md` has a section for somebody who
+  wants only the browser, which it previously had no reader for at all. `subroutine explain
+  connecting` says it too.
+
 - **An image written in a description came out as a link.** Markdown's image syntax — a `!`
   in front of the usual link form — rendered as a clickable anchor labelled with the alt text,
   so a reader saw a link where somebody had written a picture, and following it went wherever

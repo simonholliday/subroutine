@@ -605,12 +605,33 @@ $ subroutine user list --workspace acme
 A new account belongs to no workspace and can see nothing until it is given a role, which is
 why `user create` tells you the next command rather than stopping at "Created".
 
-**There is no password.** Subroutine authenticates with bearer tokens, so what Thomas needs next
-is one of her own, and it is readable exactly once:
+**There is no password**, so what Thomas needs next depends on what they are going to use.
+
+**If they are going to open the web interface, hand them a sign-in link.** It signs in as
+whoever it names, once, and stops working after half an hour — so it is handed over the way
+anything private is, and a second one costs nothing if the first goes stale.
+
+```console
+$ subroutine login link --username thomas
+```
+
+**If they are going to use the command line, or point an agent at this instance, issue a
+token.** It is readable exactly once:
 
 ```console
 $ subroutine token create --username thomas --title "Thomas's laptop"
 ```
+
+Neither is a lesser version of the other and somebody may want both — the link opens a browser
+session, the token is what a terminal and an agent present. What they must not do is try to use
+the token to sign in to the browser: a bearer token is not a session, and a **narrowed** token
+cannot mint a link for itself either, because a session carries no scopes and issuing one would
+hand back more authority than the token holds.
+
+**Run `login link` from the server**, or from anywhere holding an unrestricted credential. It is
+also the way back in for you: if the browser is the only way you administer this instance and
+something has gone wrong with it, a link minted at the console is a door that does not depend on
+anything else working.
 
 `--username` is for somebody who already has an account; `--service-account` is for a machine
 identity and creates one if there is none. They are separate flags because they are separate

@@ -1587,3 +1587,39 @@ def test_the_secret_denial_scan_catches_the_sentence_it_was_written_for () -> No
 	)
 	assert not _DENIES_A_SECRET.search("import secrets")
 	assert not _DENIES_A_SECRET.search("return prefix, secret")
+
+
+#: How the connecting page counts its own contents. Written as a word, so the guard has to know
+#: the words rather than scan for a digit.
+_WAYS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def test_the_connecting_page_counts_its_own_ways_correctly () -> None:
+	"""`#721`. The page opens with a number and then lists the situations it counted.
+
+	**A number in prose that nothing checks is this repository's signature defect**, and it has
+	been paid for at least twice: `#582`'s "eleven MCP tools" on the README's front page, where
+	the guard written for that exact sentence returned zero hits on the whole file; and `#198`'s
+	tool count, stale in four places at once. This page said *five* and gained a sixth reader
+	here.
+
+	**Derived from the table rather than from the headings**, deliberately. The table is what a
+	reader is sent to — *find yourself in the table, read that one section* — so it is the copy
+	that has to be right, and a section with no row is a section nobody is routed to.
+	"""
+
+	page = CONNECTING.read_text(encoding="utf-8")
+	opening = page.split("\n\n", 2)[1]
+
+	stated = [word for word in _WAYS if f"There are {word} ways" in opening]
+
+	assert len(stated) == 1, f"the page does not open by counting its ways: {opening[:120]!r}"
+
+	# Every row of the routing table, which is the block between its header rule and the first
+	# blank line after it.
+	table = page.split("| --- | --- | --- |\n", 1)[1].split("\n\n", 1)[0]
+	rows = [line for line in table.splitlines() if line.startswith("|")]
+
+	assert len(rows) == _WAYS.index(stated[0]) + 1, (
+		f"the page says {stated[0]} ways and its table routes to {len(rows)}"
+	)

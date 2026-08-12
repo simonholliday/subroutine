@@ -1,8 +1,8 @@
 # Connecting to Subroutine
 
-There are five ways to reach a Subroutine instance, and the one that is right for you follows
-from two questions: **where does your work live**, and **who is asking for it** — you at a
-terminal, or an agent in your editor.
+There are six ways to reach a Subroutine instance, and the one that is right for you follows
+from two questions: **where does your work live**, and **who is asking for it** — you in a
+browser, you at a terminal, or an agent in your editor.
 
 This page is organised by the answer. Find yourself in the table, read that one section, and
 ignore the rest. [docs/hosting.md](hosting.md) is the other end of most of them — it is for
@@ -10,6 +10,7 @@ whoever is standing the server up, and if that is also you, read it first.
 
 | Your work lives | You are | Read |
 | --- | --- | --- |
+| On a server | In a browser | [Just a web page](#just-a-web-page) |
 | On this machine | At a terminal | [Just this machine](#just-this-machine) |
 | On a server | At a terminal | [Your terminal here, your work there](#your-terminal-here-your-work-there) |
 | On this machine | An agent in your editor | [An agent, on the machine holding the work](#an-agent-on-the-machine-holding-the-work) |
@@ -20,6 +21,35 @@ whoever is standing the server up, and if that is also you, read it first.
 team's on a server is one arrangement, not two — `subroutine today` asks every instance you can
 reach and merges the answers, so the dentist and the stand-up land in one list. Reading spans
 everything; only writing has to pick.
+
+## Just a web page
+
+**Nothing to install, and nothing to configure.** If somebody runs an instance and has given
+you an account on it, they can hand you a **sign-in link** — one address that signs you in and
+then works no more. Open it, and you are in.
+
+Ask them for `subroutine login link --username <you>`. What arrives looks like this:
+
+```
+https://subroutine.example.com/signin?link=…
+```
+
+**It is good for half an hour and works once.** If it has gone stale by the time you get to it,
+that is ordinary — ask for another. Once it has signed you in, the browser stays signed in for a
+fortnight, and you sign in again the same way after that.
+
+**Treat it like a password while it is alive**, because for those thirty minutes it is one:
+anybody who has the link can become you. It travels in a web address, so it reaches whatever
+carried the message, and it is worth not pasting into anywhere that keeps a history.
+
+**A token is not a substitute.** If you have been given something starting `sr_`, that is for a
+terminal or an agent, and pasting it into a browser will not sign you in. Ask for a link
+instead — they are different credentials for different doors, and having one does not get you
+the other.
+
+**What you can do there**: read and add work, change what an item says, move it through its
+statuses, comment, link items together, and search. If you also want a terminal or an agent,
+every section below still applies and you want a token as well as a link.
 
 ## What to ask for, if somebody else runs the instance
 

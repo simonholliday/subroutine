@@ -230,7 +230,17 @@ An agent reaches an instance a different way — through a plugin rather
 than through this program, and if the work is on somebody else's
 server it needs nothing installed at all. That is a longer story than
 a terminal needs, and it is written up in docs/connecting.md in the
-project's repository.""",
+project's repository.
+
+And somebody who wants none of this can use the web interface, which
+needs nothing installed and no token. Whoever runs the instance hands
+them a sign-in link:
+
+  subroutine login link --username thomas
+
+It signs in as whoever it names, once, and stops working after half an
+hour. A token is not a substitute for it and will not sign anybody in
+to a browser.""",
 	),
 	Topic(
 		name="scripting",
