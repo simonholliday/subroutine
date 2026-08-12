@@ -164,6 +164,14 @@ upgrade involves.
 
 ### Fixed
 
+- **An image written in a description came out as a link.** Markdown's image syntax — a `!`
+  in front of the usual link form — rendered as a clickable anchor labelled with the alt text,
+  so a reader saw a link where somebody had written a picture, and following it went wherever
+  the image had been. If the destination was one the renderer refuses, the `!` was dropped from
+  the text it fell back to as well. Images are still not rendered; they are now shown exactly
+  as they were typed, which is what the browser already does with everything else it will not
+  render.
+
 - **An agent was shown three of this workspace's five link types**, and the two missing were
   `derives_from` and `documents` — the pair that join a piece of work to the document
   explaining it. The tool points at the workspace's own list now rather than carrying a copy,

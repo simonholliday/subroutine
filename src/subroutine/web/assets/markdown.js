@@ -252,15 +252,40 @@ export function inline (text, where) {
 		so there is no path from the source to the output that skips it.
 	*/
 
+	/*
+		**One binding, scanned and sliced** (`#834`). This used to match over `String(text)`
+		and slice `text`, which every current caller makes equivalent — `render` stringifies
+		and the recursive callers pass capture groups — so the defensive `String()` was not
+		defending anything: a caller passing something else got a `TypeError` from `.slice`
+		rather than the escaped output the `String()` implies. Latent, and the kind of thing
+		that stops being latent when somebody adds a caller.
+	*/
+	const source = String(text);
+
 	let out = "";
 	let last = 0;
 
-	for (const found of String(text).matchAll(INLINE)) {
-		out += escaped(text.slice(last, found.index));
+	for (const found of source.matchAll(INLINE)) {
+		out += escaped(source.slice(last, found.index));
 		last = found.index + found[0].length;
 
 		if (found[1] !== undefined) out += `<code>${escaped(found[2])}</code>`;
-		else if (found[3] !== undefined) out += linked(found[3], found[4], where);
+		/*
+			**An image is shown as it was written, not rendered as a link** (`#833`). The
+			pattern matches `!?[…](…)` and both branches used to run `linked`, so
+			`![alt](url)` became an anchor labelled with the alt text — and on the refusal
+			path `linked` rebuilds `[text](dest)`, dropping the `!` as well.
+
+			Images are deliberately unsupported: the module measured *images 0* across 291
+			documents. But this file's contract for anything it will not render is **show
+			what was written**, and a link is not that. Read off `found[0]` rather than by
+			capturing the `!`, because a new group here renumbers every branch below.
+		*/
+		else if (found[3] !== undefined) {
+			out += found[0].startsWith("!")
+				? escaped(found[0])
+				: linked(found[3], found[4], where);
+		}
 		else if (found[5] !== undefined) out += `<strong>${inline(found[5], where)}</strong>`;
 		else if (found[6] !== undefined) out += `<del>${inline(found[6], where)}</del>`;
 		else if (found[7] !== undefined) out += `<em>${inline(found[7], where)}</em>`;
@@ -268,7 +293,7 @@ export function inline (text, where) {
 		else out += mentioned(found[9], where);
 	}
 
-	return out + escaped(text.slice(last));
+	return out + escaped(source.slice(last));
 }
 
 

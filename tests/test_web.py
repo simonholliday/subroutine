@@ -6877,3 +6877,47 @@ def test_the_shim_is_a_mount_and_not_a_browser () -> None:
 		("innerHTML", "parsing HTML is the one thing this must never pretend to do"),
 	):
 		assert forbidden not in code, f"dom.js implements {forbidden!r}: {why}"
+
+
+def test_an_image_is_shown_as_it_was_written_rather_than_rendered_as_a_link (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#833`. The pattern matches `!?[…](…)` and both branches used to render a link.
+
+	So `![alt](url)` came out as an **anchor labelled with the alt text** — the reader saw a
+	link where an author had written an image, and clicking it went wherever the image had
+	been. On the refusal path it was worse in a quieter way: `linked` rebuilds `[text](dest)`
+	from its parts, so the `!` the author typed was dropped from the escaped fallback too.
+
+	**Images are deliberately unsupported and that is not what this is about.** The module
+	measured *images 0* across 291 documents. What it promises for anything it will not render
+	is *show what was written*, and a link is not that — so the two halves are asserted
+	together here: no anchor, and the original text intact.
+	"""
+
+	written = "![a diagram](https://example.com/d.png)"
+	rendered = _markdown(tmp_path, [written])[0]
+
+	assert "<a " not in rendered, f"an image became a link: {rendered}"
+	assert "href" not in rendered, f"an image kept a destination: {rendered}"
+
+	# The `!` is the half that vanished on the refusal path, so it is asserted by name rather
+	# than left to a substring check that would pass without it.
+	assert "!" in rendered, f"the exclamation mark was dropped: {rendered}"
+	assert "a diagram" in rendered
+	assert "https://example.com/d.png" in rendered
+
+
+def test_an_ordinary_link_still_renders (tmp_path: pathlib.Path) -> None:
+	"""The control for the case above, and it is not redundant.
+
+	`#833`'s fix branches on whether the match began with `!`, so the obvious way to get it
+	wrong is to send every `[…](…)` down the escaped path — which would close the finding and
+	silently stop rendering links at all. Nothing else in this file would notice, because the
+	payload tests all assert that something is *absent*.
+	"""
+
+	rendered = _markdown(tmp_path, ["[the docs](https://example.com/docs)"])[0]
+
+	assert '<a href="https://example.com/docs"' in rendered, rendered
+	assert "the docs" in rendered
