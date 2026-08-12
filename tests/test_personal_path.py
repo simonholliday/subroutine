@@ -3475,8 +3475,12 @@ def test_init_says_when_the_database_it_used_is_recorded_nowhere (
 	unit sets only the XDG paths, and the service comes up configured for SQLite.
 
 	**Writing it to `config.toml` is the wrong fix and is not what this asserts.** A PostgreSQL
-	URL routinely carries a password and §12.3a is that this file holds no secrets. The value
-	cannot be written for the operator; the operator can be told they must write it.
+	URL routinely carries a password, and a password belongs with the tokens rather than beside
+	the connection settings. The value cannot be written for the operator; the operator can be
+	told they must write it.
+
+	This docstring used to give the reason as "§12.3a is that this file holds no secrets", which
+	is false — it is 0600 and holds `secret_key`, as the sentence three lines above says (`#831`).
 	"""
 
 	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):

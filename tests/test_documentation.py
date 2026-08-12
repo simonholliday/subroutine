@@ -1504,3 +1504,86 @@ def test_the_documented_stop_timeout_outlasts_the_graceful_shutdown () -> None:
 		f"the page never says the server waits {grace} seconds, so the number TimeoutStopSec "
 		"has to exceed is not written anywhere the operator setting it can read"
 	)
+
+
+#: Ways this repository has claimed that ``config.toml`` carries nothing worth protecting.
+#: Derived by running the scan and reading what it caught — **five** sites, where `#828`'s
+#: review had found three and I had guessed four. Each is a phrase somebody wrote while
+#: arguing something true about *tokens*, which is why they all read as reasonable.
+_DENIES_A_SECRET = re.compile(r"holds? no secrets|no secrets live", re.IGNORECASE)
+
+#: Where the claim may still appear, with the reason for each.
+#:
+#: ``CHANGELOG.md`` quotes what changed, so an entry describing the old behaviour has to keep
+#: its old wording — the same exclusion `#753` made for the standfirst scan, and for the same
+#: reason: a changelog edited to match the present tense stops being a record.
+#:
+#: This file holds the pattern and the sentences it was falsified against, so it matches itself
+#: — `#546`'s shape, met immediately on the first run. The alternative is a scan that cannot be
+#: shown to work, which is worse than one that has to skip one file by name.
+_MAY_STILL_SAY_IT = ("CHANGELOG.md", "tests/test_documentation.py")
+
+
+def test_nothing_claims_the_config_file_holds_no_secrets () -> None:
+	"""`#831`. ``config.toml`` is ``0600`` and holds ``secret_key``, which ``init`` always writes.
+
+	**The claim was in five tracked files and one of them contradicted itself four lines
+	apart** — ``cli/main.py`` said ``init`` writes only ``secret_key`` and then gave "this file
+	holds no secrets" as the reason not to write a database password beside it. Every one was
+	written while arguing something true about *tokens*, which is what made them all read
+	reasonably and none of them get checked.
+
+	**This is a scan over a spelling and that is a weaker guard than this repository likes**,
+	so it is worth saying what it can and cannot do. It cannot notice a fresh way of saying the
+	same thing. What it can do is stop these five coming back, which is the failure mode that
+	actually happened: the correct sentence already existed in ``docs/hosting.md`` the whole
+	time, and five other places went on disagreeing with it.
+
+    The pattern was scoped by running it rather than by reasoning about it — ``import secrets``
+	and ``token=secret`` are what an eager version catches, and neither is a claim about
+	anything.
+	"""
+
+	listed = subprocess.run(
+		["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True, check=True
+	)
+	offenders: list[str] = []
+
+	for name in listed.stdout.split("\0"):
+		path = ROOT / name
+
+		if not name or not path.is_file() or name in _MAY_STILL_SAY_IT:
+			continue
+
+		try:
+			text = path.read_text(encoding="utf-8")
+
+		except UnicodeDecodeError:
+			continue
+
+		offenders.extend(
+			f"{name}:{number}"
+			for number, line in enumerate(text.splitlines(), start=1)
+			if _DENIES_A_SECRET.search(line) and "used to" not in line
+		)
+
+	assert not offenders, (
+		"config.toml is 0600 and holds secret_key, so these say something untrue about it: "
+		+ ", ".join(offenders)
+	)
+
+
+def test_the_secret_denial_scan_catches_the_sentence_it_was_written_for () -> None:
+	"""Fed the real wording through the real pattern, so the scan is not vacuous.
+
+	`#405`'s rule: a guard is tested by putting a defect through its own entry point. The two
+	strings below are the ones that were in the tree before `#831`, character for character.
+	"""
+
+	assert _DENIES_A_SECRET.search("§12.3a is that this file holds no secrets")
+	assert _DENIES_A_SECRET.search("No secrets live here. Where the tokens are is")
+	assert _DENIES_A_SECRET.search("connections, urls, defaults. No secrets.") is None, (
+		"the table cell is caught by the mode assertion in test_config, not by this"
+	)
+	assert not _DENIES_A_SECRET.search("import secrets")
+	assert not _DENIES_A_SECRET.search("return prefix, secret")

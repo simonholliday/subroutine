@@ -138,6 +138,19 @@ upgrade involves.
 
   Found by the same review.
 
+- **Corrected: `config.toml` was described as holding no secrets and as world-readable.** It is
+  neither. The file is written `0600`, and `subroutine init` puts `secret_key` in it.
+
+  **If you took the old advice and committed or shared that file, it has your signing key in
+  it.** What that key does is bounded — it signs pagination cursors and nothing else, so it is
+  not a way in and rotating it locks nobody out — but it should not be somewhere public, and
+  the documentation should not have said it could be.
+
+  What remains true is the reason the split exists: **no API token is ever written to
+  `config.toml`**, and `credentials.toml` is still the file that never leaves the machine.
+
+  Found by the same review, which named three places saying it; there were five.
+
 ### Fixed
 
 - **An agent was shown three of this workspace's five link types**, and the two missing were

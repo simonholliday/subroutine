@@ -2663,9 +2663,14 @@ def _warn_an_environment_database_is_not_recorded (
 	service comes up configured for SQLite and restarts every five seconds.
 
 	**Writing it to ``config.toml`` here would be the wrong fix and is not on the table.** A
-	PostgreSQL URL routinely carries a password and §12.3a is that this file holds no secrets —
-	that is the entire reason ``credentials.toml`` exists. Persisting an environment value into
-	a file would also invert the precedence the configuration model rests on.
+	PostgreSQL URL routinely carries a password, and a password belongs with the tokens rather
+	than beside the connection settings — which is the entire reason ``credentials.toml``
+	exists. Persisting an environment value into a file would also invert the precedence the
+	configuration model rests on.
+
+	**This used to argue that from "``config.toml`` holds no secrets", four lines below saying
+	``init`` writes ``secret_key`` into it** (`#831`). The conclusion was right and the premise
+	was contradicted by its own paragraph; the file is 0600 and does hold one thing.
 
 	So the value cannot be written for the operator, and the operator can be told they must
 	write it. This is the moment to do that: before the mistake, rather than after it, in a

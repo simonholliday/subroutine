@@ -244,8 +244,9 @@ afternoon when it is skipped.
 ```
 
 **`init` will not write it for you, and that is deliberate.** A PostgreSQL URL routinely
-carries a password, and this file is the one that holds no secrets — that is why
-`credentials.toml` exists.
+carries a password, and a password belongs with the tokens rather than beside the connection
+settings — that is why `credentials.toml` exists. (`config.toml` is `0600` and holds
+`secret_key`; what it does not hold is anything that authenticates you to something else.)
 
 **3. So write it yourself**, into
 `/var/lib/subroutine/config/subroutine/config.toml`:

@@ -3,15 +3,28 @@
 Two files, on the SSH model, because they have different lifetimes and different audiences:
 
 ===================================================  ======  =====================================
-``$XDG_CONFIG_HOME/subroutine/config.toml``          0644    connections, urls, defaults. No secrets.
+``$XDG_CONFIG_HOME/subroutine/config.toml``          0600    connections, urls, defaults, and
+                                                             ``secret_key``. **No tokens.**
 ``$XDG_CONFIG_HOME/subroutine/credentials.toml``     0600    one token per connection name.
 ===================================================  ======  =====================================
 
-The split earns its keep the first time somebody puts their dotfiles in a repository.
-``config.toml`` is then a file you can commit, sync between machines and read out loud in a
-support thread; ``credentials.toml`` is the one file that never leaves the machine. A single
-combined file at 0600 — which an earlier draft specified — makes the whole configuration
-untouchable by default and ends with people hand-editing the file they were told not to sync.
+**Both are 0600, and this table said ``config.toml`` was 0644 and held no secrets until `#831`.**
+Neither half was true: :func:`subroutine.config._write_private` has written 0600 deliberately
+since `#205`, and ``ensure_secret_key`` puts ``secret_key`` in there, which ``init`` always does.
+The correct sentence already existed in ``docs/hosting.md`` — *"it is not ``secret_key``, which
+is the only thing in ``config.toml`` that looks like a credential"* — so this was two places
+stating one rule and disagreeing, in the module whose whole subject is where secrets live.
+
+The split still earns its keep, and the reason survives the correction with one word changed:
+``config.toml`` is the file you can **diff, sync between machines and reason about**, and
+``credentials.toml`` is the one that never leaves the machine. What is no longer true is that
+you could paste it into a support thread — ``secret_key`` is in it. A single combined file —
+which an earlier draft specified — would still be wrong, because the two have different
+lifetimes: a connection outlives every token issued for it.
+
+``secret_key`` signs pagination cursors and nothing else (§7.4), so what it costs to leak is
+bounded and small. That is a reason not to panic about it, and not a reason to describe the file
+as holding nothing.
 
 **A token is never written to ``config.toml``, never passed as a command-line argument** (it
 would land in ``ps`` output and shell history) **and never accepted in a query string**

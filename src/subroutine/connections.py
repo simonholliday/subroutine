@@ -19,8 +19,10 @@ nickname for it, the key in your own configuration file. Two colleagues may call
 server ``work`` and ``acme``, and one person may connect to two servers both calling
 themselves "Office". Neither is a problem, because ``instance_id`` settles what is what.
 
-No secrets live here. Where the tokens are is :mod:`subroutine.credentials`, and the split
-between the two files is §12.3a's.
+No tokens live here. Where they are is :mod:`subroutine.credentials`, and the split between
+the two files is §12.3a's. Said as *tokens* rather than *secrets* because ``config.toml`` does
+hold one thing — ``secret_key``, which signs pagination cursors — and this sentence used to be
+one of five places implying otherwise (`#831`).
 """
 
 import dataclasses
