@@ -180,6 +180,26 @@ class Task(pydantic.BaseModel):
 	title: str
 	description: str | None
 
+	#: **How much prose this item carries, in bytes** (`#595`). A row in a listing is the same
+	#: shape whether the item is three words or 128,083 characters — which is what one document
+	#: on this instance measured, about 32,000 tokens, read into an agent's context with nothing
+	#: anywhere to warn it. Context economy is a first-order cost here (§13), the tool surface
+	#: is budgeted to a few thousand bytes and held by a test, and one unannounced read spends
+	#: ten times that.
+	#:
+	#: **A number rather than a flag**, because the threshold is the caller's: a session with
+	#: room to spare and one nearly full need different answers to "is this too big", and a
+	#: boolean decides for both of them.
+	#:
+	#: The prose only — not the whole response, which also carries links, comments and possibly
+	#: a history. Those are bounded by what somebody typed; this is the part that is not, and
+	#: the part that dominates when it is large.
+	#: **Optional, and null is not zero** (`#482`). A field added since the last release must
+	#: carry a default or a client one commit ahead refuses the whole response — `#345`, twice
+	#: in one day. Null says *this instance did not tell you*; zero says *there is no prose*,
+	#: and a reader deciding whether to spend a context window needs those apart.
+	size_bytes: int | None = None
+
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
 	project_key: str
@@ -991,6 +1011,26 @@ class Document(pydantic.BaseModel):
 	title: str
 	body: str | None
 
+	#: **How much prose this item carries, in bytes** (`#595`). A row in a listing is the same
+	#: shape whether the item is three words or 128,083 characters — which is what one document
+	#: on this instance measured, about 32,000 tokens, read into an agent's context with nothing
+	#: anywhere to warn it. Context economy is a first-order cost here (§13), the tool surface
+	#: is budgeted to a few thousand bytes and held by a test, and one unannounced read spends
+	#: ten times that.
+	#:
+	#: **A number rather than a flag**, because the threshold is the caller's: a session with
+	#: room to spare and one nearly full need different answers to "is this too big", and a
+	#: boolean decides for both of them.
+	#:
+	#: The prose only — not the whole response, which also carries links, comments and possibly
+	#: a history. Those are bounded by what somebody typed; this is the part that is not, and
+	#: the part that dominates when it is large.
+	#: **Optional, and null is not zero** (`#482`). A field added since the last release must
+	#: carry a default or a client one commit ahead refuses the whole response — `#345`, twice
+	#: in one day. Null says *this instance did not tell you*; zero says *there is no prose*,
+	#: and a reader deciding whether to spend a context window needs those apart.
+	size_bytes: int | None = None
+
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
 	project_key: str
@@ -1214,6 +1254,19 @@ class Vocabulary:
 		return cls(session, status_ids={project.status_id for project in projects})
 
 
+
+def _prose_bytes (text: str | None) -> int:
+	"""Return how many bytes this item's prose takes, as a caller will receive it — `#595`.
+
+	UTF-8 rather than characters, because that is what crosses the wire and what a token budget
+	is spent on. The two disagree on the punctuation this project writes in — an em dash is
+	three bytes and one character — so a character count would understate exactly the documents
+	worth warning about.
+	"""
+
+	return 0 if text is None else len(text.encode("utf-8"))
+
+
 def task (
 	row: subroutine.db.models.work.Task, vocabulary: Vocabulary
 ) -> Task:
@@ -1226,6 +1279,7 @@ def task (
 		ref=row.ref,
 		title=row.title,
 		description=row.description,
+		size_bytes=_prose_bytes(row.description),
 		workspace_id=row.workspace_id,
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
@@ -1292,6 +1346,7 @@ def document (
 		ref=row.ref,
 		title=row.title,
 		body=row.body,
+		size_bytes=_prose_bytes(row.body),
 		workspace_id=row.workspace_id,
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),

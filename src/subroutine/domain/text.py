@@ -17,6 +17,20 @@ import subroutine.errors
 #: characters is what leaves room for an address, a date and a priority inside eighty.
 ONE_LINE_LIMIT = 60
 
+#: How much prose makes an item worth announcing before somebody opens it (`#595`).
+#:
+#: **Anchored on something rather than chosen round.** The whole MCP tool surface — every
+#: schema an agent carries in every session, budgeted and held by a test — is a little over ten
+#: thousand bytes. An item whose prose alone exceeds that costs more to read once than the
+#: tools cost all day, which is the point at which a reader is owed the fact before deciding.
+#:
+#: **Here rather than on either surface that uses it.** The command line and the agent's tools
+#: both mark a large item, and nothing in `mcp` may import `cli` — a served instance need not
+#: have been started through the command line at all, which is the same argument that moved
+#: `is_loopback` into `config`. Two thresholds agreed separately would drift into one surface
+#: warning where the other did not, and nothing would look wrong on either side.
+LARGE_PROSE = 10_000
+
 
 def fit (
 	value: str,

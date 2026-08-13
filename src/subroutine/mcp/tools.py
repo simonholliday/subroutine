@@ -38,6 +38,7 @@ import subroutine.domain.capture
 import subroutine.domain.filtering
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.installations
 import subroutine.mcp.protocol
@@ -1423,6 +1424,18 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 		# UUID is thirty-six characters a model cannot resolve without another call.
 		if item.assignee:
 			cells.append(f"@{item.assignee}")
+
+	# **How much prose it carries, where it is large enough to matter** (`#595`). One document
+	# on this instance is 128,083 characters — about 32,000 tokens — and its row here was the
+	# same shape as a row for a three-word note. That is roughly ten times the whole tool
+	# surface, spent by a reader who had no way of knowing, on the one surface where §13 makes
+	# context a first-order cost.
+	#
+	# In the row rather than in `show`, unlike `#819`'s tags and `#700`'s deletion date, and
+	# the difference is the point: this is the fact a caller needs *before* deciding to read,
+	# so it is worthless anywhere except the listing it decides from.
+	if item.size_bytes is not None and item.size_bytes >= subroutine.domain.text.LARGE_PROSE:
+		cells.append(f"{round(item.size_bytes / 1000)}k")
 
 	cells.append(item.title)
 

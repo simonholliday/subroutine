@@ -154,6 +154,16 @@ upgrade involves.
   The command line is deliberately unchanged: somebody finishing *buy milk* has not asked
   about claims.
 
+- **A listing says which items are expensive to open.** Anything carrying more than about ten
+  thousand bytes of prose is marked with its size — `12k` beside the row — at the command line
+  and in the agent tools alike, and every listing reports `size_bytes` for a script that wants
+  to decide for itself.
+
+  One document on this project's own instance is 128 KB, which is roughly 32,000 tokens read
+  into an agent's context, and its row looked exactly like a row for a three-word note. The
+  mark appears only where it applies: a column that says the same thing on every row says
+  nothing, so an ordinary list is unchanged.
+
 - **You can ask for your own work without typing your own name.** `subroutine list --assignee
   me`, `?assignee=me` over HTTP, and `--filter touched_by.eq=me` for what you have worked on
   rather than what is yours. Useful the moment somebody else starts handing you things.

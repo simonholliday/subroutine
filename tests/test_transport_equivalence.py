@@ -3090,3 +3090,33 @@ def test_me_is_not_a_way_to_ask_about_somebody_whose_name_you_do_not_know (
 	assert "'me'" in str(refused.value), (
 		"the sentinel leaked into a credential route, where it names an account nobody typed"
 	)
+
+
+def test_the_size_reported_is_bytes_on_the_wire_rather_than_characters (pair: Pair) -> None:
+	"""`#595`. The unit is the whole reason the number is trustworthy.
+
+	An em dash is one character and three bytes, and this project writes in them — so a
+	character count understates exactly the prose worth warning about, by up to a third, and
+	does it silently. A reader deciding whether to spend a context window on a document is
+	spending bytes.
+
+	Written because the mutation that swapped ``len(text.encode("utf-8"))`` for ``len(text)``
+	passed every other test here: the mark still appeared, the field was still populated, and
+	nothing anywhere compared the figure against the thing it measures.
+	"""
+
+	prose = "— " * 500
+	made = pair.local.capture(text="Something with punctuation in it")
+
+	pair.local.update(ref=made.task.ref, description=prose)
+	pair.session.flush()
+	pair.session.expire_all()
+
+	for client in pair.both():
+		found = client.task(ref=made.task.ref)
+
+		assert found is not None
+		assert found.size_bytes == len(prose.encode("utf-8"))
+		assert found.size_bytes > len(prose), (
+			"counted in characters, which understates every document this project writes"
+		)

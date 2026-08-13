@@ -56,6 +56,7 @@ import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
 import subroutine.installations
@@ -414,6 +415,7 @@ class Columns:
 	matched: int = 0
 	parent: int = 0
 	assignee: int = 0
+	size: int = 0
 
 	#: What was searched for, so a row can say where it was found. ``None`` on any listing
 	#: that was not a search, which is what drops the column entirely.
@@ -440,6 +442,7 @@ class Columns:
 			assignee=_column(
 				(_assignee_cell(item) for _name, item in rows), drop_if_uniform=False
 			),
+			size=_column(_size_cell(item) for _name, item in rows),
 		)
 
 
@@ -633,6 +636,27 @@ def _estimate_cell (item: Item) -> str:
 		return ""
 
 	return item.estimate_human
+
+
+def _size_cell (item: Item) -> str:
+	"""Return a mark for an item too big to read without meaning to — `#595`.
+
+	One document on this instance is 128,083 characters, about 32,000 tokens, and its row was
+	the same shape as a row for a three-word note. Nothing anywhere said so, on any surface, so
+	the only way to find out was to read it and watch a context window go.
+
+	**Only where it matters** (§12.2a): a column saying the same thing on every row says
+	nothing, and almost every item here is a few hundred bytes. `shaping.aligned` drops a
+	column that is empty in every row, so a personal list never sees this at all.
+
+	Rounded to whole kilobytes, because the decision it informs is *should I open this* and no
+	part of that turns on the last hundred bytes.
+	"""
+
+	if item.size_bytes is None or item.size_bytes < subroutine.domain.text.LARGE_PROSE:
+		return ""
+
+	return f"{round(item.size_bytes / 1000)}k"
 
 
 def _assignee_cell (item: Item) -> str:
@@ -5568,6 +5592,11 @@ def _item_line (
 	if columns.assignee:
 		line.append(f"{_assignee_cell(item):<{columns.assignee}}  ", style=DETAIL)
 
+	# **Before the title, where a decision is made** (`#595`). A reader scanning for something
+	# to open passes the mark on the way to the words, rather than after them.
+	if columns.size:
+		line.append(f"{_size_cell(item):>{columns.size}}  ", style=DETAIL)
+
 	_append_title(line, item.title, columns.term)
 
 	detail = _when(item)
@@ -6003,6 +6032,10 @@ def _as_json (
 		"title": item.title,
 		"type": item.type,
 		"status": item.status,
+		# **How much prose it carries** (`#595`). The terminal marks anything large; a script
+		# gets the number, because the threshold is the caller's — a session with room to
+		# spare and one nearly full need different answers to "is this too big".
+		"size_bytes": item.size_bytes,
 		# **The renameable key and the fixed axis, both** (`#583`). A status key is a
 		# workspace's own word for a stage, so a script branching on `status == "done"` is
 		# reading a label somebody may rename this afternoon; the category is the thing that

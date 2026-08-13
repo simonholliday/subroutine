@@ -84,6 +84,13 @@ DERIVED: dict[str, str] = {
 		"would be making a claim about an act rather than recording it."
 	),
 	"ref": "Allocated once per workspace and never reused (§6.2).",
+	"size_bytes": (
+		"How many bytes of prose the item carries, measured from the description or the body "
+		"as it goes over the wire (`#595`). A caller supplying one would be describing the "
+		"thing it just sent rather than deciding anything, and a value that disagreed with the "
+		"text beside it would be worse than none — the whole point is that a reader can trust "
+		"it before spending a context window on the field it measures."
+	),
 	"project_key": "The key of project_id, resolved for display.",
 	"claimed_by": (
 		"The username of claimed_by_id, resolved for display (`#726`) — the same shape as "

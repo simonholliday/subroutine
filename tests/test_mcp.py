@@ -46,6 +46,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.domain.filtering
+import subroutine.domain.text
 import subroutine.domain.workspaces
 import subroutine.installations
 import subroutine.mcp.protocol
@@ -4404,3 +4405,46 @@ def test_finishing_something_still_held_says_how_to_hand_it_back (
 	assert not failed, answered
 	assert "release=true" in answered, answered
 	assert "not claimed" not in answered, "it was claimed, and this says the opposite"
+
+
+def test_a_listing_says_which_items_are_expensive_to_read (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#595`, Simon's question, answered by measurement within the hour he asked it.
+
+	`subroutine_show` on one document here returns 128,083 characters — about 32,000 tokens —
+	and the row an agent reads before deciding was the same shape as a row for a three-word
+	note. `MAX_ANSWER` exists and is referenced in exactly one place: the raw `call_api` escape
+	hatch. **So the curated tool an agent is told to use was uncapped and unannounced, and the
+	hatch it is told to use sparingly was capped**, which is backwards.
+
+	This is the *before* half, which is the item's title. Marked rather than measured out loud
+	on every row, because §12.2a's rule is that a column saying the same thing everywhere says
+	nothing — and almost every item is a few hundred bytes.
+	"""
+
+	small = _added(bound, "A short one")
+	big = _added(bound, "A long one")
+
+	_called(
+		bound, "subroutine_update", ref=big,
+		description="x" * (subroutine.domain.text.LARGE_PROSE + 1),
+	)
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+
+	numbered = [(re.match(r"#(\d+)", line), line) for line in listed.splitlines()]
+	rows = {int(found.group(1)): line for found, line in numbered if found is not None}
+
+	assert {small, big} <= set(rows), f"both rows have to be here to compare: {listed}"
+
+	# **A digit and then the k**, not a bare letter: the first version of this asked whether
+	# `"k"` was in the row, and every row carries the word `task`.
+	marked = re.compile(r"\b\d+k\b")
+
+	assert marked.search(rows[big].split(" A long one")[0]), rows[big]
+	assert not marked.search(rows[small].split(" A short one")[0]), (
+		"a mark on every row is a column that says nothing (§12.2a)"
+	)
