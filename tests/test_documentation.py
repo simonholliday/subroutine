@@ -256,6 +256,93 @@ def _missing_targets (page: pathlib.Path, text: str) -> tuple[list[str], int]:
 	return missing, checked
 
 
+#: The section of ``CHANGELOG.md`` that is being written rather than read — the one a release
+#: is cut from. Checked by name rather than by position because "the topmost section" is what
+#: ``scripts/check_release_notes.py`` means by it, and two definitions of *the release being
+#: prepared* is one more than this repository should have.
+PREPARING = "Unreleased"
+
+
+def _changelog_headings (text: str) -> dict[str, list[str]]:
+	"""Return each ``## `` section's ``### `` headings, in the order they appear.
+
+	Text in and data out, so a synthetic changelog can be fed to exactly the code that reads
+	the real one (`#405`). A scanner whose subject is baked in can only be falsified by a copy
+	of its own rule, which is how this repository has twice shipped a check that read nothing.
+	"""
+
+	found: dict[str, list[str]] = {}
+	section: str | None = None
+
+	for line in text.splitlines():
+		if line.startswith("## "):
+			section = line[3:].strip()
+			found[section] = []
+
+		elif line.startswith("### ") and section is not None:
+			found[section].append(line[4:].strip())
+
+	return found
+
+
+def test_the_release_being_prepared_has_one_heading_of_each_kind () -> None:
+	"""`#859`, which is `#692` recurring — and `#692` was fixed without a guard.
+
+	`#692` found two ``### Fixed`` headings in the section about to ship, with the licence
+	change between them, and the finding was that **half the fixes sat below the entry most
+	likely to stop somebody reading**. A person upgrading reads down until they have what they
+	need; a second ``### Added`` two hundred lines later is content they will never reach. It
+	is invisible top to bottom and obvious the moment somebody asks `#686`'s third question —
+	*does this section describe what a person upgrading needs?*
+
+	Nothing was built to stop it, so within four days the same section had **three** ``Added``,
+	**three** ``Changed`` and **two** ``Fixed``. That is the argument for the guard rather than
+	the fix, made again by the same defect.
+
+	**Only the section being prepared**, and that is a scoping decision rather than an
+	oversight. A released section is the record of what shipped, not a draft, so tidying one is
+	rewriting a published page — and `0.4.0` carries this same defect today for exactly that
+	reason. What this guard is for is stopping the *next* release going out with it, and every
+	section passes through :data:`PREPARING` on its way there.
+	"""
+
+	sections = _changelog_headings(CHANGELOG.read_text(encoding="utf-8"))
+
+	assert PREPARING in sections, (
+		f"{CHANGELOG.name} has no '## {PREPARING}' section, so nothing was checked."
+	)
+
+	headings = sections[PREPARING]
+	repeated = sorted({name for name in headings if headings.count(name) > 1})
+
+	assert not repeated, (
+		f"'{PREPARING}' in {CHANGELOG.name} has more than one heading called each of "
+		f"{repeated}, out of {headings}. Merge them: a reader stops at the first one that "
+		f"answers their question, so anything under the second is content nobody reaches."
+	)
+
+
+def test_the_duplicate_heading_check_can_fail () -> None:
+	"""Feed the scanner a changelog that is wrong, through its own entry point.
+
+	Without this the assertion above is a rule nobody has seen fire, and it goes on passing if
+	``_changelog_headings`` ever stops finding headings at all — which is a scan reading
+	nothing, and reads exactly like a clean file.
+	"""
+
+	sections = _changelog_headings(
+		"# Changelog\n\n"
+		f"## {PREPARING}\n\n### Added\n\n- One.\n\n### Fixed\n\n- Two.\n\n"
+		"### Added\n\n- Three.\n\n"
+		"## 0.1.0 — 2026-01-01\n\n### Added\n\n- Four.\n"
+	)
+
+	assert sections[PREPARING] == ["Added", "Fixed", "Added"], sections
+	assert sections["0.1.0 — 2026-01-01"] == ["Added"], (
+		"a heading was attributed to the wrong section, so the real check is scoped wrongly"
+	)
+
+
 @pytest.mark.parametrize(
 	"page", [HOSTING, CONNECTING, README, CHANGELOG], ids=lambda path: path.name
 )

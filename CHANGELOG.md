@@ -23,18 +23,6 @@ upgrade involves.
 > It adds one index to the event table and changes no data, so on any instance short of
 > a very large one it is a matter of seconds.
 
-### Changed
-
-- **`subroutine today` offers you the best work to start next, not the oldest.** The section
-  of undated tasks — which on most backlogs is the bulk of the agenda — was ordered by capture
-  order, so `!1/1 tidy the desk` sat above `!5/5 renew the passport`, and the twenty it showed
-  you were the twenty you had written down first.
-
-  It ranks now, by the same rule `--order -priority_score` uses, and it picks the twenty
-  *before* it stops at twenty — so the most important thing on a two-hundred-item backlog is
-  in the answer rather than off the end of it. The heading is **Next** rather than
-  *Unscheduled*, because it now names what the section is for instead of what its rows lack.
-
 ### Added
 
 - **`subroutine today` has an *In progress* section.** Work you have already started is
@@ -65,20 +53,6 @@ upgrade involves.
   deciding whether you can start it. `subroutine list --json`, the API and the agent's listing
   carry the two as separate fields, so nothing is lost to that precedence, and `subroutine
   show` names what is at the far end.
-
-### Changed
-
-- **Items that tie in a ranked listing now come out oldest first.** Ranked lists are
-  tie-heavy — on our own backlog 52 of 172 open tasks share one score — so for about a third
-  of a list the tiebreak is the only thing deciding the order. It used to follow whichever
-  key came before it, which under `--order -priority_score` meant *newest* first: the thing
-  you wrote down most recently won, permanently.
-
-  **Age is a separator here and not a signal.** How long something has sat in a backlog says
-  nothing about whether it matters; what it can do is stop the same rows being buried for
-  ever. Expect a long list to look different even where nothing about the items changed.
-
-### Added
 
 - **A task carries `rank` when you ask for it in a particular order.** `GET /v1/tasks` now
   reports where each row sat in the ordering the request asked for, so a client merging pages
@@ -236,7 +210,44 @@ upgrade involves.
   `?actor=me` on the change feed, which means the credential you are holding — an agent with a
   shell has both, and they are genuinely different.
 
+- **A captured line can carry a time of day.** `Solar eclipse today at 18:30` sets the day and
+  the time; so do `Call the dentist tomorrow at 9am`, `Report due today at 17:00` and
+  `Standup from monday 09:00`. A time behind `due`, `before` or `by` sets the deadline;
+  otherwise it sets when the thing starts.
+
+  **A time has to be signalled** — written after `at`, or straight after a date already
+  recognised. That is what keeps `Email Bob re: 3pm` as a title rather than an appointment,
+  and it is the same reason the date words are a closed list.
+
+  **Anything it will not read stays in the title and is reported back**, which is new for times
+  and is the more useful half: a range like `14:00-15:00` names an end, and there is nowhere
+  to put an end yet, so it says so rather than quietly keeping the start.
+
+- **Python 3.14 is tested and claimed.** It was already permitted by `requires-python`, tested
+  by no job and claimed by no classifier — so an install on it worked and the package said
+  nothing about whether that was meant to.
+
 ### Changed
+
+- **`subroutine today` offers you the best work to start next, not the oldest.** The section
+  of undated tasks — which on most backlogs is the bulk of the agenda — was ordered by capture
+  order, so `!1/1 tidy the desk` sat above `!5/5 renew the passport`, and the twenty it showed
+  you were the twenty you had written down first.
+
+  It ranks now, by the same rule `--order -priority_score` uses, and it picks the twenty
+  *before* it stops at twenty — so the most important thing on a two-hundred-item backlog is
+  in the answer rather than off the end of it. The heading is **Next** rather than
+  *Unscheduled*, because it now names what the section is for instead of what its rows lack.
+
+- **Items that tie in a ranked listing now come out oldest first.** Ranked lists are
+  tie-heavy — on our own backlog 52 of 172 open tasks share one score — so for about a third
+  of a list the tiebreak is the only thing deciding the order. It used to follow whichever
+  key came before it, which under `--order -priority_score` meant *newest* first: the thing
+  you wrote down most recently won, permanently.
+
+  **Age is a separator here and not a signal.** How long something has sat in a backlog says
+  nothing about whether it matters; what it can do is stop the same rows being buried for
+  ever. Expect a long list to look different even where nothing about the items changed.
 
 - **`subroutine-remote` says that setting it up needs a terminal, because it does.** Its
   description claimed the plugin "runs and is configured wherever Claude Code runs". The first
@@ -273,81 +284,6 @@ upgrade involves.
 
   This affected a Subroutine installed on your own machine. Reaching the same instance over
   HTTP always worked, which is why it went unnoticed.
-
-### Security
-
-- **A restricted API token could sign in as its owner and come back unrestricted.** A sign-in
-  link is redeemed for a browser session, and a session carries no scopes, no project scope and
-  no workspace pin — so a token narrowed to, say, `task:read` could mint a link, redeem it, and
-  write freely as the person it belongs to. Every bound was lost at once, including an expiry.
-
-  **A bounded credential is refused now**, on all four axes and on expiry, and the refusal says
-  which. Two things are deliberately unchanged: an unrestricted token mints links as before, and
-  so does `subroutine login link` at the instance itself — which is the way back in for a
-  self-hoster whose mail relay is broken, and it must not depend on anything.
-
-  Service accounts were never affected: an agent's credential could not sign in to a browser
-  already. **If you have issued somebody a narrowed token and expect them to use the web
-  interface, they now need a sign-in link handed to them** rather than minting their own.
-
-  Found by an outside review of the whole codebase.
-
-- **Rate limiting stopped counting new callers on a busy instance.** A bucket was created and
-  then immediately discarded by the housekeeping sweep that ran on the next line, because a
-  fresh allowance looks exactly like one that has finished refilling. Below a few thousand
-  tracked keys nothing swept and nothing was wrong; above it, every request from every new key
-  went uncounted — measured at 200 allowed against a limit of 30.
-
-  It matters most for the limiter that counts **failed** authentication, which is keyed on
-  where a request came from so that guessing cannot buy a fresh allowance per guess. What it
-  protects is a 256-bit random token, so this was a safeguard not working rather than a way in.
-
-  Found by the same review.
-
-- **Corrected: `config.toml` was described as holding no secrets and as world-readable.** It is
-  neither. The file is written `0600`, and `subroutine init` puts `secret_key` in it.
-
-  **If you took the old advice and committed or shared that file, it has your signing key in
-  it.** What that key does is bounded — it signs pagination cursors and nothing else, so it is
-  not a way in and rotating it locks nobody out — but it should not be somewhere public, and
-  the documentation should not have said it could be.
-
-  What remains true is the reason the split exists: **no API token is ever written to
-  `config.toml`**, and `credentials.toml` is still the file that never leaves the machine.
-
-  Found by the same review, which named three places saying it; there were five.
-
-- **`/readyz` no longer tells the world why your database is unreachable.** The endpoint is
-  public by design, and it was putting the driver's own error into the response — which is an
-  internal hostname, a database name, or a filesystem path, depending on what went wrong.
-
-  **Nothing changes on an instance only you can reach**, which is where the message earns its
-  keep: setting one up, you still get the cause. Once `public_url` is set the caller is told
-  the instance is not ready and the cause goes to the log instead. The remedy — check
-  `database_url` — is still in both.
-
-  Found by the same review.
-
-### Added
-
-- **A captured line can carry a time of day.** `Solar eclipse today at 18:30` sets the day and
-  the time; so do `Call the dentist tomorrow at 9am`, `Report due today at 17:00` and
-  `Standup from monday 09:00`. A time behind `due`, `before` or `by` sets the deadline;
-  otherwise it sets when the thing starts.
-
-  **A time has to be signalled** — written after `at`, or straight after a date already
-  recognised. That is what keeps `Email Bob re: 3pm` as a title rather than an appointment,
-  and it is the same reason the date words are a closed list.
-
-  **Anything it will not read stays in the title and is reported back**, which is new for times
-  and is the more useful half: a range like `14:00-15:00` names an end, and there is nowhere
-  to put an end yet, so it says so rather than quietly keeping the start.
-
-- **Python 3.14 is tested and claimed.** It was already permitted by `requires-python`, tested
-  by no job and claimed by no classifier — so an install on it worked and the package said
-  nothing about whether that was meant to.
-
-### Fixed
 
 - **`subroutine_whoami` reported the instance's version twice and called one of them yours.**
   Asked over a served instance, it answered `Program X, instance X` — the same number supplied
@@ -428,6 +364,60 @@ upgrade involves.
   with an empty list the same minute a task was completed. Asking about completion now reaches
   completed work, exactly as naming a finished `status_category` already did, and asking for
   both `completed_at` and `include_completed=false` is refused rather than quietly resolved.
+
+### Security
+
+- **A restricted API token could sign in as its owner and come back unrestricted.** A sign-in
+  link is redeemed for a browser session, and a session carries no scopes, no project scope and
+  no workspace pin — so a token narrowed to, say, `task:read` could mint a link, redeem it, and
+  write freely as the person it belongs to. Every bound was lost at once, including an expiry.
+
+  **A bounded credential is refused now**, on all four axes and on expiry, and the refusal says
+  which. Two things are deliberately unchanged: an unrestricted token mints links as before, and
+  so does `subroutine login link` at the instance itself — which is the way back in for a
+  self-hoster whose mail relay is broken, and it must not depend on anything.
+
+  Service accounts were never affected: an agent's credential could not sign in to a browser
+  already. **If you have issued somebody a narrowed token and expect them to use the web
+  interface, they now need a sign-in link handed to them** rather than minting their own.
+
+  Found by an outside review of the whole codebase.
+
+- **Rate limiting stopped counting new callers on a busy instance.** A bucket was created and
+  then immediately discarded by the housekeeping sweep that ran on the next line, because a
+  fresh allowance looks exactly like one that has finished refilling. Below a few thousand
+  tracked keys nothing swept and nothing was wrong; above it, every request from every new key
+  went uncounted — measured at 200 allowed against a limit of 30.
+
+  It matters most for the limiter that counts **failed** authentication, which is keyed on
+  where a request came from so that guessing cannot buy a fresh allowance per guess. What it
+  protects is a 256-bit random token, so this was a safeguard not working rather than a way in.
+
+  Found by the same review.
+
+- **Corrected: `config.toml` was described as holding no secrets and as world-readable.** It is
+  neither. The file is written `0600`, and `subroutine init` puts `secret_key` in it.
+
+  **If you took the old advice and committed or shared that file, it has your signing key in
+  it.** What that key does is bounded — it signs pagination cursors and nothing else, so it is
+  not a way in and rotating it locks nobody out — but it should not be somewhere public, and
+  the documentation should not have said it could be.
+
+  What remains true is the reason the split exists: **no API token is ever written to
+  `config.toml`**, and `credentials.toml` is still the file that never leaves the machine.
+
+  Found by the same review, which named three places saying it; there were five.
+
+- **`/readyz` no longer tells the world why your database is unreachable.** The endpoint is
+  public by design, and it was putting the driver's own error into the response — which is an
+  internal hostname, a database name, or a filesystem path, depending on what went wrong.
+
+  **Nothing changes on an instance only you can reach**, which is where the message earns its
+  keep: setting one up, you still get the cause. Once `public_url` is set the caller is told
+  the instance is not ready and the cause goes to the log instead. The remedy — check
+  `database_url` — is still in both.
+
+  Found by the same review.
 
 ## 0.6.4 — 2026-08-11
 
