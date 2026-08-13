@@ -84,6 +84,12 @@ DERIVED: dict[str, str] = {
 		"would be making a claim about an act rather than recording it."
 	),
 	"ref": "Allocated once per workspace and never reused (§6.2).",
+	"rank": (
+		"Where the ordering the listing asked for put this row (`#569`). Not a score anybody "
+		"assessed — `priority_score` is that — and not stored anywhere: the query computes it "
+		"and it arrives on the row, so there is nothing for a caller to set. Accepting one "
+		"would let a client claim a position in an order it did not run."
+	),
 	"size_bytes": (
 		"How many bytes of prose the item carries, measured from the description or the body "
 		"as it goes over the wire (`#595`). A caller supplying one would be describing the "

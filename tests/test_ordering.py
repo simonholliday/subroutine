@@ -1,10 +1,15 @@
 """The ordering vocabulary, and the two places it has to mean the same thing.
 
-An ordering here exists twice by necessity: as SQL that arranges a query, and as Python that
+An ordering is applied twice by necessity: as SQL that arranges a query, and as Python that
 compares rows already fetched. The query half serves a single page; the Python half serves a
 *merged* listing, which is what ``subroutine list`` prints after asking one page per workspace
 per kind. A disagreement between them is not a cosmetic one — it is the right rows in the
 wrong order, or the wrong rows entirely, and neither announces itself.
+
+**Applied twice, stated once, since `#569`.** The Python half used to re-derive the rule from
+the fields on a view; it reads the value the query computed now, because an ordering may
+consult rows other than the one it is placing and no amount of care lets a rendered view
+reproduce that.
 
 That is not a hypothetical. ``#71`` shipped a ``--order`` flag whose result was re-sorted by
 ``created_at`` one level further up, so the flag chose which items appeared and then discarded
@@ -58,20 +63,24 @@ def test_a_document_can_be_read_by_every_field_it_may_be_sorted_by () -> None:
 	assert not missing
 
 
-def test_priority_score_orders_by_the_bands_not_by_the_reported_field () -> None:
-	"""§6.3a's three bands, applied to a merged page as well as to a query.
+def test_a_merged_page_is_ordered_by_the_rank_and_not_by_the_reported_score () -> None:
+	"""§6.3a's ordering, applied to a merged page as well as to a query.
 
 	``views.Task.priority_score`` is ``importance * urgency`` and null unless both are set;
-	an *ordering* by that name is the banded rule. Reading the view's field here would put a
-	part-ranked item back below an unranked one — the exact defect the bands were added to
-	fix, reintroduced one layer up and only in the merged case, where no test was looking.
+	``views.Task.rank`` is where the ordering the listing asked for put this row. Reading the
+	first here would put a part-ranked item back below an unranked one — the exact defect the
+	bands were added to fix, reintroduced one layer up and only in the merged case, where no
+	test was looking.
+
+	The rows below are shaped like what a server sorting by ``-priority_score`` sends back, so
+	the two fields disagree in exactly the way that makes reading the wrong one visible.
 	"""
 
 	read = subroutine.domain.ordering.VIEW_READERS["priority_score"]
 
-	ranked = read(Row(importance=4, urgency=4, priority_score=16))
-	part = read(Row(importance=5, urgency=None, priority_score=None))
-	unranked = read(Row(importance=None, urgency=None, priority_score=None))
+	ranked = read(Row(rank=216, importance=4, urgency=4, priority_score=16))
+	part = read(Row(rank=105, importance=5, urgency=None, priority_score=None))
+	unranked = read(Row(rank=None, importance=None, urgency=None, priority_score=None))
 
 	assert ranked > part
 	assert unranked is None
@@ -79,6 +88,10 @@ def test_priority_score_orders_by_the_bands_not_by_the_reported_field () -> None
 	# The part-ranked item's own reported field is null, which is precisely why sorting on it
 	# would drop it in among the unranked.
 	assert part is not None
+
+	# And the ranked one's two fields differ, so reading the reported score would be visible
+	# here as well as in the ordering — 16 is what a person assessed, 216 is where it sat.
+	assert ranked == 216
 
 
 def test_a_document_has_no_priority_and_says_so_rather_than_raising () -> None:
@@ -99,10 +112,12 @@ def test_nulls_sort_last_in_both_directions (descending: bool) -> None:
 	task, which is why the merge needs no separate rule for documents.
 	"""
 
+	# `rank` as a server sorting by this would report it: the banded value, and null for a row
+	# with neither axis — which is the case the rule is about.
 	rows = [
-		Row(ref=1, importance=1, urgency=1),
-		Row(ref=2, importance=None, urgency=None),
-		Row(ref=3, importance=5, urgency=5),
+		Row(ref=1, rank=201, importance=1, urgency=1),
+		Row(ref=2, rank=None, importance=None, urgency=None),
+		Row(ref=3, rank=225, importance=5, urgency=5),
 	]
 
 	found = subroutine.domain.ordering.merged(

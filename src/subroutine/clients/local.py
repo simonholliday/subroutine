@@ -528,14 +528,25 @@ class Client:
 					# pair that comes to disagree, and this one used to be the *only* one,
 					# which is why a client could not rank at all. NULLS LAST and the
 					# tiebreaker are `ordering.clauses`' job now (SPEC.md §10.3).
-					statement.order_by(
+					statement.options(
+						# The ordering's computed values have to arrive on the row rather than
+						# being worked out again here — there is no second copy to work them
+						# out from since `#569`, and the merged sort reads them off the view.
+						*subroutine.domain.ordering.options(
+							order,
+							allowed=subroutine.domain.ordering.TASK_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+						)
+					)
+					.order_by(
 						*subroutine.domain.ordering.clauses(
 							order,
 							allowed=subroutine.domain.ordering.TASK_FIELDS,
 							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
 							tiebreak=model.id,
 						)
-					).limit(size)
+					)
+					.limit(size)
 				)
 			)
 			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)

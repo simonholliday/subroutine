@@ -865,6 +865,12 @@ def _page (
 		default=DEFAULT_ORDER,
 		tiebreak=subroutine.db.models.work.Task.id,
 	)
+	# A sort whose expression reads other rows has no Python half, so its value has to arrive
+	# on the row for the cursor to name a page boundary (`#569`). Applied from the same
+	# expression the ordering was parsed from, never from a second reading of it.
+	statement = statement.options(
+		*subroutine.domain.ordering.options(order, allowed=SORTABLE, default=DEFAULT_ORDER)
+	)
 	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)

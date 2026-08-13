@@ -18,6 +18,7 @@ import typing
 
 import sqlalchemy
 import sqlalchemy.orm
+import sqlalchemy.orm.interfaces
 
 import subroutine.db.models.project
 import subroutine.db.models.work
@@ -35,10 +36,29 @@ class Derived:
 	``priority_score`` was declared as a bare ``importance * urgency``, which orders perfectly
 	and returned 500 for every result set larger than one page, because encoding a cursor read
 	each sort value with ``getattr(row, key.column.key)``. See ``#46``.
+
+	``carried_on`` names a :func:`sqlalchemy.orm.query_expression` attribute for the second
+	half to arrive on, instead of being computed a second time in Python. Set it when the
+	expression reads rows *other than* the one being sorted — where a Python copy is not
+	merely duplication but impossible, since a loaded row knows nothing about its neighbours
+	(`#569`). :func:`options` is then what puts the value there, and :meth:`carrying` is the
+	only place that pairing is written down.
 	"""
 
 	expression: sqlalchemy.ColumnElement[typing.Any]
 	read: typing.Callable[[typing.Any], typing.Any]
+	carried_on: sqlalchemy.orm.InstrumentedAttribute[typing.Any] | None = None
+
+	def carrying (self) -> sqlalchemy.orm.interfaces.ORMOption | None:
+		"""Return the loader option that puts this field's value on each loaded row.
+
+		``None`` where the field computes itself from the row it sorts, which needs no help.
+		"""
+
+		if self.carried_on is None:
+			return None
+
+		return sqlalchemy.orm.with_expression(self.carried_on, self.expression)
 
 
 #: What a sortable map may hold: a column, or a computed field that knows how to read itself
@@ -75,29 +95,35 @@ RANKED_BAND = 200
 PART_RANKED_BAND = 100
 
 
-def ranking (row: typing.Any) -> int | None:
-	"""Return one task's place in §6.3a's three-band ordering, from a loaded row.
+def carried (row: typing.Any) -> int | None:
+	"""Return the ordering value SQL computed for this row, for a cursor to carry.
 
-	The Python half of the pair. :data:`RANKING` is the same rule as SQL, and the two must
-	agree exactly: this one names the row a cursor stopped at, that one orders the query, and
-	a disagreement would be a page boundary that skips or repeats rows.
+	**There is no Python copy of the rule any more, and that is deliberate** (`#569`). §6.3a
+	used to require two implementations — a SQL expression that orders the query and a Python
+	function naming the row a cursor stopped at — and warned that a disagreement between them
+	is a page boundary which skips or repeats rows. An ordering that reads *other* rows cannot
+	have the second one at all: a loaded task does not know what it blocks. So the expression
+	is the only copy and this reads its answer, put on the row by :func:`options`.
+
+	**A missing value is raised rather than returned**, because the alternative is the exact
+	corruption the two-copies rule existed to prevent. A query that sorts by this and forgets
+	the loader option would otherwise hand the cursor ``None`` for every row and paginate
+	nonsense, silently — where a task carrying either axis always has a rank.
 	"""
 
-	# `row` is a loaded ORM object rather than a typed model, so the two axes arrive as
-	# `Any`; read into locals so the arithmetic below is checked rather than waved through.
-	importance: int | None = row.importance
-	urgency: int | None = row.urgency
+	value: int | None = getattr(row, "rank", None)
 
-	if importance is not None and urgency is not None:
-		return RANKED_BAND + importance * urgency
+	if value is not None:
+		return value
 
-	if importance is not None:
-		return PART_RANKED_BAND + importance
+	# Unranked is a real answer and sorts last (§6.3a); an *unloaded* rank is a bug here.
+	if row.importance is None and row.urgency is None:
+		return None
 
-	if urgency is not None:
-		return PART_RANKED_BAND + urgency
-
-	return None
+	raise subroutine.errors.InternalError(
+		"This task's ordering value was never computed, so a page boundary cannot be named.",
+		hint="The query sorted by a carried field without applying ordering.options().",
+	)
 
 
 #: The SQL half of the same rule. A ``CASE`` cannot use a plain index, and neither could the
@@ -138,7 +164,9 @@ TASK_FIELDS: dict[str, Sortable] = {
 	"planned_for": subroutine.db.models.work.Task.planned_for,
 	"importance": subroutine.db.models.work.Task.importance,
 	"urgency": subroutine.db.models.work.Task.urgency,
-	"priority_score": Derived(expression=RANKING, read=ranking),
+	"priority_score": Derived(
+		expression=RANKING, read=carried, carried_on=subroutine.db.models.work.Task.rank
+	),
 	"ref": subroutine.db.models.work.Task.ref,
 	"title": subroutine.db.models.work.Task.title,
 }
@@ -194,11 +222,23 @@ DEFAULT_PROJECT_ORDER = ("path",)
 #: caller: it merges a page per workspace per kind and has to re-sort the result, so the
 #: ordering the user asked for has to survive a comparison made in Python.
 #:
-#: **``priority_score`` reads through :func:`ranking`, not off the view's field of that name.**
-#: They are deliberately different things — the view reports ``importance * urgency`` (§6.3),
-#: while an *ordering* by that name applies §6.3a's three bands. Sorting a merged list by the
-#: view's field would put a part-ranked item back below an unranked one, which is the exact
-#: defect the bands were added to fix, reintroduced one layer up and only in the merged case.
+#: **``priority_score`` reads the view's ``rank``, never its ``priority_score``.** They are
+#: deliberately different things — the view reports ``importance * urgency`` (§6.3), while an
+#: *ordering* by that name is what §6.3a computes. Sorting a merged list by the published score
+#: would put a part-ranked item back below an unranked one, which is the exact defect the bands
+#: were added to fix, reintroduced one layer up and only in the merged case.
+#:
+#: **It reads rather than recomputes, which is `#569`'s change.** The rule used to be applied
+#: again here, from ``importance`` and ``urgency`` on the view; an ordering that reads other
+#: rows cannot be reapplied that way, and a client silently re-sorting a merged page back to a
+#: rule the server no longer uses is a defect only the merged case would show.
+#:
+#: **A missing value is null here and raises in :func:`carried`, and that asymmetry is
+#: deliberate.** The cursor reads a row this process just loaded, so an absent value can only
+#: mean a query that forgot the loader option — a bug, and worth a loud one. A *view* arrives
+#: over the wire from an instance that may be a release behind and not send the field at all,
+#: and `#345` and `#482` are the rule that a newer client reads what an older instance said
+#: rather than refusing it outright. Do not make this one strict to match the other.
 #:
 #: A name absent here is one no client can sort a merged page by; ``tests/test_ordering.py``
 #: fails if :data:`TASK_FIELDS` ever grows one, because a sort field the CLI silently ignores
@@ -211,7 +251,7 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"planned_for": lambda item: getattr(item, "planned_for", None),
 	"importance": lambda item: getattr(item, "importance", None),
 	"urgency": lambda item: getattr(item, "urgency", None),
-	"priority_score": lambda item: ranking(item) if hasattr(item, "importance") else None,
+	"priority_score": lambda item: getattr(item, "rank", None),
 	"ref": lambda item: item.ref,
 	"title": lambda item: item.title,
 }
@@ -332,6 +372,41 @@ def column (
 	"""Return the expression to sort by, whether the field is stored or computed."""
 
 	return field.expression if isinstance(field, Derived) else field
+
+
+def options (
+	expression: str | None,
+	*,
+	allowed: typing.Mapping[str, Sortable],
+	default: typing.Sequence[str],
+) -> list[sqlalchemy.orm.interfaces.ORMOption]:
+	"""Return the loader options an ordering needs, so its computed values reach each row.
+
+	**Every query that sorts by one of these must apply them, and the pairing is the whole
+	risk.** A field whose expression reads other rows has no Python half to fall back on
+	(:func:`carried`), so a statement that orders by it and omits this loads rows with the
+	value absent — and a keyset cursor built from those rows carries nothing, which paginates
+	wrongly rather than failing. :func:`carried` raises instead of returning ``None``, so the
+	mistake is loud; this is what stops it being made.
+
+	Parsed from the same expression the ordering is, and refusing the same names, so the two
+	cannot disagree about which fields were asked for.
+	"""
+
+	found: list[sqlalchemy.orm.interfaces.ORMOption] = []
+
+	for name, _descending in requested(expression, allowed=allowed, default=default):
+		chosen = allowed[name]
+
+		if not isinstance(chosen, Derived):
+			continue
+
+		carrying = chosen.carrying()
+
+		if carrying is not None:
+			found.append(carrying)
+
+	return found
 
 
 def clauses (

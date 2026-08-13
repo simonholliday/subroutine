@@ -293,6 +293,21 @@ class Task(pydantic.BaseModel):
 	urgency: int | None
 	priority_score: int | None
 
+	#: **Where this row sat in the ordering the listing was asked for, and nothing else**
+	#: (`#569`). Compare it; do not read meaning into the number. It is not a score a person
+	#: assessed — ``priority_score`` above is that — and it is deliberately opaque, because
+	#: what goes into it is an ordering decision that may change without the two axes changing.
+	#:
+	#: **Null unless the listing was sorted by it.** Its only job is to let a client merging
+	#: pages from several places reproduce the order it asked each of them for, which is what
+	#: ``subroutine list`` does across connections; computing it for callers who did not ask
+	#: would spend a correlated subquery per row on a number nobody reads.
+	#:
+	#: **Defaulted because it was added after this model shipped** (`#345`, `#482`): an
+	#: instance one release behind sends a body without it, and a required field here makes a
+	#: newer client refuse that instance outright rather than read the rest of what it said.
+	rank: int | None = None
+
 	due_at: datetime.datetime | None
 	due_is_all_day: bool
 	planned_for: datetime.date | None
@@ -1309,6 +1324,10 @@ def task (
 			if row.importance is None or row.urgency is None
 			else row.importance * row.urgency
 		),
+		# Whatever the query computed, or `None` where it was not asked to. Read rather than
+		# worked out: since `#569` an ordering may consult rows other than this one, so there
+		# is nothing here to work it out from.
+		rank=row.rank,
 		due_at=row.due_at,
 		due_is_all_day=row.due_is_all_day,
 		planned_for=row.planned_for,

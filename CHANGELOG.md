@@ -25,6 +25,15 @@ upgrade involves.
 
 ### Added
 
+- **A task carries `rank` when you ask for it in a particular order.** `GET /v1/tasks` now
+  reports where each row sat in the ordering the request asked for, so a client merging pages
+  from several places can reproduce that order rather than guessing at it.
+
+  **Compare it; do not read meaning into the number.** It is not a priority somebody assessed —
+  `priority_score` is that, and is unchanged — and what goes into it may change without either
+  of the two axes changing. It is null unless the listing was sorted by it, because computing it
+  for callers who did not ask would spend a query per row on a number nobody reads.
+
 - **A listing answers what was *worked on*, not only what changed.**
   `?touched_at.gte=yesterday` — and `subroutine list --filter touched_at.gte=yesterday` — finds
   what was created, edited, completed, commented on or moved through a status. Add

@@ -1136,16 +1136,22 @@ def test_part_ranked_tasks_order_among_themselves_by_the_axis_that_is_set (
 	assert order.index(high) < order.index(low)
 
 
-def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
+def test_the_value_a_cursor_carries_is_the_one_the_query_sorted_by (
 	world: World, session: sqlalchemy.orm.Session
 ) -> None:
-	"""The SQL expression and the Python reader must return the same number, always.
+	"""What orders the query and what names a page boundary must be the same number.
 
-	They are two statements of one rule, which is the pair this codebase has watched
-	disagree before. Here the consequence is specific rather than cosmetic: the expression
-	*orders* the query and the reader names the row a cursor stopped at, so a disagreement is
-	a page boundary that silently skips or repeats rows — the failure keyset pagination
-	exists to prevent, reintroduced underneath it.
+	**This used to compare two implementations and now checks there is one.** Until `#569` the
+	rule was written twice — a SQL expression and a Python reader — and this test existed
+	because that pair had been watched to disagree, with a specific consequence: the expression
+	*orders* the query and the reader names the row a cursor stopped at, so a disagreement is a
+	page boundary that silently skips or repeats rows.
+
+	An ordering that consults *other* rows cannot be written the second way at all, because a
+	loaded task does not know what it blocks. So the expression is the only copy and the value
+	travels to the row on a loader option. The failure mode moves rather than going away — a
+	query that sorts by it and omits the option — which is what this now measures, through the
+	reader a cursor actually calls.
 
 	Checked over every combination of the two axes rather than a sample, since there are only
 	thirty-six.
@@ -1163,11 +1169,19 @@ def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
 
 			world.call("POST", "/v1/tasks", json=body)
 
+	# Loaded the way a listing loads them — with the ordering's own loader option — because
+	# that pairing is now the thing under test rather than an incidental detail.
 	rows = list(
 		session.scalars(
-			sqlalchemy.select(subroutine.db.models.work.Task).where(
-				subroutine.db.models.work.Task.deleted_at.is_(None)
+			sqlalchemy.select(subroutine.db.models.work.Task)
+			.options(
+				*subroutine.domain.ordering.options(
+					"-priority_score",
+					allowed=subroutine.domain.ordering.TASK_FIELDS,
+					default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+				)
 			)
+			.where(subroutine.db.models.work.Task.deleted_at.is_(None))
 		)
 	)
 
@@ -1186,10 +1200,15 @@ def test_the_two_halves_of_the_ranking_rule_agree_on_every_row (
 
 	assert rows, "nothing to compare"
 
+	# The reader a cursor actually calls, rather than a second reading of the same rule.
+	reader = subroutine.domain.ordering.TASK_FIELDS["priority_score"]
+	assert isinstance(reader, subroutine.domain.ordering.Derived)
+
 	for row in rows:
-		assert from_sql[row.id] == subroutine.domain.ordering.ranking(row), (
-			f"the two halves disagree for importance={row.importance} urgency={row.urgency}: "
-			f"SQL said {from_sql[row.id]}, Python said {subroutine.domain.ordering.ranking(row)}"
+		assert from_sql[row.id] == reader.read(row), (
+			f"the ordering and the cursor disagree for importance={row.importance} "
+			f"urgency={row.urgency}: the query sorted by {from_sql[row.id]}, the cursor would "
+			f"carry {reader.read(row)}"
 		)
 
 

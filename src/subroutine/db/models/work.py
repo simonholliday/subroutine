@@ -107,6 +107,20 @@ class Task(
 		sqlalchemy.SmallInteger, nullable=True
 	)
 
+	# **Where an ordering's answer arrives, rather than a column of its own** (`#569`). Not
+	# stored and not migrated: the query computes it, `sqlalchemy.orm.with_expression` attaches
+	# the result here, and a row that was never asked for it reads `None`.
+	#
+	# This exists to remove a duplication rather than to add a field. §6.3a records that an
+	# ordering lives twice — a SQL expression that sorts the query and a Python function
+	# that names the row a keyset cursor stopped at — and that a disagreement between them
+	# is a page boundary which skips or repeats rows. An ordering that reads *other* rows,
+	# as `#569`'s does, cannot have the second half at all, because a loaded task does not know
+	# what it blocks. So SQL keeps the only copy and Python reads its answer off the row.
+	#
+	# `domain.ordering` owns what goes in here and is the only thing that should populate it.
+	rank: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.query_expression()
+
 	# Three distinct date fields. Conflating a deadline with an intended day is what
 	# makes an overdue list meaningless within a month.
 	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
