@@ -33,6 +33,7 @@ import api_support
 import subroutine.api.app
 import subroutine.api.documents
 import subroutine.api.routing
+import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.api.web
 import subroutine.cli.topics
@@ -40,6 +41,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.tasks
+import subroutine.views
 import subroutine.web.vendored
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -3149,19 +3151,50 @@ def _braced (source: str, opening: str) -> tuple[int, int]:
 
 
 def _function_body (source: str, name: str) -> str:
-	"""Return the body of one top-level function in the app, by name."""
+	"""Return the body of one top-level function in the app, by name.
+
+	**The parameter list is skipped rather than walked into, and that is `#860`.** This took
+	the first ``{`` after the name, which for a component declared
+
+	    export function Row ({ item, showKind, ... }) {
+
+	is the *destructured parameter list* — so it returned at the brace closing the signature
+	and called 114 characters a function body. ``Row`` contributed nothing to the scan below
+	for as long as it has existed, while the guard named it first.
+
+	Nothing noticed because the caller's floor asks whether *any* field was found, and the
+	other three functions supply sixteen between them. A floor catches a scanner that reads
+	nothing and is blind to one that reads most things.
+	"""
 
 	start = source.index(f"export function {name} (")
 	depth = 0
+	cursor = source.index("(", start)
 
-	for index in range(source.index("{", start), len(source)):
+	while True:
+		if source[cursor] == "(":
+			depth += 1
+
+		elif source[cursor] == ")":
+			depth -= 1
+
+			if depth == 0:
+				break
+
+		cursor += 1
+
+	depth = 0
+	opening = source.index("{", cursor)
+
+	for index in range(opening, len(source)):
 		if source[index] == "{":
 			depth += 1
+
 		elif source[index] == "}":
 			depth -= 1
 
 			if depth == 0:
-				return source[start:index]
+				return source[opening:index]
 
 	raise AssertionError(f"{name} never closes")
 
@@ -3188,6 +3221,17 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	job is to notice a new field stopped noticing, in response to the refactor it should most
 	have been watching. One level of resolution closes it, and one level is enough because the
 	functions a row's surface calls are pure and shallow by design.
+
+	**Both collections, since `#683`.** Documents render through these same four functions and
+	the comparison was against `TASK_FIELDS` alone — `DOCUMENT_FIELDS` appeared nowhere in this
+	module. What is missing today is genuinely task-only, so the shipped request was right and
+	the gap was here: a field both kinds have would have failed the task half loudly, about a
+	defect that was true of both, while the document half went on rendering it as absent.
+
+	**And `Row` was never scanned at all, which is `#860`.** Three of the four functions were,
+	and between them they supply sixteen fields — enough for the one floor this test had to
+	pass. Fixing it needed a floor *per function*, because that is the only shape that can see a
+	scanner which read most things. See :func:`_function_body` for what it was returning.
 	"""
 
 	source = _served_modules()["app.js"]
@@ -3206,20 +3250,66 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	for body in bodies.values():
 		rendered |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
 
-	asked = set(re.findall(r'"([a-z_]+)"', source[
-		source.index("const TASK_FIELDS = ["):source.index("].join(\",\");", source.index("const TASK_FIELDS = ["))
-	]))
-
 	assert rendered, "no fields were found, so this is checking nothing"
-	assert asked, "the task field list was not found, so this is checking nothing"
 
-	# `kind` is added by the app after the answer arrives — it says which collection a row came
-	# from, and no endpoint reports it.
-	missing = rendered - asked - {"kind"}
+	# **A floor per function rather than one over the union, which is `#860`.** The single floor
+	# above passes on sixteen fields from three functions, so it could not see that `Row` — the
+	# one this test is named after — was contributing nothing at all, because the body extractor
+	# was returning its parameter list. A floor catches a scanner that read *nothing* and is
+	# blind to one that read *most* things; this is that lesson applied to the scanner that
+	# taught it. Each of the four genuinely reads the item it is handed, so each must show it.
+	silent = sorted(
+		name
+		for name in surface
+		if not re.search(r"\bitem\.[a-z_]", bodies[name])
+	)
+
+	assert not silent, (
+		f"{silent} contributed no field reads, so {'it is' if len(silent) == 1 else 'they are'} "
+		f"named by this guard and not scanned by it. Check what _function_body returned."
+	)
+
+	# **Both collections, because both render through these four functions** (`#683`). The
+	# comparison was against `TASK_FIELDS` alone and `DOCUMENT_FIELDS` appeared nowhere in this
+	# module — so adding a field both kinds have would fail the task half while the document
+	# half went on rendering it as absent, which is §12.2c inverted for half the rows.
+	# **Collected and reported once rather than asserted per kind**, because a field both
+	# collections render is the case this exists for and a sequential assertion would name only
+	# the first — which is how the gap looked before `#683`: the task half failing, loudly and
+	# alone, about a defect that was true of both.
+	missing: dict[str, list[str]] = {}
+
+	for kind, constant, view in (
+		("task", "TASK_FIELDS", subroutine.views.Task),
+		("document", "DOCUMENT_FIELDS", subroutine.views.Document),
+	):
+		opening = source.index(f"const {constant} = [")
+		asked = set(
+			re.findall(r'"([a-z_]+)"', source[opening:source.index('].join(",");', opening)])
+		)
+
+		assert asked, f"{constant} was not found, so this is checking nothing"
+
+		# **What this kind of row could ask for, derived rather than listed.** A name the view
+		# model does not have is one the app computed for itself after the answer arrived —
+		# `kind` says which collection a row came from and `workspace` is resolved from
+		# `workspace_id` at the merge — and no endpoint reports either. That was a literal
+		# `- {"kind"}` until `#860`, which is a list that grows silently: scanning `Row` for
+		# the first time immediately produced a second name for it.
+		#
+		# It is also what makes the document half honest. Most of what a row renders is
+		# task-only, and asking a document's request for `due_at` would be demanding a field
+		# that cannot exist — the difference between "has no deadline" and "cannot have one",
+		# which is the distinction `DOCUMENT_FIELDS`'s own comment is about.
+		reportable = rendered & set(subroutine.api.shaping.selectable(view))
+		absent = sorted(reportable - asked)
+
+		if absent:
+			missing[f"a {kind} row ({constant})"] = absent
 
 	assert not missing, (
-		f"a row renders {sorted(missing)}, and the listing does not ask for {'it' if len(missing) == 1 else 'them'} — "
-		f"so every row will show that as absent rather than as unknown"
+		f"the listing renders fields it does not ask for: {missing} — so every row will show "
+		f"them as absent rather than as unknown"
 	)
 
 
