@@ -491,7 +491,9 @@ class Client:
 			if assignee is not None:
 				statement = statement.where(
 					model.assignee_id
-					== subroutine.domain.selection.user(session, assignee).id
+					== subroutine.domain.selection.user(
+						session, assignee, caller=actor.user
+					).id
 				)
 
 			if due_before is not None:
@@ -514,6 +516,7 @@ class Client:
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
 					session=session,
+					caller=actor.user,
 					workspace_ids=[chosen.id],
 				)
 			)
@@ -632,6 +635,7 @@ class Client:
 								session, actor, chosen
 							),
 							session=session,
+							caller=actor.user,
 							workspace_ids=[chosen.id],
 						)
 					)

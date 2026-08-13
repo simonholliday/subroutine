@@ -282,7 +282,10 @@ def listing (
 		examples=["done"],
 	),
 	assignee: str | None = fastapi.Query(
-		None, description="Restrict to one assignee, by username or id."
+		None,
+		description="Restrict to one assignee, by username or id. 'me' is the account you are "
+		"signed in as — which is not the same as ?actor=me on the change feed, where it means "
+		"this credential.",
 	),
 	type: str | None = fastapi.Query(None, description="Restrict to one item type key."),
 	parent: str | None = fastapi.Query(
@@ -461,7 +464,10 @@ def listing (
 	# nobody anything, since no client could pass the old one at all.
 	if assignee is not None:
 		statement = statement.where(
-			model.assignee_id == subroutine.domain.selection.user(session, assignee).id
+			model.assignee_id
+			== subroutine.domain.selection.user(
+				session, assignee, caller=actor.user
+			).id
 		)
 
 	if q:

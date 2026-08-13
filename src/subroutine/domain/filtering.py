@@ -515,6 +515,12 @@ class Where (typing.NamedTuple):
 	#: Only for a group that resolves a name. ``touched_by`` takes a username.
 	session: sqlalchemy.orm.Session | None = None
 
+	#: The account ``me`` stands for, where a filter takes a username (`#518`). ``None`` means
+	#: the word is an ordinary username and will not resolve, which is what a caller with no
+	#: principal to offer wants — the sentinel is a courtesy to somebody asking about
+	#: themselves, never a way to ask about somebody whose name you do not know.
+	caller: subroutine.db.models.identity.User | None = None
+
 	#: Which workspaces the listing is already narrowed to, so a subquery over another table
 	#: can reach an index keyed on one. **Not a visibility control** — :func:`_touched` explains
 	#: why the join decision `#817` called for turned out to narrow nothing.
@@ -650,7 +656,9 @@ def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:
 	if where.session is None:
 		raise AssertionError("touched_by needs a session to resolve a username")
 
-	return subroutine.domain.selection.user(where.session, comparison.value).id
+	return subroutine.domain.selection.user(
+		where.session, comparison.value, caller=where.caller
+	).id
 
 
 #: Which fields compile together, and what compiles them. One entry, so far.
@@ -666,6 +674,7 @@ def asked (
 	now: datetime.datetime,
 	timezone: str,
 	session: sqlalchemy.orm.Session | None = None,
+	caller: subroutine.db.models.identity.User | None = None,
 	workspace_ids: typing.Sequence[uuid.UUID] = (),
 ) -> list[typing.Any]:
 	"""Compile every dotted parameter into predicates, refusing anything it cannot.
@@ -677,7 +686,11 @@ def asked (
 	return predicates(
 		understood(parameters, entity=entity),
 		where=Where(
-			now=now, timezone=timezone, session=session, workspace_ids=workspace_ids
+			now=now,
+			timezone=timezone,
+			session=session,
+			caller=caller,
+			workspace_ids=workspace_ids,
 		),
 	)
 

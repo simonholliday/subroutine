@@ -1803,7 +1803,7 @@ def register (
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
 		assignee: str = typer.Option(
-			"", "--assignee", help="Only what is assigned to somebody, by username."
+			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
 		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
@@ -2012,7 +2012,7 @@ def register (
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
 		assignee: str = typer.Option(
-			"", "--assignee", help="Only what is assigned to somebody, by username."
+			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
 		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),

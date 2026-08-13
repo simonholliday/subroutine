@@ -154,6 +154,14 @@ upgrade involves.
   The command line is deliberately unchanged: somebody finishing *buy milk* has not asked
   about claims.
 
+- **You can ask for your own work without typing your own name.** `subroutine list --assignee
+  me`, `?assignee=me` over HTTP, and `--filter touched_by.eq=me` for what you have worked on
+  rather than what is yours. Useful the moment somebody else starts handing you things.
+
+  `me` here is the account you are signed in as. It is deliberately *not* the same as
+  `?actor=me` on the change feed, which means the credential you are holding — an agent with a
+  shell has both, and they are genuinely different.
+
 ### Changed
 
 - **`subroutine-remote` says that setting it up needs a terminal, because it does.** Its

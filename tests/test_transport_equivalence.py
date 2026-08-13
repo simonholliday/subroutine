@@ -3036,3 +3036,57 @@ def test_an_items_record_is_readable_after_it_goes_to_the_trash (pair: Pair) -> 
 
 		# The third sub-resource, and the one that was still refusing after the first fix.
 		assert client.tasks(parent=ref, include_completed=True) == []
+
+
+def test_a_person_can_ask_for_their_own_work_by_name_or_by_me (pair: Pair) -> None:
+	"""`#518`, Simon's: *"can I filter to only view tasks assigned to me?"*
+
+	**`me` is the account, where `?actor=me` on the change feed is the credential** (`#158`).
+	Two spellings of one word for two different things, which `#335` measured — an agent with a
+	shell is two principals — so the field is what settles which is meant: *who did this* is a
+	question about a credential, *who holds this* is a question about an account.
+
+	Driven through both clients, because a sentinel resolved in one of them would be the
+	divergence `test_reach` exists to prevent and the shape `#700` cost two commits.
+	"""
+
+	made = pair.local.capture(text="Something for me")
+
+	pair.local.update(ref=made.task.ref, assignee=pair.user.username)
+	pair.session.flush()
+	pair.session.expire_all()
+
+	for client in pair.both():
+		named = client.tasks(assignee=pair.user.username)
+		mine = client.tasks(assignee="me")
+
+		assert [task.ref for task in mine] == [made.task.ref]
+		assert [task.ref for task in named] == [task.ref for task in mine]
+
+
+def test_me_is_not_a_way_to_ask_about_somebody_whose_name_you_do_not_know (
+	pair: Pair,
+) -> None:
+	"""The sentinel is opt-in per call site, and this is why.
+
+	:func:`subroutine.domain.selection.user` also resolves the account a **sign-in link** is
+	minted for and the one signed out of every browser. A sentinel accepted everywhere would
+	have widened the grammar of two credential routes as a side effect of adding a listing
+	filter — which is `#829`'s shape, where a route nobody thought about was the one that
+	mattered.
+
+	So those callers pass no ``caller`` and ``me`` stays an ordinary username there, refused by
+	name like any other that does not exist.
+
+	**Signing out rather than minting a link, and that is a correction.** The first version of
+	this asked for a login link and was answered *"this instance has no public_url"* — a
+	refusal from a check two steps earlier, so it would have passed whatever ``me`` resolved
+	to. A test that refuses for the wrong reason is one that cannot fail.
+	"""
+
+	with pytest.raises(subroutine.errors.SubroutineError) as refused:
+		pair.local.sign_out_everywhere(username="me")
+
+	assert "'me'" in str(refused.value), (
+		"the sentinel leaked into a credential route, where it names an account nobody typed"
+	)

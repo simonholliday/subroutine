@@ -58,10 +58,31 @@ def workspace (
 	return _only(reachable, "You are not a member of any workspace.")
 
 
+#: The word a caller uses for its own account. **Opt-in per call site rather than accepted
+#: everywhere** (`#518`): the resolver below also serves minting a sign-in link and signing an
+#: account out of every browser, and a sentinel that quietly worked there would widen the
+#: grammar of two credential routes as a side effect of adding a listing filter. `#829` is what
+#: that costs when it goes unnoticed, so a caller that means to allow this says so.
+CALLER = "me"
+
+
 def user (
-	session: sqlalchemy.orm.Session, given: str
+	session: sqlalchemy.orm.Session,
+	given: str,
+	*,
+	caller: subroutine.db.models.identity.User | None = None,
 ) -> subroutine.db.models.identity.User:
 	"""Return the account this names, whether it was named by username or by id.
+
+	``caller`` is the account ``me`` stands for, and passing none means ``me`` is an ordinary
+	username that will not resolve — which is the answer every credential route here wants.
+
+	**``me`` is the person, where ``?actor=me`` on the change feed is the credential** (`#158`).
+	Two spellings of one word and they are not the same thing, which `#335` measured: an agent
+	with a shell is two principals. The field is what settles it — *who did this* is a question
+	about a credential, *who holds this* is a question about an account — and each takes the one
+	it is about. Documented here because "which does `me` mean" is the question a reader of
+	either will have.
 
 	**The house pattern for an identifier a person types** (`#501`). ``/v1/tasks/{id_or_ref}``
 	and ``/v1/projects/{id_or_key}`` both take either form, and an assignee should not be the
@@ -79,6 +100,9 @@ def user (
 	first group is eight characters of hex — but the order is stated rather than left to be
 	inferred, because "which wins" is exactly the question a reader of this will have.
 	"""
+
+	if caller is not None and given == CALLER:
+		return caller
 
 	try:
 		identifier = uuid.UUID(given)

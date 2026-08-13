@@ -136,6 +136,7 @@ def narrowed (
 				now=subroutine.db.types.utcnow(),
 				timezone=subroutine.domain.filtering.timezone_for(session, actor, workspace),
 				session=session,
+				caller=actor.user,
 				workspace_ids=[workspace.id],
 			)
 		)
