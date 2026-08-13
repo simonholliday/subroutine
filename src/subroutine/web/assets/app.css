@@ -117,6 +117,18 @@ fieldset {
 	padding: var(--gap);
 }
 
+/* **The board is the one view that wants the screen** (`#846`). 1100px is a reading measure —
+   right for a list, a document and a form, and wrong for a board, where the useful thing is how
+   many columns you can see at once. On a wide display it was hiding three columns of seven
+   behind a scrollbar at the bottom of a three-thousand-pixel page.
+
+   No second cap here, deliberately. A number would be somebody's screen written into the
+   stylesheet; the column's own `max-width` is what stops the columns spreading, and past that
+   the space is simply left. */
+.app.wide {
+	max-width: none;
+}
+
 .top {
 	display: flex;
 	align-items: baseline;
@@ -490,17 +502,46 @@ fieldset {
 	the element is. `tests/test_browser.py` measures the heights now, because geometry is the
 	half a synthetic gesture cannot check.
 */
+/* **An edge that says there is more, without needing the bottom of the page** (`#846`).
+
+   The columns scroll horizontally, and the only thing announcing that was the scrollbar — which
+   sits at the bottom of this element, and this element is as tall as its tallest column. On
+   this project's own board that is ninety-odd cards, so the announcement was several thousand
+   pixels below the fold and the reader who found it had gone looking for the footer.
+
+   Two gradients per side and the pairing is what makes it work: the *cover* scrolls with the
+   content (`local`), the *shadow* is fixed to the scroll port (`scroll`), so each shadow is
+   hidden by its cover exactly when that end is reached. No JavaScript and no resize listener,
+   which matters because the condition changes with the window as well as with the scrolling.
+
+   `color-mix` against `--ink` rather than a literal black: the shadow has to read on both
+   themes, and a hard-coded `rgba(0, 0, 0, …)` is invisible on the dark one — §22 and decision
+   `#102`'s reasoning about hues belonging to the reader's theme. */
 .board .columns {
 	display: flex;
 	gap: 14px;
 	align-items: stretch;
 	overflow-x: auto;
 	padding-bottom: 6px;
+	background:
+		linear-gradient(to right, var(--bg-sunken), transparent) 0 0 / 28px 100% no-repeat local,
+		linear-gradient(to left, var(--bg-sunken), transparent) 100% 0 / 28px 100% no-repeat local,
+		linear-gradient(
+			to right, color-mix(in srgb, var(--ink) 22%, transparent), transparent
+		) 0 0 / 16px 100% no-repeat scroll,
+		linear-gradient(
+			to left, color-mix(in srgb, var(--ink) 22%, transparent), transparent
+		) 100% 0 / 16px 100% no-repeat scroll;
 }
 
+/* **Grows to fill, and stops.** Without the maximum, seven columns on a display wide enough for
+   them became seven columns of five hundred pixels — a card is a title and a few marks, and a
+   long line of one is harder to scan than a short one, which is the whole reason a board is
+   columns rather than a table. Past the maximum the space is left empty. */
 .board .column {
 	flex: 1 0 260px;
 	min-width: 260px;
+	max-width: 340px;
 	min-height: 180px;
 }
 

@@ -154,6 +154,20 @@ upgrade involves.
   The command line is deliberately unchanged: somebody finishing *buy milk* has not asked
   about claims.
 
+### Changed
+
+- **The board uses the width of the window, and says when there are columns off the edge.**
+  The page is capped at a comfortable reading width, which is right for a list and wrong for a
+  board — on a wide display that was hiding three columns of seven, and the only sign they
+  existed was a scrollbar at the bottom of a page thousands of pixels long.
+
+  The board now takes the room it has, columns stop widening once they are comfortable rather
+  than stretching to fill a large screen, and where columns still do not fit — a phone, a
+  narrow window — the edge of the strip is shaded to show there is more beside it.
+
+  A board of tasks *and* documents has seven columns rather than four, because the two keep
+  their own vocabularies: a superseded specification is not "done".
+
 ### Fixed
 
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and

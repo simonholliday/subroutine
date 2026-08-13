@@ -774,6 +774,23 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**And a list of forbidden words was the version before that**, which failed on its own
 	list — `#546`'s shape for the third time here, and ``tests/dom.js`` records the same trap
 	arriving through the word *click* inside the sentence forbidding it.
+
+	**Raised to twelve on 2026-08-13 for `#846`, and it is the clearest raise so far.**
+	``#748`` named three things this file exists for — a modified click, **layout**, and
+	``axe-core`` — and until now it had measured none of the second. The addition asks whether
+	a board's columns fit the window, which is a question about the cascade, the flex line and
+	the viewport at once: there is no arrangement of ``tests/dom.js`` that can answer it, so it
+	fails the "could a DOM do this" test in the direction that justifies the cost.
+
+	**What earns it is the defect, not the category.** Three of seven columns were off-screen
+	on a wide display, and the only thing announcing them sat at the bottom of a container as
+	tall as its tallest column — several thousand pixels down. It was found by a person opening
+	the page, which is where nine of this browser's defects have come from, and this file is
+	the only thing that could have found it first.
+
+	**Read for fat before raising**, as this docstring requires of itself: the addition sets
+	two viewports and makes two assertions, and the second is what stops the first passing
+	vacuously against a board that never overflowed. Neither is removable.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -781,8 +798,59 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 11, (
-		f"this file holds {len(tests)} tests: {tests}. Eleven answering what only a browser can "
+	assert len(tests) <= 12, (
+		f"this file holds {len(tests)} tests: {tests}. Twelve answering what only a browser can "
 		f"is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
+
+
+def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) -> None:
+	"""`#846`, and the first thing here that measures *layout* — `#748`'s named third scope.
+
+	Found by the browser's only reader, on a display twice as wide as the page was using. A
+	list wants a reading measure and the frame gave one to everything; a board wants columns,
+	and a task's four categories plus a document's three are seven of them. Three sat off the
+	right-hand edge, and the one thing announcing them — the scrollbar — is at the bottom of a
+	container as tall as its tallest column, which on a real board is thousands of pixels down.
+
+	**Both viewports, because one of them cannot fail.** Wide alone would pass against a board
+	that had never overflowed; narrow alone says nothing about the fix. The pair says the
+	columns fit when there is room and scroll when there is not, which is the whole claim.
+	"""
+
+	opened, _written = running
+	mixed = {
+		"items": [
+			dict(CARD, ref=n, kind=kind, status_category=category, title=f"{category} {n}")
+			for n, (kind, category) in enumerate(
+				[
+					("task", "todo"), ("task", "in_progress"), ("task", "done"),
+					("document", "draft"), ("document", "current"), ("document", "superseded"),
+				],
+				start=200,
+			)
+		],
+		"page": {"has_more": False, "next_cursor": None, "total": None},
+	}
+	page = opened("/projects?view=board", rows=mixed)
+
+	page.wait_for_selector(".board .column", timeout=10_000)
+	page.set_viewport_size({"width": 2200, "height": 900})
+
+	# **Asked of the element that scrolls**, not of the window: the page can be perfectly
+	# scrollable while a strip inside it is clipping content, which is exactly what happened.
+	clipped = ".board .columns"
+	room = page.eval_on_selector(
+		clipped, "node => node.scrollWidth - node.clientWidth"
+	)
+
+	assert room <= 1, f"{room}px of columns are off-screen on a display with room for them"
+
+	page.set_viewport_size({"width": 700, "height": 900})
+
+	assert page.eval_on_selector(clipped, "node => node.scrollWidth - node.clientWidth") > 1, (
+		"nothing overflows even at 700px, so the check above passes whatever the frame does"
+	)
+
+	page.close()

@@ -5039,7 +5039,17 @@ export function App () {
 	}
 
 	return html`
-		<div class="app">
+		${/*
+			**The board is the one view that wants the screen** (`#846`). A list wants a
+			readable line length, which is what the 1100px cap is for; a board wants as many
+			columns visible as will fit, and on a wide display the cap was hiding three of
+			seven behind a scrollbar at the bottom of a three-thousand-pixel page.
+
+			One class rather than two containers, because everything else about the frame —
+			the header, the capture box, the footer — is the same in both and duplicating it
+			is how two layouts come to disagree.
+		*/ null}
+		<div class=${showing.view === "board" ? "app wide" : "app"}>
 			<header class="top">
 				<h1>Subroutine</h1>
 				<div class="who">
