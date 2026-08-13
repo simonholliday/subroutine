@@ -5830,11 +5830,12 @@ def _facts (located: Located) -> list[str]:
 	# **A status somebody chose, and silence about the one everything starts in** (`#168`,
 	# Simon 2026-08-01). This printed nothing at all, so `update 5 --status blocked` answered
 	# "Changed" and then no surface in the product would ever mention it again — a clean-room
-	# tester assumed it had not saved. `status_is_default` is what lets this say `blocked`
-	# without saying `open` on every shopping-list item, which §1.4 would not survive.
-	# Not when it is finished: the `done <date>` fact below says that better, and a document
-	# has no `completed_at` to ask about — the category is the question both kinds answer.
-	if not item.status_is_default and item.status_category != "done":
+	# tester assumed it had not saved.
+	#
+	# The rule moved to `views.status_is_news` when `#841` made it a third caller. It was
+	# written out here and in `mcp/tools._more` identically, which is fine for two and is how
+	# every duplicated rule in this codebase started.
+	if subroutine.views.status_is_news(item):
 		facts.append(item.status)
 
 	if isinstance(item, subroutine.views.Task):

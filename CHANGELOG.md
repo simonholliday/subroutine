@@ -42,6 +42,17 @@ upgrade involves.
   had ever captured. It sits between *Today* and the rest, and the heading is dropped when
   nothing is started, like every other section. `GET /v1/agenda` carries it as `in_progress`.
 
+- **An agent's listing says what is already started and who is holding it.** A row from
+  `subroutine_list` or `subroutine_search` now carries the status where somebody has changed
+  it, and `held by @somebody` where a claim is live.
+
+  This is the half that was missing from claiming. An agent is asked to take an item and mark
+  it in progress so that nobody else picks it up — and until now no other agent could see
+  either fact, so the announcement had no audience and two of them could take the same work.
+
+  A row that has nothing to say still says nothing: an ordinary open task is unchanged, and a
+  lease that has run out is not reported as held, because an expired claim does not count.
+
 - **A listing says which work is holding something else up.** A task that blocks an unfinished
   one is marked `holds up` — the mirror of the `blocked` marker, which has been there since
   0.6.0 and only ever showed the other end.

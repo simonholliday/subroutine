@@ -11,6 +11,7 @@ notification gets no answer at all, and a tool that fails is a successful respon
 """
 
 import ast
+import datetime
 import io
 import json
 import os
@@ -39,7 +40,10 @@ import subroutine.connections
 import subroutine.context
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
+import subroutine.db.models.work
 import subroutine.db.seed
+import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -565,6 +569,142 @@ def test_an_agent_can_see_who_work_is_with (
 	listed = _called(bound, "subroutine_list")[0]
 
 	assert f"@{who}" in listed
+
+
+def test_a_listing_says_what_is_already_started (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#841`. The convention asks an agent to announce what it is doing; this is who hears it.
+
+	`#705` mandates claiming an item and setting it ``in_progress``, and `#777` measured the
+	result: nothing had ever been claimed. This is the read half — until now an agent listing
+	the backlog could not see that another agent had already started something, so two would
+	pick the same item.
+
+	**Two rows, because the assertion that matters is the negative one.** ``open`` is the
+	status everything starts in and saying it on every row is what §1.4 would not survive; a
+	single-row listing would satisfy this test whatever the rule did.
+	"""
+
+	started = _added(bound, "Rewire the parser")
+	untouched = _added(bound, "Sweep the logs")
+
+	changed, failed = _called(
+		bound, "subroutine_update", ref=started, status="in_progress"
+	)
+
+	assert not failed, changed
+
+	listed = _called(bound, "subroutine_list")[0]
+	rows = {
+		line.split()[0]: line for line in listed.splitlines() if line.startswith("#")
+	}
+
+	assert "in_progress" in rows[f"#{started}"], listed
+	assert "open" not in rows[f"#{untouched}"], (
+		f"the status everything starts in is on an ordinary row: {rows[f'#{untouched}']!r}"
+	)
+
+
+def test_a_listing_says_who_is_holding_something_and_forgets_when_the_lease_runs_out (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#841`, and the half that is easy to get wrong.
+
+	A claim is a **lease** (§14.11): it expires, and an expired one is ignored, because a
+	worker that dies holding one must not strand the work. The view reports the holder of an
+	expired lease on purpose — who was working on this is worth keeping — so a renderer that
+	read ``claimed_by`` and stopped would report work as taken that nobody is doing.
+
+	**That is not a hypothetical.** Of the three claim records on this project's own instance
+	when this was written, two had expired: reading the column alone would have been wrong
+	about two rows in three, in the direction that stops an agent picking up free work.
+	"""
+
+	ref = _added(bound, "Rotate the certificates")
+	who = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User.username)
+	).first()
+
+	assert who is not None
+
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+	assert f"held by @{who}" in _called(bound, "subroutine_list")[0]
+
+	# Backdated rather than waited for: the lease is half an hour by default, and the point is
+	# the clock rather than the duration.
+	session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Task)
+		.where(subroutine.db.models.work.Task.ref == ref)
+		.values(claim_expires_at=subroutine.db.types.utcnow() - datetime.timedelta(hours=1))
+	)
+	session.flush()
+
+	expired = _called(bound, "subroutine_list")[0]
+
+	assert "held by" not in expired, (
+		f"an expired lease is still reported as held: {expired!r}"
+	)
+	assert "Rotate the certificates" in expired, "the row itself should still be there"
+
+
+def test_a_documents_status_is_not_a_cell_in_a_listing (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""The measured half of `#841`, and it went the other way from what tidiness suggested.
+
+	``views.status_is_news`` is asked of tasks only. Applying it to documents as well is the
+	obvious symmetry and is wrong here, because **a document's default is ``draft`` and
+	``active`` is not** — so on this project's own instance the rule would put a cell on 111
+	of 122 document rows, saying the ordinary thing about nearly all of them. That is §12.2a's
+	"a column that says the same thing on every row says nothing", reached from the other
+	direction.
+
+	``show`` still reports it, and that difference is the design: a listing says *which* item
+	to pick and a fact sheet says everything about one.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="What we decided about caching", body="Because."
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	ref = int(numbered.group(1))
+	# **`entity_type` as well as the key**, because two seeded statuses are called `active` —
+	# a project's, which is its default, and a document's, which is not. Asking by key alone
+	# picked the project's and made this test assert against the wrong vocabulary, which is
+	# `#722`'s narrower-paths-first trap wearing a table instead of a URL.
+	active = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.Status).where(
+			subroutine.db.models.vocabulary.Status.entity_type == "document",
+			subroutine.db.models.vocabulary.Status.key == "active",
+		)
+	).first()
+
+	assert active is not None, "the workspace was seeded without an 'active' document status"
+	assert not active.is_default, "this test needs a status that is not the document default"
+
+	session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Document)
+		.where(subroutine.db.models.work.Document.ref == ref)
+		.values(status_id=active.id)
+	)
+	session.flush()
+
+	listed = _called(bound, "subroutine_list")[0]
+	row = next(line for line in listed.splitlines() if line.startswith(f"#{ref} "))
+
+	assert "active" not in row, f"a document's status is a cell on every row: {row!r}"
+	assert "active" in _called(bound, "subroutine_show", ref=ref)[0], (
+		"the fact sheet should still report it — the listing is where it is noise"
+	)
 
 
 def test_an_agent_can_say_what_blocks_what (
@@ -4113,10 +4253,11 @@ NOT_SHOWN_TO_AN_AGENT: dict[str, str] = {
 		"person reading a day name. This surface sends ISO instants and lets the model do "
 		"its own arithmetic, so there is nothing to render *into*."
 	),
-	"status_is_default": (
-		"The rule rather than the fact. Both surfaces read it to decide whether a status is "
-		"news; neither reports it."
-	),
+	# `status_is_default` was excused here until `#841` — "the rule rather than the fact, both
+	# surfaces read it to decide whether a status is news". Neither reads it now:
+	# `views.status_is_news` does, for all three renderers. The entry went because the guard
+	# below refused it, which is the "what makes this entry go away?" question working rather
+	# than an entry nobody dared delete.
 	"estimate_minutes": (
 		"Reported as `estimate_human`, which is §6.4's grammar — the spelling an agent would "
 		"send back, and what `_line` has always carried."

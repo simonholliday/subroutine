@@ -1259,8 +1259,9 @@ def _listed (
 		# whole backlog, which was measured against the real instance rather than reasoned
 		# about. An agent whose day is empty should ask `ready=true`, which is the better
 		# question and already a cheaper one.
+		moment = subroutine.db.types.utcnow()
 		rows = [
-			_line(task)
+			_line(task, now=moment)
 			for bucket in (agenda.overdue, agenda.today, agenda.upcoming)
 			for task in bucket
 		]
@@ -1306,7 +1307,10 @@ def _listed (
 		if len(tasks) < limit and not ready and _asks_only_of_documents(filters)
 		else []
 	)
-	rows = [_line(task) for task in tasks] + [_line(document) for document in documents]
+	moment = subroutine.db.types.utcnow()
+	rows = [_line(task, now=moment) for task in tasks] + [
+		_line(document, now=moment) for document in documents
+	]
 
 	if not rows:
 		return "Nothing open."
@@ -1370,17 +1374,54 @@ def _asks_only_of_documents (filters: dict[str, str]) -> bool:
 	)
 
 
-def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
-	"""Return one item as a line: address, kind, rank, estimate, title.
+def _line (
+	item: subroutine.views.Task | subroutine.views.Document, *, now: datetime.datetime
+) -> str:
+	"""Return one item as a line: address, kind, state, rank, estimate, title.
 
 	Assembled here rather than reusing ``?format=compact``, which is a *terminal* rendering —
 	aligned columns with long titles cut short. A model reading a truncated title has been
 	given damaged data to save characters it did not need saving.
+
+	``now`` is required rather than read here, so that every row of one page is judged against
+	one instant — `#361`'s rule, and the reason is sharper for a *claim* than for a query: two
+	rows of one listing disagreeing about whether a lease had run out would be a page that
+	contradicts itself.
 	"""
 
 	cells = [subroutine.domain.refs.format_ref(item.ref), item.type]
 
 	if isinstance(item, subroutine.views.Task):
+		# **What is already started, and who is holding it** (`#841`). `#705` tells an agent to
+		# claim an item and set it `in_progress`; `#777` measured the result and nothing had
+		# ever been claimed. This is the read half — the convention asked every agent to
+		# announce what it was doing on a surface where no other agent could hear it, so two
+		# would pick the same item and the lease that exists to prevent exactly that (§14.11)
+		# was invisible to the only readers it was built for.
+		#
+		# **Both cells cost nothing on a row that has nothing to say**, which is what answers
+		# `#819`'s rule that a fact belongs in `show` unless the listing needs it. Measured on
+		# this instance: 2 of 172 open tasks carry a status worth printing and 1 carries a live
+		# claim. What the other 169 rows pay is zero bytes, and what these three change is
+		# which item you should pick — which is the question a listing is being asked.
+		#
+		# **Tasks only, and that is measured rather than tidy.** `draft` is a document's
+		# default and `active` is not, so asking `status_is_news` of a document would put a
+		# cell on 111 of this instance's 122 — §12.2a's "a column that says the same thing on
+		# every row says nothing", arrived at from the other direction.
+		if subroutine.views.status_is_news(item):
+			cells.append(item.status)
+
+		# **Through `views.holder` rather than off `claimed_by`**, because the view reports an
+		# expired lease on purpose and the clock is what makes it stop counting. Of the three
+		# claim records on this instance, two had expired: reading the column alone would have
+		# been wrong about two rows in three, and wrong in the direction that stops an agent
+		# picking up work nobody is doing.
+		held = subroutine.views.holder(item, now=now)
+
+		if held is not None:
+			cells.append(f"held by @{held}")
+
 		# **Before the rank, because it changes what the rank means** (`#425`). A default
 		# listing put a blocked item above the thing blocking it with nothing to say so, and an
 		# agent reading one reported it as "start with #2". `ready=true` filters correctly; the
@@ -1519,7 +1560,7 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 
 	facts = []
 
-	if not item.status_is_default and item.status_category != "done":
+	if subroutine.views.status_is_news(item):
 		facts.append(item.status)
 
 	if isinstance(item, subroutine.views.Task):
@@ -1554,7 +1595,7 @@ def _shown (
 	workspace = _text(arguments, "workspace")
 	found, kind = _item(client, ref, workspace)
 
-	parts = [_line(found)]
+	parts = [_line(found, now=subroutine.db.types.utcnow())]
 
 	# **In `show` rather than in `_line`**, on `#819`'s argument: this is the tool that
 	# promises *in full*, and a listing row stays as terse as it was for both kinds.
@@ -1670,7 +1711,7 @@ def _added (
 		# context about an item is when you file it".
 		description=_text(arguments, "description"),
 	)
-	answer = "Added " + _line(captured.task)
+	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
 	# Said out loud for the same reason the CLI says it: nobody typed it, and an agent that
 	# cannot see where its work went cannot tell a person either. That argument applies just
@@ -1746,7 +1787,7 @@ def _wrote (
 			workspace=_text(arguments, "workspace"),
 		)
 
-		return "Wrote " + _line(document)
+		return "Wrote " + _line(document, now=subroutine.db.types.utcnow())
 
 	# **Omitted is unchanged, and that is the whole reason this is worth a ref** (§8.3). An
 	# agent correcting one paragraph sends the body; the type, the project and the tags it
@@ -1775,7 +1816,7 @@ def _wrote (
 		workspace=_text(arguments, "workspace"),
 	)
 
-	return "Revised " + _line(revised)
+	return "Revised " + _line(revised, now=subroutine.db.types.utcnow())
 
 
 def _remarked (
@@ -2173,4 +2214,4 @@ def _updated (
 			f"subroutine_search to look for it by words in its title."
 		)
 
-	return "Changed " + _line(changed)
+	return "Changed " + _line(changed, now=subroutine.db.types.utcnow())

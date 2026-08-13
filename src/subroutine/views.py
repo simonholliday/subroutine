@@ -1159,6 +1159,61 @@ class Agenda(pydantic.BaseModel):
 	unscheduled_total: int
 
 
+def status_is_news (item: "Task | Project | Document") -> bool:
+	"""Report whether an item's status is worth telling a reader about.
+
+	**Silence about the status everything starts in** (`#168`, Simon 2026-08-01). Printing
+	``open`` on every row of a shopping list is what §1.4 would not survive; printing
+	``blocked`` is most of why the field exists, and before this rule no surface said the word
+	at all — ``update 5 --status blocked`` answered *Changed* and a clean-room tester concluded
+	it had not saved.
+
+	**And not when it is finished.** A completion has a better rendering on every surface, and
+	a document has no ``completed_at`` to ask about, so the category is the question both kinds
+	can answer.
+
+	Here rather than in each renderer because there are three of them: the terminal's ``show``,
+	the agent's ``show``, and the agent's listing row (`#841`). It was written out twice,
+	identically, and the third asking for it is one copy short of this codebase's signature
+	defect.
+
+	**A listing is a different question from a fact sheet, and only for documents.** Measured
+	on this instance before `#841` used it: 2 of 172 open tasks have a status worth saying, and
+	**111 of 122 documents do**, because ``draft`` is a document's default and ``active`` is
+	not. So the same rule that keeps ``show`` quiet puts a cell on nine documents in ten — see
+	``mcp.tools._line``, which asks this of tasks only for that reason.
+	"""
+
+	return not item.status_is_default and item.status_category != "done"
+
+
+def holder (item: "Task", *, now: datetime.datetime) -> str | None:
+	"""Return who holds a live lease on this item, or ``None`` if nobody effectively does.
+
+	**The view reports an expired lease deliberately** — who was working on something is worth
+	keeping after the lease runs out — so every renderer has to apply the clock itself, and
+	this is where that is written down for a *view*.
+	:func:`subroutine.domain.claims.held_by` answers it for a database row and
+	:func:`subroutine.domain.readiness.held` answers it in SQL. Three readings of one rule, for
+	three kinds of object, and they must agree: a disagreement here is two workers on one task.
+
+	**Both columns are tested, which is `#362`.** ``NOT (a AND b)`` is *null* rather than true
+	when ``b`` is null, so a row carrying a holder and no expiry once vanished from every
+	listing while ``held_by`` said nobody held it. The three readings have to agree about a
+	state none of them can produce, because whatever produces it will be something nobody was
+	thinking about at the time.
+
+	It earns itself immediately: of the three claim records on this instance when `#841` was
+	built, **two had expired**, so a renderer reading ``claimed_by`` without the clock would
+	have been wrong about two rows in three.
+	"""
+
+	if item.claimed_by is None or item.claim_expires_at is None:
+		return None
+
+	return None if item.claim_expires_at <= now else item.claimed_by
+
+
 def _priority_cell (importance: int | None, urgency: int | None) -> str:
 	"""Render §6.3's two axes as one cell: ``I4/U5``, or a dash for what was not assessed.
 
