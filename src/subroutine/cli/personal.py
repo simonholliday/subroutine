@@ -5339,8 +5339,16 @@ def _render (
 	buckets = (
 		("Overdue", "overdue", True),
 		("Today", "today", False),
+		# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
+		# neither scheduled nor a candidate to pick up, and it is the first thing to look at
+		# after what the day demands — a person who left something half-finished yesterday
+		# should not have to find it among two hundred captured tasks.
+		("In progress", "in_progress", False),
 		("Next 7 days", "upcoming", False),
-		("Unscheduled", "unscheduled", False),
+		# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
+		# by capture order — the heading names what the section is *for*, and the old one
+		# named only what its rows lacked.
+		("Next", "unscheduled", False),
 	)
 	rows: dict[str, list[Row]] = {}
 
@@ -6144,7 +6152,7 @@ def _agenda_json (
 	``--strict`` exists for a script that would rather not have one at all.
 	"""
 
-	buckets = ("overdue", "today", "upcoming", "unscheduled")
+	buckets = ("overdue", "today", "in_progress", "upcoming", "unscheduled")
 	first = gathered.answers[0].value if gathered.answers else None
 
 	return {
@@ -6299,16 +6307,26 @@ def _in_order (
 ) -> list[Row]:
 	"""Order one agenda bucket the way that bucket is read.
 
-	The three dated buckets read by date — soonest first, because that is the order the days
-	arrive in — and `unscheduled` has no date to sort by, so it falls back to newest first like
-	a listing. The ref is the tiebreak throughout, so two tasks with the same date do not swap
-	places between runs.
+	The dated buckets read by date — soonest first, because that is the order the days arrive
+	in. The ref is the tiebreak throughout, so two tasks with the same date do not swap places
+	between runs.
+
+	**The two undated buckets read by rank**, which is the same rule ``?order=-priority_score``
+	applies, so the agenda and a ranked listing cannot disagree about which item is the one to
+	start. `#853`.
+
+	**And this is where the server's ordering was being discarded** — `#71`'s defect, which
+	``domain/ordering.py``'s own docstring records: *a ``--order`` flag whose result was
+	re-sorted by ``created_at`` one level further up, so the flag chose which items appeared
+	and then discarded the arrangement*. It happened again here the moment the agenda started
+	ranking: the section came back best-first and this put it back to newest-first, and the
+	output looked entirely reasonable.
 	"""
 
-	if bucket == "unscheduled":
-		rows.sort(key=lambda row: (row[1].created_at, row[1].ref), reverse=True)
-
-		return rows
+	if bucket in ("unscheduled", "in_progress"):
+		return subroutine.domain.ordering.merged(
+			rows, key=lambda row: row[1], order=(("priority_score", True), ("ref", False))
+		)
 
 	# NULLs last, explicitly: a task in `today` may be there for `planned_for` and carry no
 	# deadline at all, and it belongs after the ones that do rather than before them.

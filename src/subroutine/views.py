@@ -1145,6 +1145,15 @@ class Agenda(pydantic.BaseModel):
 	upcoming: list[Task]
 	unscheduled: list[Task]
 
+	#: What is already started — status category ``in_progress`` (`#853`). An agent could not
+	#: see its own half-finished work from a listing at all (`#841`), and a person reading an
+	#: agenda could not tell what they had picked up from what they had not.
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`): a
+	#: required field here makes a newer client refuse an older instance outright rather than
+	#: read the rest of what it said.
+	in_progress: list[Task] = pydantic.Field(default_factory=list)
+
 	#: How many unscheduled tasks there are in total, which is usually more than are listed:
 	#: an agenda that dumped a 400-item backlog would not be an agenda.
 	unscheduled_total: int
@@ -1570,7 +1579,13 @@ def agenda (
 	three statuses turn up in every bucket, and four loads would be three too many.
 	"""
 
-	everything = [*built.overdue, *built.today, *built.upcoming, *built.unscheduled]
+	everything = [
+		*built.overdue,
+		*built.today,
+		*built.in_progress,
+		*built.upcoming,
+		*built.unscheduled,
+	]
 	vocabulary = Vocabulary.for_tasks(session, everything)
 
 	return Agenda(
@@ -1579,6 +1594,7 @@ def agenda (
 		overdue=[task(row, vocabulary) for row in built.overdue],
 		today=[task(row, vocabulary) for row in built.today],
 		upcoming=[task(row, vocabulary) for row in built.upcoming],
+		in_progress=[task(row, vocabulary) for row in built.in_progress],
 		unscheduled=[task(row, vocabulary) for row in built.unscheduled],
 		unscheduled_total=built.unscheduled_total,
 	)

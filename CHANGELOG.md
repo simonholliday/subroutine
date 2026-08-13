@@ -23,7 +23,24 @@ upgrade involves.
 > It adds one index to the event table and changes no data, so on any instance short of
 > a very large one it is a matter of seconds.
 
+### Changed
+
+- **`subroutine today` offers you the best work to start next, not the oldest.** The section
+  of undated tasks — which on most backlogs is the bulk of the agenda — was ordered by capture
+  order, so `!1/1 tidy the desk` sat above `!5/5 renew the passport`, and the twenty it showed
+  you were the twenty you had written down first.
+
+  It ranks now, by the same rule `--order -priority_score` uses, and it picks the twenty
+  *before* it stops at twenty — so the most important thing on a two-hundred-item backlog is
+  in the answer rather than off the end of it. The heading is **Next** rather than
+  *Unscheduled*, because it now names what the section is for instead of what its rows lack.
+
 ### Added
+
+- **`subroutine today` has an *In progress* section.** Work you have already started is
+  neither scheduled nor a candidate to pick up, and it used to be filed among everything you
+  had ever captured. It sits between *Today* and the rest, and the heading is dropped when
+  nothing is started, like every other section. `GET /v1/agenda` carries it as `in_progress`.
 
 - **A listing says which work is holding something else up.** A task that blocks an unfinished
   one is marked `holds up` — the mirror of the `blocked` marker, which has been there since

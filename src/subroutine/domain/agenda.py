@@ -30,9 +30,11 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.dates
+import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.schedule
 import subroutine.domain.scoping
@@ -58,6 +60,12 @@ class Agenda:
 	upcoming: tuple[subroutine.db.models.work.Task, ...]
 	unscheduled: tuple[subroutine.db.models.work.Task, ...]
 
+	#: What is already started — status category ``in_progress`` (`#853`). Between *today* and
+	#: the rest, because work somebody is in the middle of is neither scheduled nor a candidate
+	#: to pick up, and an agenda that could not say so left an agent unable to see its own
+	#: half-finished work (`#841`).
+	in_progress: tuple[subroutine.db.models.work.Task, ...] = ()
+
 	#: How many undated tasks there are in total, which is usually more than were returned.
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
@@ -66,7 +74,13 @@ class Agenda:
 	def is_empty (self) -> bool:
 		"""Report whether there is nothing at all to show."""
 
-		return not (self.overdue or self.today or self.upcoming or self.unscheduled)
+		return not (
+			self.overdue
+			or self.today
+			or self.in_progress
+			or self.upcoming
+			or self.unscheduled
+		)
 
 
 def build (
@@ -123,6 +137,20 @@ def build (
 	today = tuple(task for task in today if task.id not in seen)
 	seen.update(task.id for task in today)
 
+	# **What is already started, between the day's work and everything else** (`#853`). Read
+	# off the status *category* rather than a key, because a workspace may rename the row —
+	# `in_progress` is one of the five categories §6.5 fixes, and the key beside it is not.
+	started = _run(
+		session,
+		base.join(
+			subroutine.db.models.vocabulary.Status,
+			subroutine.db.models.vocabulary.Status.id == model.status_id,
+		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
+		_ranked(),
+	)
+	started = tuple(task for task in started if task.id not in seen)
+	seen.update(task.id for task in started)
+
 	upcoming: tuple[subroutine.db.models.work.Task, ...] = ()
 
 	if horizon_days is not None:
@@ -144,11 +172,19 @@ def build (
 
 	undated = base.where(model.planned_for.is_(None), model.due_at.is_(None))
 
+	if seen:
+		undated = undated.where(model.id.not_in(seen))
+
+	# **Ordered by rank, which is what makes this section worth reading** (`#853`). It was
+	# `position` — a column `#28` records as written by nothing — and then `created_at`, so a
+	# person with two hundred captured tasks got the twenty oldest and `!1/1 tidy the desk`
+	# sat above `!5/5 renew the passport`. With no planned days and two deadlines across this
+	# project's 172 open tasks, **this bucket *is* the agenda**, so the answer to "what should
+	# I work on" was "whatever you wrote down first".
 	unscheduled = _run(
 		session,
 		undated.limit(unscheduled_limit),
-		sqlalchemy.asc(model.position),
-		sqlalchemy.asc(model.created_at),
+		_ranked(),
 	)
 	total = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(undated.subquery())
@@ -159,10 +195,22 @@ def build (
 		timezone=timezone,
 		overdue=overdue,
 		today=today,
+		in_progress=started,
 		upcoming=upcoming,
 		unscheduled=unscheduled,
 		unscheduled_total=total or 0,
 	)
+
+
+def _ranked () -> sqlalchemy.UnaryExpression[typing.Any]:
+	"""Return the ordering a section of candidates is read in: best first.
+
+	The same rule `?order=-priority_score` applies, so the agenda and a ranked listing cannot
+	disagree about which item is the one to start — §6.3a's bands, NULLS LAST in both
+	directions so unranked work sorts after ranked work rather than before it.
+	"""
+
+	return sqlalchemy.desc(subroutine.domain.ordering.RANKING).nullslast()
 
 
 def _visible (
@@ -206,9 +254,21 @@ def _visible (
 
 	model = subroutine.db.models.work.Task
 
-	return subroutine.domain.scoping.readable_tasks(
-		principal, workspace_ids=workspace_ids, include_completed=False
-	).where(subroutine.domain.readiness.undeferred(model, now=until))
+	return (
+		subroutine.domain.scoping.readable_tasks(
+			principal, workspace_ids=workspace_ids, include_completed=False
+		)
+		.where(subroutine.domain.readiness.undeferred(model, now=until))
+		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**
+		# (`#853`). Two of the buckets are ranked, and `subroutine today` asks one connection
+		# per place and merges the answers — so the rank has to survive the wire or the merge
+		# sorts on nulls and silently keeps whichever connection answered first. The
+		# expression is a plain `CASE` over two columns, so this costs nothing a sort by it
+		# was not paying anyway.
+		.options(
+			sqlalchemy.orm.with_expression(model.rank, subroutine.domain.ordering.RANKING)
+		)
+	)
 
 
 def _run (

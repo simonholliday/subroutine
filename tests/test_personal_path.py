@@ -1330,6 +1330,156 @@ def test_a_mixed_list_says_what_kind_each_thing_is (
 	assert len(set(starts)) == 1, f"the title column does not line up:\n{listed}"
 
 
+def _sections (printed: str) -> dict[str, list[str]]:
+	"""Return each agenda heading and the refs printed beneath it, in order."""
+
+	found: dict[str, list[str]] = {}
+	heading = None
+
+	for line in printed.splitlines():
+		if line.strip().startswith("#"):
+			if heading is not None:
+				found[heading].append(line.split()[0].lstrip("#"))
+
+		elif line.strip() and not line.startswith(" "):
+			heading = line.strip()
+			found[heading] = []
+
+	return found
+
+
+def test_the_agenda_offers_candidates_best_first_rather_than_oldest_first (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#853``, and the defect a person actually meets.
+
+	The undated bucket was ordered by ``position`` — a column `#28` records as written by
+	nothing — and then by capture order, so `!1/1 tidy the desk` sat above `!5/5 renew the
+	passport`. **With no planned days and two deadlines across this project's 172 open tasks
+	that bucket *is* the agenda**, so the answer to "what should I work on" was "whatever you
+	wrote down first".
+
+	It is the same rule ``?order=-priority_score`` applies, so the agenda and a ranked listing
+	cannot disagree about which item is the one to start.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Tidy the desk !1/1")
+	run("add", "Renew the passport !5/5")
+	run("add", "Buy milk")
+	run("add", "Fix the leaking tap !3/3")
+
+	printed = _sections(run("today").output)
+
+	assert printed["Next"] == ["2", "4", "1", "3"], printed
+
+	# **Unranked last, not first.** Nulls sort after values in both directions (§10.3), which
+	# is what stops "buy milk" heading a list of assessed work.
+	assert printed["Next"][-1] == "3"
+
+
+def test_the_agenda_picks_its_candidates_by_rank_before_it_stops_at_twenty (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Ordering before limiting is what decides *which* twenty, and it is the server's job.
+
+	**The client re-sorts every bucket after merging, so on a short list the server's ordering
+	is invisible** — which is exactly what a first version of these tests could not see. It
+	only bites past ``DEFAULT_UNSCHEDULED_LIMIT``: order by capture and stop at twenty, and the
+	best-ranked item on a two-hundred-item backlog is simply not in the answer, whatever the
+	client then does with the twenty it was handed.
+
+	Found by falsifying — reverting the server's ordering left every other test in this file
+	green, because none of them had more than a handful of rows.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	for index in range(25):
+		run("add", f"Captured earlier {index}")
+
+	run("add", "The one that matters !5/5")
+
+	printed = _sections(run("today").output)
+
+	assert printed["Next"][0] == "26", printed
+	assert len(printed["Next"]) == 20, "the cap moved; this test is about what survives it"
+
+
+def test_the_agenda_keeps_the_order_it_was_given (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The client re-sorts every bucket after merging, and it was undoing the ranking.
+
+	`#71`'s defect, which ``domain/ordering.py``'s docstring records: *a ``--order`` flag
+	whose result was re-sorted by ``created_at`` one level further up, so the flag chose which
+	items appeared and then discarded the arrangement.* It happened again the moment the
+	agenda started ranking — the section came back best-first and the merge put it back to
+	newest-first, and the output looked entirely reasonable.
+
+	**Driven through the rendered agenda rather than the domain**, because the domain half was
+	already right and the bug was a layer above it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Written first !5/5")
+	run("add", "Written second !1/1")
+
+	printed = _sections(run("today").output)
+
+	# Newest-first would put the `!1/1` on top, which is what this used to do.
+	assert printed["Next"] == ["1", "2"], printed
+
+
+def test_the_agenda_says_what_is_already_started (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#853``, and `#841` from the agent's side.
+
+	Work somebody is in the middle of is neither scheduled nor a candidate to pick up. Without
+	a section for it a person had to find yesterday's half-finished task among everything they
+	had ever captured, and an agent could not see its own.
+
+	**The buckets stay disjoint**, so a started task appears once — the rule the whole agenda
+	is built on, and the one a new bucket is most likely to break.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Renew the passport !5/5")
+	run("add", "Fix the leaking tap !3/3")
+	run("start", "2")
+
+	printed = _sections(run("today").output)
+
+	assert printed["In progress"] == ["2"], printed
+	assert printed["Next"] == ["1"], printed
+
+	# And the heading is dropped entirely when nothing is started, like every other bucket.
+	run("stop", "2")
+
+	assert "In progress" not in run("today").output
+
+
+def test_the_scripted_agenda_carries_every_section_the_terminal_prints (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One agenda, two renderings — `#583`'s rule applied to the buckets rather than the row.
+
+	A section the terminal prints and the scripted path omits is the same defect one level up:
+	an agent asking for the agenda would be told about the day and not about what it had
+	already started.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Renew the passport !5/5")
+	run("start", "1")
+
+	scripted = json.loads(run("today", "--json").output)
+
+	assert [row["ref"] for row in scripted["in_progress"]] == [1]
+	assert scripted["unscheduled"] == []
+
+
 def test_the_agenda_labels_kinds_by_the_same_rule (
 	run: typing.Callable[..., typer.testing.Result],
 	home: pathlib.Path,
