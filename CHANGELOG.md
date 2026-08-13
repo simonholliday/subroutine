@@ -156,6 +156,17 @@ upgrade involves.
 
 ### Changed
 
+- **`subroutine-remote` says that setting it up needs a terminal, because it does.** Its
+  description claimed the plugin "runs and is configured wherever Claude Code runs". The first
+  half is true and the second is not: the two fields it needs are filled in with `/plugin`,
+  which the VS Code extension does not offer, and `claude plugin` has no subcommand that sets
+  one. So it could be installed from an editor and never made to work, with every step
+  reporting success.
+
+  `docs/connecting.md` now says the same thing, and gives the settings file and the exact shape
+  to write into it for somebody who has no terminal at all — with the warning that a token
+  written there sits in plain text.
+
 - **The board uses the width of the window, and says when there are columns off the edge.**
   The page is capped at a comfortable reading width, which is right for a list and wrong for a
   board — on a wide display that was hiding three columns of seven, and the only sign they

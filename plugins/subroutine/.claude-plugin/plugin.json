@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "description": "Agent-native task management for your life, your projects and your team. Wires this session to a Subroutine instance and carries the working practice for using it well. Nothing to install first: it starts Subroutine through 'uvx', which fetches and caches it on first use — so you need uv on your machine (astral.sh/uv) and nothing else. If you have already run 'uv tool install subroutine', that copy is used instead. It starts a program on your own machine, so it works in Claude Code and the desktop apps and not on the web.",
   "author": {
     "name": "Simon Holliday",

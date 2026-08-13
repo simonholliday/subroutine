@@ -196,10 +196,38 @@ $ claude plugin install subroutine-remote@subroutine
 ```
 
 Then fill in two fields — the address, ending in `/mcp`, and your token. **In a terminal**, run
-`claude`, then `/plugin` inside the session, and choose the plugin. There is no `claude plugin
-configure` subcommand and `/plugin` is not available in the VS Code extension, so a terminal is
-currently the only place these can be set. Once set they are read by every session, editor
-included.
+`claude`, then `/plugin` inside the session, and choose the plugin. Once set they are read by
+every session, editor included.
+
+**That terminal is not optional, and this is the step that catches people out.** `/plugin` is
+not available in the VS Code extension, and `claude plugin` has no `configure` subcommand —
+run `claude plugin --help` if you want to check that for yourself, and it is worth a look,
+because that is a claim about somebody else's program and it may stop being true. So a plugin
+can be installed from the editor and cannot be set up there, and **nothing says so**:
+the install reports success, the fields are simply never asked for, and the only evidence is
+that no tools appear.
+
+If you have no terminal at all, the values are ordinary settings and you can write them
+yourself. In `~/.claude/settings.json`:
+
+```json
+{
+  "pluginConfigs": {
+    "subroutine-remote@subroutine": {
+      "options": {
+        "url": "https://subroutine.example.com/mcp?workspace=projects",
+        "token": "the token you were given"
+      }
+    }
+  }
+}
+```
+
+**Two things to know before you do.** That file is not a secret store — your token sits in it
+in plain text, which is the same trade as `credentials.toml` and worth a deliberate decision
+rather than a discovery. And this is where the values *land* rather than a documented
+interface, so `/plugin` is the route that will keep working. Verified on Linux with the
+editor reading a plugin configured exactly this way.
 
 **Then reload the window, or start a new session.** MCP servers are attached when a session
 begins, so one that was already open when you configured the plugin keeps the tool list it
