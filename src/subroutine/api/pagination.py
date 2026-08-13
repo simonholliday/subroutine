@@ -130,9 +130,15 @@ def parse_order (
 		else:
 			keys.append(SortKey(name=bare, column=chosen, descending=descending))
 
-	# The tiebreaker follows the last key's direction, so that "newest first" stays newest
-	# first among rows that tie.
-	keys.append(SortKey(name="id", column=tiebreak, descending=keys[-1].descending if keys else True))
+	# **Always ascending, which is oldest first**, because the primary key is a time-ordered
+	# UUID. It used to follow the last key's direction; Simon's decision of 2026-08-13 is that
+	# age is *"one of the least significant ordering fields, maybe the last"* and not a signal
+	# at all — *"we can't make a general decision about whether something is important because
+	# it's been in the backlog for more or less time"*. A separator should not inherit a
+	# direction from a key it has nothing to do with, and a list where the newest thing always
+	# wins a tie never finishes anything old. `ordering.clauses` says the same for the query
+	# a client builds without a cursor, and the two must agree or a page boundary moves.
+	keys.append(SortKey(name="id", column=tiebreak, descending=False))
 
 	return tuple(keys)
 

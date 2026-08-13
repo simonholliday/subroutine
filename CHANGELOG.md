@@ -23,6 +23,18 @@ upgrade involves.
 > It adds one index to the event table and changes no data, so on any instance short of
 > a very large one it is a matter of seconds.
 
+### Changed
+
+- **Items that tie in a ranked listing now come out oldest first.** Ranked lists are
+  tie-heavy — on our own backlog 52 of 172 open tasks share one score — so for about a third
+  of a list the tiebreak is the only thing deciding the order. It used to follow whichever
+  key came before it, which under `--order -priority_score` meant *newest* first: the thing
+  you wrote down most recently won, permanently.
+
+  **Age is a separator here and not a signal.** How long something has sat in a backlog says
+  nothing about whether it matters; what it can do is stop the same rows being buried for
+  ever. Expect a long list to look different even where nothing about the items changed.
+
 ### Added
 
 - **A task carries `rank` when you ask for it in a particular order.** `GET /v1/tasks` now

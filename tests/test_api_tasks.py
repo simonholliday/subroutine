@@ -1136,6 +1136,42 @@ def test_part_ranked_tasks_order_among_themselves_by_the_axis_that_is_set (
 	assert order.index(high) < order.index(low)
 
 
+def test_tasks_that_tie_are_ordered_oldest_first (world: World) -> None:
+	"""The tiebreak decides a third of a ranked backlog, so its direction is a real choice.
+
+	52 of this project's 172 open tasks share one score, so for that third nothing but the
+	tiebreak is deciding. It used to follow the last key's direction — newest first under
+	``-priority_score`` — which meant the most recently captured item won for ever.
+
+	**Simon's decision, 2026-08-13**: age is not a signal, *"we can't make a general decision
+	about whether something is important because it's been in the backlog for more or less
+	time"*. So it is a separator, always ascending, and it does not inherit a direction from
+	a key it has nothing to do with. The primary key is a time-ordered UUID, so ascending is
+	oldest first.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"text": "Written first !3/3"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"text": "Written second !3/3"}).json()["ref"]
+	third = world.call("POST", "/v1/tasks", json={"text": "Written third !3/3"}).json()["ref"]
+
+	order = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?order=-priority_score&limit=50").json()["items"]
+	]
+
+	assert order == [first, second, third]
+
+	# **The direction does not flip with the key it follows**, which is the half a tiebreak
+	# that "follows the last key" gets wrong: ascending and descending by the same score must
+	# put the same two rows in the same order relative to each other.
+	ascending = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?order=priority_score&limit=50").json()["items"]
+	]
+
+	assert ascending == [first, second, third]
+
+
 def test_the_value_a_cursor_carries_is_the_one_the_query_sorted_by (
 	world: World, session: sqlalchemy.orm.Session
 ) -> None:

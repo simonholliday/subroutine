@@ -422,8 +422,20 @@ def clauses (
 	PostgreSQL disagree about the default, so an unqualified ``ORDER BY`` sorts differently
 	depending on where it runs (SPEC.md §10.3).
 
-	The tiebreaker is appended always and follows the last key's direction, so that equal
-	values keep one stable order and "newest first" stays newest first among rows that tie.
+	**The tiebreaker is appended always and is always ascending, which is oldest first**,
+	because the primary key is a time-ordered UUID. It used to follow the last key's
+	direction; Simon's decision of 2026-08-13 is that age is *"one of the least significant
+	ordering fields, maybe the last"* and not a signal at all — *"we can't make a general
+	decision about whether something is important because it's been in the backlog for more
+	or less time"*. So it separates rows that tie and says nothing else, and a separator
+	should not inherit a direction from a key it has nothing to do with.
+
+	It matters more than it looks. Ranked listings here are tie-heavy — 52 of this project's
+	172 open tasks share one score — so for a third of a backlog this is the only thing
+	deciding the order, and under the old rule the most recently captured item won for ever.
+
+	``api.pagination.parse_order`` states the same rule for a cursor, and the two must agree
+	or a page boundary lands somewhere the next page does not start.
 	"""
 
 	keys = requested(expression, allowed=allowed, default=default)
@@ -433,7 +445,6 @@ def clauses (
 		found = column(allowed[name])
 		terms.append(found.desc().nullslast() if descending else found.asc().nullslast())
 
-	trailing = keys[-1][1] if keys else True
-	terms.append(tiebreak.desc().nullslast() if trailing else tiebreak.asc().nullslast())
+	terms.append(tiebreak.asc().nullslast())
 
 	return terms
