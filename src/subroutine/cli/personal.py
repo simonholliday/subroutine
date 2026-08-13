@@ -481,6 +481,11 @@ def _started_cell (item: Item) -> str:
 #: column is dropped when no row on the page carries it.
 BLOCKED_MARK = "blocked"
 
+#: The mirror of :data:`BLOCKED_MARK` (`#569`). Two words rather than ``blocking``, which
+#: differs from ``blocked`` by two letters and means the opposite — a column a reader has to
+#: look at twice is a column that misinforms at a glance.
+BLOCKING_MARK = "holds up"
+
 
 def _blocked_cell (item: Item) -> str:
 	"""Return the marker for work that cannot be started yet, or nothing (`#425`).
@@ -496,6 +501,12 @@ def _blocked_cell (item: Item) -> str:
 	question it was not asked. A row that says why it is not first costs nothing and stays true
 	under every order.
 
+	**One column for both directions, and ``blocked`` wins when a row is both** (`#569`). A
+	middle link in a chain is held up *and* holding something up; the first is what decides
+	whether you can act, so it is what the cell says. Two columns would be two mostly-empty
+	ones, and §12.2a's rule is that a column saying the same thing on every row says nothing.
+	The other half is a call away — `subroutine show` lists every link either way.
+
 	Empty on every row of an ordinary list, which drops the column entirely — the same rule the
 	kind, started and priority columns follow (§1.4, §14.10).
 	"""
@@ -503,7 +514,10 @@ def _blocked_cell (item: Item) -> str:
 	if not isinstance(item, subroutine.views.Task):
 		return ""
 
-	return BLOCKED_MARK if item.blocked else ""
+	if item.blocked:
+		return BLOCKED_MARK
+
+	return BLOCKING_MARK if item.blocking else ""
 
 
 def _priority_cell (item: Item) -> str:
@@ -6077,6 +6091,12 @@ def _as_json (
 		# be started. `?ready=true` is a filter, and `#425`'s whole finding is that a filter
 		# is not a signal.
 		"blocked": task.blocked,
+		# **And whether it is the thing in somebody else's way** (`#569`, the mirror of
+		# `#425`). Sent as its own field rather than folded in with `blocked`, because the
+		# terminal shows one column with a precedence and a script wants both facts: a row can
+		# be held up and holding something up at once, and an agent choosing what to start
+		# next needs to see the second even when the first is true.
+		"blocking": task.blocking,
 		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
 		# own is work whose context is one field away, and the number is what a script types
 		# back.

@@ -241,6 +241,22 @@ class Task(pydantic.BaseModel):
 	#: ``False`` there means "nothing says so", which is the honest reading of silence.
 	blocked: bool = False
 
+	#: Whether this is holding something unfinished up — item `#569`, and **the mirror of
+	#: `blocked` above**. `#425` made work that cannot be started visible and nothing made the
+	#: work *doing the blocking* visible, so a board showed the urgent item marked `blocked` and
+	#: said nothing about the five-minute errand holding it up — which was the only thing on the
+	#: board worth doing, and an agent reading that board said so.
+	#:
+	#: **A boolean and not the far end's ref, which is a rule rather than an omission.** This
+	#: says *that* something is held up; naming *what* would report the existence and standing
+	#: of an item the reader may not be allowed to see. `subroutine show` names it, through
+	#: `domain.links.edges`, which drops an end the caller cannot see — so the listing says
+	#: *that* and the detail view says *what*. `#856` is what happens when that line is crossed.
+	#:
+	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
+	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
+	blocking: bool = False
+
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
 	#: anything at all — and on a listing that is one call per row. Both are batch-loaded with
@@ -1205,6 +1221,10 @@ class Vocabulary:
 		# anybody wanted it marked. Loaded here because this class is already the answer to
 		# "what does a page of rows need that a row cannot know on its own".
 		self.blocked = subroutine.domain.readiness.blocked_among(session, wanted)
+		# The mirror, one `EXISTS` scan the same way (`#569`). Two queries rather than one
+		# because they are opposite directions over the same edges, and both return
+		# immediately on an empty page.
+		self.blocking = subroutine.domain.readiness.blocking_among(session, wanted)
 
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
@@ -1315,6 +1335,7 @@ def task (
 		claimed_at=row.claimed_at,
 		claim_expires_at=row.claim_expires_at,
 		blocked=row.id in vocabulary.blocked,
+		blocking=row.id in vocabulary.blocking,
 		importance=row.importance,
 		urgency=row.urgency,
 		# Computed here rather than read from the database: §6.3 calls it derived, and a

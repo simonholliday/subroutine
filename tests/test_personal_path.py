@@ -2434,6 +2434,137 @@ def test_a_listing_marks_work_that_cannot_be_started_yet (
 	assert "#2" not in run("list", "--ready").output
 
 
+def _marked (listed: str) -> dict[str, str]:
+	"""Return each listed row by its ref, without the leading ``#``."""
+
+	return {
+		row.split()[0].lstrip("#"): row
+		for row in listed.splitlines()
+		if row.strip().startswith("#")
+	}
+
+
+def test_a_listing_marks_work_that_is_holding_something_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Item ``#569``, and it is the mirror of ``#425`` — which is the whole finding.
+
+	`#425` made work that *cannot be started* visible and stopped there. A visitor agent read
+	a board where the urgent item was marked ``blocked`` and the five-minute errand holding it
+	up carried nothing at all, and said the ranking was lying: the errand was the only thing
+	whose completion changed anything. A rule aimed at one direction of a symmetric problem
+	never fires for the other.
+
+	**No title contains either marker**, which `#425`'s own docstring records as the trap: its
+	first version matched the word in a title and passed with the field removed from the view.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Chase the photographer")
+	run("add", "Rewrite the pricing page")
+	run("link", "1", "blocks", "2")
+
+	rows = _marked(run("list").output)
+
+	assert set(rows) == {"1", "2"}
+
+	address, marker, rest = rows["1"].split(maxsplit=2)
+
+	assert (address, marker, rest) == ("#1", "holds", "up  Chase the photographer"), rows["1"]
+
+	# And the other end still says what it always said.
+	assert "blocked" in rows["2"], rows["2"]
+
+	# A script gets both facts as fields rather than one cell with a precedence.
+	scripted = {row["ref"]: row for row in json.loads(run("list", "--json").output)}
+
+	assert scripted[1]["blocking"] is True
+	assert scripted[1]["blocked"] is False
+	assert scripted[2]["blocking"] is False
+	assert scripted[2]["blocked"] is True
+
+
+def test_a_row_that_is_both_says_blocked_because_that_is_what_stops_you (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A middle link in a chain is held up *and* holding something up.
+
+	One column carries both directions, so something has to win, and it is ``blocked``: that
+	is the fact deciding whether you can act at all. The other half is not lost — a script
+	gets both fields, and ``subroutine show`` lists every link either way.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "First in the chain")
+	run("add", "Second in the chain")
+	run("add", "Third in the chain")
+	run("link", "1", "blocks", "2")
+	run("link", "2", "blocks", "3")
+
+	rows = _marked(run("list").output)
+
+	assert "blocked" in rows["2"], rows["2"]
+	assert "holds" not in rows["2"], rows["2"]
+
+	# The fact the cell had to drop is still on the scripted row, which is why it is two
+	# fields there and one column here.
+	scripted = {row["ref"]: row for row in json.loads(run("list", "--json").output)}
+
+	assert scripted[2] == {**scripted[2], "blocked": True, "blocking": True}
+
+
+def test_finishing_the_held_up_work_clears_the_marker (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Nothing is held up by work that is done, so nothing is holding it up either.
+
+	Without this a shipped release would go on marking everything that ever blocked it, and
+	the marker would accumulate rather than decay — the same rule `#425` applies from the
+	other end, stated once in `readiness._live_blocks_edge` and read in both directions.
+
+	**The bystander is what makes this able to fail**, and the first version had none. Once
+	the held-up item is finished it leaves the listing, and `_column` drops a column with
+	fewer than two distinct values — so a single remaining row cannot show a marker whatever
+	the code believes, and the assertion held for a reason that had nothing to do with the
+	rule. Falsifying caught it: removing the completed-work clause left this green while the
+	scripted row said `blocking: true`.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Chase the photographer")
+	run("add", "Rewrite the pricing page")
+	run("add", "Something else entirely")
+	run("link", "1", "blocks", "2")
+
+	assert "holds up" in run("list").output
+
+	run("done", "2")
+
+	assert "holds up" not in run("list").output
+
+	# And the fact itself, not only its rendering — the column would hide a disagreement.
+	scripted = {row["ref"]: row for row in json.loads(run("list", "--json").output)}
+
+	assert scripted[1]["blocking"] is False
+
+
+def test_only_a_blocks_link_marks_a_row_as_holding_something_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Every other link type says something about meaning, not about order.
+
+	``relates_to`` is the one that would do it silently, since a specification relates to
+	everything in its project.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Chase the photographer")
+	run("add", "Rewrite the pricing page")
+	run("link", "1", "relates-to", "2")
+
+	assert "holds up" not in run("list").output
+
+
 def test_a_listing_with_nothing_blocked_shows_no_such_column (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

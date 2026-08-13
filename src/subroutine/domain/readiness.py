@@ -60,12 +60,60 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 		.where(
 			link.target_type == "task",
 			link.target_id == model.id,
-			link.deleted_at.is_(None),
-			kind.key == "blocks",
-			blocker.completed_at.is_(None),
-			blocker.deleted_at.is_(None),
+			*_live_blocks_edge(link, kind, blocker),
 		)
 		.correlate(model)
+	)
+
+
+def blocking (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items that are holding something unfinished up.
+
+	**The mirror of :func:`unblocked`, and `#569` is the mirror of `#425`.** That item made
+	work that *cannot be started* visible; nothing made the work *doing the blocking* visible,
+	so a board showed the urgent item marked ``blocked`` and said nothing at all about the
+	five-minute errand holding it up — which was the only thing on the board worth doing. A
+	rule aimed at one direction of a symmetric problem never fires for the other.
+
+	Same edges, read the other way: a ``blocks`` link runs source → target, so what an item
+	holds up are the *targets* of links leaving it.
+	"""
+
+	link = subroutine.db.models.work.Link
+	held = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	kind = subroutine.db.models.vocabulary.LinkType
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(link.id)
+		.join(kind, kind.id == link.link_type_id)
+		.join(held, sqlalchemy.and_(held.id == link.target_id, link.target_type == "task"))
+		.where(
+			link.source_type == "task",
+			link.source_id == model.id,
+			*_live_blocks_edge(link, kind, held),
+		)
+		.correlate(model)
+	)
+
+
+def _live_blocks_edge (
+	link: type[typing.Any], kind: type[typing.Any], other: typing.Any
+) -> tuple[sqlalchemy.ColumnElement[bool], ...]:
+	"""Return what makes a ``blocks`` link count: it is live and its far end is unfinished.
+
+	**Read in both directions and stated once.** :func:`unblocked` asks what is holding a row
+	up and :func:`blocking` asks what a row is holding up; the rule about which edges are real
+	is the same, mirrored, so each caller supplies only the clauses saying which end it is
+	standing at. ``other`` is the task at the far end, whichever end that is.
+	"""
+
+	return (
+		link.deleted_at.is_(None),
+		kind.key == "blocks",
+		# Finished work is neither held up nor holding anything up. Without this a shipped
+		# release would go on marking everything that ever blocked it.
+		other.completed_at.is_(None),
+		other.deleted_at.is_(None),
 	)
 
 
@@ -91,6 +139,46 @@ def blocked_among (
 	is bounded — that something unseen blocks an item, never what.
 	"""
 
+	return _matching(session, identifiers, lambda model: sqlalchemy.not_(unblocked(model)))
+
+
+def blocking_among (
+	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+	"""Return which of these tasks are holding something unfinished up — item ``#569``.
+
+	The row-level form of :func:`blocking`, built from it for :func:`blocked_among`'s reason:
+	a predicate and a reader that label the same rows have to agree or a listing marks one set
+	and a filter hides another.
+
+	**Deliberately not narrowed by visibility, and that is what keeps it honest.** Marking a
+	row says *that* it is holding something up and never *what*, which is the bound
+	:func:`unblocked`'s excuse already draws — and counting only the work a caller can see
+	would leave a row unmarked while it really is on somebody's critical path. Naming the far
+	end is `subroutine show`'s job, and that goes through ``domain.links.edges``, which drops
+	an end the caller cannot see. **The listing says *that*; the detail view says *what*.**
+
+	`#856` is why the distinction is written down: an *ordering* that inherited the far end's
+	importance disclosed *what*, and was refused by ``tests/test_scoping.py`` for it.
+	"""
+
+	return _matching(session, identifiers, blocking)
+
+
+def _matching (
+	session: sqlalchemy.orm.Session,
+	identifiers: typing.Iterable[uuid.UUID],
+	predicate: typing.Callable[[type[typing.Any]], sqlalchemy.ColumnElement[bool]],
+) -> set[uuid.UUID]:
+	"""Return which of these task ids satisfy one predicate, in a single query.
+
+	**One query for a page, which is what made marking a row affordable at all.** Readiness is
+	a filter by design (`#69`), so asking it per row is `#39`'s N+1 — the recorded obstacle to
+	marking a blocked item for as long as the marking was wanted. Asking it once for every id
+	on the page costs a single ``EXISTS`` scan and is what
+	:class:`subroutine.views.Vocabulary` already does for statuses, types and parents.
+	"""
+
 	wanted = set(identifiers)
 
 	if not wanted:
@@ -100,9 +188,7 @@ def blocked_among (
 
 	return set(
 		session.scalars(
-			sqlalchemy.select(model.id).where(
-				model.id.in_(wanted), sqlalchemy.not_(unblocked(model))
-			)
+			sqlalchemy.select(model.id).where(model.id.in_(wanted), predicate(model))
 		)
 	)
 

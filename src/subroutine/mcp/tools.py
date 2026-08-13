@@ -1385,8 +1385,16 @@ def _line (item: subroutine.views.Task | subroutine.views.Document) -> str:
 		# listing put a blocked item above the thing blocking it with nothing to say so, and an
 		# agent reading one reported it as "start with #2". `ready=true` filters correctly; the
 		# listing an agent gets by asking for the backlog is the one that could not tell it.
+		# **Both directions, and `blocked` first** (`#569`, the mirror of `#425`). The report
+		# that started this was an agent reading a board: the urgent item was marked and the
+		# five-minute errand holding it up was not, so the only thing worth starting looked
+		# like the least important row on the page. A cell each rather than one with a
+		# precedence — this is a list an agent parses, and a row can be both.
 		if item.blocked:
 			cells.append("blocked")
+
+		if item.blocking:
+			cells.append("holds up work")
 
 		if item.importance is not None or item.urgency is not None:
 			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")

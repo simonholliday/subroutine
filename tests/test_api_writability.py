@@ -121,6 +121,13 @@ DERIVED: dict[str, str] = {
 		"flag — and the flag would be the one that went stale, since it changes when *another* "
 		"item completes. Make it true or false by linking or by finishing the blocker."
 	),
+	"blocking": (
+		"Whether this task holds an unfinished one up — the mirror of `blocked` above, and "
+		"read off the same `blocks` links rather than stored (`#569`). Writing it has the same "
+		"defect from the other end: two answers to one question, and the flag would be the one "
+		"that went stale, because it changes when *another* item completes. Make it true or "
+		"false by linking or by finishing what it holds up."
+	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
 	"completed_at": "Follows the status category (§10.7 invariant 5), never set directly.",
 	"archived_at": "Archiving is its own operation, not a field to assign a timestamp to.",

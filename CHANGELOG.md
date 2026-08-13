@@ -23,6 +23,21 @@ upgrade involves.
 > It adds one index to the event table and changes no data, so on any instance short of
 > a very large one it is a matter of seconds.
 
+### Added
+
+- **A listing says which work is holding something else up.** A task that blocks an unfinished
+  one is marked `holds up` — the mirror of the `blocked` marker, which has been there since
+  0.6.0 and only ever showed the other end.
+
+  The case it is for: the urgent thing on your list is marked `blocked`, and the five-minute
+  errand actually holding it up sits further down looking like the least important row on the
+  page. Both ends of the relationship now say so.
+
+  A row that is *both* — the middle of a chain — shows `blocked`, because that is the fact
+  deciding whether you can start it. `subroutine list --json`, the API and the agent's listing
+  carry the two as separate fields, so nothing is lost to that precedence, and `subroutine
+  show` names what is at the far end.
+
 ### Changed
 
 - **Items that tie in a ranked listing now come out oldest first.** Ranked lists are
