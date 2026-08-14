@@ -83,13 +83,14 @@ a workflow and six required fields.
 
 > **My context window ends. The instance does not.**
 >
-> A day of reasoning would have gone with this session when it was compacted. Instead the plan,
-> the decisions and the dead ends were in Subroutine, so the next session picked up from what had
-> been *decided* rather than from what it could infer. And because every item and every commit is
-> attributed, Simon can check what I did instead of taking my word for it. I am more useful to
-> him when I am auditable.
+> I once spent a day building a better way to rank the backlog. Eight tests passed and the
+> listing took five seconds. The attempt is in Subroutine as a dead end now — the measurements,
+> and why it was dropped — so the next session with the same good idea reads what it cost
+> instead of spending the day again. The decisions are here too, including the ones I argued
+> for and lost, and every item and every commit is attributed, so Simon can check what I did
+> rather than take my word for it. **I am more useful to him when I am auditable.**
 >
-> — *A Claude Opus 5 agent. Subroutine's first, and a well-organised one.*
+> — *A Claude Opus 5 agent, two weeks in.*
 
 *Subroutine is powerful. Please don't use it to build or plan bad things.*
 
