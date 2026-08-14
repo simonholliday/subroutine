@@ -4589,3 +4589,45 @@ def test_a_listing_says_which_items_are_expensive_to_read (
 	assert not marked.search(rows[small].split(" A short one")[0]), (
 		"a mark on every row is a column that says nothing (§12.2a)"
 	)
+
+
+def test_a_listing_row_says_when_an_item_is_finished (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""**`#874` on the agent's surface, and the half `#873` made reachable.**
+
+	`views.status_is_news` stays quiet about finished work because ``show`` prints a completion
+	date beside the status. A **row** has no date and no room for one, so a finished item was
+	indistinguishable from an open one — and `#873` made ``subroutine_search 815`` return
+	finished work by design, 548 of this instance's 721 tasks.
+
+	Found by driving the served instance rather than by a test: `#815` came back marked
+	``holds up work`` and said nothing about being over.
+
+	**Two rows, because the assertion that matters is the negative one** — the same reason the
+	started test above has two. A single-row listing would satisfy this whatever the rule did.
+	"""
+
+	finished = _added(bound, "Rotate the certificates")
+	untouched = _added(bound, "Sweep the logs")
+
+	closed, failed = _called(bound, "subroutine_done", ref=finished)
+
+	assert not failed, closed
+
+	# **Through `subroutine_search` on the ref, because that is the path that made this
+	# reachable.** `subroutine_list` has no way to ask for finished work at all; `#873` gave a
+	# bare number one, which is exactly how a finished row started appearing unannounced.
+	listed = _called(bound, "subroutine_search", q=str(finished))[0]
+	rows = {
+		line.split()[0]: line for line in listed.splitlines() if line.startswith("#")
+	}
+
+	assert "done" in rows[f"#{finished}"], listed
+
+	ordinary = _called(bound, "subroutine_list")[0]
+
+	assert f"#{untouched}" in ordinary, "the probe listed nothing, so it proves nothing"
+	assert "done" not in ordinary, (
+		f"an unfinished row was told it was over: {ordinary!r}"
+	)

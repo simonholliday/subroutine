@@ -325,6 +325,14 @@ upgrade involves.
 
 ### Fixed
 
+- **A finished item in a listing says so** — both at the terminal, which marks it `done`, and
+  on an agent's row, which names the status. It appeared looking exactly like an open one,
+  which mattered little while such a row was hard to reach and matters a lot now that
+  searching for a number finds finished work on purpose.
+
+  At the terminal the column is dropped when nothing on the page is finished, like every other
+  marker there, so an ordinary list is unchanged.
+
 - **Searching for a number finds the item even when it is finished.** Typing `815` looked the
   item up correctly and then hid it, because a listing shows unfinished work unless you ask
   otherwise — and most of a backlog is finished, so this failed far more often than it worked.

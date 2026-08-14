@@ -1168,9 +1168,17 @@ def status_is_news (item: "Task | Project | Document") -> bool:
 	at all — ``update 5 --status blocked`` answered *Changed* and a clean-room tester concluded
 	it had not saved.
 
-	**And not when it is finished.** A completion has a better rendering on every surface, and
-	a document has no ``completed_at`` to ask about, so the category is the question both kinds
-	can answer.
+	**And not when it is finished**, because a completion has a better rendering wherever this
+	is asked — ``show`` on both surfaces prints the date. A document has no ``completed_at`` to
+	ask about, so the category is the question both kinds can answer.
+
+	**That used to say "on every surface" and it was not true** (`#874`). The terminal's
+	*listing* row had no completion rendering at all — its marks were ``doing``, ``blocked`` and
+	``holds up``, and there was no fourth — so a finished task in a listing said nothing about
+	being finished. It went unnoticed while such a row was almost unreachable; `#873` made a
+	bare ``search <ref>`` surface finished work by design and the sentence became load-bearing
+	and wrong on the same afternoon. ``cli.personal.FINISHED_MARK`` is the rendering now, and
+	this claim is narrowed to the callers it is true of.
 
 	Here rather than in each renderer because there are three of them: the terminal's ``show``,
 	the agent's ``show``, and the agent's listing row (`#841`). It was written out twice,
@@ -1185,6 +1193,30 @@ def status_is_news (item: "Task | Project | Document") -> bool:
 	"""
 
 	return not item.status_is_default and item.status_category != "done"
+
+
+def state_is_news_in_a_listing (item: "Task | Project | Document") -> bool:
+	"""Report whether a listing row should say what state this item is in — `#874`.
+
+	**A listing asks a wider question than a fact sheet**, and that is the whole difference
+	between this and :func:`status_is_news`. ``show`` prints a completion date, so naming the
+	status beside it says the same thing twice; a listing row has no date and no room for one,
+	so a finished item there is indistinguishable from an open one unless the row says so.
+
+	That mattered little while a finished row was almost unreachable. `#873` made a bare
+	``search <ref>`` surface finished work by design — 548 of this instance's 721 tasks — and
+	the two surfaces that render listings both went quiet about it on the same afternoon.
+
+	**Both listings ask this; each answers in its own vocabulary**, which is why this returns a
+	boolean rather than a word. The agent's row prints the status *key*, because an agent reads
+	keys and sends them back. The terminal prints ``doing`` or ``done`` from
+	``cli.personal._state_cell``, because it has separate columns for ``blocked`` and
+	``holds up`` and a reader meeting a raw key would be meeting the vocabulary §13.5b keeps off
+	that path. Sharing the *question* is what stops them drifting; sharing the rendering would
+	be wrong.
+	"""
+
+	return status_is_news(item) or item.status_category == "done"
 
 
 def holder (item: "Task", *, now: datetime.datetime) -> str | None:

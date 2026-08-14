@@ -1409,7 +1409,12 @@ def _line (
 		# default and `active` is not, so asking `status_is_news` of a document would put a
 		# cell on 111 of this instance's 122 — §12.2a's "a column that says the same thing on
 		# every row says nothing", arrived at from the other direction.
-		if subroutine.views.status_is_news(item):
+		# **`state_is_news_in_a_listing`, not `status_is_news`** (`#874`). The narrower one is
+		# for a fact sheet, which prints a completion date beside the status; a row has no date
+		# and no room for one, so a finished item here looked exactly like an open one. Found by
+		# driving the served instance after `#873` made `search <ref>` return finished work by
+		# design — `#815` came back marked `holds up work` and said nothing about being over.
+		if subroutine.views.state_is_news_in_a_listing(item):
 			cells.append(item.status)
 
 		# **Through `views.holder` rather than off `claimed_by`**, because the view reports an

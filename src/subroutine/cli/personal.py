@@ -408,7 +408,7 @@ class Columns:
 
 	address: int = 0
 	kind: int = 0
-	started: int = 0
+	state: int = 0
 	blocked: int = 0
 	priority: int = 0
 	estimate: int = 0
@@ -435,7 +435,7 @@ class Columns:
 				(len(world.address_of_item(name, item)) for name, item in rows), default=0
 			),
 			kind=_column(item.type for _name, item in rows),
-			started=_column(_started_cell(item) for _name, item in rows),
+			state=_column(_state_cell(item) for _name, item in rows),
 			blocked=_column(_blocked_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
@@ -454,13 +454,39 @@ class Columns:
 #: `stop` are actions that happen to set a field, exactly as `done`, `plan` and `defer` are.
 STARTED_MARK = "doing"
 
+#: Marks work that is over — `#874`. Same argument as :data:`STARTED_MARK` for being a word,
+#: and the same column because the two states are exclusive: an item is in the middle of
+#: something or it is finished, never both, so a second column would be empty wherever this one
+#: is not and would cost width on every listing to say so.
+FINISHED_MARK = "done"
 
-def _started_cell (item: Item) -> str:
-	"""Return the marker for work in progress, or nothing (`#75`).
+
+def _state_cell (item: Item) -> str:
+	"""Return where a task is in its life — in progress, finished, or nothing to say (`#75`).
 
 	**A `start` command whose effect is invisible is half a feature.** The status was reachable
 	only over HTTP until now, and adding a way to set it without a way to see it would have
 	moved the gap rather than closed it.
+
+	**Finished work joined it in `#874`, and the gap was made reachable by `#873`.** A terminal
+	listing used to show a finished task only when the reader had explicitly filtered on
+	completion — and somebody who asks about completion does not need telling. Then a bare
+	`search <ref>` began surfacing finished items by design, 548 of this instance's 721 tasks,
+	and they arrived beside open ones looking identical. `#102`'s rule is that a distinction a
+	reader has to learn in order to tell it from a defect *is* one.
+
+	**`views.status_is_news` said this was already handled and was wrong about this surface.**
+	Its reason for staying quiet about finished work was that *"a completion has a better
+	rendering on every surface"* — true of `show`, true of the browser's row, and untrue here,
+	where the marks were `doing`, `blocked` and `holds up` and there was no fourth. That
+	sentence is corrected rather than left as prose asserting a completeness nothing checked.
+
+	**Tasks only, and that is `#841`'s measurement rather than laziness.** A document's
+	categories are `draft`, `current`, `superseded` and `archived`; `draft` is its default and
+	`active` is not, so 111 of 122 documents here carry a status worth remarking on against 2
+	of 172 tasks. A rule that is a signal on one population is noise on the other, and marking
+	every document would put a word on nine rows in ten. A superseded document is worth marking
+	and is a different judgement, not this one.
 
 	Empty on every row of an ordinary list, which drops the column entirely — the same rule the
 	kind, priority and parent columns follow, and what keeps a personal to-do list from looking
@@ -470,7 +496,10 @@ def _started_cell (item: Item) -> str:
 	if not isinstance(item, subroutine.views.Task):
 		return ""
 
-	return STARTED_MARK if item.status_category == "in_progress" else ""
+	if item.status_category == "in_progress":
+		return STARTED_MARK
+
+	return FINISHED_MARK if item.status_category == "done" else ""
 
 
 #: Marks work something unfinished is in the way of — item `#425`. **A word, for
@@ -508,7 +537,7 @@ def _blocked_cell (item: Item) -> str:
 	The other half is a call away — `subroutine show` lists every link either way.
 
 	Empty on every row of an ordinary list, which drops the column entirely — the same rule the
-	kind, started and priority columns follow (§1.4, §14.10).
+	kind, state and priority columns follow (§1.4, §14.10).
 	"""
 
 	if not isinstance(item, subroutine.views.Task):
@@ -5608,11 +5637,11 @@ def _item_line (
 	# **First after the address, because it answers a different question from the rest.** The
 	# other cells describe what an item *is*; this one says you are in the middle of it, which
 	# is what somebody scanning for "where was I" is looking for.
-	if columns.started:
-		line.append(f"{_started_cell(item):<{columns.started}}  ", style=DETAIL)
+	if columns.state:
+		line.append(f"{_state_cell(item):<{columns.state}}  ", style=DETAIL)
 
-	# Beside `started` because it answers the same kind of question — not what an item *is*,
-	# but whether you can act on it now. `started` first: "I am in the middle of this" outranks
+	# Beside `state` because it answers the same kind of question — not what an item *is*,
+	# but whether you can act on it now. `state` first: "I am in the middle of this" outranks
 	# "something is in the way", and an item can carry both.
 	if columns.blocked:
 		line.append(f"{_blocked_cell(item):<{columns.blocked}}  ", style=DETAIL)

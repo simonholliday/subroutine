@@ -5405,3 +5405,58 @@ def test_an_item_in_the_trash_can_be_read_and_says_it_is_in_the_trash (
 	assert "Keep me" in alive
 	assert "deleted" not in alive
 	assert "subroutine comment 2" in alive
+
+
+def test_a_finished_item_in_a_listing_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#874`, and `SR#873` is what made it reachable.**
+
+	A terminal listing used to show finished work only to somebody who had filtered on
+	completion, and they do not need telling. Then a bare `search <ref>` began surfacing
+	finished items by design — 548 of the served instance's 721 tasks — and they arrived beside
+	open ones looking identical, which is `SR#102`'s rule about a distinction that reads as a
+	defect.
+
+	`views.status_is_news` had said this was covered: *"a completion has a better rendering on
+	every surface"*. True of `show`, true of the browser's row, and untrue of the one a search
+	prints to, where the marks were `doing`, `blocked` and `holds up` and there was no fourth.
+	"""
+
+	run("init")
+	run("add", "The cursor is decoded wrongly")
+	run("add", "Follows on from #1 in some way")
+	run("done", "1")
+
+	found = run("search", "1").output
+
+	assert "The cursor is decoded wrongly" in found, "the finished item is the one searched for"
+	assert subroutine.cli.personal.FINISHED_MARK in found
+
+
+def test_an_ordinary_listing_says_nothing_about_finishing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The half that keeps §1.4: the column exists for the rows that need it and no others.
+
+	`SR#12.2a` drops a column no row on the page carries, so somebody who has never completed
+	anything never meets the word. Without this the fix above would put a column on every
+	listing in the product to say nothing.
+
+	**One row is started and one is not, and that is the whole design of this test.** The first
+	version listed two plain tasks and *could not fail*: marking every row finished makes the
+	column uniform, and §12.2a drops a uniform column exactly as it drops an empty one — so the
+	absence was produced by both the correct behaviour and the mutation, which is two opposite
+	behaviours yielding one observation. Found by falsifying, not by reading. A started row
+	keeps the column present, so a wrongly-marked open row has somewhere to show up.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+	run("add", "Buy wine")
+	run("start", "1")
+
+	shown = run("list").output
+
+	assert subroutine.cli.personal.STARTED_MARK in shown, "the column has to be on the page"
+	assert subroutine.cli.personal.FINISHED_MARK not in shown
