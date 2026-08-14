@@ -295,7 +295,12 @@ Restart, and the same search takes **1 ms**. There is no migration beyond the or
 - `seed` finds *seeded* and *seeding* — words match by their root.
 - `curs` still finds *cursor* — a word can be completed from the start.
 - **`ursor` no longer finds *cursor*.** Matching the middle of a word is the one thing an
-  index cannot do. If you rely on it, keep the default.
+  index cannot do.
+- **A very common word stops narrowing.** `the`, `of`, `and` and the rest are dropped rather
+  than required, so `cursor the` finds whatever `cursor` finds. The default backend requires
+  every word you type.
+
+If you rely on matching the middle of a word, or on every word narrowing, keep the default.
 
 On SQLite it is simply not available. Asking for it there is not an error — you get the
 scanning implementation, and the instance tells you so rather than pretending.
@@ -309,7 +314,10 @@ like a sorting fault.
 
 **Ask `GET /v1/meta` what this instance can do.** `search_backend` reports which implementation
 is answering — `like` or `native` — and each listing's `sortable` names `relevance` exactly
-when it can be ordered by one. Do not infer it from anything else.
+when this instance can rank at all. Do not infer it from anything else.
+
+`relevance` ranks how well a row answered a search, so it needs one: `?order=-relevance` without
+a `q` is refused, and the refusal says that rather than calling the field unknown.
 
 **Merge on the key you asked each collection for.** If you sent `?order=title`, merge on
 `title`; the server sorted and paged each collection by that, and merging on anything else

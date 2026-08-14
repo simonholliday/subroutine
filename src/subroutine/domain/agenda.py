@@ -140,6 +140,22 @@ def build (
 	# **What is already started, between the day's work and everything else** (`#853`). Read
 	# off the status *category* rather than a key, because a workspace may rename the row —
 	# `in_progress` is one of the five categories §6.5 fixes, and the key beside it is not.
+	#
+	# **Deliberately unlimited, unlike `unscheduled` below** — Simon's decision of 2026-08-14,
+	# `#888`: *"a user viewing their own agenda should see all in-progress items. Hiding some
+	# risks misleading the user. They may start others instead of finishing items we didn't
+	# show them."*
+	#
+	# **Measured before deciding**, because the cold review raised it as unbounded and the word
+	# is doing a lot of work: 2 in-progress against 179 unscheduled on the served instance. The
+	# argument is what the two are bounded *by* rather than the numbers — `unscheduled` grows
+	# with the backlog and has no ceiling at all, where this is bounded by how many workers
+	# there are times how much each holds at once, which §14.11's leases keep small on purpose.
+	#
+	# **What would change it is team size**, since every bucket here is scoped by readability
+	# rather than by assignee. If it ever does, the shape is already beside it: Simon's
+	# condition was that a cap must *say* it is one, count what is hidden and offer a way to
+	# see it all, which is exactly what `unscheduled_total` is.
 	started = _run(
 		session,
 		base.join(

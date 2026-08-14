@@ -154,6 +154,48 @@ def scored (row: typing.Any) -> float | None:
 	)
 
 
+def refuse_ranking_without_a_search (expression: str | None, *, searching: bool) -> None:
+	"""Refuse ``?order=relevance`` on a listing that is not a search, by name — ``#884``.
+
+	**``/v1/meta`` publishes ``relevance`` wherever a backend can rank**, because that is what
+	the instance can do; the vocabulary a *request* is parsed against gains it only when there
+	is a search to rank. So the published name was answered with *"'relevance' is not a field
+	this listing can sort by"* — a name the same instance advertises, reported as unknown. The
+	README tells a client to rely on that publication in as many words, so a caller doing
+	exactly what it is told met a 422 about the wrong thing.
+
+	**Refusing here rather than admitting the name to the vocabulary**, because there is nothing
+	to rank against: the expression is built from the search's own words, and `#880` is what
+	happens when that is assembled from none.
+
+	Said once and called by both transports, because a refusal is part of the contract: an agent
+	learns the rule from the message, and learning two different rules depending on how it
+	connected is the divergence this module exists to prevent.
+	"""
+
+	if searching:
+		return
+
+	named = [part.strip().removeprefix("-") for part in (expression or "").split(",")]
+
+	if RELEVANCE not in named:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"There is nothing to rank, so this listing cannot be sorted by {RELEVANCE!r}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="order",
+				code="invalid_field_value",
+				message=f"{RELEVANCE!r} ranks how well a row answered a search, and no search "
+				f"was made.",
+				hint="Add a search — 'q' over HTTP, or the words themselves at the command "
+				"line — or choose another field.",
+			)
+		],
+	)
+
+
 def searching (
 	allowed: typing.Mapping[str, Sortable],
 	*,

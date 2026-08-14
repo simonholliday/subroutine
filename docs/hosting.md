@@ -169,6 +169,12 @@ from **119 ms to 1 ms**. In exchange it matches whole words rather than fragment
 finds *seeded* and *seeding*, `curs` still finds *cursor* because a word can be completed from
 the start, and `ursor` finds nothing at all.
 
+**And a very common word stops narrowing.** PostgreSQL's text search drops `the`, `of`, `and`
+and their kind before the query is built, so `cursor the` finds whatever `cursor` finds, where
+`like` requires both and would find nothing. That is inherent to full-text search rather than
+a choice made here — it is written down because the rest of this product promises that every
+word you type must appear, and under this backend that is one word short of true.
+
 It exists on PostgreSQL only. Asking for it on SQLite is not an error — you get `like`, and
 `GET /v1/meta` reports which one is actually answering. Turning it on needs no migration
 beyond the ordinary `subroutine db upgrade`; turning it off again is a configuration change

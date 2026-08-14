@@ -16,6 +16,13 @@ words happened to be adjacent and in that order; ``vocabulary seeded`` found not
 both words were four words apart in the same item, and ``entries vocabulary`` found nothing
 because it was reversed.
 
+**One exception, and it belongs to the indexed backend alone** (`#885`): a stopword — ``the``,
+``of``, ``and`` — narrows nothing under ``native``, because PostgreSQL's text search drops them
+before the query is built. So ``cursor the`` finds what ``cursor`` finds there and nothing at
+all under ``like``. Accepted rather than refused, Simon's decision of 2026-08-14, on the grounds
+that refusing would make the two backends differ in a second way; ``db/fulltext.query`` carries
+the mechanism and the changelog carries the warning.
+
 **It failed in the direction that costs something.** An empty result is indistinguishable from
 "this does not exist", so the caller does what the empty result implies and files a duplicate —
 on the one path that exists to prevent duplicates. The skill sends an agent here *before*

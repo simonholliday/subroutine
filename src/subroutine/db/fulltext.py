@@ -135,9 +135,10 @@ def vector (*columns: typing.Any) -> typing.Any:
 def query (terms: typing.Sequence[str]) -> typing.Any:
 	"""Return the query every term must satisfy, with the last one matched as a prefix.
 
-	**Every term is required**, which is `#620`'s rule unchanged: a search that widened to "any
-	word" would answer most of the backlog and stop being usable for the question it exists to
-	answer.
+	**Every term is required**, which is `#620`'s rule — with one exception this backend brings
+	and the paragraph on ``plainto_tsquery`` below states: a **stopword** narrows nothing. A
+	search that widened to "any word" would answer most of the backlog and stop being usable for
+	the question it exists to answer, and dropping *the* is not that.
 
 	**The last term is a prefix and the rest are whole words.** That is the search-as-you-type
 	convention every reader already knows from somewhere else, and it is what recovers the half
@@ -149,8 +150,22 @@ def query (terms: typing.Sequence[str]) -> typing.Any:
 	Only the last term, because a prefix in the middle of a query is almost always a whole word
 	somebody has finished typing, and treating it as a prefix widens the answer for nothing.
 
-	``plainto_tsquery`` is deliberately not used: it cannot express a prefix at all, and it
-	would silently drop the stopwords this builds around instead.
+	**``plainto_tsquery`` builds every term but the last, and ``to_tsquery`` the last one**,
+	because only the second can express a prefix. This docstring said the first was *"deliberately
+	not used"* while the line beneath it used it — `#885`, and a sentence asserting the opposite
+	of the code under it is worse than no sentence, because it stops the next reader checking.
+
+	**So a stopword does not narrow, and the rule this module states twice is not true here.**
+	``plainto_tsquery('english', 'the')`` is the empty tsquery and ``empty && x`` is ``x``, so
+	``cursor the`` finds what ``cursor`` finds where the ``like`` backend finds nothing at all.
+	Measured on identical rows: ``cursor once`` returned four under ``like`` and five under this,
+	the extra row containing no *once*.
+
+	**That is accepted rather than fixed** — Simon's decision of 2026-08-14. Refusing an
+	all-stopword query would make the two backends differ in a *second* way on top of the one the
+	setting already buys, and one divergence a reader can be told about is a trade where two is a
+	different product per configuration. It is in the changelog, in ``README.md`` and in
+	``docs/hosting.md``, and ``tests/test_search_backend.py`` holds a row for it.
 
 	**No terms is a programming error here rather than an empty search** (`#880`). A caller
 	with nothing to look for has nothing to rank, so there is no expression to return that is

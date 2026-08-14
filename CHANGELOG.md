@@ -44,10 +44,19 @@ upgrade involves.
   - **A partial word no longer works from the middle**: `ursor` will not find *cursor*. This
     is the one thing the index cannot do, and it is inherent rather than an omission.
 
-  If you rely on matching the middle of a word, keep the default.
+  **A very common word may stop narrowing a search** under the index — `the`, `of`, `and` and
+  the rest are dropped rather than required, so `cursor the` finds what `cursor` finds. The
+  default backend requires every word you type.
+
+  If you rely on matching the middle of a word, or on every word narrowing, keep the default.
+
+- **Search reads comments.** A search now finds an item when the words are in a comment on it,
   as well as in its title, description or body. This changes what a search *finds*, not how
   fast it finds it, so it is worth knowing about rather than being a quiet improvement: a query
   that returned nothing yesterday may return something today.
+
+  **This one is not opt-in and does not need PostgreSQL** — it works on both backends and on
+  every installation.
 
   Comments are where the running record of a piece of work lives, and on a working instance
   there are usually more of them than there are items — so the previous behaviour was

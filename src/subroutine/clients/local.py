@@ -563,6 +563,12 @@ class Client:
 				)
 			)
 
+			# `#884`, and shared with the endpoint so both refuse it the same way: a name
+			# `/v1/meta` publishes must not come back as an unknown field.
+			subroutine.domain.ordering.refuse_ranking_without_a_search(
+				order, searching=subroutine.domain.ordering.RELEVANCE in sortable
+			)
+
 			rows = list(
 				session.scalars(
 					# Built by the domain from the same vocabulary ``GET /v1/tasks`` uses,
@@ -676,6 +682,10 @@ class Client:
 				)
 				fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
+			subroutine.domain.ordering.refuse_ranking_without_a_search(
+				order, searching=subroutine.domain.ordering.RELEVANCE in sortable
+			)
+
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
@@ -737,6 +747,8 @@ class Client:
 					# The loader option as well as the ordering, which this listing never
 					# needed until a search could be ranked: a computed sort value exists only
 					# in SQL and has to arrive on the row for the merge to read it.
+					#
+					# `#884`'s refusal is applied above, before any of this is built.
 					.options(
 						*subroutine.domain.ordering.options(
 							order, allowed=sortable, default=fallback

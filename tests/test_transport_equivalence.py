@@ -3289,3 +3289,49 @@ def test_both_answer_a_search_with_no_words_in_it (native: None, pair: Pair) -> 
 	)
 
 	assert len(local.documents(q=" ")) == len(remote.documents(q=" "))
+
+
+def test_both_refuse_a_ranking_on_a_listing_that_is_not_a_search (
+	native: None, pair: Pair
+) -> None:
+	"""**`SR#884`. A name `/v1/meta` publishes must not come back as an unknown field.**
+
+	`relevance` is published wherever a backend can rank, because that is what the instance can
+	do — and it enters a *request's* vocabulary only when there is a search to rank. So asking
+	for it without one was answered *"'relevance' is not a field this listing can sort by"*,
+	about a field the same instance advertises, and which `README.md` tells a client to rely on
+	in as many words:
+
+	> each listing's `sortable` names `relevance` **exactly when it can be ordered by one**. Do
+	> not infer it from anything else.
+
+	A client doing exactly that met a 422 about the wrong thing.
+
+	**Both transports, and both messages**, because a refusal is part of the contract: an agent
+	learns the rule from what it is told, and learning two different rules depending on how it
+	connected is what this suite exists to prevent.
+	"""
+
+	make(pair, "Something to find")
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(order="-relevance")
+
+		assert raised.value.errors[0].field == "order"
+		assert "search" in raised.value.errors[0].message, (
+			f"the refusal must name what is missing, not the field — {raised.value.errors[0]}"
+		)
+
+		# And it is still answered when there *is* one, which is the half that says the
+		# refusal is about the request rather than about the name.
+		#
+		# **Only where something can rank.** On SQLite `native` falls back, so `relevance` is
+		# in no vocabulary at all and this refusal is the right answer there too — asserting
+		# the opposite would be asserting a backend rather than the rule.
+		if pair.session.get_bind().dialect.name == "postgresql":
+			assert client.tasks(q="something", order="-relevance") is not None
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.ValidationError):
+			client.documents(order="relevance")

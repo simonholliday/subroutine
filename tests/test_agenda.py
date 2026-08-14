@@ -516,3 +516,39 @@ def test_the_agenda_can_be_narrowed_to_one_workspace (
 	}
 	assert {task.title for task in narrowed.unscheduled} == {"Personal thing"}
 	assert narrowed.unscheduled_total == 1, "the total must narrow with the rows"
+
+
+def test_every_started_item_is_on_the_agenda_however_many_there_are (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#888`, and this records a decision rather than guarding a defect.**
+
+	The cold review of 2026-08-14 raised the `in_progress` bucket as unbounded, which it is —
+	`unscheduled` takes a limit and this does not. Simon's decision is that it stays that way:
+
+	> a user viewing their own agenda should see all in-progress items. Hiding some risks
+	> misleading the user. They may start others instead of finishing items we didn't show them.
+
+	**Measured before deciding**: 2 in-progress against 179 unscheduled on the served instance,
+	and the two are bounded by different things — a backlog has no ceiling, where started work
+	is bounded by how many workers there are times how much each holds at once.
+
+	**More rows than `unscheduled_limit`**, so a cap applied by copying that bucket's shape
+	fails here rather than passing on a fixture too small to notice.
+	"""
+
+	world = World(session)
+	started = subroutine.domain.tasks.status_for(session, world.workspace.id, "in_progress")
+
+	for number in range(subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5):
+		task = world.task(f"Started {number}")
+		task.status_id = started.id
+
+	session.flush()
+
+	agenda = world.agenda()
+
+	assert len(agenda.in_progress) == subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5, (
+		f"the agenda showed {len(agenda.in_progress)} of "
+		f"{subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5} started items"
+	)

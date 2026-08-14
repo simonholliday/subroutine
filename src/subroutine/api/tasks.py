@@ -543,6 +543,12 @@ def listing (
 		statement, dates, session=session, actor=actor, workspace=workspace
 	)
 
+	# **`#884`: a name `/v1/meta` publishes is refused for what it *means*, not as unknown.**
+	# `relevance` enters the vocabulary only when there is a search to rank, so without one it
+	# was answered "not a field this listing can sort by" — about a field the same instance
+	# advertises, and which the README tells a client to rely on.
+	subroutine.domain.ordering.refuse_ranking_without_a_search(order, searching=ranked is not None)
+
 	return _page(
 		session,
 		settings,

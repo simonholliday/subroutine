@@ -180,6 +180,12 @@ def searchable (session: sqlalchemy.orm.Session) -> typing.Any:
 		("seeded", True, True),
 		("paginate", True, False),
 		("cursor pagination", True, True),
+		# **A stopword narrows nothing under the index** — `#885`. `plainto_tsquery('english',
+		# 'of')` is the empty tsquery and `empty && x` is `x`, so this asks for `cursor` alone;
+		# `like` requires the substring and the row has no "of" in it. Chosen for that: "the"
+		# and "and" both appear in the fixture's own prose, so either would be found by both
+		# and prove nothing.
+		("cursor of", True, False),
 		("quinsy", False, False),
 	],
 )
@@ -197,6 +203,11 @@ def test_what_each_backend_finds (
 	``Seeded`` and ``paginate`` finds ``pagination``; it matches a **trailing prefix**, so
 	``curs`` finds ``cursor``; and it cannot match **mid-word**, so ``ursor`` never will
 	(§10.4). The ``like`` backend is the mirror of all three.
+
+	**And a stopword narrows nothing under the index** (`#885`), which is the fourth difference
+	and was the one nowhere written down — so the module claimed twice that every term is
+	required while this backend quietly dropped some. Accepted rather than refused, Simon's
+	decision of 2026-08-14; the row below is what stops it being accepted *silently*.
 	"""
 
 	model = subroutine.db.models.work.Task

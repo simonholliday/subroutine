@@ -142,6 +142,24 @@ RUNS = 5
 #: while writing the guard rather than years later.
 RATIO_CEILING = 25.0
 
+#: Listings measured as over the ceiling on purpose, each naming the item that will bring it
+#: back under. **Deleting the entry is what closes that item**, which is the rule every excuse
+#: list in this repository follows.
+#:
+#: **The ceiling is not raised for these, deliberately.** A threshold moved to accommodate a
+#: defect is a threshold nothing can reach — `#303`'s shape — and here the number *is* the
+#: finding: the whole argument for `#823` is that an index makes a search cheap, so a
+#: measurement saying it makes half of one dearer has to go on being printed rather than being
+#: made to pass.
+KNOWN_EXPENSIVE: dict[str, str] = {
+	"search with comments, indexed (no match)": (
+		"#892 — `ix_comment_search` is bypassed by the correlated EXISTS in "
+		"`search.in_a_comment`, so the tsvector is computed per comment rather than read from "
+		"the index. Measured at 63.7x against 11.0x for the `like` backend it replaces: the "
+		"index makes this half of a search *slower* than before. Read from EXPLAIN, not guessed."
+	),
+}
+
 #: What a single measurement may cost outright, in milliseconds, on either backend — the
 #: unordered page included.
 #:
@@ -547,8 +565,14 @@ def _ready (context: Context) -> typing.Any:
 	return context.session.execute(statement.limit(PAGE)).unique().scalars().all()
 
 
-def _searched (context: Context) -> typing.Any:
-	"""Run a search that matches nothing, which is the expensive and the useful case."""
+def _searched (context: Context, backend: str = subroutine.domain.search.LIKE) -> typing.Any:
+	"""Run a search that matches nothing, which is the expensive and the useful case.
+
+	**Takes the backend** (`#887`), because the module promised *"the search `#823` is about to
+	replace, so that work has a standing before-and-after"* — and the *after* was never added.
+	The whole performance argument for `#823` is 119 ms against 1 ms, and nothing was watching
+	the half it argued for.
+	"""
 
 	statement = _base(context).where(
 		subroutine.domain.search.matching(
@@ -556,14 +580,17 @@ def _searched (context: Context) -> typing.Any:
 			subroutine.db.models.work.Task.title,
 			subroutine.db.models.work.Task.description,
 			ref=subroutine.db.models.work.Task.ref,
+			backend=backend,
 		)
 	)
 
 	return context.session.execute(statement.limit(PAGE)).unique().scalars().all()
 
 
-def _searched_including_comments (context: Context) -> typing.Any:
-	"""Run the same search with `#83`'s comment half, in the shape it would be built.
+def _searched_including_comments (
+	context: Context, backend: str = subroutine.domain.search.LIKE
+) -> typing.Any:
+	"""Run the same search with `#83`'s comment half, as the endpoints build it.
 
 	**Measured before it was built, because the shape is the one this file exists to watch.**
 	A comment is a join rather than a column, so "does any comment on this item match" is a
@@ -571,31 +598,24 @@ def _searched_including_comments (context: Context) -> typing.Any:
 	inner predicate is an ``ILIKE`` that §10.4 says no index can serve. Two unindexable scans
 	multiplied together is the arrangement that produced a 5.4-second listing once already.
 
-	Written here rather than reasoned about, so that whichever way the number falls it decides
-	the order of the work rather than a guess doing it.
+	**It calls `search.in_a_comment` now rather than building the `EXISTS` here** (`#887`). The
+	hand-built version was correct when written — this predicate did not exist yet, and the
+	docstring said *"in the shape it would be built"*. It does exist, and a guard measuring a
+	copy of the thing it is guarding is this codebase's signature defect inside the file written
+	to catch a different one: a join added to the real predicate, or a clause, would be invisible
+	here while the numbers went on being printed.
 	"""
 
 	task = subroutine.db.models.work.Task
-	comment = subroutine.db.models.activity.Comment
-
-	found = (
-		sqlalchemy.select(sqlalchemy.literal(1))
-		.select_from(comment)
-		.where(
-			comment.entity_type == "task",
-			comment.entity_id == task.id,
-			comment.deleted_at.is_(None),
-			subroutine.domain.search.matching(UNFINDABLE, comment.body, ref=None),
-		)
-		.exists()
-	)
 
 	statement = _base(context).where(
 		sqlalchemy.or_(
 			subroutine.domain.search.matching(
-				UNFINDABLE, task.title, task.description, ref=task.ref
+				UNFINDABLE, task.title, task.description, ref=task.ref, backend=backend
 			),
-			found,
+			subroutine.domain.search.in_a_comment(
+				UNFINDABLE, subject=task.id, entity_type="task", backend=backend
+			),
 		)
 	)
 
@@ -704,7 +724,7 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 	expensive = {
 		name: measured.ratio(name)
 		for name in measured.timings
-		if measured.ratio(name) > RATIO_CEILING
+		if measured.ratio(name) > RATIO_CEILING and name not in KNOWN_EXPENSIVE
 	}
 
 	assert not _too_slow(measured), (
@@ -733,19 +753,30 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 	"""
 
 	engine, backend = seeded
-	measured = _measured(
-		engine,
-		work={
-			"ready": _ready,
-			"agenda": _agenda,
-			"search (no match)": _searched,
-			"search with comments (no match)": _searched_including_comments,
-		},
-	)
+	work: dict[str, typing.Callable[[Context], typing.Any]] = {
+		"ready": _ready,
+		"agenda": _agenda,
+		"search (no match)": _searched,
+		"search with comments (no match)": _searched_including_comments,
+	}
+
+	# **The backend `#823` built, measured beside the one it replaces** (`#887`). The module
+	# promises a standing before-and-after and only the *before* was here, so the whole
+	# performance argument for the feature had no guard at all. Skipped where it cannot exist,
+	# which is the same rule `test_search_backend.py` applies for `#871`'s reason.
+	if backend == "postgresql":
+		work["search, indexed (no match)"] = functools.partial(
+			_searched, backend=subroutine.domain.search.NATIVE
+		)
+		work["search with comments, indexed (no match)"] = functools.partial(
+			_searched_including_comments, backend=subroutine.domain.search.NATIVE
+		)
+
+	measured = _measured(engine, work=work)
 	expensive = {
 		name: measured.ratio(name)
 		for name in measured.timings
-		if measured.ratio(name) > RATIO_CEILING
+		if measured.ratio(name) > RATIO_CEILING and name not in KNOWN_EXPENSIVE
 	}
 
 	assert not _too_slow(measured), (
@@ -757,6 +788,57 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 		f"On {backend}, {sorted(expensive)} cost more than {RATIO_CEILING:.0f}x an unordered "
 		f"page. A listing that consults rows other than the ones it returns, once per "
 		f"candidate, is the shape to look for.\n{measured.report()}"
+	)
+
+
+def test_no_excused_listing_has_quietly_come_back_under_the_ceiling (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""**What makes an entry in :data:`KNOWN_EXPENSIVE` go away** — the question every excuse
+	list in this repository is required to answer (`#405`).
+
+	An excuse that outlives its defect is worse than none: it reads as a considered decision,
+	the number stops being looked at, and the item it names stays open because nobody notices it
+	is finished. Three of those were found at once when this rule was first applied.
+
+	So a listing that is excused and is *inside* the ceiling fails here, naming the entry to
+	delete — which is also how `#892` gets closed rather than remembered.
+
+	**Skipped where nothing being excused can run.** Every current entry is a PostgreSQL
+	measurement; on SQLite the names are absent from the timings and there is nothing to check.
+	"""
+
+	engine, backend = seeded
+
+	if backend != "postgresql":
+		pytest.skip("every excused listing is measured on PostgreSQL only")
+
+	measured = _measured(
+		engine,
+		work={
+			"search, indexed (no match)": functools.partial(
+				_searched, backend=subroutine.domain.search.NATIVE
+			),
+			"search with comments, indexed (no match)": functools.partial(
+				_searched_including_comments, backend=subroutine.domain.search.NATIVE
+			),
+		},
+	)
+
+	excused = set(KNOWN_EXPENSIVE) & set(measured.timings)
+
+	assert excused, (
+		f"none of {sorted(KNOWN_EXPENSIVE)} was measured here, so the excuses are being kept "
+		f"for listings this test cannot see and nothing will ever retire them"
+	)
+
+	settled = {
+		name: measured.ratio(name) for name in excused if measured.ratio(name) <= RATIO_CEILING
+	}
+
+	assert not settled, (
+		f"On {backend}, {sorted(settled)} now cost under {RATIO_CEILING:.0f}x — delete the "
+		f"entry from KNOWN_EXPENSIVE, and close the item it names.\n{measured.report()}"
 	)
 
 

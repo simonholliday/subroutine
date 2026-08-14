@@ -46,7 +46,14 @@ depends_on: str | typing.Sequence[str] | None = None
 # An expression index is used only when the query renders the same expression character
 # for character, so a copy here that drifted from the models would produce an index that
 # is built, maintained, and never consulted — with nothing failing.
-INDEXES = ("ix_task_search", "ix_document_search", "ix_comment_search")
+#
+# **Both halves read this, which is `#889`.** A tuple of names sat here for the downgrade,
+# directly under that sentence, being the second copy it warns about: a rename in the models
+# would move `upgrade` and leave `downgrade` dropping nothing, silently.
+#
+# The orthodox answer is the opposite — a migration is one fixed step and should drop exactly
+# the names it created — and it is not the trade this file makes, for the reason above. A
+# rename is its own migration, and the fixed names for the old ones belong in that one.
 
 
 def _declared () -> list[typing.Any]:
@@ -78,5 +85,5 @@ def downgrade () -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
 
-    for name in INDEXES:
-        op.execute(f"DROP INDEX IF EXISTS {name}")
+    for index in _declared():
+        op.execute(f"DROP INDEX IF EXISTS {index.name}")

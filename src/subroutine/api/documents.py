@@ -307,6 +307,11 @@ def listing (
 		)
 		fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
+	# `#884`, and the endpoint above says why: a published name refused as unknown.
+	subroutine.domain.ordering.refuse_ranking_without_a_search(
+		order, searching=subroutine.domain.ordering.RELEVANCE in sortable
+	)
+
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=sortable, default=fallback, tiebreak=model.id
 	)
