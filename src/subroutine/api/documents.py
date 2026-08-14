@@ -253,7 +253,7 @@ def listing (
 		# where this project's own reasoning lives: `#4` is a specification, and searching for
 		# a term it discusses at length found nothing at all.
 		statement = statement.where(
-			subroutine.domain.search.matching(q, model.title, model.body)
+			subroutine.domain.search.matching(q, model.title, model.body, ref=model.ref)
 		)
 
 	# **§9.6's dotted filters** (`#815`). Documents are here because one ref counter serves both

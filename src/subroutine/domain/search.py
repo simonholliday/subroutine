@@ -35,6 +35,22 @@ cannot use an index (§10.4 lists it as one of the two predicates that cannot), 
 adequate at personal scale and will not stay adequate. Writing it down is what stops the
 default ossifying into a decision nobody remembers taking.
 
+**A query that is exactly a ref finds that item too** — `#867`, 2026-08-14. A ref is this
+product's primary address: it is in every commit message, every comment and every sentence
+anybody writes about an item, and it was the one address the search box could not resolve.
+Measured across ten refs before this was built, the item itself was **absent in ten of ten**,
+while four to sixty unrelated rows matched the digits as text — because ``7`` appears inside
+``17``, inside ``#755`` and inside every ``2026-08-07`` on the instance.
+
+That measurement is also why the *ordering* half is not here. With sixty noise rows, an exact
+match that is merely present is not findable, so "the exact hit first" is the feature rather
+than a refinement of it — and it cannot be an ``ordering.ORDERINGS`` entry, because those are
+a static map from name to ``Sortable`` and this expression depends on the query. It belongs
+with ``-relevance`` in `#823`, which has to build a per-query sort value a cursor can resume
+from anyway; an exact identifier match is simply the highest-scoring hit, which is what a
+search backend does with one. Building a bespoke prefix here and a general one there would be
+two implementations of one rule, chosen deliberately against.
+
 Two things it deliberately still does not do, both filed rather than half-built: ranking a
 title match above a body one, and stemming so that ``seeded`` and ``seed`` agree. The first
 changes an ordering that keyset pagination has to be able to resume from; the second needs the
@@ -46,6 +62,7 @@ import typing
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.domain.refs
 import subroutine.errors
 
 
@@ -84,12 +101,30 @@ def terms (query: str) -> list[str]:
 	return query.split()
 
 
-def matching (query: str, *columns: Searchable) -> sqlalchemy.ColumnElement[bool]:
+def matching (
+	query: str, *columns: Searchable, ref: Searchable | None
+) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching every word of this query, across these columns.
 
 	**Every term must appear; each may appear in any of the columns.** So a query naming one
 	word from the title and one from the description finds the row — which is the ordinary
 	shape of half-remembering something, and the case `#620` found returning nothing.
+
+	**A query that is exactly a ref also matches the item with that number** — `#867`, and
+	``ref`` is the column to compare against. A ref is how this product addresses everything:
+	it is in every commit message, every comment and every sentence anybody writes about an
+	item, and until now it was the one address the search box could not resolve. Measured
+	across ten refs before this was built, the item itself was **absent in ten of ten**, while
+	four to sixty unrelated rows matched the digits as text.
+
+	**Both readings are kept, rather than one replacing the other.** ``862`` may be the item
+	and may equally be a number somebody wrote in a description, and neither is the obviously
+	intended one. Which of them appears *first* is an ordering question and deliberately not
+	answered here — see below.
+
+	``ref`` is **keyword-only and has no default**, so a new caller has to say what it means
+	rather than inherit silence. ``None`` is a legitimate answer for anything searched that
+	has no ref of its own; passing it is a decision, and omitting it is now impossible.
 
 	``ilike`` rather than ``like``, always and on every column: SQLite's ``LIKE`` is
 	case-insensitive for ASCII and PostgreSQL's is not, so an unqualified one is a filter that
@@ -128,7 +163,7 @@ def matching (query: str, *columns: Searchable) -> sqlalchemy.ColumnElement[bool
 			"Use the few most distinctive words instead.",
 		)
 
-	return sqlalchemy.and_(
+	text = sqlalchemy.and_(
 		*[
 			sqlalchemy.or_(
 				*[
@@ -139,3 +174,18 @@ def matching (query: str, *columns: Searchable) -> sqlalchemy.ColumnElement[bool
 			for term in wanted
 		]
 	)
+
+	if ref is None:
+		return text
+
+	# The whole query, not one of its words. ``parse_ref`` is anchored at both ends, so this
+	# asks "is the entire search a ref" — which keeps `862 pagination` a text search rather
+	# than turning any query that happens to contain a number into a lookup. It is also the
+	# one place the spelling is decided, so `#862` and `862` agree here with every other
+	# surface, and `007` resolves nowhere.
+	numbered = subroutine.domain.refs.parse_ref(query)
+
+	if numbered is None:
+		return text
+
+	return sqlalchemy.or_(text, ref == numbered)

@@ -475,7 +475,7 @@ def listing (
 		# until 2026-07-31 — a search that returns plausible rows and silently drops the ones
 		# nobody knew to look for.
 		statement = statement.where(
-			subroutine.domain.search.matching(q, model.title, model.description)
+			subroutine.domain.search.matching(q, model.title, model.description, ref=model.ref)
 		)
 
 	if due_before is not None:

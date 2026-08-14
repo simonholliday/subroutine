@@ -2252,6 +2252,119 @@ def test_a_search_asking_for_too_many_words_is_refused_by_name (world: World) ->
 	assert "distinctive" in answer.json()["hint"]
 
 
+def test_a_search_for_a_number_finds_the_item_with_that_ref (world: World) -> None:
+	"""**`#867`.** A ref is this product's primary address and search could not resolve one.
+
+	Measured across ten refs on the live instance before this was built: the item itself was
+	**absent in ten of ten**, while four to sixty unrelated rows matched the digits as text.
+	The number is in every commit message and every sentence anybody writes about an item, so
+	the search box was the one place it did not work.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Entirely unrelated wording"}).json()
+
+	found = world.call("GET", f"/v1/tasks?q={made['ref']}&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_search_for_a_ref_still_finds_what_mentions_it (world: World) -> None:
+	"""**Both readings are kept, and that is the decision rather than an accident.**
+
+	``862`` may be the item and may equally be a number somebody wrote in a description.
+	Neither is obviously the intended one, so the ref match is OR-ed *beside* the text match
+	rather than replacing it — a lookup that discarded the text hits would answer a narrower
+	question than the one asked.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "The subject itself"}).json()
+	citing = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Something else", "description": f"Follows on from #{made['ref']}."},
+	).json()
+
+	found = {
+		row["ref"]
+		for row in world.call("GET", f"/v1/tasks?q={made['ref']}&limit=50").json()["items"]
+	}
+
+	assert made["ref"] in found, "the item with that number"
+	assert citing["ref"] in found, "and the one that merely mentions it"
+
+
+def test_a_ref_search_accepts_the_sigil_it_is_written_with (world: World) -> None:
+	"""``#42`` and ``42`` are one request, decided in ``refs.parse_ref`` and nowhere else.
+
+	The sigil is how a ref is written everywhere a person reads one, so a search box that took
+	only the bare form would refuse the spelling somebody copied out of a comment.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Addressed two ways"}).json()
+
+	# %23 is `#`, which would otherwise open a URL fragment and never reach the server.
+	found = world.call("GET", f"/v1/tasks?q=%23{made['ref']}&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_number_among_other_words_is_not_a_ref_lookup (world: World) -> None:
+	"""``parse_ref`` is anchored at both ends, and this is what that buys.
+
+	A query is read as a ref only when the *whole* of it is one. Otherwise any search
+	containing a number would quietly become a lookup, and ``pagination 42`` would return an
+	item having nothing to do with either word — the swallow `#379` exists to refuse.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Nothing to do with it"}).json()
+
+	found = {
+		row["ref"]
+		for row in world.call(
+			"GET", f"/v1/tasks?q={made['ref']}+pagination&limit=50"
+		).json()["items"]
+	}
+
+	assert made["ref"] not in found
+
+
+def test_a_ref_search_cannot_reach_past_a_narrowed_credential (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**The clause narrows; it may never widen.**
+
+	It is one ``where`` among many on a statement ``scoping.readable_tasks`` has already
+	bounded, so it is AND-ed inside the caller's reach rather than OR-ed around it. That is
+	structural — but a ref is a **guessable** address, unlike a word somebody has to know, so
+	the one thing this must never become is a way to confirm an item exists by numbering at
+	it. Worth a test even where the shape says it cannot.
+	"""
+
+	world = _world(session)
+
+	elsewhere = world.call(
+		"POST", "/v1/projects", json={"key": "elsewhere", "title": "Elsewhere"}
+	).json()
+	beyond = world.call(
+		"POST", "/v1/tasks", json={"title": "Out of reach", "project": elsewhere["key"]}
+	).json()
+
+	inbox = world.call("GET", "/v1/projects").json()["items"]
+	reachable = next(
+		row for row in inbox if row["key"] == subroutine.domain.bootstrap.INBOX_KEY
+	)
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Inbox only", project_scope=[reachable["id"]]
+	)
+	session.flush()
+
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+	found = narrowed.call("GET", f"/v1/tasks?q={beyond['ref']}&limit=50").json()
+
+	assert beyond["ref"] not in {row["ref"] for row in found["items"]}
+
+
 def test_a_status_category_gathers_every_status_in_it (world: World) -> None:
 	"""`#710`. The point of the filter: three seeded keys share the ``todo`` category.
 

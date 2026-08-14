@@ -25,6 +25,19 @@ upgrade involves.
 
 ### Added
 
+- **A number typed into search finds the item with that number.** Searching `862` now returns
+  `#862` itself, as well as everything whose title or description mentions those digits.
+  `#862` works too, and so does either form over the API, in `subroutine search` and from an
+  agent's `subroutine_search`.
+
+  A ref is what everything here is addressed by — it is in every commit message, every comment
+  and every sentence anybody writes about an item — and search was the one place it did not
+  resolve. Measured across ten refs beforehand, the item itself came back in none of them.
+
+  Both readings are kept rather than one replacing the other, because `862` may be the item and
+  may equally be a number somebody wrote in a description. Which of them comes *first* is not
+  settled yet; it arrives with search ranking.
+
 - **`subroutine today` has an *In progress* section.** Work you have already started is
   neither scheduled nor a candidate to pick up, and it used to be filed among everything you
   had ever captured. It sits between *Today* and the rest, and the heading is dropped when

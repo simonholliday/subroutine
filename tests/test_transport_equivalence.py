@@ -1741,6 +1741,25 @@ def test_both_search_the_same_text_the_same_way (pair: Pair) -> None:
 	assert spread == sorted(task.ref for task in remote.tasks(q="cursor heading", limit=50))
 
 
+def test_both_find_an_item_by_its_own_number (pair: Pair) -> None:
+	"""**`#867`, checked here because there are two call sites and one is not the endpoint.**
+
+	``clients/local.py`` builds its own copy of this query rather than going through
+	``GET /v1/tasks``, so a predicate added to the endpoint alone reaches HTTP and silently
+	not the terminal — which is the divergence `#700` found in a lookup and `#583` found in a
+	rendering. The CLI and MCP both arrive through the local client.
+	"""
+
+	subject = make(pair, "Wholly unlike the query")
+	make(pair, "Another item entirely")
+
+	local, remote = pair.both()
+	found = sorted(task.ref for task in local.tasks(q=str(subject.ref), limit=50))
+
+	assert found == [subject.ref], "the probe matched nothing, so it proves nothing"
+	assert found == sorted(task.ref for task in remote.tasks(q=str(subject.ref), limit=50))
+
+
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
 	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.

@@ -475,3 +475,23 @@ def test_a_tag_of_only_digits_is_refused_on_a_document_too (
 
 	assert refused.status_code == 422, refused.text
 	assert "404" in refused.text
+
+
+def test_a_search_for_a_number_finds_the_document_with_that_ref (
+	world: test_api_tasks.World,
+) -> None:
+	"""**`#867`, and the reason the document half is not an afterthought.**
+
+	One ref counter serves tasks *and* documents (§6.2), so half the numbers on this instance
+	name a document — `#4` is a specification. A ref lookup that reached only tasks would
+	answer "no such thing" about items sitting in the reader's own listing, which is exactly
+	the defect `#535` and `#700` found in two other lookups.
+	"""
+
+	made = world.call(
+		"POST", "/v1/documents", json={"title": "Nothing alike", "body": "Unrelated prose."}
+	).json()
+
+	found = world.call("GET", f"/v1/documents?q={made['ref']}&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}

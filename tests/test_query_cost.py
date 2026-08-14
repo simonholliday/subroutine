@@ -500,6 +500,7 @@ def _searched (context: Context) -> typing.Any:
 			UNFINDABLE,
 			subroutine.db.models.work.Task.title,
 			subroutine.db.models.work.Task.description,
+			ref=subroutine.db.models.work.Task.ref,
 		)
 	)
 
