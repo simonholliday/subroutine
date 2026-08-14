@@ -289,6 +289,30 @@ export function inOrder (rows, ordering) {
 		: row[key]);
 
 	return [...rows].sort((one, other) => {
+		/*
+			**Deferred work sinks, above everything else the ordering says** — `#877`. Simon's
+			decision of 2026-08-14: *"deferred items appearing last. That way they are not
+			invisible, but neither are they confused with non-deferred items in lists."*
+
+			**Not multiplied by `way`, and that is the point of a leading key.** Every other
+			comparison here follows the ordering's direction; this one does not, because
+			*oldest first* must not mean *deferred first*. The reader's choice decides the
+			arrangement inside each band and never which band comes first.
+
+			**It has to agree with the server**, which is asked for `deferred,<order>` by
+			`sunkOrder` — a client merging on a key the server did not page by is the
+			disagreement keyset pagination exists to prevent (`#782`). `sinks` is on the
+			ordering rather than assumed here so that the two read one table.
+
+			A document has no `start_at` and lands in the first band, which is exactly what the
+			server's own answer for a document is.
+		*/
+		if (ordering && ordering.sinks) {
+			const parked = (row) => (deferred(row) ? 1 : 0);
+
+			if (parked(one) !== parked(other)) return parked(one) - parked(other);
+		}
+
 		const first = value(one);
 		const second = value(other);
 
@@ -327,6 +351,37 @@ export function mergeOrder (selection, rows) {
 	);
 
 	return ranked ? ORDERINGS["-relevance"] : ORDERINGS[DEFAULT_ORDER];
+}
+
+export function sunkOrder (selection) {
+	/*
+		The order to ask the API for, with deferred work sinking to the bottom of it — `#877`.
+
+		**The address carries the reader's choice and the request carries the arrangement.**
+		Sinking is not something a reader picks, so it has no spelling in `SELECTABLE.order` and
+		no key in `ORDERINGS`: it is a *leading* key added to whichever order is in force, which
+		is what makes *most important first* mean that within each band rather than across both.
+
+		**The server has to do it, not this app.** Sinking the rows already fetched would sink
+		them within a page, and the page is chosen by the order the query ran in — so a first
+		page could be all deferred work with everything startable waiting on *Show more*, which
+		is a plausible, complete, wrong answer.
+
+		**Three answers, and the middle one is the reason this is not one line.**
+
+		- A reader who chose an order gets it sunk, unless the ordering says otherwise.
+		- **A search nobody has given an order to is left alone**, because the server ranks it
+		  and naming an order here would overrule that (`#875`). Null means *send no order*.
+		- Everything else names the default, which this app has never done: it relied on the
+		  API applying `-created_at`, and a leading key cannot be added to an order that is not
+		  being sent. `orderedAs` already treats the absence as that default, so nothing a
+		  reader sees changes.
+	*/
+	const asked = (selection || {}).order;
+
+	if (!asked) return (selection || {}).q ? null : `${DEFERRED},${DEFAULT_ORDER}`;
+
+	return ORDERINGS[asked] && ORDERINGS[asked].sinks ? `${DEFERRED},${asked}` : asked;
 }
 
 export function accumulated (held, arriving, { appending, collections, ordering }) {
@@ -682,6 +737,16 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	const chose = selection || {};
 
 	/*
+		**What goes on the wire is the reader's selection with deferred work sunk** (`#877`),
+		and it is a separate value from `chose` on purpose: `collectionsFor` below asks
+		`ORDERINGS` which collections an order can reach, and the sunk spelling is not a key in
+		that table. Deriving both from one variable would make *most important first* stop
+		dropping documents — a page of tasks and documents ordered by a field only one of them
+		has, which is the 422 `#782` removed.
+	*/
+	const asking = { ...chose, order: sunkOrder(chose) };
+
+	/*
 		**Per collection, from `ANSWERED_BY`, rather than tasks-getting-everything** (`#872`).
 
 		This used to build one string and append it to the tasks request alone, on the reasoning
@@ -690,9 +755,9 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		search filtered the tasks and returned every document there was.
 	*/
 	const sending = (kind) => Object.keys(SELECTABLE)
-		.filter((name) => chose[name] !== undefined && chose[name] !== null)
+		.filter((name) => asking[name] !== undefined && asking[name] !== null)
 		.filter((name) => answers(kind, name) === "sent")
-		.map((name) => `&${name}=${encodeURIComponent(chose[name])}`)
+		.map((name) => `&${name}=${encodeURIComponent(asking[name])}`)
 		.join("");
 
 	const rows = sending("task");
@@ -2265,6 +2330,12 @@ export function holding (item, now = null) {
 
 export const DEFAULT_ORDER = "-created_at";
 
+/* What `?order=` calls the deferral band — `domain.ordering.DEFERRED`. Ascending, always, so
+   it is spelled without a sign: work that can be started first, and work somebody has put off
+   last. Not an entry in `ORDERINGS` and not a value `SELECTABLE.order` admits, because it is
+   never a reader's choice — `sunkOrder` puts it in front of whatever they did choose. */
+export const DEFERRED = "deferred";
+
 /*
 	How each order this app can be in reads, and whether the row already shows what it is
 	sorted on — `#661`.
@@ -2298,16 +2369,21 @@ export const ORDERINGS = {
 		sentence: "Best match first", offer: null, field: "relevance",
 		shows: "relevance", render: "none", label: "",
 		compare: "number", descending: true, both: true,
+		/* **A search does not sink deferred work, and `#867` is why** (`#877`). A ranking
+		   answers *how well does this row match*, and an item somebody has put off is still
+		   the best answer to it — typing a number finds that item, and sinking would put it
+		   below every row that merely mentions the digits. */
+		sinks: false,
 	},
 	"-created_at": {
 		sentence: "Newest first", offer: "Newest first", field: "created_at",
 		shows: "created_at", render: "moment", label: "written",
-		compare: "instant", descending: true, both: true,
+		compare: "instant", descending: true, both: true, sinks: true,
 	},
 	"created_at": {
 		sentence: "Oldest first", offer: "Oldest first", field: "created_at",
 		shows: "created_at", render: "moment", label: "written",
-		compare: "instant", descending: false, both: true,
+		compare: "instant", descending: false, both: true, sinks: true,
 	},
 	"title": {
 		/* **The row shows the title already**, so `render` is nothing at all. An ordering whose
@@ -2315,12 +2391,12 @@ export const ORDERINGS = {
 		   printing the same string twice on one line. */
 		sentence: "A to Z", offer: "A to Z", field: "title",
 		shows: "title", render: "none", label: "",
-		compare: "text", descending: false, both: true,
+		compare: "text", descending: false, both: true, sinks: true,
 	},
 	"-updated_at": {
 		sentence: "Recently changed first", offer: "Recently changed", field: "updated_at",
 		shows: "updated_at", render: "moment", label: "changed",
-		compare: "instant", descending: true, both: true,
+		compare: "instant", descending: true, both: true, sinks: true,
 	},
 	"-priority_score": {
 		/*
@@ -2342,7 +2418,7 @@ export const ORDERINGS = {
 		sentence: "Most important first, and documents have no importance",
 		offer: "Most important", field: "priority_score",
 		shows: "importance,urgency", render: "priority", label: "",
-		compare: "number", descending: true, both: false,
+		compare: "number", descending: true, both: false, sinks: true,
 	},
 	"-completed_at": {
 		/* Not offered as a choice: it is the *finished* view's order, reached by the chip that
@@ -2351,6 +2427,10 @@ export const ORDERINGS = {
 		sentence: "Most recently finished first", offer: null, field: "completed_at",
 		shows: "completed_at", render: "none", label: "finished",
 		compare: "instant", descending: true, both: false,
+		/* **Finished work is not waiting for anything.** A defer says *not yet*, and a task
+		   that is done has answered that question — so sinking one here would arrange a page
+		   by a decision that has already been overtaken. */
+		sinks: false,
 	},
 };
 

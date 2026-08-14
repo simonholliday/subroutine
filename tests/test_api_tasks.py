@@ -5,6 +5,7 @@ API gets wrong: telling omitted apart from null on a PATCH, paginating a table t
 being written to, and narrowing a listing to what the caller may actually see.
 """
 
+import datetime
 import itertools
 import typing
 import uuid
@@ -18,6 +19,7 @@ import api_support
 import subroutine.api.tasks
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.ordering
@@ -812,7 +814,26 @@ def test_a_task_with_no_estimate_says_so_in_both_spellings (world: World) -> Non
 	assert created.json()["estimate_human"] is None
 
 
-@pytest.mark.parametrize("field", sorted(subroutine.api.tasks.SORTABLE))
+#: A day far enough ahead that nothing in a test run can reach it, derived rather than written
+#: down so it cannot go stale — `SR#877`.
+_FAR_OFF = (datetime.date.today() + datetime.timedelta(days=365)).isoformat()
+
+
+@pytest.mark.parametrize(
+	"field",
+	# **Through `sinking`, because `deferred` is not in `SORTABLE`** (`SR#877`). The endpoint
+	# builds its vocabulary per request — the band depends on the clock — so a list read off
+	# the module constant is the endpoint's vocabulary minus the one field added last, which
+	# is exactly the sort of gap this parametrisation was written to close. The expressions
+	# are discarded; only the names are used.
+	sorted(
+		subroutine.domain.ordering.sinking(
+			subroutine.api.tasks.SORTABLE,
+			model=subroutine.db.models.work.Task,
+			now=datetime.datetime.now(datetime.UTC),
+		)
+	),
+)
 def test_every_sortable_field_can_be_paged_through (world: World, field: str) -> None:
 	"""Every ordering this endpoint advertises must survive a cursor.
 
@@ -837,7 +858,7 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 	"""
 
 	for index in range(5):
-		world.call(
+		answer = world.call(
 			"POST",
 			"/v1/tasks",
 			json={
@@ -849,7 +870,22 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 				"urgency": 5 - (index % 5) if index % 2 == 0 else None,
 				"due": "tomorrow" if index % 3 == 0 else None,
 				"planned_for": "today" if index % 4 == 0 else None,
+				# **Two rows in the far band, so `deferred` has both to page across**
+				# (`SR#877`). Chosen away from the rows carrying a deadline, because a task
+				# cannot be deferred until after it is due and the create would be refused.
+				#
+				# **Computed from today rather than written down**, so it cannot expire —
+				# and a year out rather than tomorrow, because a defer stores midnight and a
+				# run starting at 23:59 would watch the row change bands underneath it.
+				"start": _FAR_OFF if index in (1, 4) else None,
+				# The seed is asserted below, for `_six_with_three_parked`'s reason: a day
+				# phrase this grammar does not read is left in the title rather than refused,
+				# so a fixture can quietly defer nothing and pass by having one band.
 			},
+		)
+
+		assert (answer.json()["start_at"] is not None) == (index in (1, 4)), (
+			f"task {index} did not get the start date this fixture claims to give it"
 		)
 
 	for direction in ("", "-"):
@@ -878,6 +914,124 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 
 		assert len(seen) == 5, f"paging by {direction}{field} returned {len(seen)} of 5"
 		assert len(seen) == len(set(seen)), f"paging by {direction}{field} repeated a task"
+
+
+def _walked (world: World, query: str, *, limit: int = 2) -> list[int]:
+	"""Return every ref a listing yields, walked to the end through its cursors."""
+
+	seen: list[int] = []
+	cursor = None
+
+	# A path with no query of its own needs `?` rather than `&`, and getting that wrong is a
+	# 404 about a path nobody asked for — which reads like a routing fault.
+	joined = "&" if "?" in query else "?"
+
+	for _ in range(20):
+		response = world.call(
+			"GET", f"{query}{joined}limit={limit}" + (f"&cursor={cursor}" if cursor else "")
+		)
+
+		assert response.status_code == 200, f"{query} failed: {response.json()}"
+
+		page = response.json()
+		seen.extend(item["ref"] for item in page["items"])
+
+		if not page["page"]["has_more"]:
+			return seen
+
+		cursor = page["page"]["next_cursor"]
+
+		assert cursor is not None, "has_more with no cursor is a page nobody can reach"
+
+	raise AssertionError(f"{query} never reached its last page")
+
+
+def _six_with_three_parked (world: World) -> tuple[list[int], list[int]]:
+	"""Create six tasks, defer three of them, and return (startable, deferred) refs."""
+
+	startable: list[int] = []
+	parked: list[int] = []
+
+	# **Interleaved rather than blocked**, so that "deferred last" cannot be satisfied by the
+	# rows happening to have been written in that order — which is what a fixture creating
+	# three and then three would prove.
+	for index in range(6):
+		body: dict[str, typing.Any] = {"title": f"Task {index}"}
+
+		if index % 2:
+			body["start"] = _FAR_OFF
+
+		made = world.call("POST", "/v1/tasks", json=body).json()
+		(parked if index % 2 else startable).append(made["ref"])
+
+		# **The seed is asserted, not assumed.** `start` is a phrase the day grammar reads, and
+		# a spelling it does not recognise is left in the title rather than refused — which
+		# happened while writing this, in the equivalence suite, with `at` instead of `from`.
+		# A fixture that deferred nothing gives `deferred` one band, and a page that cannot
+		# disagree with itself passes every assertion below.
+		assert bool(made["start_at"]) == bool(index % 2), (
+			f"task {index} was meant to be {'deferred' if index % 2 else 'startable'} and its "
+			f"start_at is {made['start_at']!r} — the fixture is not what it claims"
+		)
+
+	return startable, parked
+
+
+def test_a_listing_asked_to_sink_deferred_work_keeps_it_last_across_a_page_boundary (
+	world: World,
+) -> None:
+	"""`SR#877`. Simon: *"deferred items appearing last… not invisible, but neither confused."*
+
+	**More rows than the limit, which is the whole reason this is a test rather than a look.**
+	A leading sort key is exactly the kind a cursor has to agree with: the seek predicate
+	compares the band first and the timestamp only inside it, so a band the cursor does not
+	carry makes the second page start in the wrong place. `SR#46` and `SR#823` are both that
+	defect, and both were invisible to a test that read one page.
+
+	Walked to the very end and compared as *sets* for the two halves, because what is being
+	asserted is the boundary between the bands rather than the arrangement inside them — that
+	is the reader's own ordering, and it is checked by the paging guard above.
+	"""
+
+	startable, parked = _six_with_three_parked(world)
+	seen = _walked(world, "/v1/tasks?order=deferred,-created_at")
+
+	assert len(seen) == 6, f"the walk returned {len(seen)} of 6: {seen}"
+	assert len(seen) == len(set(seen)), f"a task was repeated across a page boundary: {seen}"
+
+	assert set(seen[:3]) == set(startable), (
+		f"work that can be started should fill the first half — got {seen} against "
+		f"startable={startable}"
+	)
+	assert set(seen[3:]) == set(parked), (
+		f"deferred work should sink to the end — got {seen} against deferred={parked}"
+	)
+
+
+def test_a_listing_that_did_not_ask_is_ordered_exactly_as_it_always_was (world: World) -> None:
+	"""`SR#877` changes no answer a caller was already getting, and that is a decision.
+
+	``readiness.DEFAULT_DEFERRAL`` is ``include`` because §6.5's *"default views hide it
+	entirely"* is about views a person reads, and an API listing is not one. **The same
+	argument decides the ordering**: re-arranging every listing on a reader's behalf is the
+	same imposition as re-filtering it, so ``deferred`` is a name the endpoint accepts and
+	never applies unasked.
+
+	Falsified by adding it to ``DEFAULT_TASK_ORDER``, which fails here and nowhere else.
+	"""
+
+	startable, parked = _six_with_three_parked(world)
+	seen = _walked(world, "/v1/tasks?order=-created_at")
+
+	# Newest first, and the deferred rows are the odd ones, so they interleave — which is
+	# precisely the arrangement `SR#862` reported and this endpoint is right to keep.
+	assert seen == sorted(startable + parked, reverse=True), (
+		f"an unasked listing was re-ordered: {seen}"
+	)
+
+	assert _walked(world, "/v1/tasks?order=-created_at") == _walked(world, "/v1/tasks"), (
+		"the default order stopped agreeing with the one it is documented as"
+	)
 
 
 def _linked (world: World, count: int) -> list[int]:

@@ -21,6 +21,7 @@ import typing
 
 import pytest
 
+import subroutine.db.models.work
 import subroutine.domain.ordering
 
 
@@ -167,3 +168,59 @@ def test_two_rows_with_no_value_at_all_compare_rather_than_raise () -> None:
 	)
 
 	assert [row.ref for row in found] == [2, 1]
+
+
+def test_a_document_is_never_deferred_and_a_task_needs_a_clock () -> None:
+	"""`SR#877`. The two halves of :func:`sinking`, and the second is a guard on the first.
+
+	A kind with no start date takes the constant band, so a merged listing can be asked for
+	one order and keep both collections (`SR#782`). A kind that *can* be deferred needs the
+	instant the band is judged against — and omitting it is the mistake worth being loud
+	about, because the quiet version is a task listing that sorts everything as startable and
+	looks exactly like one where nothing is deferred.
+	"""
+
+	documents = subroutine.domain.ordering.sinking(
+		subroutine.domain.ordering.DOCUMENT_FIELDS
+	)
+	entry = documents[subroutine.domain.ordering.DEFERRED]
+
+	assert isinstance(entry, subroutine.domain.ordering.Derived)
+	assert entry.carried_on is None, "a constant needs nothing attached to the row"
+	assert entry.read(object()) == subroutine.domain.ordering.STARTABLE_BAND
+
+	with pytest.raises(ValueError):
+		subroutine.domain.ordering.sinking(
+			subroutine.domain.ordering.TASK_FIELDS,
+			model=subroutine.db.models.work.Task,
+		)
+
+
+@pytest.mark.parametrize(
+	("start", "expected"),
+	[
+		(None, subroutine.domain.ordering.STARTABLE_BAND),
+		(datetime.timedelta(days=-1), subroutine.domain.ordering.STARTABLE_BAND),
+		(datetime.timedelta(days=1), subroutine.domain.ordering.DEFERRED_BAND),
+	],
+	ids=["no-start-date", "start-has-passed", "start-is-ahead"],
+)
+def test_the_view_side_band_agrees_with_the_predicate_the_query_uses (
+	start: datetime.timedelta | None, expected: int
+) -> None:
+	"""`SR#877`. `put_off` is a copy of `readiness.undeferred`, so it has to be the same rule.
+
+	**A start date that has passed is not a deferral.** That is the half a simpler reading
+	gets wrong — `start_at is not None` would sink a task months after the day it was waiting
+	for, and the mark beside it would say nothing, so the position and the phrase would
+	disagree about one row.
+	"""
+
+	class Row:
+		"""The two fields a rendered row contributes to this decision."""
+
+		start_at = (
+			None if start is None else datetime.datetime.now(datetime.UTC) + start
+		)
+
+	assert subroutine.domain.ordering.put_off(Row()) == expected

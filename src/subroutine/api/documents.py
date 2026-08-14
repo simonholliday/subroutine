@@ -276,12 +276,18 @@ def listing (
 	# **`relevance`, for this query only and only where something can rank it** (`#823`). Built
 	# after the filters rather than beside the search predicate so that everything narrowing the
 	# statement has happened first and this reads as what it is: a choice about *order*.
-	sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(SORTABLE)
+	# **`deferred` is here too, and a document is never deferred** (`#877`). §6.14 says a
+	# document is not scheduled, so it has no start date to arrive — but a merged listing can
+	# only be asked for an order *both* halves accept, and one that documents refused would drop
+	# them from the page entirely (`#782`). So it answers, in the one band it can be in.
+	sortable: dict[str, subroutine.domain.ordering.Sortable] = (
+		subroutine.domain.ordering.sinking(SORTABLE)
+	)
 	fallback: tuple[str, ...] = tuple(DEFAULT_ORDER)
 
 	if q and backend == subroutine.domain.search.NATIVE:
 		sortable = subroutine.domain.ordering.searching(
-			SORTABLE,
+			sortable,
 			terms=subroutine.domain.search.terms(q),
 			columns=[model.title, model.body],
 			carried_on=model.relevance,

@@ -1612,8 +1612,19 @@ def test_both_list_documents_the_same_way (pair: Pair) -> None:
 
 @pytest.mark.parametrize(
 	"order",
-	["-priority_score", "priority_score", "-ref", "title", "-due_at,ref"],
-	ids=["by-rank", "by-rank-ascending", "newest-ref", "alphabetical", "two-keys"],
+	[
+		"-priority_score", "priority_score", "-ref", "title", "-due_at,ref",
+		# **`SR#877`, and it is the sharpest case this parametrisation has.** `deferred` is
+		# not in `TASK_FIELDS`: both sides add it per request, because the band it sorts by
+		# depends on the clock. So a transport that built the vocabulary its own way would
+		# refuse this outright on one side and serve it on the other — which is the very
+		# divergence the test above measures for a name they *both* declare.
+		"deferred,-created_at",
+	],
+	ids=[
+		"by-rank", "by-rank-ascending", "newest-ref", "alphabetical", "two-keys",
+		"deferred-last",
+	],
 )
 def test_both_apply_the_same_ordering (pair: Pair, order: str) -> None:
 	"""``order=`` has to mean the same thing on both sides, or a rank is transport-dependent.
@@ -1628,11 +1639,27 @@ def test_both_apply_the_same_ordering (pair: Pair, order: str) -> None:
 	domain's, this is where it would show.
 	"""
 
+	made = []
+
 	for index in range(6):
 		# A spread of ranking states, so the three bands and the tiebreak are all exercised
 		# rather than a page that happens to be uniform.
 		suffix = ("!5/5", "!1/1", "!4", "", "!2/3", "")[index]
-		make(pair, f"Task number {index} {suffix}".strip())
+		# **Two rows in the far band** (`SR#877`), so `deferred` has a boundary to place rather
+		# than a page that is uniform and cannot disagree with itself. A year out, derived, so
+		# the fixture cannot expire.
+		#
+		# **`from`, not `at`** — the first version of this used `at <date>`, which the capture
+		# grammar does not read as a date at all: it stayed in the title, nothing was deferred,
+		# and the case passed by having nothing to sort. Asserted below rather than trusted.
+		parked = " from " + (datetime.date.today() + datetime.timedelta(days=365)).isoformat()
+		made.append(
+			make(pair, f"Task number {index} {suffix}{parked if index in (1, 4) else ''}".strip())
+		)
+
+	assert sum(1 for task in made if task.start_at is not None) == 2, (
+		"the seed deferred nothing, so `deferred` has one band and cannot disagree with itself"
+	)
 
 	local, remote = pair.both()
 

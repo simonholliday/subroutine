@@ -519,3 +519,62 @@ def test_a_search_finds_a_document_by_the_words_in_a_comment_on_it (
 	found = world.call("GET", "/v1/documents?q=fenestration&limit=50").json()
 
 	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_document_answers_the_deferral_ordering_rather_than_refusing_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#877`. §6.14 says a document is not scheduled, and the answer is *no* rather than 422.
+
+	**The obstacle this closes is the one that would have been silent.** A merged list holds
+	tasks *and* documents (§6.2 gives them one ref counter so a reader can treat them as one
+	thing), and both halves have to be asked for the same order — a name only tasks accept
+	drops the documents entirely (`SR#782`), so *deferred last* would have quietly turned every
+	list in the browser into a list of tasks. Half the numbers a reader can type would name
+	something that was no longer on the page.
+
+	So the field exists here, and the value is the constant first band. The ordering is then
+	decided entirely by the keys under it, which is what the second assertion says: the two
+	orders are the same page.
+
+	**A bare `0` in `ORDER BY` is a column position to PostgreSQL**, so the constant is a bind
+	parameter — measured on both backends before it was written rather than reasoned about.
+	"""
+
+	for title in ("Apple", "Banana", "Carrot"):
+		made = world.call("POST", "/v1/documents", json={"title": title, "body": "Prose."})
+		assert made.status_code == 201, made.text
+
+	sunk = world.call("GET", "/v1/documents?order=deferred,title")
+
+	assert sunk.status_code == 200, sunk.text
+	assert [item["title"] for item in sunk.json()["items"]] == ["Apple", "Banana", "Carrot"]
+
+	plain = world.call("GET", "/v1/documents?order=title")
+
+	assert [item["ref"] for item in sunk.json()["items"]] == [
+		item["ref"] for item in plain.json()["items"]
+	], "a constant leading key changed the arrangement, so it is not constant"
+
+
+def test_a_document_listing_publishes_the_deferral_ordering (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#877`. A sort field a listing accepts and never mentions is one nobody can discover.
+
+	§9.4 says an agent learns what is available from `/v1/meta` rather than by being refused,
+	and `relevance` is published on exactly that argument. This is the same claim for a name
+	*both* item listings carry — and a project listing does not, because a project is not
+	scheduled and has nothing to defer.
+	"""
+
+	published = world.call("GET", "/v1/meta").json()["listings"]
+
+	for entity in ("task", "document"):
+		assert "deferred" in published[entity]["sortable"], (
+			f"a {entity} listing sorts by deferral and does not say so"
+		)
+
+	assert "deferred" not in published["project"]["sortable"], (
+		"a project has nothing to defer, so offering the order would be an empty promise"
+	)

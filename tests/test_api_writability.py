@@ -320,6 +320,16 @@ def test_every_known_gap_names_the_item_tracking_it () -> None:
 #: Columns that are machinery rather than facts about the item. A client cannot act on them
 #: and reporting them would be reporting how this is stored rather than what it holds.
 INTERNAL: dict[str, str] = {
+	"parked": (
+		"Which band the deferral ordering put this row in (`#877`) — nought for work that can "
+		"be started, one for work somebody has put off. Not stored and not reported, and the "
+		"second half is a decision rather than an oversight: the band is a fact about the "
+		"clock at the moment the query ran, so a published boolean would go on saying "
+		"*deferred* on a page a reader leaves open past the instant. Both clients recompute "
+		"it from `start_at`, which the row already carries because the mark says *when*, and "
+		"`ordering.put_off` is the one spelling of that rule. `rank`'s sibling in mechanism "
+		"and its opposite in this."
+	),
 	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
 	"depth": "Derived from `path`, and maintained with it.",
 	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",

@@ -241,7 +241,8 @@ $ subroutine search "dentist"
 ```
 
 Anything you have put off until a later date is held back from the list, and the list says
-how much it is holding back. `--deferred` includes it.
+how much it is holding back. `--deferred` includes it, at the bottom — visible, and not mixed
+in with the work you could start now.
 
 No server, no token, no configuration. When you want an agent involved, or a second
 person, the same install grows an HTTP API:
@@ -321,6 +322,14 @@ on any listing that was not ranked, which is how you tell the two apart without 
 
 Send `?order=-relevance` explicitly if you want ranking on a search you would otherwise arrange
 some other way. A ref that matched exactly always outranks a text match.
+
+**To put deferred work at the bottom, ask for `deferred` as the first key** — `?order=deferred,
+-created_at`. It is nought for anything that can be started and one for anything whose start
+date has not arrived, so ascending is *deferred last*, and putting it in front leaves whatever
+follows to arrange each band. **Both collections accept it**: a document is never deferred and
+answers with the first band, so a merged list keeps both halves. No listing applies it unless
+you ask, and the row carries `start_at` — so compute the band yourself when you merge, rather
+than reading a boolean that would go stale on a page somebody leaves open.
 
 ## In a browser
 

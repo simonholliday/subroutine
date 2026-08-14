@@ -5460,3 +5460,72 @@ def test_an_ordinary_listing_says_nothing_about_finishing (
 
 	assert subroutine.cli.personal.STARTED_MARK in shown, "the column has to be on the page"
 	assert subroutine.cli.personal.FINISHED_MARK not in shown
+
+
+def test_a_list_that_includes_deferred_work_puts_it_at_the_bottom (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#877`, Simon's decision of 2026-08-14.**
+
+	*"The deferred state should contribute to ordering — deferred items appearing last. That
+	way they are not invisible, but neither are they confused with non-deferred items."*
+
+	The list is newest first, so a deferred task captured *last* is the one that proves it: it
+	leads the ordering on its own merits and has to come out at the bottom anyway. Anything
+	else — deferring the first, or the middle — is satisfied by leaving the order alone.
+
+	A document is on the page too, because that is the obstacle this could quietly have failed
+	on: `deferred` is a task field, and an order only tasks accept drops documents from a
+	merged listing entirely (`SR#782`). It answers *no* and stays.
+	"""
+
+	ahead = (datetime.date.today() + datetime.timedelta(days=365)).isoformat()
+
+	run("init")
+	run("add", "Buy milk")
+	run("doc", "create", "What we decided", "--body", "Prose.")
+	run("add", "Renew the passport")
+	run("defer", "3", ahead)
+
+	rows = [
+		line for line in run("list", "--deferred").output.splitlines() if "#" in line
+	]
+
+	assert len(rows) == 3, f"expected three rows, got {rows}"
+	assert "Renew the passport" in rows[-1], (
+		f"the newest task is deferred and must still come last: {rows}"
+	)
+
+
+def test_a_search_does_not_sink_the_thing_that_was_searched_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#877`'s exception, and `SR#867` is the case that decides it.
+
+	A search is ordered by how well a row answers the question, and an item somebody has put
+	off is still the best answer to it — typing a number finds *that* item, and sinking would
+	put it below every row that merely mentions the digits. So the leading key is added to a
+	list and never to a search, on every backend rather than only where one can rank.
+
+	**The *newest* row is the deferred one, and that is what makes this falsifiable.** The first
+	version deferred the oldest, which comes last under a search that sinks and last under one
+	that does not — two opposite behaviours producing one observation, so the mutation survived.
+	Deferring the row that would otherwise lead is the only arrangement the two disagree about.
+	"""
+
+	ahead = (datetime.date.today() + datetime.timedelta(days=365)).isoformat()
+
+	run("init")
+	run("add", "Renew the passport")
+	run("add", "Passport photographs")
+	run("defer", "2", ahead)
+
+	rows = [
+		line for line in run("search", "passport", "--deferred").output.splitlines()
+		if "#" in line
+	]
+
+	assert len(rows) == 2, f"expected both matches, got {rows}"
+	assert "#2" in rows[0] and "#1" in rows[1], (
+		f"a search stays in the order the instance ranked it: {rows}"
+	)

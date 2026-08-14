@@ -14,6 +14,7 @@ transport.
 """
 
 import dataclasses
+import datetime
 import typing
 
 import sqlalchemy
@@ -23,6 +24,7 @@ import sqlalchemy.orm.interfaces
 import subroutine.db.fulltext
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.domain.readiness
 import subroutine.errors
 
 
@@ -191,6 +193,123 @@ def searching (
 	}
 
 
+#: What ``?order=`` calls the deferral band. There is only one direction worth having and it is
+#: the plain one: ascending puts work that can be started first and work somebody has put off
+#: last, which is Simon's decision of 2026-08-14 — *"deferred items appearing last. That way
+#: they are not invisible, but neither are they confused with non-deferred items in lists."*
+DEFERRED = "deferred"
+
+#: The two bands, named rather than spelled, because the SQL that assigns one and the readers
+#: that recognise one are in three different files. Separated by 1 rather than by 100: unlike
+#: §6.3a's ranking there is nothing to add to them, so nothing can enter a band from below.
+STARTABLE_BAND = 0
+DEFERRED_BAND = 1
+
+
+def parked (row: typing.Any) -> int:
+	"""Return the deferral band SQL computed for this row, for a cursor to carry.
+
+	:func:`carried`'s sibling and :func:`scored`'s, and strict for :func:`scored`'s reason: a
+	band is assigned to *every* row a listing returns, so a missing one is always the loader
+	option having been forgotten rather than a value the row genuinely lacks.
+	"""
+
+	value: int | None = getattr(row, "parked", None)
+
+	if value is not None:
+		return value
+
+	raise subroutine.errors.InternalError(
+		"This row's deferral band was never computed, so a page boundary cannot be named.",
+		hint="The query sorted by deferral without applying ordering.options().",
+	)
+
+
+def never (row: typing.Any) -> int:
+	"""Return the deferral band of a kind that has no start date: always the first one."""
+
+	return STARTABLE_BAND
+
+
+def put_off (item: typing.Any) -> int:
+	"""Return the deferral band of a **rendered row**, for a client re-sorting a merged page.
+
+	**A third reading of the clock, and the third is the one that has to be a copy.** The
+	query's band is assigned by SQL against the request's instant; this runs in a client
+	holding rows an instance has already sent, and has neither that instant nor a way to ask
+	for it. Both spellings say the same thing — no start date is startable, and one that has
+	passed is startable — which is the agreement ``readiness.undeferred`` and the two marking
+	functions already keep.
+
+	**Only while the defer is still hiding something**, which is why this is not simply
+	``start_at is not None``: once the instant has passed the task behaves like any other, and
+	sinking it would be sorting on a decision that has already taken effect.
+	"""
+
+	start = getattr(item, "start_at", None)
+
+	if start is None:
+		return STARTABLE_BAND
+
+	return DEFERRED_BAND if start > datetime.datetime.now(datetime.UTC) else STARTABLE_BAND
+
+
+#: What ``deferred`` means to a kind that has no start date at all. **A constant rather than an
+#: absence, and that is the decision** (`#877`): §6.14 says a document is not scheduled, so it
+#: can never be deferred — but a sort name only one half of a merged listing accepts makes
+#: ``collectionsFor`` drop the other half (`#782`), and a list of items that silently held only
+#: tasks would tell a reader who has learned that a number names an item that half the numbers
+#: do not exist. So a document answers the question, with the answer *no*.
+#:
+#: **Sorted by a bind parameter rather than by the literal 0**, because PostgreSQL reads a bare
+#: integer in ``ORDER BY`` as a column position. Measured on both backends rather than reasoned
+#: about; :func:`sqlalchemy.literal` renders a parameter and both accept it.
+UNDEFERRABLE = Derived(expression=sqlalchemy.literal(0, sqlalchemy.Integer), read=never)
+
+
+def sinking (
+	allowed: typing.Mapping[str, Sortable],
+	*,
+	model: type[typing.Any] | None = None,
+	now: datetime.datetime | None = None,
+) -> dict[str, Sortable]:
+	"""Return this vocabulary with ``deferred`` added, for one request.
+
+	**Per request rather than in the static maps, because the answer depends on the clock**, and
+	:func:`searching` is the precedent: a vocabulary entry whose meaning changes between two
+	calls cannot be a module constant. ``now`` is passed in for ``readiness.undeferred``'s
+	reason — one request settles every relative comparison against a single instant, so the
+	rows a listing *excludes* as deferred and the rows it *sinks* can never disagree.
+
+	**Omit ``model`` for a kind that has no start date**, which is a document: it takes
+	:data:`UNDEFERRABLE` and sorts in the first band always.
+
+	**Adding the name changes no existing answer.** ``deferred`` is in neither default order, so
+	a caller that does not ask for it is untouched — which is `readiness.DEFAULT_DEFERRAL`'s
+	argument applied to the ordering it was written about. §6.5's *"default views hide it
+	entirely"* is about views a person reads; an API listing is not one, and re-ordering every
+	listing on their behalf would be the same imposition as re-filtering it.
+	"""
+
+	if model is None:
+		return {**allowed, DEFERRED: UNDEFERRABLE}
+
+	if now is None:
+		raise ValueError("A deferral band needs the instant it is judged against.")
+
+	return {
+		**allowed,
+		DEFERRED: Derived(
+			expression=sqlalchemy.case(
+				(subroutine.domain.readiness.undeferred(model, now=now), STARTABLE_BAND),
+				else_=DEFERRED_BAND,
+			),
+			read=parked,
+			carried_on=model.parked,
+		),
+	}
+
+
 #: The SQL half of the same rule. A ``CASE`` cannot use a plain index, and neither could the
 #: bare ``importance * urgency`` it replaces, so this costs nothing that was not already paid.
 RANKING = sqlalchemy.case(
@@ -317,6 +436,11 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"importance": lambda item: getattr(item, "importance", None),
 	"urgency": lambda item: getattr(item, "urgency", None),
 	"priority_score": lambda item: getattr(item, "rank", None),
+	# **The one entry that recomputes rather than reads, and :func:`put_off` says why**: the
+	# band is a fact about the clock at the moment the query ran, and a rendered row carries
+	# the start date rather than the answer. A document has no start date and lands in the
+	# first band, which is exactly what :data:`UNDEFERRABLE` gives it server-side.
+	DEFERRED: put_off,
 	"ref": lambda item: item.ref,
 	"title": lambda item: item.title,
 }

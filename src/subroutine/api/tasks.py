@@ -444,6 +444,17 @@ def listing (
 			],
 		)
 
+	# **One instant for the whole request**, which is what `readiness.undeferred` takes it for:
+	# the rows this listing hides as deferred, the rows `ready` hides for the same reason, and
+	# the rows `?order=deferred` sinks are three readings of one clock, and a listing that read
+	# it three times could sink a row it had just decided was startable.
+	now = subroutine.db.types.utcnow()
+
+	# **`deferred` is added here rather than declared in `SORTABLE`** (`#877`), because the band
+	# it sorts by is a fact about that instant rather than about a column. `searching` layers
+	# `relevance` on top of this below, so a ranked search can still sink deferred work.
+	sortable = subroutine.domain.ordering.sinking(SORTABLE, model=model, now=now)
+
 	# `None` unless a search ran and something can rank it, which is what keeps every listing
 	# that is not a search on exactly the vocabulary it has always had.
 	ranked: dict[str, subroutine.domain.ordering.Sortable] | None = None
@@ -452,7 +463,7 @@ def listing (
 	# wins, rather than one silently overriding the other.
 	narrowing = subroutine.domain.readiness.deferred(
 		model,
-		now=subroutine.db.types.utcnow(),
+		now=now,
 		choice=subroutine.domain.readiness.refuse_unknown_deferral(deferred),
 	)
 
@@ -461,9 +472,7 @@ def listing (
 
 	if ready:
 		statement = statement.where(
-			subroutine.domain.readiness.ready(
-				model, now=subroutine.db.types.utcnow(), by=actor.user.id
-			)
+			subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
 		)
 
 	# **A username or an id, resolved the way every other identifier here is** (`#501`). This
@@ -505,7 +514,7 @@ def listing (
 		# which is the same refusal any unknown sort field gets, rather than a special case.
 		if backend == subroutine.domain.search.NATIVE:
 			ranked = subroutine.domain.ordering.searching(
-				SORTABLE,
+				sortable,
 				terms=subroutine.domain.search.terms(q),
 				columns=[model.title, model.description],
 				carried_on=model.relevance,
@@ -540,7 +549,7 @@ def listing (
 		actor=actor,
 		workspace_id=workspace.id,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
-		allowed=ranked,
+		allowed=sortable if ranked is None else ranked,
 		# **A search defaults to its ranking, and that is what makes `#867` useful** (`#823`).
 		# Driven on the served instance beforehand: `815` found `#815` and returned it *sixth*,
 		# below the fold of an agent's default page — so "a number finds the item" was true and
@@ -893,7 +902,7 @@ def _page (
 	actor: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
 	with_links: bool = False,
-	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable] | None = None,
+	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	default: typing.Sequence[str] | None = None,
 ) -> typing.Any:
 	"""Order, paginate and render a task query.
@@ -902,12 +911,14 @@ def _page (
 	lines, or addresses, or partial objects. The endpoint still *declares* the collection, so
 	the OpenAPI document describes the default that almost every caller receives.
 
-	``allowed`` and ``default`` are parameters rather than the module constants because a
-	search adds ``relevance`` to the vocabulary and makes it the default (`#823`). Both fall
-	back, so every caller that is not searching is unchanged.
+	``allowed`` is a parameter rather than the module constant because the vocabulary is built
+	per request: every listing adds ``deferred`` to it (`#877`) and a search adds ``relevance``
+	and makes it the default (`#823`). It is **required**, so a listing cannot fall back to a
+	vocabulary narrower than the one it validated its own arguments against; ``default`` still
+	falls back, because ``None`` there means the ordinary newest-first.
 	"""
 
-	sortable = SORTABLE if allowed is None else allowed
+	sortable = allowed
 	fallback = DEFAULT_ORDER if default is None else default
 
 	keys = subroutine.api.pagination.parse_order(

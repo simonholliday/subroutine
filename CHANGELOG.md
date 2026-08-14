@@ -280,6 +280,24 @@ upgrade involves.
 
 ### Changed
 
+- **Work you have put off until later now sits at the bottom of the lists that show it**,
+  rather than mixed in among the work you can actually start. `subroutine list --deferred`
+  and every list and board in the browser arrange it that way; the mark saying *from Fri 15
+  Aug* is unchanged, so a deferred item is still visible, still readable and no longer
+  mistakable for something nobody has parked.
+
+  It is a *leading* sort key, so it holds whatever else you sort by: **Most important first**
+  now means that among the work you can start, and then again among the work you have put
+  off. Two things are deliberately left alone — a **search** stays in the order it was
+  ranked, because an item you have deferred is still the best answer to what you typed, and
+  the **finished** list ignores deferral entirely, since work that is done is not waiting for
+  anything.
+
+- **`GET /v1/tasks` and `GET /v1/documents` accept `?order=deferred`**, and no listing is
+  re-ordered unless it asks for it. `/v1/meta` publishes the name for both. A document is
+  never deferred, so it answers with the first band and stays in a merged list rather than
+  being dropped from one.
+
 - **`subroutine today` offers you the best work to start next, not the oldest.** The section
   of undated tasks — which on most backlogs is the bulk of the agenda — was ordered by capture
   order, so `!1/1 tidy the desk` sat above `!5/5 renew the passport`, and the twenty it showed

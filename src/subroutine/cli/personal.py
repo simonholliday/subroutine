@@ -45,6 +45,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.context
 import subroutine.credentials
+import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.agenda
@@ -1625,6 +1626,18 @@ def register (
 		# code is the same, the presentation rule is not applied.
 		hiding = not deferred and not json_output
 
+		# **Deferred work sinks to the bottom of a list it is in — `#877`, Simon's decision of
+		# 2026-08-14**: *"deferred items appearing last. That way they are not invisible, but
+		# neither are they confused with non-deferred items in lists."* A leading sort key, so
+		# it holds under every ordering rather than only under the default.
+		#
+		# **Not while hiding, because there is nothing to sink**, and **not while searching**,
+		# which is the exception worth stating: a search is ordered by how well a row answers
+		# the question asked, and a deferred item is still the best answer to it. `#867` is the
+		# case that decides it — typing a number finds that item, and sinking would put it
+		# below every row that merely mentions the digits.
+		sunk = _sunk(order) if not hiding and not q else order
+
 		# Grouped by connection, one heading each, so the same instance under two names is
 		# shown twice rather than counted twice — which is what the file says (`#327`).
 		with opened(strict=strict, merged=False) as world:
@@ -1635,7 +1648,7 @@ def register (
 				world,
 				limit=limit,
 				strict=strict,
-				order=order,
+				order=sunk,
 				project=project,
 				deferred=not hiding,
 				q=q,
@@ -1649,7 +1662,11 @@ def register (
 
 			_report(world, gathered.failures)
 
-			rows = _merged(gathered, order=_ordering(order)[1])
+			# **The order that was *asked for*, not the one the reader typed.** The merge has to
+			# compare rows by the same keys the server paged them with, or a page boundary
+			# lands where the next page does not start (`#782`) — so the sunk spelling goes to
+			# both, from one variable, and the two cannot disagree about the leading key.
+			rows = _merged(gathered, order=_ordering(sunk)[1])
 			more = any(answer.value.more for answer in gathered.answers)
 
 			if json_output:
@@ -6057,12 +6074,14 @@ def _deferred (task: subroutine.views.Task) -> bool:
 	instant has passed the defer explains nothing: the task is startable and behaves like any
 	other. ``show`` reports it either way, because there the question being asked is "what has
 	been decided about this", not "why is this not in front of me".
+
+	**The rule itself is ``ordering.put_off``**, which the merged sort reads to decide where a
+	row lands (`#877`). Saying it a second time here would be a phrase and a position
+	disagreeing about the same task — a row printed *(from Fri 15 Aug)* in the middle of the
+	list, which is the defect the sinking was built to remove.
 	"""
 
-	if task.start_at is None:
-		return False
-
-	return task.start_at > datetime.datetime.now(datetime.UTC)
+	return subroutine.domain.ordering.put_off(task) == subroutine.domain.ordering.DEFERRED_BAND
 
 
 def _render_date (instant: datetime.datetime | None, timezone: str | None) -> str:
@@ -6295,6 +6314,36 @@ def _say_parked (
 	)
 
 
+def _sunk (order: str | None) -> str:
+	"""Return this ordering with deferred work sinking to the bottom of it — ``#877``.
+
+	**A leading key rather than a replacement**, so that whatever the reader asked for still
+	decides the arrangement *within* each band: most important first, and then the same again
+	for the work that has been put off. Simon's decision of 2026-08-14 is that deferred work is
+	*"not invisible, but neither confused with non-deferred items"*, and only a leading key says
+	both at once.
+
+	**The default is spelled out rather than left off.** An empty ordering means the server's
+	own default, so sending ``deferred`` alone would silently drop newest-first — the whole
+	arrangement replaced by the one key that was meant to sit above it.
+
+	A reader who names ``deferred`` themselves is left alone: repeating it is refused by name
+	(:func:`subroutine.domain.ordering.requested`), and they have already said what they want.
+	"""
+
+	named = [part.strip() for part in (order or "").split(",") if part.strip()]
+
+	if not named:
+		named = list(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
+
+	if any(
+		part.removeprefix("-") == subroutine.domain.ordering.DEFERRED for part in named
+	):
+		return ",".join(named)
+
+	return ",".join((subroutine.domain.ordering.DEFERRED, *named))
+
+
 def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:
 	"""Return whether documents can be asked in this order, and how to compare merged rows.
 
@@ -6313,15 +6362,29 @@ def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:
 	it. An unknown field is refused here, before a single request goes out.
 	"""
 
+	# **Both vocabularies through `sinking`, so `deferred` is a name this parses** (`#877`).
+	# The endpoint adds it to every item listing, and a sort field the API accepts and the
+	# terminal refuses is exactly the divergence this module exists to prevent. The
+	# expressions are never executed here — nothing in the CLI runs a query — but the instant
+	# is a real one rather than a placeholder, because a value invented to satisfy a signature
+	# is the sort of thing that later gets used.
+	allowed = subroutine.domain.ordering.sinking(
+		subroutine.domain.ordering.TASK_FIELDS,
+		model=subroutine.db.models.work.Task,
+		now=subroutine.db.types.utcnow(),
+	)
+
 	wanted = subroutine.domain.ordering.requested(
 		order,
-		allowed=subroutine.domain.ordering.TASK_FIELDS,
+		allowed=allowed,
 		default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
 	)
 
-	shared = all(
-		name in subroutine.domain.ordering.DOCUMENT_FIELDS for name, _descending in wanted
-	)
+	# **A document answers `deferred` too, with *no***, which is what keeps a sunk list from
+	# quietly becoming a list of tasks — `ordering.UNDEFERRABLE` and `#782` for why.
+	readable = subroutine.domain.ordering.sinking(subroutine.domain.ordering.DOCUMENT_FIELDS)
+
+	shared = all(name in readable for name, _descending in wanted)
 	trailing = wanted[-1][1] if wanted else True
 
 	return shared, (*wanted, ("ref", trailing))

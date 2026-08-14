@@ -656,15 +656,22 @@ def _listings (
 	found: dict[str, subroutine.views.Listing] = {}
 
 	for entity, path, sortable, selectable in LISTINGS:
-		# **`relevance` is published exactly where it can be offered** (`#823`). It is not a
-		# column, it is a ranking of one search, so it exists only when a backend can compute
-		# one — and §9.4 says an agent learns which is available here rather than by being
-		# refused. A project listing has no `q` at all, so it never gains the name.
-		orderable = (
-			set(sortable) | {subroutine.domain.ordering.RELEVANCE}
-			if ranked and entity in ("task", "document")
-			else set(sortable)
-		)
+		orderable = set(sortable)
+
+		# **`deferred` is published wherever the listing adds it** (`#877`). Both item listings
+		# accept it — a task because its start date may not have arrived, a document because it
+		# answers *no* so that a merged list keeps both halves — and a project listing does not,
+		# because a project is not scheduled and has nothing to defer.
+		if entity in ("task", "document"):
+			orderable |= {subroutine.domain.ordering.DEFERRED}
+
+			# **`relevance` is published exactly where it can be offered** (`#823`). It is not a
+			# column, it is a ranking of one search, so it exists only when a backend can
+			# compute one — and §9.4 says an agent learns which is available here rather than by
+			# being refused. A project listing has no `q` at all, so it never gains the name.
+			if ranked:
+				orderable |= {subroutine.domain.ordering.RELEVANCE}
+
 		operation = schema.get("paths", {}).get(path, {}).get("get", {})
 		parameters = [
 			parameter["name"]

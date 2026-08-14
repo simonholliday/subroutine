@@ -390,10 +390,18 @@ class Client:
 			if narrowed is not None:
 				statement = statement.where(subroutine.domain.scoping.within_project(narrowed))
 
-			# The ordering vocabulary this call will use. Replaced below when a search runs
-			# against a backend that can rank one; every other listing keeps what it had.
-			sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(
-				subroutine.domain.ordering.TASK_FIELDS
+			# **One instant for this call**, for the reason `readiness.undeferred` takes it:
+			# what is hidden as deferred, what `ready` hides, and what `?order=deferred` sinks
+			# are three readings of one clock and must not disagree.
+			now = subroutine.db.types.utcnow()
+
+			# The ordering vocabulary this call will use. `deferred` is added here rather than
+			# declared in `TASK_FIELDS` because its band depends on that instant (`#877`), and
+			# it is replaced below when a search runs against a backend that can rank one.
+			sortable: dict[str, subroutine.domain.ordering.Sortable] = (
+				subroutine.domain.ordering.sinking(
+					subroutine.domain.ordering.TASK_FIELDS, model=model, now=now
+				)
 			)
 			fallback: tuple[str, ...] = tuple(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
 
@@ -401,9 +409,7 @@ class Client:
 			# than `or`.** A SQLAlchemy element raises on truth-testing, so `predicate or
 			# true()` is not a shorter spelling of this — it is a `TypeError` at the one
 			# moment a caller asked for narrowing.
-			parked = subroutine.domain.readiness.deferred(
-				model, now=subroutine.db.types.utcnow(), choice=choice
-			)
+			parked = subroutine.domain.readiness.deferred(model, now=now, choice=choice)
 
 			if parked is not None:
 				statement = statement.where(parked)
@@ -426,7 +432,7 @@ class Client:
 				# `ordering.py` exists to prevent, one sort field along.
 				if backend == subroutine.domain.search.NATIVE:
 					sortable = subroutine.domain.ordering.searching(
-						subroutine.domain.ordering.TASK_FIELDS,
+						sortable,
 						terms=subroutine.domain.search.terms(q),
 						columns=[model.title, model.description],
 						carried_on=model.relevance,
@@ -441,9 +447,7 @@ class Client:
 			# because a readiness that meant something different here would be worse than none.
 			if ready:
 				statement = statement.where(
-					subroutine.domain.readiness.ready(
-						model, now=subroutine.db.types.utcnow(), by=actor.user.id
-					)
+					subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
 				)
 
 			if parent is not None:
@@ -642,8 +646,14 @@ class Client:
 			# has always had. Resolved once rather than inside the query, so the predicate and
 			# the ordering are built from one answer about the backend.
 			backend = subroutine.domain.search.chosen(session)
-			sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(
-				subroutine.domain.ordering.DOCUMENT_FIELDS
+
+			# **`deferred` here too, answered with the one band a document can be in** (`#877`).
+			# The endpoint says the same and says why: an order only one half of a merged
+			# listing accepts drops the other half rather than widening the page.
+			sortable: dict[str, subroutine.domain.ordering.Sortable] = (
+				subroutine.domain.ordering.sinking(
+					subroutine.domain.ordering.DOCUMENT_FIELDS
+				)
 			)
 			fallback: tuple[str, ...] = tuple(
 				subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER
@@ -651,7 +661,7 @@ class Client:
 
 			if q and backend == subroutine.domain.search.NATIVE:
 				sortable = subroutine.domain.ordering.searching(
-					subroutine.domain.ordering.DOCUMENT_FIELDS,
+					sortable,
 					terms=subroutine.domain.search.terms(q),
 					columns=[model.title, model.body],
 					carried_on=model.relevance,

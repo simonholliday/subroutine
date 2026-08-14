@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import textwrap
 import typing
+import urllib.parse
 import uuid
 
 import fastapi
@@ -36,6 +37,7 @@ import subroutine.api.routing
 import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.api.web
+import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
@@ -3357,16 +3359,32 @@ def test_the_listing_asks_the_same_question_the_command_line_does (
 	**An order is a parameter the route declares**, so the guard driving these against a real
 	instance cannot see this one — it would be accepted, and answer with the wrong list. That is
 	the difference between a request being *legal* and being the *right question*.
+
+	**The satisfier changed with `SR#877` and the intent did not.** This used to assert the
+	browser sent *no* order at all, which was the right shape while the command line sent none
+	either. Both sink deferred work now, so the question has moved from "does it choose one" to
+	"does it choose the same one" — and the answer is read out of the command line rather than
+	written down here, because a literal would be a second copy of the very decision this test
+	exists to keep single. `-priority_score` still fails it, which is `SR#642`'s half.
 	"""
 
 	built = _built(tmp_path, [("listingRequests", ["personal", None, None])])
 
 	assert len(built) == 2, f"expected the two listing requests, found {built}"
 
+	wanted = subroutine.cli.personal._sunk(None)
+
+	assert "priority" not in wanted, (
+		f"the command line's default listing order is now {wanted!r}, and SR#642 is what "
+		f"happens when a default ranks by priority — this test has stopped checking that"
+	)
+
 	for request in built:
-		assert "order=" not in request["path"], (
-			f"{request['path']} chooses an order, and `subroutine list` does not — so the same "
-			f"question has two answers, and the one that hid SR#642 was this one"
+		asked = urllib.parse.parse_qs(urllib.parse.urlparse(request["path"]).query).get("order")
+
+		assert asked == [wanted], (
+			f"{request['path']} asks for {asked}, and `subroutine list` asks for {wanted!r} — "
+			f"so the same question has two answers, and the one that hid SR#642 was this one"
 		)
 
 
@@ -3657,7 +3675,14 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	)
 	assert joined.status_code == 201, joined.text
 
-	page = call("GET", f"/v1/tasks{scope}&limit=1")
+	# **Fetched in the order the browser asks for, which is not the default** (`SR#877`). A
+	# cursor encodes the keys of the order that produced it, so one minted from an unordered
+	# page is refused by a request that sinks deferred work — *"the cursor was not issued by
+	# this instance"*, which reads like a signing fault and is a disagreement about ordering.
+	# Read from the command line rather than written down, so the fixture cannot drift from
+	# what a browser would really be holding.
+	sunk = urllib.parse.quote(subroutine.cli.personal._sunk(None))
+	page = call("GET", f"/v1/tasks{scope}&limit=1&order={sunk}")
 	assert page.status_code == 200, page.text
 
 	# **A real seq, read rather than invented.** A literal `1` is below the oldest event the
@@ -4775,6 +4800,7 @@ def _views (
 			: name === "inOrder"
 				? app.inOrder(argument.rows, app.ORDERINGS[argument.order]).map((row) => row.ref)
 			: name === "deferred" ? app.deferred(argument)
+			: name === "sunkOrder" ? app.sunkOrder(argument)
 			: name === "mergeOrder" ? app.mergeOrder(argument[0], argument[1])
 			: name === "accumulated"
 				? app.accumulated(argument[0], argument[1], argument[2])
@@ -6354,6 +6380,56 @@ def test_every_field_an_ordering_names_is_one_the_listing_asks_for () -> None:
 				)
 
 
+def test_every_ordering_says_whether_deferred_work_sinks_in_it () -> None:
+	"""`SR#877`. Sinking is a leading key, so it is a claim about *every* ordering.
+
+	**A missing `sinks` is not a safe default, it is an unasked question.** `inOrder` reads the
+	flag and a falsy one means *do not sink*, so an ordering added without it would quietly be
+	the one arrangement on the page that mixes parked work back in — and the reader would have
+	no way to tell that from a defect. Two entries say `false` and both say why, which is what
+	makes them decisions rather than omissions.
+
+	**An ordering that sinks owes `start_at` to both collections**, because that is what
+	`deferred` reads. The guard above asks the same of `field` and `shows`; a merge key the row
+	does not carry arrives as undefined, and `deferred` would then answer *no* for every row —
+	an ordering that claims to sink and silently does not.
+	"""
+
+	orderings = _orderings()
+	source = _served_modules()["app.js"]
+	lists = {}
+
+	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
+		opens = source.index(f"const {name} = [")
+		lists[name] = set(re.findall(r'"([a-z_]+)"', source[opens:source.index('].join(",");', opens)]))
+
+	undeclared = sorted(order for order, one in orderings.items() if "sinks" not in one)
+
+	assert not undeclared, (
+		f"{undeclared} do not say whether deferred work sinks in them, so `inOrder` will take "
+		f"the silence for 'no' and one arrangement on the page will mix parked work back in"
+	)
+
+	sinking = sorted(order for order, one in orderings.items() if orderings[order]["sinks"] == "true")
+
+	assert sinking, "no ordering sinks deferred work, so this checks nothing"
+
+	for order in sinking:
+		wanted = list(lists) if orderings[order]["both"] == "true" else ["TASK_FIELDS"]
+
+		for name in wanted:
+			# **`DOCUMENT_FIELDS` is exempt and that is the point of naming it here.** A
+			# document has no start date at all (§6.14), so `deferred` reads undefined and
+			# answers *no* — which is the same answer the server gives it, deliberately.
+			if name == "DOCUMENT_FIELDS":
+				continue
+
+			assert "start_at" in lists[name], (
+				f"the list can be ordered by {order}, which sinks deferred work, and {name} "
+				f"does not ask for 'start_at' — so every row would answer 'not deferred'"
+			)
+
+
 def test_every_ordering_renders_by_a_name_the_app_knows () -> None:
 	"""`SR#782`. `render` is a name so the table stays readable; a typo would show nothing.
 
@@ -6549,6 +6625,105 @@ def test_the_merge_follows_the_order_that_was_asked_for (
 	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": order})])[0] == expected
 
 
+@pytest.mark.parametrize(
+	("order", "expected"),
+	[
+		# Written 1st, 2nd, 3rd, and #2 is deferred. It leads every one of these orderings on
+		# its own merits and comes last in all of them, which is what a *leading* key means.
+		("-created_at", [3, 1, 2]),
+		("created_at", [1, 3, 2]),
+		("title", [1, 3, 2]),
+		# Not offered to a reader, and the row that proves the flag is read rather than assumed:
+		# finished work is not waiting for anything, so this one leaves the order alone.
+		("-completed_at", [2, 3, 1]),
+	],
+)
+def test_the_merge_sinks_deferred_work_under_every_order_that_says_it_does (
+	tmp_path: pathlib.Path, order: str, expected: list[int]
+) -> None:
+	"""`SR#877`. The server sinks the page and the client has to agree, or the merge undoes it.
+
+	**Nothing saw this half.** Removing the leading key from `inOrder` left all 221 browser
+	tests green: the request asked for `deferred,<order>`, the server answered correctly, and
+	the merge put a deferred task back among the rest — `SR#640`'s shape for the sixth time,
+	the rule right and the display right with nothing joining them.
+
+	It is only reachable when both collections are on the page, which is what `accumulated`
+	guards: a document has no `start_at` and lands in the first band, so a deferred task
+	merging above one is exactly the row that would look wrong to a reader.
+
+	**Not multiplied by the direction**, which is the case `created_at` covers: *oldest first*
+	must not mean *deferred first*, and a comparator that followed `way` would say it did.
+	"""
+
+	ahead = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=365)).isoformat()
+
+	rows = [
+		{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00", "title": "Apple",
+			"completed_at": "2026-08-04T09:00:00+00:00"},
+		{"ref": 2, "created_at": "2026-08-02T09:00:00+00:00", "title": "Banana",
+			"completed_at": "2026-08-06T09:00:00+00:00", "start_at": ahead},
+		{"ref": 3, "created_at": "2026-08-03T09:00:00+00:00", "title": "Carrot",
+			"completed_at": "2026-08-05T09:00:00+00:00"},
+	]
+
+	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": order})])[0] == expected
+
+
+@pytest.mark.parametrize(
+	("selection", "expected"),
+	[
+		# The commonest page in the product, and the one this changes: it used to send no
+		# order at all and lean on the API's default.
+		({}, "deferred,-created_at"),
+		({"order": "title"}, "deferred,title"),
+		# **A search nobody has given an order to is left to the server** (`SR#875`), which
+		# ranks it — naming an order here would overrule that ranking.
+		({"q": "passport"}, None),
+		# ...and a reader who *has* chosen one gets it sunk, search or no search: they have
+		# said how they want the page arranged and relevance is not it.
+		({"q": "passport", "order": "title"}, "deferred,title"),
+		# The finished view, which says `sinks: false` and says why.
+		({"order": "-completed_at"}, "-completed_at"),
+	],
+)
+def test_the_order_the_browser_asks_for_sinks_deferred_work (
+	tmp_path: pathlib.Path, selection: dict[str, str], expected: str | None
+) -> None:
+	"""`SR#877`. The address carries the reader's choice; the request carries the arrangement.
+
+	**The server has to do the sinking, not the page.** Sorting the rows already fetched would
+	sink them *within* a page, and which rows are on a page is decided by the order the query
+	ran in — so a first page could be entirely deferred work with everything startable waiting
+	behind *Show more*: a plausible, complete, wrong answer.
+
+	Null means *send no order*, which is not the same as sending the default. It is how the
+	server's own ranking survives, and `mergeOrder` reads the same situation off the rows that
+	come back.
+	"""
+
+	assert _views(tmp_path, [("sunkOrder", selection)])[0] == expected
+
+
+def test_a_start_date_that_has_passed_does_not_sink_a_row (tmp_path: pathlib.Path) -> None:
+	"""`SR#877`. A defer that has come round is not a defer, and the merge must read it so.
+
+	`ordering.put_off` says the same thing server-side and `deferred` marks the same rows, so
+	a row sinking after its instant has passed would be the position and the mark disagreeing
+	about one task — the confusion this was built to remove, arriving from the other side.
+	"""
+
+	behind = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)).isoformat()
+
+	rows = [
+		{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00", "title": "Apple"},
+		{"ref": 2, "created_at": "2026-08-02T09:00:00+00:00", "title": "Banana",
+			"start_at": behind},
+	]
+
+	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": "-created_at"})])[0] == [2, 1]
+
+
 def test_the_finished_order_is_not_offered_as_a_choice (tmp_path: pathlib.Path) -> None:
 	"""Decision `SR#649`: an arrangement never selects.
 
@@ -6583,7 +6758,14 @@ def test_choosing_an_order_puts_it_in_the_address (tmp_path: pathlib.Path) -> No
 	documents = [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")]
 
 	assert tasks and documents, "the list asked for one collection or none"
-	assert all("order=title" in call["path"] for call in tasks + documents), (
+
+	# **The address says `title` and the request says `deferred,title`** (`SR#877`): sinking is
+	# a leading key the arrangement adds rather than something a reader chose, so the two are
+	# deliberately different strings. What must survive is that the reader's key is still there
+	# and still last, which is what decides the arrangement inside each band.
+	wanted = urllib.parse.quote("deferred,title")
+
+	assert all(f"order={wanted}" in call["path"] for call in tasks + documents), (
 		f"the order in the address did not reach both collections: "
 		f"{[call['path'] for call in tasks + documents]}"
 	)

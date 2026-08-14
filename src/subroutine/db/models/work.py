@@ -128,6 +128,15 @@ class Task(
 	# searched *and* a native backend is in force; `None` on every other listing.
 	relevance: sqlalchemy.orm.Mapped[float | None] = sqlalchemy.orm.query_expression()
 
+	# Which band this row falls in when a listing sinks deferred work — `#877`. Nought for work
+	# that can be started and one for work somebody has put off, so ascending is *deferred last*.
+	#
+	# The same mechanism as the two above, for a reason of its own: the answer depends on **the
+	# clock**, and one request settles every relative comparison against a single instant. A
+	# Python half reading `start_at` off a loaded row would be a second clock, so a row an hour
+	# either side of its start could be filtered by one and sorted by the other.
+	parked: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.query_expression()
+
 	# Three distinct date fields. Conflating a deadline with an intended day is what
 	# makes an overdue list meaningless within a month.
 	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
