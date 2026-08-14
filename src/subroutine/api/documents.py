@@ -273,8 +273,33 @@ def listing (
 		statement, dates, session=session, actor=actor, workspace=workspace
 	)
 
+	# **`relevance`, for this query only and only where something can rank it** (`#823`). Built
+	# after the filters rather than beside the search predicate so that everything narrowing the
+	# statement has happened first and this reads as what it is: a choice about *order*.
+	sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(SORTABLE)
+	fallback: tuple[str, ...] = tuple(DEFAULT_ORDER)
+
+	if q and backend == subroutine.domain.search.NATIVE:
+		sortable = subroutine.domain.ordering.searching(
+			SORTABLE,
+			terms=subroutine.domain.search.terms(q),
+			columns=[model.title, model.body],
+			carried_on=model.relevance,
+			ref=model.ref,
+			numbered=subroutine.domain.refs.parse_ref(q),
+		)
+		fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
+
 	keys = subroutine.api.pagination.parse_order(
-		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id
+		order, allowed=sortable, default=fallback, tiebreak=model.id
+	)
+	# **The loader option, without which `ordering.scored` raises.** A ranking exists only in
+	# SQL, so the value has to be attached to each loaded row for a cursor to name a page
+	# boundary. This listing had no computed sort field before and so had no call to
+	# `options`; adding the field without adding this would have made every ranked document
+	# page fail on the *second* page, which is `#46` exactly.
+	statement = statement.options(
+		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
 	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.

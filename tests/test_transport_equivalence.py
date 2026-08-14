@@ -3183,3 +3183,54 @@ def test_the_size_reported_is_bytes_on_the_wire_rather_than_characters (pair: Pa
 		assert found.size_bytes > len(prose), (
 			"counted in characters, which understates every document this project writes"
 		)
+
+
+@pytest.fixture
+def native (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Ask for the indexed backend before anything reads settings.
+
+	**Ordered ahead of ``pair`` in the signature deliberately.** Both clients resolve settings
+	when they are built, so setting this inside the test body is too late for the HTTP one —
+	which is how the first version of this test had a *local* client ranking correctly and a
+	*remote* one not, and looked exactly like the divergence it was written to catch.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_SEARCH_BACKEND", "native")
+
+
+def test_both_rank_a_search_the_same_way (native: None, pair: Pair) -> None:
+	"""`#823`'s ranking on both transports, because the local client orders its own query.
+
+	`ordering.py` exists because a sort applied on one side and not the other is the same
+	divergence S3-07 removed for the task *shape*. A ranking is the newest sort field and the
+	first that is not a column, so it is the likeliest to land on one transport only.
+
+	Skipped where nothing can rank: the native backend is PostgreSQL-only by decision (`#871`),
+	and on SQLite both sides correctly fall back to the same unranked order.
+	"""
+
+	if pair.session.get_bind().dialect.name != "postgresql":
+		pytest.skip("relevance needs a backend that can rank")
+
+	subject = make(pair, "Entirely unlike anything")
+
+	for number in range(4):
+		make(pair, f"Mentions it {number}")
+		mentioned = pair.local.tasks(limit=1)[0]
+		row = pair.session.get(subroutine.db.models.work.Task, mentioned.id)
+
+		assert row is not None
+
+		subroutine.domain.tasks.update(
+			pair.session, row, description=f"Follows on from #{subject.ref}."
+		)
+
+	pair.session.flush()
+
+	local, remote = pair.both()
+	asked = str(subject.ref)
+
+	assert next(task.ref for task in local.tasks(q=asked, limit=50)) == subject.ref
+	assert [task.ref for task in local.tasks(q=asked, limit=50)] == [
+		task.ref for task in remote.tasks(q=asked, limit=50)
+	]

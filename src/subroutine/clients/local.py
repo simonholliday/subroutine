@@ -390,6 +390,13 @@ class Client:
 			if narrowed is not None:
 				statement = statement.where(subroutine.domain.scoping.within_project(narrowed))
 
+			# The ordering vocabulary this call will use. Replaced below when a search runs
+			# against a backend that can rank one; every other listing keeps what it had.
+			sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(
+				subroutine.domain.ordering.TASK_FIELDS
+			)
+			fallback: tuple[str, ...] = tuple(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
+
 			# **Built in steps rather than one chained expression, and `is not None` rather
 			# than `or`.** A SQLAlchemy element raises on truth-testing, so `predicate or
 			# true()` is not a shorter spelling of this — it is a `TypeError` at the one
@@ -413,6 +420,20 @@ class Client:
 						),
 					)
 				)
+
+				# `#823`, and here for the reason every ordering rule is decided in the domain:
+				# a ranking the endpoint applies and the terminal does not is the divergence
+				# `ordering.py` exists to prevent, one sort field along.
+				if backend == subroutine.domain.search.NATIVE:
+					sortable = subroutine.domain.ordering.searching(
+						subroutine.domain.ordering.TASK_FIELDS,
+						terms=subroutine.domain.search.terms(q),
+						columns=[model.title, model.description],
+						carried_on=model.relevance,
+						ref=model.ref,
+						numbered=subroutine.domain.refs.parse_ref(q),
+					)
+					fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
 			# **After the deferral filter, which it subsumes**, and in the same order the
 			# endpoint applies them: `ready` already excludes anything parked, so combining the
@@ -545,17 +566,12 @@ class Client:
 						# being worked out again here — there is no second copy to work them
 						# out from since `#569`, and the merged sort reads them off the view.
 						*subroutine.domain.ordering.options(
-							order,
-							allowed=subroutine.domain.ordering.TASK_FIELDS,
-							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+							order, allowed=sortable, default=fallback
 						)
 					)
 					.order_by(
 						*subroutine.domain.ordering.clauses(
-							order,
-							allowed=subroutine.domain.ordering.TASK_FIELDS,
-							default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
-							tiebreak=model.id,
+							order, allowed=sortable, default=fallback, tiebreak=model.id
 						)
 					)
 					.limit(size)
@@ -621,6 +637,29 @@ class Client:
 				else subroutine.domain.documents.status_for(session, chosen.id, status).id
 			)
 
+			# The same choice the task listing above makes, for the same reason (`#823`): a
+			# search that can be ranked is ranked, and everything else keeps the vocabulary it
+			# has always had. Resolved once rather than inside the query, so the predicate and
+			# the ordering are built from one answer about the backend.
+			backend = subroutine.domain.search.chosen(session)
+			sortable: dict[str, subroutine.domain.ordering.Sortable] = dict(
+				subroutine.domain.ordering.DOCUMENT_FIELDS
+			)
+			fallback: tuple[str, ...] = tuple(
+				subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER
+			)
+
+			if q and backend == subroutine.domain.search.NATIVE:
+				sortable = subroutine.domain.ordering.searching(
+					subroutine.domain.ordering.DOCUMENT_FIELDS,
+					terms=subroutine.domain.search.terms(q),
+					columns=[model.title, model.body],
+					carried_on=model.relevance,
+					ref=model.ref,
+					numbered=subroutine.domain.refs.parse_ref(q),
+				)
+				fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
+
 			rows = list(
 				session.scalars(
 					subroutine.domain.scoping.readable_documents(
@@ -651,13 +690,13 @@ class Client:
 								model.title,
 								model.body,
 								ref=model.ref,
-								backend=subroutine.domain.search.chosen(session),
+								backend=backend,
 							),
 							subroutine.domain.search.in_a_comment(
 								q,
 								subject=model.id,
 								entity_type="document",
-								backend=subroutine.domain.search.chosen(session),
+								backend=backend,
 							),
 						)
 					)
@@ -679,12 +718,17 @@ class Client:
 					# Built by the domain from the vocabulary `GET /v1/documents` uses,
 					# rather than spelled out here — the ordering, its NULLS LAST (§10.3) and
 					# its tiebreaker are one rule and used to be two copies of it.
+					# The loader option as well as the ordering, which this listing never
+					# needed until a search could be ranked: a computed sort value exists only
+					# in SQL and has to arrive on the row for the merge to read it.
+					.options(
+						*subroutine.domain.ordering.options(
+							order, allowed=sortable, default=fallback
+						)
+					)
 					.order_by(
 						*subroutine.domain.ordering.clauses(
-							order,
-							allowed=subroutine.domain.ordering.DOCUMENT_FIELDS,
-							default=subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER,
-							tiebreak=model.id,
+							order, allowed=sortable, default=fallback, tiebreak=model.id
 						)
 					)
 					.limit(size)

@@ -444,6 +444,10 @@ def listing (
 			],
 		)
 
+	# `None` unless a search ran and something can rank it, which is what keeps every listing
+	# that is not a search on exactly the vocabulary it has always had.
+	ranked: dict[str, subroutine.domain.ordering.Sortable] | None = None
+
 	# Applied before `ready`, which subsumes it — the two may be combined and the narrower
 	# wins, rather than one silently overriding the other.
 	narrowing = subroutine.domain.readiness.deferred(
@@ -495,6 +499,20 @@ def listing (
 			)
 		)
 
+		# **`relevance` exists for this query and only where something can compute it** (`#823`).
+		# The `like` backend has no ranking to offer, so the name stays out of the vocabulary
+		# there and `parse_order` refuses it by name with the list of what is available —
+		# which is the same refusal any unknown sort field gets, rather than a special case.
+		if backend == subroutine.domain.search.NATIVE:
+			ranked = subroutine.domain.ordering.searching(
+				SORTABLE,
+				terms=subroutine.domain.search.terms(q),
+				columns=[model.title, model.description],
+				carried_on=model.relevance,
+				ref=model.ref,
+				numbered=subroutine.domain.refs.parse_ref(q),
+			)
+
 	if due_before is not None:
 		statement = statement.where(model.due_at < due_before)
 
@@ -522,6 +540,13 @@ def listing (
 		actor=actor,
 		workspace_id=workspace.id,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
+		allowed=ranked,
+		# **A search defaults to its ranking, and that is what makes `#867` useful** (`#823`).
+		# Driven on the served instance beforehand: `815` found `#815` and returned it *sixth*,
+		# below the fold of an agent's default page — so "a number finds the item" was true and
+		# not yet worth anything. An explicit `?order=` still wins, and a listing that is not a
+		# search is untouched.
+		default=None if ranked is None else (f"-{subroutine.domain.ordering.RELEVANCE}",),
 	)
 
 
@@ -868,25 +893,34 @@ def _page (
 	actor: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
 	with_links: bool = False,
+	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable] | None = None,
+	default: typing.Sequence[str] | None = None,
 ) -> typing.Any:
 	"""Order, paginate and render a task query.
 
 	Returns ``Any`` because a shaped response is not a ``Collection[Task]`` — its items are
 	lines, or addresses, or partial objects. The endpoint still *declares* the collection, so
 	the OpenAPI document describes the default that almost every caller receives.
+
+	``allowed`` and ``default`` are parameters rather than the module constants because a
+	search adds ``relevance`` to the vocabulary and makes it the default (`#823`). Both fall
+	back, so every caller that is not searching is unchanged.
 	"""
+
+	sortable = SORTABLE if allowed is None else allowed
+	fallback = DEFAULT_ORDER if default is None else default
 
 	keys = subroutine.api.pagination.parse_order(
 		order,
-		allowed=SORTABLE,
-		default=DEFAULT_ORDER,
+		allowed=sortable,
+		default=fallback,
 		tiebreak=subroutine.db.models.work.Task.id,
 	)
 	# A sort whose expression reads other rows has no Python half, so its value has to arrive
 	# on the row for the cursor to name a page boundary (`#569`). Applied from the same
 	# expression the ordering was parsed from, never from a second reading of it.
 	statement = statement.options(
-		*subroutine.domain.ordering.options(order, allowed=SORTABLE, default=DEFAULT_ORDER)
+		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
 	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.

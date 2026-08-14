@@ -325,6 +325,17 @@ upgrade involves.
 
 ### Fixed
 
+- **A search puts the best match first, where the index is on.** Searching `862` now returns
+  `#862` itself at the top rather than somewhere among everything that mentions it — which is
+  what makes searching by number worth doing. Sort by `-relevance` explicitly if you want it
+  on a search that would otherwise be ordered some other way.
+
+  This only exists where `search_backend = "native"` is in force, because nothing else can
+  score a match. `GET /v1/meta` lists `relevance` among a listing's sort fields exactly when
+  it is available.
+
+  **Not yet in the browser**, which re-sorts a merged list by date after it arrives.
+
 - **A finished item in a listing says so** — both at the terminal, which marks it `done`, and
   on an agent's row, which names the status. It appeared looking exactly like an open one,
   which mattered little while such a row was hard to reach and matters a lot now that

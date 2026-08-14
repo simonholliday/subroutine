@@ -47,9 +47,17 @@ class World(typing.NamedTuple):
 
 
 def _world (
-	session: sqlalchemy.orm.Session, **token: typing.Any
+	session: sqlalchemy.orm.Session,
+	*,
+	instance: dict[str, typing.Any] | None = None,
+	**token: typing.Any,
 ) -> World:
-	"""Bootstrap an installation and a token to reach it with."""
+	"""Bootstrap an installation and a token to reach it with.
+
+	``instance`` overrides the settings the application is built with, for the handful of
+	behaviours that are configuration rather than code — ``search_backend`` is the first
+	(`#823`), and a test that needs the indexed one cannot get there any other way.
+	"""
 
 	setup = subroutine.domain.bootstrap.initialise(
 		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
@@ -61,7 +69,7 @@ def _world (
 	session.flush()
 
 	return World(
-		application=api_support.build_app(api_support.factory_for(session)),
+		application=api_support.build_app(api_support.factory_for(session), **(instance or {})),
 		session=session,
 		user=setup.user,
 		workspace=setup.workspace,
@@ -2673,3 +2681,100 @@ def test_a_completion_ordering_pages_without_repeating_a_row (world: World) -> N
 		path = None if cursor is None else f"{base}&cursor={cursor}"
 
 	assert len(seen) == len(set(seen)) == 4
+
+
+@pytest.fixture
+def ranked (session: sqlalchemy.orm.Session) -> World:
+	"""An installation with the indexed backend asked for, skipping where it cannot exist.
+
+	`#871`: the native backend is PostgreSQL-only by decision, so on SQLite this is not a
+	failure — there is nothing to test. Asked for through settings rather than patched, so the
+	test drives the same resolution a real instance does.
+	"""
+
+	if session.get_bind().dialect.name != "postgresql":
+		pytest.skip("relevance needs a backend that can rank")
+
+	return _world(session, instance={"search_backend": "native"})
+
+
+def test_a_search_for_a_number_puts_that_item_first (ranked: World) -> None:
+	"""**`#867`'s other half, and it is why the predicate alone was not enough.**
+
+	Driven on the served instance before this existed: `815` found `#815` and returned it
+	**sixth**, below the fold of an agent's default page. So *a number finds the item* was true
+	and worth nothing at a small limit.
+
+	This is not an ordering special case. An exact identifier match is simply the best possible
+	hit, which is what a search backend does with one — `db.fulltext.EXACT_MATCH_RANK` against
+	a `ts_rank` that never reaches 1.
+	"""
+
+	subject = ranked.call("POST", "/v1/tasks", json={"title": "Entirely unlike"}).json()
+
+	for _ in range(5):
+		ranked.call(
+			"POST",
+			"/v1/tasks",
+			json={"title": "Mentions it", "description": f"Follows #{subject['ref']}."},
+		)
+
+	found = ranked.call("GET", f"/v1/tasks?q={subject['ref']}&limit=50").json()["items"]
+
+	assert found, "the probe matched nothing, so it proves nothing"
+	assert found[0]["ref"] == subject["ref"], (
+		f"the item asked for came back at position {[r['ref'] for r in found].index(subject['ref'])}"
+	)
+
+
+def test_a_ranked_search_can_be_paged_through (ranked: World) -> None:
+	"""**More rows than the limit, which is the only way this test means anything.**
+
+	`priority_score` shipped as an expression with no way to read the value back off a loaded
+	row and returned **500 for every result set larger than one page** — invisible because the
+	pagination tests only ever walked the default order. A ranking is the same shape: the sort
+	value exists only in SQL, so a cursor has to carry what SQL computed.
+
+	Two pages of three against seven rows, and every ref seen exactly once.
+	"""
+
+	for number in range(7):
+		ranked.call(
+			"POST", "/v1/tasks", json={"title": f"Quinsy {number}", "description": "quinsy"}
+		)
+
+	seen: list[int] = []
+	cursor: str | None = None
+
+	for _ in range(4):
+		address = "/v1/tasks?q=quinsy&limit=3"
+
+		if cursor is not None:
+			address += f"&cursor={cursor}"
+
+		page = ranked.call("GET", address).json()
+
+		assert page["items"], "a page came back empty before the rows ran out"
+
+		seen.extend(row["ref"] for row in page["items"])
+		cursor = page["page"]["next_cursor"]
+
+		if cursor is None:
+			break
+
+	assert len(seen) == 7, f"walked {len(seen)} rows of 7"
+	assert len(set(seen)) == 7, "a row was repeated across a page boundary"
+
+
+def test_relevance_is_refused_where_nothing_can_rank (world: World) -> None:
+	"""It is not in the vocabulary unless a search ran and a backend can score it.
+
+	Refused by name with the list of what *is* available — the same refusal any unknown sort
+	field gets, rather than a special case somebody has to learn. Asked without a search, so
+	this holds on either backend.
+	"""
+
+	answer = world.call("GET", "/v1/tasks?order=-relevance&limit=5")
+
+	assert answer.status_code == 422
+	assert "relevance" in answer.text

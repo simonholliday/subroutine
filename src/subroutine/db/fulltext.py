@@ -175,12 +175,52 @@ def matches (
 	)
 
 
-def rank (
-	terms: typing.Sequence[str], *columns: typing.Any
-) -> typing.Any:
-	"""Return how well this row answers the query, for ``-relevance`` to sort by."""
+#: What an exact identifier match is worth, against everything else.
+#:
+#: ``ts_rank`` returns a small float — under 1 for ordinary prose — so any number comfortably
+#: above that puts the named item first and nothing else can reach it. **This is where `#867`'s
+#: "the exact hit comes first" actually lives**, and it belongs here rather than as an ordering
+#: prefix: in a search backend an exact identifier match is not a special case, it is simply
+#: the best possible hit. Driven on the served instance before this existed, `815` returned
+#: `#815` **sixth**, below the fold of an agent's default page.
+EXACT_MATCH_RANK = 1000.0
 
-	return sqlalchemy.func.ts_rank(vector(*columns), query(terms))
+
+def rank (
+	terms: typing.Sequence[str], *columns: typing.Any, ref: typing.Any = None, numbered: int | None = None
+) -> typing.Any:
+	"""Return how well this row answers the query, for ``-relevance`` to sort by.
+
+	**Two terms, and only one of them is about text.** ``ts_rank`` scores the prose; the ref
+	comparison is what makes a query that *is* a number answer with that item rather than with
+	whatever happens to mention those digits. `#867` shipped the predicate and deliberately left
+	the ordering to this item, because a per-query sort value a keyset cursor can resume from is
+	one piece of machinery and building it twice was the thing to avoid.
+
+	``numbered`` is ``None`` for a query that is not a ref, which is the ordinary case, and the
+	whole term drops out rather than being compared against nothing.
+	"""
+
+	# **Cast to double precision, and this is not tidiness — it is what makes a cursor work.**
+	# ``ts_rank`` returns ``float4``. A keyset cursor carries the sort value out to the client
+	# and compares it on the way back, so the value has to survive that round trip *exactly*:
+	# psycopg renders the float4 as text, Python parses that decimal into a float8, and the
+	# nearest float8 to the decimal `0.075990885` is **not** the float4 promoted to float8. So
+	# ``relevance = <what the cursor carried>`` is false, the seek predicate matches nothing,
+	# and the second page of every search comes back **empty**.
+	#
+	# Measured exactly that way before this cast existed: page one returned three rows, page
+	# two returned none, and `has_more` said there were more. In float8 both sides are the same
+	# width and the round trip is lossless. `#46`'s defect in a new disguise — a sort value the
+	# cursor cannot name — and the reason the test for this pages past the limit.
+	scored = sqlalchemy.cast(
+		sqlalchemy.func.ts_rank(vector(*columns), query(terms)), sqlalchemy.Double
+	)
+
+	if ref is None or numbered is None:
+		return scored
+
+	return scored + sqlalchemy.case((ref == numbered, EXACT_MATCH_RANK), else_=0.0)
 
 
 def index (

@@ -52,6 +52,7 @@ import subroutine.domain.durations
 import subroutine.domain.filtering
 import subroutine.domain.instances
 import subroutine.domain.links
+import subroutine.domain.ordering
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
@@ -217,7 +218,11 @@ def document (
 		link_types=[] if chosen is None else _link_types(session, chosen.id),
 		linkable_types=list(subroutine.domain.links.LINKABLE),
 		tags=_tags(session, actor, chosen),
-		listings=_listings(application),
+		listings=_listings(
+			application,
+			ranked=subroutine.domain.search.chosen(session, settings=settings)
+			== subroutine.domain.search.NATIVE,
+		),
 		grammars=_grammars(),
 		limits=subroutine.views.Limits(
 			default_page_size=settings.default_page_size,
@@ -629,7 +634,9 @@ def _tags (
 	)
 
 
-def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listing]:
+def _listings (
+	application: fastapi.FastAPI, *, ranked: bool
+) -> dict[str, subroutine.views.Listing]:
 	"""Report what each collection endpoint accepts, read from the application itself.
 
 	The filters come out of the generated OpenAPI document and the sort fields out of the
@@ -649,6 +656,15 @@ def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listi
 	found: dict[str, subroutine.views.Listing] = {}
 
 	for entity, path, sortable, selectable in LISTINGS:
+		# **`relevance` is published exactly where it can be offered** (`#823`). It is not a
+		# column, it is a ranking of one search, so it exists only when a backend can compute
+		# one — and §9.4 says an agent learns which is available here rather than by being
+		# refused. A project listing has no `q` at all, so it never gains the name.
+		orderable = (
+			set(sortable) | {subroutine.domain.ordering.RELEVANCE}
+			if ranked and entity in ("task", "document")
+			else set(sortable)
+		)
 		operation = schema.get("paths", {}).get(path, {}).get("get", {})
 		parameters = [
 			parameter["name"]
@@ -660,7 +676,7 @@ def _listings (application: fastapi.FastAPI) -> dict[str, subroutine.views.Listi
 		found[entity] = subroutine.views.Listing(
 			path=path,
 			filters=sorted(parameters + list(subroutine.domain.filtering.names(entity))),
-			sortable=sorted(sortable),
+			sortable=sorted(orderable),
 			selectable=sorted(selectable),
 			formats=list(subroutine.api.shaping.FORMATS),
 		)

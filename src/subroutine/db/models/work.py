@@ -122,6 +122,12 @@ class Task(
 	# `domain.ordering` owns what goes in here and is the only thing that should populate it.
 	rank: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.query_expression()
 
+	# How well this row answers the search that selected it — `#823`, and the same mechanism as
+	# `rank` above for the same reason: a loaded row cannot compute its own relevance, because
+	# the value depends on a query it knows nothing about. Populated only when the caller
+	# searched *and* a native backend is in force; `None` on every other listing.
+	relevance: sqlalchemy.orm.Mapped[float | None] = sqlalchemy.orm.query_expression()
+
 	# Three distinct date fields. Conflating a deadline with an intended day is what
 	# makes an overdue list meaningless within a month.
 	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
@@ -296,6 +302,11 @@ class Document(
 		nullable=True,
 		index=True,
 	)
+
+	# The same as ``Task.relevance`` and for the same reason — `#823`. A search spans both
+	# kinds (§6.2 gives them one ref counter), so an ordering one of them cannot answer would
+	# make a merged result set sortable only by dropping half of it.
+	relevance: sqlalchemy.orm.Mapped[float | None] = sqlalchemy.orm.query_expression()
 	type_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(),
 		sqlalchemy.ForeignKey("item_type.id", ondelete="RESTRICT"),

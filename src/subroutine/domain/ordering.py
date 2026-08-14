@@ -20,6 +20,7 @@ import sqlalchemy
 import sqlalchemy.orm
 import sqlalchemy.orm.interfaces
 
+import subroutine.db.fulltext
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.errors
@@ -124,6 +125,70 @@ def carried (row: typing.Any) -> int | None:
 		"This task's ordering value was never computed, so a page boundary cannot be named.",
 		hint="The query sorted by a carried field without applying ordering.options().",
 	)
+
+
+#: What ``?order=`` calls the search ranking. Named rather than spelled at four call sites, so
+#: the vocabulary a guard reads and the vocabulary a caller sends are one string.
+RELEVANCE = "relevance"
+
+
+def scored (row: typing.Any) -> float | None:
+	"""Return the relevance SQL computed for this row, for a cursor to carry.
+
+	:func:`carried`'s sibling, and separate rather than parameterised because the two differ in
+	the half that matters: an unranked task legitimately has no priority, where **a row
+	returned by a search always has a relevance**. So there is no "this is genuinely null"
+	branch here — a missing value is always the loader option having been forgotten.
+	"""
+
+	value: float | None = getattr(row, RELEVANCE, None)
+
+	if value is not None:
+		return value
+
+	raise subroutine.errors.InternalError(
+		"This row's search ranking was never computed, so a page boundary cannot be named.",
+		hint="The query sorted by relevance without applying ordering.options().",
+	)
+
+
+def searching (
+	allowed: typing.Mapping[str, Sortable],
+	*,
+	terms: typing.Sequence[str],
+	columns: typing.Sequence[typing.Any],
+	carried_on: sqlalchemy.orm.InstrumentedAttribute[typing.Any],
+	ref: typing.Any = None,
+	numbered: int | None = None,
+) -> dict[str, Sortable]:
+	"""Return this vocabulary with ``relevance`` added, for one query.
+
+	**A per-request entry, because the expression depends on the search**, which is why this is
+	a function rather than a line in :data:`TASK_FIELDS`. Those maps are static and every other
+	entry names a column; a ranking names a *question*, and the same listing sorted by the same
+	name means something different for every caller.
+
+	That is exactly what made this the piece both `#823` and `#867` were waiting on, and why
+	neither built half of it: a sort value that cannot be read back off a loaded row is `#46`'s
+	defect — ``priority_score`` shipped that way and returned **500 for every result set larger
+	than one page**, invisible because the pagination tests only ever walked the default order.
+	:class:`Derived` has carried its own reader since; this hands it one.
+
+	**The caller's vocabulary is copied rather than mutated.** A module-level dict quietly
+	gaining a per-request entry would leak one caller's search into the next one's ordering, and
+	the symptom would be a page ordered by somebody else's question.
+	"""
+
+	return {
+		**allowed,
+		RELEVANCE: Derived(
+			expression=subroutine.db.fulltext.rank(
+				terms, *columns, ref=ref, numbered=numbered
+			),
+			read=scored,
+			carried_on=carried_on,
+		),
+	}
 
 
 #: The SQL half of the same rule. A ``CASE`` cannot use a plain index, and neither could the
