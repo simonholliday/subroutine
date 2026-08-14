@@ -151,14 +151,7 @@ RATIO_CEILING = 25.0
 #: finding: the whole argument for `#823` is that an index makes a search cheap, so a
 #: measurement saying it makes half of one dearer has to go on being printed rather than being
 #: made to pass.
-KNOWN_EXPENSIVE: dict[str, str] = {
-	"search with comments, indexed (no match)": (
-		"#892 — `ix_comment_search` is bypassed by the correlated EXISTS in "
-		"`search.in_a_comment`, so the tsvector is computed per comment rather than read from "
-		"the index. Measured at 63.7x against 11.0x for the `like` backend it replaces: the "
-		"index makes this half of a search *slower* than before. Read from EXPLAIN, not guessed."
-	),
-}
+KNOWN_EXPENSIVE: dict[str, str] = {}
 
 #: What a single measurement may cost outright, in milliseconds, on either backend — the
 #: unordered page included.
@@ -598,24 +591,28 @@ def _searched_including_comments (
 	inner predicate is an ``ILIKE`` that §10.4 says no index can serve. Two unindexable scans
 	multiplied together is the arrangement that produced a 5.4-second listing once already.
 
-	**It calls `search.in_a_comment` now rather than building the `EXISTS` here** (`#887`). The
-	hand-built version was correct when written — this predicate did not exist yet, and the
+	**It calls `search.anywhere` now rather than building the clause here** (`#887`). The
+	hand-built version was correct when written — that function did not exist yet, and the
 	docstring said *"in the shape it would be built"*. It does exist, and a guard measuring a
 	copy of the thing it is guarding is this codebase's signature defect inside the file written
-	to catch a different one: a join added to the real predicate, or a clause, would be invisible
-	here while the numbers went on being printed.
+	to catch a different one.
+
+	**It earned itself immediately.** Calling the real composition is what surfaced `#892`: the
+	`or_` those four call sites spelled out cost the index on both of its sides, and this file
+	measured 63.7x for a query the endpoints were actually running. A copy would have gone on
+	measuring the shape somebody wrote down here instead.
 	"""
 
 	task = subroutine.db.models.work.Task
 
 	statement = _base(context).where(
-		sqlalchemy.or_(
-			subroutine.domain.search.matching(
-				UNFINDABLE, task.title, task.description, ref=task.ref, backend=backend
-			),
-			subroutine.domain.search.in_a_comment(
-				UNFINDABLE, subject=task.id, entity_type="task", backend=backend
-			),
+		subroutine.domain.search.anywhere(
+			UNFINDABLE,
+			identity=task.id,
+			columns=(task.title, task.description),
+			ref=task.ref,
+			entity_type="task",
+			backend=backend,
 		)
 	)
 
@@ -802,13 +799,22 @@ def test_no_excused_listing_has_quietly_come_back_under_the_ceiling (
 	is finished. Three of those were found at once when this rule was first applied.
 
 	So a listing that is excused and is *inside* the ceiling fails here, naming the entry to
-	delete — which is also how `#892` gets closed rather than remembered.
+	delete. **It has already done that once**: `#892` was excused at 63.7x on the afternoon it
+	was found and fixed the same day, and this is what would have refused to let the entry
+	outlive it.
+
+	**The list is empty now, and the mechanism stays.** An excuse arriving without its guard is
+	how three stale ones survived here before, so the pair is kept together rather than the
+	whole thing being deleted with its last entry.
 
 	**Skipped where nothing being excused can run.** Every current entry is a PostgreSQL
 	measurement; on SQLite the names are absent from the timings and there is nothing to check.
 	"""
 
 	engine, backend = seeded
+
+	if not KNOWN_EXPENSIVE:
+		pytest.skip("nothing is excused, so there is no entry that could have gone stale")
 
 	if backend != "postgresql":
 		pytest.skip("every excused listing is measured on PostgreSQL only")

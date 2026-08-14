@@ -494,18 +494,20 @@ def listing (
 		# nobody knew to look for.
 		backend = subroutine.domain.search.chosen(session, settings=settings)
 		words = subroutine.domain.search.terms(q)
+		# **One clause, and the composition is the domain's** (`#892`). This was an `or_`
+		# written out here and at three other sites, and the `or_` was the defect: it cost the
+		# index on both of its sides. `#83` is the half it adds — a comment is where the
+		# running record lives (§5.10), and there are more of them on this instance than there
+		# are tasks, so a search that skipped them was answering "nothing matches" about the
+		# largest thing it could have looked in.
 		statement = statement.where(
-			sqlalchemy.or_(
-				subroutine.domain.search.matching(
-					q, model.title, model.description, ref=model.ref, backend=backend
-				),
-				# **`#83`, and it reaches the majority of the prose here.** A comment is where
-				# the running record lives (§5.10), and there are more of them on this instance
-				# than there are tasks — so a search that skipped them was answering "nothing
-				# matches" about the largest thing it could have looked in.
-				subroutine.domain.search.in_a_comment(
-					q, subject=model.id, entity_type="task", backend=backend
-				),
+			subroutine.domain.search.anywhere(
+				q,
+				identity=model.id,
+				columns=(model.title, model.description),
+				ref=model.ref,
+				entity_type="task",
+				backend=backend,
 			)
 		)
 

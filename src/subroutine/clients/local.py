@@ -420,14 +420,15 @@ class Client:
 				# already recorded about the CLI, one layer down in the client itself.
 				backend = subroutine.domain.search.chosen(session, settings=self.settings)
 				words = subroutine.domain.search.terms(q)
+				# One clause, composed in the domain (`#892`) — see `api/tasks.py`.
 				statement = statement.where(
-					sqlalchemy.or_(
-						subroutine.domain.search.matching(
-							q, model.title, model.description, ref=model.ref, backend=backend
-						),
-						subroutine.domain.search.in_a_comment(
-							q, subject=model.id, entity_type="task", backend=backend
-						),
+					subroutine.domain.search.anywhere(
+						q,
+						identity=model.id,
+						columns=(model.title, model.description),
+						ref=model.ref,
+						entity_type="task",
+						backend=backend,
 					)
 				)
 
@@ -710,20 +711,14 @@ class Client:
 					.where(
 						sqlalchemy.true()
 						if not q
-						else sqlalchemy.or_(
-							subroutine.domain.search.matching(
-								q,
-								model.title,
-								model.body,
-								ref=model.ref,
-								backend=backend,
-							),
-							subroutine.domain.search.in_a_comment(
-								q,
-								subject=model.id,
-								entity_type="document",
-								backend=backend,
-							),
+						# One clause, composed in the domain (`#892`) — see `api/tasks.py`.
+						else subroutine.domain.search.anywhere(
+							q,
+							identity=model.id,
+							columns=(model.title, model.body),
+							ref=model.ref,
+							entity_type="document",
+							backend=backend,
 						)
 					)
 					# §9.6's date comparisons (`#815`), compiled by the domain so that this and

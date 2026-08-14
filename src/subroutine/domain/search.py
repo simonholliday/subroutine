@@ -243,10 +243,68 @@ def matching (
 	return sqlalchemy.or_(text, ref == numbered)
 
 
-def in_a_comment (
-	query: str, *, subject: Searchable, entity_type: str, backend: str = LIKE
+def anywhere (
+	query: str,
+	*,
+	identity: Searchable,
+	columns: typing.Sequence[Searchable],
+	ref: Searchable | None,
+	entity_type: str,
+	backend: str = LIKE,
 ) -> sqlalchemy.ColumnElement[bool]:
-	"""Return the predicate matching a readable comment written on this item.
+	"""Return the predicate matching this query in an item's own prose or in a comment on it.
+
+	**One function rather than an ``or_`` written out at four call sites, and `#892` is why
+	that mattered.** The four spelled the composition themselves, and the composition was the
+	defect: an ``OR`` between an indexable predicate and a subquery costs the index on *both*
+	sides. PostgreSQL hashes the subplan and then has no index route for the other branch, so a
+	search that reads comments fell back to a sequential scan computing ``to_tsvector`` over
+	every row — while the comment half, which is what I first blamed, was index-served and cost
+	0.569 ms.
+
+	**Each half is resolved to a set of ids and the two are unioned**, so each uses its own
+	index. Read from ``EXPLAIN (ANALYZE)`` at 2,000 tasks rather than reasoned about, and
+	strictly better on every backend — there is nothing here to trade:
+
+	========================  ==========  =========
+	                          ``or_``     this
+	========================  ==========  =========
+	PostgreSQL, ``native``    161.79 ms   0.42 ms
+	PostgreSQL, ``like``       26.60 ms   25.98 ms
+	SQLite                      5.79 ms   3.61 ms
+	========================  ==========  =========
+
+	**The ref match stays outside the union**, because it is a primary-key comparison that no
+	index needs help with — and because it is about the *query being an address* rather than
+	about prose, which is `#867`'s whole distinction.
+
+	**Neither half is narrowed by visibility and neither needs to be.** The statement this
+	clause lands in is already scoped by ``domain.scoping``, so an id the caller cannot see
+	simply matches nothing; §5.11a makes a comment exactly as visible as its subject. Narrowing
+	twice would cost a join per half and change no answer, which `#815` measured and recorded.
+	"""
+
+	found = identity.in_(
+		sqlalchemy.select(identity)
+		.where(matching(query, *columns, ref=None, backend=backend))
+		.union(in_a_comment(query, entity_type=entity_type, backend=backend))
+	)
+
+	if ref is None:
+		return found
+
+	numbered = subroutine.domain.refs.parse_ref(query)
+
+	if numbered is None:
+		return found
+
+	return sqlalchemy.or_(found, ref == numbered)
+
+
+def in_a_comment (
+	query: str, *, entity_type: str, backend: str = LIKE
+) -> sqlalchemy.Select[tuple[typing.Any]]:
+	"""Return the ids of items with a readable comment on them matching this query.
 
 	**Comments are the largest body of prose here after the event feed** — 780 of them against
 	695 tasks when `#825` measured it — and they are the only place the running record lives,
@@ -268,14 +326,16 @@ def in_a_comment (
 	reason: a backlink pointing at a sentence nobody can read is worse than none. That filter
 	is stated here as well as there, so a test drives both rather than trusting them to agree.
 
-	**A correlated ``EXISTS``, and measured before it was chosen.** At 2,000 tasks each
-	carrying a comment, this took a no-match search from 1.6x an unordered page to 3.3x on
-	SQLite and from 6.3x to 11.1x on PostgreSQL — roughly double, which is linear in the prose
-	added and well inside ``test_query_cost``'s ceiling. It is **not** `#856`'s shape, and the
-	difference is worth holding onto: that was a correlated subquery in ``ORDER BY``, which
-	must be computed for every row in the table before the database knows which page to return,
-	so ``LIMIT`` cannot help. In ``WHERE`` the same syntax short-circuits and both planners
-	turn it into a semi-join.
+	**A set of ids rather than a correlated ``EXISTS``, and `#892` is what changed it.** This
+	was an ``EXISTS`` narrowed by ``entity_id``, which :func:`anywhere` then ``OR``-ed with the
+	item's own prose — and *that* ``OR`` was the defect: a hashed subplan on one side of one
+	stops PostgreSQL using an index for the other, so a search that reads comments fell back to
+	a sequential scan computing ``to_tsvector`` over every task. **161.79 ms against 0.42 ms**,
+	measured at 2,000 tasks with `EXPLAIN (ANALYZE)` read rather than reasoned about.
+
+	Answering with ids instead lets :func:`anywhere` union the two halves, and each half then
+	uses its own index. Nothing here is correlated any more, so this runs **once per statement**
+	rather than once per candidate row.
 
 	``ref=None`` on the inner match, deliberately: a comment has no ref of its own, and the
 	number in ``#42`` written inside one is a mention rather than an address for it.
@@ -283,14 +343,8 @@ def in_a_comment (
 
 	model = subroutine.db.models.activity.Comment
 
-	return (
-		sqlalchemy.select(sqlalchemy.literal(1))
-		.select_from(model)
-		.where(
-			model.entity_type == entity_type,
-			model.entity_id == subject,
-			model.deleted_at.is_(None),
-			matching(query, model.body, ref=None, backend=backend),
-		)
-		.exists()
+	return sqlalchemy.select(model.entity_id).where(
+		model.entity_type == entity_type,
+		model.deleted_at.is_(None),
+		matching(query, model.body, ref=None, backend=backend),
 	)
