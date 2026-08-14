@@ -1344,6 +1344,7 @@ def completion_wanted (
 	*,
 	about_completion: bool = False,
 	about_activity: bool = False,
+	naming_one_item: bool = False,
 ) -> bool:
 	"""Say whether a listing should reach finished work.
 
@@ -1381,6 +1382,25 @@ def completion_wanted (
 	I work on today that is not finished yet* is an ordinary question, so
 	``include_completed=false`` is honoured here rather than refused — where beside
 	``completed_at`` it asks for finished work and no finished work, which means nothing.
+
+	**``naming_one_item`` is the third spelling, and it is the one that hurt** (`#873`). `#867`
+	made a search that is exactly a ref match the item with that number — and 548 of this
+	instance's 721 tasks are finished, so for **three items in four** the lookup found the row
+	and the listing then hid it. Every other selection *narrows a set*; a ref names **one item**
+	and the reader has already decided which, so answering "nothing" about something
+	``subroutine show`` reads happily is `#700`'s divergence between a lookup and a listing.
+
+	`#818`'s own sentence is the lesson and this is its third instance: *a rule written down in
+	one vocabulary does not reach the next one.* It knew about categories, then about filters,
+	and not about a lookup.
+
+	**It widens the whole listing rather than exempting one row**, which is a choice worth
+	stating. Exempting only the matched row would mean pushing the ref down into
+	``scoping.readable_tasks``, and the result set for a bare number is small anyway — four to
+	twenty-one rows, measured — so what widening actually adds is the *finished* items that
+	mention that number, which is a fair reading of what somebody typing a ref is asking.
+	``include_completed=false`` is still honoured, as with ``about_activity``, because *the open
+	item numbered 815* is a coherent question.
 	"""
 
 	wants_finished = about_completion or (
@@ -1390,7 +1410,7 @@ def completion_wanted (
 	if not wants_finished:
 		# Not `bool(asked)`: three-valued, so *did not say* means include and *said no* means
 		# exclude. Collapsing them would make the answer ignore a caller who was explicit.
-		return asked is not False if about_activity else bool(asked)
+		return asked is not False if (about_activity or naming_one_item) else bool(asked)
 
 	if asked is False:
 		raise subroutine.errors.ValidationError(

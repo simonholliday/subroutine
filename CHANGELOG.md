@@ -325,6 +325,14 @@ upgrade involves.
 
 ### Fixed
 
+- **Searching for a number finds the item even when it is finished.** Typing `815` looked the
+  item up correctly and then hid it, because a listing shows unfinished work unless you ask
+  otherwise — and most of a backlog is finished, so this failed far more often than it worked.
+
+  A number names one item rather than narrowing a list, so it now reaches finished work the
+  way asking about a completion date already does. Searching for *words* is unchanged and
+  still hides finished work; `include_completed=false` is still honoured if you ask for it.
+
 - **Searching in the browser no longer returns every document.** A search filtered the tasks
   and left the documents alone, so looking for something that did not exist still filled the
   page — which reads as a broken search rather than as an answer.

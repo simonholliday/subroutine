@@ -2454,6 +2454,66 @@ def test_a_comment_search_cannot_reach_past_a_narrowed_credential (
 	assert beyond["ref"] not in {row["ref"] for row in found["items"]}
 
 
+def test_a_search_for_a_number_finds_a_finished_item (world: World) -> None:
+	"""**`#873`, and it was the majority case rather than an edge.**
+
+	`#867` made an exact ref match find the item; a listing hides finished work unless asked;
+	so the row was found and then filtered away. Measured on the served instance: **548 of 721
+	tasks are finished**, so for three items in four typing the number answered nothing about
+	something ``subroutine show`` reads happily — `#700`'s divergence between a lookup and a
+	listing, from a different direction.
+
+	`#818`'s sentence, third instance: *a rule written down in one vocabulary does not reach
+	the next one.* Categories, then filters, and not a lookup.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Long since dealt with"}).json()
+
+	world.call("POST", f"/v1/tasks/{made['ref']}/complete")
+
+	found = world.call("GET", f"/v1/tasks?q={made['ref']}&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_number_search_still_honours_being_told_to_exclude_finished_work (
+	world: World,
+) -> None:
+	"""Where this parts company with `#818`'s `completed_at`, and the difference is real.
+
+	*Finished work that is not finished* means nothing, so `#818` refuses the combination. **The
+	open item numbered 42 is a coherent question**, so an explicit ``include_completed=false``
+	is honoured here rather than refused — the same ending ``about_activity`` has.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Dealt with as well"}).json()
+
+	world.call("POST", f"/v1/tasks/{made['ref']}/complete")
+
+	found = world.call(
+		"GET", f"/v1/tasks?q={made['ref']}&include_completed=false&limit=50"
+	).json()
+
+	assert made["ref"] not in {row["ref"] for row in found["items"]}
+
+
+def test_a_word_search_goes_on_hiding_finished_work (world: World) -> None:
+	"""The other half, and what stops `#873`'s fix being a widening of every search.
+
+	Only a query that is **entirely** a ref reaches finished work. A search for words is an
+	ordinary listing and keeps the ordinary rule, or `#873` would have quietly turned every
+	search into one that answers with everything ever completed.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Vanishingly rare wording"}).json()
+
+	world.call("POST", f"/v1/tasks/{made['ref']}/complete")
+
+	found = world.call("GET", "/v1/tasks?q=vanishingly&limit=50").json()
+
+	assert made["ref"] not in {row["ref"] for row in found["items"]}
+
+
 def test_a_status_category_gathers_every_status_in_it (world: World) -> None:
 	"""`#710`. The point of the filter: three seeded keys share the ``todo`` category.
 

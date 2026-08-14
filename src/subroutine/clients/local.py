@@ -357,6 +357,10 @@ class Client:
 			about_activity=subroutine.domain.filtering.about(
 				filters or {}, subroutine.domain.filtering.TOUCHED_AT
 			),
+			# `#873`, and here for the reason the paragraph above gives: the terminal and the
+			# endpoint have to reach the same rows for the same question.
+			naming_one_item=q is not None
+			and subroutine.domain.refs.parse_ref(q) is not None,
 		)
 
 		with self._opened() as (session, actor):

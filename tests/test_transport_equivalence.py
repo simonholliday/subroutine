@@ -1780,6 +1780,30 @@ def test_both_read_comments_when_they_search (pair: Pair) -> None:
 	assert found == sorted(task.ref for task in remote.tasks(q="semi-join", limit=50))
 
 
+def test_both_find_a_finished_item_by_its_number (pair: Pair) -> None:
+	"""`#873` on both transports, because `completion_wanted` is called from two places.
+
+	Its own docstring says why it lives in the domain: *a rule applied on one side would make
+	``status_category="done"`` return the finished work over HTTP and an empty list locally.*
+	The same holds for a lookup, and the local client is where ``subroutine search`` and every
+	MCP call arrive.
+	"""
+
+	subject = make(pair, "Long since dealt with")
+	row = pair.session.get(subroutine.db.models.work.Task, subject.id)
+
+	assert row is not None
+
+	subroutine.domain.tasks.complete(pair.session, row, actor=None)
+	pair.session.flush()
+
+	local, remote = pair.both()
+	found = sorted(task.ref for task in local.tasks(q=str(subject.ref), limit=50))
+
+	assert found == [subject.ref], "the probe matched nothing, so it proves nothing"
+	assert found == sorted(task.ref for task in remote.tasks(q=str(subject.ref), limit=50))
+
+
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
 	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.
