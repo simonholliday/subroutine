@@ -93,6 +93,11 @@ const TASK_FIELDS = [
 	   fall back to UTC, which is the answer that happens to be right here and wrong for anybody
 	   whose instance is not. */
 	"timezone",
+	/* **When work was put off until** (`#862`). The board showed a deferred item looking
+	   exactly like one nobody had put aside — the terminal hides them, so the two surfaces
+	   disagreed about work that had been deliberately parked. `start_is_all_day` comes with it
+	   for `#864`'s reason: an item deferred to an o'clock says the o'clock. */
+	"start_at", "start_is_all_day",
 	/* Who is holding a lease, and until when (`#726`). All three, because the mark says the
 	   holder's name, the id is what says anybody holds it at all, and the expiry is what says
 	   whether that still means anything — `claimed_by` alone would be null on an instance older
@@ -2131,6 +2136,34 @@ export function overdue (item) {
 	return new Date(item.due_at) < new Date();
 }
 
+export function deferred (item) {
+	/*
+		Whether this item has been put off until a moment that has not arrived — `#862`.
+
+		**A board showed deferred work looking exactly like work nobody had parked**, while
+		`subroutine list` hid it — so the two surfaces disagreed about items somebody had
+		deliberately set aside, and the board's reader had no way to tell. Simon's decision of
+		2026-08-14 is that they are **marked rather than hidden**: *"that way they are not
+		invisible, but neither are they confused with non-deferred items"*.
+
+		**Computed here rather than published as a field, unlike `blocked`**, and the difference
+		is what each needs. `blocked` reads the link graph, which the browser does not have, so
+		it can only arrive as data. This needs `start_at` and a clock — and the row carries
+		`start_at` anyway, because the mark says *when*. A published boolean would also be
+		**stale**: it would be computed when the page was fetched and would go on saying
+		"deferred" after the moment passed, on a page a reader leaves open.
+
+		`overdue` is the same shape reading the other end of the same clock, which is why this
+		sits beside it.
+
+		**`readiness.undeferred` is the server's spelling** and the two agree by construction:
+		null is not deferred, and an instant that has passed is not deferred.
+	*/
+	if (!item.start_at) return false;
+
+	return new Date(item.start_at) > new Date();
+}
+
 /*
 	**The two categories that mean a task is over**, which is `domain/tasks.FINISHED_CATEGORIES`
 	said in JavaScript. Two copies of one rule is this codebase's signature defect, so it is worth
@@ -2428,6 +2461,20 @@ export function marks (item, showKind, ordering = null) {
 		should pick.
 	*/
 	if (item.blocking) found.push({ text: "Holds up", tone: "quiet" });
+	/*
+		**`quiet`, not `late`** (`#862`). A deferred item is not a problem — it is a decision
+		somebody made, and the mark exists so the reader can see the decision rather than be
+		warned about it. §12.2's rule is that colour marks an *exception*.
+
+		**It says when**, because *deferred* without a date is a fact the reader can do nothing
+		with: the question a parked item raises is *when does this come back*.
+	*/
+	if (deferred(item)) {
+		found.push({
+			text: `Deferred to ${day(item.start_at, item.timezone, item.start_is_all_day)}`,
+			tone: "quiet",
+		});
+	}
 	if (overdue(item)) {
 		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
 	}
@@ -5253,7 +5300,23 @@ export function App () {
 		*/ null}
 		<div class=${showing.view === "board" ? "app wide" : "app"}>
 			<header class="top">
-				<h1>Subroutine</h1>
+				${/*
+					**The masthead goes home** (`#868`), which is the convention every reader
+					already has — and `/` is the right destination by decision `#649` rather
+					than by convention alone: it is the agenda across every workspace, because
+					a bare `subroutine` prints the agenda and one product answers one question
+					the same way on both surfaces.
+
+					**A real anchor through `followed`**, never a click handler. That is what
+					makes *open in a new tab*, *copy link address* and middle-click work, and
+					what makes a screen reader announce a link — the rule `opens` states and
+					every other navigation here already obeys.
+				*/ null}
+				<h1>
+					<a href="/" onClick=${(event) => followed(event, () => go("/"))}>
+						Subroutine
+					</a>
+				</h1>
 				<div class="who">
 					${me && html`<strong>${me.user.username}</strong>`}
 					${me && me.workspaces.length > 1 && html`

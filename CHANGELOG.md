@@ -336,6 +336,13 @@ upgrade involves.
   it is available, and a search result now carries a `relevance` field so a client can put
   several collections into one order.
 
+- **The product name in the browser is a link home.** It goes to the agenda across every
+  workspace, which is what typing `subroutine` with no arguments shows you.
+
+- **Deferred work on the board says it has been deferred**, and when it comes back. It looked
+  exactly like work nobody had put aside, while the command line hid it entirely — so the two
+  disagreed about items you had deliberately parked.
+
 - **The browser keeps the order you asked for.** A list holding both tasks and documents was
   re-sorted by date after it arrived, whatever you had chosen — so *A to Z* produced a page
   that was not alphabetical and the control looked broken.

@@ -148,7 +148,8 @@ not built — named here because a tool that overstates itself wastes your after
 | Milestones — an item whose blockers are its contents | **Built** |
 | Comments (what happened) and documents (what you concluded) | **Built** |
 | Tags, custom statuses, per-workspace vocabulary | **Built** |
-| Full-text search across titles and descriptions | **Built** |
+| Search across titles, descriptions, document bodies and comments | **Built** |
+| Search served by an index, with ranking — PostgreSQL, opt-in | **Built** |
 | Capture grammar — `Fix the deploy script by friday !4/2 ~2h #ops +web` | **Built** |
 | Moving a task to another project | **Built** |
 | Recurring tasks — today the grammar recognises `every monday` well enough to leave it alone and tell you it did | Planned |
@@ -265,6 +266,61 @@ front (`public_url`) or an explicit `--insecure`.
 
 Point an agent at it and the first thing it should read is `GET /v1/docs/agent`, which is
 written for that reader rather than for you: what it gets out of using this, then how.
+
+## Search
+
+`q` looks in titles, descriptions, document bodies and the comments on an item — which on a
+working instance is usually the largest body of prose there is. Every word you give it has to
+appear, in any order and in any of those places. A query that is **just a number** finds the
+item with that ref as well as everything mentioning it, whether or not it is finished.
+
+### Turning on the index
+
+By default a search is a substring scan. That is honest at personal scale and stops being so:
+measured at 20,000 tasks, a search matching nothing took **119 ms**, and it grows with the
+backlog.
+
+On PostgreSQL you can put it behind a real index. In `config.toml`:
+
+```toml
+search_backend = "native"
+```
+
+Restart, and the same search takes **1 ms**. There is no migration beyond the ordinary
+`subroutine db upgrade`, and turning it off again is a configuration change and nothing else.
+
+**It changes what a search finds, not only how fast**, so it is off by default:
+
+- `seed` finds *seeded* and *seeding* — words match by their root.
+- `curs` still finds *cursor* — a word can be completed from the start.
+- **`ursor` no longer finds *cursor*.** Matching the middle of a word is the one thing an
+  index cannot do. If you rely on it, keep the default.
+
+On SQLite it is simply not available. Asking for it there is not an error — you get the
+scanning implementation, and the instance tells you so rather than pretending.
+
+### For a client putting several collections in one order
+
+Tasks and documents are separate collections sharing one numbering scheme, so a client showing
+both has to merge two responses into one list. Three things make that possible, and getting it
+wrong shows up as rows repeating or vanishing when you page rather than as anything that looks
+like a sorting fault.
+
+**Ask `GET /v1/meta` what this instance can do.** `search_backend` reports which implementation
+is answering — `like` or `native` — and each listing's `sortable` names `relevance` exactly
+when it can be ordered by one. Do not infer it from anything else.
+
+**Merge on the key you asked each collection for.** If you sent `?order=title`, merge on
+`title`; the server sorted and paged each collection by that, and merging on anything else
+disagrees with the boundary you are paging across.
+
+**A ranked search says so in the rows.** Where the index is on, a search defaults to its own
+ranking and every row carries `relevance` — a number that is comparable *within one search* and
+meaningless between two. Sort descending and you have the order the server used. It is `null`
+on any listing that was not ranked, which is how you tell the two apart without asking twice.
+
+Send `?order=-relevance` explicitly if you want ranking on a search you would otherwise arrange
+some other way. A ref that matched exactly always outranks a text match.
 
 ## In a browser
 

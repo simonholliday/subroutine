@@ -4774,6 +4774,7 @@ def _views (
 			: name === "collectionsFor" ? app.collectionsFor(argument)
 			: name === "inOrder"
 				? app.inOrder(argument.rows, app.ORDERINGS[argument.order]).map((row) => row.ref)
+			: name === "deferred" ? app.deferred(argument)
 			: name === "mergeOrder" ? app.mergeOrder(argument[0], argument[1])
 			: name === "accumulated"
 				? app.accumulated(argument[0], argument[1], argument[2])
@@ -7317,3 +7318,51 @@ def test_an_unranked_listing_is_not_merged_by_relevance (tmp_path: pathlib.Path)
 	chosen = _views(tmp_path, [("mergeOrder", [None, rows])])[0]
 
 	assert chosen["field"] == "created_at", chosen
+
+
+def test_a_deferred_item_says_it_has_been_put_off (tmp_path: pathlib.Path) -> None:
+	"""**`SR#862`.** The board showed parked work looking exactly like work nobody had parked.
+
+	`subroutine list` hides deferred items, so the two surfaces disagreed about items somebody
+	had deliberately set aside — and the board's reader had no way to tell, which is `SR#12.2c`'s
+	rule that a null reads as *not set* rather than as *not asked for*.
+
+	Simon's decision of 2026-08-14: **marked rather than hidden** — *"that way they are not
+	invisible, but neither are they confused with non-deferred items"*.
+	"""
+
+	shown = {
+		which: _rendered(tmp_path, {"Row": {"workspace": "projects", "item": {
+			"ref": 7, "kind": "task", "title": "Renew the certificate",
+			"start_at": "2099-01-01T09:00:00+00:00" if which == "parked" else None,
+			"start_is_all_day": False, "timezone": "UTC",
+		}}})["Row"]
+		for which in ("parked", "ordinary")
+	}
+
+	assert "Deferred" in shown["parked"], (
+		f"work somebody put aside looks exactly like work nobody did: {shown['parked']}"
+	)
+	assert "2099" in shown["parked"], (
+		f"the mark does not say when it comes back, which is the only thing a reader can act "
+		f"on: {shown['parked']}"
+	)
+	assert "Deferred" not in shown["ordinary"], (
+		f"an item nobody put off is marked as deferred: {shown['ordinary']}"
+	)
+
+
+def test_a_defer_that_has_come_round_is_not_a_mark (tmp_path: pathlib.Path) -> None:
+	"""The clock is the whole rule, and a fixture in the past is what proves it is read.
+
+	`readiness.undeferred` treats an instant that has passed as not deferred, and this has to
+	agree or the browser would mark work as parked for ever after it came back — the mark would
+	then say something false about every item that had ever been deferred.
+
+	**Computed rather than published for exactly this reason**: a boolean fixed when the page
+	was fetched goes on saying *deferred* on a page left open past the moment.
+	"""
+
+	passed = {"ref": 1, "kind": "task", "title": "Came back", "start_at": "2020-01-01T00:00:00+00:00"}
+
+	assert _views(tmp_path, [("deferred", passed)])[0] is False

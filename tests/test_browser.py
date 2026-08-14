@@ -493,6 +493,18 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 
 	page.wait_for_selector("a[href]", timeout=10_000)
 
+	# **The masthead is one of those anchors** (`#868`), and this is the only place that can
+	# say so: it lives in `App`, which uses hooks, so the render harness cannot call it and
+	# `#640` has shipped four faults from exactly that gap. The *rule* — `opens` and `followed`
+	# — is pure, covered, and proven against a real browser by the assertions below; what
+	# needed driving is that the masthead goes through it rather than being a click handler.
+	home = page.query_selector("h1 a[href='/']")
+
+	assert home is not None, (
+		"the product name is not a link home, so a reader cannot middle-click it, copy its "
+		"address, or hear a screen reader announce it as a link"
+	)
+
 	with page.context.expect_page(timeout=10_000) as opened:
 		page.click("a[href*='42']", modifiers=["Control"])
 
