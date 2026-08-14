@@ -49,18 +49,49 @@ LEAST_FIELDS = 60
 
 
 def last_release () -> str | None:
-	"""Return the most recent tag, or ``None`` in a checkout that has none.
+	"""Return the most recent tag that is not this commit, or ``None`` if there is none.
 
 	The same question ``scripts/check_release_notes.py`` asks to compare migration heads, so the
 	mechanism is one this repository already relies on rather than a new dependency on git.
+
+	**"That is not this commit" is `#895`, and without it this guard is inert on the one commit
+	where it matters.** ``scripts/release.py`` commits and then tags, so on a release commit
+	``git describe`` resolves to a tag pointing at ``HEAD`` — and the comparison below reads the
+	current file, diffs it against itself and finds nothing new. Measured on ``8138be5``, the
+	``v0.7.1`` release commit: both sides hashed to ``20a4b91e``.
+
+	**The release is the only moment a client can be a whole version behind the instance**, which
+	is what `#345` and `#482` are about — two fields added to ``/v1/me`` as *required*, and a
+	client one commit ahead refusing the instance outright. So the guard was live on every
+	ordinary commit and asleep on the one that ships, and nobody would ever have seen it fail to
+	fail: the next ordinary commit resolves the tag properly and it works again.
+
+	``HEAD^`` rather than filtering the tag list, because it asks the question directly — *what
+	was released before whatever this is* — and it is the same answer on an ordinary commit,
+	where nothing points at ``HEAD`` anyway.
 	"""
 
+	pointing = subprocess.run(
+		["git", "tag", "--points-at", "HEAD"],
+		cwd=ROOT, capture_output=True, text=True, check=False,
+	)
+	start = "HEAD^" if pointing.stdout.strip() else "HEAD"
+
 	found = subprocess.run(
-		["git", "describe", "--tags", "--abbrev=0"],
+		["git", "describe", "--tags", "--abbrev=0", start],
 		cwd=ROOT, capture_output=True, text=True, check=False,
 	)
 
 	return found.stdout.strip() or None
+
+
+def _commit (reference: str) -> str:
+	"""Return the commit a reference names, for comparing two of them."""
+
+	return subprocess.run(
+		["git", "rev-parse", f"{reference}^{{commit}}"],
+		cwd=ROOT, capture_output=True, text=True, check=True,
+	).stdout.strip()
 
 
 def _source_at (tag: str, path: str) -> str | None:
@@ -140,6 +171,15 @@ def before () -> dict[str, set[str]]:
 
 	if tag is None:
 		pytest.skip("no tag in this checkout, so there is no released shape to compare against")
+
+	# **The tag must be a different commit, or this compares a file with itself** (`#895`).
+	# `last_release` takes care of that and this is what stops it going back: a skip would be
+	# the wrong answer, because "nothing is new" and "nothing was compared" are the two readings
+	# this whole file exists to keep apart.
+	assert _commit(tag) != _commit("HEAD"), (
+		f"{tag} is this commit, so the comparison would diff {VIEWS} against itself and find "
+		f"nothing new — which is what a release commit looked like before `#895`"
+	)
 
 	source = _source_at(tag, VIEWS)
 

@@ -73,6 +73,21 @@ def _git (repository: pathlib.Path, *arguments: str) -> str:
 	).stdout
 
 
+def _passing_gate (root: pathlib.Path, *, exit_code: int = 0) -> None:
+	"""Write the gate the script runs before it tags, so these tests drive the real path.
+
+	**`#894`: the script runs `scripts/check.py` on the commit it has just made**, because that
+	commit is the one thing in the repository nothing has ever run — twice a release published
+	nothing for exactly that reason. A stub rather than the real gate, because the real one is
+	the whole suite and these tests are about the script's *behaviour* around it: that it runs
+	before the tag, and that a failure leaves the commit untagged.
+	"""
+
+	(root / "scripts" / "check.py").write_text(
+		f"import sys\n\nsys.exit({exit_code})\n", encoding="utf-8"
+	)
+
+
 @pytest.fixture
 def repository (tmp_path: pathlib.Path) -> pathlib.Path:
 	"""Build a repository with a changelog, a manifest, the script, and one release behind it."""
@@ -88,6 +103,7 @@ def repository (tmp_path: pathlib.Path) -> pathlib.Path:
 		json.dumps(SERVERS, indent=2) + "\n", encoding="utf-8"
 	)
 	shutil.copy(SCRIPT, root / "scripts" / "release.py")
+	_passing_gate(root)
 
 	_git(root, "init", "-q")
 	_git(root, "config", "user.email", "test@example.com")
@@ -659,3 +675,75 @@ def test_a_dry_run_says_the_pin_it_would_write (
 	servers = (repository / "plugins/subroutine/.mcp.json").read_text(encoding="utf-8")
 
 	assert "subroutine~=0.1.0" in servers, "the dry run wrote the pin anyway"
+
+
+def test_a_release_whose_gate_fails_is_committed_and_not_tagged (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""**`SR#894`. Two of the four releases before this one published nothing.**
+
+	`SR#749` was a plugin manifest re-serialised without a version move; `SR#893` was the
+	changelog guard reading the state this script itself creates. Both were in the commit the
+	script had just made — the one commit in the repository that nothing had ever run — and in
+	both, the gate that ran *beforehand* was green on the previous tree, which looks identical
+	in a terminal and is a different thing.
+
+	**A tag is what publishes** (`SR#814`), so the tag is the thing to withhold. The commit
+	stays, because a failure that leaves an ordinary commit is undone with `git revert`, where
+	one that leaves a modified working tree needs a restore — and on this filesystem restoring
+	is what eats work.
+	"""
+
+	_passing_gate(repository, exit_code=1)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a gate that refuses")
+
+	answer = cut("0.2.0")
+
+	assert answer.returncode != 0, f"a failing gate must stop the release: {answer.stdout}"
+	assert not _git(repository, "tag", "--list", "v0.2.0").strip(), (
+		"a release whose gate failed was tagged anyway, which is what publishes it"
+	)
+	assert "Release 0.2.0" in _git(repository, "log", "-1", "--format=%s"), (
+		"the release commit should still be there, so `git revert` is what undoes it"
+	)
+	# `_refuse` writes to stderr, like every other refusal this script makes.
+	assert "git revert" in answer.stderr, (
+		f"the refusal must say how to get back to a state that can be cut again: {answer.stderr}"
+	)
+
+
+def test_the_gate_runs_before_the_tag_rather_than_after_it (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`SR#894`. Gating after tagging would check the right tree and publish anyway.
+
+	The order is the whole of it: a tag that exists is a tag somebody can push, and pushing one
+	is what uploads to PyPI. So this asserts what the gate could *see* — the release commit,
+	with no tag on it yet — rather than that it ran at all.
+	"""
+
+	(repository / "scripts" / "check.py").write_text(
+		"import pathlib, subprocess, sys\n"
+		"\n"
+		"seen = subprocess.run(\n"
+		"	['git', 'tag', '--points-at', 'HEAD'], capture_output=True, text=True, check=True\n"
+		").stdout.strip()\n"
+		"subject = subprocess.run(\n"
+		"	['git', 'log', '-1', '--format=%s'], capture_output=True, text=True, check=True\n"
+		").stdout.strip()\n"
+		"pathlib.Path('gate-saw.txt').write_text(f'{subject}|{seen}')\n"
+		"sys.exit(0)\n",
+		encoding="utf-8",
+	)
+	_git(repository, "add", ".")
+	_git(repository, "commit", "-q", "-m", "a gate that reports what it saw")
+
+	answer = cut("0.2.0")
+
+	assert answer.returncode == 0, answer.stdout
+
+	subject, _, tags = (repository / "gate-saw.txt").read_text().partition("|")
+
+	assert subject == "Release 0.2.0", f"the gate did not run on the release commit: {subject!r}"
+	assert not tags, f"the tag existed before the gate ran, so it could have been pushed: {tags!r}"

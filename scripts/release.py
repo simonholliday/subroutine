@@ -27,6 +27,7 @@ this stops at a commit and a tag, and prints the two commands that finish the jo
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -157,16 +158,21 @@ def main (argv: list[str] | None = None) -> int:
 	_write_uvx_pin(version)
 	_record_release(version, head, on)
 
-	# **`check_release_notes.py` is deliberately not run here.** It compares this commit's
-	# migration head against the head at the most recent tag — which is the same comparison CI
-	# makes on every push to main, against the same previous tag. So a missing migration notice
-	# is already refused before anybody reaches this script, and running it again would couple
-	# two scripts for an answer that has been available since the commit that moved the head.
+	# **This used to say `check_release_notes.py` is deliberately not run here**, on the grounds
+	# that CI makes the same comparison on every push to main. That reasoning was wrong in the
+	# way `#894` is about: CI has checked every commit *except this one*, because this one does
+	# not exist yet. The gate below runs it along with everything else.
 	_git(
 		"add", str(CHANGELOG), str(RELEASES),
 		*(str(path) for path in PLUGINS), *(str(path) for path in BOOTSTRAPS),
 	)
 	_git("commit", "-m", f"Release {version}", "-m", f"See CHANGELOG.md for what {version} contains.")
+
+	failed = _gate()
+
+	if failed is not None:
+		return _refuse(failed)
+
 	_git("tag", "-a", f"v{version}", "-m", f"Subroutine {version}")
 
 	print(f"Committed and tagged v{version}. Nothing has been pushed. To publish:")
@@ -174,6 +180,58 @@ def main (argv: list[str] | None = None) -> int:
 	print(f"  git push origin v{version}")
 
 	return 0
+
+
+def _gate () -> str | None:
+	"""Run the whole gate against the release commit, and say what to do if it fails.
+
+	**Two of the four releases before this existed published nothing, for the same reason**:
+	the commit this script makes is the one commit in the repository that nothing has ever run.
+	`#749` was a plugin manifest re-serialised without a version move; `#893` was the changelog
+	guard reading the state this script itself creates. In both, the gate run *beforehand* was
+	green — on the previous tree, which looks identical in a terminal and is a different thing.
+
+	**The whole gate, not the checks that seem relevant.** The tempting version is to run the
+	tests that read the changelog, the manifests and the tags — and that is a list, which falls
+	behind exactly as every hand-maintained list here has. The three instances so far live in
+	`test_plugin.py`, `test_documentation.py` and `test_response_compatibility.py`, which no
+	list would have anticipated.
+
+	**Strictly, so a missing backend cannot make it green.** A release is the one act where a
+	half-run is worse than a refusal, and the two variables CI sets are the two that turn an
+	absent PostgreSQL or an absent browser from a skip into a failure.
+
+	**After the commit and before the tag**, deliberately. A failure then leaves an ordinary
+	commit, which `git revert` undoes safely; the alternative — gating the working tree — leaves
+	changes that have to be restored, and on this filesystem restoring is what eats work.
+
+	**Ten minutes on a release is the trade**, and it is obviously the right way round: a
+	release is rare, and a dead tag costs a version number, an evening and a published mistake.
+	"""
+
+	print("Gating the release commit. This runs the whole gate and takes about ten minutes.")
+
+	ran = subprocess.run(
+		[sys.executable, str(ROOT / "scripts" / "check.py")],
+		cwd=ROOT,
+		env={
+			**os.environ,
+			"SUBROUTINE_TEST_REQUIRE_POSTGRES": "1",
+			"SUBROUTINE_TEST_REQUIRE_BROWSER": "1",
+		},
+		check=False,
+	)
+
+	if ran.returncode == 0:
+		return None
+
+	return (
+		"the gate failed on the release commit, so nothing has been tagged.\n\n"
+		"  The commit is made. Fix what failed, then undo it and cut again:\n"
+		"    git revert --no-edit HEAD\n"
+		f"    python scripts/release.py {_git('log', '-1', '--format=%s').removeprefix('Release ')}\n\n"
+		"  A skipped version number is cheap; a tag with nothing behind it is not."
+	)
 
 
 def _arguments (argv: list[str] | None) -> argparse.Namespace:
