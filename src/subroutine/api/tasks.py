@@ -475,7 +475,16 @@ def listing (
 		# until 2026-07-31 — a search that returns plausible rows and silently drops the ones
 		# nobody knew to look for.
 		statement = statement.where(
-			subroutine.domain.search.matching(q, model.title, model.description, ref=model.ref)
+			sqlalchemy.or_(
+				subroutine.domain.search.matching(
+					q, model.title, model.description, ref=model.ref
+				),
+				# **`#83`, and it reaches the majority of the prose here.** A comment is where
+				# the running record lives (§5.10), and there are more of them on this instance
+				# than there are tasks — so a search that skipped them was answering "nothing
+				# matches" about the largest thing it could have looked in.
+				subroutine.domain.search.in_a_comment(q, subject=model.id, entity_type="task"),
+			)
 		)
 
 	if due_before is not None:

@@ -2365,6 +2365,95 @@ def test_a_ref_search_cannot_reach_past_a_narrowed_credential (
 	assert beyond["ref"] not in {row["ref"] for row in found["items"]}
 
 
+def test_a_search_finds_an_item_by_the_words_in_a_comment_on_it (world: World) -> None:
+	"""**`#83`, and it reaches the majority of the prose on a working instance.**
+
+	A comment is where the running record lives (§5.10), and `#825` measured 780 of them
+	against 695 tasks here — so a search that skipped them was answering "nothing matches"
+	about the largest thing it could have looked in, on the one path built to stop a duplicate
+	being filed.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "An ordinary title"}).json()
+	world.call(
+		"POST",
+		f"/v1/tasks/{made['ref']}/comments",
+		json={"body": "The planner turns this into a semi-join."},
+	)
+
+	found = world.call("GET", "/v1/tasks?q=semi-join&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_deleted_comment_does_not_surface_the_item_it_was_on (world: World) -> None:
+	"""**The one genuine visibility rule search inherits here** (`#825`).
+
+	A hit whose only reason is a comment nobody can open is worse than no hit: the reader opens
+	the item and hunts for words that are not there. The mention wiring settled the same
+	question the same way — a backlink pointing at a sentence nobody can read is worse than
+	none — and this is that rule, not a new one.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Still ordinary"}).json()
+	comment = world.call(
+		"POST",
+		f"/v1/tasks/{made['ref']}/comments",
+		json={"body": "Mentioning quinsy before it was withdrawn."},
+	).json()
+
+	before = world.call("GET", "/v1/tasks?q=quinsy&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in before["items"]}, "the probe proves nothing"
+
+	world.call("DELETE", f"/v1/comments/{comment['id']}")
+
+	after = world.call("GET", "/v1/tasks?q=quinsy&limit=50").json()
+
+	assert made["ref"] not in {row["ref"] for row in after["items"]}
+
+
+def test_a_comment_search_cannot_reach_past_a_narrowed_credential (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A comment has no visibility of its own, so it inherits its subject's — including this.
+
+	`#825` refuted the objection that kept comments unsearched, on the grounds that a comment
+	is readable exactly when its item is. That cuts both ways and the second direction is the
+	one worth a test: an item out of reach must not become findable through the prose written
+	on it.
+	"""
+
+	world = _world(session)
+
+	elsewhere = world.call(
+		"POST", "/v1/projects", json={"key": "elsewhere", "title": "Elsewhere"}
+	).json()
+	beyond = world.call(
+		"POST", "/v1/tasks", json={"title": "Out of reach", "project": elsewhere["key"]}
+	).json()
+	world.call(
+		"POST",
+		f"/v1/tasks/{beyond['ref']}/comments",
+		json={"body": "Written where marmoreal cannot be read."},
+	)
+
+	inbox = world.call("GET", "/v1/projects").json()["items"]
+	reachable = next(
+		row for row in inbox if row["key"] == subroutine.domain.bootstrap.INBOX_KEY
+	)
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Inbox only", project_scope=[reachable["id"]]
+	)
+	session.flush()
+
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+	found = narrowed.call("GET", "/v1/tasks?q=marmoreal&limit=50").json()
+
+	assert beyond["ref"] not in {row["ref"] for row in found["items"]}
+
+
 def test_a_status_category_gathers_every_status_in_it (world: World) -> None:
 	"""`#710`. The point of the filter: three seeded keys share the ``todo`` category.
 

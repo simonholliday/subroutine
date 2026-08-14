@@ -59,6 +59,7 @@ import sqlalchemy.orm
 import conftest
 import subroutine.api.tasks
 import subroutine.db.migrate
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -84,6 +85,21 @@ TASKS = 2_000
 #: shape it never exercises. Ten per cent is close to what `#851` measured on the real
 #: instance — 16 of 172 open tasks block anything, across 20 live edges.
 BLOCKED_IN = 10
+
+#: How many comments each task carries.
+#:
+#: **The real ratio, not a round number.** This instance holds 780 comments against 695 tasks
+#: (`#825`), so roughly one apiece — and comments are the largest body of prose here after the
+#: event feed, which is the whole argument for `#83` searching them. A fixture with none would
+#: measure a join that never matches, which is `BLOCKED_IN`'s lesson one table along.
+COMMENTS_PER_TASK = 1
+
+#: One comment in this many is soft-deleted.
+#:
+#: A search must not surface prose nobody can open, which `#825` names as the one genuine
+#: visibility rule inherited here — and a fixture where nothing is deleted cannot tell a query
+#: that honours that from one that ignores it.
+DELETED_COMMENT_IN = 10
 
 #: One page, as every listing here serves one.
 PAGE = 50
@@ -332,6 +348,10 @@ def _fill (engine: sqlalchemy.engine.Engine) -> None:
 		session.execute(
 			sqlalchemy.insert(subroutine.db.models.work.Link), list(_links(session, setup, rows))
 		)
+		session.execute(
+			sqlalchemy.insert(subroutine.db.models.activity.Comment),
+			list(_comments(setup, rows)),
+		)
 
 	# **Statistics decide a plan, so a measurement taken without them is measuring the
 	# planner's guess about an empty table.** PostgreSQL autovacuum has not run on a database
@@ -387,6 +407,41 @@ def _rows (
 			"created_at": epoch + datetime.timedelta(minutes=number),
 			"updated_at": epoch + datetime.timedelta(minutes=number),
 		}
+
+
+def _comments (
+	setup: subroutine.domain.bootstrap.Bootstrap, rows: list[dict[str, typing.Any]]
+) -> typing.Iterator[dict[str, typing.Any]]:
+	"""Return the comment rows to insert, :data:`COMMENTS_PER_TASK` on every task.
+
+	**Prose of the same length as a description**, for :func:`_prose`'s reason: a join whose
+	inner rows are nineteen characters long measures a scan that finishes before it starts.
+	Offset so that no comment repeats the text of the task it hangs off — a search matching the
+	description *and* the comment would be answered from the cheaper of the two and would say
+	nothing about the join.
+
+	One in every :data:`COMMENTS_PER_TASK` group is soft-deleted, because the deletion filter
+	is the one genuine visibility rule search inherits here (`#825`) and a fixture with nothing
+	deleted cannot tell a query that honours it from one that does not.
+	"""
+
+	epoch = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+	for index, row in enumerate(rows):
+		for repeat in range(COMMENTS_PER_TASK):
+			number = index * COMMENTS_PER_TASK + repeat
+
+			yield {
+				"id": uuid.uuid4(),
+				"workspace_id": setup.workspace.id,
+				"entity_type": "task",
+				"entity_id": row["id"],
+				"author_id": setup.user.id,
+				"body": _prose(number + TASKS),
+				"created_at": epoch + datetime.timedelta(minutes=number),
+				"updated_at": epoch + datetime.timedelta(minutes=number),
+				"deleted_at": epoch if number % DELETED_COMMENT_IN == 0 else None,
+			}
 
 
 def _prose (number: int) -> str:
@@ -501,6 +556,46 @@ def _searched (context: Context) -> typing.Any:
 			subroutine.db.models.work.Task.title,
 			subroutine.db.models.work.Task.description,
 			ref=subroutine.db.models.work.Task.ref,
+		)
+	)
+
+	return context.session.execute(statement.limit(PAGE)).unique().scalars().all()
+
+
+def _searched_including_comments (context: Context) -> typing.Any:
+	"""Run the same search with `#83`'s comment half, in the shape it would be built.
+
+	**Measured before it was built, because the shape is the one this file exists to watch.**
+	A comment is a join rather than a column, so "does any comment on this item match" is a
+	correlated ``EXISTS`` evaluated once per candidate row — `#856`'s shape exactly — and the
+	inner predicate is an ``ILIKE`` that §10.4 says no index can serve. Two unindexable scans
+	multiplied together is the arrangement that produced a 5.4-second listing once already.
+
+	Written here rather than reasoned about, so that whichever way the number falls it decides
+	the order of the work rather than a guess doing it.
+	"""
+
+	task = subroutine.db.models.work.Task
+	comment = subroutine.db.models.activity.Comment
+
+	found = (
+		sqlalchemy.select(sqlalchemy.literal(1))
+		.select_from(comment)
+		.where(
+			comment.entity_type == "task",
+			comment.entity_id == task.id,
+			comment.deleted_at.is_(None),
+			subroutine.domain.search.matching(UNFINDABLE, comment.body, ref=None),
+		)
+		.exists()
+	)
+
+	statement = _base(context).where(
+		sqlalchemy.or_(
+			subroutine.domain.search.matching(
+				UNFINDABLE, task.title, task.description, ref=task.ref
+			),
+			found,
 		)
 	)
 
@@ -639,7 +734,13 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 
 	engine, backend = seeded
 	measured = _measured(
-		engine, work={"ready": _ready, "agenda": _agenda, "search (no match)": _searched}
+		engine,
+		work={
+			"ready": _ready,
+			"agenda": _agenda,
+			"search (no match)": _searched,
+			"search with comments (no match)": _searched_including_comments,
+		},
 	)
 	expensive = {
 		name: measured.ratio(name)
@@ -706,12 +807,36 @@ def test_the_measurement_is_against_the_workspace_it_claims (
 			.join(kind, kind.id == link.link_type_id)
 			.where(kind.key == "blocks", link.deleted_at.is_(None))
 		)
+		comment = subroutine.db.models.activity.Comment
+		live = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count())
+			.select_from(comment)
+			.where(comment.deleted_at.is_(None))
+		)
+		deleted = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count())
+			.select_from(comment)
+			.where(comment.deleted_at.is_not(None))
+		)
 
 	assert tasks == TASKS, f"On {backend} the fixture holds {tasks} tasks, not {TASKS}."
 
 	assert shortest == min(len(_prose(number)) for number in range(TASKS)), (
 		f"On {backend} the shortest description is {shortest} characters. The search is a "
 		f"scan of this prose, so a workspace seeded without it measures nothing and passes."
+	)
+
+	# Stated before the count below it, which subtracts it: a soft-deleted comment is the only
+	# thing that tells a query honouring the deletion filter from one ignoring it.
+	assert deleted, (
+		f"On {backend} no comment is deleted, so a query that honours the deletion filter and "
+		f"one that ignores it return the same rows and measure the same thing."
+	)
+
+	assert live == TASKS * COMMENTS_PER_TASK - deleted, (
+		f"On {backend} the fixture holds {live} readable comments. The comment half of the "
+		f"search is a correlated EXISTS over that table, so with none of them it is answered "
+		f"from an empty index and costs nothing to get wrong."
 	)
 
 	assert edges == len(range(0, TASKS - 1, BLOCKED_IN)), (

@@ -627,6 +627,20 @@ def _match_cell (item: Item, term: str | None) -> str:
 	on non-ASCII — Python's ``casefold`` is more thorough than either database's ``LOWER`` —
 	and the cost of that is a blank cell on a row that did match, which is why this returns
 	empty rather than guessing.
+
+	**Two of the four answers are not fields, and `#870` is why they had to be added.**
+	`#867` made a query that is exactly a ref match the item with that number, and `#83` made
+	one match a comment on it. Neither is in a column this function can read, so both produced
+	precisely the row this cell exists to prevent: a hit with no visible reason, which reads as
+	a broken search. The number case was found in driving output within an hour of shipping it.
+
+	**``number`` is known and ``comment`` is inferred, and the difference matters.** A ref is
+	compared exactly, so that answer is as certain as the row itself. ``comment`` is what is
+	left once every readable field has been ruled out — which is right in every ordinary case
+	and wrong in exactly the one the paragraph above describes, where a title matched in SQL
+	and not in Python. That case used to cost a blank cell and now costs a misleading one; it
+	is accepted because the alternative is fetching every row's comments to be sure, which is
+	`#39`'s N+1 on a listing. `#840` is the version of this question a scripted caller needs.
 	"""
 
 	if not term:
@@ -637,10 +651,16 @@ def _match_cell (item: Item, term: str | None) -> str:
 	if wanted in item.title.casefold():
 		return "title"
 
-	if isinstance(item, subroutine.views.Task):
-		return "description" if (item.description or "").casefold().find(wanted) >= 0 else ""
+	prose = item.description if isinstance(item, subroutine.views.Task) else item.body
 
-	return "body" if (item.body or "").casefold().find(wanted) >= 0 else ""
+	if (prose or "").casefold().find(wanted) >= 0:
+		return "description" if isinstance(item, subroutine.views.Task) else "body"
+
+	# Exact, so it is stated before the inferred answer below it.
+	if subroutine.domain.refs.parse_ref(term) == item.ref:
+		return "number"
+
+	return "comment"
 
 
 def _estimate_cell (item: Item) -> str:

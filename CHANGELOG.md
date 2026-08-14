@@ -25,6 +25,24 @@ upgrade involves.
 
 ### Added
 
+- **Search reads comments.** A search now finds an item when the words are in a comment on it,
+  as well as in its title, description or body. This changes what a search *finds*, not how
+  fast it finds it, so it is worth knowing about rather than being a quiet improvement: a query
+  that returned nothing yesterday may return something today.
+
+  Comments are where the running record of a piece of work lives, and on a working instance
+  there are usually more of them than there are items — so the previous behaviour was
+  answering "nothing matches" about the largest body of prose it could have looked in. That
+  landed hardest on the one question search exists to answer, *does this already exist*.
+
+  A deleted comment does not surface its item, and a comment is readable exactly when the item
+  it hangs off is, so this reaches nothing a caller could not already read.
+
+- **A row says why it matched.** The `matched` column beside a search hit now says `comment`
+  where the words were in a comment, and `number` where the row is the item whose ref you
+  typed. Previously both produced a row with an empty reason, which reads as a broken search
+  rather than an answer.
+
 - **A number typed into search finds the item with that number.** Searching `862` now returns
   `#862` itself, as well as everything whose title or description mentions those digits.
   `#862` works too, and so does either form over the API, in `subroutine search` and from an

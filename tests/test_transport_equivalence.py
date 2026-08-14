@@ -1760,6 +1760,26 @@ def test_both_find_an_item_by_its_own_number (pair: Pair) -> None:
 	assert found == sorted(task.ref for task in remote.tasks(q=str(subject.ref), limit=50))
 
 
+def test_both_read_comments_when_they_search (pair: Pair) -> None:
+	"""**`#83` on both transports, because the local client builds its own query.**
+
+	The same reason `#867` needed one: `clients/local.py` does not go through
+	``GET /v1/tasks``, so a predicate added to the endpoint alone reaches HTTP and silently not
+	the terminal — and the terminal is where ``subroutine search`` and every MCP call arrive.
+	"""
+
+	subject = make(pair, "An unremarkable heading")
+	make(pair, "Another unremarkable heading")
+
+	pair.local.remark(ref=subject.ref, body="The planner turns this into a semi-join.")
+
+	local, remote = pair.both()
+	found = sorted(task.ref for task in local.tasks(q="semi-join", limit=50))
+
+	assert found == [subject.ref], "the probe matched nothing, so it proves nothing"
+	assert found == sorted(task.ref for task in remote.tasks(q="semi-join", limit=50))
+
+
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
 	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.

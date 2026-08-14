@@ -2346,6 +2346,50 @@ def test_a_search_row_says_where_the_word_was_found (
 	assert "title" not in uniform
 
 
+def test_a_row_matched_by_its_number_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`#870`, found in driving output rather than by a test.**
+
+	`#867` made a bare number match the item with that ref, and left that row's reason cell
+	empty — the exact shape `_match_cell` exists to prevent, since a hit with no visible reason
+	reads as a broken search rather than as an answer.
+
+	Two rows, because §12.2a drops a column whose rows agree: one matched by its number and one
+	by its text, so the column earns its place and the difference is what is being asserted.
+	"""
+
+	run("init")
+	run("add", "Wholly unlike the query")
+	run("add", "Follows on from #1 in some way")
+
+	found = run("search", "1").output
+
+	assert "Wholly unlike the query" in found, "the item with that ref"
+	assert "number" in found, "and the row says that is why it is here"
+
+
+def test_a_row_matched_by_a_comment_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#870`'s other half, and `#825` warned about it before `#83` was built.
+
+	Its words: *"the cost of that is a blank cell on a row that did match"* — so the column had
+	to be extended in the same change that gave it a third way to be empty.
+	"""
+
+	run("init")
+	run("add", "An ordinary heading")
+	run("add", "A semi-join in the heading")
+	run("comment", "1", "The planner turns this into a semi-join.")
+
+	found = run("search", "semi-join").output
+
+	assert "An ordinary heading" in found, "matched only by the comment on it"
+	assert "comment" in found
+	assert "title" in found, "and the other row disagrees, which is why the column shows"
+
+
 def _parented (child_ref: int, parent_ref: int) -> None:
 	"""Make one task the child of another, reaching past the CLI because nothing there can.
 

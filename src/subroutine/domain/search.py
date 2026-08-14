@@ -62,6 +62,7 @@ import typing
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.domain.refs
 import subroutine.errors
 
@@ -189,3 +190,56 @@ def matching (
 		return text
 
 	return sqlalchemy.or_(text, ref == numbered)
+
+
+def in_a_comment (
+	query: str, *, subject: Searchable, entity_type: str
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching a readable comment written on this item.
+
+	**Comments are the largest body of prose here after the event feed** — 780 of them against
+	695 tasks when `#825` measured it — and they are the only place the running record lives,
+	which §5.10 makes their whole job. Until `#83` they were unsearched, so two searches for
+	sentences that exist only in a comment both answered *nothing matches*, on the one path
+	built to stop an agent filing a duplicate.
+
+	**The visibility objection that kept them out was already answered in code.** §9.4 said a
+	comment is "a new visibility surface", because *this item matched* would be evidence that a
+	sentence exists which the searcher may not be able to read. There is no such sentence: a
+	comment has no visibility of its own and is reachable exactly when its subject is, which
+	:func:`subroutine.domain.comments.get` and :mod:`subroutine.domain.scoping` both say in as
+	many words. So the leak cannot occur — if the item is visible, every comment on it is
+	readable. This clause narrows an item statement that is already scoped, and adds no reach.
+
+	**Deletion is the one real rule, and it is inherited rather than invented.** A search that
+	matched a soft-deleted comment would surface prose nobody can open, which is exactly what
+	``comments.listing`` refuses and what the mention wiring already decided for the same
+	reason: a backlink pointing at a sentence nobody can read is worse than none. That filter
+	is stated here as well as there, so a test drives both rather than trusting them to agree.
+
+	**A correlated ``EXISTS``, and measured before it was chosen.** At 2,000 tasks each
+	carrying a comment, this took a no-match search from 1.6x an unordered page to 3.3x on
+	SQLite and from 6.3x to 11.1x on PostgreSQL — roughly double, which is linear in the prose
+	added and well inside ``test_query_cost``'s ceiling. It is **not** `#856`'s shape, and the
+	difference is worth holding onto: that was a correlated subquery in ``ORDER BY``, which
+	must be computed for every row in the table before the database knows which page to return,
+	so ``LIMIT`` cannot help. In ``WHERE`` the same syntax short-circuits and both planners
+	turn it into a semi-join.
+
+	``ref=None`` on the inner match, deliberately: a comment has no ref of its own, and the
+	number in ``#42`` written inside one is a mention rather than an address for it.
+	"""
+
+	model = subroutine.db.models.activity.Comment
+
+	return (
+		sqlalchemy.select(sqlalchemy.literal(1))
+		.select_from(model)
+		.where(
+			model.entity_type == entity_type,
+			model.entity_id == subject,
+			model.deleted_at.is_(None),
+			matching(query, model.body, ref=None),
+		)
+		.exists()
+	)

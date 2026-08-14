@@ -253,7 +253,14 @@ def listing (
 		# where this project's own reasoning lives: `#4` is a specification, and searching for
 		# a term it discusses at length found nothing at all.
 		statement = statement.where(
-			subroutine.domain.search.matching(q, model.title, model.body, ref=model.ref)
+			sqlalchemy.or_(
+				subroutine.domain.search.matching(q, model.title, model.body, ref=model.ref),
+				# `#83`. A document's comments are where it was argued over, which is often
+				# where the sentence somebody half-remembers actually is.
+				subroutine.domain.search.in_a_comment(
+					q, subject=model.id, entity_type="document"
+				),
+			)
 		)
 
 	# **§9.6's dotted filters** (`#815`). Documents are here because one ref counter serves both

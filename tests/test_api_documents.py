@@ -495,3 +495,27 @@ def test_a_search_for_a_number_finds_the_document_with_that_ref (
 	found = world.call("GET", f"/v1/documents?q={made['ref']}&limit=50").json()
 
 	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_a_search_finds_a_document_by_the_words_in_a_comment_on_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#83` reaches documents too, and this is where it pays most.
+
+	A document is a conclusion (§5.10) and its comments are where it was argued over — so the
+	half-remembered sentence somebody searches for is often in the argument rather than in the
+	conclusion it produced.
+	"""
+
+	made = world.call(
+		"POST", "/v1/documents", json={"title": "A settled thing", "body": "The conclusion."}
+	).json()
+	world.call(
+		"POST",
+		f"/v1/documents/{made['ref']}/comments",
+		json={"body": "Reopened because the fenestration argument was never answered."},
+	)
+
+	found = world.call("GET", "/v1/documents?q=fenestration&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}

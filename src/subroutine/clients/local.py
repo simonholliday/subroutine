@@ -399,7 +399,14 @@ class Client:
 
 			if q:
 				statement = statement.where(
-					subroutine.domain.search.matching(q, model.title, model.description, ref=model.ref)
+					sqlalchemy.or_(
+						subroutine.domain.search.matching(
+							q, model.title, model.description, ref=model.ref
+						),
+						subroutine.domain.search.in_a_comment(
+							q, subject=model.id, entity_type="task"
+						),
+					)
 				)
 
 			# **After the deferral filter, which it subsumes**, and in the same order the
@@ -633,7 +640,14 @@ class Client:
 					.where(
 						sqlalchemy.true()
 						if not q
-						else subroutine.domain.search.matching(q, model.title, model.body, ref=model.ref)
+						else sqlalchemy.or_(
+							subroutine.domain.search.matching(
+								q, model.title, model.body, ref=model.ref
+							),
+							subroutine.domain.search.in_a_comment(
+								q, subject=model.id, entity_type="document"
+							),
+						)
 					)
 					# §9.6's date comparisons (`#815`), compiled by the domain so that this and
 					# `GET /v1/documents` narrow by one predicate rather than by two spellings.
