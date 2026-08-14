@@ -3261,3 +3261,31 @@ def test_both_rank_a_search_the_same_way (native: None, pair: Pair) -> None:
 	assert [task.ref for task in local.tasks(q=asked, limit=50)] == [
 		task.ref for task in remote.tasks(q=asked, limit=50)
 	]
+
+
+def test_both_answer_a_search_with_no_words_in_it (native: None, pair: Pair) -> None:
+	"""`SR#880`. The local client reached the same unguarded ranking, so MCP did too.
+
+	**This is the surface the crash actually mattered on.** `subroutine search` and
+	`subroutine_search` both strip before they ask, so the two commands somebody thought about
+	were safe — while `GET /v1/tasks`, `subroutine list -q`, `subroutine_list(q=…)` and the
+	browser's search box all sent the raw string and got a 500.
+
+	Both transports, because the fix is applied in four places and a client that resolved its
+	own backend differently is exactly what `SR#883` turned out to be.
+	"""
+
+	for title in ("Read the backlog", "Write it down"):
+		make(pair, title)
+
+	local, remote = pair.both()
+
+	assert [task.ref for task in local.tasks(q="  ")] == [
+		task.ref for task in remote.tasks(q="  ")
+	]
+	assert len(local.tasks(q="  ")) == 2, "a query with no words in it narrowed something"
+	assert [task.ref for task in local.tasks(q="  ")] == [task.ref for task in local.tasks()], (
+		"a listing with nothing to search for should be the listing with no search"
+	)
+
+	assert len(local.documents(q=" ")) == len(remote.documents(q=" "))

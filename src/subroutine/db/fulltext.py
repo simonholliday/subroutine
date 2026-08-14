@@ -36,6 +36,8 @@ import sqlalchemy
 # errored. Nothing here references the name, which is why it is written down.
 import sqlalchemy.dialects.postgresql
 
+import subroutine.errors
+
 #: The text search configuration, and it decides what a search *finds* rather than how fast.
 #:
 #: ``english`` stems, so ``seeded``, ``seed`` and ``seeding`` are one word. Measured against
@@ -149,7 +151,21 @@ def query (terms: typing.Sequence[str]) -> typing.Any:
 
 	``plainto_tsquery`` is deliberately not used: it cannot express a prefix at all, and it
 	would silently drop the stopwords this builds around instead.
+
+	**No terms is a programming error here rather than an empty search** (`#880`). A caller
+	with nothing to look for has nothing to rank, so there is no expression to return that is
+	not a claim: matching nothing would make a whitespace query answer *no results* under this
+	backend and *every result* under ``like``, which is a divergence rather than a fix. So this
+	refuses, and :func:`subroutine.domain.search.terms` is what every caller must ask before
+	getting here — ``if q:`` is a truthiness test on the raw string, and ``" "`` is truthy.
 	"""
+
+	if not terms:
+		raise subroutine.errors.InternalError(
+			"A search ranking was asked for with no words to rank against.",
+			hint="Test search.terms(q) rather than q — a query of spaces is truthy and has "
+			"no words in it.",
+		)
 
 	lexemes = [sqlalchemy.func.plainto_tsquery(_configuration(), term) for term in terms[:-1]]
 	last = sqlalchemy.func.to_tsquery(

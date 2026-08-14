@@ -493,6 +493,7 @@ def listing (
 		# until 2026-07-31 — a search that returns plausible rows and silently drops the ones
 		# nobody knew to look for.
 		backend = subroutine.domain.search.chosen(session, settings=settings)
+		words = subroutine.domain.search.terms(q)
 		statement = statement.where(
 			sqlalchemy.or_(
 				subroutine.domain.search.matching(
@@ -512,10 +513,15 @@ def listing (
 		# The `like` backend has no ranking to offer, so the name stays out of the vocabulary
 		# there and `parse_order` refuses it by name with the list of what is available —
 		# which is the same refusal any unknown sort field gets, rather than a special case.
-		if backend == subroutine.domain.search.NATIVE:
+		#
+		# **Gated on the words rather than on `q`** (`#880`). `q` is a raw string and `" "` is
+		# truthy with no words in it — `search.matching` has always answered that correctly and
+		# the ranking path, added later, indexed `terms[-1]` and returned 500. One question,
+		# asked once, and the answer is passed on rather than recomputed.
+		if words and backend == subroutine.domain.search.NATIVE:
 			ranked = subroutine.domain.ordering.searching(
 				sortable,
-				terms=subroutine.domain.search.terms(q),
+				terms=words,
 				columns=[model.title, model.description],
 				carried_on=model.relevance,
 				ref=model.ref,

@@ -11,6 +11,8 @@ So :func:`test_a_native_search_is_served_by_the_index` is the guard, and the res
 is about the choice between backends and the behaviour that differs between them.
 """
 
+import ast
+import pathlib
 import typing
 
 import pytest
@@ -216,3 +218,92 @@ def test_what_each_backend_finds (
 			f"{backend} searching {query!r} should "
 			f"{'find' if wanted else 'not find'} the row and did not agree"
 		)
+
+
+#: The tree the guard below walks. **Absolute, derived from this file**, because an autouse
+#: fixture chdirs every test into a temporary directory (`tests/conftest.py`) — a relative
+#: `Path("src")` finds nothing there, and a scan that reads nothing passes exactly like one
+#: that found nothing. That is how the first version of this guard shipped inert.
+SOURCE = pathlib.Path(__file__).resolve().parent.parent / "src"
+
+
+def _resolving_the_backend (root: pathlib.Path) -> tuple[list[str], list[str]]:
+	"""Return every ``search.chosen()`` call under ``root``, split into with and without.
+
+	**Takes the tree as an argument so a synthetic offender can reach the real code** — `#405`.
+	A can-fire test that re-implements the rule inline proves the rule and leaves the *scan*
+	unchecked, which is that item's recorded blind spot and is what the first version of this
+	did.
+
+	Read from the AST rather than by grepping, so a call spread over several lines is seen.
+	"""
+
+	passing: list[str] = []
+	bare: list[str] = []
+
+	for path in sorted(root.rglob("*.py")):
+		for node in ast.walk(ast.parse(path.read_text())):
+			if not isinstance(node, ast.Call):
+				continue
+
+			if not isinstance(node.func, ast.Attribute) or node.func.attr != "chosen":
+				continue
+
+			where = f"{path.name}:{node.lineno}"
+			found = passing if any(k.arg == "settings" for k in node.keywords) else bare
+			found.append(where)
+
+	return passing, bare
+
+
+def test_every_caller_asks_which_backend_with_its_own_settings () -> None:
+	"""**`#883`. A call that omits `settings=` resolves from the ambient environment.**
+
+	`search.chosen()` falls back to `config.load_settings()`, which builds a fresh `Settings`
+	from the environment and the config file every time — it is not cached. So a call site that
+	omits it answers with whatever the *process* is configured for rather than with what *this
+	application* was built with, and an instance can then use two backends at once: three of the
+	six sites did, and tasks ranked while documents did not.
+
+	**A structural guard rather than a behavioural one, deliberately.** The behaviour is only
+	observable where an application's settings differ from the environment, which is a shape
+	only the suite produces — so a test per site would be a list that falls behind, where this
+	covers the seventh call before anybody writes it. `test_actor_discipline` is the precedent:
+	the check is that the argument is *passed*, at every site, by walking the tree.
+
+	**The floor is the half that makes it worth anything.** Without it a scan that read nothing
+	reports no offenders, which is byte-identical to a clean tree — and that is not a
+	hypothetical here, it is how this guard was written the first time.
+	"""
+
+	passing, bare = _resolving_the_backend(SOURCE)
+
+	assert len(passing) + len(bare) >= 6, (
+		f"only {len(passing) + len(bare)} calls to search.chosen() were found under {SOURCE}, "
+		f"and there are at least six — so this walked the wrong tree and is checking nothing"
+	)
+
+	assert not bare, (
+		f"{bare} call search.chosen() without settings, so they resolve the backend from the "
+		f"environment rather than from the application — and one instance can then answer with "
+		f"two backends at once"
+	)
+
+
+def test_the_backend_guard_can_see_a_call_that_omits_settings (tmp_path: pathlib.Path) -> None:
+	"""The guard above, fed a defect **through its own scanner** — `#405`.
+
+	Both shapes in one file, so what is proved is that the walk separates them rather than that
+	a rule written out again in this test does.
+	"""
+
+	tmp_path.joinpath("offender.py").write_text(
+		"import subroutine.domain.search\n"
+		"subroutine.domain.search.chosen(session)\n"
+		"subroutine.domain.search.chosen(\n\tsession, settings=settings\n)\n"
+	)
+
+	passing, bare = _resolving_the_backend(tmp_path)
+
+	assert len(bare) == 1, f"the walk did not find the offending call: {bare}"
+	assert len(passing) == 1, f"the walk did not find the correct call: {passing}"

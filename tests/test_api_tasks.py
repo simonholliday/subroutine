@@ -8,6 +8,7 @@ being written to, and narrowing a listing to what the caller may actually see.
 import datetime
 import itertools
 import typing
+import urllib.parse
 import uuid
 
 import fastapi
@@ -17,6 +18,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.api.tasks
+import subroutine.db.fulltext
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
@@ -2932,3 +2934,72 @@ def test_relevance_is_refused_where_nothing_can_rank (world: World) -> None:
 
 	assert answer.status_code == 422
 	assert "relevance" in answer.text
+
+
+@pytest.mark.parametrize("blank", [" ", "   ", "\t", " \t "], ids=["space", "spaces", "tab", "mixed"])
+def test_a_search_with_no_words_in_it_narrows_nothing_rather_than_failing (
+	ranked: World, blank: str
+) -> None:
+	"""**`SR#880`, and it was a live 500 on the served instance.**
+
+	`fulltext.query` indexed `terms[-1]` with no guard, and every caller reached it through
+	`if q:` — a **truthiness** test on the raw string, where `search.terms` is `split()`. So a
+	space was truthy, yielded no words, and the ranking path raised `IndexError` while the
+	statement was still being assembled.
+
+	**The asymmetry is the finding rather than the crash.** `search.matching` has handled this
+	since it was written and says so in its own docstring — *"A query with no words in it
+	narrows nothing"* — and the ranking half, added by `SR#823` a fortnight later, did not.
+
+	**And the answer has to be the same on both backends.** Matching nothing would make a
+	whitespace query answer *no results* under `native` and *every result* under `like`, which
+	is a divergence rather than a fix — so the ranking is simply not applied and the listing
+	answers exactly as it would with no `q` at all.
+
+	Parametrised over the shapes a person actually produces: a search box holding a space, and
+	`?q=+`, which decodes to one.
+	"""
+
+	for title in ("Read the backlog", "Write it down"):
+		ranked.call("POST", "/v1/tasks", json={"title": title})
+
+	answer = ranked.call("GET", f"/v1/tasks?q={urllib.parse.quote(blank)}")
+
+	assert answer.status_code == 200, answer.text
+	assert len(answer.json()["items"]) == 2, "a query with no words in it narrowed something"
+
+	assert [item["ref"] for item in answer.json()["items"]] == [
+		item["ref"] for item in ranked.call("GET", "/v1/tasks").json()["items"]
+	], "a listing with nothing to search for should be the listing with no search"
+
+
+def test_a_search_with_no_words_reaches_the_documents_listing_too (ranked: World) -> None:
+	"""`SR#880`'s other endpoint. Both were 500, and both were reached by the same guard.
+
+	Worth its own test rather than a parameter, because the two listings resolve their backend
+	and build their vocabulary in different files — which is exactly how the documents half of
+	`SR#823` came to have no coverage at all (`SR#883`).
+	"""
+
+	ranked.call("POST", "/v1/documents", json={"title": "A note", "body": "Prose."})
+
+	answer = ranked.call("GET", "/v1/documents?q=%20")
+
+	assert answer.status_code == 200, answer.text
+	assert len(answer.json()["items"]) == 1
+
+
+def test_the_ranking_refuses_to_be_built_from_no_words_at_all () -> None:
+	"""`SR#880`'s leaf guard, which is what stops the fifth caller repeating this.
+
+	The four call sites are fixed and this is the thing that makes a fifth one loud rather than
+	a 500 with an `IndexError` in it. `sinking`'s `ValueError` is the same shape: reachable only
+	by a programming error, and worth being unmistakable when it is.
+	"""
+
+	with pytest.raises(subroutine.errors.InternalError) as raised:
+		subroutine.db.fulltext.query([])
+
+	assert "search.terms" in (raised.value.hint or ""), (
+		"the refusal must name the question a caller should have asked"
+	)

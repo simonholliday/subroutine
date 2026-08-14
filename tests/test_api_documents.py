@@ -578,3 +578,82 @@ def test_a_document_listing_publishes_the_deferral_ordering (
 	assert "deferred" not in published["project"]["sortable"], (
 		"a project has nothing to defer, so offering the order would be an empty promise"
 	)
+
+
+@pytest.fixture
+def ranked (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
+	"""An installation with the indexed backend asked for, skipping where it cannot exist.
+
+	The twin of `test_api_tasks.ranked` and written out rather than reached into: a fixture is
+	not a plain function once pytest has decorated it, and unwrapping one is a claim about that
+	library's internals. `#871` is why the skip is right rather than a failure — the native
+	backend is PostgreSQL-only by decision, so on SQLite there is nothing to test.
+	"""
+
+	if session.get_bind().dialect.name != "postgresql":
+		pytest.skip("relevance needs a backend that can rank")
+
+	return test_api_tasks._world(session, instance={"search_backend": "native"})
+
+
+def test_a_document_search_is_ranked_by_the_backend_this_instance_was_built_with (
+	ranked: test_api_tasks.World,
+) -> None:
+	"""**`SR#883`, and the coverage gap is worth more than the one-word fix.**
+
+	`search.chosen()` falls back to `config.load_settings()`, which re-reads the environment.
+	The documents listing did not pass its own `settings`, so an application built with
+	`search_backend` injected answered **tasks with one backend and documents with the other** —
+	and injection is the only mechanism the suite has for this. `test_transport_equivalence`
+	sets the *environment variable*, which both paths read, so it masked the divergence rather
+	than catching it, and it is tasks-only besides.
+
+	So `ix_document_search`, the document ranking over title and body, `views.Document.relevance`
+	and merged order parity had **no coverage over HTTP at all** until this.
+
+	**Stemming is what proves which backend answered.** `paginate` finds *pagination* only under
+	`native`; a substring search cannot, so this cannot pass by accident on the `like` path.
+	"""
+
+	made = ranked.call(
+		"POST", "/v1/documents",
+		json={"title": "Pagination", "body": "How the cursor resumes."},
+	)
+	assert made.status_code == 201, made.text
+
+	found = ranked.call("GET", "/v1/documents?q=paginate")
+
+	assert found.status_code == 200, found.text
+	assert [item["title"] for item in found.json()["items"]] == ["Pagination"], (
+		"a stemmed match reached the documents listing, so the native backend answered it"
+	)
+
+	assert found.json()["items"][0]["relevance"] is not None, (
+		"a ranked document carries its ranking, which is what a merged list orders on"
+	)
+
+
+def test_a_document_listing_ranks_by_relevance_without_being_asked (
+	ranked: test_api_tasks.World,
+) -> None:
+	"""The other half of `SR#883`: the default order, not just the field.
+
+	A search defaults to its own ranking wherever a backend can compute one (`SR#823`). If the
+	documents listing resolved a different backend from the one the instance was built with,
+	this is the assertion that fails — the rows come back in creation order and say so.
+	"""
+
+	# **The best match is written *first*, and that is what makes this falsifiable.** Written
+	# last, it comes out on top under `-created_at` as well, so the ranked answer and the
+	# unranked one are the same list and the assertion cannot fail. Found by mutating.
+	for title, body in (
+		("Cursor cursor cursor", "cursor cursor cursor cursor"),
+		("A note about cursors", "One mention of the cursor."),
+	):
+		ranked.call("POST", "/v1/documents", json={"title": title, "body": body})
+
+	items = ranked.call("GET", "/v1/documents?q=cursor").json()["items"]
+
+	assert [item["title"] for item in items] == ["Cursor cursor cursor", "A note about cursors"], (
+		f"a ranked search must put the best match first — got {[i['title'] for i in items]}"
+	)

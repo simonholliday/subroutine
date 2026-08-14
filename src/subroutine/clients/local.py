@@ -415,7 +415,11 @@ class Client:
 				statement = statement.where(parked)
 
 			if q:
-				backend = subroutine.domain.search.chosen(session)
+				# **This client's settings, not the ambient ones** (`#883`). `chosen` falls
+				# back to `config.load_settings()`, which re-reads the environment — the trap
+				# already recorded about the CLI, one layer down in the client itself.
+				backend = subroutine.domain.search.chosen(session, settings=self.settings)
+				words = subroutine.domain.search.terms(q)
 				statement = statement.where(
 					sqlalchemy.or_(
 						subroutine.domain.search.matching(
@@ -430,10 +434,11 @@ class Client:
 				# `#823`, and here for the reason every ordering rule is decided in the domain:
 				# a ranking the endpoint applies and the terminal does not is the divergence
 				# `ordering.py` exists to prevent, one sort field along.
-				if backend == subroutine.domain.search.NATIVE:
+				# **`words`, not `q`** (`#880`): `" "` is truthy and has no words in it.
+				if words and backend == subroutine.domain.search.NATIVE:
 					sortable = subroutine.domain.ordering.searching(
 						sortable,
-						terms=subroutine.domain.search.terms(q),
+						terms=words,
 						columns=[model.title, model.description],
 						carried_on=model.relevance,
 						ref=model.ref,
@@ -645,7 +650,8 @@ class Client:
 			# search that can be ranked is ranked, and everything else keeps the vocabulary it
 			# has always had. Resolved once rather than inside the query, so the predicate and
 			# the ordering are built from one answer about the backend.
-			backend = subroutine.domain.search.chosen(session)
+			backend = subroutine.domain.search.chosen(session, settings=self.settings)
+			words = subroutine.domain.search.terms(q or "")
 
 			# **`deferred` here too, answered with the one band a document can be in** (`#877`).
 			# The endpoint says the same and says why: an order only one half of a merged
@@ -659,14 +665,14 @@ class Client:
 				subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER
 			)
 
-			if q and backend == subroutine.domain.search.NATIVE:
+			if words and backend == subroutine.domain.search.NATIVE:
 				sortable = subroutine.domain.ordering.searching(
 					sortable,
-					terms=subroutine.domain.search.terms(q),
+					terms=words,
 					columns=[model.title, model.body],
 					carried_on=model.relevance,
 					ref=model.ref,
-					numbered=subroutine.domain.refs.parse_ref(q),
+					numbered=subroutine.domain.refs.parse_ref(q or ""),
 				)
 				fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 

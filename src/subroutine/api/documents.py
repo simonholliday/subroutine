@@ -248,11 +248,19 @@ def listing (
 			== subroutine.domain.documents.status_for(session, workspace.id, status).id
 		)
 
+	# **Resolved before the `if`, and from *this application's* settings** (`#883`). It was
+	# read inside the branch and used again below under a second `if`, which is correct only by
+	# short-circuit and is a name mypy cannot prove is bound. And omitting `settings` sent
+	# `chosen` to `config.load_settings()`, which re-reads the environment — so an instance
+	# built with `search_backend` injected answered tasks with one backend and documents with
+	# the other, which is what kept the whole document half of `#823` out of the suite.
+	backend = subroutine.domain.search.chosen(session, settings=settings)
+	words = subroutine.domain.search.terms(q or "")
+
 	if q:
 		# Title and body, the document's counterpart to a task's description (§9.4). This is
 		# where this project's own reasoning lives: `#4` is a specification, and searching for
 		# a term it discusses at length found nothing at all.
-		backend = subroutine.domain.search.chosen(session)
 		statement = statement.where(
 			sqlalchemy.or_(
 				subroutine.domain.search.matching(
@@ -285,14 +293,17 @@ def listing (
 	)
 	fallback: tuple[str, ...] = tuple(DEFAULT_ORDER)
 
-	if q and backend == subroutine.domain.search.NATIVE:
+	# **`words` rather than `q`** (`#880`): a query of spaces is truthy and has no words in
+	# it, and the ranking path cannot be built from none — it indexed `terms[-1]` and returned
+	# 500. The filter above has always answered that case correctly, which is the asymmetry.
+	if words and backend == subroutine.domain.search.NATIVE:
 		sortable = subroutine.domain.ordering.searching(
 			sortable,
-			terms=subroutine.domain.search.terms(q),
+			terms=words,
 			columns=[model.title, model.body],
 			carried_on=model.relevance,
 			ref=model.ref,
-			numbered=subroutine.domain.refs.parse_ref(q),
+			numbered=subroutine.domain.refs.parse_ref(q or ""),
 		)
 		fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
