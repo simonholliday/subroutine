@@ -1972,11 +1972,32 @@ def test_a_comment_can_be_written_and_says_what_it_is_for (tmp_path: pathlib.Pat
 	least willing to blur.
 
 	**The heading shows with nothing under it once there is a box.** An empty thread with no way
-	to start one reads as absent rather than as empty, and *what happened* is the question a
-	reader arrives with.
+	to start one reads as absent rather than as empty.
+
+	**The labels ask rather than instruct, which is `#865` and Simon's.** §5.10's sentence is
+	right where it *teaches* — the specification, the agent guide, the skill, and
+	`subroutine_comment`'s own description, all read by somebody choosing between a comment and
+	a document. On the box and over the thread it stopped being a distinction and became an
+	instruction at the moment somebody is writing, and *"I have asked the supplier"* is neither
+	wrong nor what happened.
 	"""
 
 	box = _rendered(tmp_path, {"Saying": {"busy": False}})["Saying"]
+
+	assert "What happened" not in box, (
+		f"the box tells somebody what their comment has to be about: {box}"
+	)
+
+	# **The label and the placeholder are read from the source, not from the render, and that
+	# is a limit of the harness rather than a preference.** `_rendered` emits an element's
+	# children and its `href` and drops every other attribute (`#784`) — so a mutation putting
+	# the instruction back into `aria-label` *survived* the assertion above, which is a test
+	# that cannot fail. The screen-reader half of Simon's point lives entirely in attributes,
+	# so it has to be checked where it is written. Prose is stripped first: the reasoning
+	# beside these strings quotes the words they no longer use.
+	assert "What happened" not in _without_comments(_served_modules()["app.js"]), (
+		"a label or placeholder still tells somebody what their comment has to be about"
+	)
 
 	assert "<textarea" in box and "<button" in box
 	assert "<select" not in box and "<input" not in box, (
@@ -1993,10 +2014,14 @@ def test_a_comment_can_be_written_and_says_what_it_is_for (tmp_path: pathlib.Pat
 	empty = _rendered(tmp_path, {"Detail": {**shared, "comments": []}})["Detail"]
 	mute = _rendered(tmp_path, {"Detail": {**shared, "comments": [], "onComment": None}})["Detail"]
 
-	assert "What happened" in empty and "<textarea" in empty, (
+	# **The heading is `Comments` since `#865`, and the intent is unchanged.** This asserted
+	# *What happened*, so rewording the label failed a test whose subject is whether the section
+	# appears at all — the satisfier moved and the question did not. Kept rather than relaxed:
+	# the point is that an empty thread with a box is a section, and one with neither is not.
+	assert "Comments" in empty and "<textarea" in empty, (
 		"an item with no comments offers no way to write the first one"
 	)
-	assert "What happened" not in mute, (
+	assert "Comments" not in mute, (
 		"a heading with nothing under it and no box, which is a section that is not there"
 	)
 

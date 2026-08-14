@@ -3772,10 +3772,20 @@ export function Detail ({
 
 			${/* **The heading shows even with nothing under it, once there is a box** (`#759`).
 			     An empty thread with no way to start one is a section that reads as absent
-			     rather than as empty, and "what happened" is the question a reader arrives
-			     with. */ null}
+			     rather than as empty.
+
+			     **It says what the section holds, not what to put in it** (`#865`, Simon's).
+			     This was *What happened*, which is §5.10's rule — "a comment is what happened;
+			     a document is what you concluded" — and that rule is right and stays where it
+			     is *teaching*: in the specification, in the agent guide, in the skill and in
+			     `subroutine_comment`'s description, all of which are read by somebody choosing
+			     between the two.
+
+			     Over the thread and on the box it stopped being a distinction and became an
+			     instruction, at the moment somebody is writing. *"I have asked the supplier"*
+			     and *"do we still need this?"* are neither wrong nor what happened. */ null}
 			${(comments.length > 0 || onComment) && html`
-				<h3>What happened</h3>
+				<h3>Comments</h3>
 				<ul class="comments">
 					${comments.map((note) => html`
 						<li key=${note.id}>
@@ -3907,9 +3917,9 @@ export function Saying ({ onComment, busy }) {
 	return html`
 		<form class="saying" onSubmit=${submit}>
 			<textarea name="body" rows="3" required disabled=${busy}
-				aria-label="What happened"
-				placeholder="What happened? Markdown works, and #42 links."></textarea>
-			<button type="submit" disabled=${busy}>Add a note</button>
+				aria-label="Add a comment"
+				placeholder="Markdown works, and #42 links."></textarea>
+			<button type="submit" disabled=${busy}>Add a comment</button>
 		</form>
 	`;
 }

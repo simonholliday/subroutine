@@ -285,6 +285,16 @@ upgrade involves.
   what stops anyone filling a form in without looking at it. The form now keeps a reading
   measure of its own; the board still gets the screen.
 
+- **The comment box asks instead of instructing.** It was labelled *What happened*, and so was
+  the thread above it — which is the right way to describe the difference between a comment and
+  a document, and the wrong thing to put on a box at the moment somebody is writing in it. A
+  comment saying *"I have asked the supplier"* or *"do we still need this?"* is neither wrong
+  nor what happened.
+
+  The thread is headed **Comments** and the box asks for one. Nothing changed about what a
+  comment is for: the distinction still reads exactly as it did in the guide, the skill and the
+  agent tools, where somebody is choosing between the two rather than typing.
+
 - **An item that starts at a particular time says so in the browser.** Capturing *Dentist on
   Monday at 14:00* has read the time since 0.6.5, and the page showed only *Starts 17 Aug
   2026* — so the one thing you had gone to the trouble of typing was the one thing you could
