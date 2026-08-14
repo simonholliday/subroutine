@@ -3,7 +3,7 @@
     "tools": {
       "command": "uvx",
       "args": [
-        "subroutine~=0.7.0",
+        "subroutine~=0.6.0",
         "mcp",
         "--connection", "${user_config.connection}",
         "--workspace", "${user_config.workspace}"
