@@ -30,6 +30,15 @@
 	--radius: 6px;
 	--gap: 16px;
 
+	/* **The reading measure**, and the one place it is written down (`#863`). It was a literal
+	   on `.app` alone, so anything that widened the frame widened everything the frame held. */
+	--measure: 1100px;
+
+	/* What the frame leaves for its content, which is what a form has to match in order to be
+	   the same width wherever it is opened. Derived rather than a second number: `.app` pads
+	   by `--gap` on both sides and everything here is `border-box`. */
+	--measure-inner: calc(var(--measure) - 2 * var(--gap));
+
 	color-scheme: light dark;
 }
 
@@ -112,7 +121,7 @@ fieldset {
 /* ---- frame ------------------------------------------------------------- */
 
 .app {
-	max-width: 1100px;
+	max-width: var(--measure);
 	margin: 0 auto;
 	padding: var(--gap);
 }
@@ -124,7 +133,13 @@ fieldset {
 
    No second cap here, deliberately. A number would be somebody's screen written into the
    stylesheet; the column's own `max-width` is what stops the columns spreading, and past that
-   the space is simply left. */
+   the space is simply left.
+
+   **This is on the frame, so it widens everything the frame holds** — which the sentence above
+   says is wrong for a form, and which is what `#863` was. Anything standing beside the board
+   that wants the measure has to say so; `.adding` does. Read that as the cost of putting the
+   class here rather than on the board itself: the alternative needs the board to break out of
+   a centred container, which is a larger change and a fiddlier one. */
 .app.wide {
 	max-width: none;
 }
@@ -161,7 +176,19 @@ fieldset {
 	keeps its size, its place and its primacy whether or not the rest is open — a form that
 	pushed it aside would be the replacement §1.4 forbids rather than the disclosure it is.
 */
-.adding { margin-bottom: 14px; }
+/* **A form keeps the reading measure wherever it is opened** (`#863`). `#846`'s own comment
+   says 1100px is "right for a list, a document and a form, and wrong for a board" — and then
+   put `wide` on the *frame*, so the board's width reached the form standing above it. The
+   fields are laid out with `auto-fit`, so the column count is derived from that width and a
+   field landed somewhere different depending on which view you had opened the box from. A
+   date and its time are siblings in one cell, so they wrapped differently too.
+
+   Capped here rather than by re-capping the frame, because the board genuinely wants the
+   screen and that is the one thing `#846` got right. */
+.adding {
+	max-width: var(--measure-inner);
+	margin-bottom: 14px;
+}
 
 .adding .line {
 	display: flex;
@@ -221,8 +248,14 @@ fieldset {
 .adding button:disabled { opacity: 0.45; cursor: default; }
 .adding button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 
-/* Two columns where there is room and one where there is not, which is the whole of the
-   responsive behaviour a form of short fields needs. */
+/* As many columns of at least 190px as the form's width allows, down to one on a phone.
+   **This said "two columns where there is room and one where there is not"**, which is not what
+   `auto-fit` does and never was: at the reading measure it resolves to five. A sentence
+   describing an intent nobody implemented is worse than none, because it stops the next reader
+   checking — `#863`, and the same shape as the `pyproject.toml` comment `#828` found.
+
+   The count is now stable because `.adding` carries its own measure; before that it followed
+   whichever view the form had been opened from. */
 .adding .details {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

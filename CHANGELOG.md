@@ -274,6 +274,16 @@ upgrade involves.
 
 ### Fixed
 
+- **The add and edit forms in the browser put their fields in the same place wherever you open
+  them.** The board is allowed to use the whole screen, and the capture box standing above it
+  was being widened along with it — so the same form was five columns across from a list and
+  ten from a board on a wide display, and a date's time sat beside it in one and below it in
+  the other.
+
+  Every field therefore moved depending on which view you had opened the box from, which is
+  what stops anyone filling a form in without looking at it. The form now keeps a reading
+  measure of its own; the board still gets the screen.
+
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and
   `restore` put it back.** Three commands, one item, and one of them denying it was there.
 

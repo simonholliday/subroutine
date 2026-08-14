@@ -791,6 +791,22 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**Read for fat before raising**, as this docstring requires of itself: the addition sets
 	two viewports and makes two assertions, and the second is what stops the first passing
 	vacuously against a board that never overflowed. Neither is removable.
+
+	**Raised to thirteen for `#863`, and the case is that it is `#846`'s own bill.** That fix
+	uncapped the *frame* so a board could use the screen; the form standing above the board
+	inherited it, and since the fields are laid out with ``auto-fit`` the column count — and
+	whether a time sits beside its date or below it — followed whichever view you had opened
+	the box from. Found by the same person on the same surface, which is where ten of this
+	browser's defects have come from.
+
+	It is squarely `#748`'s named third scope and there is no arrangement of ``tests/dom.js``
+	that reaches it: the question is what ``repeat(auto-fit, minmax(190px, 1fr))`` *resolves
+	to* against a computed container width, which needs a cascade and a layout.
+
+	**Read for fat**: the addition opens the same form in two views at one viewport and
+	compares one computed value. The viewport is set wide deliberately — at a narrow one both
+	views collapse to a single column and agree for a reason that has nothing to do with the
+	fix, which is the vacuous pass this docstring already warns about once.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -798,9 +814,9 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 12, (
-		f"this file holds {len(tests)} tests: {tests}. Twelve answering what only a browser can "
-		f"is the agreed scope; past this it is a second suite, and the fast one is the one "
+	assert len(tests) <= 13, (
+		f"this file holds {len(tests)} tests: {tests}. Thirteen answering what only a browser "
+		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
 
@@ -854,3 +870,64 @@ def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) ->
 	)
 
 	page.close()
+
+
+def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
+	"""`#863`, found by Simon driving `#755`: the fields move when you open the box elsewhere.
+
+	The frame is capped at a reading measure and ``.app.wide`` removes that cap so a board can
+	use the screen (`#846`) — but the class is on the *frame*, so the capture form standing
+	above the board was widened too. ``.adding .details`` is ``repeat(auto-fit, minmax(190px,
+	1fr))``, so the number of columns is derived from that width, and a date and its time are
+	siblings in one cell, so they wrapped differently as well. His objection is the right one:
+	a form whose fields move cannot be filled in from memory.
+
+	**The computed value rather than the rule**, because the rule was never the thing that was
+	wrong — ``auto-fit`` did exactly what it says against two different widths. Asking the
+	stylesheet whether ``.adding`` declares a cap would be guarding a spelling, which is a trap
+	this repository has recorded three times.
+	"""
+
+	opened, _written = running
+	measured = {}
+
+	for view, address in (("list", "/projects"), ("board", "/projects?view=board")):
+		page = opened(address)
+
+		# Wide on purpose: at a narrow viewport both views collapse to one column and agree for
+		# a reason that has nothing to do with the fix.
+		page.set_viewport_size({"width": 2200, "height": 900})
+		page.click(".adding .more")
+		page.wait_for_selector(".adding .details", timeout=10_000)
+
+		# **Where the fields land, not what the rule says.** `getComputedStyle` returns the
+		# *specified* `grid-template-columns` here rather than resolved tracks, because a
+		# `<fieldset>` lays its contents out in an anonymous box — so asking for the tracks
+		# measures the stylesheet rather than the layout, which is the thing that was never in
+		# doubt. The distinct left offsets of the children are the column count as a reader
+		# meets it.
+		measured[view] = page.eval_on_selector(
+			".adding .details",
+			"""node => {
+				const lefts = [...node.children].map(
+					kid => Math.round(kid.getBoundingClientRect().left)
+				);
+				return {
+					width: Math.round(node.getBoundingClientRect().width),
+					columns: new Set(lefts).size,
+				};
+			}""",
+		)
+
+		page.close()
+
+	assert measured["list"] == measured["board"], (
+		f"the same form is laid out differently depending on the view it was opened from: "
+		f"{measured}. A field is then in a different place, which is what stops somebody "
+		f"filling the form in without looking at it."
+	)
+
+	assert measured["list"]["columns"] > 1, (
+		f"the form is one column wide at 2200px ({measured['list']}), so the comparison above "
+		f"would agree whatever the frame did"
+	)
