@@ -325,6 +325,13 @@ upgrade involves.
 
 ### Fixed
 
+- **Searching in the browser no longer returns every document.** A search filtered the tasks
+  and left the documents alone, so looking for something that did not exist still filled the
+  page — which reads as a broken search rather than as an answer.
+
+  Both halves of the list are searched now. Nothing was wrong with the search itself: the
+  browser was asking one collection the question and the other for everything it had.
+
 - **The add and edit forms in the browser put their fields in the same place wherever you open
   them.** The board is allowed to use the whole screen, and the capture box standing above it
   was being widened along with it — so the same form was five columns across from a list and

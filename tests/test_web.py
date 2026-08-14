@@ -7155,3 +7155,65 @@ def test_a_row_marks_both_ends_of_a_dependency (tmp_path: pathlib.Path) -> None:
 	assert "Holds up" not in shown["neither"] and "Blocked" not in shown["neither"], (
 		f"an ordinary task carries a dependency mark: {shown['neither']}"
 	)
+
+
+def test_a_search_narrows_the_documents_it_asks_for (tmp_path: pathlib.Path) -> None:
+	"""**`SR#872`, found by Simon driving the served instance and unmissable once seen.**
+
+	Searching a nonsense string returned rows. The endpoints were both innocent — measured,
+	`GET /v1/tasks?q=` and `GET /v1/documents?q=` each answered `[]` — because the browser sent
+	`q` to the tasks request and **nothing at all** to the documents one, so a search filtered
+	half the list and returned every document there was.
+
+	The tasks-only rule was correct when written, for `status_category` and `include_completed`,
+	which `GET /v1/documents` refuses. `q` arrived later (`SR#775`) and inherited it in silence,
+	because the rule was implicit — spread across two functions and stated in neither.
+	"""
+
+	asked = _built(tmp_path, [("listingRequests", ["personal", None, None, {"q": "quinsy"}])])
+	documents = [request for request in asked if "/documents" in request["path"]]
+
+	assert documents, (
+		"a search reads documents too — SPEC 6.2 gives both kinds one ref counter, so a search "
+		"that skipped documents would be lying about half the numbers"
+	)
+	assert all("q=quinsy" in request["path"] for request in documents), (
+		"every collection a search reads has to be told what the search is, or it returns "
+		"everything it has and the reader cannot tell that from a genuine match"
+	)
+
+
+def test_every_selection_parameter_says_which_collections_answer_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The guard that would have caught `SR#872` when `q` was added, rather than a month later.
+
+	`ANSWERED_BY` is the one statement of where a selection parameter goes. A new entry in
+	`SELECTABLE` that is not in it would otherwise inherit whatever the request builder happened
+	to do — which is exactly how `q` came to be withheld from documents by an omission nobody
+	made on purpose.
+
+	Derived from `SELECTABLE` rather than listed, so this cannot fall behind the thing it
+	guards.
+	"""
+
+	source = _without_comments(_served_modules()["app.js"])
+
+	def declared (name: str) -> set[str]:
+		"""Return the keys of a module-level object literal, by name."""
+
+		start = source.index(f"export const {name} = {{")
+		body = source[start : source.index("\n};", start)]
+
+		return set(re.findall(r"^\t(\w+):", body, re.M))
+
+	selectable = declared("SELECTABLE")
+	answered = declared("ANSWERED_BY")
+
+	assert selectable, "nothing was scanned, so this is asserting about an empty set"
+
+	assert selectable <= answered, (
+		f"{sorted(selectable - answered)} can be put in an address and no rule says which "
+		f"collections can answer them. That is how SR#872 happened: the request builder did "
+		f"something reasonable, and it was wrong for the new parameter."
+	)

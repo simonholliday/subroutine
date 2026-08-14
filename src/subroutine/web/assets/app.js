@@ -554,7 +554,18 @@ export function collectionsFor (selection) {
 	*/
 	const ordering = ORDERINGS[asked.order];
 
-	if (asked.status_category !== undefined) return ["task"];
+	/*
+		**Read from `ANSWERED_BY` rather than naming `status_category` here** (`#872`). It named
+		that one parameter, which was every task-only parameter on the day it was written and
+		stopped being so twice since. The table is now the one statement of where a selection
+		goes, so this asks it rather than agreeing with it.
+	*/
+	const impossible = Object.keys(asked).some(
+		(name) => asked[name] !== undefined && asked[name] !== null
+			&& answers("document", name) === "cannot"
+	);
+
+	if (impossible) return ["task"];
 
 	return ordering && !ordering.both ? ["task"] : ["task", "document"];
 }
@@ -620,10 +631,22 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	   one screen must produce one string, or a cursor taken on one page is compared against a
 	   path spelled differently on the next. */
 	const chose = selection || {};
-	const rows = Object.keys(SELECTABLE)
+
+	/*
+		**Per collection, from `ANSWERED_BY`, rather than tasks-getting-everything** (`#872`).
+
+		This used to build one string and append it to the tasks request alone, on the reasoning
+		that `GET /v1/documents` refuses `status_category` and `include_completed`. True of those
+		two and false of `q`, which arrived later and inherited the exclusion in silence — so a
+		search filtered the tasks and returned every document there was.
+	*/
+	const sending = (kind) => Object.keys(SELECTABLE)
 		.filter((name) => chose[name] !== undefined && chose[name] !== null)
+		.filter((name) => answers(kind, name) === "sent")
 		.map((name) => `&${name}=${encodeURIComponent(chose[name])}`)
 		.join("");
+
+	const rows = sending("task");
 
 	/*
 		**The order goes to both collections, and it is the only part of the selection that
@@ -636,16 +659,20 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 		rather than sending them. An order documents cannot answer takes the same route, so
 		anything reaching this line is one they can.
 	*/
-	const ordered = chose.order && ORDERINGS[chose.order] && ORDERINGS[chose.order].both
-		? `&order=${encodeURIComponent(chose.order)}`
-		: "";
+	/*
+		**No second check that documents can take this order**, because `collectionsFor` has
+		already answered it: an order documents cannot sort by drops the collection entirely
+		(`#782`), so nothing built here ever reaches a request. Re-checking it would be a copy of
+		that rule free to disagree with it, which is the defect this whole change is about.
+	*/
+	const readable = sending("document");
 
 	const asks = {
 		task: { kind: "task", method: "GET", path: scoped(
 			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${rows}`
 			+ from(after && after.tasks), slug) },
 		document: { kind: "document", method: "GET", path: scoped(
-			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}${ordered}`
+			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}${readable}`
 			+ from(after && after.documents), slug) },
 	};
 
@@ -1577,6 +1604,56 @@ export const SELECTABLE = {
 	*/
 	q: null,
 };
+
+/*
+	Which collections can answer each selection parameter — `#872`.
+
+	**This existed as a rule and not as a statement, which is exactly how it broke.** The two
+	functions below both needed it: `collectionsFor` decides which collections to *read*, and
+	`listingRequests` decides what to *send* each of them. Neither said which parameters a
+	documents request can take, so the second withheld the whole selection from documents —
+	right for the two parameters that existed when it was written, and wrong the moment a third
+	arrived.
+
+	`q` was that third (`#775`). It inherited a tasks-only rule nobody had written down, so a
+	browser search filtered the tasks and returned **every document** — measured on the served
+	instance, and the first thing Simon tried.
+
+	So: a name here is the one place that answers *where does this go*, and
+	`tests/test_web.py` fails the build on a `SELECTABLE` entry missing from it. A fourth
+	parameter cannot repeat this by being forgotten; it can only repeat it by being declared
+	wrongly, which is a different and much louder mistake.
+
+	**Three answers, not two, and collapsing them is a defect of its own** — met while fixing
+	this one, and caught by two existing tests. "Documents cannot be sent this" and "documents
+	must not be asked at all" are different facts:
+
+	- **`sent`** — pass it through. `order` (narrowed further by `ORDERINGS[…].both`, `#782`)
+	  and **`q`**, which `GET /v1/documents` has always filtered correctly. Only the browser
+	  was not asking.
+	- **`already`** — omit it and keep the collection, because the answer is the same either
+	  way. `include_completed` is a measured 422 on documents, *and* a document listing shows
+	  every document there is — a superseded specification is in it by default. So the
+	  parameter is unsendable and its absence changes nothing.
+	- **`cannot`** — drop the collection. `status_category` is a 422 *and* its absence would
+	  give the wrong rows: a document's categories are `draft`, `current`, `superseded` and
+	  `archived`, and none of them means *finished*, so a listing of finished work has no
+	  honest document half at all.
+*/
+export const ANSWERED_BY = {
+	status_category: { task: "sent", document: "cannot" },
+	include_completed: { task: "sent", document: "already" },
+	order: { task: "sent", document: "sent" },
+	q: { task: "sent", document: "sent" },
+};
+
+export function answers (kind, name) {
+	/* How a collection handles this selection parameter: `sent`, `already` or `cannot`. */
+
+	const handling = ANSWERED_BY[name];
+
+	return handling === undefined ? "cannot" : handling[kind] || "cannot";
+}
 
 export function permits (name, value) {
 	/*
