@@ -16,6 +16,7 @@ import pathlib
 import re
 import shlex
 import subprocess
+import textwrap
 import typing
 
 import click
@@ -308,9 +309,21 @@ def test_the_release_being_prepared_has_one_heading_of_each_kind () -> None:
 
 	sections = _changelog_headings(CHANGELOG.read_text(encoding="utf-8"))
 
-	assert PREPARING in sections, (
-		f"{CHANGELOG.name} has no '## {PREPARING}' section, so nothing was checked."
+	# **The floor is that the scan read *something*, not that a release is being prepared.**
+	# `#893`: the two were one assertion, and `scripts/release.py` renames `## Unreleased` to
+	# `## <version> — <date>` — so the first commit of every release has no section being
+	# prepared, and this failed CI on all four Python versions with nothing wrong. It was
+	# written after v0.6.4 and had never been through a release when it blocked one.
+	assert sections, (
+		f"no version section was read from {CHANGELOG.name} at all, so nothing was checked "
+		f"and this guard is inert"
 	)
+
+	# **Nothing being prepared is a real state and a brief one**: it lasts from the release
+	# commit until the next change worth telling somebody about. There is no draft to check,
+	# which is different from a draft nobody could find.
+	if PREPARING not in sections:
+		return
 
 	headings = sections[PREPARING]
 	repeated = sorted({name for name in headings if headings.count(name) > 1})
@@ -1864,3 +1877,45 @@ def test_the_connecting_page_counts_its_own_ways_correctly () -> None:
 	assert len(rows) == _WAYS.index(stated[0]) + 1, (
 		f"the page says {stated[0]} ways and its table routes to {len(rows)}"
 	)
+
+
+def test_the_prepared_section_check_survives_a_release_being_cut () -> None:
+	"""**`SR#893`. The guard above blocked every release, and had never seen one.**
+
+	`scripts/release.py` renames `## Unreleased` to `## <version> — <date>` as its first act, so
+	the release commit has no section being prepared. The floor said that state meant *nothing
+	was checked* and failed — on all four Python versions, in the Release workflow as well, so
+	Build, TestPyPI, GitHub release and PyPI were all skipped and v0.7.0 shipped nothing.
+
+	**Two things were one assertion.** *The scan read nothing* is a bug in the guard; *there is
+	no draft yet* is a legitimate and brief state — it lasts from the release commit until the
+	next change worth telling somebody about. Collapsing them made a correct changelog fail.
+
+	Driven through the real entry point on the shape `release.py` actually leaves behind, so
+	this checks the thing rather than a description of it.
+	"""
+
+	just_released = textwrap.dedent(
+		"""\
+		# Changelog
+
+		## 0.7.0 — 2026-08-14
+
+		### Added
+
+		- Something.
+
+		### Fixed
+
+		- Something else.
+		"""
+	)
+
+	sections = _changelog_headings(just_released)
+
+	assert "0.7.0 — 2026-08-14" in sections, "the probe did not parse as a released section"
+	assert PREPARING not in sections, "the probe is meant to have nothing being prepared"
+
+	# The scan is what has to be non-empty. A changelog with nothing readable in it is the
+	# failure the floor exists for, and it still is.
+	assert not _changelog_headings("# Changelog\n\nNothing at all.\n")
