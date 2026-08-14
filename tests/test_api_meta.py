@@ -17,7 +17,9 @@ import api_support
 import subroutine
 import subroutine.api.app
 import subroutine.api.meta
+import subroutine.cli.topics
 import subroutine.db.models.vocabulary
+import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -528,3 +530,58 @@ def test_meta_with_no_workspace_named_is_unchanged (
 
 	assert answer.status_code == 200
 	assert [row["slug"] for row in answer.json()["workspaces"]] == [world.workspace.slug]
+
+
+def test_every_word_that_sets_a_date_reaches_both_a_person_and_an_agent (
+	world: test_api_tasks.World,
+) -> None:
+	"""**`SR#838`. The same grammar was published twice, completely to one reader and not the
+	other.**
+
+	`/v1/meta`'s `capture` vocabulary carried `PLANNED_WORDS` and `DEADLINE_WORDS`; `explain
+	capture` built its table from those *and* `DEFER_WORDS` and `BARE_PLANNED_WORDS`. So an
+	agent was told `on`, `before`, `by` and `due`, and never met `from`, `defer`, `today` or
+	`tomorrow` — four words of eight, on the surface whose reader has no other source.
+
+	**The usual correction cannot fire on an omission**, which is what makes this worth a guard
+	rather than two lines. An agent does not write `from monday`, get told the word is wrong,
+	and learn: it has no reason to try, so it never discovers there is a way to say this. `#821`
+	was the same shape one module along — `subroutine_link` published three of five seeded link
+	types, and the two missing were the pair that join work to the conclusions about it.
+
+	**Derived from the constants rather than listed here**, so a fifth kind of date word is
+	covered on the day it is written. That is the whole request on `SR#838`: *what is missing is
+	anything asserting the two agree*.
+	"""
+
+	grammars = world.call("GET", "/v1/meta").json()["grammars"]
+	published = " ".join(grammars["capture"]["vocabulary"])
+
+	topic = subroutine.cli.topics.find("capture")
+
+	assert topic is not None, "there is no capture topic, so this compares one rendering"
+
+	constants = {
+		"PLANNED_WORDS": subroutine.domain.capture.PLANNED_WORDS,
+		"DEADLINE_WORDS": subroutine.domain.capture.DEADLINE_WORDS,
+		"DEFER_WORDS": subroutine.domain.capture.DEFER_WORDS,
+		"BARE_PLANNED_WORDS": subroutine.domain.capture.BARE_PLANNED_WORDS,
+	}
+
+	missing: dict[str, list[str]] = {}
+
+	for name, words in constants.items():
+		assert words, f"{name} is empty, so naming it proves nothing"
+
+		for where, rendering in (("/v1/meta", published), ("explain capture", topic.body)):
+			absent = [word for word in words if not re.search(rf"\b{re.escape(word)}\b", rendering)]
+
+			if absent:
+				missing.setdefault(f"{where} ({name})", []).extend(absent)
+
+	assert not missing, (
+		f"the capture grammar is published to one reader and not the other: {missing}. Both "
+		f"renderings derive from the same constants, so a word in neither list is a word that "
+		f"reader will never write — and will never be corrected about, because they have no "
+		f"reason to try it."
+	)

@@ -724,15 +724,23 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				"+project",
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.PLANNED_WORDS)),
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.DEADLINE_WORDS)),
+				# **`#838`: every word that sets a date, not the four somebody happened to add.**
+				# `DEFER_WORDS` and `BARE_PLANNED_WORDS` were published to a terminal by
+				# `explain capture` and not here, so an agent was told four of the six words and
+				# never met `from`, `defer`, `today` or `tomorrow`.
+				#
+				# **The usual correction cannot fire on an omission like this**, which is why it
+				# is worth more than two lines: an agent does not write `from monday` and get
+				# told the word is wrong — it has no reason to try, so it never learns there is
+				# a way to say this at all. `#821` was the same shape one module along, where
+				# `subroutine_link` published three of five seeded link types.
+				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.DEFER_WORDS)),
+				*sorted(subroutine.domain.capture.BARE_PLANNED_WORDS),
 				# **Published because it has to be signalled** (`#797`). A time is read only
 				# after `at`, or immediately after a date this grammar already read — so unlike
 				# the words above, a caller who does not know the rule writes something that
 				# stays in the title. That makes it the row an agent most needs and the one it
 				# could least infer from the others.
-				#
-				# `#838` is the neighbouring gap this sits next to: `DEFER_WORDS` are published
-				# to a terminal and not here, and are deliberately left for that item rather
-				# than fixed in passing.
 				"at <time>, or <date> <time>",
 			],
 			examples=[

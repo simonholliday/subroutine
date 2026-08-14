@@ -4860,6 +4860,14 @@ export function App () {
 			   — which is the disagreement `close` used to create for the agenda. */
 			const back = showingOf(window.location.search);
 
+			/*
+				**Asked before `nowShowing` overwrites the answer** — `#767`. `shown.current` is
+				the live copy of what is on screen (the state lags in a callback, which is
+				`#657`), so this is the last moment the question *did the selection change* can
+				be put at all.
+			*/
+			const changed = reloads(shown.current, back);
+
 			nowShowing({ view: back.view, selection: back.selection });
 
 			/*
@@ -4871,11 +4879,22 @@ export function App () {
 			if (asked === null) {
 				setProject(null);
 				readAgenda(me ? me.workspaces : []);
-			} else if (agenda !== null || narrowed !== project) {
+			} else if (agenda !== null || narrowed !== project || changed) {
 				/* Leaving the agenda for a listing, or moving between listings. The filter is
 				   part of the address too (`#647`), so stepping back out of a project restores
 				   the whole workspace rather than leaving the list narrowed to something the
-				   address no longer says. */
+				   address no longer says.
+
+				   **And a changed selection, which is `#767`.** This branch predates the
+				   selection being in the address at all: when only the project could change
+				   which rows there are, `narrowed !== project` was the whole question. `#738`
+				   made the selection a second thing that changes it and this was not revisited
+				   — so stepping back out of the finished view left the reader looking at
+				   finished rows under an address saying the ordinary list, with an empty-state
+				   message that would have read *Nothing here yet.*
+
+				   `reloads` is what answers it, here and in `chooseView`, so the two cannot
+				   drift about what makes a selection different. */
 				setAgenda(null);
 				setProject(narrowed);
 				load(workspace, narrowed);

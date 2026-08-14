@@ -4879,6 +4879,45 @@ def _views (
 	"""))
 
 
+def test_stepping_back_asks_whether_the_selection_changed (tmp_path: pathlib.Path) -> None:
+	"""**`SR#767`. Back out of the finished view and the finished rows stayed.**
+
+	`arrive` decided whether to refetch with `agenda !== null || narrowed !== project`. Neither
+	is true when only the selection changed, so pressing Back after choosing *done* left the
+	reader looking at finished rows under an address saying the ordinary list — with an
+	empty-state message that would have read *Nothing here yet.* if they emptied it.
+
+	The branch predates the selection being in the address at all (`SR#738`): when only the
+	project could change which rows there are, `narrowed !== project` was the whole question.
+
+	**`reloads` is the decision and it was already lifted out** — `SR#640`'s route — so what was
+	missing was not the rule but the *call*, which is that item's other half repeated: lift the
+	decision out, then drive the thing that uses it.
+
+	**This guards the wiring rather than the behaviour, and that is a limit worth stating.**
+	`_driven` mounts the app at one address and cannot press Back — there is no popstate in the
+	harness — so the honest test of the fix is not available without extending it. What is here
+	catches the call being deleted and cannot catch it being made with the wrong arguments;
+	`SR#767` carries what a real one would need.
+	"""
+
+	source = _without_comments(_served_modules()["app.js"])
+	opens, closes = _braced(source, "const arrive = () => {")
+	inside = source[opens:closes]
+
+	assert "reloads(" in inside, (
+		"`arrive` decides whether to refetch without asking `reloads`, so stepping back across "
+		"a selection change leaves the rows of the selection the reader has left"
+	)
+
+	# **Before `nowShowing`, or it compares the new showing with itself.** `shown.current` is
+	# the live copy and `nowShowing` overwrites it, so the order is the whole of the fix.
+	assert inside.index("reloads(") < inside.index("nowShowing("), (
+		"`reloads` is asked after `nowShowing` has already written the new showing, so it "
+		"compares a value with itself and always answers no"
+	)
+
+
 def test_a_bare_address_still_reads_as_the_default_view (tmp_path: pathlib.Path) -> None:
 	"""`SR#745`. The half that has to survive a control writing the arrangement out.
 
