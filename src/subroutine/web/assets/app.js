@@ -272,8 +272,18 @@ export function inOrder (rows, ordering) {
 		a single collection at all — a server has already ordered it, and re-sorting would
 		overwrite that with whatever this function believes (`#706`).
 
-		**`ref` breaks a tie, following the ordering's direction**, because refs come from one
-		counter in creation order (§6.2) so they agree with the server's own tiebreaker.
+		**`ref` breaks a tie, always ascending**, which is oldest first and is what the server
+		does: `ordering.clauses` appends the tiebreaker `.asc()` and `parse_order` builds it
+		`descending: false`. Refs come from one counter in creation order (§6.2), so ascending
+		by ref is ascending by the id the server actually pages on.
+
+		**This said "following the ordering's direction" until `#879`**, and that was true until
+		`eecbd93` moved the query side and false afterwards — Simon's decision of 2026-08-13 is
+		that age separates rows and says nothing, so it must not inherit a direction from a key
+		it has nothing to do with. Four spellings of that rule exist; two moved and two, this
+		one and `cli/personal._ordering`, went on asserting in their own docstrings that they
+		agreed. That is why the finding was rated above the tie order it changes: **a sentence
+		claiming a rule holds is the reason nobody checks it.**
 
 		Compared by kind rather than by field name: an instant through `Date.parse`, which is
 		right whatever the representation and truncates to the millisecond — which is exactly
@@ -324,7 +334,7 @@ export function inOrder (rows, ordering) {
 			return way * (first < second ? -1 : 1);
 		}
 
-		return way * (one.ref - other.ref);
+		return one.ref - other.ref;
 	});
 }
 
@@ -343,14 +353,29 @@ export function mergeOrder (selection, rows) {
 		copy of a decision made elsewhere; a populated field is the decision itself, arriving.
 	*/
 	const asked = selection && selection.order;
-
-	if (asked && ORDERINGS[asked]) return ORDERINGS[asked];
-
-	const ranked = rows.some(
-		(row) => row.relevance !== undefined && row.relevance !== null
+	const chosen = asked && ORDERINGS[asked] ? ORDERINGS[asked] : (
+		rows.some((row) => row.relevance !== undefined && row.relevance !== null)
+			? ORDERINGS["-relevance"]
+			: ORDERINGS[DEFAULT_ORDER]
 	);
 
-	return ranked ? ORDERINGS["-relevance"] : ORDERINGS[DEFAULT_ORDER];
+	/*
+		**And it sinks only where the request asked the server to** — `#882`.
+
+		`sunkOrder` sends no `order` at all for a search nobody has given one to, so the server
+		applies plain `-created_at` **without** the deferral band. This function then reached for
+		`ORDERINGS["-created_at"]`, which carries `sinks: true`, and the merge sank rows the page
+		had not been chosen for — the client re-sorting by a rule the server did not use, which
+		is the disagreement keyset pagination exists to prevent (`#782`).
+
+		**Two functions, each with a passing test, and nothing comparing them.** That is `#640`'s
+		shape, and it shipped in the change whose own docstring says *"the server has to do the
+		sinking, not the page"*. So this asks `sunkOrder` rather than deciding again: one
+		selection, one answer, and the merge cannot mean something the request did not say.
+	*/
+	const sent = sunkOrder(selection);
+
+	return sent && sent.startsWith(`${DEFERRED},`) ? chosen : { ...chosen, sinks: false };
 }
 
 export function sunkOrder (selection) {

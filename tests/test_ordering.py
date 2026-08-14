@@ -35,18 +35,48 @@ class Row:
 			setattr(self, name, value)
 
 
+def _everything_a_listing_accepts () -> set[str]:
+	"""Return every sort name a task listing takes, including the ones it adds per request.
+
+	**`#878`. `TASK_FIELDS` is no longer the vocabulary**, and reading it as though it were is
+	what let `relevance` ship with no view reader: a search adds it (`#823`) and every listing
+	adds `deferred` (`#877`), so the static map is the endpoint's vocabulary minus the two
+	fields added most recently — which is precisely the half a guard needs to see.
+
+	Built by calling the same two functions the endpoint and the local client call, so a third
+	per-request field is covered on the day it is written rather than when somebody notices.
+	"""
+
+	model = subroutine.db.models.work.Task
+
+	return set(
+		subroutine.domain.ordering.searching(
+			subroutine.domain.ordering.sinking(
+				subroutine.domain.ordering.TASK_FIELDS,
+				model=model,
+				now=datetime.datetime.now(datetime.UTC),
+			),
+			terms=["anything"],
+			columns=[model.title, model.description],
+			carried_on=model.relevance,
+		)
+	)
+
+
 def test_every_sortable_task_field_can_be_read_off_a_view () -> None:
 	"""A sort field with no reader is one a merged listing silently ignores.
 
-	The guard that matters, rather than a restatement of the map: adding a name to
-	``TASK_FIELDS`` gives ``GET /v1/tasks?order=`` a new key immediately, and
-	``subroutine list --order`` would accept it, ask for it, and then merge on nothing.
-	Refusing a field is a fine answer; accepting it and not applying it is not.
+	The guard that matters, rather than a restatement of the map: adding a name to the
+	vocabulary gives ``GET /v1/tasks?order=`` a new key immediately, and ``subroutine list
+	--order`` would accept it, ask for it, and then merge on nothing. Refusing a field is a
+	fine answer; accepting it and not applying it is not.
+
+	**Read through `_everything_a_listing_accepts` rather than off `TASK_FIELDS`** (`#878`),
+	because two of the three most recent sort fields are added per request and this guard could
+	not see either of them.
 	"""
 
-	missing = set(subroutine.domain.ordering.TASK_FIELDS) - set(
-		subroutine.domain.ordering.VIEW_READERS
-	)
+	missing = _everything_a_listing_accepts() - set(subroutine.domain.ordering.VIEW_READERS)
 
 	assert not missing, (
 		f"{sorted(missing)} can be sorted by and cannot be read off a rendered view, so a "

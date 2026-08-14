@@ -57,6 +57,7 @@ import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.search
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
@@ -83,6 +84,12 @@ TROUBLE = "yellow"
 #: ignore the theme and land unreadable on somebody's background. Not `LATE`'s red: red already
 #: means overdue here, and one colour with two meanings is the thing that rule exists to stop.
 MATCH = "yellow"
+
+#: What a row says when a search found it somewhere this listing cannot read — `#881`. A word
+#: rather than a blank, for `STARTED_MARK`'s reason, and *this* word rather than ``comment``
+#: because it is the one the function can prove: a comment is what it usually is and a stemmed
+#: title match is what it sometimes is, and only "not in what you can see" covers both.
+ELSEWHERE = "elsewhere"
 
 #: How many comments ``show`` prints in full before it stops and says how many there are
 #: (`#37`). Enough that the ordinary item — everything in this instance has a handful — reads
@@ -658,39 +665,67 @@ def _match_cell (item: Item, term: str | None) -> str:
 	and the cost of that is a blank cell on a row that did match, which is why this returns
 	empty rather than guessing.
 
+	**Every word, not the whole query, and that is `#881`.** A search is *a set of words, all
+	of which must appear, in any order and in any column* (`#620`), so testing the query as one
+	contiguous substring answers a question nobody asked: `cursor pagination` did not match a
+	title reading *"Pagination resumes from the wrong cursor row"*, and the row fell through
+	every branch. Measured before the fix — of ten real multi-word searches returning 70 rows,
+	**30% could not be explained at all** by the old test.
+
 	**Two of the four answers are not fields, and `#870` is why they had to be added.**
 	`#867` made a query that is exactly a ref match the item with that number, and `#83` made
 	one match a comment on it. Neither is in a column this function can read, so both produced
 	precisely the row this cell exists to prevent: a hit with no visible reason, which reads as
 	a broken search. The number case was found in driving output within an hour of shipping it.
 
-	**``number`` is known and ``comment`` is inferred, and the difference matters.** A ref is
-	compared exactly, so that answer is as certain as the row itself. ``comment`` is what is
-	left once every readable field has been ruled out — which is right in every ordinary case
-	and wrong in exactly the one the paragraph above describes, where a title matched in SQL
-	and not in Python. That case used to cost a blank cell and now costs a misleading one; it
-	is accepted because the alternative is fetching every row's comments to be sure, which is
-	`#39`'s N+1 on a listing. `#840` is the version of this question a scripted caller needs.
+	**The last answer names the fact rather than the place, and the measurement is why.** It
+	used to say ``comment``, which this function cannot prove: under the ``native`` backend a
+	stemmed match is never a substring, so the check cannot model what selected the row at all.
+	Measured on the served instance — of the rows that reached the fall-through, **a comment
+	explained two and nothing explained three**, and two of those three had no comments on them.
+	A cell whose only job is to explain a match was stating a false one three times in five.
+
+	``elsewhere`` is true on both backends: *the match is not in what you can see*. That is the
+	whole of what `#870` needed, and it is the only claim available without fetching every row's
+	comments, which is `#39`'s N+1 on a listing. **``comment`` is recoverable under ``like``**,
+	where matching is pure substring and a comment is the only *elsewhere* there is — and is
+	deliberately not done, because a word a reader sees should not depend on configuration.
+	`#840` is the version of this question a scripted caller needs, and is the real answer.
 	"""
 
 	if not term:
 		return ""
 
-	wanted = term.casefold()
+	words = [word.casefold() for word in subroutine.domain.search.terms(term)]
 
-	if wanted in item.title.casefold():
-		return "title"
+	if not words:
+		return ""
 
-	prose = item.description if isinstance(item, subroutine.views.Task) else item.body
-
-	if (prose or "").casefold().find(wanted) >= 0:
-		return "description" if isinstance(item, subroutine.views.Task) else "body"
-
-	# Exact, so it is stated before the inferred answer below it.
+	# Exact, and stated first because it is the only answer here that is *certain*: a query
+	# that is entirely a ref matched this row by its number whatever its prose says.
 	if subroutine.domain.refs.parse_ref(term) == item.ref:
 		return "number"
 
-	return "comment"
+	title = item.title.casefold()
+
+	if all(word in title for word in words):
+		return "title"
+
+	prose = (
+		item.description if isinstance(item, subroutine.views.Task) else item.body
+	) or ""
+	folded = prose.casefold()
+	named = "description" if isinstance(item, subroutine.views.Task) else "body"
+
+	# **The prose answers for a spread match as well as for its own**, because the title is
+	# already on the row: when the words are split across the two, what a reader cannot see is
+	# the half that is worth naming.
+	if all(word in folded for word in words) or all(
+		word in title or word in folded for word in words
+	):
+		return named
+
+	return ELSEWHERE
 
 
 def _estimate_cell (item: Item) -> str:
@@ -1666,7 +1701,7 @@ def register (
 			# compare rows by the same keys the server paged them with, or a page boundary
 			# lands where the next page does not start (`#782`) — so the sunk spelling goes to
 			# both, from one variable, and the two cannot disagree about the leading key.
-			rows = _merged(gathered, order=_ordering(sunk)[1])
+			rows = _merged(gathered, order=_merge_order(sunk, gathered))
 			more = any(answer.value.more for answer in gathered.answers)
 
 			if json_output:
@@ -6137,6 +6172,12 @@ def _as_json (
 		# scripted reader that could see a task's tags and not a document's would be the
 		# §12.2a drift this function's own docstring is about.
 		"tags": list(item.tags),
+		# **How well this row answered the search that found it, or null** (`#878`). A script
+		# merging two connections has to put them into one order, and this is the only key that
+		# says what order the instance chose — the same field the browser reads and the
+		# terminal's own merge now reads. Null on any listing that was not ranked, which is how
+		# a caller tells "not searched" from "searched and scored zero".
+		"relevance": getattr(item, subroutine.domain.ordering.RELEVANCE, None),
 	}
 
 	if not isinstance(item, subroutine.views.Task):
@@ -6357,9 +6398,22 @@ def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:
 	where they land — asking for a page in one order and re-sorting it in another returns the
 	*wrong rows* rather than merely the wrong order.
 
-	The second is the comparison, with ``ref`` appended following the last key's direction,
-	exactly as :func:`subroutine.domain.ordering.clauses` makes a query's tiebreaker follow
-	it. An unknown field is refused here, before a single request goes out.
+	The second is the comparison, with ``ref`` appended **always ascending**, which is oldest
+	first and is what :func:`subroutine.domain.ordering.clauses` and
+	:func:`subroutine.api.pagination.parse_order` both do.
+
+	**That sentence used to say "following the last key's direction", and it was true until
+	`eecbd93` and false afterwards** — `#879`. Simon's decision of 2026-08-13 is that age is a
+	separator and not a signal, so it must not inherit a direction from a key it has nothing to
+	do with; the query side moved and the two client-side copies did not, and both of their
+	docstrings went on asserting they agreed. **A sentence claiming a rule holds is why nobody
+	checks it**, which is the reason `#879` was rated above the tie order it changes.
+
+	It matters more than a tiebreak usually would: ranked listings here are tie-heavy — 52 of
+	172 open tasks shared one score when that was measured — so across a third of a backlog
+	this is the only thing deciding the order.
+
+	An unknown field is refused here, before a single request goes out.
 	"""
 
 	# **Both vocabularies through `sinking`, so `deferred` is a name this parses** (`#877`).
@@ -6385,9 +6439,50 @@ def _ordering (order: str | None) -> tuple[bool, tuple[tuple[str, bool], ...]]:
 	readable = subroutine.domain.ordering.sinking(subroutine.domain.ordering.DOCUMENT_FIELDS)
 
 	shared = all(name in readable for name, _descending in wanted)
-	trailing = wanted[-1][1] if wanted else True
 
-	return shared, (*wanted, ("ref", trailing))
+	return shared, (*wanted, ("ref", False))
+
+
+def _merge_order (
+	order: str | None, gathered: subroutine.fanout.Gathered[Listing]
+) -> tuple[tuple[str, bool], ...]:
+	"""Return the comparison a merged page is actually in — ``#878``.
+
+	**A reader's explicit choice wins. Failing that, a ranked search is what the server chose
+	for itself**, and the rows are what say so: a listing that was ranked carries a relevance on
+	every row and one that was not carries null (`#875`). So this reads the data rather than
+	re-deriving the server's rule, which would be that rule written down twice and free to
+	disagree — and the browser's ``mergeOrder`` is the same three answers, reached the same way.
+
+	**Without this the terminal threw the ranking away.** ``_ordering`` parses the caller's
+	``--order`` against the static vocabulary, which has no ``relevance`` in it — that entry is
+	added per request — so a search with no explicit order fell back to ``-created_at``, each
+	connection came back correctly ranked, and the merge re-sorted the lot into newest-first.
+	Measured on the served instance: the API answered ``877, 389, 444, 598, 541`` where
+	``subroutine search`` answered the same rows strictly newest-first.
+
+	**It also defeated `#867`**, which is the sharpest way to say what it cost: an exact ref
+	match carries ``EXACT_MATCH_RANK`` and was then buried wherever its creation date fell —
+	the very defect ``api/tasks.py`` records as fixed.
+	"""
+
+	named = _ordering(order)
+
+	if order:
+		return named[1]
+
+	ranked = any(
+		getattr(row[1], subroutine.domain.ordering.RELEVANCE, None) is not None
+		for answer in gathered.answers
+		for row in answer.value.rows
+	)
+
+	if not ranked:
+		return named[1]
+
+	# **Descending, and the tiebreak ascending beneath it**, exactly as `clauses` builds it for
+	# the query — the whole point of `#879` being that these two agree.
+	return ((subroutine.domain.ordering.RELEVANCE, True), ("ref", False))
 
 
 def _merged (

@@ -436,6 +436,12 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"importance": lambda item: getattr(item, "importance", None),
 	"urgency": lambda item: getattr(item, "urgency", None),
 	"priority_score": lambda item: getattr(item, "rank", None),
+	# **`#878`.** `#875` published `relevance` on the view so that every surface could put a
+	# search in the order the server ranked it — and the browser reads it while the terminal
+	# had no way to. A name absent from this map is one no client can sort a merged page by,
+	# which this file has said since it was written; `relevance` was the field it was said
+	# about. Null on any listing that was not ranked, which is how a caller tells the two apart.
+	RELEVANCE: lambda item: getattr(item, RELEVANCE, None),
 	# **The one entry that recomputes rather than reads, and :func:`put_off` says why**: the
 	# band is a fact about the clock at the moment the query ran, and a rendered row carries
 	# the start date rather than the answer. A document has no start date and lands in the

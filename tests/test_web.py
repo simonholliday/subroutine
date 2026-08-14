@@ -33,6 +33,7 @@ import starlette.requests
 import api_support
 import subroutine.api.app
 import subroutine.api.documents
+import subroutine.api.pagination
 import subroutine.api.routing
 import subroutine.api.shaping
 import subroutine.api.tasks
@@ -42,6 +43,7 @@ import subroutine.cli.topics
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
+import subroutine.domain.ordering
 import subroutine.domain.tasks
 import subroutine.views
 import subroutine.web.vendored
@@ -4354,21 +4356,90 @@ def test_a_page_is_added_to_what_is_already_held (tmp_path: pathlib.Path) -> Non
 	)
 
 
-def test_the_merge_agrees_with_the_server_about_a_tie (tmp_path: pathlib.Path) -> None:
-	"""The server's tiebreaker follows the last key's direction, so a tie is `ref` descending.
+@pytest.mark.parametrize("order", ["-created_at", "created_at", "title", "-updated_at"])
+def test_the_merge_agrees_with_the_server_about_a_tie (
+	tmp_path: pathlib.Path, order: str
+) -> None:
+	"""**`SR#879`. Four spellings of one rule, and two of them were stale.**
 
-	`domain/ordering.terms` appends it always — *"so that equal values keep one stable order and
-	'newest first' stays newest first among rows that tie"*. A client breaking it the other way
-	would disagree with the boundary it is paging across.
+	Simon's decision of 2026-08-13 is that age separates rows and says nothing else, so the
+	tiebreaker is **always ascending** — oldest first — rather than inheriting the direction of
+	whatever key preceded it. `eecbd93` moved two of the four places that state it:
+	`domain/ordering.clauses` and `api/pagination.parse_order`. It did not move
+	`cli/personal._ordering` or `app.js`'s `inOrder`, **and both of their docstrings went on
+	asserting that it had** — which is why nobody looked, and why the review rated this above
+	the tie order it changes.
+
+	**This test asserted the old rule**, quoting a sentence that had stopped being true. Intent
+	kept — a client must break a tie the way the boundary it is paging across was broken —
+	satisfier changed.
+
+	**Parametrised over the direction**, because that is the whole defect: under the old rule a
+	descending key gave a descending tiebreak, so a test using one order could not tell the two
+	rules apart.
 	"""
 
 	rows = [
-		{"ref": 7, "created_at": "2026-08-08T09:00:00+00:00"},
-		{"ref": 9, "created_at": "2026-08-08T09:00:00+00:00"},
-		{"ref": 8, "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 7, "created_at": "2026-08-08T09:00:00+00:00",
+			"updated_at": "2026-08-09T09:00:00+00:00", "title": "Same"},
+		{"ref": 9, "created_at": "2026-08-08T09:00:00+00:00",
+			"updated_at": "2026-08-09T09:00:00+00:00", "title": "Same"},
+		{"ref": 8, "created_at": "2026-08-08T09:00:00+00:00",
+			"updated_at": "2026-08-09T09:00:00+00:00", "title": "Same"},
 	]
 
-	assert _ordered(tmp_path, rows) == [9, 8, 7]
+	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": order})])[0] == [7, 8, 9], (
+		f"a tie under {order} must come out oldest first, whichever way the key points"
+	)
+
+
+def test_every_spelling_of_the_tiebreak_points_the_same_way () -> None:
+	"""**`SR#879`'s guard: the rule exists four times and nothing compared them.**
+
+	Two are the server's — the `ORDER BY` a query is built with and the seek predicate a cursor
+	is built from — and two are clients re-sorting rows they have already been given. A
+	disagreement between any of them is a page boundary that skips or repeats rows, which looks
+	nothing like a sorting fault.
+
+	Read out of each place rather than restated here, so the check is against the code and not
+	against a copy of the decision.
+	"""
+
+	clauses = subroutine.domain.ordering.clauses(
+		"-created_at",
+		allowed=subroutine.domain.ordering.TASK_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+		tiebreak=subroutine.db.models.work.Task.id,
+	)
+
+	# Rendered rather than introspected: `UnaryExpression` keeps its direction in a private
+	# `modifier`, and reading one is a claim about SQLAlchemy's internals where the SQL is the
+	# thing that actually reaches the database.
+	rendered = str(clauses[-1]).upper()
+
+	assert "ASC" in rendered and "DESC" not in rendered, (
+		f"domain.ordering.clauses breaks a tie with {rendered}"
+	)
+
+	keys = subroutine.api.pagination.parse_order(
+		"-created_at",
+		allowed=subroutine.domain.ordering.TASK_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+		tiebreak=subroutine.db.models.work.Task.id,
+	)
+
+	assert keys[-1].descending is False, f"the cursor breaks a tie with {keys[-1]}"
+
+	terminal = subroutine.cli.personal._ordering("-created_at")[1]
+
+	assert terminal[-1] == ("ref", False), f"the terminal breaks a tie with {terminal[-1]}"
+
+	source = _served_modules()["app.js"]
+
+	assert "return one.ref - other.ref;" in source, (
+		"the browser's inOrder no longer breaks a tie by ascending ref, so it disagrees with "
+		"the id the server pages on"
+	)
 
 
 def test_showing_more_does_not_append_a_page_below_older_rows () -> None:
@@ -6703,6 +6774,57 @@ def test_the_order_the_browser_asks_for_sinks_deferred_work (
 	"""
 
 	assert _views(tmp_path, [("sunkOrder", selection)])[0] == expected
+
+
+@pytest.mark.parametrize(
+	("selection", "sinks"),
+	[
+		# The ordinary list and board: the request names `deferred,-created_at`, so the merge
+		# sinks too.
+		({}, True),
+		({"order": "title"}, True),
+		# **A search nobody has given an order to.** `sunkOrder` sends nothing, the server
+		# applies plain `-created_at` without the band, and the merge must not add one.
+		({"q": "passport"}, False),
+		# ...but a reader who chose an order gets it sunk at both ends.
+		({"q": "passport", "order": "title"}, True),
+		# The finished view, which says `sinks: false` at both ends for its own reason.
+		({"order": "-completed_at"}, False),
+	],
+)
+def test_the_merge_sinks_exactly_when_the_request_asked_the_server_to (
+	tmp_path: pathlib.Path, selection: dict[str, str], sinks: bool
+) -> None:
+	"""**`SR#882`, and it is the pair that had no test between them.**
+
+	`sunkOrder` decides what the server is asked for and `mergeOrder` decides what the merged
+	page is put in — and each had a passing test while **nothing compared them**. So a search
+	with no explicit order sent no `order` at all, the server ranked or dated it without the
+	deferral band, and the client sank rows anyway: re-sorting by a rule the server did not
+	use, which is the disagreement keyset pagination exists to prevent (`SR#782`).
+
+	`SR#640`'s shape for the seventh time, and it shipped in the change whose own docstring
+	says *"the server has to do the sinking, not the page"*.
+
+	**Both halves read here, from one selection**, so the assertion is about their agreement
+	rather than about either one being right on its own.
+	"""
+
+	answers = _views(tmp_path, [
+		("sunkOrder", selection),
+		("mergeOrder", [selection, [{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00"}]]),
+	])
+
+	asked, merging = answers
+
+	assert bool(asked and asked.startswith("deferred,")) == sinks, (
+		f"the request for {selection} asked for {asked!r}, which does not match the "
+		f"expectation that sinking is {sinks}"
+	)
+	assert bool(merging and merging.get("sinks")) == sinks, (
+		f"the merge for {selection} says sinks={merging and merging.get('sinks')} while the "
+		f"request asked for {asked!r} — the client and the server would disagree"
+	)
 
 
 def test_a_start_date_that_has_passed_does_not_sink_a_row (tmp_path: pathlib.Path) -> None:

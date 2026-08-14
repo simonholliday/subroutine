@@ -27,6 +27,7 @@ import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
+import subroutine.connections
 import subroutine.context
 import subroutine.directory
 import subroutine.domain.capture
@@ -34,6 +35,7 @@ import subroutine.domain.comments
 import subroutine.domain.dates
 import subroutine.domain.events
 import subroutine.errors
+import subroutine.fanout
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
 #: these, and meeting one means the personal path has started leaking the full model.
@@ -2369,13 +2371,20 @@ def test_a_row_matched_by_its_number_says_so (
 	assert "number" in found, "and the row says that is why it is here"
 
 
-def test_a_row_matched_by_a_comment_says_so (
+def test_a_row_matched_where_the_listing_cannot_look_says_so (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
 	"""`#870`'s other half, and `#825` warned about it before `#83` was built.
 
 	Its words: *"the cost of that is a blank cell on a row that did match"* — so the column had
 	to be extended in the same change that gave it a third way to be empty.
+
+	**The satisfier changed with `#881` and the intent did not.** This asserted the word
+	`comment`, which the listing cannot prove: under the `native` backend a stemmed match is
+	never a substring, so nothing here can tell a comment match from one in the title it failed
+	to recognise. Measured on the served instance, the cell was saying `comment` about three
+	rows in five that had none — a cell whose only job is to explain a match, stating a false
+	one. `elsewhere` is what it can prove on both backends, and it is what this now asserts.
 	"""
 
 	run("init")
@@ -2386,8 +2395,38 @@ def test_a_row_matched_by_a_comment_says_so (
 	found = run("search", "semi-join").output
 
 	assert "An ordinary heading" in found, "matched only by the comment on it"
-	assert "comment" in found
+	assert subroutine.cli.personal.ELSEWHERE in found
 	assert "title" in found, "and the other row disagrees, which is why the column shows"
+
+
+def test_a_row_matched_by_words_spread_across_its_title_says_which_field (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`#881`, and it is the case the old cell got wrong on every installation.**
+
+	A search is a set of words, all of which must appear, in any order and in any column
+	(`#620`) — and `_match_cell` tested the whole query as one contiguous substring. So a title
+	holding both words in the other order matched in SQL, failed every branch in Python, and
+	was reported as having matched a comment. Measured before the fix: **30% of the rows ten
+	real multi-word searches returned could not be explained at all.**
+
+	Reproduced here on the `like` backend, which is the default, on an instance with **no
+	comments in it** — so the old answer was not merely imprecise, it named something that did
+	not exist.
+
+	Two rows, because §12.2a drops a column whose rows agree.
+	"""
+
+	run("init")
+	run("add", "Pagination resumes from the wrong cursor row")
+	run("add", "Wholly unrelated")
+	run("comment", "2", "cursor pagination")
+
+	found = run("search", "cursor pagination").output
+
+	assert "Pagination resumes" in found, "both words are in its title, in the other order"
+	assert "title" in found, f"the row must say where its match is — {found!r}"
+	assert subroutine.cli.personal.ELSEWHERE in found, "and the other row disagrees"
 
 
 def _parented (child_ref: int, parent_ref: int) -> None:
@@ -5529,3 +5568,110 @@ def test_a_search_does_not_sink_the_thing_that_was_searched_for (
 	assert "#2" in rows[0] and "#1" in rows[1], (
 		f"a search stays in the order the instance ranked it: {rows}"
 	)
+
+
+def _gathered (rows: list[tuple[str, typing.Any]]) -> typing.Any:
+	"""Wrap rows as one connection's answer, the shape `_merged` is handed."""
+
+	return subroutine.fanout.Gathered(
+		answers=(
+			subroutine.fanout.Answer(
+				connection=subroutine.connections.Connection(name="here", url=None),
+				value=subroutine.cli.personal.Listing(rows=rows),
+			),
+		),
+		failures=(),
+	)
+
+
+class _Row:
+	"""The smallest thing the view readers accept: something with the attributes they name.
+
+	`views.Task` requires thirty-four fields and this exercises three of them, so building one
+	would be describing a task in order to compare two numbers. `tests/test_ordering.py` uses
+	the same shape for the same reason.
+	"""
+
+	def __init__ (self, **fields: typing.Any) -> None:
+		"""Store whatever the test gave, and nothing it did not."""
+
+		for name, value in fields.items():
+			setattr(self, name, value)
+
+
+def _searched (**scores: float | None) -> list[tuple[str, typing.Any]]:
+	"""Return rows carrying the relevance an instance would have sent, oldest written first."""
+
+	return [
+		(
+			"here",
+			_Row(
+				ref=index + 1,
+				title=name,
+				created_at=datetime.datetime(2026, 8, index + 1, tzinfo=datetime.UTC),
+				relevance=score,
+			),
+		)
+		for index, (name, score) in enumerate(scores.items())
+	]
+
+
+def test_a_ranked_search_keeps_its_ranking_when_the_terminal_merges () -> None:
+	"""**`SR#878`. The server ranked every page and the terminal threw the arrangement away.**
+
+	`_ordering` parses `--order` against the static vocabulary, which has no `relevance` in it —
+	that entry is added per request — so a search with no explicit order fell back to
+	`-created_at`. Each connection came back correctly ranked and the merge re-sorted the lot
+	into newest-first. Measured on the served instance: the API answered `877, 389, 444, 598,
+	541` where `subroutine search` answered the same rows strictly newest-first.
+
+	**The rows are what say a search was ranked**, which is the browser's answer to the same
+	question (`mergeOrder`) rather than a second copy of the server's rule: a ranked listing
+	populates `relevance` on every row and an unranked one leaves it null (`SR#875`).
+
+	**Written oldest-first with the best match oldest**, so newest-first and best-first are
+	different lists — otherwise the assertion holds under both behaviours and proves neither.
+	"""
+
+	rows = _searched(best=0.9, middling=0.5, worst=0.1)
+	order = subroutine.cli.personal._merge_order(None, _gathered(rows))
+
+	assert order[0] == ("relevance", True), f"the merge is not ranked: {order}"
+
+	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+
+	assert [row[1].title for row in merged] == ["best", "middling", "worst"]
+
+
+def test_a_listing_that_was_not_ranked_merges_as_it_always_did () -> None:
+	"""`SR#878`'s other half: nothing changes for a listing the server did not rank.
+
+	`relevance` is null on every row of one, which is how a client tells the two apart without
+	asking `/v1/meta` and inferring what the server would have done.
+	"""
+
+	rows = _searched(first=None, second=None, third=None)
+	order = subroutine.cli.personal._merge_order(None, _gathered(rows))
+
+	assert order == (("created_at", True), ("ref", False)), f"got {order}"
+
+	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+
+	assert [row[1].title for row in merged] == ["third", "second", "first"]
+
+
+def test_an_explicit_order_still_wins_over_the_servers_ranking () -> None:
+	"""`SR#878`. A reader who said how they want it arranged gets that, search or no search.
+
+	The same rule the endpoint applies — *"an explicit `?order=` still wins"* — and the same one
+	`mergeOrder` applies in the browser.
+	"""
+
+	rows = _searched(best=0.9, middling=0.5, worst=0.1)
+	order = subroutine.cli.personal._merge_order("title", _gathered(rows))
+
+	assert order == (("title", False), ("ref", False)), f"got {order}"
+
+	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+
+	assert [row[1].title for row in merged] == ["best", "middling", "worst"]
