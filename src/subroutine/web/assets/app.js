@@ -79,6 +79,9 @@ const PAGE = 100;
 */
 const TASK_FIELDS = [
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
+	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
+	   this says something else cannot start until you do, and a row can be both. */
+	"blocking",
 	"status", "status_is_default", "status_category",
 	/* **Which timezone a day-scale date was stored in** (`#773`). §6.5 stores an all-day
 	   deadline at the last instant of its day *in the task's own zone*, so rendering it in the
@@ -2271,6 +2274,24 @@ export function marks (item, showKind, ordering = null) {
 
 	if (sorted) found.push({ text: sorted, tone: "quiet" });
 	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
+	/*
+		**And the other end of it** (`#861`, which is `#569` reaching the surface it was
+		reported from). `#569` began with an agent reading a *board*: the urgent item carried
+		`Blocked` and the five-minute errand actually holding it up carried nothing, so the one
+		thing worth starting looked like the least important row on the page. The terminal and
+		the agent's row were given the mark and this was missed.
+
+		**Both marks rather than a precedence**, unlike `subroutine list`, and the difference is
+		the medium: the terminal has one cell, so `#569` had to choose, and it chose `blocked`
+		because that is the fact deciding whether you can act. A card has room for two, and a
+		row mid-chain genuinely is both.
+
+		**`quiet`, not `blocked`.** §12.2's colour rule is that colour marks an exception, and a
+		warning tone here would say *something is wrong with this item* about the row that is
+		holding everything else up — which is the opposite of what it means. It is the item you
+		should pick.
+	*/
+	if (item.blocking) found.push({ text: "Holds up", tone: "quiet" });
 	if (overdue(item)) {
 		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
 	}

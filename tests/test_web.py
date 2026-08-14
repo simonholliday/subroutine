@@ -7088,3 +7088,45 @@ def test_a_fact_sheet_shows_the_time_an_item_starts (tmp_path: pathlib.Path) -> 
 	assert "14:00" not in all_day and "00:00" not in all_day, (
 		f"an all-day start was given a time nobody chose: {all_day}"
 	)
+
+
+def test_a_row_marks_both_ends_of_a_dependency (tmp_path: pathlib.Path) -> None:
+	"""`#861`, which is `#569` reaching the surface it was reported from.
+
+	`#569` began with an agent reading a **board**: the urgent item carried *Blocked*, and the
+	five-minute errand actually holding it up carried nothing — so the only thing worth
+	starting looked like the least important row on the page. The terminal row and the agent's
+	row were both given the mark and this one was missed, which nothing could see: the field
+	guard asks whether every field a row *renders* is requested, and a field the row never
+	renders is invisible to it in the direction that matters.
+
+	**A row that is both shows both.** The terminal has one cell and had to choose, keeping
+	`blocked` because that is the fact deciding whether you can act; a card has room, and a row
+	mid-chain genuinely is both ends of two different links.
+	"""
+
+	shown = {
+		which: _rendered(tmp_path, {"Row": {"workspace": "projects", "item": {
+			"ref": 7, "kind": "task", "title": "Renew the certificate",
+			"blocked": which in ("blocked", "both"),
+			"blocking": which in ("blocking", "both"),
+		}}})["Row"]
+		for which in ("neither", "blocked", "blocking", "both")
+	}
+
+	assert "Holds up" in shown["blocking"], (
+		f"a task holding up unfinished work is unmarked: {shown['blocking']}"
+	)
+	assert "Holds up" in shown["both"] and "Blocked" in shown["both"], (
+		f"a row in the middle of a chain shows only one end: {shown['both']}"
+	)
+
+	# The negatives, because a mark that is always there says nothing — and this is the pair
+	# `#569` is about, so each has to be absent when it is untrue rather than merely present
+	# when it is.
+	assert "Holds up" not in shown["blocked"], (
+		f"a blocked task is marked as holding something up: {shown['blocked']}"
+	)
+	assert "Holds up" not in shown["neither"] and "Blocked" not in shown["neither"], (
+		f"an ordinary task carries a dependency mark: {shown['neither']}"
+	)

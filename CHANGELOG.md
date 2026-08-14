@@ -49,10 +49,11 @@ upgrade involves.
   errand actually holding it up sits further down looking like the least important row on the
   page. Both ends of the relationship now say so.
 
-  A row that is *both* — the middle of a chain — shows `blocked`, because that is the fact
-  deciding whether you can start it. `subroutine list --json`, the API and the agent's listing
-  carry the two as separate fields, so nothing is lost to that precedence, and `subroutine
-  show` names what is at the far end.
+  At the command line a row that is *both* — the middle of a chain — shows `blocked`, because
+  that is the fact deciding whether you can start it and there is one cell to say it in. A card
+  in the browser has room and shows both. `subroutine list --json`, the API and the agent's
+  listing carry the two as separate fields, so nothing is lost to that precedence, and
+  `subroutine show` names what is at the far end.
 
 - **A task carries `rank` when you ask for it in a particular order.** `GET /v1/tasks` now
   reports where each row sat in the ordering the request asked for, so a client merging pages
