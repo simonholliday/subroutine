@@ -398,13 +398,14 @@ class Client:
 				statement = statement.where(parked)
 
 			if q:
+				backend = subroutine.domain.search.chosen(session)
 				statement = statement.where(
 					sqlalchemy.or_(
 						subroutine.domain.search.matching(
-							q, model.title, model.description, ref=model.ref
+							q, model.title, model.description, ref=model.ref, backend=backend
 						),
 						subroutine.domain.search.in_a_comment(
-							q, subject=model.id, entity_type="task"
+							q, subject=model.id, entity_type="task", backend=backend
 						),
 					)
 				)
@@ -642,10 +643,17 @@ class Client:
 						if not q
 						else sqlalchemy.or_(
 							subroutine.domain.search.matching(
-								q, model.title, model.body, ref=model.ref
+								q,
+								model.title,
+								model.body,
+								ref=model.ref,
+								backend=subroutine.domain.search.chosen(session),
 							),
 							subroutine.domain.search.in_a_comment(
-								q, subject=model.id, entity_type="document"
+								q,
+								subject=model.id,
+								entity_type="document",
+								backend=subroutine.domain.search.chosen(session),
 							),
 						)
 					)

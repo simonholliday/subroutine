@@ -252,13 +252,16 @@ def listing (
 		# Title and body, the document's counterpart to a task's description (§9.4). This is
 		# where this project's own reasoning lives: `#4` is a specification, and searching for
 		# a term it discusses at length found nothing at all.
+		backend = subroutine.domain.search.chosen(session)
 		statement = statement.where(
 			sqlalchemy.or_(
-				subroutine.domain.search.matching(q, model.title, model.body, ref=model.ref),
+				subroutine.domain.search.matching(
+					q, model.title, model.body, ref=model.ref, backend=backend
+				),
 				# `#83`. A document's comments are where it was argued over, which is often
 				# where the sentence somebody half-remembers actually is.
 				subroutine.domain.search.in_a_comment(
-					q, subject=model.id, entity_type="document"
+					q, subject=model.id, entity_type="document", backend=backend
 				),
 			)
 		)

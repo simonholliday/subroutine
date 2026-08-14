@@ -62,9 +62,45 @@ import typing
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
+import subroutine.db.fulltext
 import subroutine.db.models.activity
 import subroutine.domain.refs
 import subroutine.errors
+
+#: What answers ``q`` when nothing better is available, and what every instance had until
+#: `#823`. Named rather than spelled `"like"` at each site, so the two implementations are a
+#: closed vocabulary a guard can read.
+LIKE = "like"
+
+#: The indexed implementation. Available on PostgreSQL and nowhere else — `#871`.
+NATIVE = "native"
+
+
+def chosen (session: sqlalchemy.orm.Session, *, settings: "subroutine.config.Settings | None" = None) -> str:
+	"""Return which implementation will actually answer, for this session.
+
+	**Two things have to agree and only one of them is a preference.** ``search_backend`` says
+	what the operator asked for; the dialect says what is possible. Asking for ``native`` on
+	SQLite is **not an error** — there is nothing wrong with the request, the backend simply is
+	not there — so it falls back and ``GET /v1/meta`` publishes what is in force. §9.4 designed
+	that channel for exactly this: *"agents learn which is available from /v1/meta"*, which is
+	only worth anything if a caller can be told *no* without being refused.
+
+	Read from the session rather than from configuration alone, because the two can disagree:
+	a served instance may be bound to a database the configured URL does not name, and
+	``db/backup.py`` has the same rule for the same reason after branching on ``settings``
+	sent ``VACUUM INTO`` at PostgreSQL.
+	"""
+
+	wanted = (settings or subroutine.config.load_settings()).search_backend
+
+	if wanted != NATIVE:
+		return LIKE
+
+	bind = session.get_bind()
+
+	return NATIVE if bind.dialect.name == "postgresql" else LIKE
 
 
 def escaped (value: str) -> str:
@@ -103,7 +139,7 @@ def terms (query: str) -> list[str]:
 
 
 def matching (
-	query: str, *columns: Searchable, ref: Searchable | None
+	query: str, *columns: Searchable, ref: Searchable | None, backend: str = LIKE
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching every word of this query, across these columns.
 
@@ -164,16 +200,24 @@ def matching (
 			"Use the few most distinctive words instead.",
 		)
 
-	text = sqlalchemy.and_(
-		*[
-			sqlalchemy.or_(
-				*[
-					column.ilike(f"%{escaped(term)}%", escape="\\")
-					for column in columns
-				]
-			)
-			for term in wanted
-		]
+	# **One expression against the whole row's text, or one substring test per column.** The
+	# two agree about which rows match a whole word and disagree about everything else, which
+	# is the trade `#871` records: the native one stems and matches a trailing prefix, the
+	# `like` one matches any substring and can never be served by an index (§10.4).
+	text = (
+		subroutine.db.fulltext.matches(wanted, *columns)
+		if backend == NATIVE
+		else sqlalchemy.and_(
+			*[
+				sqlalchemy.or_(
+					*[
+						column.ilike(f"%{escaped(term)}%", escape="\\")
+						for column in columns
+					]
+				)
+				for term in wanted
+			]
+		)
 	)
 
 	if ref is None:
@@ -193,7 +237,7 @@ def matching (
 
 
 def in_a_comment (
-	query: str, *, subject: Searchable, entity_type: str
+	query: str, *, subject: Searchable, entity_type: str, backend: str = LIKE
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching a readable comment written on this item.
 
@@ -239,7 +283,7 @@ def in_a_comment (
 			model.entity_type == entity_type,
 			model.entity_id == subject,
 			model.deleted_at.is_(None),
-			matching(query, model.body, ref=None),
+			matching(query, model.body, ref=None, backend=backend),
 		)
 		.exists()
 	)

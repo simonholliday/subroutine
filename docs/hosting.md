@@ -155,6 +155,24 @@ disagree, so a setting that exists and is not here cannot ship.
 | `max_page_size` | `200` | The most a caller may ask for |
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
 | `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
+| `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** — see below |
+
+**`search_backend` changes what a search finds, not only how fast it finds it**, which is why
+it is off by default and why it is worth a paragraph rather than a row.
+
+`like` is what every instance has had until now: it matches your words anywhere inside the
+text, so `ursor` finds *cursor*. It cannot be served by an index, so it reads every row's
+prose — fine for a personal backlog and increasingly not fine as one grows.
+
+`native` builds a full-text index. Measured at 20,000 tasks, a search matching nothing goes
+from **119 ms to 1 ms**. In exchange it matches whole words rather than fragments: `seed` now
+finds *seeded* and *seeding*, `curs` still finds *cursor* because a word can be completed from
+the start, and `ursor` finds nothing at all.
+
+It exists on PostgreSQL only. Asking for it on SQLite is not an error — you get `like`, and
+`GET /v1/meta` reports which one is actually answering. Turning it on needs no migration
+beyond the ordinary `subroutine db upgrade`; turning it off again is a configuration change
+and nothing else.
 
 **There are deliberately no retention settings.** §5.11 and §6.9 both describe a retention
 period, and nothing purges anything yet — so `events_retention_days` and
@@ -323,7 +341,7 @@ before starting the service:
 
 ```console
 $ subroutine db current
-  Schema is at b1520dcd4afb.
+  Schema is at a3f9c21d7e40.
 ```
 
 An empty database says so and tells you to run `init`. It is never silently created underneath
@@ -478,7 +496,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"b1520dcd4afb"}
+  {"status":"ready","api_version":"1.0","schema_revision":"a3f9c21d7e40"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database *and* that the
@@ -1293,11 +1311,11 @@ copy where it landed, migrate, then read the schema back rather than assuming.
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema b1520dcd4afb.
+  Subroutine 0.5.0 expects schema a3f9c21d7e40.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
-  Upgraded from 547fe53b263c to b1520dcd4afb.
+  Upgraded from 547fe53b263c to a3f9c21d7e40.
 ```
 
 It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
@@ -1305,8 +1323,8 @@ also the cheapest way to ask the question:
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema b1520dcd4afb.
-  The database is at b1520dcd4afb.
+  Subroutine 0.5.0 expects schema a3f9c21d7e40.
+  The database is at a3f9c21d7e40.
   Nothing to do.
 ```
 
@@ -1334,7 +1352,7 @@ deciding the remedy:
 ```console
 $ subroutine today
   Nothing could be read.
-  Local: This database is at schema 233f898a2bee, and this build expects b1520dcd4afb.
+  Local: This database is at schema 233f898a2bee, and this build expects a3f9c21d7e40.
     Run 'subroutine db upgrade' — it backs up first, then migrates.
 ```
 

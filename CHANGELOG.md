@@ -14,18 +14,37 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `b1520dcd4afb`.
+> **This release changes the database schema**, to `a3f9c21d7e40`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 >
-> It adds one index to the event table and changes no data, so on any instance short of
-> a very large one it is a matter of seconds.
+> It adds indexes and changes no data, so on any instance short of a very large one it
+> is a matter of seconds. On SQLite the second of the two migrations does nothing at
+> all: the indexes it creates exist on PostgreSQL only.
 
 ### Added
 
-- **Search reads comments.** A search now finds an item when the words are in a comment on it,
+- **Search can be served by an index, on PostgreSQL.** Set `search_backend = "native"` in
+  `config.toml`. Measured at 20,000 tasks, a search that matches nothing — which is the
+  slowest kind, and the one you run to check whether something already exists — goes from
+  **119 ms to 1 ms**.
+
+  **It is off by default and nothing changes until you turn it on.** On SQLite it is not
+  available at all: asking for it there is not an error, you simply get the existing
+  implementation. `GET /v1/meta` reports which one is answering, as `search_backend`.
+
+  **The two find different things, which is why this is a setting and not a quiet
+  improvement.** With the index on:
+
+  - Searching `seed` finds *seeded* and *seeding*, and `paginate` finds *pagination*. Words
+    are matched by their root rather than letter for letter.
+  - A partial word still works from the start: `curs` finds *cursor*.
+  - **A partial word no longer works from the middle**: `ursor` will not find *cursor*. This
+    is the one thing the index cannot do, and it is inherent rather than an omission.
+
+  If you rely on matching the middle of a word, keep the default.
   as well as in its title, description or body. This changes what a search *finds*, not how
   fast it finds it, so it is worth knowing about rather than being a quiet improvement: a query
   that returned nothing yesterday may return something today.

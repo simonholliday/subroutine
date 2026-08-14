@@ -2412,6 +2412,23 @@ class Meta(pydantic.BaseModel):
 	#: argument for it being here rather than only in the guide it points at.
 	purpose: str
 
+	#: Which implementation answers ``q`` here — ``like`` or ``native`` (§9.4, item `#823`).
+	#:
+	#: **Published because the two find different things, not merely at different speeds.**
+	#: ``native`` stems, so ``seed`` finds ``seeded``, and matches a trailing prefix, so
+	#: ``curs`` finds ``cursor``; ``like`` matches any substring, so it alone finds ``cursor``
+	#: from ``ursor``. A caller that knows which is in force can tell an empty result that
+	#: means *there is nothing* from one that means *not with those letters*.
+	#:
+	#: §9.4 designed this channel for exactly this — *"agents learn which is available from
+	#: /v1/meta"* — and it is what lets an operator ask for ``native`` on SQLite and be told
+	#: what happened rather than refused: the request is legitimate, the backend is simply not
+	#: there (`#871`).
+	#:
+	#: **Defaulted, like everything added to a response model after it shipped** (`#345`,
+	#: `#482`): an instance older than this field sends no such key and must keep working.
+	search_backend: str | None = None
+
 	#: Where this instance's source can be obtained. Published as a commitment rather than
 	#: because anything compels it: the AGPL's network clause did, FSL-1.1-ALv2 does not, and
 	#: it is published anyway (SPEC.md §2.2) because somebody using an instance ought to be

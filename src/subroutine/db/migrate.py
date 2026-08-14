@@ -9,6 +9,7 @@ which.
 import pathlib
 import re
 import typing
+import warnings
 
 import alembic.autogenerate
 import alembic.command
@@ -21,6 +22,7 @@ import sqlalchemy.engine
 
 import subroutine.config
 import subroutine.db.base
+import subroutine.db.fulltext
 import subroutine.db.models
 
 #: Ships inside the package so that migrations are available from an installed wheel,
@@ -216,9 +218,27 @@ def schema_differences (engine: sqlalchemy.engine.Engine) -> list[typing.Any]:
 			},
 		)
 
-		return list(
-			alembic.autogenerate.compare_metadata(context, subroutine.db.base.Base.metadata)
-		)
+		# **Alembic announces the thing `_include_object` has already decided.** It cannot
+		# reflect an expression index, so it warns once per full-text index that it is skipping
+		# one — on SQLite, where the index does not exist and never will. The suite turns every
+		# warning into an error, so without this the drift check fails on the backend the
+		# feature deliberately does not touch.
+		#
+		# **Narrowed to the message rather than the category**, so an expression index that
+		# somebody adds *without* meaning to — one this module has no exclusion for — still
+		# reaches whoever is reading. It suppresses a sentence, not a class of problem.
+		with warnings.catch_warnings():
+			warnings.filterwarnings(
+				"ignore",
+				message=r"autogenerate skipping metadata-specified expression-based index",
+				category=UserWarning,
+			)
+
+			return list(
+				alembic.autogenerate.compare_metadata(
+					context, subroutine.db.base.Base.metadata
+				)
+			)
 
 
 def check_constraint_differences (engine: sqlalchemy.engine.Engine) -> list[str]:
@@ -295,6 +315,26 @@ def _check_literals (text: str) -> tuple[str, ...]:
 def _include_object (
 	obj: typing.Any, name: str | None, type_: str, reflected: bool, compare_to: typing.Any
 ) -> bool:
-	"""Exclude Alembic's own bookkeeping table from comparison."""
+	"""Exclude what Alembic cannot meaningfully compare.
+
+	Two things, and only one of them is bookkeeping.
+
+	``alembic_version`` is Alembic's own table and was never ours to compare.
+
+	**A full-text index is excluded because Alembic cannot compare one, not because we would
+	rather it did not.** It warns as much — *"can't reflect these indexes so they can't be
+	compared"* — and the consequence is that it reports removing and re-adding the same index
+	on every run, so an instance that is exactly right looks like one that has drifted. Two of
+	the three report this today, which is itself a sign the comparison is guessing.
+
+	**What makes this exclusion go away** — the question every allow-list here has to answer —
+	is Alembic learning to compare expression indexes, or these ceasing to be expression-based.
+	Until then ``tests/test_migrations.py`` asserts that every excluded name is an index a
+	migrated database really has, so the exclusion cannot quietly cover an index nothing builds
+	— which is the failure it would otherwise hide, and the one that costs a scan per search.
+	"""
+
+	if type_ == "index" and name in subroutine.db.fulltext.names():
+		return False
 
 	return not (type_ == "table" and name == "alembic_version")

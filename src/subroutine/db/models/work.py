@@ -14,6 +14,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.base
+import subroutine.db.fulltext
 import subroutine.db.mixins
 import subroutine.db.types
 
@@ -519,3 +520,23 @@ class Mention(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin
 	created_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), default=subroutine.db.types.utcnow, nullable=False
 	)
+
+
+#: What ``q`` can be served from, where a backend exists to serve it (§9.4, item `#823`).
+#:
+#: **Declared here rather than in ``__table_args__``** because these are expression indexes and
+#: an expression needs the mapped columns, which do not exist until the class does. They attach
+#: themselves to their table on construction, so binding the result to a name is for the reader
+#: rather than for SQLAlchemy — and :func:`subroutine.db.fulltext.index` asserts the attachment
+#: happened, because an index that quietly belongs to no table is built by nothing and fails
+#: nowhere.
+#:
+#: **PostgreSQL only, by `#871`'s decision**, and skipped rather than refused elsewhere: the
+#: `like` backend answers on SQLite exactly as it always has.
+ix_task_search = subroutine.db.fulltext.index(
+	"ix_task_search", Task.__table__.c.title, Task.__table__.c.description
+)
+
+ix_document_search = subroutine.db.fulltext.index(
+	"ix_document_search", Document.__table__.c.title, Document.__table__.c.body
+)

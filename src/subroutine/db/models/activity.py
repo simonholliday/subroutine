@@ -8,6 +8,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.base
+import subroutine.db.fulltext
 import subroutine.db.mixins
 import subroutine.db.types
 
@@ -153,3 +154,11 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 	created_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), default=subroutine.db.types.utcnow, nullable=False
 	)
+
+
+#: `#83`: a comment is prose a search has to reach, and on a working instance there is more of
+#: it than there is of anything else. Same rule as the item indexes in
+#: :mod:`subroutine.db.models.work` — see those for why this is not in ``__table_args__``.
+ix_comment_search = subroutine.db.fulltext.index(
+	"ix_comment_search", Comment.__table__.c.body
+)

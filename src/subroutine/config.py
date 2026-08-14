@@ -672,6 +672,22 @@ class Settings(pydantic_settings.BaseSettings):
 	# materialised path and the cost of a move (SPEC.md §5.4).
 	max_hierarchy_depth: int = 10
 
+	# Which implementation answers `q` (§9.4, item `#823`).
+	#
+	# **`like` is the default and stays the default**, so a fresh instance needs nothing and
+	# behaves exactly as every instance has until now. `native` asks for the indexed
+	# implementation, which exists on PostgreSQL only — on SQLite it is *not an error*, it
+	# simply is not available and `like` answers instead. `GET /v1/meta` publishes which is in
+	# force, which is how a caller learns it rather than discovering it from a refusal (§9.4).
+	#
+	# **The two find different things, not merely at different speeds**, which is why this is
+	# a setting rather than a detail. `native` stems — `seeded` and `seed` agree — and matches
+	# whole words plus a trailing prefix, so `curs` finds `cursor`; `like` matches any
+	# substring, so it also finds `cursor` from `ursor` and `native` never will. §10.4 says
+	# substring is one of the two predicates no index can serve, so that is the trade being
+	# made and not something a better implementation would recover.
+	search_backend: typing.Literal["like", "native"] = "like"
+
 	@classmethod
 	def settings_customise_sources (
 		cls,

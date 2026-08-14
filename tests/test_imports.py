@@ -72,6 +72,13 @@ SIDE_EFFECT_IMPORTS: dict[tuple[str, str], str] = {
 	("src/subroutine/db/models/__init__.py", "subroutine.db.models.work"): (
 		"registers task, document, tag, link and mention, the same way"
 	),
+	("src/subroutine/db/fulltext.py", "sqlalchemy.dialects.postgresql"): (
+		"registers the argument and return types of to_tsvector and its family; SQLAlchemy "
+		"refuses to compile one constructed before this import, with a message naming it. "
+		"Every probe missed it because creating a PostgreSQL engine imports it first — under "
+		"the suite the models are built before any engine exists, and every PostgreSQL test "
+		"errored"
+	),
 	("src/subroutine/db/migrate.py", "subroutine.db.models"): (
 		"populates Base.metadata before the drift check compares it against the database; "
 		"nothing here names a model"

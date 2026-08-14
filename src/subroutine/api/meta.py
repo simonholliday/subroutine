@@ -53,6 +53,7 @@ import subroutine.domain.filtering
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.scoping
+import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.workspaces
@@ -203,6 +204,9 @@ def document (
 		instance_version=subroutine.installations.program(),
 		server_time=subroutine.db.types.utcnow(),
 		purpose=PURPOSE,
+		# What is *in force*, not what was asked for: on SQLite a request for the native
+		# backend is answered by `like`, and this is where a caller finds that out.
+		search_backend=subroutine.domain.search.chosen(session, settings=settings),
 		instance=None if instance is None else subroutine.views.instance(instance),
 		source_url=settings.source_url,
 		public_url=settings.public_url,
