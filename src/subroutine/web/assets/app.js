@@ -1956,14 +1956,27 @@ export function calendarDay (value, zone = null) {
 	return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export function day (value, zone = null) {
+export function day (value, zone = null, allDay = true) {
 	/*
 		A date in the reader's own locale, because this is the one surface where the machine
-		knows what that is. Time is dropped: everything shown here is a day-scale fact.
+		knows what that is.
 
 		**`zone` is the timezone that stored the value**, and passing it is what makes the day
 		right — see `calendarDay`. Omitting it is correct for a genuine instant like
 		`updated_at`, where the question really is *when was this, where I am*.
+
+		**`allDay` is the item's own answer and `false` is what adds the time** — `#864`. This
+		said "time is dropped: everything shown here is a day-scale fact", which stopped being
+		true when `#797` taught the capture grammar to read `at 14:00`: Simon captured *Dentist
+		on Monday at 14:00*, the grammar stored it, and this rendered *Starts 17 Aug 2026*. A
+		field a person can write and cannot read back is `#515`'s shape.
+
+		**Read rather than inferred**, which is `timeFor`'s argument and it holds here for the
+		same reason: an appointment at midnight and a deadline meaning *the end of that day* are
+		the same instant in some zones, so looking at the clock and guessing would print `00:00`
+		against every ordinary deadline. The default is `true` so that a caller which has no
+		such flag — `updated_at`, `completed_at`, `planned_for`, which is a date and has no time
+		to show — is unchanged and cannot accidentally acquire one.
 	*/
 	if (!value) return null;
 
@@ -1975,11 +1988,17 @@ export function day (value, zone = null) {
 		day `calendarDay` decided on, and `toLocaleDateString` with no `timeZone` then renders
 		that day whatever the reader's offset is.
 	*/
-	return new Date(year, month - 1, date).toLocaleDateString(undefined, {
+	const shown = new Date(year, month - 1, date).toLocaleDateString(undefined, {
 		day: "numeric",
 		month: "short",
 		year: "numeric",
 	});
+	/* `timeFor` is the one place that decides whether a stored value carries a time, and it is
+	   already what fills the form's time box. Reusing it is what stops the fact sheet and the
+	   form disagreeing about whether an item has an o'clock. */
+	const at = timeFor(value, allDay, zone);
+
+	return at ? `${shown}, ${at}` : shown;
 }
 
 export function overdue (item) {
@@ -3454,8 +3473,12 @@ export function Facts ({ item }) {
 	   introduced: the form can set it, and a field a reader can write and never read back is
 	   `#515`'s shape — every step reports success and they are left confirming the wrong
 	   conclusion. The CLI has printed it as *from <date>* since M1. */
-	add("Starts", day(item.start_at, item.timezone));
-	add("Due", day(item.due_at, item.timezone));
+	add("Starts", day(item.start_at, item.timezone, item.start_is_all_day));
+	add("Due", day(item.due_at, item.timezone, item.due_is_all_day));
+	/* **No flag, because `planned_for` is a `DATE` and has no time to show.** Simon read the
+	   missing time picker beside this field as an inconsistency and it is one — but it is the
+	   model rather than the form, and `#854` is where it goes: *"a time there would be a
+	   promise the field cannot keep"*. */
 	add("Planned", day(item.planned_for, item.timezone));
 	add("Estimate", item.estimate_human);
 	add("Tags", item.tags && item.tags.length > 0 ? item.tags.join(", ") : null);

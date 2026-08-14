@@ -284,6 +284,15 @@ upgrade involves.
   what stops anyone filling a form in without looking at it. The form now keeps a reading
   measure of its own; the board still gets the screen.
 
+- **An item that starts at a particular time says so in the browser.** Capturing *Dentist on
+  Monday at 14:00* has read the time since 0.6.5, and the page showed only *Starts 17 Aug
+  2026* — so the one thing you had gone to the trouble of typing was the one thing you could
+  not read back.
+
+  A deadline with a time behaves the same way. An all-day date is unchanged and does not
+  acquire a `00:00` it never had, because the item says which it is rather than the page
+  guessing from the clock.
+
 - **`subroutine show` said a deleted item did not exist, while `list --trash` listed it and
   `restore` put it back.** Three commands, one item, and one of them denying it was there.
 

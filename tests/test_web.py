@@ -7057,3 +7057,34 @@ def test_the_footer_says_nothing_about_a_version_it_has_not_been_given (
 	assert rendered.count("<span") == 1, (
 		f"an empty element is still a claim that there is a version: {rendered}"
 	)
+
+
+def test_a_fact_sheet_shows_the_time_an_item_starts (tmp_path: pathlib.Path) -> None:
+	"""`#864`, found by Simon driving the browser with no terminal.
+
+	He captured *Dentist on Monday at 14:00*, which `#797` taught the grammar to read; the item
+	stored `start_at` with `start_is_all_day: false`; and the item page said **Starts 17 Aug
+	2026**. A field a person can write and cannot read back is `#515`'s shape, and `#797`'s own
+	finding was that a time somebody typed must be *reported* rather than guessed.
+
+	**Both halves, because either alone passes for the wrong reason.** Showing the time proves
+	nothing if an all-day deadline grows a spurious `00:00` — which is exactly what reading the
+	clock instead of the flag would do, and is why `timeFor` refuses to infer.
+	"""
+
+	timed, all_day = (
+		_rendered(tmp_path, {"Facts": {"item": {
+			"ref": 18, "title": "Dentist", "timezone": "Europe/London",
+			"start_at": "2026-08-17T13:00:00Z", "start_is_all_day": flag,
+		}}})["Facts"]
+		for flag in (False, True)
+	)
+
+	assert "14:00" in timed, (
+		f"an item that starts at an o'clock shows only its day: {timed}"
+	)
+	assert "17" in timed, f"the day went missing along with the fix: {timed}"
+
+	assert "14:00" not in all_day and "00:00" not in all_day, (
+		f"an all-day start was given a time nobody chose: {all_day}"
+	)
