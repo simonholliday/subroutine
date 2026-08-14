@@ -324,6 +324,21 @@ class Task(pydantic.BaseModel):
 	#: newer client refuse that instance outright rather than read the rest of what it said.
 	rank: int | None = None
 
+	#: How well this row answered the search that selected it (`#823`), and **published for
+	#: exactly ``rank``'s reason**: a client merging pages from several places has to be able
+	#: to reproduce the order it asked each of them for. The browser holds tasks and documents
+	#: as two collections and re-sorts them into one list, so without this it could only merge
+	#: on a date — which is `#875`, where the server ranked a search and the client threw the
+	#: ranking away.
+	#:
+	#: **Null unless the listing was ranked**, which needs both a search and a backend that can
+	#: score one. Compare it; do not read meaning into the number. It is not comparable between
+	#: two different searches, and it is not a property of the item — it is the score of one
+	#: query, which is why it took a decision to publish rather than being obvious.
+	#:
+	#: **Defaulted because it was added after this model shipped** (`#345`, `#482`).
+	relevance: float | None = None
+
 	due_at: datetime.datetime | None
 	due_is_all_day: bool
 	planned_for: datetime.date | None
@@ -1088,6 +1103,14 @@ class Document(pydantic.BaseModel):
 
 	supersedes_id: uuid.UUID | None
 
+	#: How well this row answered the search that selected it — the same field :class:`Task`
+	#: carries, for the same reason, and it has to be on **both** or a merged list is back to
+	#: having no shared key (`#875`). §6.2 gives the two kinds one ref counter, so a search
+	#: spans them and the client holds two collections it must interleave.
+	#:
+	#: Null unless the listing was ranked. **Defaulted** (`#345`, `#482`).
+	relevance: float | None = None
+
 	archived_at: datetime.datetime | None
 	deleted_at: datetime.datetime | None
 	created_at: datetime.datetime
@@ -1445,6 +1468,7 @@ def task (
 		# worked out: since `#569` an ordering may consult rows other than this one, so there
 		# is nothing here to work it out from.
 		rank=row.rank,
+		relevance=row.relevance,
 		due_at=row.due_at,
 		due_is_all_day=row.due_is_all_day,
 		planned_for=row.planned_for,
@@ -1496,6 +1520,7 @@ def document (
 		owner_id=row.owner_id,
 		tags=vocabulary.tags.get(row.id, []),
 		supersedes_id=row.supersedes_id,
+		relevance=row.relevance,
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,

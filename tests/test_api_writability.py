@@ -84,6 +84,14 @@ DERIVED: dict[str, str] = {
 		"would be making a claim about an act rather than recording it."
 	),
 	"ref": "Allocated once per workspace and never reused (§6.2).",
+	"relevance": (
+		"How well this row answered the search that selected it (`#823`). Published on Simon's "
+		"decision of 2026-08-14 so that a search returns the same order at the terminal, over "
+		"HTTP, through MCP and in the browser — the last of which holds tasks and documents as "
+		"two collections and cannot interleave them into one ranked list without a shared key "
+		"(`#875`). Computed by the query and never accepted: a caller supplying one would be "
+		"claiming a score against words it chose itself."
+	),
 	"rank": (
 		"Where the ordering the listing asked for put this row (`#569`). Not a score anybody "
 		"assessed — `priority_score` is that — and not stored anywhere: the query computes it "
@@ -312,16 +320,6 @@ def test_every_known_gap_names_the_item_tracking_it () -> None:
 #: Columns that are machinery rather than facts about the item. A client cannot act on them
 #: and reporting them would be reporting how this is stored rather than what it holds.
 INTERNAL: dict[str, str] = {
-	"relevance": (
-		"How well this row answered the search that selected it (`#823`). Not stored and not "
-		"a property of the item at all — it is the score of one query, so it means nothing on "
-		"a row fetched any other way and would be null on every listing that is not a search. "
-		"`rank` is reported and this is not, which looks inconsistent and is the difference "
-		"between a *position in an ordering the caller asked for* and a *score against words "
-		"the caller supplied*. Whether to publish it is `#875`'s open question, because the "
-		"browser cannot merge a ranked list without it — so this excuse is expected to go "
-		"away, in the direction of the field being added rather than removed."
-	),
 	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
 	"depth": "Derived from `path`, and maintained with it.",
 	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",

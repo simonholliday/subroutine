@@ -78,6 +78,9 @@ const PAGE = 100;
 	would quietly invert §12.2c.
 */
 const TASK_FIELDS = [
+	/* How well a row answered a search, so a merged list can be put back into the order
+	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
+	"relevance",
 	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
@@ -119,6 +122,9 @@ const TASK_FIELDS = [
    less. Not the same list with the extras arriving null, because that is the difference
    between "has no deadline" and "cannot have one", and only one of them is true. */
 const DOCUMENT_FIELDS = [
+	/* The task list's counterpart — `#875`. A search spans both kinds, so a key only one
+	   of them carries is no key at all. */
+	"relevance",
 	"ref", "title", "project_key", "status", "status_is_default",
 	/* Not rendered either — it is what the board groups on (`#653`). A document's categories
 	   are its own vocabulary, so it gets its own columns rather than being mapped onto a
@@ -293,7 +299,32 @@ export function inOrder (rows, ordering) {
 	});
 }
 
-export function accumulated (held, arriving, { appending, collections }) {
+export function mergeOrder (selection, rows) {
+	/*
+		Which order a merged page is actually in — `#875`, `#876`.
+
+		**Three answers, and the middle one is the whole of `#875`.** A reader's explicit choice
+		wins. Failing that, a *ranked search* is what the server chose for itself: it defaults a
+		search to `-relevance` wherever a backend can compute one, and it says so by populating
+		the field — so this reads the data rather than re-deriving the server's rule, which would
+		be the same rule written down twice and free to disagree. Failing both, the default.
+
+		**Data rather than configuration on purpose.** The alternative was asking `/v1/meta`
+		whether the backend can rank and inferring what the server would have done. That is a
+		copy of a decision made elsewhere; a populated field is the decision itself, arriving.
+	*/
+	const asked = selection && selection.order;
+
+	if (asked && ORDERINGS[asked]) return ORDERINGS[asked];
+
+	const ranked = rows.some(
+		(row) => row.relevance !== undefined && row.relevance !== null
+	);
+
+	return ranked ? ORDERINGS["-relevance"] : ORDERINGS[DEFAULT_ORDER];
+}
+
+export function accumulated (held, arriving, { appending, collections, ordering }) {
 	/*
 		What the list becomes when a page arrives — the whole rule, in one place.
 
@@ -315,7 +346,20 @@ export function accumulated (held, arriving, { appending, collections }) {
 	*/
 	const all = appending ? [...held, ...arriving] : arriving;
 
-	return collections > 1 ? newestFirst(all) : all;
+	/*
+		**The ordering is a parameter now, and it was the missing wire** (`#876`). This merged
+		on `created_at` whatever the reader had chosen, so *A to Z* on a mixed list produced a
+		page in neither order — the server sorted each collection alphabetically and this
+		re-sorted the result by when things were written.
+
+		`inOrder` was written for exactly this in `#782` and was reachable only through
+		`newestFirst`, which passes the default. A guard even assumed otherwise: the
+		ordering-coverage test asserts both collections fetch the ordering's `field` *"because
+		`field` is what `inOrder` merges on"*. The data was being fetched for a merge that never
+		used it — `#640`'s shape again, the rule right and the display right with nothing
+		joining them.
+	*/
+	return collections > 1 ? inOrder(all, ordering || ORDERINGS[DEFAULT_ORDER]) : all;
 }
 
 /* ---- surviving a component that throws (`#680`) -------------------------- */
@@ -2207,6 +2251,21 @@ export const DEFAULT_ORDER = "-created_at";
 	ordered — which `tests/test_web.py` refuses.
 */
 export const ORDERINGS = {
+	"-relevance": {
+		/*
+			**The server's choice, not a reader's** — `#823`, `#875`. A search defaults to its
+			own ranking wherever a backend can compute one, so this exists for `inOrder` to
+			merge on and is deliberately **absent from `SELECTABLE.order`**: it is not
+			addressable, not offered, and means nothing without a search. `offer: null` is the
+			same answer `-completed_at` already gives.
+
+			`render: "none"` because a score is not something to print. A reader wants the best
+			match at the top, not a number telling them it is.
+		*/
+		sentence: "Best match first", offer: null, field: "relevance",
+		shows: "relevance", render: "none", label: "",
+		compare: "number", descending: true, both: true,
+	},
 	"-created_at": {
 		sentence: "Newest first", offer: "Newest first", field: "created_at",
 		shows: "created_at", render: "moment", label: "written",
@@ -4228,7 +4287,19 @@ export function App () {
 			one you can.
 		*/
 		setItems((existing) => accumulated(existing, fetched, {
-			appending: Boolean(after), collections: wanted.length,
+			appending: Boolean(after),
+			collections: wanted.length,
+			// **From the rows as well as the selection** (`#875`): a search the server ranked
+			// says so by populating `relevance`, and re-deriving that rule here would be a
+			// second copy of it. Computed over what is about to be held, not over `fetched`
+			// alone, so an appended page cannot merge on a different key from the one below it.
+			//
+			// **`chose`, which is `shown.current.selection`, never `showing`.** A callback
+			// closes over the render that made it, so `showing` lags — which is the whole
+			// reason `shown` exists, and `load` already reads the selection that way a few
+			// lines above. Reading it the other way here would merge a page by the arrangement
+			// the reader had *before* the one they are looking at.
+			ordering: mergeOrder(chose, after ? [...existing, ...fetched] : fetched),
 		}));
 
 		/*

@@ -4774,6 +4774,9 @@ def _views (
 			: name === "collectionsFor" ? app.collectionsFor(argument)
 			: name === "inOrder"
 				? app.inOrder(argument.rows, app.ORDERINGS[argument.order]).map((row) => row.ref)
+			: name === "mergeOrder" ? app.mergeOrder(argument[0], argument[1])
+			: name === "accumulated"
+				? app.accumulated(argument[0], argument[1], argument[2])
 			: app.columns(argument))));
 	"""))
 
@@ -7217,3 +7220,100 @@ def test_every_selection_parameter_says_which_collections_answer_it (
 		f"collections can answer them. That is how SR#872 happened: the request builder did "
 		f"something reasonable, and it was wrong for the new parameter."
 	)
+
+
+def test_a_chosen_ordering_survives_the_merge (tmp_path: pathlib.Path) -> None:
+	"""**`SR#876`.** `accumulated` merged on `created_at` whatever the reader had chosen.
+
+	`inOrder` was written for this in `SR#782` and was reachable only through `newestFirst`,
+	which passes the default — so the general case it exists for had never been reached, while
+	a guard elsewhere asserted both collections fetch the ordering's field *"because `field` is
+	what `inOrder` merges on"*. The data was fetched for a merge that did not use it.
+
+	**Creation order disagrees with alphabetical order**, which is the only arrangement that can
+	tell the two apart. A fixture where they agree passes either way.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "title": "Zebra", "created_at": "2026-08-01T00:00:00+00:00"},
+		{"ref": 2, "kind": "document", "title": "Apple", "created_at": "2026-08-02T00:00:00+00:00"},
+	]
+
+	merged = _views(tmp_path, [(
+		"accumulated",
+		[[], rows, {"appending": False, "collections": 2, "ordering": None}],
+	)])[0]
+
+	assert [row["ref"] for row in merged] == [2, 1], "the default is newest first"
+
+	alphabetical = _views(tmp_path, [(
+		"accumulated",
+		[[], rows, {"appending": False, "collections": 2, "ordering": {
+			"field": "title", "compare": "text", "descending": False,
+		}}],
+	)])[0]
+
+	assert [row["ref"] for row in alphabetical] == [2, 1], "Apple before Zebra"
+
+	descending = _views(tmp_path, [(
+		"accumulated",
+		[[], rows, {"appending": False, "collections": 2, "ordering": {
+			"field": "title", "compare": "text", "descending": True,
+		}}],
+	)])[0]
+
+	assert [row["ref"] for row in descending] == [1, 2], "Zebra before Apple"
+
+
+def test_a_ranked_search_is_merged_by_its_ranking (tmp_path: pathlib.Path) -> None:
+	"""**`SR#875`, and Simon's requirement: one order across all four surfaces.**
+
+	The server defaults a search to `-relevance` where a backend can score one, and says so by
+	populating the field. `mergeOrder` reads that rather than re-deriving the rule, so the
+	browser puts a merged search into the order the API, the CLI and MCP already return.
+
+	**The best match is the oldest row here**, deliberately: under the old merge it would have
+	sorted last, which is exactly what happened to a bare ref search — the item somebody typed
+	the number of is usually older than everything discussing it.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "relevance": 1000.1,
+		 "created_at": "2026-08-01T00:00:00+00:00"},
+		{"ref": 2, "kind": "document", "relevance": 0.07,
+		 "created_at": "2026-08-05T00:00:00+00:00"},
+	]
+
+	chosen = _views(tmp_path, [("mergeOrder", [None, rows])])[0]
+
+	assert chosen["field"] == "relevance", chosen
+	assert chosen["descending"] is True
+
+	merged = _views(tmp_path, [(
+		"accumulated",
+		[[], rows, {"appending": False, "collections": 2, "ordering": chosen}],
+	)])[0]
+
+	assert [row["ref"] for row in merged] == [1, 2], (
+		"the exact match came back below something written later, which is the defect"
+	)
+
+
+def test_an_unranked_listing_is_not_merged_by_relevance (tmp_path: pathlib.Path) -> None:
+	"""The other half: nothing changes for a listing the server did not rank.
+
+	`relevance` is null on every listing that is not a ranked search, so reading the data has
+	to mean *this was ranked* rather than *this has the field*. Without this the fix would put
+	every ordinary list into an order decided by a column of nulls.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "relevance": None,
+		 "created_at": "2026-08-01T00:00:00+00:00"},
+		{"ref": 2, "kind": "document", "relevance": None,
+		 "created_at": "2026-08-05T00:00:00+00:00"},
+	]
+
+	chosen = _views(tmp_path, [("mergeOrder", [None, rows])])[0]
+
+	assert chosen["field"] == "created_at", chosen

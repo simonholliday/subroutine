@@ -325,16 +325,20 @@ upgrade involves.
 
 ### Fixed
 
-- **A search puts the best match first, where the index is on.** Searching `862` now returns
-  `#862` itself at the top rather than somewhere among everything that mentions it — which is
-  what makes searching by number worth doing. Sort by `-relevance` explicitly if you want it
-  on a search that would otherwise be ordered some other way.
+- **A search puts the best match first — the same order everywhere.** Searching `862` returns
+  `#862` itself at the top rather than somewhere among everything that mentions it, and the
+  command line, the API, an agent and the browser all agree about the order. Sort by
+  `-relevance` explicitly if you want it on a search that would otherwise be arranged some
+  other way.
 
   This only exists where `search_backend = "native"` is in force, because nothing else can
   score a match. `GET /v1/meta` lists `relevance` among a listing's sort fields exactly when
-  it is available.
+  it is available, and a search result now carries a `relevance` field so a client can put
+  several collections into one order.
 
-  **Not yet in the browser**, which re-sorts a merged list by date after it arrives.
+- **The browser keeps the order you asked for.** A list holding both tasks and documents was
+  re-sorted by date after it arrived, whatever you had chosen — so *A to Z* produced a page
+  that was not alphabetical and the control looked broken.
 
 - **A finished item in a listing says so** — both at the terminal, which marks it `done`, and
   on an agent's row, which names the status. It appeared looking exactly like an open one,
