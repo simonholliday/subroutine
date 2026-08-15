@@ -33,7 +33,42 @@
 	--accent: #2563eb;
 	--warn: #b42318;
 	--radius: 6px;
-	--gap: 16px;
+
+	/* **The type scale** (`#906`, decided from `#441`). Five steps, and nothing outside them —
+	   which is the whole difference between what colour has here and what type had. There were
+	   45 `font-size` declarations across eight values and **39 of them sat in three values
+	   spanning 2px**, so this is not eight tiers collapsed, it is one cluster of small text
+	   given names. `--text-body` is `body`'s own 15px, unchanged and mostly inherited: only one
+	   rule ever declared it, and everything else overrode downward. */
+	--text-fine: 12px;
+	--text-small: 13px;
+	--text-body: 15px;
+	--text-section: 17px;
+	--text-page: 20px;
+
+	/* **Relative on purpose.** Code inside a 13px row should be 13px-ish and code inside 15px
+	   prose 15px-ish. It was the one relative unit among forty-five, which read as the tell that
+	   nothing else scaled — it was that, and it is also right. */
+	--text-code: 0.88em;
+
+	/* **The spacing scale** (`#906`). A 2px grid rather than the conventional 4px one, and that
+	   reverses the research: measured, `4/8/12/16/24` covers 64 of 149 values, so **57% of the
+	   page would have had to round**. The two it deletes are `.row { padding: 10px 14px }` and
+	   the 14px block margin — the row rhythm and the block rhythm, which decide how much of a
+	   list is visible without scrolling. A 4px grid is right for comfortable-whitespace
+	   products; the argument here is that the information is the interface.
+
+	   Nine steps is a weak constraint and that is the accepted cost: what it kills is the odd
+	   values and the 18/20/22/28 tail, which is where the accidents were. */
+	--space-1: 2px;
+	--space-2: 4px;
+	--space-3: 6px;
+	--space-4: 8px;
+	--space-5: 10px;
+	--space-6: 12px;
+	--space-7: 14px;
+	--space-8: 16px;
+	--space-section: 24px;
 
 	/* **The reading measure**, and the one place it is written down (`#863`). It was a literal
 	   on `.app` alone, so anything that widened the frame widened everything the frame held. */
@@ -41,8 +76,8 @@
 
 	/* What the frame leaves for its content, which is what a form has to match in order to be
 	   the same width wherever it is opened. Derived rather than a second number: `.app` pads
-	   by `--gap` on both sides and everything here is `border-box`. */
-	--measure-inner: calc(var(--measure) - 2 * var(--gap));
+	   by `--space-8` on both sides and everything here is `border-box`. */
+	--measure-inner: calc(var(--measure) - 2 * var(--space-8));
 
 	color-scheme: light dark;
 }
@@ -72,8 +107,12 @@ body {
 	margin: 0;
 	background: var(--bg-sunken);
 	color: var(--ink);
-	font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-		Arial, sans-serif;
+	/* **The base is the token, not a number that happens to match it.** `--text-body` is this
+	   value, and almost nothing declares it — every other rule overrides downward, which is why
+	   the page's working size is `--text-small` and this is what survives on a title and on
+	   prose. Two copies of 15px would be two places to change it and one to forget. */
+	font: var(--text-body)/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+		"Helvetica Neue", Arial, sans-serif;
 	-webkit-font-smoothing: antialiased;
 }
 
@@ -132,7 +171,7 @@ fieldset {
 .app {
 	max-width: var(--measure);
 	margin: 0 auto;
-	padding: var(--gap);
+	padding: var(--space-8);
 }
 
 /* **The board is the one view that wants the screen** (`#846`). 1100px is a reading measure —
@@ -157,15 +196,15 @@ fieldset {
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
-	gap: var(--gap);
-	padding-bottom: 12px;
+	gap: var(--space-8);
+	padding-bottom: var(--space-6);
 	border-bottom: 1px solid var(--line);
-	margin-bottom: var(--gap);
+	margin-bottom: var(--space-8);
 	flex-wrap: wrap;
 }
 
 .top h1 {
-	font-size: 17px;
+	font-size: var(--text-section);
 	font-weight: 600;
 	margin: 0;
 	letter-spacing: -0.01em;
@@ -173,7 +212,7 @@ fieldset {
 
 .who {
 	color: var(--ink-soft);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 .who strong { font-weight: 600; color: var(--ink); }
@@ -196,12 +235,12 @@ fieldset {
    screen and that is the one thing `#846` got right. */
 .adding {
 	max-width: var(--measure-inner);
-	margin-bottom: 14px;
+	margin-bottom: var(--space-7);
 }
 
 .adding .line {
 	display: flex;
-	gap: 8px;
+	gap: var(--space-4);
 }
 
 .adding .line input { flex: 1 1 auto; }
@@ -213,7 +252,7 @@ fieldset {
 .adding select,
 .adding textarea {
 	min-width: 0;
-	padding: 9px 12px;
+	padding: var(--space-5) var(--space-6);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -232,7 +271,7 @@ fieldset {
 
 .adding button {
 	flex: 0 0 auto;
-	padding: 9px 16px;
+	padding: var(--space-5) var(--space-8);
 	background: var(--accent);
 	border: 1px solid transparent;
 	border-radius: var(--radius);
@@ -268,48 +307,48 @@ fieldset {
 .adding .details {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-	gap: 10px 12px;
-	margin-top: 12px;
-	padding: 14px;
+	gap: var(--space-5) var(--space-6);
+	margin-top: var(--space-6);
+	padding: var(--space-7);
 	background: var(--bg-raised);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 }
 
 .adding .details legend {
-	padding: 0 6px;
+	padding: 0 var(--space-3);
 	color: var(--ink-soft);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 .adding .details label {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--space-2);
 	min-width: 0;
 }
 
 .adding .details label span {
 	color: var(--ink-soft);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 /* The three dates need a sentence each and the rest do not — `SR#769`. Quieter than the label,
    because it is read once and then never again. */
 .adding .details small {
 	color: var(--ink-faint);
-	font-size: 12px;
+	font-size: var(--text-fine);
 	line-height: 1.35;
 }
 
 .adding .details .wide { grid-column: 1 / -1; }
 
 /* Editing an item is the same form with the title in place of the capture line — `SR#757`. */
-.adding.editing { margin: 0 0 14px; }
+.adding.editing { margin: 0 0 var(--space-7); }
 
 .edit {
-	margin-bottom: 12px;
-	padding: 6px 12px;
+	margin-bottom: var(--space-6);
+	padding: var(--space-3) var(--space-6);
 	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -325,7 +364,7 @@ fieldset {
    rows there are rather than about the item under the cursor. */
 .seeking {
 	display: flex;
-	gap: 8px;
+	gap: var(--space-4);
 	flex: 1 1 220px;
 	max-width: 420px;
 }
@@ -333,7 +372,7 @@ fieldset {
 .seeking input {
 	flex: 1 1 auto;
 	min-width: 0;
-	padding: 7px 11px;
+	padding: var(--space-4) var(--space-6);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -346,7 +385,7 @@ fieldset {
 
 .seeking button {
 	flex: 0 0 auto;
-	padding: 7px 14px;
+	padding: var(--space-4) var(--space-7);
 	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -361,31 +400,31 @@ fieldset {
 /* Which kind the disclosed form is about to write — `SR#761`. Above the fields it changes,
    because it decides what they are. */
 .adding .kind {
-	margin-top: 12px;
+	margin-top: var(--space-6);
 }
 
 .adding .kind label {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--space-4);
 }
 
 .adding .kind span {
 	color: var(--ink-soft);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 /* Joining two items — `SR#760`. A row, because a type and a ref are one thought. */
 .linking {
 	display: flex;
-	gap: 8px;
-	margin-top: 10px;
+	gap: var(--space-4);
+	margin-top: var(--space-5);
 	flex-wrap: wrap;
 }
 
 .linking select,
 .linking input {
-	padding: 7px 10px;
+	padding: var(--space-4) var(--space-5);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -400,7 +439,7 @@ fieldset {
 .linking input::placeholder { color: var(--ink-faint); }
 
 .linking button {
-	padding: 7px 14px;
+	padding: var(--space-4) var(--space-7);
 	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -415,22 +454,22 @@ fieldset {
 /* **A word, never a colour alone** (`SR#102`) — `SR#658`: whether the other end of a link is
    over, which the response has always carried and nothing read. */
 .linked .over {
-	margin-left: 6px;
-	padding: 1px 6px;
+	margin-left: var(--space-3);
+	padding: var(--space-1) var(--space-3);
 	border: 1px solid var(--line-strong);
 	border-radius: 999px;
 	color: var(--ink-faint);
-	font-size: 12px;
+	font-size: var(--text-fine);
 }
 
 .linked .unlink {
-	margin-left: 8px;
+	margin-left: var(--space-4);
 	padding: 0;
 	background: none;
 	border: 0;
 	color: var(--ink-faint);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	text-decoration: underline;
 	cursor: pointer;
 }
@@ -443,14 +482,14 @@ fieldset {
 .saying {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: var(--space-4);
 	align-items: flex-start;
-	margin-top: 12px;
+	margin-top: var(--space-6);
 }
 
 .saying textarea {
 	width: 100%;
-	padding: 9px 12px;
+	padding: var(--space-5) var(--space-6);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -463,7 +502,7 @@ fieldset {
 .saying textarea::placeholder { color: var(--ink-faint); }
 
 .saying button {
-	padding: 8px 16px;
+	padding: var(--space-4) var(--space-8);
 	background: var(--accent);
 	border: 1px solid transparent;
 	border-radius: var(--radius);
@@ -478,8 +517,8 @@ fieldset {
 /* **A 409 is news, not a failure** — nothing was written and nothing typed was lost, so this
    is marked the way an exception is marked and says the whole of it in words (`SR#102`). */
 .conflict {
-	margin: 12px 0;
-	padding: 10px 12px;
+	margin: var(--space-6) 0;
+	padding: var(--space-5) var(--space-6);
 	border: 1px solid var(--warn);
 	border-radius: var(--radius);
 	line-height: 1.5;
@@ -492,14 +531,14 @@ fieldset {
 .note {
 	display: flex;
 	align-items: baseline;
-	gap: 10px;
-	margin-bottom: 14px;
-	padding: 9px 12px;
+	gap: var(--space-5);
+	margin-bottom: var(--space-7);
+	padding: var(--space-5) var(--space-6);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-left-width: 3px;
 	border-radius: var(--radius);
-	font-size: 14px;
+	font-size: var(--text-body);
 }
 
 .note.bad { border-left-color: var(--warn); }
@@ -508,18 +547,18 @@ fieldset {
 
 .note button {
 	flex: 0 0 auto;
-	padding: 2px 8px;
+	padding: var(--space-1) var(--space-4);
 	background: none;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	cursor: pointer;
 }
 
 .note button:hover { color: var(--ink); border-color: var(--ink-soft); }
-.note .dismiss { border-color: transparent; font-size: 16px; line-height: 1; }
+.note .dismiss { border-color: transparent; font-size: var(--text-body); line-height: 1; }
 
 /* ---- the board (`#653`) ------------------------------------------------- */
 
@@ -561,10 +600,10 @@ fieldset {
    `#102`'s reasoning about hues belonging to the reader's theme. */
 .board .columns {
 	display: flex;
-	gap: 14px;
+	gap: var(--space-7);
 	align-items: stretch;
 	overflow-x: auto;
-	padding-bottom: 6px;
+	padding-bottom: var(--space-3);
 	background:
 		linear-gradient(to right, var(--bg-sunken), transparent) 0 0 / 28px 100% no-repeat local,
 		linear-gradient(to left, var(--bg-sunken), transparent) 100% 0 / 28px 100% no-repeat local,
@@ -588,8 +627,8 @@ fieldset {
 }
 
 .board .column h2 {
-	margin: 0 0 8px;
-	font-size: 13px;
+	margin: 0 0 var(--space-4);
+	font-size: var(--text-small);
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
@@ -615,44 +654,44 @@ fieldset {
    a statement that something is missing with no way to have it is worse than either. */
 .board .column .empty {
 	margin: 0;
-	padding: 14px;
+	padding: var(--space-7);
 	border: 1px dashed var(--line);
 	border-radius: var(--radius);
 	background: none;
 	color: var(--ink-faint);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 /* A card is a row without the horizontal grid: in a 260px column a three-cell line wraps into
    nonsense, so the title takes the width and everything else sits under it. */
 .board .row {
 	display: block;
-	padding: 10px 12px;
+	padding: var(--space-5) var(--space-6);
 }
 
-.board .row .ref { display: inline; margin-right: 6px; }
-.board .row .when { display: block; margin-top: 2px; }
-.board .row .marks { margin-top: 6px; }
+.board .row .ref { display: inline; margin-right: var(--space-3); }
+.board .row .when { display: block; margin-top: var(--space-1); }
+.board .row .marks { margin-top: var(--space-3); }
 
 /* How the rows are arranged (`#651`). Two words, so it reads as a choice rather than as a
    toolbar. */
 .views {
 	display: flex;
-	gap: 4px;
-	margin-top: 10px;
+	gap: var(--space-2);
+	margin-top: var(--space-5);
 }
 
 /* Anchors since `#722`, so each arrangement can be opened in its own tab. `inline-block` is what
    makes the padding hold — an inline anchor's vertical padding does not affect line height. */
 .views a {
 	display: inline-block;
-	padding: 3px 10px;
+	padding: var(--space-2) var(--space-5);
 	background: none;
 	border: 1px solid transparent;
 	border-radius: var(--radius);
 	color: var(--ink-faint);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	text-decoration: none;
 	cursor: pointer;
 }
@@ -672,11 +711,11 @@ fieldset {
 /* Buckets are stacked headings over ordinary rows, not a new kind of list. The agenda answers
    *when*, and the row is the same row it is everywhere else — a reader who has learned one has
    learned both. */
-.agenda .bucket + .bucket { margin-top: 22px; }
+.agenda .bucket + .bucket { margin-top: var(--space-section); }
 
 .agenda h2 {
-	margin: 0 0 8px;
-	font-size: 13px;
+	margin: 0 0 var(--space-4);
+	font-size: var(--text-small);
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
@@ -693,9 +732,9 @@ fieldset {
    listing does not. */
 .adding .lands {
 	display: block;
-	margin-top: 6px;
+	margin-top: var(--space-3);
 	color: var(--ink-faint);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 /* ---- listing ----------------------------------------------------------- */
@@ -723,10 +762,10 @@ fieldset {
 .row {
 	display: grid;
 	grid-template-columns: 4.5rem 1fr auto;
-	gap: 4px 12px;
+	gap: var(--space-2) var(--space-6);
 	align-items: baseline;
 	width: 100%;
-	padding: 10px 14px;
+	padding: var(--space-5) var(--space-7);
 	background: none;
 	border: 0;
 	border-top: 1px solid var(--line);
@@ -754,14 +793,14 @@ fieldset {
 .finish {
 	flex: 0 0 auto;
 	align-self: center;
-	margin: 0 10px 0 4px;
-	padding: 4px 10px;
+	margin: 0 var(--space-5) 0 var(--space-2);
+	padding: var(--space-2) var(--space-5);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	white-space: nowrap;
 	cursor: pointer;
 }
@@ -770,23 +809,23 @@ fieldset {
 .finish:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .finish:disabled { opacity: 0.5; cursor: default; }
 
-.row .ref { color: var(--ink-faint); font-size: 13px; }
+.row .ref { color: var(--ink-faint); font-size: var(--text-small); }
 .row .title { font-weight: 500; }
-.row .when { color: var(--ink-soft); font-size: 13px; white-space: nowrap; }
+.row .when { color: var(--ink-soft); font-size: var(--text-small); white-space: nowrap; }
 
 .row .marks {
 	grid-column: 2 / -1;
 	display: flex;
 	flex-wrap: wrap;
-	gap: 6px;
-	font-size: 12px;
+	gap: var(--space-3);
+	font-size: var(--text-fine);
 	color: var(--ink-soft);
 }
 
 .mark {
 	border: 1px solid var(--line-strong);
 	border-radius: 999px;
-	padding: 0 8px;
+	padding: 0 var(--space-4);
 	line-height: 18px;
 	white-space: nowrap;
 }
@@ -828,17 +867,17 @@ fieldset {
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
-	gap: 10px;
-	margin-bottom: 10px;
-	padding: 0 2px;
+	gap: var(--space-5);
+	margin-bottom: var(--space-5);
+	padding: 0 var(--space-1);
 	color: var(--ink-faint);
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 .ordered label {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--space-3);
 }
 
 /*
@@ -847,13 +886,13 @@ fieldset {
 	user agent's default is what `#747` is about — browser chrome, blind to both themes.
 */
 .ordered select {
-	padding: 3px 6px;
+	padding: var(--space-2) var(--space-3);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 .ordered select:disabled { opacity: 0.5; }
@@ -887,7 +926,7 @@ fieldset {
 */
 .adding .when {
 	display: flex;
-	gap: 6px;
+	gap: var(--space-3);
 	min-width: 0;
 	flex-wrap: wrap;
 }
@@ -900,12 +939,12 @@ fieldset {
 	background: var(--bg-raised);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
-	padding: 20px 22px;
+	padding: var(--space-section) var(--space-section);
 }
 
 .detail h2 {
-	margin: 4px 0 2px;
-	font-size: 20px;
+	margin: var(--space-2) 0 var(--space-1);
+	font-size: var(--text-page);
 	line-height: 1.3;
 	letter-spacing: -0.01em;
 }
@@ -925,9 +964,9 @@ fieldset {
 .facts {
 	display: grid;
 	grid-template-columns: max-content 1fr;
-	gap: 4px 16px;
-	margin: 18px 0 0;
-	font-size: 14px;
+	gap: var(--space-2) var(--space-8);
+	margin: var(--space-8) 0 0;
+	font-size: var(--text-small);
 }
 
 .facts dt { color: var(--ink-soft); }
@@ -939,44 +978,44 @@ fieldset {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 12px;
-	margin-top: 18px;
-	padding-top: 16px;
+	gap: var(--space-6);
+	margin-top: var(--space-8);
+	padding-top: var(--space-8);
 	border-top: 1px solid var(--line);
 }
 
-.doing .finish { margin: 0; padding: 6px 14px; font-size: 14px; }
+.doing .finish { margin: 0; padding: var(--space-3) var(--space-7); font-size: var(--text-small); }
 
 .assign {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	font-size: 14px;
+	gap: var(--space-4);
+	font-size: var(--text-small);
 	color: var(--ink-soft);
 }
 
 .assign select {
-	padding: 5px 8px;
+	padding: var(--space-3) var(--space-4);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink);
 	font: inherit;
-	font-size: 14px;
+	font-size: var(--text-small);
 }
 
 .assign select:disabled { opacity: 0.5; }
 
 .prose {
-	margin-top: 20px;
-	padding-top: 16px;
+	margin-top: var(--space-8);
+	padding-top: var(--space-8);
 	border-top: 1px solid var(--line);
 	overflow-wrap: anywhere;
 }
 
 .detail h3 {
-	margin: 24px 0 8px;
-	font-size: 13px;
+	margin: var(--space-section) 0 var(--space-4);
+	font-size: var(--text-small);
 	font-weight: 600;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
@@ -985,13 +1024,18 @@ fieldset {
 
 .linked, .comments { list-style: none; margin: 0; padding: 0; }
 
+/* **Split by what they hold** (`#906`). These shared a rule and a size, and the type scale is
+   what made the difference say itself: a link row is a reference and takes the smaller step,
+   where a comment is prose somebody wrote and takes body size. They still share their frame. */
 .linked li, .comments li {
-	padding: 8px 0;
+	padding: var(--space-4) 0;
 	border-top: 1px solid var(--line);
-	font-size: 14px;
 }
 
-.comments .said { color: var(--ink-soft); font-size: 12px; margin-bottom: 2px; }
+.linked li { font-size: var(--text-small); }
+.comments li { font-size: var(--text-body); }
+
+.comments .said { color: var(--ink-soft); font-size: var(--text-fine); margin-bottom: var(--space-1); }
 .comments .body { overflow-wrap: anywhere; }
 
 /* ---- rendered Markdown (`#637`) ---------------------------------------- */
@@ -1005,45 +1049,45 @@ fieldset {
 .prose > :first-child, .comments .body > :first-child { margin-top: 0; }
 .prose > :last-child, .comments .body > :last-child { margin-bottom: 0; }
 
-.prose p, .comments .body p { margin: 0 0 12px; }
+.prose p, .comments .body p { margin: 0 0 var(--space-6); }
 
 .prose h3, .prose h4, .prose h5, .prose h6 {
-	margin: 22px 0 8px;
+	margin: var(--space-section) 0 var(--space-4);
 	line-height: 1.3;
 	text-transform: none;
 	letter-spacing: normal;
 	color: var(--ink);
 }
 
-.prose h3 { font-size: 17px; }
-.prose h4 { font-size: 15px; }
-.prose h5, .prose h6 { font-size: 14px; color: var(--ink-soft); }
+.prose h3 { font-size: var(--text-section); }
+.prose h4 { font-size: var(--text-body); }
+.prose h5, .prose h6 { font-size: var(--text-small); color: var(--ink-soft); }
 
-.prose ul, .prose ol, .comments .body ul, .comments .body ol { margin: 0 0 12px; padding-left: 22px; }
-.prose li, .comments .body li { margin: 3px 0; }
+.prose ul, .prose ol, .comments .body ul, .comments .body ol { margin: 0 0 var(--space-6); padding-left: var(--space-section); }
+.prose li, .comments .body li { margin: var(--space-1) 0; }
 
 /* A nested list makes its parent item hold a paragraph, which would otherwise open a gap
    the writer did not put there. */
-.prose li > p, .comments .body li > p { margin: 0 0 4px; }
+.prose li > p, .comments .body li > p { margin: 0 0 var(--space-2); }
 
 .prose blockquote, .comments .body blockquote {
-	margin: 0 0 12px;
-	padding: 2px 0 2px 14px;
+	margin: 0 0 var(--space-6);
+	padding: var(--space-1) 0 var(--space-1) var(--space-7);
 	border-left: 3px solid var(--line-strong);
 	color: var(--ink-soft);
 }
 
 .prose code, .comments .body code {
-	padding: 1px 4px;
+	padding: var(--space-1) var(--space-2);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line);
 	border-radius: 3px;
-	font-size: 0.88em;
+	font-size: var(--text-code);
 }
 
 .prose pre, .comments .body pre {
-	margin: 0 0 12px;
-	padding: 10px 12px;
+	margin: 0 0 var(--space-6);
+	padding: var(--space-5) var(--space-6);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
@@ -1056,11 +1100,11 @@ fieldset {
 	padding: 0;
 	background: none;
 	border: 0;
-	font-size: 12px;
+	font-size: var(--text-fine);
 	white-space: pre;
 }
 
-.prose hr { margin: 20px 0; border: 0; border-top: 1px solid var(--line); }
+.prose hr { margin: var(--space-8) 0; border: 0; border-top: 1px solid var(--line); }
 
 /*
 	A table is the one construct that cannot be made narrow, and 20% of the prose here has
@@ -1071,13 +1115,13 @@ fieldset {
 	display: block;
 	overflow-x: auto;
 	max-width: 100%;
-	margin: 0 0 12px;
+	margin: 0 0 var(--space-6);
 	border-collapse: collapse;
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 
 .prose th, .prose td, .comments .body th, .comments .body td {
-	padding: 5px 10px;
+	padding: var(--space-3) var(--space-5);
 	border: 1px solid var(--line);
 	text-align: left;
 	vertical-align: top;
@@ -1107,7 +1151,7 @@ fieldset {
 /* ---- states ------------------------------------------------------------ */
 
 .empty, .failed {
-	padding: 28px 22px;
+	padding: var(--space-section) var(--space-section);
 	background: var(--bg-raised);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
@@ -1115,15 +1159,15 @@ fieldset {
 }
 
 .failed { border-color: var(--warn); color: var(--ink); }
-.failed p { margin: 0 0 8px; }
-.failed .why { color: var(--ink-soft); font-size: 14px; }
+.failed p { margin: 0 0 var(--space-4); }
+.failed .why { color: var(--ink-soft); font-size: var(--text-body); }
 
 .foot {
-	margin-top: var(--gap);
+	margin-top: var(--space-8);
 	color: var(--ink-faint);
-	font-size: 12px;
+	font-size: var(--text-fine);
 	display: flex;
-	gap: 12px;
+	gap: var(--space-6);
 	flex-wrap: wrap;
 }
 
@@ -1132,8 +1176,8 @@ fieldset {
 @media (max-width: 620px) {
 	.row { grid-template-columns: 3.5rem 1fr; }
 	.row .when { grid-column: 2; }
-	.facts { grid-template-columns: 1fr; gap: 2px; }
-	.facts dd { margin-bottom: 8px; }
+	.facts { grid-template-columns: 1fr; gap: var(--space-1); }
+	.facts dd { margin-bottom: var(--space-4); }
 }
 
 /* A mention of another item, inside rendered prose (`#638`). Underlined rather than only
@@ -1152,24 +1196,24 @@ fieldset {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
-	margin-top: 12px;
-	padding: 10px 14px;
+	gap: var(--space-6);
+	margin-top: var(--space-6);
+	padding: var(--space-5) var(--space-7);
 	background: var(--bg-raised);
 	border: 1px solid var(--line);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
-	font-size: 14px;
+	font-size: var(--text-body);
 }
 
 .cut button {
-	padding: 5px 12px;
+	padding: var(--space-3) var(--space-6);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	cursor: pointer;
 }
 
@@ -1183,26 +1227,26 @@ fieldset {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
-	margin-bottom: 14px;
-	padding: 8px 14px;
+	gap: var(--space-6);
+	margin-bottom: var(--space-7);
+	padding: var(--space-4) var(--space-7);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
-	font-size: 14px;
+	font-size: var(--text-body);
 }
 
 .narrowed strong { color: var(--ink); font-weight: 600; }
 
 .narrowed button {
-	padding: 4px 10px;
+	padding: var(--space-2) var(--space-5);
 	background: none;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	cursor: pointer;
 }
 
@@ -1220,13 +1264,13 @@ fieldset {
 	container's.
 */
 .broke {
-	margin: 14px 0;
-	padding: 9px 12px;
+	margin: var(--space-7) 0;
+	padding: var(--space-5) var(--space-6);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-left: 3px solid var(--warn);
 	border-radius: var(--radius);
-	font-size: 14px;
+	font-size: var(--text-body);
 }
 
 /* The message verbatim, which is for whoever is told about it rather than for the reader.
@@ -1238,13 +1282,13 @@ fieldset {
    (`#722`), styled as the button it replaced rather than as prose. */
 .narrowed a.widen {
 	display: inline-block;
-	padding: 3px 10px;
+	padding: var(--space-2) var(--space-5);
 	background: none;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	text-decoration: none;
 	cursor: pointer;
 }
@@ -1264,12 +1308,12 @@ fieldset {
    sentence above it describes. */
 .board .column .empty a {
 	display: inline-block;
-	margin-top: 8px;
-	padding: 2px 8px;
+	margin-top: var(--space-4);
+	padding: var(--space-1) var(--space-4);
 	border: 1px solid currentColor;
 	border-radius: var(--radius);
 	color: var(--accent);
-	font-size: 12px;
+	font-size: var(--text-fine);
 	text-decoration: none;
 }
 

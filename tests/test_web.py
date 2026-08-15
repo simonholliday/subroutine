@@ -1036,6 +1036,106 @@ def test_every_ink_clears_the_contrast_minimum_on_every_background () -> None:
 	assert not failures, "text below the contrast minimum:\n  " + "\n  ".join(failures)
 
 
+#: Properties whose lengths are the spacing scale's business. Borders, radii and the reading
+#: measure are deliberately absent: `--radius` already works, and a measure is one number rather
+#: than a step on a scale.
+SPACING_PROPERTIES = ("padding", "margin", "gap", "row-gap", "column-gap")
+
+#: Floors, so a scanner that reads nothing fails rather than reporting a clean stylesheet. Both
+#: are comfortably under what is there — they catch a broken scan, not a shrinking file.
+LEAST_TYPE_DECLARATIONS = 40
+LEAST_SPACING_DECLARATIONS = 90
+
+
+def _rules_only (text: str) -> str:
+	"""The stylesheet with its comments removed.
+
+	**Necessary rather than tidy.** The comment introducing the spacing scale quotes
+	`.row { padding: 10px 14px }` as the argument for the scale's shape, so a scan that reads
+	comments reports the documentation as the violation — which is `#836` exactly, where a link
+	checker read Markdown inside a code span as live syntax and correct prose was reworded into
+	worse prose to satisfy it.
+	"""
+
+	return re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+
+
+def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
+	"""**`#907`, applying decision `#906`. This is what makes it a system rather than a rename.**
+
+	Without it this is 153 edits that begin accreting again the next afternoon — which is
+	exactly how the state it replaced arose. Colour got tokens because `#102` forced a decision
+	about colour; **nothing ever forced one about type or space**, so `font-size` reached 45
+	declarations across eight values with no token at all, and `--gap` was used four times
+	against 109 literal spacing declarations.
+
+	**Checks the token is a declared one, not merely that a literal is absent.** `font-size:
+	var(--radius)` has no literal in it and is nonsense, and a typo naming `--space-9` would
+	silently resolve to nothing at all — which renders as the property being unset rather than
+	as an error, and is the failure a browser reports to nobody.
+
+	**Derived from `:root` rather than listed here**, so adding a step is one edit and the guard
+	covers it; and so this cannot drift from the stylesheet the way a second copy would.
+	"""
+
+	text = (ASSETS / "app.css").read_text(encoding="utf-8")
+	rules = _rules_only(text)
+
+	steps = dict(re.findall(r"(--(?:text|space)[a-z0-9-]*):\s*([^;]+);", text))
+	type_steps = {name for name in steps if name.startswith("--text")}
+	space_steps = {name for name in steps if name.startswith("--space")}
+
+	#: A literal usually *is* a step's value — somebody wrote `10px` where `--space-5` says the
+	#: same thing. Saying only "10px is not a step" reads as nonsense in that case, so the
+	#: refusal names the token to use whenever it can. §13's rule: say what to do next.
+	#:
+	#: **Scoped to the scale being checked**, because the two overlap: 13px is `--text-small`
+	#: and is nothing at all in spacing, so an unscoped lookup answers a question about padding
+	#: with a type token. Caught by reading the message a falsification printed.
+	def advice (part: str, allowed: set[str]) -> str:
+		for name in sorted(allowed):
+			if steps[name].strip() == part:
+				return f"write var({name})"
+
+		return "not on the scale"
+
+	assert len(type_steps) >= 5, f"only {type_steps} declared, so this checks almost nothing"
+	assert len(space_steps) >= 8, f"only {space_steps} declared, so this checks almost nothing"
+
+	failures = []
+
+	sizes = re.findall(r"font-size:\s*([^;}]+)", rules)
+	for value in sizes:
+		named = re.fullmatch(r"var\((--[a-z0-9-]+)\)", value.strip())
+		if named is None or named.group(1) not in type_steps:
+			failures.append(f"font-size: {value.strip()} — {advice(value.strip(), type_steps)}")
+
+	spacing = re.findall(
+		r"\b(?:" + "|".join(SPACING_PROPERTIES) + r")(?:-[a-z]+)?:\s*([^;}]+)", rules
+	)
+	for value in spacing:
+		for part in value.split():
+			if part in ("0", "auto", "inherit") or not part:
+				continue
+			named = re.fullmatch(r"var\((--[a-z0-9-]+)\)", part)
+			if named is None or named.group(1) not in space_steps:
+				failures.append(f"spacing: {value.strip()} — {part}: {advice(part, space_steps)}")
+
+	assert len(sizes) >= LEAST_TYPE_DECLARATIONS, (
+		f"found {len(sizes)} font-size declarations, expected at least "
+		f"{LEAST_TYPE_DECLARATIONS} — the scan is broken, not the stylesheet"
+	)
+	assert len(spacing) >= LEAST_SPACING_DECLARATIONS, (
+		f"found {len(spacing)} spacing declarations, expected at least "
+		f"{LEAST_SPACING_DECLARATIONS} — the scan is broken, not the stylesheet"
+	)
+
+	assert not failures, (
+		f"{len(failures)} sizes are not on the scale (`#906` decides it; add a step there "
+		f"rather than a literal here):\n  " + "\n  ".join(sorted(set(failures)))
+	)
+
+
 def test_the_page_asks_for_nothing_this_instance_does_not_serve () -> None:
 	"""Every asset the page names is one of the files, so a fresh load fetches nothing 404.
 

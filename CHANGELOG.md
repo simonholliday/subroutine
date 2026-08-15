@@ -16,6 +16,16 @@ upgrade involves.
 
 ### Changed
 
+- **The web UI's text sizes and spacing come from a fixed scale**, where before they had
+  accumulated: eight text sizes and nineteen spacing values, none of them named. There are five
+  text steps and nine spacing steps now, and nothing outside them.
+
+  **A few things shift slightly.** Notices and messages are a little larger — they were smaller
+  than the text around them, which is the wrong way round for a sentence telling you something
+  went wrong; a few controls and the item metadata are a little smaller; and some padding moves
+  by a pixel or two. Row height and the space between blocks are unchanged, deliberately, since
+  those decide how much of a list fits on screen.
+
 - **Every endpoint now refuses a query parameter it does not recognise**, instead of ignoring
   it and answering as though nothing were wrong. Listings have behaved this way since 0.3.0
   and the rest were added one at a time by hand — which meant single reads, both link
