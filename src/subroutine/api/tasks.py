@@ -118,6 +118,13 @@ class Create(subroutine.api.schemas.RequestModel):
 	starts_is_all_day: bool | None = None
 	snooze: str | None = None
 	snoozed_is_all_day: bool | None = None
+
+	#: How often this repeats — a phrase like ``every month on the 30th`` or an ``RRULE``
+	#: directly. ``recurrence_anchor`` says what the next date is measured from and
+	#: ``recurrence_trigger`` what brings it into being; §6.7 and decision `#915`.
+	recurrence: str | None = None
+	recurrence_anchor: str | None = None
+	recurrence_trigger: str | None = None
 	timezone: str | None = None
 
 
@@ -161,6 +168,13 @@ class Update(subroutine.api.schemas.RequestModel):
 	starts_is_all_day: bool | None = None
 	snooze: str | None = None
 	snoozed_is_all_day: bool | None = None
+
+	#: How often this repeats — a phrase like ``every month on the 30th`` or an ``RRULE``
+	#: directly. ``recurrence_anchor`` says what the next date is measured from and
+	#: ``recurrence_trigger`` what brings it into being; §6.7 and decision `#915`.
+	recurrence: str | None = None
+	recurrence_anchor: str | None = None
+	recurrence_trigger: str | None = None
 	timezone: str | None = None
 
 	#: The version this change is based on (SPEC.md §8.9). Optional; ``If-Match`` does the
@@ -193,6 +207,9 @@ def create (
 			"starts_is_all_day",
 			"snooze",
 			"snoozed_is_all_day",
+			"recurrence",
+			"recurrence_anchor",
+			"recurrence_trigger",
 		)
 		if name in supplied
 	}
@@ -712,6 +729,35 @@ def complete (
 		)
 
 	return _rendered(session, finished)
+
+
+
+@router.post("/{id_or_ref}/skip", summary="Let one occurrence of a repeat go by")
+def skip (
+	request: starlette.requests.Request,
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Task:
+	"""Cancel this occurrence and bring the next one.
+
+	Cancelled rather than done, deliberately: both are finished and both advance the series,
+	and *I did not do this* is a different fact about the month from *I did*.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		skipped = subroutine.domain.tasks.skip(
+			session,
+			task,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return _rendered(session, skipped)
 
 
 @router.post("/{id_or_ref}/claim", summary="Take a task, so nobody else does")

@@ -2894,6 +2894,15 @@ NOT_ON_THE_FORM = {
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.
 	"timezone": "the timezone chain answers this without asking",
+	# **A gap rather than a decision, and said so** (`#94`, in progress). A repeat is three
+	# fields that qualify each other — the rule, what its next date is measured from, and what
+	# brings it into being — so the control is a disclosure rather than a text box, and it
+	# wants the phrase preview `POST /v1/recurrence/parse` exists to serve. Goes away when
+	# that endpoint and the control land together; a box that took a phrase and could not show
+	# what it understood would be the ambiguous half of the feature with none of the check.
+	"recurrence": "#94 — the control lands with the phrase preview it needs",
+	"recurrence_anchor": "#94 — qualifies `recurrence`; no control without one",
+	"recurrence_trigger": "#94 — qualifies `recurrence`; no control without one",
 }
 
 

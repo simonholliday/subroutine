@@ -829,6 +829,9 @@ class Client(typing.Protocol):
 		type: str | None = None,
 		project: str | None = None,
 		description: str | None = None,
+		recurrence: str | None = None,
+		recurrence_anchor: str | None = None,
+		recurrence_trigger: str | None = None,
 	) -> Captured:
 		"""Create a task from a line of text (§6.13).
 
@@ -857,6 +860,11 @@ class Client(typing.Protocol):
 		method dropped it. A capability on a route, missing as an *argument* on a method both
 		surfaces already call, is `#149`'s blind spot: `test_reach` compares method names, so it
 		cannot see one. Fourth instance, after `#178`, `#367` and `#392`.
+
+		**``recurrence`` is here for that same reason and was caught by that same guard** (`#94`).
+		A repeat is structured rather than typed mid-sentence — §6.13's ``every …`` span is
+		reserved and reported, not read — so it travels beside ``type`` and ``description``
+		rather than inside the line.
 		"""
 
 	def remark (
@@ -872,6 +880,18 @@ class Client(typing.Protocol):
 		Named ``remark`` rather than ``comment`` so that it does not collide with
 		:meth:`comments` by a single letter. A method that reads and a method that writes
 		should not be told apart by a plural.
+		"""
+
+	def skip (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+	) -> subroutine.views.Task:
+		"""Let one occurrence of a repeat go by, and bring the next one.
+
+		Cancelled rather than done: both finish the occurrence and both advance the series, and
+		*I did not do this* is a different fact about the month from *I did*.
 		"""
 
 	def update (
@@ -895,6 +915,9 @@ class Client(typing.Protocol):
 		starts_is_all_day: bool | None = UNSET,
 		snooze: str | None = UNSET,
 		snoozed_is_all_day: bool | None = UNSET,
+		recurrence: str | None = UNSET,
+		recurrence_anchor: str | None = UNSET,
+		recurrence_trigger: str | None = UNSET,
 		timezone: str | None = UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).

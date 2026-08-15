@@ -886,6 +886,15 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"type": "object",
 				"properties": {
 					"ref": {"type": A_REF, "description": "The task's number."},
+					# **A flag rather than a fifteenth tool.** Both end this occurrence and
+					# both bring the next; what differs is which fact gets recorded about the
+					# month. The ratchet's test is *what would an agent get wrong without it* —
+					# without this it records a skipped repeat as done, and `#574` is about
+					# a habit skipped leaving no trace at all.
+					"skip": {
+						"type": "boolean",
+						"description": "Let this one of a repeat go by.",
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -1913,16 +1922,29 @@ def _completed (
 	this is the agents' surface.
 	"""
 
-	finished = client.complete(ref=_ref(arguments), workspace=_text(arguments, "workspace"))
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+
+	# **Two verbs, one tool.** Both end this occurrence and both bring the next; what differs
+	# is which fact is recorded about the month, and a series recorded entirely as done cannot
+	# answer *how often do I actually skip this* (`#574`).
+	if arguments.get("skip"):
+		skipped = client.skip(ref=ref, workspace=workspace)
+		said = f"Skipped: {skipped.title}."
+		finished = skipped
+
+	else:
+		finished = client.complete(ref=ref, workspace=workspace)
+		said = f"Done: {finished.title}."
 
 	if finished.claimed_by:
 		return (
-			f"Done: {finished.title}. Still claimed by @{finished.claimed_by} — "
+			f"{said} Still claimed by @{finished.claimed_by} — "
 			f"subroutine_claim(ref={finished.ref}, release=true) hands it back."
 		)
 
 	return (
-		f"Done: {finished.title}. It was not claimed — claim one before you start it, so "
+		f"{said} It was not claimed — claim one before you start it, so "
 		f"nobody else takes the same work."
 	)
 

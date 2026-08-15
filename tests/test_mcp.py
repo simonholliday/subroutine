@@ -1202,7 +1202,26 @@ def test_the_whole_tool_surface_stays_small (
 	  theatre this file already warns about, where a number satisfied by editing prose has
 	  stopped measuring anything.
 
-	  **Three of the four things read for were corrections, not trims**, which is the finding
+	  	* **`#94`, to 10,900** — ``skip`` on ``subroutine_done``, so an agent can let one of a
+	  repeating series go by rather than recording it as done.
+
+	  **The ratchet's test is what an agent would get wrong without it**, and here that is
+	  precise: both verbs end the occurrence and both bring the next, so without this the only
+	  reachable answer is *done* — and a series recorded entirely as done cannot say how often
+	  it is actually skipped, which is exactly `#574`'s observation that a habit skipped leaves
+	  no trace. Recording it as done does not leave no trace; it leaves a wrong one.
+
+	  **A flag on the tool that already finishes an occurrence, not a fifteenth tool.** The
+	  same subject, two verbs — where a new tool would have cost a name, a title, a
+	  ``workspace`` property and a ``ref`` before saying anything.
+
+	  **Measured at +51 over the cap after reading the addition for fat** — the description was
+	  53 bytes and is 30. The three longest existing descriptions were read and none was fat:
+	  *"does not read an item's own status"* is a correction an agent gets wrong without it,
+	  and the ``order`` examples are the grammar. So this raise buys the whole 51 rather than
+	  most of it having been there, which is the honest report and the opposite of `#819`'s.
+
+**Three of the four things read for were corrections, not trims**, which is the finding
 	  worth keeping about this exercise: reading a schema for *bytes* is what made anybody read
 	  it at all.
 
@@ -1229,7 +1248,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 10800, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 10900, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant

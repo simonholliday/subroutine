@@ -91,6 +91,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/tasks"): "capture",
 	("PATCH", "/v1/tasks/{id_or_ref}"): "update",
 	("POST", "/v1/tasks/{id_or_ref}/complete"): "complete",
+	("POST", "/v1/tasks/{id_or_ref}/skip"): "skip",
 	("POST", "/v1/tasks/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/documents"): "create_document",
 	("POST", "/v1/users"): "create_user",

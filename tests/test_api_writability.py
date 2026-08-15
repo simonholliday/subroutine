@@ -64,6 +64,7 @@ WRITTEN_AS: dict[str, str] = {
 	"due_at": "due",
 	"snoozed_until": "snooze",
 	"starts_at": "starts",
+	"recurrence_rule": "recurrence",
 	"estimate_minutes": "estimate",
 	"project_id": "project",
 	"body": "body",
@@ -87,6 +88,20 @@ WRITTEN_AS: dict[str, str] = {
 #: Computed, allocated or maintained by the system. A client cannot supply these because a
 #: client does not decide them.
 DERIVED: dict[str, str] = {
+	#: **The workings of a repeat, and none of them a caller's to send** (`#94`). `#915`
+	#: settles what each is: the words somebody typed, which occurrence this is, which
+	#: template it came from, and whether this row is the rule rather than the work.
+	"recurrence_text": (
+		"the phrase as written, kept so a reader sees their own words back rather than "
+		"FREQ=WEEKLY;INTERVAL=2;BYDAY=TU. Null when a rule was sent directly."
+	),
+	"occurrence_at": "which occurrence of the series this is, computed from the rule.",
+	"recurrence_template_ref": "the template this came from; set when it is materialised.",
+	"is_template": (
+		"whether this row is the rule rather than the work. Follows from having been "
+		"created with a recurrence, and is what explains why a row with a ref is in no "
+		"listing."
+	),
 	"id": "Allocated by the service.",
 	"assigned_by_id": (
 		"Who assigned it, taken from whoever made the change (`#477`). A caller supplying one "
@@ -430,14 +445,7 @@ UNBUILT: dict[str, str] = {
 #: Stored and never reported, and that is a defect rather than a decision. Same rule as
 #: :data:`UNSETTABLE`: every entry names the item tracking it, and deleting the entry is what
 #: closes that item.
-UNBUILT_NOTE = (
-	"#94 — what brings the next occurrence into being. The template/instance machinery "
-	"writes it; no view publishes it yet, because a client cannot set a repeat either. "
-	"Goes away when the API accepts `recurrence` and the task view reports it."
-)
-
 UNREPORTED: dict[str, str] = {
-	"Task.recurrence_trigger": UNBUILT_NOTE,
 	# **Found by `#854` renaming the *task*'s date columns**, which left this one carrying a
 	# name that now means something else next door. Qualified rather than bare, because
 	# `start_at` no longer exists on `Task` at all and an unqualified entry would read as

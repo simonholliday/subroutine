@@ -353,6 +353,22 @@ class Task(pydantic.BaseModel):
 	snoozed_is_all_day: bool = False
 	timezone: str | None
 
+	#: How this repeats, and what that means (§6.7, decision `#915`). **All defaulted**, per
+	#: `#345` and `#482`: a client one release behind must not be refused outright for fields
+	#: it has never heard of.
+	#:
+	#: The rule and its qualifiers sit on the **template**; ``occurrence_at`` and
+	#: ``recurrence_template_ref`` sit on an **instance**. Reading which is which is what
+	#: ``is_template`` answers, and it is the only thing that explains why a row with a ref
+	#: appears in no listing.
+	recurrence_rule: str | None = None
+	recurrence_text: str | None = None
+	recurrence_anchor: str | None = None
+	recurrence_trigger: str | None = None
+	occurrence_at: datetime.datetime | None = None
+	recurrence_template_ref: int | None = None
+	is_template: bool = False
+
 	#: §6.4 promises both spellings, and until 2026-07-30 only the first was here — the
 	#: section, two docstrings in ``domain.durations`` and a test docstring all described a
 	#: response field that no response carried. ``estimate_human`` is what a person would
@@ -1404,7 +1420,11 @@ class Vocabulary:
 			type_ids={task.type_id for task in tasks},
 			project_ids={task.project_id for task in tasks},
 			task_ids={task.id for task in tasks},
-			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id},
+			# **Templates ride with the parents**, because they are the same question — a task
+			# on this page naming another task by id, needing a ref before a client can print
+			# anything. A second batch load would be a second query for one extra column.
+			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id}
+			| {task.recurrence_template_id for task in tasks if task.recurrence_template_id},
 			# **Both the assignee and the lease holder, in one query** (`#726`). They are
 			# usually the same account or absent, so the set is nearly always the size it was.
 			user_ids=(
@@ -1507,6 +1527,15 @@ def task (
 		starts_is_all_day=row.starts_is_all_day,
 		snoozed_until=row.snoozed_until,
 		snoozed_is_all_day=row.snoozed_is_all_day,
+		recurrence_rule=row.recurrence_rule,
+		recurrence_text=row.recurrence_text,
+		recurrence_anchor=row.recurrence_anchor,
+		recurrence_trigger=row.recurrence_trigger,
+		occurrence_at=row.occurrence_at,
+		recurrence_template_ref=_parent_field(
+			vocabulary, row.recurrence_template_id, "ref"
+		),
+		is_template=row.is_template,
 		timezone=row.timezone,
 		content_updated_at=row.content_updated_at,
 		created_by=row.created_by,

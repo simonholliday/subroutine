@@ -1386,12 +1386,14 @@ def move (
 	return moved
 
 
-def finished_status_key (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> str:
-	"""Return the key of a status meaning finished, whatever this workspace calls it.
+def status_key_in (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, category: str
+) -> str:
+	"""Return the key of a status in a category, whatever this workspace calls it.
 
 	Statuses are data — an installation renames and adds them freely (§5.5) — so nothing may
-	hard-code ``"done"``. This asks for the first status in the ``done`` *category*, which is
-	what keeps "mark it finished" working after somebody renames it to "Shipped".
+	hard-code ``"done"``. This asks for the first status in the *category*, which is what
+	keeps "mark it finished" working after somebody renames it to "Shipped".
 	"""
 
 	model = subroutine.db.models.vocabulary.Status
@@ -1401,19 +1403,25 @@ def finished_status_key (session: sqlalchemy.orm.Session, workspace_id: uuid.UUI
 		.where(
 			model.workspace_id == workspace_id,
 			model.entity_type == "task",
-			model.category == "done",
+			model.category == category,
 		)
 		.order_by(model.position)
 	).first()
 
 	if found is None:
 		raise subroutine.errors.InternalError(
-			"This workspace has no status meaning 'done'.",
+			f"This workspace has no status meaning {category!r}.",
 			hint="Its vocabulary is incomplete; restore it, or start again from an empty "
 			"database.",
 		)
 
 	return found.key
+
+
+def finished_status_key (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> str:
+	"""Return the key of a status meaning finished. See :func:`status_key_in`."""
+
+	return status_key_in(session, workspace_id, "done")
 
 
 def complete (
@@ -1436,6 +1444,53 @@ def complete (
 		session,
 		task,
 		status_key=finished_status_key(session, task.workspace_id),
+		now=now,
+		expected_version=expected_version,
+		actor=actor,
+	)
+
+
+
+def skip (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""Let one occurrence of a repeat go by, and bring the next one (§6.7).
+
+	**Cancelled rather than done, and that distinction is the whole verb.** Both categories
+	are finished, so both advance the series — but "I did not do this" and "I did this" are
+	different facts about the same month, and a series recorded entirely as `done` cannot
+	answer *how often do I actually skip this*. `#574` is what wants that answer: a habit
+	skipped leaves no trace, and the absence of evidence is the whole problem.
+
+	**A task that is not part of a repeat is refused by name**, rather than quietly cancelled.
+	Skipping means *this one, not the series*, and on something that happens once that is
+	simply cancelling it — which the caller can already say, and which they should say
+	deliberately.
+	"""
+
+	if task.recurrence_template_id is None:
+		raise subroutine.errors.ValidationError(
+			"That is not one of a repeating series, so there is nothing to skip to.",
+			code="invalid_field_value",
+			hint="Cancel it instead, by setting a cancelled status.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="ref",
+					code="invalid_field_value",
+					message="Only an occurrence of a repeat can be skipped.",
+				)
+			],
+		)
+
+	return update(
+		session,
+		task,
+		status_key=status_key_in(session, task.workspace_id, "cancelled"),
 		now=now,
 		expected_version=expected_version,
 		actor=actor,

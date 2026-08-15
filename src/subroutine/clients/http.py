@@ -806,6 +806,9 @@ class Client:
 		type: str | None = None,
 		project: str | None = None,
 		description: str | None = None,
+		recurrence: str | None = None,
+		recurrence_anchor: str | None = None,
+		recurrence_trigger: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text.
 
@@ -840,6 +843,13 @@ class Client:
 				# explicit about this item and must beat a default that came from a file three
 				# directories up, which they may not have known was there.
 				project=None if subroutine.domain.capture.names_a_project(text) else project,
+				# **Structured, because §6.13's `every …` span is reserved rather than read.**
+				# The grammar claims the phrase so the date parser cannot steal `monday` out
+				# of it, and leaves the words in the title — so a repeat has to arrive beside
+				# the line rather than inside it.
+				recurrence=recurrence,
+				recurrence_anchor=recurrence_anchor,
+				recurrence_trigger=recurrence_trigger,
 			),
 		)
 
@@ -853,6 +863,23 @@ class Client:
 			unparsed=read.unparsed,
 			summary=subroutine.domain.capture.summarise(read),
 		)
+
+	def skip (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+	) -> subroutine.views.Task:
+		"""Let one occurrence of a repeat go by, and bring the next one."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST", f"/v1/tasks/{ref}/skip", params=_given(workspace_id=workspace)
+		)
+
+		return self._parsed(subroutine.views.Task, body)
+
 
 	def remark (
 		self,
@@ -999,6 +1026,9 @@ class Client:
 		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		snooze: str | None = subroutine.clients.base.UNSET,
 		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		recurrence: str | None = subroutine.clients.base.UNSET,
+		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
+		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
@@ -1028,7 +1058,19 @@ class Client:
 			),
 			"due": due,
 			"due_is_all_day": due_is_all_day,
+			# **All six, and the four dates were missing** (`#94`, found by widening this).
+			# `#854` gave this method `starts` and `snooze` and they never reached the body,
+			# so a caller setting either was answered 200 having changed nothing. `test_reach`
+			# compares *signatures*, so the argument existing was enough to satisfy it —
+			# `#149`'s blind spot, and the same shape as the `_is_all_day` flags `#195` found
+			# being consulted by nothing.
+			"starts": starts,
+			"starts_is_all_day": starts_is_all_day,
+			"snooze": snooze,
 			"snoozed_is_all_day": snoozed_is_all_day,
+			"recurrence": recurrence,
+			"recurrence_anchor": recurrence_anchor,
+			"recurrence_trigger": recurrence_trigger,
 			"timezone": timezone,
 		}
 		body = self._json(

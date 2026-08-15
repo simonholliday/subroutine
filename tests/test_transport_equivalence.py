@@ -1209,6 +1209,42 @@ def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	assert by_local.status_category == by_remote.status_category == "done"
 
 
+def test_both_skip_an_occurrence_the_same_way (pair: Pair) -> None:
+	"""`#94`. And both refuse to skip something that is not one of a series.
+
+	**Added because this file is hand-listed**, which is how `#44`'s ``move`` went uncovered:
+	a new verb reaches both clients and nothing here notices unless somebody writes the case.
+	The failure it would hide is the worse half — a `skip` that cancelled on one transport and
+	completed on the other reads as done work on one surface and abandoned work on the other.
+	"""
+
+	first = pair.local.capture(
+		text="Water the plants by 2026-12-01", recurrence="every 14 days"
+	).task
+	second = pair.local.capture(
+		text="And these ones by 2026-12-01", recurrence="every 14 days"
+	).task
+
+	local, remote = pair.both()
+
+	by_local = local.skip(ref=first.ref)
+	by_remote = remote.skip(ref=second.ref)
+
+	assert by_local.completed_at is not None
+	assert by_remote.completed_at is not None
+	assert by_local.status_category == by_remote.status_category == "cancelled"
+
+	# **Refused identically**, which is the half an equivalence suite is really for: a message
+	# that differs by transport is a client learning two different products.
+	plain = make(pair, "This one happens once")
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.skip(ref=plain.ref)
+
+		assert "repeating series" in str(refused.value)
+
+
 def test_both_schedule_a_task_the_same_way (pair: Pair) -> None:
 	"""And both tell an omitted field from a null one (§8.3)."""
 

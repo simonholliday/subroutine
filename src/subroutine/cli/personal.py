@@ -2478,6 +2478,34 @@ def register (
 			_suggest(console, "subroutine today")
 
 	@app.command()
+	def skip (
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
+		because: str = typer.Option("", "--because", help="Why, recorded against it."),
+	) -> None:
+		"""Let one of a repeating task go by, and bring the next.
+
+		Examples:
+
+		  subroutine skip 42
+
+		  subroutine skip 42 --because "away that week"
+		"""
+
+		with opened() as world:
+			located, task = _a_task(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				verb="skip",
+			)
+			client = _require_connection(world, located.connection)
+			skipped = client.skip(ref=task.ref, workspace=located.workspace)
+
+			_because(client, located, because, what="Skipped")
+
+			say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
+			_suggest(console, "subroutine today")
+
+	@app.command()
 	def plan (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),

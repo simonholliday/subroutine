@@ -1545,6 +1545,9 @@ class Client:
 		type: str | None = None,
 		project: str | None = None,
 		description: str | None = None,
+		recurrence: str | None = None,
+		recurrence_anchor: str | None = None,
+		recurrence_trigger: str | None = None,
 	) -> subroutine.clients.base.Captured:
 		"""Create a task from a line of text."""
 
@@ -1592,6 +1595,21 @@ class Client:
 					and not subroutine.domain.capture.names_a_project(text)
 					else None
 				),
+				# **Structured, because §6.13's `every …` span is reserved rather than read.**
+				# Passed through only when given, for the reason `description` is: an override
+				# of `None` would beat the parsed fields with nothing.
+				**typing.cast(
+					dict[str, typing.Any],
+					{
+						name: value
+						for name, value in (
+							("recurrence", recurrence),
+							("recurrence_anchor", recurrence_anchor),
+							("recurrence_trigger", recurrence_trigger),
+						)
+						if value is not None
+					},
+				),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,
 				actor=actor,
@@ -1604,6 +1622,28 @@ class Client:
 				unparsed=captured.unparsed,
 				summary=subroutine.domain.capture.summarise(captured),
 			)
+
+	def skip (
+		self,
+		*,
+		ref: int,
+		workspace: str | None = None,
+	) -> subroutine.views.Task:
+		"""Let one occurrence of a repeat go by, and bring the next one."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			row = self._require(session, actor, ref, workspace)
+
+			subroutine.domain.tasks.skip(
+				session, row, now=subroutine.db.types.utcnow(), actor=actor
+			)
+
+			return subroutine.views.task(
+				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+			)
+
 
 	def remark (
 		self,
@@ -1833,6 +1873,9 @@ class Client:
 		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		snooze: str | None = subroutine.clients.base.UNSET,
 		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		recurrence: str | None = subroutine.clients.base.UNSET,
+		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
+		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
@@ -1853,7 +1896,17 @@ class Client:
 			"tags": tags,
 			"due": due,
 			"due_is_all_day": due_is_all_day,
+			# **The same six the HTTP client was missing.** Both transports dropped `starts`
+			# and `snooze` silently after `#854` widened the signature, which is why they are
+			# named together here: one omission in two places is this codebase's signature
+			# defect, and a guard reading signatures could see neither.
+			"starts": starts,
+			"starts_is_all_day": starts_is_all_day,
+			"snooze": snooze,
 			"snoozed_is_all_day": snoozed_is_all_day,
+			"recurrence": recurrence,
+			"recurrence_anchor": recurrence_anchor,
+			"recurrence_trigger": recurrence_trigger,
 			"timezone": timezone,
 		}
 		changes: dict[str, typing.Any] = {
