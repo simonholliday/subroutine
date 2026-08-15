@@ -124,6 +124,15 @@ upgrade involves.
 
 ### Fixed
 
+- **A change to the web UI reaches your browser on the next load.** Its files were served with
+  a five-minute cache and nothing to check them against, so after updating an instance you could
+  be looking at the previous version's styling with no way to tell — and once the five minutes
+  were up, the browser re-downloaded every file in full rather than asking whether it needed to.
+
+  Each file now carries a tag derived from its own contents. A browser asks once per load and is
+  told *unchanged* in a couple of hundred bytes, or handed the new file. No hard refresh, and
+  nothing to clear.
+
 - **The faintest text in the web UI is now readable.** The item number on every row, the
   timestamps beside a comment, the placeholder in every box and a dozen other things were drawn
   in a grey that measured **3.31:1** against the page in the light theme, where the accepted

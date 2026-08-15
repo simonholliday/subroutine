@@ -147,3 +147,79 @@ def test_the_confirmation_page_carries_them (session: sqlalchemy.orm.Session) ->
 	assert "form-action 'self'" in answer.headers["Content-Security-Policy"], (
 		"the page whose whole purpose is a form does not say where a form may post"
 	)
+
+
+def test_a_changed_file_reaches_a_browser_that_holds_the_old_one (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#914`. **Every file the app is made of, not the stylesheet Simon asked about.**
+
+	It was `public, max-age=300` with no validator, which is the worst of both: for five minutes
+	a browser did not ask, so a restarted server served current bytes to a page that would not
+	request them — and after five minutes it re-downloaded the whole file, because with nothing
+	to compare there was no `304` available.
+
+	**Driven per file rather than on one of them.** The stylesheet is what a reader notices, and
+	a stale `app.js` is a blank page — the failure `#643` reached Simon by another route — so a
+	rule that covered the CSS alone would have left the worse half in place.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for name in ("index.html", "app.css", "app.js", "preact.js"):
+		path = "/" if name == subroutine.api.web.SHELL else f"/app/{name}"
+
+		fresh = api_support.call(application, "GET", path)
+
+		assert fresh.status_code == 200, f"{path} did not answer"
+		assert fresh.headers["cache-control"] == "no-cache", (
+			f"{path} may be used without asking, so a change to it cannot arrive"
+		)
+
+		tag = fresh.headers.get("etag")
+
+		assert tag, f"{path} carries no validator, so a revalidation must re-send the whole file"
+
+		again = api_support.call(application, "GET", path, headers={"if-none-match": tag})
+
+		assert again.status_code == 304, f"{path} re-sent a file the caller already held"
+		assert not again.content, f"{path} sent a body with its 304"
+
+		# **A cache may weaken a tag it stored**, and a comparison against the raw header would
+		# then answer *no* for a browser holding exactly the right file — wasteful, correct, and
+		# indistinguishable from the header working.
+		weak = api_support.call(application, "GET", path, headers={"if-none-match": f"W/{tag}"})
+
+		assert weak.status_code == 304, f"{path} ignored a weakened form of its own tag"
+
+		stale = api_support.call(
+			application, "GET", path, headers={"if-none-match": '"something-else"'}
+		)
+
+		assert stale.status_code == 200, f"{path} withheld itself from a caller holding an old copy"
+
+
+def test_two_files_that_differ_do_not_share_a_tag (session: sqlalchemy.orm.Session) -> None:
+	"""The tag is the content, which is what makes it need no maintenance (`#914`).
+
+	**A constant would pass every check above.** One value returned for every file revalidates
+	correctly, answers `304` on a match and `200` otherwise — and would serve a stale stylesheet
+	for ever, because it never changes when the file does. That is the failure this replaced,
+	wearing the new mechanism, so it is asserted rather than assumed.
+	"""
+
+	tags = subroutine.api.web.TAGS
+
+	assert len(tags) >= 5, f"only {sorted(tags)} — the app is not made of that few files"
+
+	assert len(set(tags.values())) == len(tags), (
+		f"two of the app's files share a tag, so a change to one cannot reach a browser "
+		f"holding the other: {tags}"
+	)
+
+	# The tag is derived, so proving it *is* the content needs the content changed rather than
+	# a second file compared: same bytes, same tag; one byte different, different tag.
+	body = subroutine.api.web.FILES["app.css"][0]
+
+	assert subroutine.api.web._tag(body) == tags["app.css"]
+	assert subroutine.api.web._tag(body + b"\n") != tags["app.css"]
