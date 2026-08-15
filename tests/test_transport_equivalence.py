@@ -49,6 +49,7 @@ import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.links
 import subroutine.domain.projects
+import subroutine.domain.schedule
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -875,7 +876,7 @@ def test_readiness_excludes_work_deferred_to_a_later_date (pair: Pair) -> None:
 	later = make(pair, "Chase it up next week")
 	local, remote = pair.both()
 
-	local.schedule(ref=later.ref, start=datetime.date.today() + datetime.timedelta(days=7))
+	local.schedule(ref=later.ref, snooze=datetime.date.today() + datetime.timedelta(days=7))
 
 	assert later.ref not in {task.ref for task in local.tasks(ready=True)}
 	assert later.ref not in {task.ref for task in remote.tasks(ready=True)}
@@ -1217,16 +1218,26 @@ def test_both_schedule_a_task_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	assert local.schedule(ref=first.ref, planned_for=day).planned_for == day
-	assert remote.schedule(ref=second.ref, planned_for=day).planned_for == day
+	# **A day is stored as its first instant now** (`#854`), so the round trip is not the
+	# identity it was when this column held a bare date. Compared as the day it falls on where
+	# the task lives, which is what the caller asked for.
+	def began (task: subroutine.views.Task) -> datetime.date | None:
+		"""Return the day a task starts on, where it was written."""
+
+		return None if task.starts_at is None else subroutine.domain.schedule.local_date(
+			task.starts_at, task.timezone or "UTC"
+		)
+
+	assert began(local.schedule(ref=first.ref, starts=day)) == day
+	assert began(remote.schedule(ref=second.ref, starts=day)) == day
 
 	# Setting the other field must leave the first alone — the difference between "not
 	# mentioned" and "cleared", which is the bug §8.3 exists to prevent.
-	assert local.schedule(ref=first.ref, start=day).planned_for == day
-	assert remote.schedule(ref=second.ref, start=day).planned_for == day
+	assert began(local.schedule(ref=first.ref, snooze=day)) == day
+	assert began(remote.schedule(ref=second.ref, snooze=day)) == day
 
-	assert local.schedule(ref=first.ref, planned_for=None).planned_for is None
-	assert remote.schedule(ref=second.ref, planned_for=None).planned_for is None
+	assert local.schedule(ref=first.ref, starts=None).starts_at is None
+	assert remote.schedule(ref=second.ref, starts=None).starts_at is None
 
 
 def test_both_say_nothing_is_there_the_same_way (pair: Pair) -> None:
@@ -1335,7 +1346,7 @@ def test_a_read_only_connection_refuses_every_write_before_it_leaves (
 		for attempt in (
 			lambda: client.capture(text="This should not be written"),
 			lambda: client.complete(ref=1),
-			lambda: client.schedule(ref=1, planned_for=datetime.date(2026, 8, 3)),
+			lambda: client.schedule(ref=1, starts=datetime.date(2026, 8, 3)),
 		):
 			with pytest.raises(subroutine.errors.Forbidden) as raised:
 				attempt()
@@ -1657,7 +1668,7 @@ def test_both_apply_the_same_ordering (pair: Pair, order: str) -> None:
 			make(pair, f"Task number {index} {suffix}{parked if index in (1, 4) else ''}".strip())
 		)
 
-	assert sum(1 for task in made if task.start_at is not None) == 2, (
+	assert sum(1 for task in made if task.snoozed_until is not None) == 2, (
 		"the seed deferred nothing, so `deferred` has one band and cannot disagree with itself"
 	)
 

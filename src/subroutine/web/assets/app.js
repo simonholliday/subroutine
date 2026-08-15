@@ -85,7 +85,8 @@ const TASK_FIELDS = [
 	/* How well a row answered a search, so a merged list can be put back into the order
 	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
 	"relevance",
-	"ref", "title", "due_at", "planned_for", "blocked", "project_key", "assignee",
+	"ref", "title", "due_at", "starts_at", "starts_is_all_day", "blocked", "project_key",
+	"assignee",
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
 	"blocking",
@@ -104,9 +105,9 @@ const TASK_FIELDS = [
 	"timezone",
 	/* **When work was put off until** (`#862`). The board showed a deferred item looking
 	   exactly like one nobody had put aside — the terminal hides them, so the two surfaces
-	   disagreed about work that had been deliberately parked. `start_is_all_day` comes with it
+	   disagreed about work that had been deliberately parked. `snoozed_is_all_day` comes with it
 	   for `#864`'s reason: an item deferred to an o'clock says the o'clock. */
-	"start_at", "start_is_all_day",
+	"snoozed_until", "snoozed_is_all_day",
 	/* Who is holding a lease, and until when (`#726`). All three, because the mark says the
 	   holder's name, the id is what says anybody holds it at all, and the expiry is what says
 	   whether that still means anything — `claimed_by` alone would be null on an instance older
@@ -328,7 +329,7 @@ export function inOrder (rows, ordering) {
 			disagreement keyset pagination exists to prevent (`#782`). `sinks` is on the
 			ordering rather than assumed here so that the two read one table.
 
-			A document has no `start_at` and lands in the first band, which is exactly what the
+			A document has no `snoozed_until` and lands in the first band, which is exactly what the
 			server's own answer for a document is.
 		*/
 		if (ordering && ordering.sinks) {
@@ -1122,7 +1123,7 @@ export function addRequest (values, slug) {
 */
 export const SAID_AS_WRITTEN = [
 	"description", "project", "type", "status", "assignee",
-	"estimate", "start", "planned_for", "due",
+	"estimate", "starts", "snooze", "due",
 ];
 
 /*
@@ -1301,9 +1302,10 @@ export function fromItem (item) {
 		urgency: said.urgency === null || said.urgency === undefined
 			? "" : String(said.urgency),
 		estimate: said.estimate_human || "",
-		start: dateFor(said.start_at, said.start_is_all_day, said.timezone),
-		start_time: timeFor(said.start_at, said.start_is_all_day, said.timezone),
-		planned_for: calendarDay(said.planned_for, said.timezone) || "",
+		snooze: dateFor(said.snoozed_until, said.snoozed_is_all_day, said.timezone),
+		snooze_time: timeFor(said.snoozed_until, said.snoozed_is_all_day, said.timezone),
+		starts: dateFor(said.starts_at, said.starts_is_all_day, said.timezone),
+		starts_time: timeFor(said.starts_at, said.starts_is_all_day, said.timezone),
 		due: dateFor(said.due_at, said.due_is_all_day, said.timezone),
 		due_time: timeFor(said.due_at, said.due_is_all_day, said.timezone),
 		tags: (said.tags || []).join(", "),
@@ -2190,7 +2192,7 @@ export function calendarDay (value, zone = null) {
 		the beginning, so a reader **west** sees the previous one.
 
 		**A bare `YYYY-MM-DD` is returned untouched, and that is not an optimisation.**
-		`planned_for` is a calendar date with no instant behind it at all, and `new Date(
+		`starts_at` is a calendar date with no instant behind it at all, and `new Date(
 		"2026-08-13")` parses it as UTC midnight — so rendering it anywhere west of UTC moves it
 		to the 12th. Not parsing it is the only way to be exactly right.
 
@@ -2231,7 +2233,7 @@ export function day (value, zone = null, allDay = true) {
 		same reason: an appointment at midnight and a deadline meaning *the end of that day* are
 		the same instant in some zones, so looking at the clock and guessing would print `00:00`
 		against every ordinary deadline. The default is `true` so that a caller which has no
-		such flag — `updated_at`, `completed_at`, `planned_for`, which is a date and has no time
+		such flag — `updated_at`, `completed_at`, `starts_at`, which is a date and has no time
 		to show — is unchanged and cannot accidentally acquire one.
 	*/
 	if (!value) return null;
@@ -2275,8 +2277,8 @@ export function deferred (item) {
 
 		**Computed here rather than published as a field, unlike `blocked`**, and the difference
 		is what each needs. `blocked` reads the link graph, which the browser does not have, so
-		it can only arrive as data. This needs `start_at` and a clock — and the row carries
-		`start_at` anyway, because the mark says *when*. A published boolean would also be
+		it can only arrive as data. This needs `snoozed_until` and a clock — and the row carries
+		`snoozed_until` anyway, because the mark says *when*. A published boolean would also be
 		**stale**: it would be computed when the page was fetched and would go on saying
 		"deferred" after the moment passed, on a page a reader leaves open.
 
@@ -2286,9 +2288,9 @@ export function deferred (item) {
 		**`readiness.undeferred` is the server's spelling** and the two agree by construction:
 		null is not deferred, and an instant that has passed is not deferred.
 	*/
-	if (!item.start_at) return false;
+	if (!item.snoozed_until) return false;
 
-	return new Date(item.start_at) > new Date();
+	return new Date(item.snoozed_until) > new Date();
 }
 
 /*
@@ -2709,7 +2711,7 @@ export function marks (item, showKind, ordering = null, projects = null) {
 	*/
 	if (deferred(item)) {
 		found.push({
-			text: `Deferred to ${day(item.start_at, item.timezone, item.start_is_all_day)}`,
+			text: `Deferred to ${day(item.snoozed_until, item.timezone, item.snoozed_is_all_day)}`,
 			tone: "quiet",
 		});
 	}
@@ -2813,7 +2815,8 @@ export function when (item, now = null) {
 	}
 
 	if (item.due_at && !overdue(item)) return `due ${day(item.due_at, item.timezone)}`;
-	if (item.planned_for) return `→ ${day(item.planned_for, item.timezone)}`;
+	if (item.starts_at)
+		return `→ ${day(item.starts_at, item.timezone, item.starts_is_all_day)}`;
 
 	return null;
 }
@@ -3410,7 +3413,7 @@ export const PRIORITIES = [
 /*
 	**Three date fields, kept apart on purpose, in the words `subroutine explain dates` uses.**
 
-	`#769`: this said *Starts*, which is the one reading `start_at` explicitly is not. Appendix
+	`#769`: this said *Starts*, which is the one reading `snoozed_until` explicitly is not. Appendix
 	A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or *earliest
 	permitted start*, and settled it as a **defer** — the task is not actionable before it and
 	views hide it by default (§6.5).
@@ -3419,8 +3422,9 @@ export const PRIORITIES = [
 	surface with no `explain` to check against: a terminal reader can ask and a browser reader
 	has only the label. `cli/topics.py` is the original and a test holds these against it.
 
-	**Left to right is chronological** — hidden until, then planned for, then due — and it only
-	read as arbitrary while the first one claimed to be a start.
+	**Left to right is chronological** — starts, then hidden until, then due. The middle one
+	is the odd member and is meant to look it: two of these say when the work happens and one
+	says when you want to be bothered about it.
 */
 /*
 	The three dates, and **which of them can carry a time** — `#798`.
@@ -3435,14 +3439,15 @@ export const PRIORITIES = [
 	false. So this is a control, and the `*_is_all_day` columns go on being written by the
 	server from what it was sent.
 
-	**`planned_for` stays a day and that is not an omission.** It goes through `interpret_day`
-	rather than `interpret`, and its own sentence says what it is: *the day you intend to do
-	it*. A time there would be a promise the field cannot keep.
+	**All three carry a time since `#854`.** `starts` used to be the exception, because the
+	column behind it was a bare `DATE` — and Simon read the missing time picker as an
+	inconsistency, which it was. The model was the limit rather than the form, and the note
+	here said so; the column is an instant now, so the exception is gone and an appointment
+	starting at 14:00 can say so.
 */
 export const DATE_FIELDS = [
-	["start", "Hidden until", "A defer. The task does not appear at all before this.", true],
-	["planned_for", "Planned for", "The day you intend to do it. This is what 'today' shows.",
-		false],
+	["starts", "Starts", "When it begins. This is what 'today' shows.", true],
+	["snooze", "Hidden until", "A defer. The task does not appear at all before this.", true],
 	["due", "Due", "A deadline. The date something has to be finished by.", true],
 ];
 
@@ -4040,17 +4045,17 @@ export function Facts ({ item }) {
 		"Priority",
 		item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null,
 	);
-	/* **`start_at` was settable before it was showable**, which `#756` made worse rather than
+	/* **`snoozed_until` was settable before it was showable**, which `#756` made worse rather than
 	   introduced: the form can set it, and a field a reader can write and never read back is
 	   `#515`'s shape — every step reports success and they are left confirming the wrong
 	   conclusion. The CLI has printed it as *from <date>* since M1. */
-	add("Starts", day(item.start_at, item.timezone, item.start_is_all_day));
+	add("Starts", day(item.starts_at, item.timezone, item.starts_is_all_day));
 	add("Due", day(item.due_at, item.timezone, item.due_is_all_day));
-	/* **No flag, because `planned_for` is a `DATE` and has no time to show.** Simon read the
-	   missing time picker beside this field as an inconsistency and it is one — but it is the
-	   model rather than the form, and `#854` is where it goes: *"a time there would be a
-	   promise the field cannot keep"*. */
-	add("Planned", day(item.planned_for, item.timezone));
+	/* **Named for what it does rather than for the column it used to share** (`#854`). This
+	   line and the one above both read `snoozed_until` and `start_at` before the rename, so
+	   the item page said *Starts* about a defer while the form beneath it said *Hidden until*
+	   about the same value — one column under two opposite names, three clicks apart. */
+	add("Hidden until", day(item.snoozed_until, item.timezone, item.snoozed_is_all_day));
 	add("Estimate", item.estimate_human);
 	add("Tags", item.tags && item.tags.length > 0 ? item.tags.join(", ") : null);
 	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);

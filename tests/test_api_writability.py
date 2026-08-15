@@ -62,7 +62,8 @@ import subroutine.views
 #: expected to be spelled the same on both sides.
 WRITTEN_AS: dict[str, str] = {
 	"due_at": "due",
-	"start_at": "start",
+	"snoozed_until": "snooze",
+	"starts_at": "starts",
 	"estimate_minutes": "estimate",
 	"project_id": "project",
 	"body": "body",
@@ -357,7 +358,7 @@ INTERNAL: dict[str, str] = {
 		"second half is a decision rather than an oversight: the band is a fact about the "
 		"clock at the moment the query ran, so a published boolean would go on saying "
 		"*deferred* on a page a reader leaves open past the instant. Both clients recompute "
-		"it from `start_at`, which the row already carries because the mark says *when*, and "
+		"it from `snoozed_until`, which the row already carries because the mark says *when*, and "
 		"`ordering.put_off` is the one spelling of that rule. `rank`'s sibling in mechanism "
 		"and its opposite in this."
 	),
@@ -430,6 +431,16 @@ UNBUILT: dict[str, str] = {
 #: :data:`UNSETTABLE`: every entry names the item tracking it, and deleting the entry is what
 #: closes that item.
 UNREPORTED: dict[str, str] = {
+	# **Found by `#854` renaming the *task*'s date columns**, which left this one carrying a
+	# name that now means something else next door. Qualified rather than bare, because
+	# `start_at` no longer exists on `Task` at all and an unqualified entry would read as
+	# covering both.
+	"Project.start_at": (
+		"#917 — a project's own start and deadline are mapped, accepted by no request model, "
+		"reported by no view and referenced nowhere in `src/`. The item carries the "
+		"measurement and the argument for deleting rather than wiring."
+	),
+	"Project.due_at": "#917 — the same pair; see above.",
 	"spent_minutes": (
 		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
 	),

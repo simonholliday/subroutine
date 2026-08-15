@@ -124,7 +124,13 @@ def build (
 		session,
 		base.where(
 			sqlalchemy.or_(
-				sqlalchemy.and_(model.planned_for.is_not(None), model.planned_for <= day),
+				# **Compared against the end of the day, not against the day** (`#854`).
+				# This used to read `planned_for <= day`, a `DATE` against a `date`; the
+				# column is an instant now, so the boundary has to be one too or every
+				# comparison is an instant against midnight in whichever zone the driver
+				# guessed. Everything that has begun by tonight belongs to today, which is
+				# what `<=` said before and still says.
+				model.starts_at <= day_end,
 				sqlalchemy.and_(model.due_at >= day_start, model.due_at <= day_end),
 			)
 		),
@@ -171,22 +177,21 @@ def build (
 
 	if horizon_days is not None:
 		horizon = _boundary(day + datetime.timedelta(days=horizon_days), timezone, end=True)
-		limit = day + datetime.timedelta(days=horizon_days)
 
 		upcoming = _run(
 			session,
 			base.where(
 				sqlalchemy.or_(
 					sqlalchemy.and_(model.due_at > day_end, model.due_at <= horizon),
-					sqlalchemy.and_(model.planned_for > day, model.planned_for <= limit),
+					sqlalchemy.and_(model.starts_at > day_end, model.starts_at <= horizon),
 				)
 			),
 			sqlalchemy.asc(model.due_at).nullslast(),
-			sqlalchemy.asc(model.planned_for).nullslast(),
+			sqlalchemy.asc(model.starts_at).nullslast(),
 		)
 		upcoming = tuple(task for task in upcoming if task.id not in seen)
 
-	undated = base.where(model.planned_for.is_(None), model.due_at.is_(None))
+	undated = base.where(model.starts_at.is_(None), model.due_at.is_(None))
 
 	if seen:
 		undated = undated.where(model.id.not_in(seen))
@@ -248,19 +253,21 @@ def _visible (
 
 	- **not finished** — ``completed_at`` is non-null exactly when the status category is
 	  done or cancelled (invariant 5), so this needs no join to the status;
-	- **not deferred past the end of this day** — ``start_at`` beyond it means "don't show me
+	- **not deferred past the end of this day** — ``snoozed_until`` beyond it means "don't show me
 	  this yet" (§6.5).
 
 	**``until`` is the end of the day being shown, not the current instant, and that is the
 	whole of `#771`.** It was ``now``, so a dentist appointment at 14:00 was hidden from the
 	morning's agenda — from *every* bucket at once, which is why a workspace holding one open
-	task reported ``unscheduled_total`` of zero. The capture grammar makes it systematic rather
-	than rare: ``Dentist appointment, 2pm-3pm`` sets a ``start_at`` of 14:00 as well as the
-	deadline and the day, so every appointment written with a time was invisible until it began.
+	task reported ``unscheduled_total`` of zero. The capture grammar made it systematic rather
+	than rare, because a time of day was written into the *defer* column: ``Dentist appointment
+	at 2pm`` deferred itself until two o'clock, so every appointment written with a time was
+	invisible until it began. `#854` moved that to ``starts_at``, which hides nothing — so this
+	guard now protects against a deliberate defer alone rather than against the grammar.
 
 	**A defer hides something until a day, not until an o'clock.** The agenda is a day view, so
 	its horizon is that day: a task starting later today belongs to today, and one starting
-	tomorrow does not. ``planned_for`` of today is the reader saying *this belongs to this day*,
+	tomorrow does not. ``starts_at`` of today is the reader saying *this belongs to this day*,
 	and a defer inside the same day may not overrule it.
 
 	:func:`subroutine.domain.readiness.undeferred` is unchanged and keeps comparing against an

@@ -125,31 +125,6 @@ def _instant_predicate (
 	return OPERATORS[operator](column, moment.instant)
 
 
-def _day_predicate (
-	column: typing.Any,
-	operator: str,
-	value: str,
-	field: str,
-	now: datetime.datetime,
-	timezone: str,
-) -> typing.Any:
-	"""Compare a column that stores a calendar day and nothing else.
-
-	No boundary to choose: §6.5 keeps no time and no timezone here, so a day is the whole of
-	the value. A relative expression is resolved and then read as a date **in the caller's
-	timezone**, which is the step that makes `planned_for.eq=today` mean today where they are.
-	"""
-
-	day = subroutine.domain.schedule.interpret_day(
-		value, timezone=timezone, now=now, field=field
-	)
-
-	if day is None:
-		raise _unreadable(field, value, DAY)
-
-	return OPERATORS[operator](column, day)
-
-
 def _no_predicate_of_its_own (
 	column: typing.Any,
 	operator: str,
@@ -230,17 +205,6 @@ INSTANT = Kind(
 	expects="a date or time, or an expression like `yesterday` or `now-7d`",
 	operators=frozenset({"gt", "gte", "lt", "lte"}),
 )
-
-#: A calendar day, for a column that stores one — `planned_for` and nothing else so far.
-#: **Equality is right here and is kept**, which is the other half of the rule above: this
-#: column stores a day and nothing finer, so `planned_for.eq=today` compares two days and
-#: means exactly what it says.
-DAY = Kind(
-	predicate=_day_predicate,
-	expects="a day, or an expression like `today` or `start_of_week`",
-	operators=frozenset(OPERATORS),
-)
-
 
 #: A username, for asking whose activity — `#815`. Resolved against the whole instance rather
 #: than one workspace, which is `#501`'s split: a *filter* must not refuse in a workspace
@@ -325,8 +289,8 @@ def _instants (**fields: typing.Any) -> dict[str, Filterable]:
 #:
 #: **Every entry is a promise about an index**, exactly as ``ordering.TASK_FIELDS`` is: a filter
 #: the database cannot serve cheaply is worse than no filter, because it looks like it works
-#: until the backlog grows. ``created_at``, ``updated_at``, ``due_at`` and ``planned_for`` all
-#: have one; ``completed_at`` and ``start_at`` do not yet and are here because the questions
+#: until the backlog grows. ``created_at``, ``updated_at``, ``due_at`` and ``starts_at`` all
+#: have one; ``completed_at`` and ``snoozed_until`` do not yet and are here because the questions
 #: `#815` was filed for need them — measured against this instance, where the largest workspace
 #: holds hundreds rather than millions of rows.
 TASK_FILTERS: dict[str, Filterable] = {
@@ -341,16 +305,17 @@ TASK_FILTERS: dict[str, Filterable] = {
 		# working and are documented as the older spelling; this is the one that takes
 		# `end_of_week`.
 		due_at=subroutine.db.models.work.Task.due_at,
-		start_at=subroutine.db.models.work.Task.start_at,
+		snoozed_until=subroutine.db.models.work.Task.snoozed_until,
+		# **Was a `DATE` called `planned_for` and took `eq`** (`#854`). It is an instant now,
+		# so it takes the instant operators like every other timestamp — *what starts today*
+		# is `starts_at.gte=today` with `starts_at.lt=tomorrow`. Equality is deliberately not
+		# carried over: on a timestamp it is the thing `#815` refuses by name, because two
+		# instants are equal to the microsecond and almost never to the caller.
+		starts_at=subroutine.db.models.work.Task.starts_at,
 		content_updated_at=subroutine.db.models.work.Task.content_updated_at,
 	),
-	# **A `date` column, so it takes a day rather than an instant** — §6.5 stores no time and no
-	# timezone here, and comparing it against a UTC instant is `#773` waiting to happen.
-	"planned_for": Filterable(
-		column=subroutine.db.models.work.Task.planned_for, kind=DAY
-	),
 	# `#319`. **No index, and here anyway on the same measured grounds as `completed_at` and
-	# `start_at` above**: the question it was filed for — *what is short and not blocked* —
+	# `snoozed_until` above**: the question it was filed for — *what is short and not blocked* —
 	# needs it, and the largest workspace on this instance holds 163 open tasks. The comment at
 	# the head of this registry is the promise being weighed, and this entry is a place to look
 	# when it stops being true.
@@ -812,7 +777,7 @@ def _unreadable (
 				message=f"{field!r} takes {kind.expects}.",
 				hint=(
 					"GET /v1/meta publishes the date grammar under `relative_dates`."
-					if kind is INSTANT or kind is DAY
+					if kind is INSTANT
 					else "GET /v1/meta publishes what each filter accepts."
 				),
 			)

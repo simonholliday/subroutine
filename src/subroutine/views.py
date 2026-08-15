@@ -341,9 +341,16 @@ class Task(pydantic.BaseModel):
 
 	due_at: datetime.datetime | None
 	due_is_all_day: bool
-	planned_for: datetime.date | None
-	start_at: datetime.datetime | None
-	start_is_all_day: bool
+
+	#: **An instant with a flag since `#854`**, where it was a bare date called
+	#: ``planned_for``. Both halves are defaulted because they are new to a model that has
+	#: already shipped, which `#345` and `#482` made a rule rather than a courtesy: a client
+	#: one release behind must not be refused outright for a field it has never heard of.
+	starts_at: datetime.datetime | None = None
+	starts_is_all_day: bool = False
+
+	snoozed_until: datetime.datetime | None = None
+	snoozed_is_all_day: bool = False
 	timezone: str | None
 
 	#: §6.4 promises both spellings, and until 2026-07-30 only the first was here — the
@@ -422,7 +429,7 @@ class Task(pydantic.BaseModel):
 			f"[{self.status}]",
 			_priority_cell(self.importance, self.urgency),
 			"—" if self.due_at is None else self.due_at.date().isoformat(),
-			"" if self.planned_for is None else f"→{self.planned_for.isoformat()}",
+			"" if self.starts_at is None else f"→{self.starts_at.date().isoformat()}",
 			subroutine.domain.text.truncated(self.title),
 			"" if self.assignee is None else f"@{self.assignee}",
 			" ".join(f"#{name}" for name in self.tags),
@@ -1047,7 +1054,7 @@ class Project(pydantic.BaseModel):
 class Document(pydantic.BaseModel):
 	"""A document as the API reports it.
 
-	No ``due_at``, ``planned_for``, ``estimate_minutes`` or ``assignee_id``, and their
+	No ``due_at``, ``starts_at``, ``estimate_minutes`` or ``assignee_id``, and their
 	absence is the point (SPEC.md §6.14): a specification is never "done" and nobody is
 	working on it. A deadline about a document belongs on a task that ``documents`` it.
 	"""
@@ -1496,9 +1503,10 @@ def task (
 		relevance=row.relevance,
 		due_at=row.due_at,
 		due_is_all_day=row.due_is_all_day,
-		planned_for=row.planned_for,
-		start_at=row.start_at,
-		start_is_all_day=row.start_is_all_day,
+		starts_at=row.starts_at,
+		starts_is_all_day=row.starts_is_all_day,
+		snoozed_until=row.snoozed_until,
+		snoozed_is_all_day=row.snoozed_is_all_day,
 		timezone=row.timezone,
 		content_updated_at=row.content_updated_at,
 		created_by=row.created_by,

@@ -6,7 +6,7 @@ specification is never "done" — it is draft, then active, then superseded — 
 owner rather than a worker. Half the columns differ, and splitting on that keeps both
 models honest.
 
-So there is deliberately **no** ``due_at``, ``planned_for``, ``estimate_minutes`` or
+So there is deliberately **no** ``due_at``, ``starts_at``, ``estimate_minutes`` or
 ``assignee_id`` here. "The spec must be signed off by Friday" is a *task* of type ``chore``
 that ``documents`` the spec, which keeps the deadline in the agenda where a deadline belongs
 and means no scheduling query ever has to exclude a document.

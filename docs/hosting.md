@@ -347,7 +347,7 @@ before starting the service:
 
 ```console
 $ subroutine db current
-  Schema is at a3f9c21d7e40.
+  Schema is at f2b8c1a94d63.
 ```
 
 An empty database says so and tells you to run `init`. It is never silently created underneath
@@ -502,7 +502,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"a3f9c21d7e40"}
+  {"status":"ready","api_version":"1.0","schema_revision":"f2b8c1a94d63"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database *and* that the
@@ -1317,11 +1317,11 @@ copy where it landed, migrate, then read the schema back rather than assuming.
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema a3f9c21d7e40.
+  Subroutine 0.5.0 expects schema f2b8c1a94d63.
   The database is at 233f898a2bee.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
-  Upgraded from 547fe53b263c to a3f9c21d7e40.
+  Upgraded from 547fe53b263c to f2b8c1a94d63.
 ```
 
 It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
@@ -1329,8 +1329,8 @@ also the cheapest way to ask the question:
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema a3f9c21d7e40.
-  The database is at a3f9c21d7e40.
+  Subroutine 0.5.0 expects schema f2b8c1a94d63.
+  The database is at f2b8c1a94d63.
   Nothing to do.
 ```
 
@@ -1358,7 +1358,7 @@ deciding the remedy:
 ```console
 $ subroutine today
   Nothing could be read.
-  Local: This database is at schema 233f898a2bee, and this build expects a3f9c21d7e40.
+  Local: This database is at schema 233f898a2bee, and this build expects f2b8c1a94d63.
     Run 'subroutine db upgrade' — it backs up first, then migrates.
 ```
 

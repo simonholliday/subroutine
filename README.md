@@ -336,8 +336,8 @@ some other way. A ref that matched exactly always outranks a text match.
 date has not arrived, so ascending is *deferred last*, and putting it in front leaves whatever
 follows to arrange each band. **Both collections accept it**: a document is never deferred and
 answers with the first band, so a merged list keeps both halves. No listing applies it unless
-you ask, and the row carries `start_at` — so compute the band yourself when you merge, rather
-than reading a boolean that would go stale on a page somebody leaves open.
+you ask, and the row carries `snoozed_until` — so compute the band yourself when you merge,
+rather than reading a boolean that would go stale on a page somebody leaves open.
 
 ## In a browser
 

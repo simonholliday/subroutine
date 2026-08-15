@@ -242,7 +242,7 @@ def test_the_view_side_band_agrees_with_the_predicate_the_query_uses (
 	"""`SR#877`. `put_off` is a copy of `readiness.undeferred`, so it has to be the same rule.
 
 	**A start date that has passed is not a deferral.** That is the half a simpler reading
-	gets wrong — `start_at is not None` would sink a task months after the day it was waiting
+	gets wrong — `snoozed_until is not None` would sink a task months after the day it was waiting
 	for, and the mark beside it would say nothing, so the position and the phrase would
 	disagree about one row.
 	"""
@@ -250,7 +250,7 @@ def test_the_view_side_band_agrees_with_the_predicate_the_query_uses (
 	class Row:
 		"""The two fields a rendered row contributes to this decision."""
 
-		start_at = (
+		snoozed_until = (
 			None if start is None else datetime.datetime.now(datetime.UTC) + start
 		)
 

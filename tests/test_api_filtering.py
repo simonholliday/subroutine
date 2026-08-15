@@ -340,7 +340,6 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 #: been told about a new kind. The failure below names the real problem instead.
 _SAMPLES: dict[str, str] = {
 	"INSTANT": "today",
-	"DAY": "today",
 	"DURATION": "2h",
 }
 

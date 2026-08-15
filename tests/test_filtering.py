@@ -88,14 +88,19 @@ def test_a_time_is_compared_as_a_time_rather_than_as_a_day () -> None:
 	]
 
 
-def test_a_day_column_is_compared_as_a_day () -> None:
-	"""`planned_for` stores no time and no timezone (§6.5), so it takes a date.
+def test_a_start_is_compared_as_an_instant_now_that_it_is_one () -> None:
+	"""`starts_at` was a bare `DATE` and took `eq`; `#854` made it a timestamp.
 
-	Read back in the caller's zone rather than in UTC, which is the step `SR#773` is about: a
-	day interpreted in the wrong zone is right in winter and wrong in summer.
+	**This test used to assert the opposite**, and it is kept pointing the other way rather
+	than deleted, because the capability really did change: *what starts today* is a half-open
+	range now instead of one equality. The boundary is still resolved in the caller's zone,
+	which is the step `#773` is about — a day read in the wrong zone is right in winter and
+	wrong in summer.
 	"""
 
-	assert _sql("planned_for.eq", "today") == ["task.planned_for = '2026-08-11'"]
+	assert _sql("starts_at.gte", "today") == [
+		"task.starts_at >= '2026-08-10 23:00:00+00:00'"
+	]
 
 
 def test_equality_on_a_timestamp_is_refused_rather_than_answered_emptily () -> None:
@@ -118,8 +123,10 @@ def test_equality_on_a_timestamp_is_refused_rather_than_answered_emptily () -> N
 		)
 
 	# **And it is a property of the kind, not a ban on the operator** — which is what says the
-	# rule is about microseconds rather than about equality.
-	assert _sql("planned_for.eq", "today")
+	# rule is about microseconds rather than about equality. `estimate_minutes` is the
+	# counterexample since `#854`: it was `starts_at`, until that stopped being a day column
+	# and there was no date field left that `eq` means anything for.
+	assert _sql("estimate_minutes.eq", "2h")
 
 
 def test_the_two_halves_of_a_name_are_refused_separately () -> None:

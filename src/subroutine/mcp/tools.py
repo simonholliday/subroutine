@@ -105,8 +105,7 @@ DATE_FILTER = {
 	"description": (
 		"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
 		"entries make a range. gt/gte/lt/lte on "
-		f"{_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}; "
-		f"{_fields_of(subroutine.domain.filtering.DAY)} is a day and takes eq too. "
+		f"{_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}. "
 		# **`#319`, and it is named here because `#821` is what happens otherwise**: a field
 		# accepted and unpublished is one an agent never learns, because it does not send the
 		# word and get corrected — it never sends it. 48 bytes, from slack rather than by
@@ -1472,8 +1471,8 @@ def _line (
 		# `for` rather than `on`, matching the CLI's own phrase, even though `on` is the word
 		# §6.13 actually parses. One product says one thing; whether *both* should say `on` is
 		# a question about voice and is `#691`.
-		if item.planned_for is not None:
-			cells.append(f"for {item.planned_for.isoformat()}")
+		if item.starts_at is not None:
+			cells.append(f"for {item.starts_at.date().isoformat()}")
 
 		if item.due_at is not None:
 			cells.append(f"due {item.due_at.date().isoformat()}")
@@ -1581,8 +1580,8 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	if isinstance(item, subroutine.views.Task):
 		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
 		# one that has come round is still the answer to why this was not on the list in June.
-		if item.start_at is not None:
-			facts.append(f"from {item.start_at.date().isoformat()}")
+		if item.snoozed_until is not None:
+			facts.append(f"from {item.snoozed_until.date().isoformat()}")
 
 		if item.completed_at is not None:
 			facts.append(f"done {item.completed_at.date().isoformat()}")
@@ -2218,7 +2217,7 @@ def _updated (
 			workspace=workspace,
 			**{
 				name: days[field]
-				for field, name in (("plan", "planned_for"), ("defer", "start"))
+				for field, name in (("plan", "starts"), ("defer", "snooze"))
 				if field in days
 			},
 		)

@@ -14,7 +14,41 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `f2b8c1a94d63`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+>
+> It renames two columns and moves one field into another. **Nothing is reclassified**:
+> anything that was deferred stays deferred and goes on behaving exactly as it did.
+
 ### Changed
+
+- **An appointment and a deferred task are different things, and are named differently.**
+  `start_at` meant two opposite things — *this begins at* and *do not show me this until* —
+  and everything that read it took the second. So `Dentist on Monday at 2pm` was filed as a
+  defer: hidden from your list, hidden from `--ready`, and reported as *"1 thing put off until
+  later"*, right up until two o'clock on Monday — which is the moment it stopped being useful.
+
+  There are two fields now. **`starts_at` says when work begins** and hides nothing; it carries
+  a time, so an appointment can say two o'clock. **`snoozed_until` hides the row** until it
+  passes, which is what `subroutine defer` has always meant. **`planned_for` is gone, absorbed
+  into `starts_at`** — *planned for Tuesday* is *starts Tuesday, all day*, the same fact with
+  one less field to choose between.
+
+  **This is a breaking change and there are no aliases.** Over HTTP you send `starts` and
+  `snooze` where you sent `planned_for` and `start`, and you read back `starts_at` and
+  `snoozed_until`. The old names are refused rather than quietly accepted: a caller that meant
+  *hide this* and silently got *show this* would not find out until something they were relying
+  on being hidden turned up on their list.
+
+  Two smaller consequences worth knowing. A date filter no longer takes `eq` — `starts_at` is
+  an instant, so *what starts today* is `starts_at.gte=today` with `starts_at.lt=tomorrow`.
+  And the browser's date pickers are three of a kind now: the one that used to offer no time
+  was the field that could not hold one.
+
+  `subroutine plan`, `subroutine defer` and the capture line are unchanged.
 
 - **A row says what kind of thing an item is, with an icon.** It used to say `Task` or
   `Document`, which is its shape rather than its subject — so a bug, a chore and a decision all

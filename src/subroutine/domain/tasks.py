@@ -167,9 +167,10 @@ def create (
 	estimate: int | str | None = None,
 	due: datetime.datetime | datetime.date | str | None = None,
 	due_is_all_day: bool | None = None,
-	planned_for: datetime.date | str | None = None,
-	start: datetime.datetime | datetime.date | str | None = None,
-	start_is_all_day: bool | None = None,
+	starts: datetime.datetime | datetime.date | str | None = None,
+	starts_is_all_day: bool | None = None,
+	snooze: datetime.datetime | datetime.date | str | None = None,
+	snoozed_is_all_day: bool | None = None,
 	tags: typing.Sequence[str] | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
@@ -181,6 +182,11 @@ def create (
 	Dates are interpreted in ``timezone``, which defaults down §6.5's chain from the actor
 	to the workspace to UTC. ``now`` is supplied so that every relative expression in one
 	call resolves against a single instant.
+
+	``starts`` and ``snooze`` are the two halves of what was one ``start`` argument (`#854`),
+	and they are deliberately spelled nothing like each other: one says when the work begins
+	and the other hides the row until it passes. A caller that meant the second and reached
+	for the first now gets an item on the list rather than an item that disappeared.
 	"""
 
 	cleaned_title = _clean_title(title)
@@ -220,21 +226,30 @@ def create (
 		field="due_at",
 	)
 	defer = subroutine.domain.schedule.interpret(
-		start,
+		snooze,
 		boundary=subroutine.domain.schedule.Boundary.START,
 		timezone=zone,
 		now=instant,
-		all_day=start_is_all_day,
-		field="start_at",
+		all_day=snoozed_is_all_day,
+		field="snoozed_until",
 	)
-	planned = subroutine.domain.schedule.interpret_day(planned_for, timezone=zone, now=instant)
+	beginning = subroutine.domain.schedule.interpret(
+		starts,
+		boundary=subroutine.domain.schedule.Boundary.START,
+		timezone=zone,
+		now=instant,
+		all_day=starts_is_all_day,
+		field="starts_at",
+	)
 
+	# **The defer only** — `schedule._ORDERED_BEFORE_DUE` carries why `starts_at` is exempt.
 	subroutine.domain.schedule.check_order(
-		start_at=defer.instant,
-		start_is_all_day=defer.is_all_day,
+		instant=defer.instant,
+		is_all_day=defer.is_all_day,
 		due_at=deadline.instant,
 		due_is_all_day=deadline.is_all_day,
 		timezone=zone,
+		field="snoozed_until",
 	)
 
 	ref = subroutine.domain.refs.allocate(session, workspace_id)
@@ -256,9 +271,10 @@ def create (
 		estimate_minutes=estimated,
 		due_at=deadline.instant,
 		due_is_all_day=deadline.is_all_day,
-		planned_for=planned,
-		start_at=defer.instant,
-		start_is_all_day=defer.is_all_day,
+		starts_at=beginning.instant,
+		starts_is_all_day=beginning.is_all_day,
+		snoozed_until=defer.instant,
+		snoozed_is_all_day=defer.is_all_day,
 		# Recorded even when no date was given: recurrence and all-day rendering need to
 		# know the zone the task was authored in, and inferring it later is guesswork.
 		timezone=zone,
@@ -378,9 +394,10 @@ def create_from_text (
 		"title": captured.title,
 		"due": captured.due,
 		"due_is_all_day": captured.due_is_all_day,
-		"planned_for": captured.planned_for,
-		"start": captured.start,
-		"start_is_all_day": captured.start_is_all_day,
+		"starts": captured.starts_at,
+		"starts_is_all_day": captured.starts_is_all_day,
+		"snooze": captured.snooze,
+		"snoozed_is_all_day": captured.snoozed_is_all_day,
 		"importance": captured.importance,
 		"urgency": captured.urgency,
 		# Passed through like every other parsed field rather than assigned after the fact.
@@ -566,9 +583,10 @@ def update (
 	estimate: int | str | None = subroutine.domain.patch.UNSET,
 	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	due_is_all_day: bool | None = subroutine.domain.patch.UNSET,
-	planned_for: datetime.date | str | None = subroutine.domain.patch.UNSET,
-	start: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
-	start_is_all_day: bool | None = subroutine.domain.patch.UNSET,
+	starts: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
+	starts_is_all_day: bool | None = subroutine.domain.patch.UNSET,
+	snooze: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
+	snoozed_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
@@ -657,29 +675,40 @@ def update (
 		field="due_at",
 	)
 	defer: typing.Any = _rescheduled(
-		task.start_at,
-		given=start,
-		all_day=start_is_all_day,
+		task.snoozed_until,
+		given=snooze,
+		all_day=snoozed_is_all_day,
 		boundary=subroutine.domain.schedule.Boundary.START,
 		zone=zone,
 		now=instant,
-		field="start_at",
+		field="snoozed_until",
 	)
-	planned: typing.Any = (
-		subroutine.domain.patch.UNSET
-		if planned_for is subroutine.domain.patch.UNSET
-		else subroutine.domain.schedule.interpret_day(planned_for, timezone=zone, now=instant)
+	beginning: typing.Any = _rescheduled(
+		task.starts_at,
+		given=starts,
+		all_day=starts_is_all_day,
+		boundary=subroutine.domain.schedule.Boundary.START,
+		zone=zone,
+		now=instant,
+		field="starts_at",
 	)
 
 	# Invariant 8 is checked against what the task *will* look like, not against what was
 	# passed in: moving only the deadline still has to be consistent with the defer that is
 	# already there, and the caller did not mention it.
+	unchanged = defer is subroutine.domain.patch.UNSET
+
 	subroutine.domain.schedule.check_order(
-		start_at=task.start_at if defer is subroutine.domain.patch.UNSET else defer.instant,
-		start_is_all_day=task.start_is_all_day if defer is subroutine.domain.patch.UNSET else defer.is_all_day,
+		instant=task.snoozed_until if unchanged else defer.instant,
+		is_all_day=task.snoozed_is_all_day if unchanged else defer.is_all_day,
 		due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
-		due_is_all_day=task.due_is_all_day if deadline is subroutine.domain.patch.UNSET else deadline.is_all_day,
+		due_is_all_day=(
+			task.due_is_all_day
+			if deadline is subroutine.domain.patch.UNSET
+			else deadline.is_all_day
+		),
 		timezone=zone,
+		field="snoozed_until",
 	)
 
 	# **The move is validated here and applied below, like every other field**, even though
@@ -868,12 +897,13 @@ def update (
 		task.due_at = deadline.instant
 		task.due_is_all_day = deadline.is_all_day
 
-	if planned is not subroutine.domain.patch.UNSET:
-		task.planned_for = planned
+	if beginning is not subroutine.domain.patch.UNSET:
+		task.starts_at = beginning.instant
+		task.starts_is_all_day = beginning.is_all_day
 
 	if defer is not subroutine.domain.patch.UNSET:
-		task.start_at = defer.instant
-		task.start_is_all_day = defer.is_all_day
+		task.snoozed_until = defer.instant
+		task.snoozed_is_all_day = defer.is_all_day
 
 	changes = subroutine.domain.events.changes_between(before, _snapshot(session, task))
 
@@ -1238,15 +1268,18 @@ def _rescheduled (
 		return subroutine.domain.patch.UNSET
 
 	if given is subroutine.domain.patch.UNSET and stored is None:
+		# **Looked up rather than derived from the column name** — `schedule.DATE_FIELDS`
+		# carries why, and it is the mistake this refusal is about, made about itself.
+		written, flag = subroutine.domain.schedule.DATE_FIELDS[field]
+
 		raise subroutine.errors.ValidationError(
-			f"There is no {field.removesuffix('_at')} date for that to describe.",
+			f"There is no {written} date for that to describe.",
 			errors=[
 				subroutine.errors.FieldError(
-					field=f"{field.removesuffix('_at')}_is_all_day",
+					field=flag,
 					code="invalid_field_value",
 					message="Whether something is a whole day or a time says nothing on its own.",
-					hint=f"Send '{field.removesuffix('_at')}' as well, with the day or the "
-					f"instant you mean.",
+					hint=f"Send '{written}' as well, with the day or the instant you mean.",
 				)
 			],
 		)
@@ -1296,9 +1329,9 @@ def _snapshot (
 		"estimate_minutes": task.estimate_minutes,
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
-		"planned_for": task.planned_for,
-		"start_at": task.start_at,
-		"start_is_all_day": task.start_is_all_day,
+		"starts_at": task.starts_at,
+		"snoozed_until": task.snoozed_until,
+		"snoozed_is_all_day": task.snoozed_is_all_day,
 	}
 
 

@@ -133,7 +133,7 @@ def test_compact_carries_the_planned_day_and_marks_it (world: test_api_tasks.Wor
 
 	_populate(world)
 	world.call(
-		"POST", "/v1/tasks", json={"title": "Planned for a day", "planned_for": "2026-08-03"}
+		"POST", "/v1/tasks", json={"title": "Planned for a day", "starts": "2026-08-03"}
 	)
 
 	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]

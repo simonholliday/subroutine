@@ -412,7 +412,7 @@ def _rows (
 			"importance": None if number % 4 == 0 else (number % 5) + 1,
 			"urgency": None if number % 3 == 0 else (number % 5) + 1,
 			"due_at": epoch + datetime.timedelta(days=number) if number % 3 == 0 else None,
-			"planned_for": (epoch + datetime.timedelta(days=number)).date()
+			"starts_at": (epoch + datetime.timedelta(days=number))
 			if number % 3 == 1
 			else None,
 			"created_at": epoch + datetime.timedelta(minutes=number),

@@ -891,7 +891,10 @@ class Client(typing.Protocol):
 		tags: typing.Sequence[str] | None = UNSET,
 		due: str | None = UNSET,
 		due_is_all_day: bool | None = UNSET,
-		start_is_all_day: bool | None = UNSET,
+		starts: str | None = UNSET,
+		starts_is_all_day: bool | None = UNSET,
+		snooze: str | None = UNSET,
+		snoozed_is_all_day: bool | None = UNSET,
 		timezone: str | None = UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
@@ -998,8 +1001,8 @@ class Client(typing.Protocol):
 		*,
 		ref: int,
 		workspace: str | None = None,
-		planned_for: datetime.date | None = UNSET,
-		start: datetime.date | None = UNSET,
+		starts: datetime.datetime | datetime.date | None = UNSET,
+		snooze: datetime.datetime | datetime.date | None = UNSET,
 	) -> subroutine.views.Task:
 		"""Set the day a task is planned for, or the day it becomes visible."""
 

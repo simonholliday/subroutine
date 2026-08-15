@@ -43,7 +43,11 @@ class Task(
 			"ix_task_workspace_id_project_id_status_id", "workspace_id", "project_id", "status_id"
 		),
 		sqlalchemy.Index("ix_task_workspace_id_due_at", "workspace_id", "due_at"),
-		sqlalchemy.Index("ix_task_workspace_id_planned_for", "workspace_id", "planned_for"),
+		# **Follows the planned day, which `starts_at` absorbed** (`#854`). The defer instant
+		# carried no index before the rename and `snoozed_until` inherits that, which is right:
+		# a defer is read as a predicate on rows a listing already narrowed, never asked for a
+		# range.
+		sqlalchemy.Index("ix_task_workspace_id_starts_at", "workspace_id", "starts_at"),
 		sqlalchemy.Index(
 			"ix_task_workspace_id_assignee_id_status_id",
 			"workspace_id",
@@ -133,25 +137,56 @@ class Task(
 	#
 	# The same mechanism as the two above, for a reason of its own: the answer depends on **the
 	# clock**, and one request settles every relative comparison against a single instant. A
-	# Python half reading `start_at` off a loaded row would be a second clock, so a row an hour
-	# either side of its start could be filtered by one and sorted by the other.
+	# Python half reading `snoozed_until` off a loaded row would be a second clock, so a row an
+	# hour either side of its snooze could be filtered by one and sorted by the other.
 	parked: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.query_expression()
 
-	# Three distinct date fields. Conflating a deadline with an intended day is what
-	# makes an overdue list meaningless within a month.
+	# Three distinct date fields, and each says a different thing about *when* (`#854`).
+	# Conflating a deadline with an intended day is what makes an overdue list meaningless
+	# within a month — and conflating an intended day with a *defer* is worse, because a
+	# defer hides the row, so an appointment filed as one is invisible until it starts.
+	#
+	# | field | means | hides the row? |
+	# | --- | --- | --- |
+	# | `due_at` | must be finished by | no |
+	# | `starts_at` | begins at, or the day I intend to do it | no |
+	# | `snoozed_until` | do not show me this until | **yes** |
 	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True
 	)
 	due_is_all_day: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False
 	)
-	planned_for: sqlalchemy.orm.Mapped[datetime.date | None] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.CalendarDate(), nullable=True
-	)
-	start_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+
+	# **This absorbed the old `planned_for`** (`#854`). *Planned for Tuesday* is *starts Tuesday,
+	# all day*, so a separate date column was one field saying a subset of what this says —
+	# and `_apply_time` already discarded the plan and wrote a start when handed both.
+	#
+	# With `estimate_minutes` beside it this is also an event's **span**: `at 2pm ~1h` has
+	# parsed to exactly that pair since `#797`, and decision `#915` made it the stored form
+	# of an appointment's end rather than adding a column. Deliberately **not** `due_at`:
+	# `agenda.py` has no item-type filter, so an end time stored as a deadline puts every
+	# past meeting in Overdue for ever.
+	starts_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True
 	)
-	start_is_all_day: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
+	starts_is_all_day: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Boolean, default=False, nullable=False
+	)
+
+	# **Renamed from `start_at`**, which carried both meanings and was read as this one by
+	# every consumer — so `Dentist at 2pm` was filed under *Unscheduled*, hidden from
+	# `--ready`, and described as *"put off until later"*. `readiness.undeferred` reads it
+	# to the minute, which is what made the old name expensive rather than merely vague.
+	#
+	# **The all-day flag survives the rename deliberately.** `#858` — whether a defer should
+	# honour a time of day or refuse one by name — is undecided, and dropping the flag here
+	# would answer it by accident. Keeping it makes this a pure rename, and leaves either
+	# answer reachable without a second migration.
+	snoozed_until: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+	snoozed_is_all_day: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False
 	)
 

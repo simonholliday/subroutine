@@ -1654,7 +1654,7 @@ def register (
 		# is a decision about a list somebody *reads*, which is what §6.5's "default views"
 		# means and the whole basis for leaving the API default alone. `--json` is the other
 		# half of that: a script asking for open work must not silently lose rows, and every
-		# row already carries `start_at`, so it can make the same choice for itself.
+		# row already carries `snoozed_until`, so it can make the same choice for itself.
 		#
 		# So the two outputs differ, deliberately, and only in this. It is the one place
 		# §12.2a's "the human path and the scripted path are the same code" gives way — the
@@ -2503,13 +2503,13 @@ def register (
 			changed = client.schedule(
 				ref=task.ref,
 				workspace=located.workspace,
-				planned_for=_day(world, _asked(when, "Which day?")),
+				starts=_day(world, _asked(when, "Which day?")),
 			)
 
 			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
 			# right in a list and wrong in the confirmation of a command whose whole job was
 			# to set the other field — the user said "tomorrow" and was shown Friday.
-			planned = f"Planned for {_render_day(changed.planned_for)}"
+			planned = f"Starts {_render_date(changed.starts_at, changed.timezone)}"
 
 			_because(client, located, because, what=planned)
 
@@ -2544,13 +2544,13 @@ def register (
 			changed = client.schedule(
 				ref=task.ref,
 				workspace=located.workspace,
-				start=_day(world, _asked(when, "Hide it until when?")),
+				snooze=_day(world, _asked(when, "Hide it until when?")),
 			)
 
-			# The *task's* zone, like every other instant this program renders. `start_at` is
+			# The *task's* zone, like every other instant this program renders. `snoozed_until` is
 			# midnight where the task lives, so re-reading it in a westward client zone named
 			# the day before the one that was asked for.
-			hidden = f"Hidden until {_render_date(changed.start_at, changed.timezone)}"
+			hidden = f"Hidden until {_render_date(changed.snoozed_until, changed.timezone)}"
 
 			_because(client, located, because, what=hidden)
 
@@ -5303,7 +5303,7 @@ def register (
 					continue
 
 				# **A date field a document has not got means *no* documents, never all of
-				# them** (`#815`). `completed_at`, `due_at`, `start_at` and `planned_for` are
+				# them** (`#815`). `completed_at`, `due_at`, `snoozed_until` and `starts_at` are
 				# task fields — §6.14 says a document is not scheduled — so asking *what was
 				# completed yesterday* is a question about tasks, and a document half that
 				# ignored the filter would answer it by adding every decision in the workspace.
@@ -6026,14 +6026,14 @@ def _facts (located: Located) -> list[str]:
 		# set is a decision they made, and one that has since come round is still the answer
 		# to "why was this not on my list in June" — where a field that erased itself on
 		# arrival would leave that question permanently unanswerable.
-		if item.start_at is not None:
-			facts.append(f"from {_render_date(item.start_at, item.timezone)}")
+		if item.snoozed_until is not None:
+			facts.append(f"from {_render_date(item.snoozed_until, item.timezone)}")
 
 		if item.due_at is not None:
 			facts.append(f"due {_render_date(item.due_at, item.timezone)}")
 
-		if item.planned_for is not None:
-			facts.append(f"for {_render_day(item.planned_for)}")
+		if item.starts_at is not None:
+			facts.append(f"starts {_render_date(item.starts_at, item.timezone)}")
 
 		if item.completed_at is not None:
 			facts.append(f"done {_render_date(item.completed_at, item.timezone)}")
@@ -6108,12 +6108,6 @@ def _dated (day: datetime.date, *, today: datetime.date | None = None) -> str:
 	return f"{bare} {day.year}"
 
 
-def _render_day (day: datetime.date | None) -> str:
-	"""Render a calendar date the way a person reads one."""
-
-	return "—" if day is None else _dated(day)
-
-
 def _when (item: Item) -> str:
 	"""Return a short trailing phrase describing an item's dates, or nothing at all.
 
@@ -6139,7 +6133,7 @@ def _when (item: Item) -> str:
 	# agenda looks broken. A deadline still prints alongside it, because "not until December,
 	# and wanted by the fifteenth" is two facts and dropping either misinforms.
 	if _deferred(task):
-		deferred = f"from {_render_date(task.start_at, task.timezone)}"
+		deferred = f"from {_render_date(task.snoozed_until, task.timezone)}"
 
 		if task.due_at is not None:
 			return f"  ({deferred}, due {_render_date(task.due_at, task.timezone)})"
@@ -6160,7 +6154,9 @@ def _when (item: Item) -> str:
 	said = [
 		phrase
 		for phrase in (
-			None if task.planned_for is None else f"for {_render_day(task.planned_for)}",
+			None
+			if task.starts_at is None
+			else f"starts {_render_date(task.starts_at, task.timezone)}",
 			None if task.due_at is None else f"due {_render_date(task.due_at, task.timezone)}",
 		)
 		if phrase is not None
@@ -6176,7 +6172,7 @@ def _deferred (task: subroutine.views.Task) -> bool:
 	"""Return whether this task's start has not come round yet.
 
 	**Only while it is still hiding something**, which is why this is not simply
-	``start_at is not None``. A listing row has one short phrase to spend, and once the
+	``snoozed_until is not None``. A listing row has one short phrase to spend, and once the
 	instant has passed the defer explains nothing: the task is startable and behaves like any
 	other. ``show`` reports it either way, because there the question being asked is "what has
 	been decided about this", not "why is this not in front of me".
@@ -6265,8 +6261,8 @@ def _as_json (
 		# rank a 5/1 above a 4/5.
 		"due_at": None if task.due_at is None else task.due_at.isoformat(),
 		"due_is_all_day": task.due_is_all_day,
-		"planned_for": None if task.planned_for is None else task.planned_for.isoformat(),
-		"start_at": None if task.start_at is None else task.start_at.isoformat(),
+		"starts_at": None if task.starts_at is None else task.starts_at.isoformat(),
+		"snoozed_until": None if task.snoozed_until is None else task.snoozed_until.isoformat(),
 		"importance": task.importance,
 		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,
@@ -6607,7 +6603,7 @@ def _in_order (
 			rows, key=lambda row: row[1], order=(("priority_score", True), ("ref", False))
 		)
 
-	# NULLs last, explicitly: a task in `today` may be there for `planned_for` and carry no
+	# NULLs last, explicitly: a task in `today` may be there for `starts_at` and carry no
 	# deadline at all, and it belongs after the ones that do rather than before them.
 	#
 	# `_deadline` rather than `row[1].due_at` because a listing row may now hold a document,

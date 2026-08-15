@@ -402,9 +402,11 @@ def guide_text () -> str:
 		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared — the only way to clear a date. **The names you write are not the names you "
-		"read:** send `due` and `start`, which accept the whole date grammar; you get back "
-		"`due_at` and `start_at`, which are instants. Sending `due_at` is a 422, because an "
-		"unknown field is refused rather than ignored.",
+		"read:** send `due`, `starts` and `snooze`, which accept the whole date grammar; you "
+		"get back `due_at`, `starts_at` and `snoozed_until`, which are instants. Sending "
+		"`due_at` is a 422, because an unknown field is refused rather than ignored. `start` "
+		"and `planned_for` are refused too: they were one field that meant two things, and "
+		"they split rather than being aliased.",
 		"",
 		# The `refs` topic below is written for somebody at a terminal, and says useful
 		# things an HTTP client does not need — how a shell treats `#`. These are the facts
@@ -864,11 +866,14 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		{"target": 2, "target_type": "document", "link_type": "derives_from"},
 	),
 	(
-		"Set the day you will do something. Send `planned_for`, `due` or `start` — the names "
-		"you *write*. You read back `due_at` and `start_at`.",
+		"Say when something begins. Send `starts`, `due` or `snooze` — the names you *write*. "
+		"You read back `starts_at`, `due_at` and `snoozed_until`, which are instants. Only "
+		"`snooze` hides the item; the other two leave it on the list. A whole day is `tomorrow` "
+		"or `2026-08-17`; an instant needs a full timestamp, because `tomorrow at 14:00` is the "
+		"grammar a person types at a terminal rather than the one this endpoint takes.",
 		"PATCH",
 		"/v1/tasks/1",
-		{"planned_for": "tomorrow"},
+		{"starts": "2026-08-17T14:00:00Z"},
 	),
 	(
 		"Clear a date: send it as null. Omitting it would leave it alone (§8.3).",

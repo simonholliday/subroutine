@@ -160,8 +160,8 @@ def test_each_bucket_holds_what_the_specification_says (
 	world = World(session)
 	world.task("Late", due=datetime.date(2026, 7, 28))
 	world.task("Due today", due=TODAY)
-	world.task("Planned today", planned_for=TODAY)
-	world.task("Planned yesterday", planned_for=datetime.date(2026, 7, 29))
+	world.task("Planned today", starts=TODAY)
+	world.task("Planned yesterday", starts=datetime.date(2026, 7, 29))
 	world.task("Next week", due=datetime.date(2026, 8, 4))
 	world.task("Far off", due=datetime.date(2026, 12, 25))
 	world.task("No dates")
@@ -182,7 +182,7 @@ def test_a_task_appears_in_exactly_one_bucket (session: sqlalchemy.orm.Session) 
 	"""
 
 	world = World(session)
-	world.task("Late and planned", due=datetime.date(2026, 7, 28), planned_for=TODAY)
+	world.task("Late and planned", due=datetime.date(2026, 7, 28), starts=TODAY)
 
 	agenda = world.agenda(horizon_days=7)
 
@@ -206,8 +206,8 @@ def test_an_all_day_deadline_today_lands_in_today (session: sqlalchemy.orm.Sessi
 @pytest.mark.parametrize(
 	("label", "kwargs"),
 	[
-		("deferred", {"start": datetime.date(2026, 9, 1)}),
-		("planned but deferred", {"planned_for": TODAY, "start": datetime.date(2026, 9, 1)}),
+		("deferred", {"snooze": datetime.date(2026, 9, 1)}),
+		("planned but deferred", {"starts": TODAY, "snooze": datetime.date(2026, 9, 1)}),
 	],
 )
 def test_a_deferred_task_is_hidden_from_every_bucket (
@@ -226,10 +226,10 @@ def test_a_deferred_task_is_hidden_from_every_bucket (
 def test_a_defer_that_has_already_lifted_does_not_hide_anything (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The other side of the same rule: a past `start_at` is not a filter."""
+	"""The other side of the same rule: a past `snoozed_until` is not a filter."""
 
 	world = World(session)
-	world.task("Now actionable", start=datetime.date(2026, 7, 1), planned_for=TODAY)
+	world.task("Now actionable", snooze=datetime.date(2026, 7, 1), starts=TODAY)
 
 	assert _titles(world.agenda().today) == ["Now actionable"]
 
@@ -240,15 +240,15 @@ def test_an_appointment_later_today_is_on_today_s_agenda (
 	"""`SR#771`, and the flagship command was wrong about the flagship question.
 
 	Simon's dentist appointment at 14:00 was missing from his morning. Every bucket narrowed by
-	``start_at <= now``, so it was hidden from **all four at once** — which is why a workspace
+	``snoozed_until <= now``, so it was hidden from **all four at once** — which is why a workspace
 	holding one open task reported ``unscheduled_total`` of zero.
 
 	**The capture grammar makes it systematic rather than rare.** ``Dentist appointment,
-	2pm-3pm`` sets a ``start_at`` of 14:00 as well as the deadline and the day, so every
+	2pm-3pm`` sets a ``snoozed_until`` of 14:00 as well as the deadline and the day, so every
 	appointment written with a time was invisible until it began. That is §1.4's audience on
 	§1.4's path, and the module's own docstring names the dentist as its example.
 
-	**A defer hides something until a day, not until an o'clock**: ``planned_for`` of today is
+	**A defer hides something until a day, not until an o'clock**: ``starts_at`` of today is
 	the reader saying *this belongs to this day*, and a defer inside that day may not overrule
 	it.
 
@@ -263,8 +263,8 @@ def test_an_appointment_later_today_is_on_today_s_agenda (
 	# 17:00 London on the day `NOW` falls in, which is two hours after `NOW` and still today.
 	world.task(
 		"Dentist appointment",
-		planned_for=TODAY,
-		start=datetime.datetime(2026, 7, 30, 16, 0, tzinfo=datetime.UTC),
+		starts=TODAY,
+		snooze=datetime.datetime(2026, 7, 30, 16, 0, tzinfo=datetime.UTC),
 	)
 
 	assert _titles(world.agenda().today) == ["Dentist appointment"], (
@@ -288,8 +288,8 @@ def test_a_defer_into_tomorrow_still_hides_a_task_planned_for_today (
 	# calendar days rather than local ones would call this today and let it through.
 	world.task(
 		"Not until tomorrow",
-		planned_for=TODAY,
-		start=datetime.datetime(2026, 7, 30, 23, 15, tzinfo=datetime.UTC),
+		starts=TODAY,
+		snooze=datetime.datetime(2026, 7, 30, 23, 15, tzinfo=datetime.UTC),
 	)
 
 	assert world.agenda().is_empty, "a defer into tomorrow no longer hides anything"
@@ -299,7 +299,7 @@ def test_a_finished_task_is_gone_from_the_agenda (session: sqlalchemy.orm.Sessio
 	"""An agenda that keeps showing completed work is one nobody reads."""
 
 	world = World(session)
-	task = world.task("Already done", planned_for=TODAY)
+	task = world.task("Already done", starts=TODAY)
 
 	subroutine.domain.tasks.update(session, task, status_key="done", now=NOW)
 
@@ -310,7 +310,7 @@ def test_a_recurrence_template_never_appears (session: sqlalchemy.orm.Session) -
 	"""Templates are excluded from every list, search, agenda and rollup (SPEC.md §6.7)."""
 
 	world = World(session)
-	task = world.task("Template", planned_for=TODAY)
+	task = world.task("Template", starts=TODAY)
 	task.is_template = True
 	session.flush()
 
@@ -334,8 +334,8 @@ def test_a_task_in_someone_elses_private_project_is_not_shown (
 		title="Private project",
 		visibility="private",
 	)
-	world.task("Confidential", project=private, planned_for=TODAY)
-	world.task("Ordinary", planned_for=TODAY)
+	world.task("Confidential", project=private, starts=TODAY)
+	world.task("Ordinary", starts=TODAY)
 
 	assert _titles(world.agenda().today) == ["Ordinary"]
 
@@ -357,7 +357,7 @@ def test_a_private_project_is_shown_to_its_members (session: sqlalchemy.orm.Sess
 		)
 	)
 	session.flush()
-	world.task("Confidential", project=private, planned_for=TODAY)
+	world.task("Confidential", project=private, starts=TODAY)
 
 	assert _titles(world.agenda().today) == ["Confidential"]
 
@@ -368,8 +368,8 @@ def test_another_workspace_is_never_included (session: sqlalchemy.orm.Session) -
 	mine = World(session)
 	theirs = World(session)
 
-	theirs.task("Not mine", planned_for=TODAY)
-	mine.task("Mine", planned_for=TODAY)
+	theirs.task("Not mine", starts=TODAY)
+	mine.task("Mine", starts=TODAY)
 
 	assert _titles(mine.agenda().today) == ["Mine"]
 
@@ -417,7 +417,7 @@ def test_today_orders_deadlines_before_undated_plans (
 	"""
 
 	world = World(session)
-	world.task("Planned, no deadline", planned_for=TODAY)
+	world.task("Planned, no deadline", starts=TODAY)
 	world.task("Due today", due=TODAY)
 
 	assert _titles(world.agenda().today) == ["Due today", "Planned, no deadline"]
@@ -449,7 +449,7 @@ def test_the_day_is_computed_where_the_caller_is (session: sqlalchemy.orm.Sessio
 	"""
 
 	world = World(session)
-	world.task("Tomorrow in London", planned_for=datetime.date(2026, 7, 31))
+	world.task("Tomorrow in London", starts=datetime.date(2026, 7, 31))
 
 	late = datetime.datetime(2026, 7, 30, 15, 0, tzinfo=datetime.UTC)
 

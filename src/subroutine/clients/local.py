@@ -1829,7 +1829,10 @@ class Client:
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
 		due: str | None = subroutine.clients.base.UNSET,
 		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
-		start_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		starts: str | None = subroutine.clients.base.UNSET,
+		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		snooze: str | None = subroutine.clients.base.UNSET,
+		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
@@ -1850,7 +1853,7 @@ class Client:
 			"tags": tags,
 			"due": due,
 			"due_is_all_day": due_is_all_day,
-			"start_is_all_day": start_is_all_day,
+			"snoozed_is_all_day": snoozed_is_all_day,
 			"timezone": timezone,
 		}
 		changes: dict[str, typing.Any] = {
@@ -1902,20 +1905,20 @@ class Client:
 		*,
 		ref: int,
 		workspace: str | None = None,
-		planned_for: datetime.date | None = subroutine.clients.base.UNSET,
-		start: datetime.date | None = subroutine.clients.base.UNSET,
+		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
-		"""Set the day a task is planned for, or the day it becomes visible."""
+		"""Set when a task begins, or the day it stops being hidden."""
 
 		self._refuse_if_read_only()
 
 		changes: dict[str, typing.Any] = {}
 
-		if planned_for is not subroutine.clients.base.UNSET:
-			changes["planned_for"] = planned_for
+		if starts is not subroutine.clients.base.UNSET:
+			changes["starts"] = starts
 
-		if start is not subroutine.clients.base.UNSET:
-			changes["start"] = start
+		if snooze is not subroutine.clients.base.UNSET:
+			changes["snooze"] = snooze
 
 		with self._writing() as (session, actor):
 			row = self._require(session, actor, ref, workspace)

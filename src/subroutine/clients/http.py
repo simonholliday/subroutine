@@ -995,7 +995,10 @@ class Client:
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
 		due: str | None = subroutine.clients.base.UNSET,
 		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
-		start_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		starts: str | None = subroutine.clients.base.UNSET,
+		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		snooze: str | None = subroutine.clients.base.UNSET,
+		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
@@ -1025,7 +1028,7 @@ class Client:
 			),
 			"due": due,
 			"due_is_all_day": due_is_all_day,
-			"start_is_all_day": start_is_all_day,
+			"snoozed_is_all_day": snoozed_is_all_day,
 			"timezone": timezone,
 		}
 		body = self._json(
@@ -1090,10 +1093,10 @@ class Client:
 		*,
 		ref: int,
 		workspace: str | None = None,
-		planned_for: datetime.date | None = subroutine.clients.base.UNSET,
-		start: datetime.date | None = subroutine.clients.base.UNSET,
+		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
-		"""Set the day a task is planned for, or the day it becomes visible.
+		"""Set when a task begins, or the day it stops being hidden.
 
 		A field left out is unchanged and a field sent as null is cleared (§8.3), which is
 		exactly what ``UNSET`` and ``None`` mean here — so the two map onto each other without
@@ -1104,11 +1107,11 @@ class Client:
 
 		changes: dict[str, typing.Any] = {}
 
-		if planned_for is not subroutine.clients.base.UNSET:
-			changes["planned_for"] = None if planned_for is None else planned_for.isoformat()
+		if starts is not subroutine.clients.base.UNSET:
+			changes["starts"] = None if starts is None else starts.isoformat()
 
-		if start is not subroutine.clients.base.UNSET:
-			changes["start"] = None if start is None else start.isoformat()
+		if snooze is not subroutine.clients.base.UNSET:
+			changes["snooze"] = None if snooze is None else snooze.isoformat()
 
 		body = self._json(
 			"PATCH",

@@ -533,7 +533,7 @@ def test_plan_and_defer_move_a_task_between_days (
 	# The confirmation echoes the day that was just set, not the deadline. `_when` prefers
 	# a deadline, which is right in a list and wrong here — the user said "tomorrow" and
 	# used to be shown Friday.
-	assert "Planned for" in run("plan", "1", "tomorrow").output
+	assert "Starts " in run("plan", "1", "tomorrow").output
 
 	run("today")
 
@@ -928,12 +928,12 @@ def test_a_weekday_names_a_day_wherever_a_day_is_named (
 	run("init")
 	run("add", "Buy milk")
 
-	assert "Planned for" in run("plan", "1", "friday").output
-	assert "Planned for" in run("plan", "1", "next friday").output
+	assert "Starts " in run("plan", "1", "friday").output
+	assert "Starts " in run("plan", "1", "next friday").output
 	assert "Hidden until" in run("defer", "1", "monday").output
 
 	# Abbreviations too — they are in the same table `explain dates` prints.
-	assert "Planned for" in run("plan", "1", "fri").output
+	assert "Starts " in run("plan", "1", "fri").output
 
 
 def test_a_day_that_is_not_a_day_is_refused_in_this_commands_vocabulary (
@@ -2198,7 +2198,7 @@ def test_the_scripted_listing_is_never_narrowed_by_a_presentation_rule (
 	Hiding parked work is a decision about a list somebody *reads* — which is what §6.5's
 	"default views" means, and the whole basis for leaving the API default alone. A script
 	asking for open work must not silently lose rows, and every row already carries
-	`start_at`, so it can make the same choice for itself.
+	`snoozed_until`, so it can make the same choice for itself.
 	"""
 
 	run("init")
@@ -2213,7 +2213,7 @@ def test_the_scripted_listing_is_never_narrowed_by_a_presentation_rule (
 	# And the row carries what a script needs to apply the rule itself.
 	parked = next(row for row in rows if row["title"] == "Renew the passport")
 
-	assert parked["start_at"] is not None
+	assert parked["snoozed_until"] is not None
 
 
 def _describe (ref: int, description: str) -> None:
@@ -2929,14 +2929,14 @@ def test_add_confirms_a_planned_day_beside_a_deadline (
 	deadline = run("add", "Sand the door by 2027-03-05").output
 	together = run("add", "Sand the door on 2027-03-01 by 2027-03-05").output
 
-	day = re.search(r"\(for ([^,)]+)\)", planned)
+	day = re.search(r"\(starts ([^,)]+)\)", planned)
 	by = re.search(r"\(due ([^,)]+)\)", deadline)
 
 	assert day is not None, f"a planned day alone was not reported:\n{planned}"
 	assert by is not None, f"a deadline alone was not reported:\n{deadline}"
 
-	assert f"for {day.group(1)}" in together, (
-		f"the planned day was dropped once there was a deadline:\n{together}"
+	assert f"starts {day.group(1)}" in together, (
+		f"the start was dropped once there was a deadline:\n{together}"
 	)
 	assert f"due {by.group(1)}" in together, f"the deadline was dropped:\n{together}"
 

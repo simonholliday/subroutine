@@ -6,7 +6,7 @@ storing an all-day deadline at midnight — passes every test anybody thinks to 
 then makes a user's whole Friday look late.
 
 Everything else here holds the rest of §6.5 in place: deadlines end the day and defers
-start it, ``planned_for`` is a date with no time at all, invariant 8 is evaluated on what
+start it, ``starts_at`` is a date with no time at all, invariant 8 is evaluated on what
 the user sees, and the timezone chain resolves the way the specification says.
 """
 
@@ -133,10 +133,10 @@ def test_a_task_due_all_day_friday_is_not_overdue_on_friday_morning (
 def test_a_defer_lands_at_the_start_of_its_day (session: sqlalchemy.orm.Session) -> None:
 	"""The mirror of the rule above: "not before Monday" means from midnight, not to it."""
 
-	task = _task(session, start=datetime.date(2026, 8, 3))
+	task = _task(session, snooze=datetime.date(2026, 8, 3))
 
-	assert task.start_is_all_day
-	assert _local(task.start_at) == "2026-08-03 00:00:00.000000"
+	assert task.snoozed_is_all_day
+	assert _local(task.snoozed_until) == "2026-08-03 00:00:00.000000"
 
 
 def test_a_timed_deadline_is_stored_as_the_instant_it_names (
@@ -162,11 +162,11 @@ def test_a_bare_date_string_means_the_whole_day (session: sqlalchemy.orm.Session
 def test_a_relative_expression_sets_a_date (session: sqlalchemy.orm.Session) -> None:
 	"""§9.3's grammar reaches the service layer, which is what `subroutine plan 42 tomorrow` needs."""
 
-	task = _task(session, due="end_of_week", planned_for="tomorrow")
+	task = _task(session, due="end_of_week", starts="tomorrow")
 
 	# The 30th is a Thursday; the week ends on Sunday the 2nd.
 	assert _local(task.due_at) == "2026-08-02 23:59:59.999999"
-	assert task.planned_for == datetime.date(2026, 7, 31)
+	assert _local(task.starts_at) == "2026-07-31 00:00:00.000000"
 
 
 def test_all_day_can_be_stated_rather_than_inferred (
@@ -180,15 +180,22 @@ def test_all_day_can_be_stated_rather_than_inferred (
 	assert _local(task.due_at) == "2026-07-31 23:59:59.999999"
 
 
-def test_planned_for_is_a_date_with_no_time_and_no_zone (
+def test_a_start_given_as_a_day_begins_at_the_start_of_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §6.5: the field that decides what appears in a person's day is a date."""
+	"""A whole day is stored as its first instant, *where the caller is* (SPEC.md §6.5).
 
-	task = _task(session, planned_for=datetime.date(2026, 8, 5))
+	**This used to assert the opposite** — that the field was a bare date carrying no time and
+	no zone. `#854` made it an instant so an appointment can say two o'clock, and the all-day
+	flag beside it is what stops a client rendering midnight at somebody. Boundary.START is
+	the half that matters: a deadline of "Friday" runs out at the *end* of Friday and a start
+	of "Friday" begins at the beginning of it.
+	"""
 
-	assert task.planned_for == datetime.date(2026, 8, 5)
-	assert not isinstance(task.planned_for, datetime.datetime)
+	task = _task(session, starts=datetime.date(2026, 8, 5))
+
+	assert _local(task.starts_at) == "2026-08-05 00:00:00.000000"
+	assert task.starts_is_all_day
 
 
 def test_a_planned_day_is_the_day_where_the_caller_is (
@@ -198,25 +205,29 @@ def test_a_planned_day_is_the_day_where_the_caller_is (
 
 	late = datetime.datetime(2026, 7, 30, 23, 30, tzinfo=datetime.UTC)
 
-	sydney = _task(session, planned_for="today", now=late, timezone="Australia/Sydney")
-	london = _task(session, planned_for="today", now=late, timezone=LONDON)
+	sydney = _task(session, starts="today", now=late, timezone="Australia/Sydney")
+	london = _task(session, starts="today", now=late, timezone=LONDON)
 
-	assert sydney.planned_for == datetime.date(2026, 7, 31)
-	assert london.planned_for == datetime.date(2026, 7, 31)
+	assert _local(sydney.starts_at, "Australia/Sydney") == "2026-07-31 00:00:00.000000"
+	assert _local(london.starts_at) == "2026-07-31 00:00:00.000000"
 
-	los_angeles = _task(session, planned_for="today", now=late, timezone="America/Los_Angeles")
+	los_angeles = _task(session, starts="today", now=late, timezone="America/Los_Angeles")
 
-	assert los_angeles.planned_for == datetime.date(2026, 7, 30)
+	# **Read back where it was written**, which is the whole assertion: the same instant is
+	# the 30th in Los Angeles and the 31st in London, and the field means the writer's day.
+	assert (
+		_local(los_angeles.starts_at, "America/Los_Angeles") == "2026-07-30 00:00:00.000000"
+	)
 
 
 def test_a_defer_after_the_deadline_is_refused (session: sqlalchemy.orm.Session) -> None:
 	"""Invariant 8, at creation."""
 
 	with pytest.raises(subroutine.errors.ValidationError) as raised:
-		_task(session, due=datetime.date(2026, 8, 1), start=datetime.date(2026, 8, 5))
+		_task(session, due=datetime.date(2026, 8, 1), snooze=datetime.date(2026, 8, 5))
 
 	assert raised.value.status == 422
-	assert raised.value.errors[0].field == "start_at"
+	assert raised.value.errors[0].field == "snoozed_until"
 
 
 def test_a_defer_and_a_deadline_on_the_same_day_are_allowed (
@@ -229,8 +240,8 @@ def test_a_defer_and_a_deadline_on_the_same_day_are_allowed (
 	user's terms if either boundary ever moves.
 	"""
 
-	task = _task(session, due=datetime.date(2026, 8, 1), start=datetime.date(2026, 8, 1))
-	start, due = _instant(task.start_at), _instant(task.due_at)
+	task = _task(session, due=datetime.date(2026, 8, 1), snooze=datetime.date(2026, 8, 1))
+	start, due = _instant(task.snoozed_until), _instant(task.due_at)
 
 	assert start < due
 	assert subroutine.domain.schedule.local_date(
@@ -247,7 +258,7 @@ def test_invariant_eight_is_checked_against_the_task_not_the_request (
 	lets a task end up deferred until after it is due in two valid-looking steps.
 	"""
 
-	task = _task(session, due=datetime.date(2026, 8, 10), start=datetime.date(2026, 8, 5))
+	task = _task(session, due=datetime.date(2026, 8, 10), snooze=datetime.date(2026, 8, 5))
 
 	with pytest.raises(subroutine.errors.ValidationError):
 		subroutine.domain.tasks.update(session, task, due=datetime.date(2026, 8, 1), now=NOW)
@@ -263,12 +274,12 @@ def test_a_date_can_be_cleared_but_omitting_it_leaves_it_alone (
 ) -> None:
 	"""SPEC.md §8.3's distinction, on the fields it was written for."""
 
-	task = _task(session, due=datetime.date(2026, 8, 10), planned_for=datetime.date(2026, 8, 9))
+	task = _task(session, due=datetime.date(2026, 8, 10), starts=datetime.date(2026, 8, 9))
 
 	subroutine.domain.tasks.update(session, task, title="Renamed", now=NOW)
 
 	assert _instant(task.due_at)
-	assert task.planned_for == datetime.date(2026, 8, 9)
+	assert _local(task.starts_at) == "2026-08-09 00:00:00.000000"
 
 	subroutine.domain.tasks.update(session, task, due=None, now=NOW)
 
@@ -276,7 +287,7 @@ def test_a_date_can_be_cleared_but_omitting_it_leaves_it_alone (
 
 	assert cleared is None
 	assert not task.due_is_all_day
-	assert task.planned_for == datetime.date(2026, 8, 9)
+	assert _local(task.starts_at) == "2026-08-09 00:00:00.000000"
 
 
 def test_changing_a_date_is_recorded_as_a_change (session: sqlalchemy.orm.Session) -> None:

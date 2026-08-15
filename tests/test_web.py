@@ -2012,7 +2012,7 @@ def test_a_control_nobody_touched_is_not_sent (tmp_path: pathlib.Path) -> None:
 		"text": "buy milk",
 		"description": "", "project": "", "type": "", "status": "", "assignee": "",
 		"importance": "", "urgency": "", "estimate": "",
-		"start": "", "planned_for": "", "due": "", "tags": "",
+		"starts": "", "snooze": "", "due": "", "tags": "",
 	}})])
 
 	assert body == {"workspace_id": "projects", "text": "buy milk"}, (
@@ -2074,10 +2074,10 @@ def test_an_edit_clears_what_a_creation_would_omit (tmp_path: pathlib.Path) -> N
 	[body] = _views(tmp_path, [("edited", {"item": item, "values": {
 		"title": "Now", "status": "open", "type": "task", "project": "web",
 		"description": "", "assignee": "", "importance": "", "urgency": "", "estimate": "",
-		"start": "", "planned_for": "", "due": "", "tags": "",
+		"starts": "", "snooze": "", "due": "", "tags": "",
 	}})])
 
-	assert body["due"] is None and body["planned_for"] is None and body["start"] is None, (
+	assert body["due"] is None and body["starts"] is None and body["snooze"] is None, (
 		"a blanked date was omitted rather than cleared, so clearing one does nothing"
 	)
 	assert body["description"] is None and body["assignee"] is None
@@ -2115,16 +2115,24 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 		# Stored in Los Angeles, so the task's day and the UTC day are different numbers.
 		"timezone": "America/Los_Angeles",
 		"due_at": "2126-08-16T06:59:59.999999Z",
-		"start_at": "2126-08-10T07:00:00Z",
-		"planned_for": "2126-08-12",
+		"snoozed_until": "2126-08-10T07:00:00Z",
+		"starts_at": "2126-08-12T21:30:00Z",
+		# **Stated rather than left out**, because `timeFor` tests `allDay !== false`: an item
+		# that never says is treated as a whole day, so an appointment would lose its clock.
+		"starts_is_all_day": False,
 		"tags": ["health", "admin"],
 	}})])
 
 	assert held["due"] == "2126-08-15", (
 		f"the form opened on {held['due']}, which is not the day the deadline is on"
 	)
-	assert held["start"] == "2126-08-10"
-	assert held["planned_for"] == "2126-08-12", "a calendar date was parsed and moved"
+	assert held["snooze"] == "2126-08-10"
+
+	# **Read back where the task lives, not where the reader is** (`#773`). 21:30 UTC is the
+	# 12th in Los Angeles and the 13th in UTC, so a form opening on the wrong one would move
+	# somebody's appointment by a day every time they edited anything else.
+	assert held["starts"] == "2126-08-12", "a start was read in the wrong zone"
+	assert held["starts_time"] == "14:30"
 
 	# **Everything as the string a control holds**, because that is what comes back out of one.
 	assert held["importance"] == "4" and held["urgency"] == "3"
@@ -2681,7 +2689,7 @@ def _date_fields () -> list[tuple[str, str, str]]:
 
 
 def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> None:
-	"""`SR#769`. The browser said *Starts*, which is the one reading `start_at` is not.
+	"""`SR#769`. The browser said *Starts*, which is the one reading `snoozed_until` is not.
 
 	Appendix A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or
 	*earliest permitted start*, and settled it as a **defer**: not actionable before it, hidden
@@ -2721,10 +2729,11 @@ def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> No
 			f"explain dates` — two surfaces are now teaching two things about one field"
 		)
 
-	# **Chronological, and the reason is written down** so it is not reshuffled by taste: a defer
-	# comes before the day you mean to do it, which comes before the deadline. It only read as
-	# arbitrary while the first one claimed to be a start.
-	assert [name for name, _label, _hint in fields] == ["start", "planned_for", "due"]
+	# **Chronological, and the reason is written down** so it is not reshuffled by taste: when
+	# it starts, then when you want to stop being shown it, then when it is due. The middle one
+	# is the odd member and is meant to look it — two of these say when the work happens and
+	# one says when you want to be bothered about it (`#854`).
+	assert [name for name, _label, _hint in fields] == ["starts", "snooze", "due"]
 
 
 def test_the_priority_scale_says_which_way_it_runs (tmp_path: pathlib.Path) -> None:
@@ -2879,7 +2888,8 @@ NOT_ON_THE_FORM = {
 	# of that day and all-day, `2026-08-14T15:00` is stored at 15:00 and not. A checkbox beside
 	# each date would be a control whose only effect is to contradict the field next to it.
 	"due_is_all_day": "derived from whether the date carries a time",
-	"start_is_all_day": "derived from whether the date carries a time",
+	"snoozed_is_all_day": "derived from whether the date carries a time",
+	"starts_is_all_day": "derived from whether the date carries a time",
 	# The chain is explicit -> user -> workspace -> instance and null means *not stated* at every
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.
@@ -2892,7 +2902,7 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	`filed` reads controls by name off the submitted form; `Adding` writes those names into the
 	markup. Nothing joins the two, so a control called `plannedFor` beside a rule expecting
-	`planned_for` is a field that silently never arrives: the reader fills it in, the item is
+	`starts_at` is a field that silently never arrives: the reader fills it in, the item is
 	created, and the value is gone. Every fault this app has shipped looked like that, and each
 	was found by Simon rather than by the build.
 
@@ -4345,7 +4355,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			# thing to file, so nothing here expires — which is the trap a same-day fixture walks
 			# into, passing in the morning and failing in the evening.
 			"start": "2026-08-12",
-			"planned_for": "2026-08-13",
+			"starts_at": "2026-08-13",
 			"due": "2026-08-14",
 			"tags": "health, #admin",
 		}, place.slug]),
@@ -4356,7 +4366,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"text": "Something plain",
 			"description": "", "project": "", "type": "", "status": "", "assignee": "",
 			"importance": "", "urgency": "", "estimate": "",
-			"start": "", "planned_for": "", "due": "", "tags": "",
+			"starts": "", "snooze": "", "due": "", "tags": "",
 		}, place.slug]),
 		# **An edit, sending `expected_version`** (`SR#757`, §8.9). Against a task nothing else
 		# here writes to, because a stale version is a 409 and this guard reads any 4xx as the
@@ -4366,7 +4376,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"description": "changed", "project": place.project, "type": "bug",
 			"status": place.status, "assignee": place.username,
 			"importance": "4", "urgency": "3", "estimate": "90m",
-			"start": "2026-08-12", "planned_for": "2026-08-13", "due": "2026-08-14",
+			"starts": "2026-08-13", "snooze": "2026-08-12", "due": "2026-08-14",
 			"tags": "health",
 		}, {"ref": place.spare, "version": place.spare_version}, place.slug]),
 		# **Every clearable control blanked**, which is the half `filed`'s rule would break: an
@@ -4376,7 +4386,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"description": "", "project": place.project, "type": "task",
 			"status": place.status, "assignee": "",
 			"importance": "", "urgency": "", "estimate": "",
-			"start": "", "planned_for": "", "due": "", "tags": "",
+			"starts": "", "snooze": "", "due": "", "tags": "",
 		}, {"ref": place.spare, "version": place.spare_version + 1}, place.slug]),
 		# **The quick path** (`SR#758`): one field and no `expected_version`, which is right
 		# here and wrong for the form — a single control read and written in one gesture cannot
@@ -5824,7 +5834,7 @@ def test_a_deadline_stays_a_day (tmp_path: pathlib.Path) -> None:
 	"""
 
 	due = {"ref": 1, "kind": "task", "title": "Due", "due_at": _from_now(hours=48)}
-	planned = {"ref": 2, "kind": "task", "title": "Planned", "planned_for": _from_now(hours=48)}
+	planned = {"ref": 2, "kind": "task", "title": "Planned", "starts_at": _from_now(hours=48)}
 
 	for sample in (due, planned):
 		rendered = _rendered(
@@ -5851,8 +5861,8 @@ def test_a_day_is_read_in_the_timezone_that_stored_it (tmp_path: pathlib.Path) -
 	| field | stored at | wrong for a reader |
 	| --- | --- | --- |
 	| an all-day `due_at` | the **end** of the day | **east** of the task |
-	| an all-day `start_at` | the **beginning** | **west** of the task |
-	| `planned_for` | not an instant at all | west of UTC, by being parsed |
+	| an all-day `snoozed_until` | the **beginning** | **west** of the task |
+	| `starts_at` | not an instant at all | west of UTC, by being parsed |
 
 	**Sydney rather than London**, for `SR#532`'s reason: its abbreviations are never zone names
 	and it is far enough east to cross the end-of-day boundary, so this cannot pass by season
@@ -5863,7 +5873,7 @@ def test_a_day_is_read_in_the_timezone_that_stored_it (tmp_path: pathlib.Path) -
 		# The real value off `SR#589`, read in a zone ten hours ahead.
 		("calendarDay", {"value": "2026-08-14T23:59:59.999999Z", "zone": "Etc/UTC"}),
 		("calendarDay", {"value": "2026-08-14T00:00:00Z", "zone": "Etc/UTC"}),
-		# **A bare date is returned untouched**, and that is not an optimisation: `planned_for`
+		# **A bare date is returned untouched**, and that is not an optimisation: `starts_at`
 		# has no instant behind it, and `new Date("2026-08-13")` is UTC midnight — so parsing it
 		# moves it to the 12th anywhere west of UTC. Not parsing is the only exact answer.
 		#
@@ -5923,7 +5933,7 @@ def test_a_row_and_the_terminal_agree_about_a_deadline (tmp_path: pathlib.Path) 
 #: The fields §6.5 stores as a *day* rather than as an instant, so rendering one needs the
 #: timezone that stored it. `updated_at`, `created_at` and `completed_at` are deliberately
 #: absent: those are moments the program recorded, and the reader's own zone is the right one.
-DAY_SCALE = ("due_at", "planned_for", "start_at")
+DAY_SCALE = ("due_at", "starts_at", "snoozed_until")
 
 
 def test_every_day_scale_date_is_rendered_with_its_timezone () -> None:
@@ -6970,7 +6980,7 @@ def test_every_ordering_says_whether_deferred_work_sinks_in_it () -> None:
 	no way to tell that from a defect. Two entries say `false` and both say why, which is what
 	makes them decisions rather than omissions.
 
-	**An ordering that sinks owes `start_at` to both collections**, because that is what
+	**An ordering that sinks owes `snoozed_until` to both collections**, because that is what
 	`deferred` reads. The guard above asks the same of `field` and `shows`; a merge key the row
 	does not carry arrives as undefined, and `deferred` would then answer *no* for every row —
 	an ordering that claims to sink and silently does not.
@@ -7005,9 +7015,9 @@ def test_every_ordering_says_whether_deferred_work_sinks_in_it () -> None:
 			if name == "DOCUMENT_FIELDS":
 				continue
 
-			assert "start_at" in lists[name], (
+			assert "snoozed_until" in lists[name], (
 				f"the list can be ordered by {order}, which sinks deferred work, and {name} "
-				f"does not ask for 'start_at' — so every row would answer 'not deferred'"
+				f"does not ask for 'snoozed_until' — so every row would answer 'not deferred'"
 			)
 
 
@@ -7230,7 +7240,7 @@ def test_the_merge_sinks_deferred_work_under_every_order_that_says_it_does (
 	the rule right and the display right with nothing joining them.
 
 	It is only reachable when both collections are on the page, which is what `accumulated`
-	guards: a document has no `start_at` and lands in the first band, so a deferred task
+	guards: a document has no `snoozed_until` and lands in the first band, so a deferred task
 	merging above one is exactly the row that would look wrong to a reader.
 
 	**Not multiplied by the direction**, which is the case `created_at` covers: *oldest first*
@@ -7243,7 +7253,7 @@ def test_the_merge_sinks_deferred_work_under_every_order_that_says_it_does (
 		{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00", "title": "Apple",
 			"completed_at": "2026-08-04T09:00:00+00:00"},
 		{"ref": 2, "created_at": "2026-08-02T09:00:00+00:00", "title": "Banana",
-			"completed_at": "2026-08-06T09:00:00+00:00", "start_at": ahead},
+			"completed_at": "2026-08-06T09:00:00+00:00", "snoozed_until": ahead},
 		{"ref": 3, "created_at": "2026-08-03T09:00:00+00:00", "title": "Carrot",
 			"completed_at": "2026-08-05T09:00:00+00:00"},
 	]
@@ -7350,7 +7360,7 @@ def test_a_start_date_that_has_passed_does_not_sink_a_row (tmp_path: pathlib.Pat
 	rows = [
 		{"ref": 1, "created_at": "2026-08-01T09:00:00+00:00", "title": "Apple"},
 		{"ref": 2, "created_at": "2026-08-02T09:00:00+00:00", "title": "Banana",
-			"start_at": behind},
+			"snoozed_until": behind},
 	]
 
 	assert _views(tmp_path, [("inOrder", {"rows": rows, "order": "-created_at"})])[0] == [2, 1]
@@ -7569,11 +7579,13 @@ def test_a_time_control_starts_empty_unless_the_item_has_one (tmp_path: pathlib.
 
 
 def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.Path) -> None:
-	"""`SR#798`. A day for the day you intend to do it, a time for the two that are instants.
+	"""`SR#798`, and `#854` widened it: all three dates are instants, so all three take a time.
 
-	`planned_for` goes through `interpret_day` rather than `interpret`, and its own sentence
-	says what it is — *the day you intend to do it*. A time there would be a promise the field
-	cannot keep, so its absence is the design rather than an omission.
+	**This test used to assert the opposite** — that `starts` was a day and offering a clock
+	there would be a promise the field could not keep. That was true of the column and Simon
+	read the missing picker as an inconsistency; it was one, in the model rather than the form.
+	Kept pointing the other way rather than deleted, because the guard underneath it is what
+	matters: whatever the form draws and whatever `TIMED` says must be the same set.
 	"""
 
 	markup = _rendered(tmp_path, {"Fields": SAMPLES["Fields"]})["Fields"]
@@ -7589,9 +7601,9 @@ def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.
 		if markup[at:markup.index("<small>", at)].count("<input>") == 2:
 			drawn.add(name)
 
-	assert drawn == {"start", "due"}, (
-		f"the form offers a time on {sorted(drawn)} — `planned_for` goes through "
-		f"`interpret_day` and its own sentence calls it a day"
+	assert drawn == {"starts", "snooze", "due"}, (
+		f"the form offers a time on {sorted(drawn)} — every date a task carries is an instant "
+		f"since `#854`, so each of the three should have a clock beside it"
 	)
 
 	# **The two halves compared, which is the invariant rather than the spelling.** `TIMED` is
@@ -7914,7 +7926,7 @@ def test_a_fact_sheet_shows_the_time_an_item_starts (tmp_path: pathlib.Path) -> 
 	"""`#864`, found by Simon driving the browser with no terminal.
 
 	He captured *Dentist on Monday at 14:00*, which `#797` taught the grammar to read; the item
-	stored `start_at` with `start_is_all_day: false`; and the item page said **Starts 17 Aug
+	stored `snoozed_until` with `snoozed_is_all_day: false`; and the item page said **Starts 17 Aug
 	2026**. A field a person can write and cannot read back is `#515`'s shape, and `#797`'s own
 	finding was that a time somebody typed must be *reported* rather than guessed.
 
@@ -7926,7 +7938,7 @@ def test_a_fact_sheet_shows_the_time_an_item_starts (tmp_path: pathlib.Path) -> 
 	timed, all_day = (
 		_rendered(tmp_path, {"Facts": {"item": {
 			"ref": 18, "title": "Dentist", "timezone": "Europe/London",
-			"start_at": "2026-08-17T13:00:00Z", "start_is_all_day": flag,
+			"snoozed_until": "2026-08-17T13:00:00Z", "snoozed_is_all_day": flag,
 		}}})["Facts"]
 		for flag in (False, True)
 	)
@@ -8156,8 +8168,8 @@ def test_a_deferred_item_says_it_has_been_put_off (tmp_path: pathlib.Path) -> No
 	shown = {
 		which: _rendered(tmp_path, {"Row": {"workspace": "projects", "item": {
 			"ref": 7, "kind": "task", "title": "Renew the certificate",
-			"start_at": "2099-01-01T09:00:00+00:00" if which == "parked" else None,
-			"start_is_all_day": False, "timezone": "UTC",
+			"snoozed_until": "2099-01-01T09:00:00+00:00" if which == "parked" else None,
+			"snoozed_is_all_day": False, "timezone": "UTC",
 		}}})["Row"]
 		for which in ("parked", "ordinary")
 	}
@@ -8185,7 +8197,7 @@ def test_a_defer_that_has_come_round_is_not_a_mark (tmp_path: pathlib.Path) -> N
 	was fetched goes on saying *deferred* on a page left open past the moment.
 	"""
 
-	passed = {"ref": 1, "kind": "task", "title": "Came back", "start_at": "2020-01-01T00:00:00+00:00"}
+	passed = {"ref": 1, "kind": "task", "title": "Came back", "snoozed_until": "2020-01-01T00:00:00+00:00"}
 
 	assert _views(tmp_path, [("deferred", passed)])[0] is False
 

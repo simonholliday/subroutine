@@ -109,9 +109,15 @@ class Create(subroutine.api.schemas.RequestModel):
 
 	due: str | None = None
 	due_is_all_day: bool | None = None
-	planned_for: str | None = None
-	start: str | None = None
-	start_is_all_day: bool | None = None
+
+	#: **Two fields where there was one** (`#854`). ``starts`` says when the work begins;
+	#: ``snooze`` hides the row until it passes. The old ``start`` and ``planned_for`` are
+	#: gone rather than aliased, so a caller that meant either is refused by name instead of
+	#: being given the other one's behaviour.
+	starts: str | None = None
+	starts_is_all_day: bool | None = None
+	snooze: str | None = None
+	snoozed_is_all_day: bool | None = None
 	timezone: str | None = None
 
 
@@ -146,9 +152,15 @@ class Update(subroutine.api.schemas.RequestModel):
 	tags: list[str] | None = None
 	due: str | None = None
 	due_is_all_day: bool | None = None
-	planned_for: str | None = None
-	start: str | None = None
-	start_is_all_day: bool | None = None
+
+	#: **Two fields where there was one** (`#854`). ``starts`` says when the work begins;
+	#: ``snooze`` hides the row until it passes. The old ``start`` and ``planned_for`` are
+	#: gone rather than aliased, so a caller that meant either is refused by name instead of
+	#: being given the other one's behaviour.
+	starts: str | None = None
+	starts_is_all_day: bool | None = None
+	snooze: str | None = None
+	snoozed_is_all_day: bool | None = None
 	timezone: str | None = None
 
 	#: The version this change is based on (SPEC.md §8.9). Optional; ``If-Match`` does the
@@ -177,9 +189,10 @@ def create (
 			"tags",
 			"due",
 			"due_is_all_day",
-			"planned_for",
-			"start",
-			"start_is_all_day",
+			"starts",
+			"starts_is_all_day",
+			"snooze",
+			"snoozed_is_all_day",
 		)
 		if name in supplied
 	}
@@ -619,8 +632,8 @@ def change (
 			"urgency",
 			"estimate",
 			"due",
-			"planned_for",
-			"start",
+			"starts",
+			"snooze",
 			"tags",
 		)
 		if name in supplied
@@ -649,7 +662,8 @@ def change (
 		("status", "status_key"),
 		("type", "type_key"),
 		("due_is_all_day", "due_is_all_day"),
-		("start_is_all_day", "start_is_all_day"),
+		("starts_is_all_day", "starts_is_all_day"),
+		("snoozed_is_all_day", "snoozed_is_all_day"),
 	):
 		if name in supplied and getattr(body, name) is not None:
 			changes[parameter] = getattr(body, name)

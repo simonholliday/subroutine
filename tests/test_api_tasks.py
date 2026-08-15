@@ -303,15 +303,15 @@ def test_the_all_day_flag_is_refused_when_there_is_no_date_to_describe (
 
 	created = world.call("POST", "/v1/tasks", json={"title": "No dates at all"}).json()
 	response = world.call(
-		"PATCH", f"/v1/tasks/{created['ref']}", json={"start_is_all_day": True}
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"snoozed_is_all_day": True}
 	)
 
 	assert response.status_code == 422
 
 	body = response.json()
 
-	assert body["errors"][0]["field"] == "start_is_all_day", "and it names which one"
-	assert "start" in body["errors"][0]["hint"], "and what to send instead"
+	assert body["errors"][0]["field"] == "snoozed_is_all_day", "and it names which one"
+	assert "snooze" in body["errors"][0]["hint"], "and what to send instead"
 
 
 def test_completing_a_task_uses_whatever_this_workspace_calls_done (world: World) -> None:
@@ -871,7 +871,7 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 				"importance": (index % 5) + 1 if index % 2 == 0 else None,
 				"urgency": 5 - (index % 5) if index % 2 == 0 else None,
 				"due": "tomorrow" if index % 3 == 0 else None,
-				"planned_for": "today" if index % 4 == 0 else None,
+				"starts": "today" if index % 4 == 0 else None,
 				# **Two rows in the far band, so `deferred` has both to page across**
 				# (`SR#877`). Chosen away from the rows carrying a deadline, because a task
 				# cannot be deferred until after it is due and the create would be refused.
@@ -879,14 +879,14 @@ def test_every_sortable_field_can_be_paged_through (world: World, field: str) ->
 				# **Computed from today rather than written down**, so it cannot expire —
 				# and a year out rather than tomorrow, because a defer stores midnight and a
 				# run starting at 23:59 would watch the row change bands underneath it.
-				"start": _FAR_OFF if index in (1, 4) else None,
+				"snooze": _FAR_OFF if index in (1, 4) else None,
 				# The seed is asserted below, for `_six_with_three_parked`'s reason: a day
 				# phrase this grammar does not read is left in the title rather than refused,
 				# so a fixture can quietly defer nothing and pass by having one band.
 			},
 		)
 
-		assert (answer.json()["start_at"] is not None) == (index in (1, 4)), (
+		assert (answer.json()["snoozed_until"] is not None) == (index in (1, 4)), (
 			f"task {index} did not get the start date this fixture claims to give it"
 		)
 
@@ -961,19 +961,19 @@ def _six_with_three_parked (world: World) -> tuple[list[int], list[int]]:
 		body: dict[str, typing.Any] = {"title": f"Task {index}"}
 
 		if index % 2:
-			body["start"] = _FAR_OFF
+			body["snooze"] = _FAR_OFF
 
 		made = world.call("POST", "/v1/tasks", json=body).json()
 		(parked if index % 2 else startable).append(made["ref"])
 
-		# **The seed is asserted, not assumed.** `start` is a phrase the day grammar reads, and
+		# **The seed is asserted, not assumed.** `snooze` is a phrase the day grammar reads, and
 		# a spelling it does not recognise is left in the title rather than refused — which
 		# happened while writing this, in the equivalence suite, with `at` instead of `from`.
 		# A fixture that deferred nothing gives `deferred` one band, and a page that cannot
 		# disagree with itself passes every assertion below.
-		assert bool(made["start_at"]) == bool(index % 2), (
+		assert bool(made["snoozed_until"]) == bool(index % 2), (
 			f"task {index} was meant to be {'deferred' if index % 2 else 'startable'} and its "
-			f"start_at is {made['start_at']!r} — the fixture is not what it claims"
+			f"snoozed_until is {made['snoozed_until']!r} — the fixture is not what it claims"
 		)
 
 	return startable, parked
@@ -1507,7 +1507,7 @@ def test_a_task_reports_when_its_meaning_last_changed (world: World) -> None:
 	assert created["content_updated_at"] is not None
 
 	moved = world.call(
-		"PATCH", f"/v1/tasks/{created['ref']}", json={"planned_for": "tomorrow"}
+		"PATCH", f"/v1/tasks/{created['ref']}", json={"starts": "tomorrow"}
 	).json()
 
 	assert moved["content_updated_at"] == created["content_updated_at"], (
@@ -1684,13 +1684,13 @@ def test_ready_excludes_a_task_deferred_to_the_future (world: World) -> None:
 
 	"Don't show me the renewal form until March" and "this is blocked on the migration" are
 	different facts and the same answer to "can I start it?", which is why one filter covers
-	both. A caller that needs to tell them apart reads `start_at` and the blockers, which are
+	both. A caller that needs to tell them apart reads `snoozed_until` and the blockers, which are
 	on the item already.
 	"""
 
 	now = world.call("POST", "/v1/tasks", json={"title": "Startable"}).json()["ref"]
 	later = world.call(
-		"POST", "/v1/tasks", json={"title": "Not yet", "start": "2099-01-01"}
+		"POST", "/v1/tasks", json={"title": "Not yet", "snooze": "2099-01-01"}
 	).json()["ref"]
 
 	listed = [
@@ -1705,7 +1705,7 @@ def test_a_defer_that_has_passed_does_not_hold_a_task_back (world: World) -> Non
 	"""The boundary, which is where an off-by-one in the comparison would live."""
 
 	past = world.call(
-		"POST", "/v1/tasks", json={"title": "Was deferred", "start": "2020-01-01"}
+		"POST", "/v1/tasks", json={"title": "Was deferred", "snooze": "2020-01-01"}
 	).json()["ref"]
 
 	listed = [
@@ -1838,7 +1838,7 @@ def test_the_listing_default_still_shows_deferred_work (world: World) -> None:
 	"""
 
 	later = world.call(
-		"POST", "/v1/tasks", json={"title": "Not yet", "start": "2099-01-01"}
+		"POST", "/v1/tasks", json={"title": "Not yet", "snooze": "2099-01-01"}
 	).json()["ref"]
 
 	listed = [item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]]
@@ -1856,7 +1856,7 @@ def test_deferred_exclude_and_only_partition_the_listing (world: World) -> None:
 
 	startable = world.call("POST", "/v1/tasks", json={"title": "Startable"}).json()["ref"]
 	parked = world.call(
-		"POST", "/v1/tasks", json={"title": "Parked", "start": "2099-01-01"}
+		"POST", "/v1/tasks", json={"title": "Parked", "snooze": "2099-01-01"}
 	).json()["ref"]
 
 	def refs (query: str) -> set[int]:

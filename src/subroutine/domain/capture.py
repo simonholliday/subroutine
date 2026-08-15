@@ -254,9 +254,10 @@ class Capture:
 	title: str
 	due: datetime.date | str | None = None
 	due_is_all_day: bool | None = None
-	planned_for: datetime.date | None = None
-	start: datetime.date | str | None = None
-	start_is_all_day: bool | None = None
+	starts_at: datetime.datetime | datetime.date | str | None = None
+	starts_is_all_day: bool | None = None
+	snooze: datetime.date | str | None = None
+	snoozed_is_all_day: bool | None = None
 	importance: int | None = None
 	urgency: int | None = None
 	estimate_minutes: int | None = None
@@ -509,12 +510,14 @@ def _collect_dates (
 			continue
 
 		if word in PLANNED_WORDS:
-			if "planned_for" in fields:
+			if "starts_at" in fields:
 				continue
 
-			# `planned_for` is a date and nothing else, so an instant is read as the day it
-			# falls on where the user is.
-			fields["planned_for"] = _as_date(value, now=now, timezone=timezone)
+			# Kept as a bare day so ``_apply_time`` can put a clock on it — ``on monday at
+			# 2pm`` is one fact written in two tokens, and reading the day to an instant here
+			# would leave that function combining a time with something already resolved.
+			fields["starts_at"] = _as_date(value, now=now, timezone=timezone)
+			fields["starts_is_all_day"] = True
 
 		elif word in DEADLINE_WORDS:
 			if "due" in fields:
@@ -523,10 +526,10 @@ def _collect_dates (
 			fields["due"], fields["due_is_all_day"] = value, all_day
 
 		else:
-			if "start" in fields:
+			if "snooze" in fields:
 				continue
 
-			fields["start"], fields["start_is_all_day"] = value, all_day
+			fields["snooze"], fields["snoozed_is_all_day"] = value, all_day
 
 		claimed.append(match.span())
 
@@ -675,14 +678,15 @@ def _apply_time (
 	**A preposition wins, because the writer said which field they meant.** ``due today at
 	17:00`` is a deadline with a time; ``from friday 09:00`` is a defer with one.
 
-	**A bare day plus a time becomes a start rather than a plan** — Simon's decision,
-	2026-08-12. ``planned_for`` is a date and cannot hold a time, so the two cannot both be
-	honoured; and a line carrying a clock time is describing something that *happens* at a
-	moment rather than a day's worth of work, which is what ``start_at`` and the agenda's
-	appointment bucket are for. So the plan is replaced rather than kept beside it.
+	**A bare day plus a time is simply a start with a time on it** (`#854`). It used to be a
+	*defer*: ``starts_at`` was a date that could not hold a clock, so the day was popped off
+	and rewritten into the only column that could — which happened to be the one that **hides
+	the row**. ``Dentist on Monday at 2pm`` therefore vanished from the list until two o'clock
+	on Monday. Now the time lands on the field the preposition already chose, and nothing
+	moves between columns.
 
 	**With no day at all the time is today's**, never tomorrow's. A start already past is
-	harmless — it simply means nothing is hidden — where guessing forward invents a date the
+	harmless — it is a thing that has begun — where guessing forward invents a date the
 	writer did not give.
 
 	**But only when the writer named no day this grammar could not read**, which is the
@@ -705,7 +709,11 @@ def _apply_time (
 	if at is None:
 		return False
 
-	for field, flag in (("due", "due_is_all_day"), ("start", "start_is_all_day")):
+	for field, flag in (
+		("due", "due_is_all_day"),
+		("snooze", "snoozed_is_all_day"),
+		("starts_at", "starts_is_all_day"),
+	):
 		value = fields.get(field)
 
 		if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
@@ -714,16 +722,11 @@ def _apply_time (
 
 			return True
 
-	day = fields.pop("planned_for", None)
+	if unread_day:
+		return False
 
-	if day is None:
-		if unread_day:
-			return False
-
-		day = today
-
-	fields["start"] = datetime.datetime.combine(day, at)
-	fields["start_is_all_day"] = False
+	fields["starts_at"] = datetime.datetime.combine(today, at)
+	fields["starts_is_all_day"] = False
 
 	return True
 
@@ -751,7 +754,7 @@ def _collect_bare_days (
 	mid-sentence.
 	"""
 
-	if "planned_for" in fields:
+	if "starts_at" in fields:
 		return
 
 	for match in _BARE_DAY.finditer(_blanked(text, claimed)):
@@ -759,7 +762,8 @@ def _collect_bare_days (
 			continue
 
 		offset = 1 if match.group("phrase").lower() == "tomorrow" else 0
-		fields["planned_for"] = today + datetime.timedelta(days=offset)
+		fields["starts_at"] = today + datetime.timedelta(days=offset)
+		fields["starts_is_all_day"] = True
 		claimed.append(match.span())
 
 		return
@@ -814,7 +818,7 @@ def _read_phrase (
 def _as_date (
 	value: datetime.date | str, *, now: datetime.datetime, timezone: str
 ) -> datetime.date:
-	"""Return a phrase's value as a calendar date, for ``planned_for``."""
+	"""Return a phrase's value as a calendar date, before any clock is added to it."""
 
 	if isinstance(value, datetime.date):
 		return value

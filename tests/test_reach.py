@@ -902,7 +902,9 @@ SPELLED_DIFFERENTLY = {
 	"responsible": {"to"},
 	"project_scope": {"projects"},
 	"project_write_scope": {"writes"},
-	"planned_for": {"planned_for", "plan"},
+	# `plan` is the MCP tool's word for it and `starts` is the request field (`#854`).
+	"starts": {"starts", "plan"},
+	"snooze": {"snooze", "defer"},
 
 	#: `GET /v1/changes` declares `actor_filter` and the client spells it `mine`. Checked on
 	#: both sides rather than assumed: `api/changes.py` compares it against `ACTOR_ME` and
@@ -922,8 +924,8 @@ SPELLED_DIFFERENTLY = {
 #: exclusion list manufactures a false gap exactly as convincingly as a wrong one hides a real
 #: one, and both read identically from inside.
 BY_THE_CAPTURE_GRAMMAR = frozenset({
-	"title", "importance", "urgency", "estimate", "tags", "due", "start", "status",
-	"planned_for", "due_is_all_day", "start_is_all_day", "timezone",
+	"title", "importance", "urgency", "estimate", "tags", "due", "snooze", "status",
+	"starts", "due_is_all_day", "starts_is_all_day", "snoozed_is_all_day", "timezone",
 	"assignee",
 })
 

@@ -5,8 +5,9 @@ next needs to skip all three without caring which applies:
 
 * it is **finished** — done or cancelled;
 * it is **blocked** — something unfinished must land first (§5.7's ``blocks``);
-* it is **deferred** — ``start_at`` is in the future, and §6.5 says a task is not actionable
-  before it;
+* it is **deferred** — ``snoozed_until`` is in the future, and §6.5 says a task is not
+  actionable before it. **Only this field hides a row**: a ``starts_at`` in the future is an
+  appointment or an intended day, and hiding those was `#854`'s whole defect;
 * it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
@@ -203,7 +204,7 @@ def undeferred (
 	reason a task cannot be deferred and ready in one listing.
 	"""
 
-	return sqlalchemy.or_(model.start_at.is_(None), model.start_at <= now)
+	return sqlalchemy.or_(model.snoozed_until.is_(None), model.snoozed_until <= now)
 
 
 #: What a caller may say about deferred work, and the default. **Three values rather than a

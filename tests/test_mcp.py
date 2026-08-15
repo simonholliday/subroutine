@@ -1843,9 +1843,9 @@ def test_a_planned_day_is_reported_where_a_deadline_is (
 ) -> None:
 	"""``#673``, and on this surface the day was reported **nowhere at all**.
 
-	`_line` had a cell for `due_at` and none for `planned_for`, so an agent capturing
+	`_line` had a cell for `due_at` and none for `starts_at`, so an agent capturing
 	"Dentist appointment on monday" got back a line saying nothing about Monday. It had been
-	read — `planned_for` came back set — and the only trace was the words having gone from the
+	read — `starts_at` came back set — and the only trace was the words having gone from the
 	title, which is what their never having been parsed also looks like.
 
 	**Why it is worse here than on the command line.** The skill tells an agent that this line

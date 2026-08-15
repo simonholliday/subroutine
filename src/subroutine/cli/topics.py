@@ -63,14 +63,16 @@ def _dates_body () -> str:
 	return f"""Three date fields, kept apart on purpose.
 
   due          A deadline. The date something has to be finished by.
-  planned for  The day you intend to do it. This is what 'today' shows.
-  hidden until A defer. The task does not appear at all before this.
+  starts       When it begins. This is what 'today' shows.
+               It takes a time, so 'monday at 14:00' is an appointment.
+  hidden until A defer. The task does not appear at all before this. It is
+               the only one of the three that hides anything.
 
 Most tasks use one of them. Many use none.
 
 Ways to write a date. **Everything below works at the command line and in a
-captured line; the ones marked (api) are also accepted in a `due`, `start` or
-`planned_for` field over HTTP.** A weekday name is shorthand this tool resolves
+captured line; the ones marked (api) are also accepted in a `due`, `starts` or
+`snooze` field over HTTP.** A weekday name is shorthand this tool resolves
 for you, so `subroutine plan 1 friday` works while `{{"due": "friday"}}` is
 refused — send `2026-07-31` or `end_of_week` there instead. /v1/meta publishes
 the exact list the API takes, under grammars.relative_dates.

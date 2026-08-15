@@ -1,9 +1,17 @@
 """The three date fields, and the all-day rule that makes them behave.
 
-SPEC.md §6.5 keeps a **deadline** (``due_at``), an **intended day** (``planned_for``) and a
-**defer instant** (``start_at``) apart, because conflating them is what makes an overdue
-list meaningless within a month. This module is where user input becomes those columns and
-where the rules between them are enforced.
+SPEC.md §6.5 keeps a **deadline** (``due_at``), a **start** (``starts_at``) and a **defer
+instant** (``snoozed_until``) apart, because conflating them is what makes an overdue list
+meaningless within a month. This module is where user input becomes those columns and where
+the rules between them are enforced.
+
+**The middle one used to be two columns and one of them lied** (`#854`). There was a
+``planned_for`` date beside a ``start_at`` instant, and ``start_at`` was read as *hide this
+until* by every consumer — so an appointment at two o'clock was stored as a defer and
+vanished from the list until two o'clock. ``starts_at`` absorbed the planned day, because
+*planned for Tuesday* is *starts Tuesday, all day*; ``snoozed_until`` is the old column under
+a name that says what it does. **Only one of the three hides a row**, and that is the
+distinction the rename exists to make visible.
 
 **The all-day rule is the part that is easy to get wrong and slow to notice.** "Due Friday"
 is a date, not an instant, so it has to be stored as one — and the obvious choice, midnight,
@@ -35,6 +43,22 @@ DEFAULT_TIMEZONE = "UTC"
 #: A date with no time — ``2026-08-01``. Matched before the datetime parser, which would
 #: otherwise read it as midnight and quietly turn a whole day into an instant.
 _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+#: For each stored date column: the name a caller **writes** it under, and the all-day flag
+#: beside it. Three spellings of one field, and none of them derives from the others.
+#:
+#: **This was a suffix rule until `#854` and it was right by coincidence.** With ``due_at``
+#: and ``start_at``, stripping ``_at`` gave both the written name and the stem of the flag —
+#: so a refusal built its field name by string surgery. ``snoozed_until`` has no ``_at`` to
+#: strip and its flag is ``snoozed_is_all_day`` rather than ``snoozed_until_is_all_day``, so
+#: the rule started naming a field that does not exist, in a message whose whole job is
+#: telling a caller which field to send. A table cannot drift that way: a name that is not in
+#: it raises here rather than reaching somebody as advice.
+DATE_FIELDS: dict[str, tuple[str, str]] = {
+	"due_at": ("due", "due_is_all_day"),
+	"starts_at": ("starts", "starts_is_all_day"),
+	"snoozed_until": ("snooze", "snoozed_is_all_day"),
+}
 
 
 class Boundary(enum.StrEnum):
@@ -141,13 +165,17 @@ def interpret_day (
 	*,
 	timezone: str,
 	now: datetime.datetime,
-	field: str = "planned_for",
+	field: str = "starts_at",
 ) -> datetime.date | None:
-	"""Turn whatever the caller supplied into a calendar date, for ``planned_for``.
+	"""Turn whatever the caller supplied into a calendar date.
 
-	``planned_for`` is a date and nothing else — no time, no timezone (SPEC.md §6.5). A
-	relative expression is resolved and then read as a date *in the caller's timezone*,
+	A relative expression is resolved and then read as a date *in the caller's timezone*,
 	which is the step that makes "plan it for tomorrow" mean tomorrow where they are.
+
+	**It returns a day rather than a Moment on purpose.** Its callers want the date itself —
+	quick capture, which is deciding what a phrase meant, and whoever is about to hand it to
+	:func:`interpret` as a whole day. Since `#854` no column stores a bare date, so nothing
+	writes this to the database without going through that step.
 	"""
 
 	if value is None:
@@ -178,7 +206,7 @@ def interpret_written_day (
 	*,
 	timezone: str,
 	now: datetime.datetime,
-	field: str = "planned_for",
+	field: str = "starts_at",
 ) -> datetime.date | None:
 	"""Read a day somebody *typed*, which includes a weekday name (`#167`).
 
@@ -224,43 +252,67 @@ def interpret_written_day (
 		) from None
 
 
+#: What each field that must not outrun a deadline is called when it does — the sentence a
+#: person reads, and the one telling them which way to move things.
+#:
+#: **``starts_at`` is deliberately absent, and that was measured rather than assumed** (`#854`).
+#: When ``start_at`` meant both things, invariant 8 read as one rule; splitting it made the
+#: obvious move *checking both*, and a test refused a task that was **overdue and planned for
+#: today** — which is not an error, it is what being late looks like, and it is among the
+#: commonest states on any real backlog. Hiding work past its deadline guarantees it is never
+#: seen in time; starting work after its deadline is just work being late.
+_ORDERED_BEFORE_DUE: dict[str, tuple[str, str]] = {
+	"snoozed_until": (
+		"A task cannot be hidden until after it is due.",
+		"Move the hidden-until date earlier, or the deadline later.",
+	),
+}
+
+
 def check_order (
 	*,
-	start_at: datetime.datetime | None,
-	start_is_all_day: bool,
+	instant: datetime.datetime | None,
+	is_all_day: bool,
 	due_at: datetime.datetime | None,
 	due_is_all_day: bool,
 	timezone: str,
+	field: str,
 ) -> None:
-	"""Enforce invariant 8 — ``start_at <= due_at`` — or refuse with a reason.
+	"""Enforce invariant 8 — this field must not be later than ``due_at`` — or refuse.
 
 	**Evaluated on the rendered dates when both are all-day** (SPEC.md §6.5). Comparing the
 	stored instants would be comparing midnight against the last microsecond of the day,
 	which is right by accident here and would stop being right the moment either boundary
 	moved. Comparing what the user sees is right on purpose.
+
+	``field`` is one of :data:`_ORDERED_BEFORE_DUE`, and is looked up rather than formatted
+	into a message: a caller asking this of a field the rule was never written for gets a
+	``KeyError`` here instead of a refusal about nothing.
 	"""
 
-	if start_at is None or due_at is None:
+	summary, hint = _ORDERED_BEFORE_DUE[field]
+
+	if instant is None or due_at is None:
 		return
 
-	if start_is_all_day and due_is_all_day:
-		zone = subroutine.domain.dates.zone(timezone, "start_at")
+	if is_all_day and due_is_all_day:
+		zone = subroutine.domain.dates.zone(timezone, field)
 
-		if start_at.astimezone(zone).date() <= due_at.astimezone(zone).date():
+		if instant.astimezone(zone).date() <= due_at.astimezone(zone).date():
 			return
 
-	elif start_at <= due_at:
+	elif instant <= due_at:
 		return
 
 	raise subroutine.errors.ValidationError(
-		"A task cannot be deferred until after it is due.",
+		summary,
 		code="invalid_field_value",
-		hint="Move the deferred-until date earlier, or the deadline later.",
+		hint=hint,
 		errors=[
 			subroutine.errors.FieldError(
-				field="start_at",
+				field=field,
 				code="invalid_field_value",
-				message="`start_at` must not be later than `due_at`.",
+				message=f"`{field}` must not be later than `due_at`.",
 			)
 		],
 	)

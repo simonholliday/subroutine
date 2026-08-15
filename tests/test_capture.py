@@ -65,11 +65,11 @@ def test_a_sentence_with_no_grammar_in_it_is_left_entirely_alone () -> None:
 		("Ship it by 2026-12-25", "Ship it", {"due": "2026-12-25"}),
 		("Ship it by end_of_week", "Ship it", {"due": "end_of_week"}),
 		("Ship it by now+3d", "Ship it", {"due": "now+3d"}),
-		("Look at it on monday", "Look at it", {"planned_for": datetime.date(2026, 8, 3)}),
-		("Look at it today", "Look at it", {"planned_for": datetime.date(2026, 7, 30)}),
-		("Look at it tomorrow", "Look at it", {"planned_for": datetime.date(2026, 7, 31)}),
-		("Renew it from monday", "Renew it", {"start": datetime.date(2026, 8, 3)}),
-		("Renew it defer 2026-09-01", "Renew it", {"start": "2026-09-01"}),
+		("Look at it on monday", "Look at it", {"starts_at": datetime.date(2026, 8, 3)}),
+		("Look at it today", "Look at it", {"starts_at": datetime.date(2026, 7, 30)}),
+		("Look at it tomorrow", "Look at it", {"starts_at": datetime.date(2026, 7, 31)}),
+		("Renew it from monday", "Renew it", {"snooze": datetime.date(2026, 8, 3)}),
+		("Renew it defer 2026-09-01", "Renew it", {"snooze": "2026-09-01"}),
 		("Tidy up #home #admin", "Tidy up", {"tags": ("home", "admin")}),
 		("Review the PR @si", "Review the PR", {"assignee": "si"}),
 		("Fix the build +web", "Fix the build", {"project_key": "web"}),
@@ -139,7 +139,7 @@ def test_recurrence_is_recognised_only_well_enough_to_be_left_alone () -> None:
 	captured = _parse("Water the plants every monday")
 
 	assert captured.title == "Water the plants every monday"
-	assert captured.planned_for is None
+	assert captured.starts_at is None
 	assert captured.unparsed == ("every monday",)
 
 
@@ -337,7 +337,7 @@ def test_a_deadline_and_a_defer_can_both_be_given () -> None:
 	captured = _parse("Renew the passport from 2026-09-01 due 2026-10-01")
 
 	assert captured.title == "Renew the passport"
-	assert captured.start == "2026-09-01"
+	assert captured.snooze == "2026-09-01"
 	assert captured.due == "2026-10-01"
 
 
@@ -467,8 +467,8 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 		parsed_anything = any(
 			(
 				captured.due,
-				captured.planned_for,
-				captured.start,
+				captured.starts_at,
+				captured.snooze,
 				captured.importance,
 				captured.urgency,
 				captured.estimate_minutes,
@@ -583,7 +583,7 @@ def test_a_bare_day_plans_only_at_the_end_of_the_line (
 	what it exists to stop is a bare day inside *prose*, and a trailing ``!3`` is not prose.
 	"""
 
-	assert _parse(text).planned_for == planned
+	assert _parse(text).starts_at == planned
 
 
 def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> None:
@@ -595,7 +595,7 @@ def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> Non
 
 	captured = _parse("Do it tomorrow every monday")
 
-	assert captured.planned_for is None
+	assert captured.starts_at is None
 	assert captured.title == "Do it tomorrow every monday"
 
 
@@ -664,9 +664,10 @@ REPORTED_AS = {
 	"tags": "sigil",
 	"due": "date, rendered beside the title",
 	"due_is_all_day": "date, rendered beside the title",
-	"planned_for": "date, rendered beside the title",
-	"start": "date, rendered beside the title",
-	"start_is_all_day": "date, rendered beside the title",
+	"starts_at": "date, rendered beside the title",
+	"starts_is_all_day": "date, rendered beside the title",
+	"snooze": "date, rendered beside the title",
+	"snoozed_is_all_day": "date, rendered beside the title",
 	"title": "is the title",
 	"unparsed": "reported by explain(), which is this function's mirror",
 }
@@ -780,15 +781,23 @@ def test_the_summary_never_claims_a_field_the_grammar_did_not_set () -> None:
 #: **Parametrised over the signal rather than over the format**, because the signal is what was
 #: decided: a time is read when introduced by `at`, or when it follows a date already read.
 READS_A_TIME = (
-	("Solar eclipse today at 18:30", "Solar eclipse", "start", datetime.datetime(2026, 7, 30, 18, 30)),
-	("Ship it tomorrow at 9am", "Ship it", "start", datetime.datetime(2026, 7, 31, 9, 0)),
-	("Call Bob at 3pm", "Call Bob", "start", datetime.datetime(2026, 7, 30, 15, 0)),
-	("Book table at 7:45pm today", "Book table", "start", datetime.datetime(2026, 7, 30, 19, 45)),
+	("Solar eclipse today at 18:30", "Solar eclipse", "starts_at", datetime.datetime(2026, 7, 30, 18, 30)),
+	("Ship it tomorrow at 9am", "Ship it", "starts_at", datetime.datetime(2026, 7, 31, 9, 0)),
+	("Call Bob at 3pm", "Call Bob", "starts_at", datetime.datetime(2026, 7, 30, 15, 0)),
+	("Book table at 7:45pm today", "Book table", "starts_at", datetime.datetime(2026, 7, 30, 19, 45)),
 	("Report due today at 17:00", "Report", "due", datetime.datetime(2026, 7, 30, 17, 0)),
-	("Standup from monday 09:00", "Standup", "start", datetime.datetime(2026, 8, 3, 9, 0)),
-	("Backup at 12am", "Backup", "start", datetime.datetime(2026, 7, 30, 0, 0)),
-	("Lunch at 12pm", "Lunch", "start", datetime.datetime(2026, 7, 30, 12, 0)),
+	("Standup from monday 09:00", "Standup", "snooze", datetime.datetime(2026, 8, 3, 9, 0)),
+	("Backup at 12am", "Backup", "starts_at", datetime.datetime(2026, 7, 30, 0, 0)),
+	("Lunch at 12pm", "Lunch", "starts_at", datetime.datetime(2026, 7, 30, 12, 0)),
 )
+
+
+#: Which all-day flag belongs to which date field, since the two are not spelled alike.
+ALL_DAY_FLAGS = {
+	"due": "due_is_all_day",
+	"starts_at": "starts_is_all_day",
+	"snooze": "snoozed_is_all_day",
+}
 
 
 @pytest.mark.parametrize(
@@ -803,9 +812,10 @@ def test_a_time_of_day_is_read_into_the_field_the_line_named (
 	`Solar eclipse today at 18:30` in his own workspace three days later, where the whole line
 	stayed in the title and nothing was set.
 
-	**A preposition wins where there is one**, so `due … at 17:00` is a deadline; otherwise a
-	time makes a start, which is Simon's decision of 2026-08-12 and the direction the machinery
-	already assumed — the agenda's appointment bucket is keyed on `start_at`.
+	**A preposition wins where there is one**, so `due … at 17:00` is a deadline and `from
+	monday 09:00` is a defer; otherwise a time lands on `starts_at`. Until `#854` it landed on
+	the *defer* instead, because that was the only column able to hold a clock — so every one
+	of these lines filed an appointment that hid itself until it began.
 
 	`12am` and `12pm` are here because they are the one pair a naive `hour + 12` gets wrong.
 	"""
@@ -814,27 +824,37 @@ def test_a_time_of_day_is_read_into_the_field_the_line_named (
 
 	assert captured.title == title
 	assert getattr(captured, field) == expected
-	assert getattr(captured, f"{field}_is_all_day") is False
+
+	# **Named rather than derived from the field.** `starts_at` pairs with `starts_is_all_day`
+	# and `snooze` with `snoozed_is_all_day`, so a suffix rule would have read an attribute
+	# that does not exist and `getattr` would have raised where it should assert.
+	assert getattr(captured, ALL_DAY_FLAGS[field]) is False
 	assert captured.unparsed == ()
 
 
-def test_a_time_and_a_bare_day_make_a_start_rather_than_a_plan () -> None:
+def test_a_time_and_a_bare_day_make_one_start_rather_than_moving_it () -> None:
 	"""The decision that is easiest to get backwards, so it is asserted rather than implied.
 
-	`Solar eclipse today` plans; `Solar eclipse today at 18:30` does not — it is an appointment.
-	`planned_for` is a date and cannot hold a time, so the two cannot both be honoured, and a
-	line carrying a clock is describing something that happens at a moment.
+	`Solar eclipse today` starts today, all day; `Solar eclipse today at 18:30` starts at half
+	past six that evening. **One field, two precisions** — where before `#854` the day was
+	popped off `planned_for` and rewritten into the defer, so adding a time to a line moved the
+	fact into the column that *hides* the row.
+
+	The guard that matters is the last one: whatever a clock does here, it must not defer.
 	"""
 
 	planned = _parse("Solar eclipse today")
 
-	assert planned.planned_for == datetime.date(2026, 7, 30)
-	assert planned.start is None
+	assert planned.starts_at == datetime.date(2026, 7, 30)
+	assert planned.snooze is None
 
 	timed = _parse("Solar eclipse today at 18:30")
 
-	assert timed.planned_for is None
-	assert timed.start == datetime.datetime(2026, 7, 30, 18, 30)
+	assert timed.starts_at == datetime.datetime(2026, 7, 30, 18, 30)
+	assert timed.starts_is_all_day is False
+
+	# **The whole point of the split.** A clock on a captured line must never hide the item.
+	assert timed.snooze is None
 
 
 #: Lines carrying something time-shaped that is deliberately not read, and what survives.
@@ -879,9 +899,9 @@ def test_a_time_that_cannot_be_placed_stays_in_the_title_and_is_reported (
 	captured = _parse(text)
 
 	assert captured.title == text, "a time this grammar will not use must stay where it was"
-	assert captured.start is None
+	assert captured.snooze is None
 	assert captured.due is None
-	assert captured.planned_for is None
+	assert captured.starts_at is None
 	assert reported in captured.unparsed
 
 
@@ -896,5 +916,5 @@ def test_a_one_to_one_is_not_one_minute_past_one () -> None:
 		captured = _parse(text)
 
 		assert captured.title == text
-		assert captured.start is None
+		assert captured.snooze is None
 		assert captured.unparsed == ()

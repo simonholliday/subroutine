@@ -327,8 +327,8 @@ def test_documents_have_no_scheduling_columns () -> None:
 		"due_at",
 		"estimate_minutes",
 		"importance",
-		"planned_for",
-		"start_at",
+		"starts_at",
+		"snoozed_until",
 		"urgency",
 	}
 

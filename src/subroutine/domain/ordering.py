@@ -284,11 +284,11 @@ def put_off (item: typing.Any) -> int:
 	functions already keep.
 
 	**Only while the defer is still hiding something**, which is why this is not simply
-	``start_at is not None``: once the instant has passed the task behaves like any other, and
+	``snoozed_until is not None``: once the instant has passed the task behaves like any other, and
 	sinking it would be sorting on a decision that has already taken effect.
 	"""
 
-	start = getattr(item, "start_at", None)
+	start = getattr(item, "snoozed_until", None)
 
 	if start is None:
 		return STARTABLE_BAND
@@ -387,7 +387,7 @@ TASK_FIELDS: dict[str, Sortable] = {
 	# end, NULLS LAST doing that for free.
 	"completed_at": subroutine.db.models.work.Task.completed_at,
 	"due_at": subroutine.db.models.work.Task.due_at,
-	"planned_for": subroutine.db.models.work.Task.planned_for,
+	"starts_at": subroutine.db.models.work.Task.starts_at,
 	# **A plain column, and the null question §6.3a needed bands for does not arise here**
 	# (`#319`). That item asked what an unestimated task should mean to this ordering, and
 	# expected the answer to be a banded expression like `priority_score` above.
@@ -490,7 +490,7 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"updated_at": lambda item: item.updated_at,
 	"completed_at": lambda item: getattr(item, "completed_at", None),
 	"due_at": lambda item: getattr(item, "due_at", None),
-	"planned_for": lambda item: getattr(item, "planned_for", None),
+	"starts_at": lambda item: getattr(item, "starts_at", None),
 	# `#319`. Read rather than derived from `estimate_human`, which is the same number said
 	# for a person and would have to be parsed back to compare two of them.
 	"estimate_minutes": lambda item: getattr(item, "estimate_minutes", None),

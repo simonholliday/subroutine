@@ -89,7 +89,7 @@ class CalendarDate(sqlalchemy.types.TypeDecorator[datetime.date]):
 
 	``datetime.datetime`` subclasses ``datetime.date``, so an accidental datetime would
 	otherwise be accepted here and silently truncated. Since the one column using this
-	type is ``task.planned_for`` — the field that decides what appears in a person's
+	type is ``task.starts_at`` — the field that decides what appears in a person's
 	day — a silent truncation would move work between days. It is refused instead.
 	"""
 
