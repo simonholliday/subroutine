@@ -132,6 +132,28 @@ upgrade involves.
 
 ### Added
 
+- **A task can repeat, and finishing one occurrence brings the next.** Send a repeat when you
+  file it — `every 14 days`, `every month on the 30th`, `every month on the last thursday`,
+  `every year on 19 august`, or an RFC 5545 `RRULE` directly — and the rule is kept on a
+  template while exactly one occurrence at a time sits in your list.
+
+  **Two things qualify it.** *What the next date is measured from*: the rule's own grid, so the
+  30th is the 30th however late you were, or the moment you finished, so "every 14 days" means
+  a fortnight after you actually watered the plants. And *what brings the next one into being*
+  — for now that is finishing this one; the half that happens whether or not you act, which is
+  what birthdays and standing meetings need, is refused by name and lands with the calendar.
+
+  `POST /v1/tasks/{ref}/skip` and `subroutine skip 42` let one go by. **Cancelled rather than
+  done, deliberately**: both end the occurrence and both bring the next, but a series recorded
+  entirely as done cannot tell you how often you actually skip it.
+
+  A phrase this cannot read is refused and says which part was unreadable, rather than being
+  stored as a rule nobody re-reads — a misread deadline is one wrong day, a misread repeat is
+  a wrong day for ever.
+
+  **Not yet**: setting a repeat from a captured line, so at a terminal this is reachable
+  through the API rather than through `subroutine add`. That is next.
+
 - **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
   *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did
   before. The point of the other two is the case the system setting cannot cover: a machine set
