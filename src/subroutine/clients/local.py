@@ -1688,6 +1688,42 @@ class Client:
 
 		return self._moved(ref, entity_type, workspace, into_the_trash=False)
 
+	def move (
+		self,
+		*,
+		ref: int,
+		parent: int | None,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Put an item under another one, or at the top level."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			row = self._in_the_trash_too(session, actor, ref, workspace, entity_type)
+			# Resolved the same way as the item being moved, so an unknown parent is refused
+			# here exactly as the endpoint refuses it and one in a project the caller cannot
+			# see is absent rather than forbidden (§7.3a).
+			under = (
+				None
+				if parent is None
+				else self._in_the_trash_too(session, actor, parent, workspace, entity_type)
+			)
+
+			if entity_type == "document":
+				subroutine.domain.documents.move(session, row, parent=under, actor=actor)
+
+				return subroutine.views.document(
+					row, subroutine.views.Vocabulary.for_documents(session, [row])
+				)
+
+			subroutine.domain.tasks.move(session, row, parent=under, actor=actor)
+
+			return subroutine.views.task(
+				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+			)
+
 	def _moved (
 		self, ref: int, entity_type: str, workspace: str | None, *, into_the_trash: bool
 	) -> subroutine.views.Task | subroutine.views.Document:

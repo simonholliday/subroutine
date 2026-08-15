@@ -465,6 +465,59 @@ def change (
 	return _rendered(session, updated)
 
 
+class Move(subroutine.api.schemas.RequestModel):
+	"""Where a document should sit in the tree. ``parent: null`` makes it top-level."""
+
+	parent: str | None = None
+
+	def requested (self) -> bool:
+		"""Report whether the caller actually named a destination."""
+
+		return "parent" in self.model_fields_set
+
+
+@router.post(
+	"/{id_or_ref}/move", summary="Nest a document under another, or move it to the top level"
+)
+def move (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	body: Move,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Document:
+	"""Re-nest a document, taking its sections with it (`#44`).
+
+	**The half of that item with no endpoint at all.** ``parent_id`` was reported by this
+	view and accepted nowhere — not here, not on create, not on update — so a document could
+	be a section of another only by being inserted into the database directly.
+	"""
+
+	if not body.requested():
+		raise subroutine.errors.ValidationError(
+			"A move has to say where to.",
+			code="missing_field",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="missing_field",
+					message="Send 'parent' with a ref or id, or 'parent': null to make this a "
+					"top-level document.",
+				)
+			],
+			hint="An omitted 'parent' would have to mean one of those, and guessing which is "
+			"how a subtree gets flattened by accident.",
+		)
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	document = _resolve(session, actor, workspace, id_or_ref)
+	parent = None if body.parent is None else _resolve(session, actor, workspace, body.parent)
+
+	subroutine.domain.documents.move(session, document, parent=parent, actor=actor)
+
+	return _rendered(session, document)
+
+
 @router.post("/{id_or_ref}/restore", summary="Take a document out of the trash")
 def unremove (
 	request: starlette.requests.Request,

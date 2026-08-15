@@ -3003,3 +3003,64 @@ def test_the_ranking_refuses_to_be_built_from_no_words_at_all () -> None:
 	assert "search.terms" in (raised.value.hint or ""), (
 		"the refusal must name the question a caller should have asked"
 	)
+
+
+def test_a_task_can_be_re_parented_over_http (world: World) -> None:
+	"""`#44` end to end, on the endpoint §8 reserved for it."""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Parent"}).json()
+	other = world.call("POST", "/v1/tasks", json={"title": "Somewhere else"}).json()
+	child = world.call(
+		"POST", "/v1/tasks", json={"title": "Child", "parent_task_id": parent["id"]}
+	).json()
+
+	assert child["parent_ref"] == parent["ref"]
+
+	moved = world.call(
+		"POST", f"/v1/tasks/{child['ref']}/move", json={"parent": str(other["ref"])}
+	)
+
+	assert moved.status_code == 200, moved.text
+	assert moved.json()["parent_ref"] == other["ref"]
+
+	promoted = world.call("POST", f"/v1/tasks/{child['ref']}/move", json={"parent": None})
+
+	assert promoted.status_code == 200, promoted.text
+	assert promoted.json()["parent_task_id"] is None
+	assert promoted.json()["parent_ref"] is None
+
+
+def test_a_move_that_names_no_destination_is_refused (world: World) -> None:
+	"""An omitted parent cannot mean "move to the top", and guessing flattens trees.
+
+	``POST /v1/projects/{key}/move`` learned this the expensive way and the reasoning is on
+	its request model: the handler read the field directly, so omitted and explicit-null were
+	the same thing and an empty body flattened a whole subtree.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+	refused = world.call("POST", f"/v1/tasks/{task['ref']}/move", json={})
+
+	assert refused.status_code == 422, refused.text
+
+	body = refused.json()
+
+	assert body["code"] == "missing_field"
+	assert body["errors"][0]["field"] == "parent"
+	# Both spellings, because a caller that omitted the field needs to know null is legal.
+	assert "null" in body["errors"][0]["message"]
+
+
+def test_moving_a_task_under_one_that_is_not_there_is_refused_by_ref (world: World) -> None:
+	"""And says which number it could not find, rather than which id.
+
+	The parent goes through the same resolver as the task being moved, so an unknown number
+	is refused identically and one in a project the caller cannot see is *absent* rather than
+	forbidden (§7.3a) — which is the reason it is not a bare id lookup.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+	refused = world.call("POST", f"/v1/tasks/{task['ref']}/move", json={"parent": "99999"})
+
+	assert refused.status_code == 404, refused.text
+	assert "99999" in refused.text

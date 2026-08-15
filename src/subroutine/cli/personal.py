@@ -2558,6 +2558,77 @@ def register (
 			_suggest(console, "subroutine today")
 
 	@app.command()
+	def move (
+		which: str = typer.Argument("", help="A number, as shown by 'subroutine list'."),
+		under: str = typer.Option(
+			"", "--under", help="The number of the item this becomes a part of."
+		),
+		top: bool = typer.Option(False, "--top", help="Make it a top-level item instead."),
+	) -> None:
+		"""Make something part of another item, or a top-level item again.
+
+		Examples:
+
+		  subroutine move 42 --under 7
+
+		  subroutine move 42 --top
+		"""
+
+		# **Neither, or both, is a refusal rather than a default**, which is `project move`'s
+		# rule and the endpoint's: an omitted destination that meant "move to the top" would
+		# flatten a tree by accident, and there is nothing that records where it was.
+		if bool(under) == top:
+			stop(
+				"Say where to move it.",
+				"'--under 7' makes it part of #7; '--top' makes it a top-level item.",
+			)
+
+		with opened() as world:
+			# Either kind, because one counter serves both (§6.2) and a document's sections
+			# are a tree exactly as a task's subtasks are — so refusing a document here would
+			# be turning down half the numbers a reader can see, which is `#44`'s worse half.
+			located = _locate(
+				world,
+				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				kinds=ANY_ITEM,
+				verb="move",
+			)
+			client = _require_connection(world, located.connection)
+			kind = (
+				"document"
+				if isinstance(located.item, subroutine.views.Document)
+				else "task"
+			)
+
+			parent = None
+
+			if not top:
+				# Resolved through the same locator, so an unknown number is refused by the
+				# same words rather than by the service, and a document named as a task's
+				# parent is turned down for what it is.
+				beneath = _locate(world, under, kinds=ANY_ITEM, verb="move")
+
+				if isinstance(beneath.item, subroutine.views.Document) != (kind == "document"):
+					stop(
+						f"#{located.item.ref} and #{beneath.item.ref} are not the same kind "
+						f"of thing.",
+						"A task is part of a task, and a document is part of a document.",
+					)
+
+				parent = beneath.item.ref
+
+			changed = client.move(
+				ref=located.item.ref,
+				parent=parent,
+				entity_type=kind,
+				workspace=located.workspace,
+			)
+
+			where = "a top-level item" if top else f"part of #{parent}"
+
+			say(_acted(world, dataclasses.replace(located, item=changed), f"Now {where}"))
+
+	@app.command()
 	def update (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		title: str = typer.Option("", "--title", help="What it is called."),

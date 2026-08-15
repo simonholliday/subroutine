@@ -47,6 +47,29 @@ upgrade involves.
   `GET /v1/me` takes no query parameters at all and now says so, rather than ignoring
   whatever it was given.
 
+### Added
+
+- **An item can be moved under another one, or back to the top level.** `subroutine move 42
+  --under 7` makes #42 part of #7; `subroutine move 42 --top` takes it back out. Its own
+  parts travel with it.
+
+  ```
+  POST /v1/tasks/{ref}/move       {"parent": 7}     or  {"parent": null}
+  POST /v1/documents/{ref}/move   {"parent": 7}     or  {"parent": null}
+  ```
+
+  A task could be given a parent when it was created and never afterwards, so a subtask
+  could not be promoted or moved. **A document was worse**: its parent was reported by every
+  response and accepted by no endpoint at all, so nesting existed in the schema and could
+  not be reached from outside.
+
+  Moving something under itself, or under one of its own parts, is refused. So is a move
+  that would push any part of what travels with it past the nesting limit — checked against
+  the deepest thing carried, not against the item named.
+
+  **A parent in another project is refused**, because a subtask belongs to its parent's
+  project. The refusal names both projects and the command that moves it there first.
+
 ### Fixed
 
 - **Naming a workspace with the wrong key no longer produces an error about something else.**

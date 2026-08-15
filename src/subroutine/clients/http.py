@@ -905,6 +905,30 @@ class Client:
 
 		return self._as_item(entity_type, body)
 
+	def move (
+		self,
+		*,
+		ref: int,
+		parent: int | None,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Put an item under another one, or at the top level."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/{_plural(entity_type)}/{ref}/move",
+			# **Sent whatever it is, including null**, exactly as `move_project` sends it: the
+			# endpoint refuses a body naming no parent at all, so "move to the top" has to be
+			# said rather than implied, and `_given` would drop it.
+			json={"parent": None if parent is None else str(parent)},
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._as_item(entity_type, body)
+
 	def _as_item (
 		self, entity_type: str, body: typing.Any
 	) -> subroutine.views.Task | subroutine.views.Document:

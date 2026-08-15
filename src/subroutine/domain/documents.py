@@ -468,6 +468,113 @@ def update (
 	return document
 
 
+def move (
+	session: sqlalchemy.orm.Session,
+	document: subroutine.db.models.work.Document,
+	*,
+	parent: subroutine.db.models.work.Document | None,
+	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> int:
+	"""Re-nest a document and everything under it, returning how many rows were rewritten.
+
+	**The worse half of `#44`, and it was worse for being invisible.** A document's
+	``parent_id`` was reported by the view and accepted by no endpoint at all — not on create,
+	not on update — so nesting existed in the schema and in every response and could not be
+	reached from outside. A section of a specification could be read as belonging to its
+	document and could never be made to.
+
+	``parent=None`` makes it a top-level document. Everything else follows
+	``tasks.move``, including refusing a parent in another project.
+	"""
+
+	filed_in = session.get(subroutine.db.models.project.Project, document.project_id)
+
+	_permitted(
+		session,
+		actor,
+		# `task:write`, like every other document write here — a document has no permission
+		# of its own, which `#373` records as a deliberate not-yet rather than an oversight.
+		subroutine.permissions.TASK_WRITE,
+		project=filed_in,
+		workspace_id=document.workspace_id,
+	)
+
+	if parent is not None and parent.project_id != document.project_id:
+		destination = session.get(subroutine.db.models.project.Project, parent.project_id)
+		here = "another project" if filed_in is None else f"'{filed_in.key}'"
+		there = None if destination is None else destination.key
+
+		raise subroutine.errors.ValidationError(
+			"A section belongs to the same project as the document it is part of.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="invalid_field_value",
+					message=(
+						f"#{document.ref} is in {here} and #{parent.ref} is in "
+						f"{'another project' if there is None else repr(there)}."
+					),
+					hint=(
+						f"Move it there first, with 'subroutine doc move {document.ref} "
+						f"--project {there}', then put it under #{parent.ref}."
+						if there is not None
+						else f"Move it into that project first, then put it under "
+						f"#{parent.ref}."
+					),
+				)
+			],
+		)
+
+	previous_parent = document.parent_id
+	previous_path = document.path
+
+	moved = subroutine.domain.hierarchy.reparent(
+		session, subroutine.db.models.work.Document, document, parent, max_depth=max_depth
+	)
+
+	if moved == 0:
+		return 0
+
+	document.parent_id = None if parent is None else parent.id
+
+	# The ETag argument from ``tasks.move``: the bulk path rewrite sets no version, so a
+	# client holding one for a descendant could not tell that the descendant had moved.
+	document.version += 1
+	document.updated_by = None if actor is None else actor.user.id
+
+	model = subroutine.db.models.work.Document
+	session.execute(
+		sqlalchemy.update(model)
+		.where(
+			model.workspace_id == document.workspace_id,
+			subroutine.domain.hierarchy.subtree(model, document),
+			model.id != document.id,
+		)
+		.values(version=model.version + 1, updated_by=document.updated_by)
+		.execution_options(synchronize_session=False)
+	)
+	session.expire_all()
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=document.workspace_id,
+		entity_type="document",
+		entity_id=document.id,
+		action=subroutine.domain.events.EventAction.MOVED,
+		changes={
+			"parent_id": {"from": previous_parent, "to": document.parent_id},
+			"path": {"from": previous_path, "to": document.path},
+			"descendants_rewritten": {"from": None, "to": moved - 1},
+		},
+		actor=actor,
+	)
+	session.flush()
+
+	return moved
+
+
 def delete (
 	session: sqlalchemy.orm.Session,
 	document: subroutine.db.models.work.Document,

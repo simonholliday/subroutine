@@ -913,6 +913,128 @@ def update (
 	return task
 
 
+def move (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	parent: subroutine.db.models.work.Task | None,
+	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> int:
+	"""Re-parent a task and everything under it, returning how many rows were rewritten.
+
+	``parent=None`` promotes it to a top-level task, which is half of what `#44` was filed
+	for: a subtask could be created and then never moved again, in either direction.
+
+	**Its own operation rather than a field on ``update``**, which §8's *"an explicit verb
+	sub-resource where something is genuinely not CRUD"* reserved this endpoint for. The
+	distinction is not ceremony: changing a project is a field being wrong and the subtree
+	following is an invariant, where changing a parent can be *refused for being a cycle* —
+	a question about the shape of the tree rather than about this row, and one that cannot be
+	answered without walking it.
+	"""
+
+	filed_in = session.get(subroutine.db.models.project.Project, task.project_id)
+
+	_permitted(
+		session,
+		actor,
+		subroutine.permissions.TASK_WRITE,
+		project=filed_in,
+		workspace_id=task.workspace_id,
+	)
+
+	if parent is not None and parent.project_id != task.project_id:
+		# **Refused rather than carried, and this is the decision worth reading** (`#44`).
+		# A subtask belongs to its parent's project — `create` enforces it and `update`
+		# refuses to move a subtask out from under its parent for the same reason. So a
+		# parent elsewhere leaves two coherent answers: refuse, or move this subtree into
+		# the parent's project as a side effect of re-parenting it.
+		#
+		# Refused, because the second changes a task's project without the caller ever
+		# naming the project — and `update` already does that move, explicitly, when asked.
+		# The cost is that reaching across projects is two commands; the refusal says which.
+		# **Whether the invariant should hold at all is `#17`'s**, not this one's: a release
+		# whose contents are sub-tasks would span projects, and that is a decision about what
+		# a sub-task means rather than about how one is moved.
+		destination = session.get(subroutine.db.models.project.Project, parent.project_id)
+
+		# Both keys named, never one. "It is in the wrong project" leaves a reader looking up
+		# two things before they can act, and the second lookup is the one they will get wrong.
+		here = "another project" if filed_in is None else f"'{filed_in.key}'"
+		there = None if destination is None else destination.key
+
+		raise subroutine.errors.ValidationError(
+			"A subtask belongs to the same project as its parent.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="invalid_field_value",
+					message=(
+						f"#{task.ref} is in {here} and #{parent.ref} is in "
+						f"{'another project' if there is None else repr(there)}."
+					),
+					hint=(
+						f"Move it there first, with 'subroutine update {task.ref} "
+						f"--project {there}', then put it under #{parent.ref}."
+						if there is not None
+						else f"Move it into that project first, then put it under #{parent.ref}."
+					),
+				)
+			],
+		)
+
+	previous_parent = task.parent_task_id
+	previous_path = task.path
+
+	moved = subroutine.domain.hierarchy.reparent(
+		session, subroutine.db.models.work.Task, task, parent, max_depth=max_depth
+	)
+
+	if moved == 0:
+		return 0
+
+	task.parent_task_id = None if parent is None else parent.id
+
+	# `version` is the ETag (§8.9), so anything a client can read has to move it — and
+	# `reparent` rewrote `path` and `depth` on every descendant with one Core UPDATE, which
+	# sets no version. Without the second statement a client holding an ETag for a child
+	# cannot tell that the child's path changed. `projects.move` carries the same pair.
+	task.version += 1
+	task.updated_by = None if actor is None else actor.user.id
+
+	model = subroutine.db.models.work.Task
+	session.execute(
+		sqlalchemy.update(model)
+		.where(
+			model.workspace_id == task.workspace_id,
+			subroutine.domain.hierarchy.subtree(model, task),
+			model.id != task.id,
+		)
+		.values(version=model.version + 1, updated_by=task.updated_by)
+		.execution_options(synchronize_session=False)
+	)
+	session.expire_all()
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=task.workspace_id,
+		entity_type="task",
+		entity_id=task.id,
+		action=subroutine.domain.events.EventAction.MOVED,
+		changes={
+			"parent_task_id": {"from": previous_parent, "to": task.parent_task_id},
+			"path": {"from": previous_path, "to": task.path},
+			"descendants_rewritten": {"from": None, "to": moved - 1},
+		},
+		actor=actor,
+	)
+	session.flush()
+
+	return moved
+
+
 def finished_status_key (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> str:
 	"""Return the key of a status meaning finished, whatever this workspace calls it.
 

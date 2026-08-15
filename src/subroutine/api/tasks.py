@@ -755,6 +755,67 @@ def give_back (
 	return _rendered(session, freed)
 
 
+class Move(subroutine.api.schemas.RequestModel):
+	"""Where a task should sit in the tree.
+
+	``parent: null`` promotes it to a top-level task, which is why this is a body rather than
+	a query parameter — "no parent" and "unchanged" have to be distinguishable (§8.3), and
+	``POST /v1/projects/{key}/move`` learned that the expensive way: an omitted parent read as
+	"move to root" and flattened whole subtrees.
+	"""
+
+	parent: str | None = None
+
+	def requested (self) -> bool:
+		"""Report whether the caller actually named a destination."""
+
+		return "parent" in self.model_fields_set
+
+
+@router.post("/{id_or_ref}/move", summary="Move a task under another, or to the top level")
+def move (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	body: Move,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Task:
+	"""Re-parent a task, taking its subtask tree with it (`#44`).
+
+	**The endpoint §8 reserved**, rather than a field on ``PATCH``. Changing a project is a
+	field being wrong and the subtree following is an invariant; changing a parent can be
+	refused *for being a cycle*, which is a question about the shape of the tree and cannot be
+	answered from this row alone.
+	"""
+
+	if not body.requested():
+		raise subroutine.errors.ValidationError(
+			"A move has to say where to.",
+			code="missing_field",
+			errors=[
+				subroutine.errors.FieldError(
+					field="parent",
+					code="missing_field",
+					message="Send 'parent' with a ref or id, or 'parent': null to make this a "
+					"top-level task.",
+				)
+			],
+			hint="An omitted 'parent' would have to mean one of those, and guessing which is "
+			"how a subtree gets flattened by accident.",
+		)
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	# Resolved through the same function as the task being moved, so an unknown parent is
+	# refused identically and one in a project the caller cannot see is *absent* rather than
+	# forbidden — which is §7.3a, and the reason this is not a bare id lookup.
+	parent = None if body.parent is None else _resolve(session, actor, workspace, body.parent)
+
+	subroutine.domain.tasks.move(session, task, parent=parent, actor=actor)
+
+	return _rendered(session, task)
+
+
 @router.post("/{id_or_ref}/restore", summary="Take a task out of the trash")
 def unremove (
 	request: starlette.requests.Request,

@@ -116,6 +116,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/tasks/{id_or_ref}/release"): "release",
 	("POST", "/v1/tasks/{id_or_ref}/restore"): "undiscard",
 	("POST", "/v1/documents/{id_or_ref}/restore"): "undiscard",
+	("POST", "/v1/tasks/{id_or_ref}/move"): "move",
+	("POST", "/v1/documents/{id_or_ref}/move"): "move",
 	("POST", "/v1/tasks/{id_or_ref}/links"): "link",
 	("DELETE", "/v1/tasks/{id_or_ref}/links/{link_id}"): "unlink",
 	("POST", "/v1/documents/{id_or_ref}/links"): "link",
@@ -318,6 +320,21 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"move": (
+		"budget",
+		"`#44`. Asked of `#484`'s test — *what would an agent get wrong without it?* — and "
+		"the answer is nothing: re-parenting is a reorganisation rather than daily work, "
+		"`subroutine_update` refuses an argument it does not declare by name (`#379`) so an "
+		"agent that reaches for it is told, and `subroutine_call_api` reaches "
+		"`POST /v1/tasks/{ref}/move` today. That escape hatch is what `#484` built for "
+		"exactly this shape of capability.\n\n"
+		"**`#17` is what would change it**, and is parked and Simon's: if a release's "
+		"contents become its sub-tasks, then assembling one out of items that already exist "
+		"*is* re-parenting, and it becomes something an agent does routinely rather than "
+		"once. Adding the tool then is a raise of both the count and the byte cap, with the "
+		"argument written into `tests/test_mcp.py` as §21.2 requires. **Deleting this entry "
+		"is what would close that.**",
+	),
 	"count_tasks": (
 		"budget",
 		"`#296`. It exists so the two rename commands can print a number that is not a page "

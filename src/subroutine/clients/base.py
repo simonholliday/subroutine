@@ -936,6 +936,28 @@ class Client(typing.Protocol):
 		places said the same true-sounding thing about a product where "delete" meant "gone".
 		"""
 
+	def move (
+		self,
+		*,
+		ref: int,
+		parent: int | None,
+		entity_type: str = "task",
+		workspace: str | None = None,
+	) -> subroutine.views.Task | subroutine.views.Document:
+		"""Put an item under another one, or at the top level — item ``#44``.
+
+		``parent`` is a ref, and ``None`` means top-level. **Required rather than defaulted**,
+		for ``move_project``'s reason: null is a real answer here and cannot double as "not
+		asked", and an omitted parent that meant "move to root" flattened subtrees by accident.
+
+		Either kind, because one ref counter serves both (§6.2) and nothing about a number says
+		which it is — the same argument :meth:`discard` makes. A task's tree is its subtasks and
+		a document's is its sections, and both travel with it.
+
+		**A parent in another project is refused**, because a subtask belongs to its parent's
+		project. Change the project first; the refusal names both and says how.
+		"""
+
 	def claim (
 		self, *, ref: int, minutes: int | None = None, workspace: str | None = None
 	) -> subroutine.views.Task:

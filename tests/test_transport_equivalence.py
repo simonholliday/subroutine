@@ -3335,3 +3335,45 @@ def test_both_refuse_a_ranking_on_a_listing_that_is_not_a_search (
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.ValidationError):
 			client.documents(order="relevance")
+
+
+def test_both_re_parent_the_same_way (pair: Pair) -> None:
+	"""`#44`. Two implementations of one operation, which is what this file is for.
+
+	The local client resolves the parent through its own helper and the HTTP one hands the ref
+	to a route — so "an unknown parent is refused" is a claim about two pieces of code, and the
+	failure it would hide is the worst available: a parent that could not be found resolving to
+	``None``, which is *a real value here* and means the top level. Silently promoting an item
+	instead of refusing is the shape this whole file exists to catch.
+	"""
+
+	local, remote = pair.both()
+
+	parent = make(pair, "The parent")
+	elsewhere = make(pair, "Somewhere else")
+	child = make(pair, "The child")
+
+	def parent_of (item: subroutine.views.Task | subroutine.views.Document | None) -> typing.Any:
+		"""Read the parent off whichever kind came back, refusing anything else."""
+
+		assert isinstance(item, subroutine.views.Task), f"expected a task, got {item!r}"
+
+		return item.parent_task_id
+
+	# Moved by one transport, read back through the other.
+	assert parent_of(local.move(ref=child.ref, parent=parent.ref)) == parent.id
+	assert parent_of(remote.task(ref=child.ref)) == parent.id
+
+	assert parent_of(remote.move(ref=child.ref, parent=elsewhere.ref)) == elsewhere.id
+	assert parent_of(local.task(ref=child.ref)) == elsewhere.id
+
+	# **Null is a value, and both have to treat it as one.**
+	assert parent_of(remote.move(ref=child.ref, parent=None)) is None
+	assert parent_of(local.task(ref=child.ref)) is None
+
+	# And a parent that is not there is refused rather than read as "the top level".
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.move(ref=child.ref, parent=99999)
+
+	assert parent_of(local.task(ref=child.ref)) is None, "and nothing moved"

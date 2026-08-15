@@ -73,6 +73,14 @@ WRITTEN_AS: dict[str, str] = {
 	#: have had to; a reader wanting the person's details has the id and one call. Both are
 	#: right, which is why the mismatch is recorded rather than resolved.
 	"assignee_id": "assignee",
+
+	#: Both written by ``POST /…/move``'s ``parent`` (`#44`), which takes a ref or an id where
+	#: the view reports an id — the same trade `assignee_id` records, for the same reason. The
+	#: two views spell the *column* differently and the endpoint does not, because a document's
+	#: parent is another document and a task's is another task: there is nothing to
+	#: disambiguate once you are at the endpoint for one of them.
+	"parent_task_id": "parent",
+	"parent_id": "parent",
 }
 
 #: Computed, allocated or maintained by the system. A client cannot supply these because a
@@ -179,17 +187,11 @@ AT_CREATION: dict[str, str] = {
 #: Reported, not settable, and that is a defect rather than a decision. **Every entry names
 #: the item tracking it, and removing the entry is what closes that item.** All four were
 #: found by this test the first time it ran.
-UNSETTABLE: dict[str, str] = {
-	"parent_task_id": (
-		"#44 - a subtask cannot be re-parented, or promoted to a top-level task, after it "
-		"is created."
-	),
-	"parent_id": (
-		"#44, and the worse half of it - a document's parent is accepted by no endpoint at "
-		"all, on create or update. Nesting exists in the schema and in the response and "
-		"cannot be reached from outside."
-	),
-}
+#: **Empty, and that is a state rather than a mistake.** Both entries it held were `#44` —
+#: a task could not be re-parented and a document could not be nested at all — and both were
+#: closed by ``POST /…/move`` on 2026-08-15. The checks below still fire the moment anything
+#: is added; an empty register means every field these views report can now be written.
+UNSETTABLE: dict[str, str] = {}
 
 
 def _fields (model: type[pydantic.BaseModel]) -> frozenset[str]:
@@ -200,30 +202,52 @@ def _fields (model: type[pydantic.BaseModel]) -> frozenset[str]:
 
 #: The three views that have request models behind them, with the models that write them.
 #: ``(view, create, update)``.
-SURFACES: tuple[tuple[str, type[pydantic.BaseModel], type[pydantic.BaseModel], type[pydantic.BaseModel]], ...] = (
+#: One view, the model that creates it, and **every** model that can change it afterwards.
+#:
+#: **That last one was a single model until `#44`**, and the narrowing was invisible because
+#: nothing had ever been changed by anything but ``PATCH``. §8 reserves an explicit verb
+#: sub-resource where an operation is genuinely not CRUD, and re-parenting is one: it can be
+#: refused for being a *cycle*, which is a question about the shape of the tree rather than
+#: about this row. So a field became settable by an endpoint this guard could not see, and the
+#: entry calling it unsettable would have gone on reading as an open defect.
+SURFACES: tuple[
+	tuple[
+		str,
+		type[pydantic.BaseModel],
+		type[pydantic.BaseModel],
+		tuple[type[pydantic.BaseModel], ...],
+	],
+	...,
+] = (
 	(
 		"task",
 		subroutine.views.Task,
 		subroutine.api.tasks.Create,
-		subroutine.api.tasks.Update,
+		(subroutine.api.tasks.Update, subroutine.api.tasks.Move),
 	),
 	(
 		"document",
 		subroutine.views.Document,
 		subroutine.api.documents.Create,
-		subroutine.api.documents.Update,
+		(subroutine.api.documents.Update, subroutine.api.documents.Move),
 	),
 )
 
 
+def _changeable (models: tuple[type[pydantic.BaseModel], ...]) -> frozenset[str]:
+	"""Return every field name some endpoint can change after creation."""
+
+	return frozenset().union(*(_fields(model) for model in models))
+
+
 @pytest.mark.parametrize(
-	("name", "view", "create", "update"), SURFACES, ids=[row[0] for row in SURFACES]
+	("name", "view", "create", "changing"), SURFACES, ids=[row[0] for row in SURFACES]
 )
 def test_every_reported_field_can_be_written_or_says_why_not (
 	name: str,
 	view: type[pydantic.BaseModel],
 	create: type[pydantic.BaseModel],
-	update: type[pydantic.BaseModel],
+	changing: tuple[type[pydantic.BaseModel], ...],
 ) -> None:
 	"""Nothing this view reports may be unwritable without an entry above.
 
@@ -231,7 +255,7 @@ def test_every_reported_field_can_be_written_or_says_why_not (
 	accepted by no endpoint, for as long as the field had existed.
 	"""
 
-	writable = _fields(create) | _fields(update)
+	writable = _fields(create) | _changeable(changing)
 	excused = set(DERIVED) | set(AT_CREATION) | set(UNSETTABLE)
 
 	unexplained = sorted(
@@ -268,13 +292,13 @@ def test_every_field_excused_here_is_still_a_field () -> None:
 
 
 @pytest.mark.parametrize(
-	("name", "view", "create", "update"), SURFACES, ids=[row[0] for row in SURFACES]
+	("name", "view", "create", "changing"), SURFACES, ids=[row[0] for row in SURFACES]
 )
 def test_nothing_recorded_as_a_gap_has_quietly_been_closed (
 	name: str,
 	view: type[pydantic.BaseModel],
 	create: type[pydantic.BaseModel],
-	update: type[pydantic.BaseModel],
+	changing: tuple[type[pydantic.BaseModel], ...],
 ) -> None:
 	"""**The direction this file was missing**, found while closing ``#42``.
 
@@ -289,14 +313,21 @@ def test_nothing_recorded_as_a_gap_has_quietly_been_closed (
 	parses.
 	"""
 
-	# **Against the update model alone, not create.** An entry here means the field cannot be
-	# *changed* — `#44` is about re-parenting a task that exists, and `parent_task_id` is
-	# accepted on create, so unioning the two would report it closed while the gap it names is
-	# wide open. The first run of this check did exactly that.
+	# **Against what can change it, never against create.** An entry here means the field
+	# cannot be *changed* — `#44` was about re-parenting a task that exists, and
+	# `parent_task_id` is accepted on create, so unioning the two would have reported it
+	# closed while the gap it named was wide open. The first run of this check did exactly
+	# that.
+	#
+	# **And "what can change it" is a set, not `Update`.** `#44` closed by adding a `move`
+	# endpoint rather than a `PATCH` field, which this comparison could not see at all — so
+	# the entry below would have gone on describing a gap that had been filled.
+	changeable = _changeable(changing)
+
 	closed = sorted(
 		field
 		for field in UNSETTABLE
-		if field in _fields(view) and WRITTEN_AS.get(field, field) in _fields(update)
+		if field in _fields(view) and WRITTEN_AS.get(field, field) in changeable
 	)
 
 	assert not closed, (

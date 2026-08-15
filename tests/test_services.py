@@ -1518,3 +1518,245 @@ def test_init_does_not_leave_a_second_inbox_behind (
 	).all()
 
 	assert len(inboxes) == 1
+
+
+def test_a_subtask_can_be_re_parented_and_takes_its_own_parts (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#44`. A task accepted a parent on create and never again, in either direction."""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	first = subroutine.domain.tasks.create(session, project=project, title="One")
+	second = subroutine.domain.tasks.create(session, project=project, title="Two")
+	child = subroutine.domain.tasks.create(
+		session, project=project, title="Under one", parent=first
+	)
+	grandchild = subroutine.domain.tasks.create(
+		session, project=project, title="Under that", parent=child
+	)
+
+	rewritten = subroutine.domain.tasks.move(session, child, parent=second)
+
+	assert rewritten == 2, "the moved task and its one descendant"
+
+	session.refresh(child)
+	session.refresh(grandchild)
+
+	assert child.parent_task_id == second.id
+	assert child.path == f"/{second.id}/{child.id}/"
+	assert grandchild.path == f"/{second.id}/{child.id}/{grandchild.id}/"
+	assert (child.depth, grandchild.depth) == (1, 2)
+
+	events = _events(session, workspace.id, "task", child.id)
+
+	assert [event.action for event in events] == ["created", "moved"]
+
+
+def test_a_subtask_can_be_promoted_to_the_top_level (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other direction, and the one `#44`'s title names first.
+
+	Worth its own case because ``parent=None`` is a *value* here rather than the absence of
+	one — the whole reason the endpoint refuses a body that names no parent at all.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	parent = subroutine.domain.tasks.create(session, project=project, title="Parent")
+	child = subroutine.domain.tasks.create(
+		session, project=project, title="Child", parent=parent
+	)
+
+	assert child.depth == 1
+
+	subroutine.domain.tasks.move(session, child, parent=None)
+	session.refresh(child)
+
+	assert child.parent_task_id is None
+	assert child.path == f"/{child.id}/"
+	assert child.depth == 0
+
+
+def test_a_task_cannot_be_moved_inside_its_own_subtree (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The cycle check `#44` names as the failure mode that is invisible until the tree is walked.
+
+	Both cases, because they fail for the same reason and only one of them looks like a
+	mistake: under a descendant, and under itself.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	parent = subroutine.domain.tasks.create(session, project=project, title="Parent")
+	child = subroutine.domain.tasks.create(
+		session, project=project, title="Child", parent=parent
+	)
+
+	for target in (child, parent):
+		with pytest.raises(subroutine.errors.Conflict) as refused:
+			subroutine.domain.tasks.move(session, parent, parent=target)
+
+		assert refused.value.code == "cycle_detected"
+
+	session.refresh(parent)
+
+	assert parent.parent_task_id is None, "a refused move must leave the tree alone"
+
+
+def test_a_move_is_refused_against_the_deepest_thing_it_carries (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The ceiling applies to the subtree, not to the task named.
+
+	`#44` says so explicitly, and it is the half a naive check gets wrong: the task being
+	moved arrives with everything below it, so a move that is legal for the task alone can
+	push a grandchild past the limit.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	somewhere = subroutine.domain.tasks.create(session, project=project, title="Somewhere")
+	top = subroutine.domain.tasks.create(session, project=project, title="Top")
+	middle = subroutine.domain.tasks.create(
+		session, project=project, title="Middle", parent=top
+	)
+	subroutine.domain.tasks.create(session, project=project, title="Deep", parent=middle)
+
+	# `top` alone would land at depth 1, inside a limit of 2. Its grandchild would land at 3.
+	with pytest.raises(subroutine.errors.Conflict) as refused:
+		subroutine.domain.tasks.move(session, top, parent=somewhere, max_depth=2)
+
+	assert refused.value.code == "cycle_detected"
+	assert "subtree" in str(refused.value)
+
+
+def test_a_parent_in_another_project_is_refused_and_both_are_named (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A subtask belongs to its parent's project, and the refusal has to be actionable.
+
+	**Carrying the subtree into the parent's project was the alternative and was declined**
+	(`#44`): it changes a task's project without the caller ever naming the project, where
+	``update`` already does that move when asked. So this refuses — and names both projects,
+	because "it is in the wrong project" leaves a reader looking up two things before they
+	can act.
+	"""
+
+	workspace = _workspace(session)
+	here = _project(session, workspace, key="here")
+	there = _project(session, workspace, key="there")
+
+	moving = subroutine.domain.tasks.create(session, project=here, title="Moving")
+	parent = subroutine.domain.tasks.create(session, project=there, title="Parent")
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.move(session, moving, parent=parent)
+
+	reported = refused.value.errors[0]
+
+	assert reported.field == "parent"
+	assert "'here'" in (reported.message or "")
+	assert "'there'" in (reported.message or "")
+	assert "--project there" in (reported.hint or ""), "and says how to do it"
+
+
+def test_moving_a_task_moves_every_etag_it_changed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`version` is the ETag (§8.9), and the bulk path rewrite sets none.
+
+	The same pair `projects.move` carries. Without the second statement a client holding an
+	ETag for a subtask cannot tell that the subtask's path changed underneath it.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	somewhere = subroutine.domain.tasks.create(session, project=project, title="Somewhere")
+	parent = subroutine.domain.tasks.create(session, project=project, title="Parent")
+	child = subroutine.domain.tasks.create(
+		session, project=project, title="Child", parent=parent
+	)
+
+	versions = {row.id: row.version for row in (parent, child)}
+
+	subroutine.domain.tasks.move(session, parent, parent=somewhere)
+
+	for row in (parent, child):
+		session.refresh(row)
+
+		assert row.version > versions[row.id], f"{row.title}'s path changed and its ETag did not"
+
+
+def test_a_document_can_be_made_a_section_of_another (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#44`'s worse half: nesting existed in the schema and in the view and nowhere else.
+
+	No endpoint accepted a document's parent — not on create, not on update — so a
+	specification could report itself as a section of something and could never be made one.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	whole = subroutine.domain.documents.create(
+		session, project=project, title="The specification"
+	)
+	part = subroutine.domain.documents.create(session, project=project, title="A section")
+
+	assert part.parent_id is None, "the state this item was filed about"
+
+	subroutine.domain.documents.move(session, part, parent=whole)
+	session.refresh(part)
+
+	assert part.parent_id == whole.id
+	assert part.path == f"/{whole.id}/{part.id}/"
+	assert part.depth == 1
+
+	events = _events(session, workspace.id, "document", part.id)
+
+	assert [event.action for event in events] == ["created", "moved"]
+
+	# And back out again, because a nesting that cannot be undone is half a feature.
+	subroutine.domain.documents.move(session, part, parent=None)
+	session.refresh(part)
+
+	assert part.parent_id is None
+	assert part.depth == 0
+
+
+def test_a_move_that_changes_nothing_writes_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Re-asking for the place it already is must not bump a version or emit an event.
+
+	``projects.move`` returns 0 for this and the two have to agree, or a client polling a
+	feed sees a move nobody made every time something re-asserts a parent.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	parent = subroutine.domain.tasks.create(session, project=project, title="Parent")
+	child = subroutine.domain.tasks.create(
+		session, project=project, title="Child", parent=parent
+	)
+
+	before = child.version
+
+	assert subroutine.domain.tasks.move(session, child, parent=parent) == 0
+
+	session.refresh(child)
+
+	assert child.version == before
+	assert [event.action for event in _events(session, workspace.id, "task", child.id)] == [
+		"created"
+	]

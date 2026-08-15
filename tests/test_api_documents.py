@@ -657,3 +657,32 @@ def test_a_document_listing_ranks_by_relevance_without_being_asked (
 	assert [item["title"] for item in items] == ["Cursor cursor cursor", "A note about cursors"], (
 		f"a ranked search must put the best match first — got {[i['title'] for i in items]}"
 	)
+
+
+def test_a_document_can_be_nested_over_http (world: test_api_tasks.World) -> None:
+	"""`#44`'s worse half, which had no endpoint at all.
+
+	``parent_id`` was reported by this view and accepted nowhere, so a section of a
+	specification could be read as belonging to it and could never be made to.
+	"""
+
+	whole = world.call(
+		"POST", "/v1/documents", json={"title": "The specification", "body": "."}
+	).json()
+	part = world.call(
+		"POST", "/v1/documents", json={"title": "A section", "body": "."}
+	).json()
+
+	assert part["parent_id"] is None
+
+	nested = world.call(
+		"POST", f"/v1/documents/{part['ref']}/move", json={"parent": str(whole["ref"])}
+	)
+
+	assert nested.status_code == 200, nested.text
+	assert nested.json()["parent_id"] == whole["id"]
+
+	loose = world.call("POST", f"/v1/documents/{part['ref']}/move", json={"parent": None})
+
+	assert loose.status_code == 200, loose.text
+	assert loose.json()["parent_id"] is None

@@ -5675,3 +5675,50 @@ def test_an_explicit_order_still_wins_over_the_servers_ranking () -> None:
 	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
 
 	assert [row[1].title for row in merged] == ["best", "middling", "worst"]
+
+
+def test_something_can_be_made_part_of_another_thing_and_taken_back_out (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#44` at the terminal, driven rather than asserted about.
+
+	**Both directions in one test**, because the half that was missing is not the obvious
+	one: a subtask could be *created* under a parent since the beginning, and could never be
+	moved out again — so a test that only nested something would pass against the defect this
+	item was filed for.
+	"""
+
+	run("init")
+	run("add", "Redo the kitchen")
+	run("add", "Choose the tiles")
+
+	made = run("move", "2", "--under", "1")
+
+	assert "part of #1" in made.output
+
+	shown = run("show", "2")
+
+	assert "#1" in shown.output, "the parent has to be visible on the item itself"
+
+	back = run("move", "2", "--top")
+
+	assert "top-level" in back.output
+
+
+def test_a_move_that_says_nothing_about_where_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Neither, or both, is a refusal — never a default.
+
+	`project move` settled this and the endpoint enforces it: guessing between "under
+	something" and "to the top" is how a tree gets flattened by somebody who typed one word
+	fewer than they meant to.
+	"""
+
+	run("init")
+	run("add", "Something")
+
+	for arguments in (("move", "1"), ("move", "1", "--under", "1", "--top")):
+		refused = run(*arguments, expect=1)
+
+		assert "Say where to move it" in refused.output
