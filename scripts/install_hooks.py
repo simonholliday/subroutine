@@ -71,8 +71,27 @@ def _executable (path: pathlib.Path) -> bool:
 	return os.access(path, os.X_OK)
 
 
-def install (into: pathlib.Path | None = None) -> list[str]:
-	"""Install a shim per tracked hook and point git at them. Returns what was written."""
+def install (
+	into: pathlib.Path | None = None, repository: pathlib.Path | None = None
+) -> list[str]:
+	"""Install a shim per tracked hook and point git at them. Returns what was written.
+
+	**``into`` and ``repository`` are one argument in two halves and must be passed together**
+	(`#909`). Writing shims somewhere is only half of installing them; the other half is telling
+	a repository where they went, and a caller that named the first and inherited the second
+	configured *this* checkout to use a directory it had made for something else. Two tests did
+	exactly that, so every gate run re-pointed this clone at a fresh temporary directory — which
+	git would have skipped in silence the moment pytest collected it.
+
+	Refusing the pair rather than defaulting it, because a default is what let the halves drift.
+	"""
+
+	if (into is None) != (repository is None):
+		raise ValueError(
+			"install() takes 'into' and 'repository' together or neither: writing shims "
+			"somewhere without saying which repository is to use them configures the one "
+			"this script lives in."
+		)
 
 	directory = into or shim_directory()
 	directory.mkdir(parents=True, exist_ok=True)
@@ -99,7 +118,7 @@ def install (into: pathlib.Path | None = None) -> list[str]:
 
 	subprocess.run(
 		["git", "config", "core.hooksPath", str(directory)],
-		cwd=ROOT,
+		cwd=repository or ROOT,
 		check=True,
 	)
 

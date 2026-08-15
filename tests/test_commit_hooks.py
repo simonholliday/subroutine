@@ -101,7 +101,6 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 	work.mkdir()
 
 	shims = tmp_path / "shims"
-	INSTALLER.install(into=shims)
 
 	# The stub records what it was asked and answers from a file the test can rewrite, so a
 	# ref that does not resolve is expressed as data rather than as a second stub.
@@ -148,7 +147,12 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 	built = Repo(path=work, environment=environment)
 
 	built.run("init", "-q", ".")
-	built.run("config", "core.hooksPath", str(shims))
+
+	# **After `init`, and through the installer rather than beside it** (`#909`). This used to
+	# write the shims before there was a repository and then set `core.hooksPath` by hand — so
+	# the installer's own configuration step was exercised by nothing, and its `git config` went
+	# to whichever repository the script happened to live in, which was this checkout.
+	INSTALLER.install(into=shims, repository=work)
 
 	return built
 
@@ -360,7 +364,11 @@ def test_every_tracked_hook_is_installed (tmp_path: pathlib.Path) -> None:
 	forgets — so the guard is that what is installed matches what is in `hooks/`.
 	"""
 
-	installed = INSTALLER.install(into=tmp_path / "shims")
+	elsewhere = tmp_path / "elsewhere"
+	elsewhere.mkdir()
+	subprocess.run(["git", "init", "-q", "."], cwd=elsewhere, check=True)
+
+	installed = INSTALLER.install(into=tmp_path / "shims", repository=elsewhere)
 	tracked = sorted(path.name for path in HOOKS.iterdir() if path.is_file())
 
 	assert sorted(installed) == tracked
@@ -373,3 +381,58 @@ def test_every_tracked_hook_is_installed (tmp_path: pathlib.Path) -> None:
 		# silence, so an installer that produced one would report success and change nothing.
 		assert shim.stat().st_mode & 0o111, f"{name} was installed and cannot be run"
 		assert str(HOOKS / name) in shim.read_text(), "a copy would go stale; this runs the source"
+
+
+def test_installing_elsewhere_leaves_this_checkout_alone (tmp_path: pathlib.Path) -> None:
+	"""**`#909`, and it is the half the suite was silently doing to itself.**
+
+	`install` took a directory for the shims and then ran `git config core.hooksPath` against
+	the repository the *script* lives in, whatever that directory said — so two tests here
+	pointed this clone at their own `tmp_path` on every run. It worked, because a shim runs the
+	tracked hook by path; it would have stopped working in silence the moment pytest collected
+	the directory, three runs later. **Git skips a hook it cannot find without a word**, which
+	is the measured fact the shims exist to work around in the first place.
+
+	Asserts on the configuration rather than on the shims, because the shims were never the
+	part that leaked.
+	"""
+
+	def hooks_path (repository: pathlib.Path) -> str:
+		answer = subprocess.run(
+			["git", "config", "--get", "core.hooksPath"],
+			cwd=repository, capture_output=True, text=True,
+		)
+		return answer.stdout.strip()
+
+	before = hooks_path(ROOT)
+
+	elsewhere = tmp_path / "elsewhere"
+	elsewhere.mkdir()
+	subprocess.run(["git", "init", "-q", "."], cwd=elsewhere, check=True)
+
+	INSTALLER.install(into=tmp_path / "shims", repository=elsewhere)
+
+	# **The harm first, deliberately.** Asserting the named repository was set would fire on the
+	# same defect and report it as *the install did nothing*, which sends the next reader after
+	# the wrong half — the shims were written and the configuration went somewhere else.
+	assert hooks_path(ROOT) == before, (
+		f"installing into {tmp_path} moved this checkout's core.hooksPath: "
+		f"{before!r} -> {hooks_path(ROOT)!r}"
+	)
+	assert hooks_path(elsewhere) == str(tmp_path / "shims"), "the named repository was not set"
+
+
+def test_the_installer_refuses_to_write_shims_without_saying_whose (tmp_path: pathlib.Path) -> None:
+	"""The two arguments are one argument, and passing half of it is what caused `#909`.
+
+	Refusing the pair rather than defaulting the second, because a default is precisely what
+	let the halves drift: `into` reads as the isolation seam and is only half of one.
+	"""
+
+	with pytest.raises(ValueError, match="together or neither"):
+		INSTALLER.install(into=tmp_path / "shims")
+
+	with pytest.raises(ValueError, match="together or neither"):
+		INSTALLER.install(repository=tmp_path)
+
+	assert not (tmp_path / "shims").exists(), "it wrote the shims before refusing"
