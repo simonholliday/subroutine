@@ -35,7 +35,6 @@ import subroutine
 import subroutine.api.dependencies
 import subroutine.api.documents
 import subroutine.api.projects
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -118,7 +117,6 @@ LISTINGS: tuple[tuple[str, str, dict[str, typing.Any], frozenset[str]], ...] = (
 @router.get(
 	"/meta",
 	summary="What does this installation call things?",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def meta (
 	request: starlette.requests.Request,

@@ -15,7 +15,6 @@ same divergence ``views.py`` exists to prevent, met once more one endpoint at a 
 import fastapi
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.views
@@ -30,9 +29,6 @@ router = fastapi.APIRouter(
 @router.get(
 	"/me",
 	summary="Who am I, and what may I do?",
-	# This endpoint declares nothing, so anything asked of it is a misunderstanding worth
-	# saying out loud — it is the first call an agent makes (item `#676`).
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def me (
 	actor: subroutine.api.security.PrincipalDep,

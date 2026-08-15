@@ -16,20 +16,36 @@ upgrade involves.
 
 ### Changed
 
-- **Reading one task, document, project or workspace now refuses a query parameter it does
-  not recognise**, instead of ignoring it and answering `200`. Listings have behaved this way
-  since 0.3.0; single reads were left out on the reasoning that ignoring a parameter there
-  costs nothing.
+- **Every endpoint now refuses a query parameter it does not recognise**, instead of ignoring
+  it and answering as though nothing were wrong. Listings have behaved this way since 0.3.0
+  and the rest were added one at a time by hand — which meant single reads, both link
+  listings and the backup listing had been left out.
+
+  The refusal names the parameter and lists what the endpoint does accept, so it costs one
+  call to fix:
+
+  ```
+  422  This endpoint does not accept 'workspace'.
+       workspace: 'workspace' is not a parameter of this endpoint.
+                  It accepts: fields, format, workspace_id.
+  ```
+
+  **This turns some requests that used to succeed into a `422`.** If you are sending a
+  parameter an endpoint does not declare, it was being discarded before and you will now be
+  told which one. Health checks, the sign-in page and the browser's own pages are exempt, so
+  a monitor's cache-buster or a link carrying campaign parameters still works.
+
+- **Reading one task, document, project or workspace refuses one too**, which is the case
+  worth calling out separately: single reads were left out on the reasoning that ignoring a
+  parameter there costs nothing.
 
   It costs the same as it does anywhere else, because a single read takes `fields` and
   `format` too. Measured against a real instance: `GET /v1/documents/4?fieldz=ref,title`
   returned **99,746 bytes** where the correct spelling returns 59 — the whole document,
   answered `200`, for one wrong letter.
 
-  **This turns some requests that used to succeed into a `422`.** If you are sending a
-  parameter one of these endpoints does not declare, it was being discarded before and you
-  will now be told which one and what the endpoint accepts. `GET /v1/me` takes no query
-  parameters at all and now says so rather than ignoring whatever it was given.
+  `GET /v1/me` takes no query parameters at all and now says so, rather than ignoring
+  whatever it was given.
 
 ### Fixed
 

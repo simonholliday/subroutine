@@ -31,6 +31,7 @@ import subroutine.api.middleware
 import subroutine.api.policy
 import subroutine.api.problems
 import subroutine.api.projects
+import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.sessions
 import subroutine.api.tasks
@@ -253,7 +254,14 @@ def create_app (
 	subroutine.api.routing.check(ROUTERS)
 
 	for prefix, router in ROUTERS:
-		application.include_router(router, prefix=prefix)
+		# **Every route refuses a query parameter it does not declare, from here** (`#898`).
+		# Attached at the mounting loop rather than route by route because route by route is a
+		# list, and that list fell behind three times — `#676` and `#897` were both found by
+		# accident, months apart. A route that must answer whatever it is asked says so in
+		# `api/query.NOT_REFUSED`, which is reviewable in a way "somebody remembered" is not.
+		application.include_router(
+			router, prefix=prefix, dependencies=[subroutine.api.query.UnknownQueryDep]
+		)
 
 	return application
 

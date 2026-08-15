@@ -26,7 +26,6 @@ import typing
 import fastapi
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
@@ -166,7 +165,6 @@ def update (
 @router.get(
 	"",
 	summary="List the accounts on this instance",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.User],
 )
 def listing (

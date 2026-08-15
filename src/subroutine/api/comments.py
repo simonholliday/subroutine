@@ -20,7 +20,6 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
@@ -163,7 +162,6 @@ def _attach (
 	@group.get(
 		"/{" + address + "}/comments",
 		summary=f"List a {entity_type}'s comments",
-		dependencies=[subroutine.api.query.UnknownQueryDep],
 		response_model=subroutine.views.Collection[subroutine.views.Comment],
 		name=f"list_{entity_type}_comments",
 	)

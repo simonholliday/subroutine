@@ -177,7 +177,6 @@ def create (
 @router.get(
 	"",
 	summary="List documents",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Document],
 )
 def listing (
@@ -388,9 +387,6 @@ def listing (
 	"/{id_or_ref}",
 	summary="Read one document",
 	response_model=subroutine.views.Document,
-	# A document is the largest thing this API returns, so an ignored `fields` is at its most
-	# expensive right here (§8.1, item `#676`).
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,

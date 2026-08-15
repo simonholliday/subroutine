@@ -32,7 +32,6 @@ import starlette.requests
 
 import subroutine.api.dependencies
 import subroutine.api.pagination
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -149,7 +148,6 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 	@group.get(
 		"/{" + address + "}/events",
 		summary=f"What happened to this {entity_type}",
-		dependencies=[subroutine.api.query.UnknownQueryDep],
 		response_model=subroutine.views.Collection[subroutine.views.Event],
 		name=f"list_{entity_type}_events",
 	)

@@ -19,24 +19,33 @@ object there exactly as it does on a listing: measured against this instance,
 ``/v1/tasks/676`` went from 137 bytes to 3,150, and ``/v1/documents/4`` from 59 bytes to
 99,746 — **1,690 times the payload for one wrong letter**, answered `200`.
 
-**Attached per route, and what carries it is not a rule anybody could state** — which is how
-five shaping routes came to be without it and how three collections still are (`#897`). The
-one guarantee is the derived half: every route declaring ``fields`` or ``format`` has this,
-held by ``test_every_route_that_shapes_refuses_a_parameter_it_does_not_declare``. Everything
-beyond that is a route somebody remembered, so do not read a list of what is covered off this
-paragraph — the sentence that used to be here claimed the collections and was wrong about
-three of them for months. ``#898`` is whether the default should flip.
+**This applies to every route by default, and a route that does not want it says so in
+:data:`NOT_REFUSED`** (`#898`, Simon's decision). It was declared per route by hand until
+2026-08-15, which is a list, and the list fell behind three times: five shaping routes went
+without it (`#676`), and so did three collections this module's own docstring claimed
+(`#897`) — each found by accident rather than by anything failing. The mounting loop in
+``api/app.create_app`` attaches it to every router now, so a route added tomorrow is covered
+without anybody remembering, and the only thing that can go wrong is an exception somebody
+wrote down.
 
-What would be excluded under any rule: the health checks, the sign-in page, the browser's own
-pages and the two prose documents, all of which are reached by monitors and mail clients that
-append parameters of their own. Refusing those would turn somebody's uptime graph red to
-protect nothing.
+**A route-level dependency runs before the endpoint's own**, so this answers before a body is
+validated, before a workspace is resolved and before a credential is read. The last of those
+is the one worth checking rather than assuming, and it was: an unauthenticated caller now gets
+a `422` naming the parameters instead of a `401`. It discloses nothing, because
+``/v1/openapi.json`` is public and already publishes all 34 of them — measured, unauthenticated,
+on the served instance. The one place the ordering did matter is a *credential* in the query
+string, which is why :func:`_asked_about` steps over ``security.TOKEN_PARAMETERS`` (`#899`).
 
 The forward-compatibility argument this module used to make — that refusing would break a
 client which had started sending a parameter early — is the one ``#379`` overturned on the
 neighbouring surface, and for the reason that decides it here: what a swallowed parameter
 produces is *a plausible, complete, wrong answer*, and all it takes is a client newer than
 its server, which is the ordinary state of a fleet.
+
+**And it is worth more than the typos it catches.** Flipping the default found a test fixture
+that had been appending ``?workspace_id=`` to three creates for months — where a create names
+its workspace in the *body* — so a pin those lines appeared to apply had never once applied,
+and could not have been noticed on an installation with one workspace.
 
 **The accepted names are read from the route that matched**, never from a second list.
 Starlette puts the resolved route in the request scope, and FastAPI's ``dependant`` knows every
@@ -55,6 +64,28 @@ import subroutine.api.security
 import subroutine.domain.filtering
 import subroutine.errors
 
+#: Routes that answer whatever they are asked, keyed ``"METHOD path"`` with the reason —
+#: the same shape as ``PUBLIC_ROUTES``, and for the same reason: an exception nobody has to
+#: write down is an exception nobody can review. Two tests hold it, one saying every other
+#: route enforces and one saying no entry here names a route that has gone.
+#:
+#: **Every entry is a caller we do not control appending something of its own.** That is the
+#: whole test for admission: a monitor's cache-buster, a mail client's tracking parameter, a
+#: browser's ``?utm_…``. None of these shapes a response, so nothing is silently overpaid for,
+#: and refusing would turn an uptime graph red to protect nothing.
+NOT_REFUSED: dict[str, str] = {
+	"GET /healthz": "polled by monitors, which append cache-busters nobody controls",
+	"GET /readyz": "the same, and an orchestrator's probe must not fail on a spelling",
+	"GET /": "the browser app's page, reached from links carrying campaign parameters",
+	"GET /app/{name}": "its own files, requested by the browser with whatever it appends",
+	# The one route reached *from a mail client*, which is the software most likely to
+	# rewrite a URL on the way — and being refused here means being unable to sign in.
+	"GET /signin": "opened from an email, so the URL is not only ours by the time it arrives",
+	# A 405 that reads nothing (`#648`). The method is the caller's actual mistake, and
+	# answering 422 about a parameter instead would name the smaller of two problems.
+	"GET /mcp": "refuses the method before anything else, and that is the useful answer",
+}
+
 
 def refuse_unknown (request: starlette.requests.Request) -> None:
 	"""Refuse any query parameter the matched endpoint did not declare.
@@ -63,6 +94,9 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 	check, and a version of FastAPI that renamed ``dependant`` should cost a lost refusal rather
 	than every listing returning a 500.
 	"""
+
+	if _excused(request):
+		return
 
 	accepted = _accepted(request)
 
@@ -98,6 +132,24 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 		hint="Refused rather than ignored, because a request that quietly ignores 'fields' "
 		"returns the whole object and charges you for it.",
 	)
+
+
+def _excused (request: starlette.requests.Request) -> bool:
+	"""Report whether this route is one of the few that answers whatever it is asked.
+
+	Named the way :data:`NOT_REFUSED` is keyed, off the route that matched rather than off
+	``request.url.path`` — the second would compare ``/app/app.js`` against ``/app/{name}``
+	and never match, so every exception would silently stop working while every test that
+	spelled a *literal* path went on passing.
+	"""
+
+	route: typing.Any = request.scope.get("route")
+	path = getattr(route, "path", None)
+
+	if path is None:
+		return False
+
+	return f"{request.method} {path}" in NOT_REFUSED
 
 
 def _asked_about (request: starlette.requests.Request) -> set[str]:

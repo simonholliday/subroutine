@@ -48,7 +48,6 @@ import sqlalchemy.orm
 import starlette.requests
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.clients.local
@@ -70,7 +69,6 @@ PATH = "/mcp"
 router = fastapi.APIRouter(
 	tags=["mcp"],
 	route_class=subroutine.api.routing.Transactional,
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 
 

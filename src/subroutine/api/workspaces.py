@@ -23,7 +23,6 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.pagination
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
@@ -157,7 +156,6 @@ def create (
 @router.get(
 	"",
 	summary="List workspaces",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Workspace],
 )
 def listing (
@@ -239,7 +237,6 @@ def listing (
 	"/{id_or_slug}",
 	summary="Read one workspace",
 	response_model=subroutine.views.Workspace,
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_slug: str,
@@ -314,7 +311,6 @@ class Join(subroutine.api.schemas.RequestModel):
 @router.get(
 	"/{id_or_slug}/members",
 	summary="Who belongs to this workspace",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Member],
 )
 def members (

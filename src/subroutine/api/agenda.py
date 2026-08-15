@@ -17,7 +17,6 @@ import fastapi
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.db.types
@@ -39,7 +38,6 @@ router = fastapi.APIRouter(
 @router.get(
 	"/agenda",
 	summary="What am I doing today?",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	actor: subroutine.api.security.PrincipalDep,

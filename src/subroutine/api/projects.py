@@ -17,7 +17,6 @@ import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.filters
 import subroutine.api.pagination
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
@@ -145,7 +144,6 @@ def create (
 @router.get(
 	"",
 	summary="List projects",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Project],
 )
 def listing (
@@ -246,7 +244,6 @@ def listing (
 	"/{id_or_key}",
 	summary="Read one project",
 	response_model=subroutine.views.Project,
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_key: str,

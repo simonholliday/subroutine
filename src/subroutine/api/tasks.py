@@ -256,9 +256,6 @@ def create (
 @router.get(
 	"",
 	summary="List tasks",
-	# Refuses a query parameter this endpoint does not declare (SPEC.md §8.1). On a
-	# listing an ignored `fields` costs the caller the whole object.
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Task],
 )
 def listing (
@@ -577,9 +574,6 @@ def listing (
 	"/{id_or_ref}",
 	summary="Read one task",
 	response_model=subroutine.views.Task,
-	# A single read shapes too, so a typo'd `fields` costs the whole object here exactly as
-	# it does on the listing above (§8.1, item `#676`).
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,

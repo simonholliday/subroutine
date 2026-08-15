@@ -3657,18 +3657,32 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	slug = setup.workspace.slug
 	scope = f"?workspace_id={slug}"
 
-	made = call("POST", f"/v1/projects{scope}", json={"key": "web", "title": "The browser"})
+	# **A create names its workspace in the body; everything else names it in the query**, and
+	# this fixture used to append `?workspace_id=` to the three creates below as well. That was
+	# discarded unheard, and the workspace they landed in was the fallback for *there is only
+	# one* — so the pin these lines appeared to apply had never once been applied. Invisible
+	# until `#898` made an undeclared parameter a refusal, and invisible to this fixture in
+	# principle, since a second workspace is what it would take to tell the two apart.
+	made = call(
+		"POST", "/v1/projects", json={"key": "web", "title": "The browser", "workspace_id": slug}
+	)
 	assert made.status_code == 201, made.text
 
 	# Two tasks, so a page of one has something after it and the cursor below is a real one.
 	refs = []
 
 	for title in ("Read the backlog", "Write it down"):
-		answer = call("POST", f"/v1/tasks{scope}", json={"text": f"{title} +web"})
+		answer = call(
+			"POST", "/v1/tasks", json={"text": f"{title} +web", "workspace_id": slug}
+		)
 		assert answer.status_code == 201, answer.text
 		refs.append(answer.json())
 
-	document = call("POST", f"/v1/documents{scope}", json={"title": "A note", "body": "Prose."})
+	document = call(
+		"POST",
+		"/v1/documents",
+		json={"title": "A note", "body": "Prose.", "workspace_id": slug},
+	)
 	assert document.status_code == 201, document.text
 
 	joined = call(

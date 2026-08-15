@@ -21,6 +21,7 @@ import sqlalchemy.orm
 import api_support
 import subroutine.addressing
 import subroutine.api.app
+import subroutine.api.query
 import subroutine.api.routing
 import subroutine.config
 import subroutine.db.models.identity
@@ -32,6 +33,14 @@ import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import test_api_tasks
+
+
+@pytest.fixture
+def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
+	"""An installation reachable over HTTP, sharing the test's transaction."""
+
+	return test_api_tasks._world(session)
 
 
 @pytest.fixture
@@ -468,71 +477,159 @@ def test_a_write_is_committed_before_its_response_is_sent (
 		engine.dispose()
 
 
-def _shaping_routes () -> list[tuple[str, str, bool]]:
-	"""Return every GET route that shapes its answer, and whether it refuses unknown names.
+#: Something to put where a route names a path segment. Any value will do — the refusal under
+#: test runs before the segment is resolved, which is itself part of what is being asserted:
+#: a caller who misspells a parameter is told so rather than being sent to find a task first.
+_SEGMENTS = {
+	"id_or_ref": "1",
+	"id_or_key": "inbox",
+	"id_or_slug": "test",
+	"id_or_prefix": "sr_nothing",
+	"comment_id": "00000000-0000-0000-0000-000000000000",
+	"link_id": "00000000-0000-0000-0000-000000000000",
+	"username": "nobody",
+	"name": "app.js",
+}
 
-	Derived from what each route *declares*, never from a list of paths — a list is what
-	fell behind in the first place, and a route added tomorrow is covered by this the moment
-	it declares ``fields``.
-	"""
 
-	found: list[tuple[str, str, bool]] = []
+def _addressable () -> list[tuple[str, str, str]]:
+	"""Return every mounted route as ``(name, method, a path that can actually be requested)``."""
 
-	for path, methods, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
-		if "GET" not in methods:
-			continue
+	found: list[tuple[str, str, str]] = []
 
-		dependant = getattr(route, "dependant", None)
+	for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		address = path
 
-		if dependant is None:
-			continue
+		for segment, stand_in in _SEGMENTS.items():
+			address = address.replace("{" + segment + "}", stand_in)
 
-		declared = {
-			alias
-			for field in (dependant.query_params or [])
-			if (alias := getattr(field, "alias", None)) is not None
-		}
+		if "{" in address:
+			raise AssertionError(
+				f"{path} names a path segment this test has no value for. Add one to "
+				f"_SEGMENTS — leaving it out would silently skip the route."
+			)
 
-		if not declared & {"fields", "format"}:
-			continue
-
-		guarded = any(
-			getattr(sub.call, "__name__", "") == "refuse_unknown"
-			for sub in dependant.dependencies
-		)
-
-		found.append(("GET", path, guarded))
+		for method in sorted(methods):
+			found.append((f"{method} {path}", method, address))
 
 	return found
 
 
-def test_every_route_that_shapes_refuses_a_parameter_it_does_not_declare () -> None:
-	"""`#676`. Shaping is exactly where an ignored parameter costs the whole object.
+def test_every_route_refuses_a_query_parameter_it_does_not_declare (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#898`, Simon's decision, and `#897` closes with it.
 
-	``api/query.py`` excluded single-entity reads for three months on the reasoning that one
-	"wastes nothing". It was reasoned rather than measured, and measuring reversed it: a
-	single read declares ``fields`` and ``format`` like any listing, so
-	``/v1/documents/4?fieldz=ref`` answered `200` with **99,746 bytes** where the correct
-	spelling returns 59.
+	**Driven rather than read.** ``include_router`` copies a route as it mounts it, so the
+	dependency added there is not on the object ``routing.mounted`` returns — a structural
+	check would look at the routers, find nothing, and report every route unguarded or (with
+	the comparison the other way up) every route fine. The only honest question is what a
+	request gets, so this asks for one.
 
-	**Derived from the declarations rather than from a list of paths**, because the guard was
-	a hand-maintained ``dependencies=[…]`` per route with nothing checking it — which is how
-	five routes came to shape without it. The floor is what stops the derivation quietly
-	reading nothing.
+	**Asserting the code, not the status.** A `422` here could equally be a missing body on a
+	`POST`, which would make this pass while proving nothing; ``unknown_field`` can only come
+	from the refusal under test. That also settles the ordering the refusal depends on: it
+	answers before the body is validated, before a workspace is resolved and before a
+	credential is checked, so every route can be driven with one junk parameter and nothing
+	else.
+
+	Writes are driven too, deliberately — they are the half nobody thought about while this
+	was declared by hand, and if the refusal ever stops firing on a `DELETE` this test starts
+	deleting things, which is a failure nobody will miss.
 	"""
 
-	routes = _shaping_routes()
+	routes = _addressable()
 
-	assert len(routes) >= 10, (
-		f"only {len(routes)} shaping routes were found, so this guard is reading almost "
-		f"nothing — the declarations are no longer being reached"
+	assert len(routes) >= 60, (
+		f"only {len(routes)} routes were found, so this is reading almost nothing"
 	)
 
-	loose = [f"{method} {path}" for method, path, guarded in routes if not guarded]
+	unrefused = []
 
-	assert not loose, (
-		"These routes shape their answer and would ignore a misspelled 'fields', returning "
-		"the whole object and charging the caller for it: "
-		+ ", ".join(sorted(loose))
-		+ ". Add dependencies=[subroutine.api.query.UnknownQueryDep]."
+	for name, method, address in routes:
+		if name in subroutine.api.query.NOT_REFUSED:
+			continue
+
+		joiner = "&" if "?" in address else "?"
+		answered = world.call(method, f"{address}{joiner}nonsense=1")
+
+		if answered.status_code != 422 or answered.json().get("code") != "unknown_field":
+			unrefused.append(f"{name} answered {answered.status_code}")
+
+	assert not unrefused, (
+		"These routes ignored a query parameter they do not declare: "
+		+ ", ".join(sorted(unrefused))
+		+ ". Every route is refused one by default since `#898` — add the route to "
+		+ "api/query.NOT_REFUSED with a reason if it must answer whatever it is asked."
+	)
+
+
+def test_an_excused_route_still_answers (world: test_api_tasks.World) -> None:
+	"""The other half, and without it the list above could be satisfied by breaking everything.
+
+	An entry in ``NOT_REFUSED`` is a promise that the route goes on working when something
+	appends a parameter to it — a monitor's cache-buster, a mail client's rewrite. A refusal
+	that fired anyway would be invisible here, because this file's other test only ever asks
+	whether routes it does *not* excuse are refused.
+	"""
+
+	for name in subroutine.api.query.NOT_REFUSED:
+		method, _, path = name.partition(" ")
+
+		for segment, stand_in in _SEGMENTS.items():
+			path = path.replace("{" + segment + "}", stand_in)
+
+		answered = world.call(method, f"{path}?utm_source=nothing")
+
+		assert answered.status_code != 422 or answered.json().get("code") != "unknown_field", (
+			f"{name} is excused from the query refusal and was refused anyway"
+		)
+
+
+def test_the_excused_list_names_only_routes_that_exist () -> None:
+	"""An exemption for a route that has been renamed is an exemption nobody notices.
+
+	`PUBLIC_ROUTES` next door has had this since it existed. The same question asked of the
+	same shape of list, because the failure is the same: an entry that no longer matches
+	anything reads as a considered decision and grants nothing.
+	"""
+
+	registered = {name for name, _method, _address in _addressable()}
+	gone = set(subroutine.api.query.NOT_REFUSED) - registered
+
+	assert not gone, (
+		f"api/query.NOT_REFUSED names routes that no longer exist: {', '.join(sorted(gone))}."
+	)
+
+
+def test_no_route_that_shapes_its_answer_is_excused () -> None:
+	"""`#676`'s measurement, kept as the one thing an exemption may never cover.
+
+	A route declaring ``fields`` or ``format`` is one where an ignored parameter costs the
+	caller the whole object — measured at 59 bytes against 99,746 on ``/v1/documents/4``. So
+	whatever else `NOT_REFUSED` is allowed to hold, it may not hold one of those, and this is
+	what stops the list being widened until it is the default again by another name.
+	"""
+
+	shaping: set[str] = set()
+
+	for path, methods, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		dependant = getattr(route, "dependant", None)
+
+		declared = {
+			alias
+			for field in (getattr(dependant, "query_params", None) or [])
+			if (alias := getattr(field, "alias", None)) is not None
+		}
+
+		if declared & {"fields", "format"}:
+			shaping.update(f"{method} {path}" for method in sorted(methods))
+
+	assert len(shaping) >= 15, f"only {len(shaping)} shaping routes found; the walk read nothing"
+
+	excused = shaping & set(subroutine.api.query.NOT_REFUSED)
+
+	assert not excused, (
+		f"These routes shape their answer and are excused from the refusal, so a misspelled "
+		f"'fields' returns the whole object silently: {', '.join(sorted(excused))}."
 	)

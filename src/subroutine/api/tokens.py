@@ -29,7 +29,6 @@ import typing
 import fastapi
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
@@ -148,7 +147,6 @@ def create (
 @router.get(
 	"",
 	summary="List the credentials you can act on",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Token],
 )
 def listing (

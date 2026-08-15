@@ -41,7 +41,6 @@ import fastapi
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
-import subroutine.api.query
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -69,7 +68,6 @@ ACTOR_ME = "me"
 @router.get(
 	"",
 	summary="What changed since you last looked",
-	dependencies=[subroutine.api.query.UnknownQueryDep],
 	response_model=subroutine.views.Collection[subroutine.views.Event],
 	name="list_changes",
 )
