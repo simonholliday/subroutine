@@ -12,6 +12,52 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **Reading one task, document, project or workspace now refuses a query parameter it does
+  not recognise**, instead of ignoring it and answering `200`. Listings have behaved this way
+  since 0.3.0; single reads were left out on the reasoning that ignoring a parameter there
+  costs nothing.
+
+  It costs the same as it does anywhere else, because a single read takes `fields` and
+  `format` too. Measured against a real instance: `GET /v1/documents/4?fieldz=ref,title`
+  returned **99,746 bytes** where the correct spelling returns 59 — the whole document,
+  answered `200`, for one wrong letter.
+
+  **This turns some requests that used to succeed into a `422`.** If you are sending a
+  parameter one of these endpoints does not declare, it was being discarded before and you
+  will now be told which one and what the endpoint accepts. `GET /v1/me` takes no query
+  parameters at all and now says so rather than ignoring whatever it was given.
+
+### Fixed
+
+- **Naming a workspace with the wrong key no longer produces an error about something else.**
+  `GET /v1/tasks/1?workspace=personal` discarded `workspace` unheard, and the request was
+  then refused for naming no workspace — describing a request nobody had sent, and listing
+  the workspaces by name and id, which reads as a menu of values rather than as a missing
+  key. It now names the parameter: `workspace_id`, and what the endpoint accepts.
+
+- **A refusal listing the workspaces you can reach now says that either the name or the id
+  will do.** It printed `projects (019fad98-…)` and left the reader to guess what the bracket
+  was for.
+
+- **An API token sent in the URL is now always refused with the warning that it is
+  compromised.** Tokens have never been *accepted* from a query string, and the refusal has
+  always been meant to say so — but it only ever reached one caller in four.
+
+  A request that also carried a valid `Authorization` header was answered `200`, with the
+  secret sitting in the URL and nothing said about it. A request to any endpoint that
+  refuses unknown query parameters — every listing — was told `'token' is not a parameter of
+  this endpoint`, which reads as a typo, so the sensible next move is to fix the spelling
+  rather than to revoke anything.
+
+  **If you have ever sent a token as `?token=`, `?api_key=`, `?apikey=`, `?access_token=` or
+  `?auth=` against an instance, treat that token as compromised and revoke it** — it will be
+  in the access log of that instance and of any proxy in front of it, whatever it was
+  answered at the time. `subroutine token revoke` and issue a new one.
+
 ## 0.7.1 — 2026-08-14
 
 > **This release changes the database schema**, to `a3f9c21d7e40`.

@@ -38,13 +38,16 @@ import subroutine.errors
 #: RFC 9110 requires; presented in its canonical form in ``WWW-Authenticate``.
 BEARER_SCHEME = "Bearer"
 
-#: Query parameters a caller might reasonably, and wrongly, put a token in. Public because
-#: `api/logs.py` derives what to keep out of the access log from it — a token sent this way is
-#: refused *and the refusal says to treat it as compromised*, so writing it down afterwards is
-#: the same mistake one layer on (`#806`). Tokens are
-#: never accepted from a query string — they end up in access logs, browser history and
-#: referrer headers (SPEC.md §7.4) — but silently ignoring one leaves the caller staring
-#: at a 401 with a credential they can plainly see in the URL, so the refusal says so.
+#: Query parameters a caller might reasonably, and wrongly, put a token in. Tokens are never
+#: accepted from a query string — they reach access logs, browser history and referrer headers
+#: (§7.4) — but ignoring one silently leaves the caller staring at a refusal with a credential
+#: they can plainly see in the URL, so :func:`_refuse_a_credential_in_the_url` says so.
+#:
+#: **Read by two other places, and both were relying on a promise this made and did not keep**
+#: until `#899`: `api/logs.py` keeps these out of the access log on the reasoning that the
+#: request is refused and the holder told to treat the secret as compromised, and
+#: `api/query.py` steps over them so that its own refusal does not answer first. Measured
+#: before the fix, the warning reached one caller in four.
 TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
 
 #: A resolver: find a credential of one kind and identify its holder. ``None`` means "not
@@ -307,6 +310,40 @@ def resolve (
 	)
 
 
+def _refuse_a_credential_in_the_url (request: starlette.requests.Request) -> None:
+	"""Refuse a request carrying a credential in its query string, whatever else is true of it.
+
+	**Before authentication rather than after it, and that is the point** (`#899`). The
+	warning used to be reachable only down the 401 path, so it reached exactly one caller in
+	four: a request that *also* carried a valid ``Authorization`` header authenticated
+	normally and was answered `200` with the secret still sitting in the URL, and a request to
+	any endpoint refusing unknown query parameters was answered ``unknown_field`` — which
+	reads as a typo, so the caller retries with the right key and never revokes anything.
+	Measured on the served instance: three of the four combinations were silent about it.
+
+	The refusal is what matters more than the answer. By the time this fires the secret is
+	already in this process's access log, the caller's browser history, whatever referrer
+	headers the page generated and any proxy in between — so the one thing worth saying is
+	*treat it as compromised*, and that has to be said to a caller who is otherwise
+	authenticated just as loudly as to one who is not.
+
+	Raised as ``Unauthenticated`` for both, deliberately. A request that presents a credential
+	somewhere credentials are not read has not authenticated, whatever else it presented, and
+	`401` is the answer a client already knows how to act on.
+	"""
+
+	misplaced = [name for name in TOKEN_PARAMETERS if name in request.query_params]
+
+	if not misplaced:
+		return
+
+	raise subroutine.errors.Unauthenticated(
+		f"A credential was sent as the {misplaced[0]!r} query parameter, which is not "
+		f"a place this API reads one.",
+		hint=_how_to_authenticate(request),
+	)
+
+
 def principal (
 	request: starlette.requests.Request, session: subroutine.api.dependencies.SessionDep
 ) -> subroutine.domain.authentication.Principal:
@@ -328,6 +365,8 @@ def principal (
 	limits = getattr(request.app.state, "limits", None)
 
 	try:
+		_refuse_a_credential_in_the_url(request)
+
 		found = resolve(session, request)
 
 	except subroutine.errors.Unauthenticated:

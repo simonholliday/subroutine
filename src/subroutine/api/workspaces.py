@@ -239,6 +239,7 @@ def listing (
 	"/{id_or_slug}",
 	summary="Read one workspace",
 	response_model=subroutine.views.Workspace,
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_slug: str,

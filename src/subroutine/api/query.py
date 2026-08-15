@@ -12,10 +12,31 @@ an entire section about it), so a listing is the one place where an ignored para
 expensive rather than merely untidy. ``?include=backlinks`` is the same shape: it is specified
 in §8.5, it is not built, and it used to return `200` with nothing.
 
-Applied to the **collection** endpoints and the agenda only, and deliberately not to
-everything. A single-entity read taking an unknown parameter wastes nothing, and refusing
-unknown parameters wholesale would make adding one a breaking change for any client that had
-started sending it early.
+**A single-entity read shapes too, and this module excluded them for three months on the
+grounds that one "wastes nothing"** — which was reasoned rather than measured, and is wrong
+(`#676`). Every single read declares ``fields`` and ``format``, so a typo costs the whole
+object there exactly as it does on a listing: measured against this instance,
+``/v1/tasks/676`` went from 137 bytes to 3,150, and ``/v1/documents/4`` from 59 bytes to
+99,746 — **1,690 times the payload for one wrong letter**, answered `200`.
+
+**Attached per route, and what carries it is not a rule anybody could state** — which is how
+five shaping routes came to be without it and how three collections still are (`#897`). The
+one guarantee is the derived half: every route declaring ``fields`` or ``format`` has this,
+held by ``test_every_route_that_shapes_refuses_a_parameter_it_does_not_declare``. Everything
+beyond that is a route somebody remembered, so do not read a list of what is covered off this
+paragraph — the sentence that used to be here claimed the collections and was wrong about
+three of them for months. ``#898`` is whether the default should flip.
+
+What would be excluded under any rule: the health checks, the sign-in page, the browser's own
+pages and the two prose documents, all of which are reached by monitors and mail clients that
+append parameters of their own. Refusing those would turn somebody's uptime graph red to
+protect nothing.
+
+The forward-compatibility argument this module used to make — that refusing would break a
+client which had started sending a parameter early — is the one ``#379`` overturned on the
+neighbouring surface, and for the reason that decides it here: what a swallowed parameter
+produces is *a plausible, complete, wrong answer*, and all it takes is a client newer than
+its server, which is the ordinary state of a fleet.
 
 **The accepted names are read from the route that matched**, never from a second list.
 Starlette puts the resolved route in the request scope, and FastAPI's ``dependant`` knows every
@@ -30,6 +51,7 @@ import fastapi
 import starlette.requests
 
 import subroutine.api.filters
+import subroutine.api.security
 import subroutine.domain.filtering
 import subroutine.errors
 
@@ -52,7 +74,14 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 	if not unknown:
 		return
 
-	listed = ", ".join(sorted(accepted))
+	# **An endpoint that declares none is a real case and needs its own sentence** —
+	# ``GET /v1/me`` takes nothing at all, and "It accepts: ." reads as a truncated message
+	# rather than as an answer.
+	listed = (
+		f"It accepts: {', '.join(sorted(accepted))}."
+		if accepted
+		else "It takes no query parameters at all."
+	)
 
 	raise subroutine.errors.ValidationError(
 		f"This endpoint does not accept {unknown[0]!r}.",
@@ -62,11 +91,11 @@ def refuse_unknown (request: starlette.requests.Request) -> None:
 				field=name,
 				code="unknown_field",
 				message=f"{name!r} is not a parameter of this endpoint.",
-				hint=f"It accepts: {listed}.",
+				hint=listed,
 			)
 			for name in unknown
 		],
-		hint="Refused rather than ignored, because a listing that quietly ignores 'fields' "
+		hint="Refused rather than ignored, because a request that quietly ignores 'fields' "
 		"returns the whole object and charges you for it.",
 	)
 
@@ -83,7 +112,12 @@ def _asked_about (request: starlette.requests.Request) -> set[str]:
 	that cannot filter on dates is still refused by name rather than ignored.
 	"""
 
-	names = set(request.query_params)
+	# **A misplaced credential is not this function's to report** (`#899`). It is unknown here
+	# by any measure, and answering "'token' is not a parameter of this endpoint" reads as a
+	# typo — so the caller corrects the spelling and never revokes the secret now sitting in
+	# an access log. `security.principal` refuses it by name, before authenticating, and says
+	# to treat it as compromised. Left in place this ran first and swallowed that.
+	names = set(request.query_params) - set(subroutine.api.security.TOKEN_PARAMETERS)
 
 	if subroutine.api.filters.declared_by(request.scope.get("route")) is None:
 		return names

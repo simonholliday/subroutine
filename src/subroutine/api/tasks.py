@@ -574,7 +574,12 @@ def listing (
 
 
 @router.get(
-	"/{id_or_ref}", summary="Read one task", response_model=subroutine.views.Task
+	"/{id_or_ref}",
+	summary="Read one task",
+	response_model=subroutine.views.Task,
+	# A single read shapes too, so a typo'd `fields` costs the whole object here exactly as
+	# it does on the listing above (§8.1, item `#676`).
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_ref: subroutine.api.schemas.ItemAddress,

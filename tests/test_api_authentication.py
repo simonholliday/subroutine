@@ -330,6 +330,52 @@ def test_a_token_in_the_query_string_is_refused_and_called_out (
 
 
 @pytest.mark.parametrize(
+	"path", ["/v1/me", "/v1/tasks", "/v1/workspaces"]
+)
+def test_a_credential_in_the_url_is_called_out_however_else_the_request_is_answered (
+	session: sqlalchemy.orm.Session, setup: Setup, path: str
+) -> None:
+	"""`#899`. The warning was reachable down one path in four, and nothing said so.
+
+	Two things hid it, and the test above met neither. It drives ``/v1/me`` **without** a
+	header — and ``/v1/me`` was, until `#676`, the one GET route in the application with no
+	unknown-parameter refusal, so it was also the one route where the 401 was reached at all.
+	Measured on the served instance before the fix, three of these four combinations were
+	silent about a secret sitting in a URL:
+
+	- authenticated, on any route: `200`, no mention of it.
+	- unauthenticated, on a route refusing unknown parameters: ``unknown_field``, which reads
+	  as a typo — so the caller fixes the spelling and never revokes anything.
+
+	Parametrised over paths **because the defect was one route behaving unlike the rest**, and
+	a single-path test is what let it hide. A valid header is sent deliberately: by the time
+	this fires the secret is in a log whatever else was true of the request.
+	"""
+
+	_, secret = _token(session, setup.user)
+	_, other = _token(session, setup.user)
+
+	answered = api_support.call(
+		setup.application,
+		"GET",
+		f"{path}?token={secret}",
+		headers={"authorization": f"Bearer {other}"},
+	)
+
+	assert answered.status_code == 401, (
+		f"{path} answered {answered.status_code} to a request carrying a credential in "
+		f"its URL"
+	)
+
+	body = answered.json()
+
+	assert body["code"] == "unauthenticated"
+	assert "compromised" in body["hint"], "the one sentence worth saying was not said"
+	assert secret not in answered.text, "the refusal must not repeat the credential"
+	assert other not in answered.text
+
+
+@pytest.mark.parametrize(
 	"header",
 	["Basic dXNlcjpwYXNz", "Token sr_deadbeef_secret", "sr_deadbeef_secret"],
 )

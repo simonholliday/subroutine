@@ -17,6 +17,13 @@ Two kinds of secret arrive in a query string here, and both were measured rather
   is refused *and the refusal tells them to treat that token as compromised*. Writing it into
   our own log afterwards is the same mistake one layer down, and those tokens are long-lived.
 
+  That second sentence was written here as a settled fact and was true for one caller in four
+  until `#899`: an authenticated request carrying a token in its URL was answered `200`, and
+  any endpoint refusing unknown query parameters answered ``unknown_field``, which reads as a
+  typo. The redaction below was doing its half correctly the whole time — but the reason it
+  gives for being enough, that the holder has been told to revoke, is the half that was not
+  happening.
+
 **This is half a fix and is labelled as one.** It reaches the log this process writes. An
 operator's proxy logs the same request line, on its own retention, and we cannot touch it —
 ``docs/hosting.md`` carries that half, as advice rather than as code.

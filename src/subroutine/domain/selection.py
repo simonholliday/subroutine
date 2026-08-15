@@ -193,14 +193,26 @@ def _only (
 def _alternatives (
 	reachable: typing.Sequence[subroutine.db.models.identity.Workspace],
 ) -> str:
-	"""Describe the workspaces the caller can reach, by both names."""
+	"""Describe the workspaces the caller can reach, by both names.
+
+	**Saying that either form is accepted, without naming the field it goes in** — `#676`
+	asked for the parameter to be named here and `#547` is why it is not: this refusal is
+	raised below the transport and read on two of them, which call the same thing
+	``workspace_id`` and ``workspace``, so any spelling in this prose is wrong for one of
+	its two readers. The ``FieldError`` carries the name and each surface renders it.
+
+	What the pairs *did* leave unsaid is that both halves of each pair work. Listing a name
+	beside an id and saying nothing reads as a menu of one kind of value with an
+	unexplained bracket after it, and a caller who takes the id when a name would have done
+	has learned the harder of the two.
+	"""
 
 	if not reachable:
 		return "You are not a member of any workspace."
 
 	listed = ", ".join(f"{candidate.slug} ({candidate.id})" for candidate in reachable)
 
-	return f"Workspaces you can reach: {listed}."
+	return f"Workspaces you can reach, by either name or id: {listed}."
 
 
 def project (

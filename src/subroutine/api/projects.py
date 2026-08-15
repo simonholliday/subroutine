@@ -243,7 +243,10 @@ def listing (
 
 
 @router.get(
-	"/{id_or_key}", summary="Read one project", response_model=subroutine.views.Project
+	"/{id_or_key}",
+	summary="Read one project",
+	response_model=subroutine.views.Project,
+	dependencies=[subroutine.api.query.UnknownQueryDep],
 )
 def read (
 	id_or_key: str,

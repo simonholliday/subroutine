@@ -466,3 +466,73 @@ def test_a_write_is_committed_before_its_response_is_sent (
 
 	finally:
 		engine.dispose()
+
+
+def _shaping_routes () -> list[tuple[str, str, bool]]:
+	"""Return every GET route that shapes its answer, and whether it refuses unknown names.
+
+	Derived from what each route *declares*, never from a list of paths — a list is what
+	fell behind in the first place, and a route added tomorrow is covered by this the moment
+	it declares ``fields``.
+	"""
+
+	found: list[tuple[str, str, bool]] = []
+
+	for path, methods, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		if "GET" not in methods:
+			continue
+
+		dependant = getattr(route, "dependant", None)
+
+		if dependant is None:
+			continue
+
+		declared = {
+			alias
+			for field in (dependant.query_params or [])
+			if (alias := getattr(field, "alias", None)) is not None
+		}
+
+		if not declared & {"fields", "format"}:
+			continue
+
+		guarded = any(
+			getattr(sub.call, "__name__", "") == "refuse_unknown"
+			for sub in dependant.dependencies
+		)
+
+		found.append(("GET", path, guarded))
+
+	return found
+
+
+def test_every_route_that_shapes_refuses_a_parameter_it_does_not_declare () -> None:
+	"""`#676`. Shaping is exactly where an ignored parameter costs the whole object.
+
+	``api/query.py`` excluded single-entity reads for three months on the reasoning that one
+	"wastes nothing". It was reasoned rather than measured, and measuring reversed it: a
+	single read declares ``fields`` and ``format`` like any listing, so
+	``/v1/documents/4?fieldz=ref`` answered `200` with **99,746 bytes** where the correct
+	spelling returns 59.
+
+	**Derived from the declarations rather than from a list of paths**, because the guard was
+	a hand-maintained ``dependencies=[…]`` per route with nothing checking it — which is how
+	five routes came to shape without it. The floor is what stops the derivation quietly
+	reading nothing.
+	"""
+
+	routes = _shaping_routes()
+
+	assert len(routes) >= 10, (
+		f"only {len(routes)} shaping routes were found, so this guard is reading almost "
+		f"nothing — the declarations are no longer being reached"
+	)
+
+	loose = [f"{method} {path}" for method, path, guarded in routes if not guarded]
+
+	assert not loose, (
+		"These routes shape their answer and would ignore a misspelled 'fields', returning "
+		"the whole object and charging the caller for it: "
+		+ ", ".join(sorted(loose))
+		+ ". Add dependencies=[subroutine.api.query.UnknownQueryDep]."
+	)

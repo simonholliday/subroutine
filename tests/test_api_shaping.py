@@ -490,3 +490,93 @@ def test_the_openapi_document_still_describes_the_default (
 	reference = response["content"]["application/json"]["schema"]["$ref"]
 
 	assert "Collection" in reference and "Task" in reference
+
+
+def test_a_single_read_refuses_a_parameter_it_does_not_declare (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#676`. The refusal used to stop at the listings, and shaping does not.
+
+	Driven on all four shaping single reads rather than on one, because the dependency is
+	declared per route and the failure this fixes was four routes agreeing and one being
+	forgotten.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+	document = world.call(
+		"POST", "/v1/documents", json={"title": "A document", "body": "."}
+	).json()
+	project = world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"}).json()
+
+	addresses = [
+		f"/v1/tasks/{task['ref']}",
+		f"/v1/documents/{document['ref']}",
+		f"/v1/projects/{project['key']}",
+		f"/v1/workspaces/{world.workspace.slug}",
+	]
+
+	for address in addresses:
+		refused = world.call("GET", f"{address}?fieldz=ref")
+
+		assert refused.status_code == 422, f"{address} answered {refused.status_code}"
+
+		body = refused.json()
+
+		assert body["code"] == "unknown_field"
+		assert body["errors"][0]["field"] == "fieldz"
+		assert "fields" in body["errors"][0]["hint"], "it must say what would have worked"
+
+		# And the correct spelling still works, or the refusal above would be proving
+		# nothing more interesting than that the route is broken.
+		accepted = world.call("GET", f"{address}?fields=id")
+
+		assert accepted.status_code == 200, accepted.text
+		assert set(accepted.json()) == {"id"}
+
+
+def test_the_workspace_refusal_no_longer_answers_about_the_wrong_thing (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#676`'s reported symptom, which was two faults compounding.
+
+	``?workspace=personal`` was discarded unheard, and the workspace dependency then refused
+	*because nothing named a workspace* — describing a request nobody had sent, and listing
+	workspaces by name and id, which reads as a menu of values rather than as a missing key.
+	So the caller's next guess is another value.
+
+	The unknown-parameter refusal runs first now, so the answer names the key. That ordering
+	is the whole fix and is asserted rather than assumed: it is a property of where the
+	dependency is declared, not of anything in this module.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+
+	refused = world.call("GET", f"/v1/tasks/{task['ref']}?workspace=whatever")
+
+	assert refused.status_code == 422, refused.text
+
+	body = refused.json()
+
+	assert body["code"] == "unknown_field", "the workspace refusal answered first"
+	assert body["errors"][0]["field"] == "workspace"
+	assert "workspace_id" in body["errors"][0]["hint"], "and it must name the key that works"
+
+
+def test_an_endpoint_that_takes_nothing_says_so_rather_than_trailing_off (
+	world: test_api_tasks.World,
+) -> None:
+	"""``GET /v1/me`` declares no query parameters at all, so the list of them is empty.
+
+	Worth its own case because the obvious rendering is "It accepts: .", which reads as a
+	message that was cut off rather than as an answer — and this is the first call an agent
+	makes, so it is the worst place to look broken.
+	"""
+
+	refused = world.call("GET", "/v1/me?workspace=whatever")
+
+	assert refused.status_code == 422, refused.text
+
+	hint = refused.json()["errors"][0]["hint"]
+
+	assert "no query parameters" in hint
+	assert "It accepts: ." not in hint
