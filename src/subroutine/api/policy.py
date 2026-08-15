@@ -29,12 +29,20 @@ import re
 
 import subroutine.api.web
 
-#: The inline script the shell carries, and the only one. Matched on the opening tag rather
-#: than on the whole document so that the *text content* is what gets hashed — a CSP hash is
-#: over exactly what lies between the tags, whitespace included, and a pattern that swept up
-#: the tags would produce a hash no browser ever computes.
+#: Any script the shell carries its own body for. **Matched by the absence of ``src`` rather
+#: than by a type**, because that is what decides whether a browser needs a hash: an external
+#: script is covered by ``'self'`` and an inline one is not, whatever its type says.
+#:
+#: **This used to name ``type="importmap"`` and the docstring below still called it every
+#: inline script** (`#908`). It was true when written — there was one — so nothing disagreed,
+#: and `#827` read the name, recorded *a second inline script is covered by construction* as a
+#: checked non-issue, and was wrong. The theme script it was written about was blocked on its
+#: first run. A completeness claim in prose over a pattern that does not make it.
+#:
+#: Only the *text content* is hashed: a CSP hash is over exactly what lies between the tags,
+#: whitespace included, so a pattern sweeping up the tags produces a hash no browser computes.
 _INLINE_SCRIPT = re.compile(
-	r"<script type=\"importmap\">(?P<body>.*?)</script>", re.DOTALL
+	r"<script(?![^>]*\ssrc=)[^>]*>(?P<body>.*?)</script>", re.DOTALL
 )
 
 #: Headers that are the same for every response and every deployment.

@@ -253,7 +253,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"undo": {"ref": 42, "kind": "task", "title": "Fix it", "status": "open"},
 		}
 	},
-	"Foot": {"count": 7, "version": "0.6.7"},
+	"Foot": {"count": 7, "version": "0.6.7", "theme": "system"},
+	"Theme": {"chosen": "dark"},
 }
 
 #: The one case with its own branch, and the one a reader is likeliest to meet: a page loaded
@@ -960,29 +961,44 @@ GROUNDS = ("--bg", "--bg-sunken", "--bg-raised")
 #: is small text and there is no large-text exemption to reason about.
 AA_SMALL_TEXT = 4.5
 
+#: AAA, which is what a reader asking their system for more contrast should get.
+AAA_SMALL_TEXT = 7.0
 
-def _themes () -> dict[str, dict[str, str]]:
+
+def _themes (block: str | None = None) -> dict[str, dict[str, str]]:
 	"""Each theme's colour tokens, read out of the stylesheet.
 
-	Two blocks define them: the bare ``:root``, and the ``:root`` nested inside the
-	prefers-dark media query, which **redefines only what changes**. So dark is light updated
-	by the second block rather than a set of its own — which is what the stylesheet's own
-	opening comment promises, and reading it any other way would report a missing token as a
-	missing colour.
+	**Every colour is one ``light-dark(a, b)`` declaration**, so both halves are stated
+	together and neither theme can quietly inherit the other's value. That is what the
+	arrangement before it could do: dark redefined ten tokens of twelve inside a media query,
+	so a thirteenth added to the light block alone would have been the same colour in both and
+	nothing would have said so.
+
+	``block`` selects which ``:root`` to read — the default set, or the one inside a media
+	query for a reader who has asked for more contrast.
 	"""
 
-	text = (ASSETS / "app.css").read_text(encoding="utf-8")
-	blocks = re.findall(r":root\s*\{(.*?)\}", text, re.DOTALL)
+	if block is None:
+		# **The first `:root` block only.** Reading the whole file picks up the higher-contrast
+		# block too, and since a later match wins, the defaults come back *as* the raised set —
+		# so a comparison between them reports every pair as unchanged. Caught by the guard
+		# below failing with `was 7.98:1 and is 7.98:1`, which is a defect in the reading rather
+		# than in the palette.
+		found = re.search(r":root\s*\{([^}]*)\}", (ASSETS / "app.css").read_text(), re.DOTALL)
+		assert found is not None, "no :root block at all"
+		block = found.group(1)
 
-	assert len(blocks) >= 2, f"expected a light and a dark :root, found {len(blocks)}"
+	text = block
+	pairs = re.findall(
+		r"(--[a-z-]+):\s*light-dark\(\s*(#[0-9a-fA-F]{6})\s*,\s*(#[0-9a-fA-F]{6})\s*\)", text
+	)
 
-	def declared (block: str) -> dict[str, str]:
-		return dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;", block))
+	assert pairs, "no light-dark() colours found, so this would check nothing"
 
-	light = declared(blocks[0])
-	dark = light | declared(blocks[1])
-
-	return {"light": light, "dark": dark}
+	return {
+		"light": {name: light for name, light, _ in pairs},
+		"dark": {name: dark for name, _, dark in pairs},
+	}
 
 
 def _contrast (one: str, other: str) -> float:
@@ -1034,6 +1050,55 @@ def test_every_ink_clears_the_contrast_minimum_on_every_background () -> None:
 					)
 
 	assert not failures, "text below the contrast minimum:\n  " + "\n  ".join(failures)
+
+
+def test_asking_for_more_contrast_gets_more_contrast () -> None:
+	"""**`#908`. A `prefers-contrast` block that is merely present is worth nothing.**
+
+	The failure this exists for is a block somebody adds to satisfy a checklist, whose values
+	are a shade different in the wrong direction or the same shade copied — a control that is
+	declared, documented and does nothing, which is a defect this codebase has found eight
+	times. So it asserts the two things that make it real: **every ink it redefines is
+	strictly higher against every ground**, and text reaches **AAA**.
+
+	Backgrounds are deliberately not redefined, so they come from the default set. Moving one
+	would change what every other ratio here was computed against.
+	"""
+
+	stronger = re.search(
+		r"@media \(prefers-contrast: more\)\s*\{(.*?)\n\}", (ASSETS / "app.css").read_text(),
+		re.DOTALL,
+	)
+
+	assert stronger is not None, "no prefers-contrast block; `#441` calls it not optional"
+
+	default = _themes()
+	raised = _themes(stronger.group(1))
+
+	assert set(raised["light"]) >= {"--ink-soft", "--ink-faint"}, (
+		f"only {sorted(raised['light'])} raised — the faint inks are the point of this"
+	)
+
+	failures = []
+
+	for theme in ("light", "dark"):
+		for token, colour in raised[theme].items():
+			for ground in GROUNDS:
+				was = _contrast(default[theme][token], default[theme][ground])
+				now = _contrast(colour, default[theme][ground])
+
+				if now <= was:
+					failures.append(
+						f"{theme}: {token} on {ground} was {was:.2f}:1 and is {now:.2f}:1 — "
+						f"asking for more contrast got no more"
+					)
+				elif token in INKS and now < AAA_SMALL_TEXT:
+					failures.append(
+						f"{theme}: {token} on {ground} reaches {now:.2f}:1, under AAA's "
+						f"{AAA_SMALL_TEXT}"
+					)
+
+	assert not failures, "the higher-contrast palette is not higher:\n  " + "\n  ".join(failures)
 
 
 #: Properties whose lengths are the spacing scale's business. Borders, radii and the reading
@@ -1133,6 +1198,94 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	assert not failures, (
 		f"{len(failures)} sizes are not on the scale (`#906` decides it; add a step there "
 		f"rather than a literal here):\n  " + "\n  ".join(sorted(set(failures)))
+	)
+
+
+def test_a_theme_nobody_recognises_reads_as_the_system_one (tmp_path: pathlib.Path) -> None:
+	"""**`#908`. A stored value the app does not know must not strand the page.**
+
+	Storage on this origin outlives any version of this app, and a person can type into it. A
+	value from an older release, a typo, or another page's key has to land somewhere a control
+	can get out of — and `system` is that place, because it is also what nothing-stored means.
+
+	**Storage throwing is the same answer**, not an exception: a private window can refuse, and
+	a to-do list that will not render because it could not read a preference is a worse bargain
+	than one that renders in the system theme.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import {{ themeChoice }} from "{_staged(tmp_path).as_uri()}";
+
+		const stored = (value) => ({{ getItem: () => value }});
+		const broken = {{ getItem: () => {{ throw new Error("no storage here"); }} }};
+
+		console.log(JSON.stringify({{
+			light: themeChoice(stored("light")),
+			dark: themeChoice(stored("dark")),
+			system: themeChoice(stored("system")),
+			nothing: themeChoice(stored(null)),
+			nonsense: themeChoice(stored("solarized")),
+			absent: themeChoice(undefined),
+			broken: themeChoice(broken),
+		}}));
+	""")
+
+	assert answers["light"] == "light"
+	assert answers["dark"] == "dark"
+	assert answers["system"] == "system"
+
+	for case in ("nothing", "nonsense", "absent", "broken"):
+		assert answers[case] == "system", f"{case} read as {answers[case]!r}"
+
+
+def test_choosing_the_system_theme_removes_the_attribute (tmp_path: pathlib.Path) -> None:
+	"""**`#908`, and it is the one that would have shipped broken.**
+
+	The stylesheet's three states are two selectors and their absence: `[data-theme="light"]`,
+	`[data-theme="dark"]`, and nothing at all for `system`. So writing `data-theme="system"`
+	matches neither rule and pins the page to light — *going back to* the system theme would be
+	the one choice that did not work, and it would look like the control being ignored.
+
+	Also asserts a refused write still applies: not remembering a choice costs the next load,
+	where not honouring it costs this one.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import {{ applyTheme }} from "{_staged(tmp_path).as_uri()}";
+
+		const store = () => {{
+			const held = {{}};
+			return {{ held, setItem: (key, value) => {{ held[key] = value; }} }};
+		}};
+		const refuses = {{ setItem: () => {{ throw new Error("storage is full"); }} }};
+
+		const after = (chosen, storage) => {{
+			const root = {{ dataset: {{}} }};
+			const applied = applyTheme(chosen, storage, root);
+			return {{ applied, attribute: root.dataset.theme ?? null }};
+		}};
+
+		const kept = store();
+		const pinned = after("dark", kept);
+		const back = after("system", store());
+		const nonsense = after("solarized", store());
+		const unwritable = after("dark", refuses);
+
+		console.log(JSON.stringify({{ pinned, back, nonsense, unwritable, remembered: kept.held }}));
+	""")
+
+	assert answers["pinned"] == {"applied": "dark", "attribute": "dark"}
+	assert answers["remembered"] == {"theme": "dark"}
+
+	assert answers["back"] == {"applied": "system", "attribute": None}, (
+		"choosing the system theme wrote an attribute, which matches no rule and pins the page "
+		"to light — the one choice that would not work"
+	)
+
+	assert answers["nonsense"]["applied"] == "system", "an unknown theme was applied as itself"
+	assert answers["unwritable"]["attribute"] == "dark", (
+		"storage refused the write and the theme was not applied either, so a private window "
+		"cannot change theme at all"
 	)
 
 
@@ -7623,11 +7776,19 @@ def test_the_footer_says_nothing_about_a_version_it_has_not_been_given (
 	passed against the mutation before this one was counted.
 	"""
 
-	rendered = _rendered(tmp_path, {"Foot": {"count": 0, "version": None}})["Foot"]
+	silent = _rendered(tmp_path, {"Foot": {"count": 0, "version": None}})["Foot"]
+	told = _rendered(tmp_path, {"Foot": {"count": 0, "version": "9.9.9"}})["Foot"]
 
-	assert "0 items" in rendered
-	assert rendered.count("<span") == 1, (
-		f"an empty element is still a claim that there is a version: {rendered}"
+	assert "0 items" in silent
+	assert "9.9.9" in told, "the version is not being rendered at all"
+
+	# **Differential rather than an absolute count** (`#908`). This asserted `== 1` span, which
+	# was right until the footer gained a second one — the theme control's label — and then
+	# failed for a reason that had nothing to do with versions. What the test means is *a version
+	# adds an element and no version adds none*, and comparing the two says exactly that whatever
+	# else the footer grows.
+	assert told.count("<span") == silent.count("<span") + 1, (
+		f"an empty element is still a claim that there is a version: {silent}"
 	)
 
 

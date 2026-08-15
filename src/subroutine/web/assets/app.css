@@ -11,27 +11,39 @@
 	instance behind a VPN, and partly because a to-do list somebody reads every day should look
 	like the machine they read it on.
 
-	Both themes are defined on `:root`, with dark redefining tokens only. A viewer whose system
-	is dark and who has expressed no preference gets dark; nothing here is defined solely inside
-	a media query, so no colour can go missing.
+	**Both themes live in one declaration per colour**, through `light-dark()`, so there is no
+	second block that has to agree with the first and no token can be defined in one theme and
+	missing from the other. A viewer who has expressed no preference gets whatever their system
+	says; `[data-theme]` is the reader saying otherwise (`#908`).
+
+	**Every size names a step** — five for type, nine for spacing (`#906`). Nothing outside them,
+	and `tests/test_web.py` refuses a literal rather than this paragraph asking nicely.
 */
 
 :root {
-	--bg: #ffffff;
-	--bg-sunken: #f6f7f9;
-	--bg-raised: #ffffff;
-	--line: #e3e6ea;
-	--line-strong: #cdd3da;
-	--ink: #1b1f24;
-	--ink-soft: #5c6570;
+	/* **Both themes in one declaration each** (`#908`). `light-dark()` reads `color-scheme`,
+	   so the reader's choice below switches every token at once and dark is not a second block
+	   that has to agree with the first — which is this codebase's signature defect, and the
+	   shape the old arrangement had: dark redefined ten of the twelve, so a token added to one
+	   was silently identical in the other. */
+	color-scheme: light dark;
 
-	/* **The faintest ink still clears the contrast minimum** (`#902`). It was `#868e98`, which
-	   is 3.31:1 on `--bg` and 3.09:1 on `--bg-sunken` against WCAG AA's 4.5:1 for small text —
-	   and it renders `.row .ref`, the item number on every row, at 13px. */
-	--ink-faint: #696f77;
+	--bg: light-dark(#ffffff, #16191d);
+	--bg-sunken: light-dark(#f6f7f9, #101316);
+	--bg-raised: light-dark(#ffffff, #1c2025);
+	--line: light-dark(#e3e6ea, #2a3037);
+	--line-strong: light-dark(#cdd3da, #3a424b);
+	--ink: light-dark(#1b1f24, #e6e9ed);
+	--ink-soft: light-dark(#5c6570, #a2acb6);
 
-	--accent: #2563eb;
-	--warn: #b42318;
+	/* **The faintest ink still clears the contrast minimum** (`#902`). Light was `#868e98`,
+	   which is 3.31:1 on `--bg` and 3.09:1 on `--bg-sunken` against WCAG AA's 4.5:1 for small
+	   text — and it renders `.row .ref`, the item number on every row, at 13px. Dark was
+	   `#7d8791`, which passed on two backgrounds and missed `--bg-raised` by 0.02. */
+	--ink-faint: light-dark(#696f77, #828c97);
+
+	--accent: light-dark(#2563eb, #7aa2f7);
+	--warn: light-dark(#b42318, #f27a70);
 	--radius: 6px;
 
 	/* **The type scale** (`#906`, decided from `#441`). Five steps, and nothing outside them —
@@ -78,26 +90,49 @@
 	   the same width wherever it is opened. Derived rather than a second number: `.app` pads
 	   by `--space-8` on both sides and everything here is `border-box`. */
 	--measure-inner: calc(var(--measure) - 2 * var(--space-8));
-
-	color-scheme: light dark;
 }
 
-@media (prefers-color-scheme: dark) {
+/*
+	**The reader's choice sits above the machine's** (`#908`, requirement 8 of `#441`).
+
+	Three states. No attribute, or `system`, leaves `color-scheme: light dark` in force and
+	`prefers-color-scheme` decides — which is what the page did before and is still the default.
+	The other two pin it, which is the whole of what was missing: somebody whose system is dark
+	and who wants *this* page light had no way to say so.
+
+	**Stored in the browser rather than on the account**, and that was decided on the merits
+	rather than on cost (`#906`): a theme is a property of the reading device and the room it is
+	in, so `system` per-device is a better answer than one that follows you between machines. The
+	server never renders, so it has no opinion here to contribute — which is why §6.5's timezone
+	chain is the wrong precedent to copy, that chain existing because the server *computes with*
+	a zone. `#904` is the stored-preferences mechanism, and this is deliberately not its trigger.
+
+	`index.html` sets the attribute before first paint, so a pinned theme does not flash.
+*/
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/*
+	**More contrast when the reader has asked their system for it** (`#908`). `#441` called this
+	not optional and it belongs with the tokens rather than later, because it *is* a token
+	question — every value here is a step up from one above, and there is nowhere else to put it.
+
+	Text reaches **AAA (7:1)** on the hardest background of its theme, and the two line colours
+	reach the 3:1 that non-text needs — measured, not eyeballed. `--ink` and the backgrounds are
+	untouched: `--ink` is already 13:1 or better, and moving a background would change what every
+	other ratio was computed against.
+
+	**This is a stronger default, never a different design.** Nothing moves position, nothing
+	appears or disappears, and no information arrives that was not already there.
+*/
+@media (prefers-contrast: more) {
 	:root {
-		--bg: #16191d;
-		--bg-sunken: #101316;
-		--bg-raised: #1c2025;
-		--line: #2a3037;
-		--line-strong: #3a424b;
-		--ink: #e6e9ed;
-		--ink-soft: #a2acb6;
-
-		/* Dark passed on both backgrounds and was **4.48:1 on `--bg-raised`** — under by 0.02,
-		   which is the kind of miss only arithmetic finds (`#902`). */
-		--ink-faint: #828c97;
-
-		--accent: #7aa2f7;
-		--warn: #f27a70;
+		--line: light-dark(#8d8f91, #5d6b7a);
+		--line-strong: light-dark(#8b8f94, #5e6b7a);
+		--ink-soft: light-dark(#4d555e, #a5afba);
+		--ink-faint: light-dark(#50545a, #9fabb8);
+		--accent: light-dark(#1d4db7, #81acff);
+		--warn: light-dark(#a21f16, #ff897d);
 	}
 }
 
@@ -1172,6 +1207,19 @@ fieldset {
 }
 
 .foot a { color: inherit; }
+
+/* The theme control (`#908`). Deliberately plain: `#763` is what gives this project's controls
+   a look, and it lands next on the tokens this file now has. */
+.theme {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.theme select {
+	font-size: var(--text-fine);
+	padding: 0 var(--space-1);
+}
 
 @media (max-width: 620px) {
 	.row { grid-template-columns: 3.5rem 1fr; }

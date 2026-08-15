@@ -59,6 +59,20 @@ upgrade involves.
 
 ### Added
 
+- **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
+  *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did
+  before. The point of the other two is the case the system setting cannot cover: a machine set
+  to dark, and a person who wants this page light anyway.
+
+  **The choice is remembered in your browser, not on your account**, so it does not follow you
+  to another machine — deliberately, because a laptop in a dark room and a desktop by a window
+  can reasonably want different answers, and *Match system* already gets that right per device.
+  It needs no server setting and no upgrade to anything.
+
+  **The page also honours a system request for more contrast**, raising the text and border
+  colours to the stricter of the two accessibility levels. Nothing moves and nothing appears;
+  it is a stronger version of the same design.
+
 - **The backlog can be asked what is short.** An estimate is now something you can sort by
   and filter on, so *"what is small and not blocked"* is one question:
 

@@ -3732,7 +3732,90 @@ export function Note ({ note, onUndo, onDismiss }) {
 	`;
 }
 
-export function Foot ({ count, version }) {
+/* The three states a reader can be in. `system` is the default and is the absence of a
+   choice — `index.html` writes no attribute for it, so `prefers-color-scheme` decides. */
+export const THEMES = [
+	["system", "Match system"],
+	["light", "Light"],
+	["dark", "Dark"],
+];
+
+export function themeChoice (storage) {
+	/*
+		Which theme this browser has been told to use — one of `THEMES`, never anything else.
+
+		**Anything unrecognised reads as `system`**, which is the same answer as nothing stored.
+		A value written by an older version, by a person poking at storage, or by another app on
+		this origin must not put the page into a state no control can get it out of.
+
+		Takes the storage rather than reaching for `localStorage`, because storage throws in some
+		privacy modes and because the render harness runs in Node, where it may not exist at all.
+	*/
+	try {
+		const chosen = storage && storage.getItem("theme");
+
+		return THEMES.some(([key]) => key === chosen) ? chosen : "system";
+	} catch (unavailable) {
+		return "system";
+	}
+}
+
+export function applyTheme (chosen, storage, root) {
+	/*
+		Record the reader's choice and put it into force, returning what was actually applied.
+
+		**`system` removes the attribute rather than setting one**, because the stylesheet's
+		three states are two selectors and their absence — so writing `data-theme="system"` would
+		be a fourth state matching neither, and the page would be stuck on light.
+
+		Storage is written first and the attribute second, and a storage failure still applies
+		the theme: not remembering it is worse than not honouring it, but only for the next load.
+	*/
+	const wanted = THEMES.some(([key]) => key === chosen) ? chosen : "system";
+
+	try {
+		if (storage) {
+			storage.setItem("theme", wanted);
+		}
+	} catch (unavailable) {
+		/* A private window can refuse to remember. The choice still applies to this page. */
+	}
+
+	if (root) {
+		if (wanted === "system") {
+			delete root.dataset.theme;
+		} else {
+			root.dataset.theme = wanted;
+		}
+	}
+
+	return wanted;
+}
+
+export function Theme ({ chosen, onChoose }) {
+	/*
+		The reader's light-or-dark control — `#908`, requirement 8 of `#441`.
+
+		**In the footer** because §1.4 says a control nobody needs is not shown, and a theme is
+		wanted by roughly everybody once and almost never again — so it belongs with the
+		set-once things rather than on the masthead, which answers *what am I looking at*.
+
+		Hook-free like everything else here, so the render harness can call it (`#640`). What it
+		is given is the current choice; what it does is hand back a new one.
+	*/
+	return html`
+		<label class="theme">
+			<span>Theme</span>
+			<select value=${chosen} onChange=${(event) => onChoose(event.currentTarget.value)}>
+				${THEMES.map(([key, offer]) => html`
+					<option value=${key} selected=${key === chosen}>${offer}</option>
+				`)}
+			</select>
+		</label>
+	`;
+}
+
+export function Foot ({ count, version, theme, onTheme }) {
 	/*
 		What is on screen, which instance served it, and the two ways out.
 
@@ -3757,6 +3840,7 @@ export function Foot ({ count, version }) {
 			${version ? html`<span title="This instance's version">${version}</span>` : null}
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
+			<${Theme} chosen=${theme} onChoose=${onTheme} />
 		</footer>
 	`;
 }
@@ -4251,6 +4335,11 @@ export function App () {
 	const [note, setNote] = useState(null);
 	const [busy, setBusy] = useState(false);
 	const [more, setMore] = useState(null);
+	/* **Read once, from the same storage `index.html` read before the first paint** (`#908`).
+	   Held here only so the control shows the right option: the attribute is already on the
+	   document by the time this runs, so re-applying it on mount would be a second copy of a
+	   decision the page has made. */
+	const [theme, setTheme] = useState(() => themeChoice(globalThis.localStorage));
 	/* The project the address narrows to, or null for the whole workspace (`#647`). Held
 	   beside the workspace rather than derived on each render, because the poll and every
 	   write reload the list and all of them have to narrow the same way. */
@@ -5576,7 +5665,11 @@ export function App () {
 			${/* `items` is the listing's state and is empty while the agenda is showing, so
 			     counting it unconditionally put "0 items" under a full day (`#652`). */ null}
 			<${Foot} count=${agenda !== null ? counted(agenda) : items.length}
-				version=${me ? me.instance_version : null} />
+				version=${me ? me.instance_version : null}
+				theme=${theme}
+				onTheme=${(chosen) => setTheme(
+					applyTheme(chosen, globalThis.localStorage, document.documentElement)
+				)} />
 		</div>
 	`;
 }

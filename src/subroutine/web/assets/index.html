@@ -19,6 +19,33 @@
 <script type="importmap">
 {"imports": {"preact": "/app/preact.js", "preact/hooks": "/app/preact-hooks.js", "htm": "/app/htm.js"}}
 </script>
+<!--
+	The reader's theme, applied before the first paint rather than when the app mounts.
+
+	Deliberately not a module and deliberately not deferred: this has to run while the parser
+	is still in the head, because the alternative is a flash of the wrong theme on every load
+	for anybody who pinned one against their system. That is the whole reason it is here and
+	not in `app.js`.
+
+	**Nothing set means `system`**, which is the default and leaves `prefers-color-scheme` in
+	force — so this writes an attribute only for the two states that override it, and an
+	unrecognised value is ignored rather than trusted. Storage throws in some privacy modes, so
+	a failure here leaves the page on the system theme rather than blank.
+
+	`#805`'s policy covers this by construction: `policy.inline_script_hashes` derives a hash
+	from every inline script in the served bytes, so there is no hash to keep in step. That was
+	checked rather than assumed, and is recorded on `#908`.
+-->
+<script>
+	try {
+		var chosen = localStorage.getItem("theme");
+		if (chosen === "light" || chosen === "dark") {
+			document.documentElement.dataset.theme = chosen;
+		}
+	} catch (unavailable) {
+		/* No storage, so no stored choice: the system's answer stands. */
+	}
+</script>
 </head>
 <body>
 <noscript>

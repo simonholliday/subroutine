@@ -819,6 +819,23 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	compares one computed value. The viewport is set wide deliberately — at a narrow one both
 	views collapse to a single column and agree for a reason that has nothing to do with the
 	fix, which is the vacuous pass this docstring already warns about once.
+
+	**Raised to fourteen for `#908`, and it is the plainest case yet.** The theme is built on
+	``light-dark()``, which resolves against the *cascaded* ``color-scheme`` — so what colour
+	the page actually paints is a question with no answer outside a CSS engine, and
+	``tests/dom.js`` has none by decision. Every other test could pass with the whole feature
+	inverted.
+
+	The requirement is `#441`'s eighth and it names the case exactly: dark and light **with a
+	user choice**. Its one interesting state is a reader whose system says dark and who wants
+	this page light — which needs an emulated media preference and a stored value at once, and
+	is reachable nowhere else in this repository.
+
+	**Read for fat**: three measurements, not two. *The page changed* is not the claim — pinning
+	light has to land on the colour a light system gets, or the page has merely become a third
+	thing; and the first assertion is what stops the comparison passing against a stylesheet with
+	no themes in it at all. The reload is the no-flash script's only witness, since ``app.js``
+	writes the attribute only when the control is used.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -826,8 +843,8 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 13, (
-		f"this file holds {len(tests)} tests: {tests}. Thirteen answering what only a browser "
+	assert len(tests) <= 14, (
+		f"this file holds {len(tests)} tests: {tests}. Fourteen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
@@ -942,4 +959,56 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	assert measured["list"]["columns"] > 1, (
 		f"the form is one column wide at 2200px ({measured['list']}), so the comparison above "
 		f"would agree whatever the frame did"
+	)
+
+
+def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
+	"""`#908`, requirement 8 of `#441`: dark and light **with a user choice**.
+
+	`prefers-color-scheme` is the machine's answer, and it was the only answer — so somebody
+	whose system is dark and who wants *this* page light could not say so. The case that proves
+	it is exactly that one, and nothing short of a browser reaches it: `light-dark()` resolves
+	against the cascaded `color-scheme`, which `tests/dom.js` has no engine to compute.
+
+	**Three measurements rather than two**, because *the page changed* is not the claim. Pinning
+	light against a dark system has to land on the same colour a light system gets, or the page
+	has merely become a third thing.
+
+	Also asserts the attribute is on `<html>` after a reload, which is the inline shell script
+	having run: `app.js` writes it only when the control is used, so on a fresh load it is the
+	only thing that could have.
+	"""
+
+	opened, _written = running
+
+	def background (page: typing.Any) -> str:
+		painted = page.eval_on_selector(
+			"body", "node => getComputedStyle(node).backgroundColor"
+		)
+		return str(painted)
+
+	page = opened("/projects")
+	page.emulate_media(color_scheme="light")
+	light = background(page)
+
+	page.emulate_media(color_scheme="dark")
+	followed = background(page)
+
+	page.evaluate("localStorage.setItem('theme', 'light')")
+	page.reload()
+	page.wait_for_selector(".foot", timeout=10_000)
+	pinned = background(page)
+
+	assert followed != light, (
+		f"a dark system and a light one paint the same background ({light}), so this test "
+		f"cannot see a theme at all"
+	)
+
+	assert pinned == light, (
+		f"pinning light on a dark system paints {pinned}, where a light system paints {light}"
+	)
+
+	assert page.evaluate("document.documentElement.dataset.theme") == "light", (
+		"the shell did not apply the stored theme, so a pinned choice flashes the wrong one "
+		"on every load"
 	)
