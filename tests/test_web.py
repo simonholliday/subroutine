@@ -1146,9 +1146,16 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	text = (ASSETS / "app.css").read_text(encoding="utf-8")
 	rules = _rules_only(text)
 
-	steps = dict(re.findall(r"(--(?:text|space)[a-z0-9-]*):\s*([^;]+);", text))
+	steps = dict(re.findall(r"(--(?:text|space|control)[a-z0-9-]*):\s*([^;]+);", text))
 	type_steps = {name for name in steps if name.startswith("--text")}
-	space_steps = {name for name in steps if name.startswith("--space")}
+
+	#: **A control size counts as spacing here** (`#763`). The three of them are compositions
+	#: of space steps — `--control-field` is `var(--space-5) var(--space-6)` — so they add no
+	#: value to the scale; what they add is a *name for a control's size*, which is the thing
+	#: that was missing when 44 control rules carried 13 distinct paddings between them.
+	space_steps = {
+		name for name in steps if name.startswith(("--space", "--control"))
+	}
 
 	#: A literal usually *is* a step's value — somebody wrote `10px` where `--space-5` says the
 	#: same thing. Saying only "10px is not a step" reads as nonsense in that case, so the
@@ -1166,6 +1173,11 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 
 	assert len(type_steps) >= 5, f"only {type_steps} declared, so this checks almost nothing"
 	assert len(space_steps) >= 8, f"only {space_steps} declared, so this checks almost nothing"
+
+	assert sum(name.startswith("--control") for name in space_steps) == 3, (
+		f"a control has three sizes and {sorted(space_steps)} says otherwise — a fourth is a\n"
+		f"decision (`#763`), not a value somebody needed once"
+	)
 
 	failures = []
 
@@ -8165,3 +8177,136 @@ def test_a_defer_that_has_come_round_is_not_a_mark (tmp_path: pathlib.Path) -> N
 	passed = {"ref": 1, "kind": "task", "title": "Came back", "start_at": "2020-01-01T00:00:00+00:00"}
 
 	assert _views(tmp_path, [("deferred", passed)])[0] is False
+
+
+#: Controls addressed by class rather than by element, so a scan over selectors cannot find
+#: them. **Each is a real control** — a row's action, a listing's view switcher, a banner's way
+#: out — and each has a written reason, so the list is a decision rather than a leftover.
+CONTROLS_BY_CLASS = {
+	".finish": "a row's Complete, which is a button and says so nowhere in its selector",
+	".views a": "the view switcher, anchors since `#722` so a middle-click opens a tab",
+	".narrowed a.widen": "*show everything*, an anchor for the same reason",
+}
+
+
+def test_a_control_is_one_of_three_sizes () -> None:
+	"""**`#763`. Not *are the controls styled* — they were, 44 times, differently.**
+
+	Measured before deciding: 13 distinct paddings across 15 rules, while `border-radius` was
+	**one** value across fourteen. The difference is that `--radius` existed and nothing named a
+	control's size, which is `#906`'s argument one level up — the thing with a token works, the
+	thing without one accretes.
+
+	**Asserts the vocabulary is used, not merely that it exists.** Three tokens nobody applied
+	would pass a check that only read `:root`, and the page would look exactly as it did.
+
+	**A link is not a control and is excluded by what it declares rather than by name**:
+	`.linked a` is `padding: 0` with no border and no background, which is a deliberate decision
+	that the other end of a link reads as text. Anything that draws itself a box is in scope.
+	"""
+
+	text = (ASSETS / "app.css").read_text(encoding="utf-8")
+	rules = re.findall(r"([^{}]+)\{([^{}]*)\}", _rules_only(text))
+
+	sizes = {"var(--control-field)", "var(--control-button)", "var(--control-tight)"}
+	element = re.compile(r"\b(?:button|input|select|textarea)\b")
+
+	wrong, found = [], 0
+
+	for selector, body in rules:
+		name = " ".join(selector.split())
+		padding = re.search(r"(?<![a-z-])padding:\s*([^;]+)", body)
+
+		if padding is None:
+			continue
+
+		by_class = any(one in name for one in CONTROLS_BY_CLASS)
+
+		if not element.search(name) and not by_class:
+			continue
+
+		# A control that draws no box is text wearing a tag: `padding: 0`, no border, no fill.
+		if padding.group(1).strip() == "0" and "border: 0" in body:
+			continue
+
+		found += 1
+
+		if padding.group(1).strip() not in sizes:
+			wrong.append(f"{name[:44]} — padding: {padding.group(1).strip()}")
+
+	assert found >= 15, f"only {found} controls found, so the scan is broken rather than the page"
+
+	assert not wrong, (
+		f"{len(wrong)} controls are a size of their own. A control is a field, a button or "
+		f"tight (`#763`); a fourth is a decision:\n  " + "\n  ".join(sorted(wrong))
+	)
+
+
+def test_every_class_named_as_a_control_is_still_in_the_stylesheet () -> None:
+	"""An entry that no longer matches anything is an excuse nobody can delete (`#405`)."""
+
+	text = _rules_only((ASSETS / "app.css").read_text(encoding="utf-8"))
+
+	gone = [one for one in CONTROLS_BY_CLASS if one not in text]
+
+	assert not gone, f"{gone} are named as controls and are in no rule — delete the entries"
+
+
+def test_a_control_focuses_the_same_way_wherever_it_is () -> None:
+	"""**`#763`. The primary button on the page focused differently from everything else.**
+
+	Every control drew `2px solid var(--accent)` except `.adding button`, which drew
+	`var(--ink)` — nothing decided that, it is what happens when a value is written out nine
+	times. A focus ring is the one piece of styling a keyboard reader depends on, so *the
+	odd one out* is the worst thing for it to be.
+	"""
+
+	text = _rules_only((ASSETS / "app.css").read_text(encoding="utf-8"))
+
+	rings = set(re.findall(r"(?<![a-z-])outline:\s*([^;]+)", text))
+
+	assert rings, "no outline is declared at all, so this is checking nothing"
+
+	assert rings == {"var(--focus-ring)"}, (
+		f"a control focuses differently from the rest: {sorted(rings)}. One ring, named once "
+		f"(`#763`) — a keyboard reader should not have to learn a second one"
+	)
+
+
+def test_reduced_motion_has_motion_to_reduce () -> None:
+	"""**`#763`, and the failure it guards is an inert control, not a missing one.**
+
+	`#441` called `prefers-reduced-motion` not optional and this item is where it landed, for a
+	measured reason: the stylesheet contained **zero** occurrences of `transition`, `animation`,
+	`@keyframes` or `scroll-behavior`, so declaring the query then would have been a rule
+	governing nothing — the declared-and-does-nothing family for the ninth time after `#247`,
+	`#251`, `#303` and `#523`.
+
+	So the assertion is in both directions: **the query exists, and there is something for it to
+	suppress.** Either alone passes while the pair is useless.
+
+	**What this cannot see, stated rather than left to be assumed**: whether the query actually
+	*wins* in a browser. That is a cascade question and needs one, and `tests/test_browser.py`
+	is at its agreed size — the durations carry `!important` precisely so the answer does not
+	depend on rule order, which is the closest thing to a proof available from here.
+	"""
+
+	rules = _rules_only((ASSETS / "app.css").read_text(encoding="utf-8"))
+
+	moving = re.findall(r"(?<![a-z-])transition:\s*([^;]+)", rules)
+
+	assert moving, (
+		"nothing in the stylesheet moves, so the reduced-motion query below governs nothing — "
+		"which is a rule that reads as care and is worth none"
+	)
+
+	reduced = re.search(
+		r"@media \(prefers-reduced-motion: reduce\)\s*\{(.*?)\n\}", rules, re.DOTALL
+	)
+
+	assert reduced is not None, "`#441` calls this query not optional and there is none"
+
+	for property in ("transition-duration", "animation-duration"):
+		assert f"{property}: 0.01ms !important" in reduced.group(1), (
+			f"the query does not zero {property}, so motion survives a reader asking for none"
+		)

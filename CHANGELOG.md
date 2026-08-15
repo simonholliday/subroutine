@@ -16,6 +16,15 @@ upgrade involves.
 
 ### Changed
 
+- **The web UI's controls are one of three sizes, and focus the same way wherever they are.**
+  Buttons, inputs and dropdowns had accumulated thirteen different paddings between them, so two
+  controls side by side were rarely the same height — and the *Add* button drew a different focus
+  outline from every other control on the page, which is the one piece of styling a keyboard user
+  depends on.
+
+  Controls also respond to hover and focus with a short transition now, and **the page honours a
+  system request for reduced motion**, which had nothing to switch off until there was motion.
+
 - **A row gives its whole width to the title, and puts its properties and actions in the same
   place every time.** *Complete* used to sit beside the row and take width from it down the
   card's whole height, so titles wrapped to three lines while the space next to the button stood

@@ -82,6 +82,29 @@
 	--space-8: 16px;
 	--space-section: 24px;
 
+	/* **A control has one of three sizes, and nothing else** (`#763`). Measured before deciding:
+	   44 rules targeted a control element and they used **13 distinct paddings** — while
+	   `border-radius` was one value across fourteen, because `--radius` existed and nothing
+	   named a control's size. `#906`'s argument, one level up.
+
+	   A field and a button share their vertical padding so the two line up when they stand side
+	   by side, which they do in every form here; a button is wider because a word needs more
+	   room either side of it than a cursor does. `--control-tight` is for a control inside
+	   something else — a row's action, a banner's dismiss, a listing's order picker. */
+	--control-field: var(--space-5) var(--space-6);
+	--control-button: var(--space-5) var(--space-8);
+	--control-tight: var(--space-2) var(--space-5);
+
+	/* **One focus ring.** It was two: every control used `--accent` and `.adding button` — the
+	   primary button on the page — used `--ink`. Nothing decided that; it is what happens when a
+	   value is written out per rule. */
+	--focus-ring: 2px solid var(--accent);
+
+	/* **The first motion in this stylesheet** (`#763`), and short enough to read as feedback
+	   rather than as animation. `prefers-reduced-motion` zeroes it — which `#441` called not
+	   optional and which could not honestly be built until there was something to suppress. */
+	--ease: 120ms ease;
+
 	/* **The reading measure**, and the one place it is written down (`#863`). It was a literal
 	   on `.app` alone, so anything that widened the frame widened everything the frame held. */
 	--measure: 1100px;
@@ -185,6 +208,30 @@ button, input, select, textarea {
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
+
+	/* **The first motion in this stylesheet** (`#763`), and it is here rather than per control
+	   for the reason the sizes are: a value written out per rule is a value that drifts. Only
+	   the two properties a control changes on hover or focus, so nothing else can be caught by
+	   it — a transition on `all` animates a layout change nobody asked to see move. */
+	transition: border-color var(--ease), color var(--ease);
+}
+
+/*
+	**Motion is a preference the machine already knows** (`#763`, and `#441` called it not
+	optional). Zeroed rather than shortened: somebody who asks for reduced motion is not asking
+	for faster motion, and `0.01ms` rather than `0` because a zero-length transition fires no
+	`transitionend` and a listener waiting for one would wait for ever.
+
+	`!important` because this has to beat any rule that sets its own duration, which is what a
+	preference means — and it is the one place in this file where that is the right instrument.
+*/
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		scroll-behavior: auto !important;
+	}
 }
 
 button { cursor: pointer; }
@@ -287,7 +334,7 @@ fieldset {
 .adding select,
 .adding textarea {
 	min-width: 0;
-	padding: var(--space-5) var(--space-6);
+	padding: var(--control-field);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -299,14 +346,14 @@ fieldset {
 
 .adding input:focus-visible,
 .adding select:focus-visible,
-.adding textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.adding textarea:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 
 .adding input::placeholder { color: var(--ink-faint); }
 .adding :disabled { opacity: 0.5; }
 
 .adding button {
 	flex: 0 0 auto;
-	padding: var(--space-5) var(--space-8);
+	padding: var(--control-button);
 	background: var(--accent);
 	border: 1px solid transparent;
 	border-radius: var(--radius);
@@ -329,7 +376,7 @@ fieldset {
 .adding button.more:hover { color: var(--ink); border-color: var(--ink-soft); }
 
 .adding button:disabled { opacity: 0.45; cursor: default; }
-.adding button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.adding button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* As many columns of at least 190px as the form's width allows, down to one on a phone.
    **This said "two columns where there is room and one where there is not"**, which is not what
@@ -407,7 +454,7 @@ fieldset {
 .seeking input {
 	flex: 1 1 auto;
 	min-width: 0;
-	padding: var(--space-4) var(--space-6);
+	padding: var(--control-field);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -415,12 +462,12 @@ fieldset {
 	font: inherit;
 }
 
-.seeking input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.seeking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .seeking input::placeholder { color: var(--ink-faint); }
 
 .seeking button {
 	flex: 0 0 auto;
-	padding: var(--space-4) var(--space-7);
+	padding: var(--control-button);
 	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -459,7 +506,7 @@ fieldset {
 
 .linking select,
 .linking input {
-	padding: var(--space-4) var(--space-5);
+	padding: var(--control-field);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -470,11 +517,11 @@ fieldset {
 .linking input { width: 7em; }
 
 .linking select:focus-visible,
-.linking input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.linking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .linking input::placeholder { color: var(--ink-faint); }
 
 .linking button {
-	padding: var(--space-4) var(--space-7);
+	padding: var(--control-button);
 	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -500,7 +547,7 @@ fieldset {
 .linked .unlink {
 	margin-left: var(--space-4);
 	padding: 0;
-	background: none;
+	background: transparent;
 	border: 0;
 	color: var(--ink-faint);
 	font: inherit;
@@ -524,7 +571,7 @@ fieldset {
 
 .saying textarea {
 	width: 100%;
-	padding: var(--space-5) var(--space-6);
+	padding: var(--control-field);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -533,11 +580,11 @@ fieldset {
 	resize: vertical;
 }
 
-.saying textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.saying textarea:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .saying textarea::placeholder { color: var(--ink-faint); }
 
 .saying button {
-	padding: var(--space-4) var(--space-8);
+	padding: var(--control-button);
 	background: var(--accent);
 	border: 1px solid transparent;
 	border-radius: var(--radius);
@@ -582,8 +629,8 @@ fieldset {
 
 .note button {
 	flex: 0 0 auto;
-	padding: var(--space-1) var(--space-4);
-	background: none;
+	padding: var(--control-tight);
+	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
@@ -692,7 +739,7 @@ fieldset {
 	padding: var(--space-7);
 	border: 1px dashed var(--line);
 	border-radius: var(--radius);
-	background: none;
+	background: transparent;
 	color: var(--ink-faint);
 	font-size: var(--text-small);
 }
@@ -721,8 +768,8 @@ fieldset {
    makes the padding hold — an inline anchor's vertical padding does not affect line height. */
 .views a {
 	display: inline-block;
-	padding: var(--space-2) var(--space-5);
-	background: none;
+	padding: var(--control-tight);
+	background: transparent;
 	border: 1px solid transparent;
 	border-radius: var(--radius);
 	color: var(--ink-faint);
@@ -733,7 +780,7 @@ fieldset {
 }
 
 .views a:hover { color: var(--ink-soft); }
-.views a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.views a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* **The chosen one is named as well as coloured** — `aria-current` in the markup, and here a
    border rather than a hue alone (decision `#102`: no information exists only in a colour). */
@@ -802,7 +849,7 @@ fieldset {
 	align-items: baseline;
 	width: 100%;
 	padding: var(--space-5) var(--space-7) 0;
-	background: none;
+	background: transparent;
 	border: 0;
 	color: inherit;
 	font: inherit;
@@ -844,10 +891,10 @@ fieldset {
 .rows li:first-child { border-top: 0; }
 .rows li:hover { background: var(--bg-sunken); }
 
-.row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 .finish {
-	padding: var(--space-2) var(--space-5);
+	padding: var(--control-tight);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -859,7 +906,7 @@ fieldset {
 }
 
 .finish:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
-.finish:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.finish:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .finish:disabled { opacity: 0.5; cursor: default; }
 
 .row .ref { color: var(--ink-faint); font-size: var(--text-small); }
@@ -938,7 +985,7 @@ fieldset {
 	user agent's default is what `#747` is about — browser chrome, blind to both themes.
 */
 .ordered select {
-	padding: var(--space-2) var(--space-3);
+	padding: var(--control-tight);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -1004,7 +1051,7 @@ fieldset {
 }
 
 .back {
-	background: none;
+	background: transparent;
 	border: 0;
 	padding: 0;
 	color: var(--accent);
@@ -1038,7 +1085,14 @@ fieldset {
 	border-top: 1px solid var(--line);
 }
 
-.doing .finish { margin: 0; padding: var(--space-3) var(--space-7); font-size: var(--text-small); }
+/* **A button rather than the tight size `.finish` carries elsewhere** (`#763`). The same
+   element is a row's action on a listing and a standing one here, and this is the second —
+   *what can be done to the open item*, with nothing around it competing for the space.
+
+   **Found by the guard rather than by the sweep**, on its first run: it is addressed by class,
+   so the measurement that counted control *elements* never saw it and it was a fourteenth
+   padding hiding behind a list of thirteen. */
+.doing .finish { margin: 0; padding: var(--control-button); font-size: var(--text-small); }
 
 .assign {
 	display: flex;
@@ -1049,7 +1103,7 @@ fieldset {
 }
 
 .assign select {
-	padding: var(--space-3) var(--space-4);
+	padding: var(--control-tight);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -1152,7 +1206,7 @@ fieldset {
 
 .prose pre code, .comments .body pre code {
 	padding: 0;
-	background: none;
+	background: transparent;
 	border: 0;
 	font-size: var(--text-fine);
 	white-space: pre;
@@ -1190,7 +1244,7 @@ fieldset {
 /* Anchors since `#722` — the other end of a link is the thing a reader on this page is most
    likely to want in a tab. The `button` rules stay for the one case that has no address. */
 .linked a, .linked button {
-	background: none;
+	background: transparent;
 	border: 0;
 	padding: 0;
 	color: var(--accent);
@@ -1237,7 +1291,7 @@ fieldset {
 
 .theme select {
 	font-size: var(--text-fine);
-	padding: 0 var(--space-1);
+	padding: var(--control-tight);
 }
 
 @media (max-width: 620px) {
@@ -1273,7 +1327,7 @@ fieldset {
 }
 
 .cut button {
-	padding: var(--space-3) var(--space-6);
+	padding: var(--control-tight);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
@@ -1306,8 +1360,8 @@ fieldset {
 .narrowed strong { color: var(--ink); font-weight: 600; }
 
 .narrowed button {
-	padding: var(--space-2) var(--space-5);
-	background: none;
+	padding: var(--control-tight);
+	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
@@ -1348,8 +1402,8 @@ fieldset {
    (`#722`), styled as the button it replaced rather than as prose. */
 .narrowed a.widen {
 	display: inline-block;
-	padding: var(--space-2) var(--space-5);
-	background: none;
+	padding: var(--control-tight);
+	background: transparent;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius);
 	color: var(--ink-soft);
@@ -1386,6 +1440,6 @@ fieldset {
 .board .column .empty a:hover { color: var(--ink); }
 
 .board .column .empty a:focus-visible {
-	outline: 2px solid var(--accent);
+	outline: var(--focus-ring);
 	outline-offset: 1px;
 }
