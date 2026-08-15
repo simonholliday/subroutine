@@ -1201,6 +1201,60 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	)
 
 
+def test_a_row_calls_a_project_by_its_name (tmp_path: pathlib.Path) -> None:
+	"""**`#912`, and the assertion that matters is the *wiring*, not the function.**
+
+	Every other chip on a row is something a person reads — `Task`, a status label, a username.
+	The project was the one address among them: lower case by `#508`'s rule and shaped to be
+	typed, which is a thing nobody does in a browser. Simon met it as `Document` beside
+	`subroutine`, two registers in one row of chips.
+
+	**Driven through the three views rather than through `Row`**, because this project has
+	shipped four faults of exactly one shape — the rule right, the display right, and no wire
+	between them (`#640`). `projectName` being correct proves nothing about whether `Listing`
+	passes anything to it, and a `Row` rendered directly with `projects` would prove only that
+	the prop I just added works.
+
+	**The fallback is asserted too, and it is not decoration**: the app asks for two hundred
+	projects and a workspace may hold more, so a row whose project is off the end has to keep
+	its key rather than lose the chip or print `undefined`.
+	"""
+
+	known = [{"key": "sr", "title": "Subroutine"}, {"key": "ui", "title": "Web UI"}]
+
+	filed = {"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}
+	elsewhere = dict(filed, project_key="unfetched")
+
+	shown = _rendered(tmp_path, {
+		"Listing": {"items": [dict(filed, project_key="sr")], "projects": known},
+		"Board": {
+			"items": [dict(filed, project_key="ui", status_category="todo")],
+			"projects": known,
+		},
+		"Agenda": {
+			"buckets": [{
+				"key": "overdue", "label": "Overdue",
+				"items": [dict(filed, project_key="sr", workspace="projects")],
+			}],
+			"where": "projects",
+			"projects": known,
+		},
+	})
+
+	assert "Subroutine" in shown["Listing"], f"the listing still shows a key: {shown['Listing']}"
+	assert "Web UI" in shown["Board"], f"the board still shows a key: {shown['Board']}"
+	assert "Subroutine" in shown["Agenda"], f"the agenda still shows a key: {shown['Agenda']}"
+
+	unknown = _rendered(tmp_path, {
+		"Listing": {"items": [elsewhere], "projects": known},
+	})["Listing"]
+
+	assert "unfetched" in unknown, (
+		f"a project past the two hundred fetched lost its chip rather than keeping its key: "
+		f"{unknown}"
+	)
+
+
 def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 	"""**`#913`. The one copy of these words that cannot import the others.**
 

@@ -1553,6 +1553,29 @@ export function unmovable (because, category) {
 	return null;
 }
 
+export function projectName (key, projects) {
+	/*
+		What to call a project on a row — `#912`.
+
+		**Its name, not its key.** Every other chip on a row is something a person reads: the
+		kind is `Task` or `Document`, the status is its label, the assignee is a username. The
+		project was the one address among them, lower case by `#508`'s rule and shaped to be
+		*typed* — `--project ui` — which is a thing nobody does in a browser. Simon met it as
+		`Document` beside `subroutine`, two registers in one row of chips.
+
+		**Deliberately still the key at a terminal**, where the chip doubles as what to type
+		next. This is a divergence between surfaces rather than a defect in one, which is why
+		`cli/personal` is untouched.
+
+		**Falls back to the key**, because the app asks for two hundred projects and a workspace
+		may hold more — the same limit `filableFor` works around from the other end. A chip that
+		vanished, or read `undefined`, would be worse than one in the wrong register.
+	*/
+	const named = (projects || []).find((one) => one.key === key);
+
+	return named && named.title ? named.title : key;
+}
+
 export function filableFor (projects, project) {
 	/*
 		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
@@ -2518,7 +2541,7 @@ export function orderedAs (selection) {
 	return ORDERINGS[asked] || null;
 }
 
-export function marks (item, showKind, ordering = null) {
+export function marks (item, showKind, ordering = null, projects = null) {
 	/*
 		The small labels under a title.
 
@@ -2615,7 +2638,7 @@ export function marks (item, showKind, ordering = null) {
 			: { text: lease.who ? `${lease.who} left it` : "Claim expired", tone: "stale" });
 	}
 
-	if (item.project_key) found.push({ text: item.project_key });
+	if (item.project_key) found.push({ text: projectName(item.project_key, projects) });
 	if (item.assignee) found.push({ text: item.assignee });
 	if (item.status && !item.status_is_default) found.push({ text: item.status });
 
@@ -2920,10 +2943,14 @@ export function followed (event, act) {
 
 export function Row ({
 	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
+	/* What the project chip is named from (`#912`). Optional, and its absence renders the key —
+	   which is what a row shows before the projects have landed, and on any surface that has no
+	   reason to fetch them. */
+	projects = null,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering);
+	const badges = marks(item, showKind, ordering, projects);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -3012,7 +3039,9 @@ export function Row ({
 	`;
 }
 
-export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy, adding }) {
+export function Agenda ({
+	buckets, more, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
+}) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
 
@@ -3066,7 +3095,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy,
 							     it actually came from. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
 								showKind=${false} showWhere=${showWhere} workspace=${where}
-								onOpen=${onOpen} onComplete=${onComplete} />
+								onOpen=${onOpen} onComplete=${onComplete} projects=${projects} />
 						`)}
 					</ul>
 				</section>
@@ -3091,7 +3120,7 @@ export function Agenda ({ buckets, more, where, onAdd, onOpen, onComplete, busy,
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
-	over = null, onOver = null,
+	over = null, onOver = null, projects = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -3204,7 +3233,7 @@ export function Board ({
 										<${Row} key=${item.kind + item.ref} item=${item}
 											showKind=${showKind} workspace=${workspace}
 											onOpen=${onOpen} onComplete=${onComplete}
-											onDrag=${onDrag} />
+											onDrag=${onDrag} projects=${projects} />
 									`)}
 								</ul>
 							`}
@@ -3624,6 +3653,10 @@ export function Conflict ({ theirs }) {
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
+	/* **Its own prop rather than `adding.projects`** (`#912`). That bundle is the capture
+	   form's, and its own comment says nothing else has any business knowing what a dropdown is
+	   made of — one source in `App`, two consumers, each asked for directly. */
+	projects = null,
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -3706,7 +3739,7 @@ export function Listing ({
 						${items.map((item) => html`
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
-								onComplete=${onComplete} />
+								onComplete=${onComplete} projects=${projects} />
 						`)}
 					</ul>
 				`}
@@ -5624,6 +5657,7 @@ export function App () {
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
 						onAdd=${add} busy=${busy} where=${workspace} adding=${adding}
+						projects=${filable}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -5635,7 +5669,7 @@ export function App () {
 					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
-							onMore=${showMore}
+							onMore=${showMore} projects=${filable}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							selection=${showing.selection}
 							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
@@ -5660,6 +5694,7 @@ export function App () {
 						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
 							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
+							projects=${filable}
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							${/* **No control on the finished view** (`#782`). Its order is part of what

@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Changed
 
+- **A listing shows a project's name rather than its key.** A row's chips read
+  `Subroutine` and `Web UI` where they used to read `subroutine` and `ui` — every other chip on
+  a row is something written for a person, and the project was the one address among them. The
+  command line still shows the key, deliberately: there it doubles as what you would type next.
+
 - **An item holding up other work is now marked `blocker` everywhere**, where the listings said
   *holds up* and the item you opened said *Blocks* — one relationship with two names, met within
   a click. The mark an item carries and the link between two items are still worded differently,
