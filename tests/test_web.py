@@ -950,6 +950,92 @@ def test_the_app_is_served_from_files_that_exist () -> None:
 		assert name in subroutine.api.web.FILES, f"{name} is not served"
 
 
+#: Tokens carrying text, and the ones they are read against. Both lists are the *whole* set
+#: rather than the pairs anybody uses today: a rule moving `--warn` onto `--bg-raised` is an
+#: ordinary edit, and it must not be the edit that first has to think about contrast.
+INKS = ("--ink", "--ink-soft", "--ink-faint", "--accent", "--warn")
+GROUNDS = ("--bg", "--bg-sunken", "--bg-raised")
+
+#: WCAG 2.1 AA for text below 18pt. The stylesheet's largest step is 20px, so everything here
+#: is small text and there is no large-text exemption to reason about.
+AA_SMALL_TEXT = 4.5
+
+
+def _themes () -> dict[str, dict[str, str]]:
+	"""Each theme's colour tokens, read out of the stylesheet.
+
+	Two blocks define them: the bare ``:root``, and the ``:root`` nested inside the
+	prefers-dark media query, which **redefines only what changes**. So dark is light updated
+	by the second block rather than a set of its own — which is what the stylesheet's own
+	opening comment promises, and reading it any other way would report a missing token as a
+	missing colour.
+	"""
+
+	text = (ASSETS / "app.css").read_text(encoding="utf-8")
+	blocks = re.findall(r":root\s*\{(.*?)\}", text, re.DOTALL)
+
+	assert len(blocks) >= 2, f"expected a light and a dark :root, found {len(blocks)}"
+
+	def declared (block: str) -> dict[str, str]:
+		return dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;", block))
+
+	light = declared(blocks[0])
+	dark = light | declared(blocks[1])
+
+	return {"light": light, "dark": dark}
+
+
+def _contrast (one: str, other: str) -> float:
+	"""The WCAG 2.1 ratio between two ``#rrggbb`` colours, from 1 to 21."""
+
+	def luminance (colour: str) -> float:
+		channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+		linear = [
+			channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+			for channel in channels
+		]
+		return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+	lit, dim = sorted((luminance(one), luminance(other)), reverse=True)
+
+	return (lit + 0.05) / (dim + 0.05)
+
+
+def test_every_ink_clears_the_contrast_minimum_on_every_background () -> None:
+	"""**`#902`, and it computes the ratios rather than asserting the hexes.**
+
+	Asserting a value would pass for ever while saying nothing about whether it is readable,
+	and it would fail on a palette change that was *better* — so the guard has to do the
+	arithmetic the eye cannot. The defect it was written for is what that catches:
+	`--ink-faint` was `#868e98`, **3.31:1 on white against a 4.5:1 minimum**, and it renders
+	`.row .ref` — the item number on every list row, at 13px, which `#441` calls the primary
+	address. It was wrong from the day the palette was written and nothing had ever asked.
+
+	**Every ink against every ground, not the pairs in use.** A rule pairing two of them is an
+	ordinary edit and must not be the edit that first has to think about this.
+
+	The dark half is the one arithmetic alone would find: it passed on two grounds and missed
+	the third by **0.02**.
+	"""
+
+	failures = []
+
+	for theme, tokens in _themes().items():
+		missing = [name for name in INKS + GROUNDS if name not in tokens]
+		assert not missing, f"{theme} declares no {missing}, so this checked almost nothing"
+
+		for ink in INKS:
+			for ground in GROUNDS:
+				ratio = _contrast(tokens[ink], tokens[ground])
+				if ratio < AA_SMALL_TEXT:
+					failures.append(
+						f"{theme}: {ink} ({tokens[ink]}) on {ground} ({tokens[ground]}) is "
+						f"{ratio:.2f}:1, under {AA_SMALL_TEXT}"
+					)
+
+	assert not failures, "text below the contrast minimum:\n  " + "\n  ".join(failures)
+
+
 def test_the_page_asks_for_nothing_this_instance_does_not_serve () -> None:
 	"""Every asset the page names is one of the files, so a fresh load fetches nothing 404.
 

@@ -24,7 +24,12 @@
 	--line-strong: #cdd3da;
 	--ink: #1b1f24;
 	--ink-soft: #5c6570;
-	--ink-faint: #868e98;
+
+	/* **The faintest ink still clears the contrast minimum** (`#902`). It was `#868e98`, which
+	   is 3.31:1 on `--bg` and 3.09:1 on `--bg-sunken` against WCAG AA's 4.5:1 for small text —
+	   and it renders `.row .ref`, the item number on every row, at 13px. */
+	--ink-faint: #696f77;
+
 	--accent: #2563eb;
 	--warn: #b42318;
 	--radius: 6px;
@@ -51,7 +56,11 @@
 		--line-strong: #3a424b;
 		--ink: #e6e9ed;
 		--ink-soft: #a2acb6;
-		--ink-faint: #7d8791;
+
+		/* Dark passed on both backgrounds and was **4.48:1 on `--bg-raised`** — under by 0.02,
+		   which is the kind of miss only arithmetic finds (`#902`). */
+		--ink-faint: #828c97;
+
 		--accent: #7aa2f7;
 		--warn: #f27a70;
 	}

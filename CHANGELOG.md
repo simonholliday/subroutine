@@ -90,6 +90,15 @@ upgrade involves.
 
 ### Fixed
 
+- **The faintest text in the web UI is now readable.** The item number on every row, the
+  timestamps beside a comment, the placeholder in every box and a dozen other things were drawn
+  in a grey that measured **3.31:1** against the page in the light theme, where the accepted
+  minimum for text that size is 4.5:1. It is darker now, and the dark theme's equivalent — which
+  missed the same line by 0.02 on one of its three backgrounds — has moved with it.
+
+  Nothing else in either palette changes, and both themes are checked by arithmetic rather than
+  by eye from now on, so a future colour cannot quietly drop below the line.
+
 - **Naming a workspace with the wrong key no longer produces an error about something else.**
   `GET /v1/tasks/1?workspace=personal` discarded `workspace` unheard, and the request was
   then refused for naming no workspace — describing a request nobody had sent, and listing
