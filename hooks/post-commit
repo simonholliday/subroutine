@@ -1,0 +1,65 @@
+#!/bin/sh
+#
+# Write the commit back onto every item it cites — item SR#51, the return journey.
+#
+# `git log --grep` answers "which commit mentioned SR#46" only for somebody standing in a
+# checkout. This answers it from the instance, which is where the work is planned and where
+# anybody asking about an item is already looking. Neither direction was answerable before.
+#
+# **It can never fail a commit**, and that is structural rather than careful: git ignores
+# this hook's exit code, and by the time it runs the commit is already made. Everything
+# below is best-effort and says so when it gives up.
+#
+# Installed with the `commit-msg` hook beside it:
+#
+#     git config core.hooksPath hooks
+
+set -u
+
+short=$(git rev-parse --short HEAD)
+subject=$(git log -1 --pretty=%s)
+body=$(git log -1 --pretty=%B | grep -v '^#' || true)
+
+refs=$(printf '%s' "$body" | grep -oE 'SR#[1-9][0-9]*' | sed 's/^SR#//' | sort -u || true)
+
+if [ -z "$refs" ]; then
+	exit 0
+fi
+
+if ! subroutine whoami >/dev/null 2>&1; then
+	printf '%s\n' \
+		"The instance could not be reached, so $short was not recorded against the items it" \
+		"cites. Nothing is lost — 'git log --grep SR#' still finds it." >&2
+	exit 0
+fi
+
+# **An amend replaces a commit, so the record has to replace too.** This hook fires again on
+# `git commit --amend`, and the sha it wrote a moment ago has stopped existing — so leaving it
+# would put "Committed as 34d87d3" on an item where no such commit can be found, which is
+# worse than saying nothing. The reflog is what names an amend; git tells a hook nothing.
+replaced=""
+
+case "$(git reflog -1 --format='%gs' 2>/dev/null)" in
+	"commit (amend):"*)
+		replaced=$(git rev-parse --short 'HEAD@{1}' 2>/dev/null || true)
+		;;
+esac
+
+for ref in $refs; do
+	# Asked before writing, so re-running this by hand cannot say the same thing twice.
+	if subroutine show "$ref" --json 2>/dev/null | grep -q "Committed as $short"; then
+		continue
+	fi
+
+	if [ -n "$replaced" ]; then
+		# Deleted rather than edited, because that is the only thing this product will do to
+		# a comment — a comment is attributed prose, and rewriting it under somebody's name
+		# is deliberately not possible. Failure here is ignored: an extra line in the record
+		# is a far smaller problem than a hook that stops half way.
+		subroutine uncomment "$ref" "Committed as $replaced" >/dev/null 2>&1 || true
+	fi
+
+	if ! subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
+		printf '%s\n' "Could not record $short against SR#$ref." >&2
+	fi
+done

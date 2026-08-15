@@ -1,0 +1,111 @@
+#!/bin/sh
+#
+# Refuse a commit whose message cites no item, or cites one that does not resolve — item
+# SR#48, and the item-first rule of 2026-07-30 that nothing enforced until now.
+#
+# **A `commit-msg` hook rather than the `pre-commit` one the item asked for.** `pre-commit`
+# runs before a message exists, so it cannot read one; the item's suggestion could not have
+# worked. This is the hook git hands the message file to.
+#
+# Install it for this clone with:
+#
+#     git config core.hooksPath hooks
+#
+# Bypass it deliberately with `git commit --no-verify`. That is the design and not a
+# weakness: the rule exists to catch forgetting, not to police, and a check that cannot be
+# waived is one people work around instead of with.
+#
+# Written in shell so it depends on `subroutine` being on PATH and on nothing else. A hook
+# that needed this checkout's virtualenv would stop working on the machine of anybody who
+# installed the package, which is the audience the product is for.
+
+set -eu
+
+message_file="$1"
+
+# The message as it will be recorded: comment lines are stripped by git before the commit,
+# so a ref inside one is not a citation.
+body=$(grep -v '^#' "$message_file" || true)
+
+# **Code spans first, and this hook's own first commit is why** (SR#836's shape). A message
+# *describing* the rule — "never write a bare `#42`" — is correct prose, and scanning the raw
+# text refuses it and forces a rewording into something worse. The justification is exact
+# rather than a convenience: **GitHub does not auto-link inside a code span**, so a reference
+# there cannot become a link to this repository's issues and is not what SS6.15 forbids.
+#
+# Stripped over the whole message rather than line by line, because a span wrapped across two
+# lines leaves an unmatched backtick on each half — SR#836 met precisely that, and the obvious
+# per-line fix walks into it.
+prose=$(printf '%s' "$body" | tr '\n' '\001' | sed 's/`[^`]*`//g' | tr '\001' '\n')
+
+# **The prefixed form only** (SS6.15). GitHub auto-links a bare `#42` in a commit message to
+# this repository's own issues, and the link resolves — so nobody can see it is about
+# something else. That is the one collision the resolve-or-prose rule cannot catch.
+bare=$(printf '%s' "$prose" | grep -oE '(^|[^A-Za-z0-9_#])#[1-9][0-9]*' || true)
+
+if [ -n "$bare" ]; then
+	printf '%s\n' \
+		"This message cites an item as '#42', and GitHub reads that as an issue in this" \
+		"repository — the link resolves, so nobody can see it is about something else." \
+		"" \
+		"Write it as SR#42 instead (SS6.15)." >&2
+	exit 1
+fi
+
+refs=$(printf '%s' "$body" | grep -oE 'SR#[1-9][0-9]*' | sed 's/^SR#//' | sort -u || true)
+
+if [ -z "$refs" ]; then
+	# **The exemption is prose no program reads** (SR#47). Checked conservatively: every
+	# changed line has to be a comment or blank. A docstring-only change is genuinely exempt
+	# and is *not* recognised here — telling one from an endpoint's docstring needs to know
+	# which functions are routes, and a check that guessed would be worse than one that says
+	# what it cannot see.
+	changed=$(git diff --cached -U0 --no-color | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' || true)
+	substantive=$(printf '%s' "$changed" | sed 's/^[+-]//' | sed 's/^[[:space:]]*//' \
+		| grep -vE '^(#|$)' || true)
+
+	if [ -n "$substantive" ]; then
+		printf '%s\n' \
+			"This commit cites no item, and it changes more than comments." \
+			"" \
+			"Every change here gets an item first — the reasoning is decision SR#47. Cite it" \
+			"as SR#42 in the message." \
+			"" \
+			"Prose no program reads is exempt: comments, docstrings on functions that are not" \
+			"endpoints, and the documents kept off this repository. Only the comment half is" \
+			"recognised automatically, so for the rest:" \
+			"" \
+			"    git commit --no-verify" >&2
+		exit 1
+	fi
+
+	exit 0
+fi
+
+# **Resolvable, not merely well-formed.** A message citing SR#999 reads exactly like one
+# citing real work, and is the shape that makes a history untrustworthy rather than wrong.
+missing=""
+
+for ref in $refs; do
+	if ! subroutine show "$ref" --json >/dev/null 2>&1; then
+		missing="$missing $ref"
+	fi
+done
+
+if [ -n "$missing" ]; then
+	# **An unreachable instance must not stop anybody committing.** Told apart from a bad ref
+	# by asking the program whether it can reach anything at all — if it cannot, this check
+	# has no opinion and says so.
+	if ! subroutine whoami >/dev/null 2>&1; then
+		printf '%s\n' \
+			"The instance could not be reached, so the items this message cites were not" \
+			"checked. Committing anyway." >&2
+		exit 0
+	fi
+
+	printf '%s\n' \
+		"This message cites work that is not here:$missing" \
+		"" \
+		"Check the number, or file the item first — 'subroutine add \"...\"' prints it." >&2
+	exit 1
+fi

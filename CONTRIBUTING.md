@@ -82,6 +82,35 @@ $ mypy src tests scripts
 $ pytest
 ```
 
+### The commit hooks
+
+Optional, and worth it if you are working against a Subroutine instance that holds this
+project's own backlog:
+
+```console
+$ python scripts/install_hooks.py
+```
+
+Two things then happen. A commit message has to cite an item that exists — written `SR#42`,
+never a bare `#42`, because GitHub auto-links that to *this repository's* issues and the link
+resolves, so nobody can see it is about something else. And after the commit lands, the sha is
+written back onto every item it cites, so "what closed #46" and "what did `abc1234` do" are
+both answerable from the instance rather than only from a checkout.
+
+A commit that changes nothing but comments needs no item. For anything else the exemption is
+taken deliberately:
+
+```console
+$ git commit --no-verify
+```
+
+**The installer puts a shim outside the working tree and points `core.hooksPath` at it**,
+rather than writing into `.git/hooks`. That is not tidiness: a working tree on a filesystem
+that forces its permission bits — a CIFS or SMB share mounted `file_mode=0666`, which is where
+this project is developed — cannot hold an executable file at all, and **git skips a hook it
+cannot execute without saying anything**. The shim runs the tracked hook by path, so editing
+`hooks/` takes effect immediately and there is no copy to go stale.
+
 ## Conventions
 
 These are unusual enough to be worth stating plainly, because a linter will not tell you
