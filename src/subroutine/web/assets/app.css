@@ -922,11 +922,32 @@ fieldset {
 }
 
 .mark {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
 	border: 1px solid var(--line-strong);
 	border-radius: 999px;
 	padding: 0 var(--space-4);
 	line-height: 18px;
 	white-space: nowrap;
+}
+
+/*
+	A glyph beside the word it illustrates (`#764`).
+
+	**Sized in `em` and coloured `currentColor`**, so it follows the text it sits with rather
+	than needing a rule per place it appears — which matters here because a mark's colour is
+	itself conditional: `.mark.late` and `.mark.blocked` set `color`, and an icon in a fixed
+	colour would be the one part of the chip that did not respond.
+
+	**Slightly under a full em on purpose.** Phosphor's glyphs fill their box where a lowercase
+	letter does not fill its line, so matching the two by number leaves the picture looking
+	larger than the word beside it.
+*/
+.icon {
+	width: 0.9em;
+	height: 0.9em;
+	flex: 0 0 auto;
 }
 
 .mark.late { color: var(--warn); border-color: currentColor; }

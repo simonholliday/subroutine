@@ -80,4 +80,16 @@ CATALOGUE: tuple[Vendored, ...] = (
 		source="https://unpkg.com/htm@3.1.1/dist/htm.module.js",
 		notice="htm.LICENSE",
 	),
+	Vendored(
+		filename="phosphor.js",
+		package="@phosphor-icons/core",
+		version="2.1.1",
+		licence="MIT",
+		# **Not the file that is served** — unlike the three above, this is fourteen `<path>`
+		# strings lifted out of `assets/regular/*.svg` in that tarball, because the package ships
+		# 1,512 icons per weight in six weights and an instance needs fourteen. The address is
+		# what a replacement starts from; `phosphor.js`'s own comment says what was taken.
+		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
+		notice="phosphor.LICENSE",
+	),
 )

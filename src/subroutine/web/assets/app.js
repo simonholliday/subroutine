@@ -23,6 +23,10 @@ import htm from "htm";
    is the thing that was missing when this page first shipped blank. */
 import * as markdown from "./markdown.js";
 
+/* Vendored, and served from the same directory as everything else — so this is relative too,
+   for the reason above rather than because it is ours. */
+import * as phosphor from "./phosphor.js";
+
 const html = htm.bind(h);
 
 /*
@@ -86,6 +90,11 @@ const TASK_FIELDS = [
 	   this says something else cannot start until you do, and a row can be both. */
 	"blocking",
 	"status", "status_is_default", "status_category",
+	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
+	   `Task` or `Document`, which answers what shape it has and not what it is about, and
+	   Simon's fifth requirement is that *a bug and a document are distinguishable without
+	   clicking*. Both kinds carry one, so both lists ask. */
+	"type",
 	/* **Which timezone a day-scale date was stored in** (`#773`). §6.5 stores an all-day
 	   deadline at the last instant of its day *in the task's own zone*, so rendering it in the
 	   reader's shows the next day to anybody east of it — measured, and live: the terminal said
@@ -131,6 +140,11 @@ const DOCUMENT_FIELDS = [
 	   of them carries is no key at all. */
 	"relevance",
 	"ref", "title", "project_key", "status", "status_is_default",
+	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
+	   `Task` or `Document`, which answers what shape it has and not what it is about, and
+	   Simon's fifth requirement is that *a bug and a document are distinguishable without
+	   clicking*. Both kinds carry one, so both lists ask. */
+	"type",
 	/* Not rendered either — it is what the board groups on (`#653`). A document's categories
 	   are its own vocabulary, so it gets its own columns rather than being mapped onto a
 	   task's: `current` is not *in progress*, and saying so would be inventing a claim. */
@@ -2541,6 +2555,76 @@ export function orderedAs (selection) {
 	return ORDERINGS[asked] || null;
 }
 
+/*
+	**Which glyph an item type gets, and the answer for one this client has never heard of.**
+
+	`#764`'s requirement is Simon's fifth: *conventional iconography so a bug and a document are
+	distinguishable without clicking*. The constraint that shapes it is `#441`'s: **item types
+	are workspace data**, so this cannot be the vocabulary — it is one client's opinion about a
+	vocabulary the server owns, and it has to be wrong gracefully.
+
+	**The fallback is the important half and is why it is first here.** `#826` measured that no
+	surface can add or rename a type today, so mapping the seeded keys is correct *now* — and the
+	moment `#826` goes the other way it stops being correct **silently**, with a new type
+	rendering as whatever this falls back to and nobody finding out from a failure. So the
+	unrecognised path is the one to get right, and `circle-dashed` is a glyph that reads as
+	*something, unspecified* rather than as a mistake.
+
+	**`is_system` is deliberately not consulted**, which reverses what `#524` and `#827`
+	recommended: it says *we seeded this* and not *what this is*, so a workspace that renamed
+	`bug` to `defect` would publish `is_system: true` and this would still not know which icon to
+	draw. `#906` records the whole argument and `#826` inherits it — the field that would work is
+	a classifier on `ItemType`, modelled on `Status.category`.
+*/
+export const TYPE_ICONS = {
+	task: "check-square",
+	bug: "bug",
+	feature: "sparkle",
+	chore: "broom",
+	spike: "flask",
+	note: "note",
+	spec: "file-text",
+	design: "compass-tool",
+	decision: "gavel",
+	finding: "magnifying-glass",
+	dead_end: "prohibit",
+};
+
+/* The two ends of a `blocks` link (`#913`, Simon's suggestion on `#911`). A lock for work
+   something else is holding shut, and a key for the item that opens it — which is `#861`'s
+   stated intent, that the blocker is *the item you should pick* rather than a thing to warn
+   about. A stop-hand or a warning triangle would say the opposite. */
+export const MARK_ICONS = { Blocked: "lock-simple", Blocker: "key" };
+
+/* What an item type this client does not recognise is drawn as. */
+export const UNKNOWN_ICON = "circle-dashed";
+
+export function Icon ({ name, decorative = true }) {
+	/*
+		One glyph, drawn from the vendored path data.
+
+		**`aria-hidden` by default, and that is `#102` rather than laziness.** No information may
+		exist only in a glyph, so every icon here sits beside the word it illustrates — and an
+		icon announced *as well as* its label makes a screen reader say everything twice. A caller
+		with a glyph genuinely standing alone passes `decorative=false`, and nothing does yet.
+
+		**An unknown name draws nothing rather than throwing.** A missing glyph should cost a
+		reader a picture, never the page — and the mapping above is one client's opinion about a
+		vocabulary somebody else owns, so being handed a name this does not have is a normal
+		event and not an error.
+	*/
+	const path = phosphor.PATHS[name];
+
+	if (!path) return null;
+
+	return html`
+		<svg class="icon" viewBox=${phosphor.VIEWBOX} fill="currentColor"
+			aria-hidden=${decorative ? "true" : null} focusable="false">
+			<path d=${path} />
+		</svg>
+	`;
+}
+
 export function marks (item, showKind, ordering = null, projects = null) {
 	/*
 		The small labels under a title.
@@ -2556,7 +2640,22 @@ export function marks (item, showKind, ordering = null, projects = null) {
 	*/
 	const found = [];
 
-	if (showKind) found.push({ text: item.kind === "document" ? "Document" : "Task" });
+	/*
+		**What it is, rather than what shape it has** (`#764`). This said `Task` or `Document`,
+		which is the *kind* — true, and not what Simon's fifth requirement asks: *a bug and a
+		document are distinguishable without clicking*. Every seeded type has a glyph and an
+		unrecognised one still gets a chip, because `#102` says nothing may be information only
+		in a glyph and the word is what carries it either way.
+
+		**The label comes from the item, not from a table here.** A workspace renames its types
+		(§5.5), so the text is whatever the server said; only the picture is this client's
+		opinion, and it degrades on its own.
+	*/
+	if (item.type) {
+		found.push({ text: item.type, icon: TYPE_ICONS[item.type] || UNKNOWN_ICON });
+	} else if (showKind) {
+		found.push({ text: item.kind === "document" ? "Document" : "Task" });
+	}
 
 	/*
 		**Before everything else, because it is why the row is where it is.** A reader checking
@@ -3046,7 +3145,9 @@ export function Row ({
 			${badges.length > 0 && html`
 				<span class="marks">
 					${badges.map((mark) => html`
-						<span class="mark ${mark.tone || ""}">${mark.text}</span>
+						<span class="mark ${mark.tone || ""}">
+							<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+						</span>
 					`)}
 				</span>
 			`}

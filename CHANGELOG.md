@@ -16,6 +16,14 @@ upgrade involves.
 
 ### Changed
 
+- **A row says what kind of thing an item is, with an icon.** It used to say `Task` or
+  `Document`, which is its shape rather than its subject — so a bug, a chore and a decision all
+  looked alike until you opened one. Each now carries its own name and glyph.
+
+  A type this instance's copy of the app does not recognise still gets a chip, with its name and
+  a neutral glyph — item types belong to a workspace, so the pictures are this app's opinion and
+  the words are yours. Blocked work and the item blocking it carry a glyph too.
+
 - **The web UI's controls are one of three sizes, and focus the same way wherever they are.**
   Buttons, inputs and dropdowns had accumulated thirteen different paddings between them, so two
   controls side by side were rarely the same height — and the *Add* button drew a different focus

@@ -40,6 +40,7 @@ import subroutine.api.tasks
 import subroutine.api.web
 import subroutine.cli.personal
 import subroutine.cli.topics
+import subroutine.db.seed
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
@@ -255,6 +256,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	"Foot": {"count": 7, "version": "0.6.7", "theme": "system"},
 	"Theme": {"chosen": "dark"},
+	"Icon": {"name": "bug"},
 }
 
 #: The one case with its own branch, and the one a reader is likeliest to meet: a page loaded
@@ -327,8 +329,14 @@ def _staged (tmp_path: pathlib.Path) -> pathlib.Path:
 	"""
 
 	vendor = subroutine.web.vendored.DIRECTORY
-	staged = tmp_path / "staged"
-	staged.mkdir(exist_ok=True)
+
+	#: **Flat, because that is how they are served** (`#764`). These used to be staged in a
+	#: subdirectory, which worked for as long as every vendored file was reached by a *bare*
+	#: specifier — the import map rewrote those to wherever they were put, so the layout never
+	#: had to match. `phosphor.js` is imported relatively, like `markdown.js`, and a relative
+	#: import resolves against the importing file: `api/web._collected` flattens both directories
+	#: into one map, so beside `app.js` is where a browser finds it.
+	staged = tmp_path
 
 	# **Resolution comes from the page's own import map**, longest specifier first so that
 	# `preact/hooks` is rewritten before `preact` can match its prefix.
@@ -4502,7 +4510,10 @@ def _mounted (tmp_path: pathlib.Path) -> dict[str, typing.Any]:
 	module = _staged(tmp_path)
 
 	return dict(_ran(tmp_path, f"""
-		import {{ h }} from "{(tmp_path / "staged" / "preact.js").as_uri()}";
+		// Beside the app, because that is where `_staged` puts it and where the served page
+		// finds it. This named a `staged/` subdirectory and was the only other thing that
+		// knew the layout, which is why flattening it broke here and nowhere else (`#764`).
+		import {{ h }} from "{(tmp_path / "preact.js").as_uri()}";
 		import {{ renderToString }} from "{(tmp_path / "render-to-string.js").as_uri()}";
 		import * as app from "{module.as_uri()}";
 
@@ -8310,3 +8321,69 @@ def test_reduced_motion_has_motion_to_reduce () -> None:
 		assert f"{property}: 0.01ms !important" in reduced.group(1), (
 			f"the query does not zero {property}, so motion survives a reader asking for none"
 		)
+
+
+def test_a_type_this_client_has_never_seen_still_gets_a_chip (tmp_path: pathlib.Path) -> None:
+	"""**`#764`, and `#906` says to build this half first because it is the untested one.**
+
+	Item types are workspace data (§5.5) and this client's glyph map is one opinion about a
+	vocabulary the server owns. `#826` measured that no surface can add or rename a type
+	*today*, so mapping the seeded keys is correct now — and the moment `#826` goes the other
+	way it stops being correct **silently**: a new type would render as whatever the fallback
+	is and nobody would find out from a failure. So the unrecognised path is the one that has
+	to be right, and it is the one nothing would exercise on its own.
+
+	**The word is what carries the meaning either way** (`#102`): a chip a reader can read,
+	whatever picture sits beside it.
+	"""
+
+	unknown = {
+		"ref": 9, "kind": "task", "title": "Something new", "type": "escalation",
+		"status_is_default": True,
+	}
+
+	shown = _rendered(tmp_path, {"Row": dict(SAMPLES["Row"], item=unknown)})["Row"]
+
+	known = _rendered(
+		tmp_path, {"Row": dict(SAMPLES["Row"], item=dict(unknown, type="bug"))}
+	)["Row"]
+
+	assert "escalation" in shown, (
+		f"a type this client does not recognise lost its chip entirely, so a reader learns "
+		f"nothing about what the item is: {shown}"
+	)
+
+	# **A glyph either way**, so an unrecognised type reads as *something, unspecified* rather
+	# than as a row that lost a picture every other row has.
+	assert shown.count("<svg") == known.count("<svg") == 1, (
+		f"a recognised type draws {known.count('<svg')} glyphs and an unrecognised one "
+		f"{shown.count('<svg')}"
+	)
+
+
+def test_every_seeded_item_type_has_a_glyph () -> None:
+	"""The client's map covers the vocabulary the server actually ships (`#764`).
+
+	**Read from `seed.py` rather than listed here**, so a twelfth seeded type fails this rather
+	than quietly falling back — the fallback is for a type *somebody else* invented, and using
+	it for one we ship ourselves would be the mapping silently going stale.
+
+	This is the half `#826` will change: the moment a workspace can add a type, the seeded set
+	stops being the whole set and the fallback carries the rest. It is right until then and
+	this is what says when it stops being.
+	"""
+
+	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	mapping = re.search(r"export const TYPE_ICONS = \{(.*?)\n\};", source, re.DOTALL)
+
+	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
+
+	drawn = set(re.findall(r"^\t([a-z_]+):", mapping.group(1), re.M))
+	seeded = {one.key for one in subroutine.db.seed._ITEM_TYPES}
+
+	assert len(seeded) >= 10, f"only {seeded} seeded, so this checks almost nothing"
+
+	assert seeded <= drawn, (
+		f"{sorted(seeded - drawn)} are seeded item types with no glyph, so they fall back to "
+		f"the one meant for a type this client has never heard of"
+	)
