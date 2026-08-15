@@ -2565,7 +2565,18 @@ export function marks (item, showKind, ordering = null) {
 		holding everything else up — which is the opposite of what it means. It is the item you
 		should pick.
 	*/
-	if (item.blocking) found.push({ text: "Holds up", tone: "quiet" });
+	/*
+		**`Blocker`, not `Holds up` and not `Blocks`** (`#913`, Simon). A mark has no object, so
+		a verb asks a question the card is built not to answer — `#569` settled that a listing
+		says *that* an item blocks something and `show` says *what*. A noun naming this item's
+		role is complete standing alone, and beside `Blocked` it is role-and-state rather than
+		two inflections of one verb.
+
+		It was `Holds up`, which read nothing like the `Blocks` on the item it opened. `#569`'s
+		own argument against a word this close to `blocked` is on `cli/personal.BLOCKING_MARK`
+		and still stands; what outweighed it is that one relationship had two names.
+	*/
+	if (item.blocking) found.push({ text: "Blocker", tone: "quiet" });
 	/*
 		**`quiet`, not `late`** (`#862`). A deferred item is not a problem — it is a decision
 		somebody made, and the mark exists so the reader can see the decision rather than be

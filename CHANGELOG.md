@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Changed
 
+- **An item holding up other work is now marked `blocker` everywhere**, where the listings said
+  *holds up* and the item you opened said *Blocks* — one relationship with two names, met within
+  a click. The mark an item carries and the link between two items are still worded differently,
+  and deliberately: a mark says what an item *is*, a link says what it does to which other item.
+
 - **The web UI's text sizes and spacing come from a fixed scale**, where before they had
   accumulated: eight text sizes and nineteen spacing values, none of them named. There are five
   text steps and nine spacing steps now, and nothing outside them.

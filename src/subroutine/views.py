@@ -1182,6 +1182,31 @@ class Agenda(pydantic.BaseModel):
 	unscheduled_total: int
 
 
+#: What a listing calls work that cannot start yet, and work that is holding others up.
+#:
+#: **Here rather than once per surface** (`#913`). The terminal named them and the agent's
+#: listing wrote the same two words out again, so there were two copies with nothing comparing
+#: them — this codebase's signature defect, in the module both of those surfaces already import
+#: precisely so they cannot disagree.
+#:
+#: **``blocker`` rather than ``blocks``, because a mark has no object.** *Blocks what?* is the
+#: question `#569` settled a listing does not answer — it says *that* an item blocks something
+#: and ``show`` says *what* — so a verb here asks something the row is built not to say. A noun
+#: naming the item's role is complete standing alone.
+#:
+#: **It was ``holds up``, and `#569`'s argument for two words still stands**: ``blocker``
+#: differs from ``blocked`` by two letters and means the opposite, and a column a reader has to
+#: look at twice misinforms at a glance. Simon was shown that and overruled it — one
+#: relationship called two things across two surfaces is paid on every reading, where the
+#: similarity is paid while scanning. `#764` adds a glyph, and `#102` binds it: neither word may
+#: be replaced by one, only joined.
+#:
+#: The browser capitalises its marks and cannot import this, so it carries the only other copy
+#: and ``tests/test_web.py`` compares the two.
+BLOCKED_MARK = "blocked"
+BLOCKING_MARK = "blocker"
+
+
 def status_is_news (item: "Task | Project | Document") -> bool:
 	"""Report whether an item's status is worth telling a reader about.
 

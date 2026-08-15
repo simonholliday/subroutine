@@ -1201,6 +1201,47 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	)
 
 
+def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
+	"""**`#913`. The one copy of these words that cannot import the others.**
+
+	`cli/personal` and `mcp/tools` both take them from `views` now, so those two cannot
+	disagree. The browser is JavaScript and has to carry its own, which is the arrangement that
+	produced the defect: a card said *Holds up* where the item it opened said *Blocks*, and
+	`#674`'s lesson is that a rule written in more than one place needs something comparing
+	them rather than somebody noticing.
+
+	**Case-insensitively, because the difference is deliberate.** §13.5b's output is lower case
+	throughout and the browser capitalises a mark, so requiring an exact match would force one
+	surface to adopt the other's register — which is a different decision from this one and not
+	the one being guarded.
+	"""
+
+	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	marks = re.search(r"export function marks \(.*?\n\}", source, re.DOTALL)
+
+	assert marks is not None, "`marks` has moved, so this is scanning nothing"
+
+	body = marks.group(0)
+	shown = {text.lower() for text in re.findall(r'text:\s*"([^"]+)"', body)}
+
+	# **The floor counts what the function emits, not what it emits as a plain string.** Most
+	# marks are template literals — a deadline, a defer, a lease all carry a value — so a floor
+	# on the string set would have to be 2, which is the number this test is *about* and could
+	# not tell a broken scan from a complete one.
+	assert body.count("found.push") >= 6, (
+		f"`marks` pushes {body.count('found.push')} marks, so the body was not fully matched"
+	)
+
+	for name, word in (
+		("BLOCKED_MARK", subroutine.views.BLOCKED_MARK),
+		("BLOCKING_MARK", subroutine.views.BLOCKING_MARK),
+	):
+		assert word.lower() in shown, (
+			f"`views.{name}` is {word!r} and the browser's `marks` says none of {sorted(shown)}. "
+			f"One relationship with two names is what `#913` was"
+		)
+
+
 def test_a_theme_nobody_recognises_reads_as_the_system_one (tmp_path: pathlib.Path) -> None:
 	"""**`#908`. A stored value the app does not know must not strand the page.**
 
@@ -7847,20 +7888,20 @@ def test_a_row_marks_both_ends_of_a_dependency (tmp_path: pathlib.Path) -> None:
 		for which in ("neither", "blocked", "blocking", "both")
 	}
 
-	assert "Holds up" in shown["blocking"], (
+	assert "Blocker" in shown["blocking"], (
 		f"a task holding up unfinished work is unmarked: {shown['blocking']}"
 	)
-	assert "Holds up" in shown["both"] and "Blocked" in shown["both"], (
+	assert "Blocker" in shown["both"] and "Blocked" in shown["both"], (
 		f"a row in the middle of a chain shows only one end: {shown['both']}"
 	)
 
 	# The negatives, because a mark that is always there says nothing — and this is the pair
 	# `#569` is about, so each has to be absent when it is untrue rather than merely present
 	# when it is.
-	assert "Holds up" not in shown["blocked"], (
+	assert "Blocker" not in shown["blocked"], (
 		f"a blocked task is marked as holding something up: {shown['blocked']}"
 	)
-	assert "Holds up" not in shown["neither"] and "Blocked" not in shown["neither"], (
+	assert "Blocker" not in shown["neither"] and "Blocked" not in shown["neither"], (
 		f"an ordinary task carries a dependency mark: {shown['neither']}"
 	)
 

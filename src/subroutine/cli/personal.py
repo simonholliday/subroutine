@@ -510,18 +510,18 @@ def _state_cell (item: Item) -> str:
 	return FINISHED_MARK if item.status_category == "done" else ""
 
 
-#: Marks work something unfinished is in the way of — item `#425`. **A word, for
-#: `STARTED_MARK`'s reason**: decision `#102` says no information exists only in a colour, and
-#: the same argument retires a bare glyph.
+#: Marks work something unfinished is in the way of — item `#425`, and its mirror `#569`.
 #:
-#: Not a §13.5b word — a person who has never linked two items never sees this, because the
-#: column is dropped when no row on the page carries it.
-BLOCKED_MARK = "blocked"
-
-#: The mirror of :data:`BLOCKED_MARK` (`#569`). Two words rather than ``blocking``, which
-#: differs from ``blocked`` by two letters and means the opposite — a column a reader has to
-#: look at twice is a column that misinforms at a glance.
-BLOCKING_MARK = "holds up"
+#: **The words live in :mod:`subroutine.views` now** (`#913`), because the agent's listing wrote
+#: the same two out again and nothing compared them. Named here so this module reads as it did.
+#:
+#: **A word rather than a glyph, for `STARTED_MARK`'s reason**: decision `#102` says no
+#: information exists only in a colour, and the same argument retires a bare symbol.
+#:
+#: Not §13.5b words — a person who has never linked two items sees neither, because the column
+#: is dropped when no row on the page carries one.
+BLOCKED_MARK = subroutine.views.BLOCKED_MARK
+BLOCKING_MARK = subroutine.views.BLOCKING_MARK
 
 
 def _blocked_cell (item: Item) -> str:

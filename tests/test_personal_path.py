@@ -2703,7 +2703,11 @@ def test_a_listing_marks_work_that_is_holding_something_up (
 
 	address, marker, rest = rows["1"].split(maxsplit=2)
 
-	assert (address, marker, rest) == ("#1", "holds", "up  Chase the photographer"), rows["1"]
+	# **One word, so the split lands where it reads** (`#913`). This asserted `("#1", "holds",
+	# "up  Chase the photographer")` — the mark was two words, so splitting on whitespace cut it
+	# in half and half of it arrived attached to the title. That was correct and it hid what the
+	# assertion was about.
+	assert (address, marker, rest) == ("#1", "blocker", "Chase the photographer"), rows["1"]
 
 	# And the other end still says what it always said.
 	assert "blocked" in rows["2"], rows["2"]
@@ -2769,11 +2773,11 @@ def test_finishing_the_held_up_work_clears_the_marker (
 	run("add", "Something else entirely")
 	run("link", "1", "blocks", "2")
 
-	assert "holds up" in run("list").output
+	assert "blocker" in run("list").output
 
 	run("done", "2")
 
-	assert "holds up" not in run("list").output
+	assert "blocker" not in run("list").output
 
 	# And the fact itself, not only its rendering — the column would hide a disagreement.
 	scripted = {row["ref"]: row for row in json.loads(run("list", "--json").output)}
@@ -2795,7 +2799,7 @@ def test_only_a_blocks_link_marks_a_row_as_holding_something_up (
 	run("add", "Rewrite the pricing page")
 	run("link", "1", "relates-to", "2")
 
-	assert "holds up" not in run("list").output
+	assert "blocker" not in run("list").output
 
 
 def test_a_listing_with_nothing_blocked_shows_no_such_column (

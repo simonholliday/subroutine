@@ -1442,11 +1442,15 @@ def _line (
 		# five-minute errand holding it up was not, so the only thing worth starting looked
 		# like the least important row on the page. A cell each rather than one with a
 		# precedence — this is a list an agent parses, and a row can be both.
+		# **The words come from `views` rather than being written here** (`#913`). This module
+		# spelled both of them out while `cli/personal` named the same two, so there were two
+		# copies and nothing compared them — and the blocking one had drifted: a card said
+		# `holds up work` where the item it opened said `Blocks`.
 		if item.blocked:
-			cells.append("blocked")
+			cells.append(subroutine.views.BLOCKED_MARK)
 
 		if item.blocking:
-			cells.append("holds up work")
+			cells.append(subroutine.views.BLOCKING_MARK)
 
 		if item.importance is not None or item.urgency is not None:
 			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")
