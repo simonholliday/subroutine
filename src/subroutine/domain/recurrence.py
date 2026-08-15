@@ -1,6 +1,7 @@
 """Repeating work: the phrases people write, the rule that gets stored, and the dates it means.
 
-SPEC.md §6.7 stores recurrence as an **RFC 5545 ``RRULE``** and treats natural language as an
+§6.7 — the specification is in the instance, under the SPEC project — stores recurrence
+as an **RFC 5545 ``RRULE``** and treats natural language as an
 input convenience that is parsed into one. That is not a preference for standards: an
 ``RRULE`` is what every calendar application, every feed and every language's date library
 already reads, so a stored rule is portable and a hand-rolled grammar would not be.
@@ -165,6 +166,22 @@ class Recurrence:
 
 	rule: str
 	text: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class Repeat:
+	"""A rule with the two things that qualify it, once a caller's defaults have been filled.
+
+	**Separate from :class:`Recurrence` because they answer different questions.** That one is
+	what reading a *phrase* produced and knows nothing about anchors; this is what a service
+	settled after applying defaults and refusing the combination that means nothing. Collapsing
+	them would make the parser look as though it had an opinion about how a series advances.
+	"""
+
+	rule: str
+	text: str | None
+	anchor: str
+	trigger: str
 
 
 def _refuse (value: str, *, field: str, why: str) -> subroutine.errors.ValidationError:

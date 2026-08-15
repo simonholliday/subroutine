@@ -66,6 +66,14 @@ class Task(
 			"recurrence_anchor IS NULL OR recurrence_anchor IN ('schedule', 'completion')",
 			name="recurrence_anchor",
 		),
+		# **The two values, and nothing about the pair.** Whether `time` may sit beside a
+		# `completion` anchor is a cross-field rule, and a CHECK constraint is not input
+		# validation here — it would arrive as a driver error naming no field. The service
+		# refuses it and says which of the two to change.
+		sqlalchemy.CheckConstraint(
+			"recurrence_trigger IS NULL OR recurrence_trigger IN ('completion', 'time')",
+			name="recurrence_trigger",
+		),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -243,6 +251,13 @@ class Task(
 		sqlalchemy.Text, nullable=True
 	)
 	recurrence_anchor: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=True
+	)
+
+	# **What brings the next occurrence into being**, which the anchor beside it does not say
+	# (`#915`). One of them decides *when* the next one falls and this decides *whether one is
+	# waiting for you at all* — `db.mixins.RECURRENCE_TRIGGERS` carries the argument.
+	recurrence_trigger: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(16), nullable=True
 	)
 	recurrence_text: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(

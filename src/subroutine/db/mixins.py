@@ -32,7 +32,21 @@ MENTION_SOURCE_TYPES = ("task", "document", "comment")
 
 PROJECT_VISIBILITIES = ("public", "private")
 PROJECT_TEMPLATES = ("blank", "personal", "software")
+#: What the next occurrence's date is measured *from* — the rule's own grid, or the instant
+#: the last one was finished. "The 1st of each month" is the 1st whether or not you were late;
+#: "every 14 days" means fourteen days after you actually watered the plants.
 RECURRENCE_ANCHORS = ("schedule", "completion")
+
+#: What *brings* the next occurrence into being, which is a different question from the one
+#: above and was folded into it until `#915` (`#94`).
+#:
+#: ``completion`` puts one occurrence in the list ahead of time, because work you have to do
+#: needs somewhere to be finished. ``time`` puts none there at all: a birthday is not a to-do
+#: and nobody ever closes one, so the series lives on the calendar and an occurrence becomes
+#: a row only when somebody acts on it. **Three of the four combinations are meaningful and
+#: ``time`` + ``completion`` is not** — with nothing ever completed there is no instant for
+#: that anchor to measure from — so it is refused by name in the service layer.
+RECURRENCE_TRIGGERS = ("completion", "time")
 
 #: The gap left between adjacent `position` values, so an item can be inserted between
 #: two others without renumbering the whole sibling set.

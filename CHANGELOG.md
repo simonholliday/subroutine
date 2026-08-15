@@ -14,14 +14,15 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `f2b8c1a94d63`.
+> **This release changes the database schema**, to `c7d419e6a2b8`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 >
-> It renames two columns and moves one field into another. **Nothing is reclassified**:
-> anything that was deferred stays deferred and goes on behaving exactly as it did.
+> It renames two columns, moves one field into another and adds one. **Nothing is
+> reclassified**: anything that was deferred stays deferred and goes on behaving exactly
+> as it did.
 
 ### Changed
 

@@ -29,6 +29,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.mentions
 import subroutine.domain.patch
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.selection
@@ -152,6 +153,254 @@ def _clean_title (title: str) -> str:
 	)
 
 
+#: What a repeat defaults to when a caller gives a rule and says nothing else.
+#:
+#: **``completion`` rather than ``time``**, because the caller is filing a *task*: something
+#: they intend to finish, which is what puts an occurrence in the list ahead of time. A series
+#: nobody ever closes is the other kind and has to be asked for.
+DEFAULT_TRIGGER = "completion"
+DEFAULT_ANCHOR = "schedule"
+
+
+def _repeat (
+	rule: str | None,
+	*,
+	anchor: str | None,
+	trigger: str | None,
+) -> subroutine.domain.recurrence.Repeat | None:
+	"""Read a repeat and the two things that qualify it, or refuse the combination.
+
+	Returns ``None`` when no rule was given, which is every ordinary task.
+	"""
+
+	if rule is None:
+		return None
+
+	read = subroutine.domain.recurrence.rule(rule)
+
+	chosen_anchor = anchor or DEFAULT_ANCHOR
+	chosen_trigger = trigger or DEFAULT_TRIGGER
+
+	for value, allowed, field in (
+		(chosen_anchor, subroutine.db.mixins.RECURRENCE_ANCHORS, "recurrence_anchor"),
+		(chosen_trigger, subroutine.db.mixins.RECURRENCE_TRIGGERS, "recurrence_trigger"),
+	):
+		if value not in allowed:
+			raise subroutine.errors.ValidationError(
+				f"{value!r} is not a way for something to repeat.",
+				errors=[
+					subroutine.errors.FieldError(
+						field=field,
+						code="invalid_field_value",
+						message=f"{field} is one of {', '.join(allowed)}.",
+					)
+				],
+			)
+
+	# **The one combination that cannot mean anything** (`#915`). A `completion` anchor
+	# measures the next date from the instant the last one was finished, and a `time` series
+	# is never finished — so there is nothing for it to measure from. Refused here rather
+	# than by a CHECK constraint, because the message has to name which of the two to change.
+	if chosen_trigger == "time" and chosen_anchor == "completion":
+		raise subroutine.errors.ValidationError(
+			"A repeat that nobody finishes cannot be measured from when it was finished.",
+			code="invalid_field_value",
+			hint="Use the 'schedule' anchor with a 'time' trigger, or the 'completion' "
+			"trigger if this is work you close.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence_anchor",
+					code="invalid_field_value",
+					message="'completion' needs a trigger of 'completion'.",
+				)
+			],
+		)
+
+	# **Not built yet, and refused by name rather than accepted and ignored** (`#94`). A
+	# `time` series materialises nothing, so until a date-ranged view expands it — the agenda
+	# and `#916`'s feed — filing one would store a rule that is visible nowhere at all. That
+	# is the silence §6.13 rule 1 forbids, so it says so instead.
+	if chosen_trigger == "time":
+		raise subroutine.errors.ValidationError(
+			"A repeat that happens whether or not you act is not built yet.",
+			code="invalid_field_value",
+			hint="Repeats that you finish work exactly as described; this is the calendar "
+			"half and lands with the calendar.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence_trigger",
+					code="invalid_field_value",
+					message="Only 'completion' is built. See #94.",
+				)
+			],
+		)
+
+	return subroutine.domain.recurrence.Repeat(
+		rule=read.rule, text=read.text, anchor=chosen_anchor, trigger=chosen_trigger
+	)
+
+
+
+def series_start (
+	template: subroutine.db.models.work.Task,
+) -> datetime.datetime:
+	"""Return the instant a repeating series is anchored to, or refuse a rule with no date.
+
+	**A deadline wins over a start**, because "the 30th of every month" is overwhelmingly a
+	thing that is *due* then — and where both are set the gap between them is preserved, so
+	an occurrence that starts on the Monday and is due on the Friday keeps its four days.
+
+	A rule with no date at all is refused rather than anchored to the moment it was filed:
+	"every month" from an arbitrary instant means the day somebody happened to type it, which
+	is a date they did not choose and will not remember choosing.
+	"""
+
+	anchor = template.due_at or template.starts_at
+
+	if anchor is None:
+		raise subroutine.errors.ValidationError(
+			"A repeat needs a date to repeat from.",
+			code="invalid_field_value",
+			hint="Give it a deadline or a start — 'every month' says how often, not when.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence",
+					code="invalid_field_value",
+					message="Send 'due' or 'starts' alongside the repeat.",
+				)
+			],
+		)
+
+	return anchor
+
+
+def materialise (
+	session: sqlalchemy.orm.Session,
+	template: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime,
+	after: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task | None:
+	"""Bring the next occurrence of a series into being, or report that it is spent.
+
+	``after`` is the cursor — the occurrence just finished — and ``None`` asks for the first,
+	which is what creation wants. **The anchor and the cursor are separate arguments for the
+	reason ``domain.recurrence`` keeps them apart**: ``COUNT`` and ``UNTIL`` are measured from
+	the series' own start, so passing the cursor as the anchor spends the count on occurrences
+	nobody asked about.
+
+	Returns ``None`` when ``COUNT`` is exhausted or ``UNTIL`` has passed, and marks the
+	template finished on the way out — a series with nothing left is over, and leaving the
+	template open would be a rule that can never fire again sitting in the workspace for ever.
+	"""
+
+	if template.recurrence_rule is None:
+		raise ValueError("materialise() was given a task that carries no repeat.")
+
+	anchor = series_start(template)
+	zone = template.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+
+	occurrence: datetime.datetime | None
+
+	if after is None:
+		# The first one, and inclusive: a series starting on the 30th has its first occurrence
+		# on the 30th, and asking for what comes *after* it would skip a month.
+		found = subroutine.domain.recurrence.occurrences(
+			template.recurrence_rule, start=anchor, timezone=zone, limit=1
+		)
+		occurrence = found[0] if found else None
+
+	elif template.recurrence_anchor == "completion":
+		# **Measured from when the work actually happened** — water the plants fourteen days
+		# after you last did, not fourteen days after you meant to. The series is re-anchored
+		# on the completion instant, which is what that anchor means.
+		occurrence = subroutine.domain.recurrence.following(
+			template.recurrence_rule, start=now, after=now, timezone=zone
+		)
+
+	else:
+		# **The grid holds however late anybody was — but the answer still has to be ahead.**
+		# The cursor clears both the occurrence just finished *and* the moment it was finished,
+		# because a daily series closed a month late would otherwise mint yesterday's, then
+		# the day before's, one overdue row per press until the backlog caught up. "The 1st is
+		# the 1st" is about which dates the series falls on, not about handing somebody a
+		# fortnight of arrears.
+		occurrence = subroutine.domain.recurrence.following(
+			template.recurrence_rule, start=anchor, after=max(after, now), timezone=zone
+		)
+
+	if occurrence is None:
+		# Finished rather than deleted: what repeated, and until when, is a fact worth keeping.
+		if template.completed_at is None:
+			complete(session, template, now=now, actor=actor)
+
+		return None
+
+	shift = occurrence - anchor
+
+	instance = subroutine.db.models.work.Task(
+		id=subroutine.db.types.new_uuid(),
+		workspace_id=template.workspace_id,
+		project_id=template.project_id,
+		parent_task_id=template.parent_task_id,
+		type_id=template.type_id,
+		ref=subroutine.domain.refs.allocate(session, template.workspace_id),
+		title=template.title,
+		description=template.description,
+		status_id=status_for(session, template.workspace_id, None).id,
+		assignee_id=template.assignee_id,
+		assigned_by_id=template.assigned_by_id,
+		importance=template.importance,
+		urgency=template.urgency,
+		estimate_minutes=template.estimate_minutes,
+		due_at=None if template.due_at is None else template.due_at + shift,
+		due_is_all_day=template.due_is_all_day,
+		starts_at=None if template.starts_at is None else template.starts_at + shift,
+		starts_is_all_day=template.starts_is_all_day,
+		# **Deliberately not carried.** A snooze is somebody saying "not yet" about one
+		# occurrence; repeating it would hide every future one for the same reason, which
+		# nobody asked for.
+		snoozed_until=None,
+		snoozed_is_all_day=False,
+		timezone=template.timezone,
+		recurrence_template_id=template.id,
+		occurrence_at=occurrence,
+		is_template=False,
+		path="",
+		depth=0,
+		created_by=None if actor is None else actor.user.id,
+	)
+	subroutine.domain.hierarchy.place(instance, None, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH)
+
+	session.add(instance)
+	session.flush()
+
+	subroutine.domain.mentions.synchronize(
+		session,
+		workspace_id=instance.workspace_id,
+		source_type="task",
+		source_id=instance.id,
+		texts=(instance.title, instance.description),
+	)
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=instance.workspace_id,
+		entity_type="task",
+		entity_id=instance.id,
+		action=subroutine.domain.events.EventAction.CREATED,
+		changes={
+			"ref": {"from": None, "to": instance.ref},
+			"title": {"from": None, "to": instance.title},
+		},
+		actor=actor,
+	)
+	session.flush()
+
+	return instance
+
+
 def create (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -171,6 +420,9 @@ def create (
 	starts_is_all_day: bool | None = None,
 	snooze: datetime.datetime | datetime.date | str | None = None,
 	snoozed_is_all_day: bool | None = None,
+	recurrence: str | None = None,
+	recurrence_anchor: str | None = None,
+	recurrence_trigger: str | None = None,
 	tags: typing.Sequence[str] | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
@@ -216,6 +468,8 @@ def create (
 
 	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
+
+	repeat = _repeat(recurrence, anchor=recurrence_anchor, trigger=recurrence_trigger)
 
 	deadline = subroutine.domain.schedule.interpret(
 		due,
@@ -275,6 +529,15 @@ def create (
 		starts_is_all_day=beginning.is_all_day,
 		snoozed_until=defer.instant,
 		snoozed_is_all_day=defer.is_all_day,
+		# **The row a caller creates *is* the template when they gave a rule** (§6.7), rather
+		# than a third thing built beside it: it already carries the title, the project, the
+		# dates and the priorities somebody typed, which is exactly what each occurrence
+		# inherits. The first instance is minted from it below.
+		recurrence_rule=None if repeat is None else repeat.rule,
+		recurrence_text=None if repeat is None else repeat.text,
+		recurrence_anchor=None if repeat is None else repeat.anchor,
+		recurrence_trigger=None if repeat is None else repeat.trigger,
+		is_template=repeat is not None,
 		# Recorded even when no date was given: recurrence and all-day rendering need to
 		# know the zone the task was authored in, and inferring it later is guesswork.
 		timezone=zone,
@@ -318,7 +581,32 @@ def create (
 	)
 	session.flush()
 
-	return task
+	if repeat is None:
+		return task
+
+	# **The instance is what the caller gets back**, because it is the thing they act on
+	# (§6.7). The template is addressable by its own ref and readable, and is excluded from
+	# every listing — it is a rule, not work.
+	first = materialise(session, task, now=instant, actor=actor)
+
+	if first is None:
+		# **Refused rather than answered with a finished template.** A rule whose every date
+		# is already behind us — `UNTIL` in the past — is a mistake somebody wants told about
+		# now, not one they discover by the item never appearing.
+		raise subroutine.errors.ValidationError(
+			"That repeat names no dates that have not already passed.",
+			code="invalid_field_value",
+			hint="Check the UNTIL or COUNT on the rule, and the date it repeats from.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence",
+					code="invalid_field_value",
+					message="A repeat has to have at least one occurrence still to come.",
+				)
+			],
+		)
+
+	return first
 
 
 def create_from_text (
@@ -665,6 +953,8 @@ def update (
 	)
 	instant = now or subroutine.db.types.utcnow()
 
+	finished_now = False
+
 	deadline: typing.Any = _rescheduled(
 		task.due_at,
 		given=due,
@@ -831,7 +1121,21 @@ def update (
 		if status.category not in FINISHED_CATEGORIES:
 			task.completed_at = None
 		elif task.completed_at is None:
-			task.completed_at = subroutine.db.types.utcnow()
+			# **The call's own instant, not the wall clock** (`#94`). This read `utcnow()`,
+			# so a caller supplying `now` — every test, and every service resolving a batch
+			# against one moment — got a different instant recorded than the one it was
+			# working from. The docstring above already promises the opposite: *"``now`` is
+			# supplied so that every relative expression in one call resolves against a single
+			# instant"*. Found by a `completion`-anchored repeat measuring its next occurrence
+			# from a clock the caller had explicitly overridden.
+			task.completed_at = instant
+
+			# **Noted here and acted on at the end**, because this is the one place in the
+			# program that decides a task has *become* finished. Hanging the next occurrence
+			# off `complete()` instead would miss every other way a done status is set —
+			# `update(status=…)`, the board's drag, the browser's status control — and a
+			# repeat that advances on one surface and not the others is worse than none.
+			finished_now = True
 
 	if moving:
 		moved_from = task.project_id
@@ -939,6 +1243,23 @@ def update (
 		actor=actor,
 	)
 	session.flush()
+
+	# **After the event, so the order reads the way it happened**: this one was finished, then
+	# the next one appeared. The new instance records its own creation, so a change feed shows
+	# both rather than one write that mysteriously produced two rows.
+	if finished_now and task.recurrence_template_id is not None:
+		template = session.get(
+			subroutine.db.models.work.Task, task.recurrence_template_id
+		)
+
+		if template is not None and template.recurrence_rule is not None:
+			materialise(
+				session,
+				template,
+				now=task.completed_at or subroutine.db.types.utcnow(),
+				after=task.occurrence_at or task.completed_at,
+				actor=actor,
+			)
 
 	return task
 

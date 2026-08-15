@@ -430,7 +430,14 @@ UNBUILT: dict[str, str] = {
 #: Stored and never reported, and that is a defect rather than a decision. Same rule as
 #: :data:`UNSETTABLE`: every entry names the item tracking it, and deleting the entry is what
 #: closes that item.
+UNBUILT_NOTE = (
+	"#94 — what brings the next occurrence into being. The template/instance machinery "
+	"writes it; no view publishes it yet, because a client cannot set a repeat either. "
+	"Goes away when the API accepts `recurrence` and the task view reports it."
+)
+
 UNREPORTED: dict[str, str] = {
+	"Task.recurrence_trigger": UNBUILT_NOTE,
 	# **Found by `#854` renaming the *task*'s date columns**, which left this one carrying a
 	# name that now means something else next door. Qualified rather than bare, because
 	# `start_at` no longer exists on `Task` at all and an unqualified entry would read as
