@@ -3009,17 +3009,53 @@ export function Row ({
 		**Complete** button on every card in the board's *Done* column, on work that was already
 		over, where pressing it moves the record of when it finished (`#723`).
 	*/
-	const cells = html`
+	/*
+		**Two lines with fixed jobs: what this item *is*, then what is true of it** (`#911`).
+
+		The identity line is the address and the title, and the title has the rest of the width.
+		The line under it holds every property and then the actions, in that order, on every
+		surface — so a reader scanning a column finds a title where the last one started and a
+		control where the last one was.
+
+		**Splitting them is geometry rather than taste.** A button cannot be nested in a button,
+		so *Complete* has to be a sibling of the row — and a sibling laid out beside it takes
+		width down the card's whole height, which is what wrapped four titles of four on Simon's
+		board while the space beside the button stood empty. For the action to sit *under* the
+		title it has to be on a different line from it, and for it to share that line with the
+		chips the chips cannot be inside the anchor.
+
+		**The cost, stated rather than discovered**: the chips and the date are no longer part of
+		the link, so clicking one does not open the item. The identity line spans the card and
+		wraps to as many lines as the title needs, so the target is larger than it was in the
+		direction that matters. A stretched-link overlay would restore the whole card and is
+		refused: `#906` requires a ref to be selectable and copyable everywhere it appears, and
+		an overlay is exactly what stops text being selected.
+	*/
+	const date = when(item);
+	const acting = completable(item) && onComplete;
+
+	const identity = html`
 		<span class="ref">${where}#${item.ref}</span>
 		<span class="title">${item.title}</span>
-		<span class="when">${when(item)}</span>
-		${badges.length > 0 && html`
-			<span class="marks">
-				${badges.map((mark) => html`
-					<span class="mark ${mark.tone || ""}">${mark.text}</span>
-				`)}
-			</span>
-		`}
+	`;
+
+	/* **Nothing is rendered for an item with nothing to say**, which keeps a plain row one line
+	   — §12.2a's rule that an empty column says nothing, applied to a line instead of a column. */
+	const meta = (badges.length > 0 || date || acting) && html`
+		<div class="meta">
+			${badges.length > 0 && html`
+				<span class="marks">
+					${badges.map((mark) => html`
+						<span class="mark ${mark.tone || ""}">${mark.text}</span>
+					`)}
+				</span>
+			`}
+			${date && html`<span class="when">${date}</span>`}
+			${acting && html`
+				<button class="finish" onClick=${() => onComplete(item)}
+					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+			`}
+		</div>
 	`;
 
 	/* **The `<li>` carries the gesture, not the anchor inside it.** A draggable anchor is
@@ -3029,12 +3065,9 @@ export function Row ({
 	return html`
 		<li ...${lift}>
 			${address
-				? html`<a class="row" href=${address} onClick=${open}>${cells}</a>`
-				: html`<button class="row" onClick=${open}>${cells}</button>`}
-			${completable(item) && onComplete && html`
-				<button class="finish" onClick=${() => onComplete(item)}
-					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
-			`}
+				? html`<a class="row" href=${address} onClick=${open}>${identity}</a>`
+				: html`<button class="row" onClick=${open}>${identity}</button>`}
+			${meta}
 		</li>
 	`;
 }

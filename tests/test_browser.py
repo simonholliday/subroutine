@@ -836,6 +836,21 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	thing; and the first assertion is what stops the comparison passing against a stylesheet with
 	no themes in it at all. The reload is the no-flash script's only witness, since ``app.js``
 	writes the attribute only when the control is used.
+
+	**Raised to fifteen for `#911`, and it is `#846`'s category with a sharper number.** `#748`
+	names layout as one of the three things this file exists for, and the addition asks where two
+	elements are *relative to each other* — beside, or below. There is no arrangement of
+	``tests/dom.js`` that answers it: the shim has no cascade and no layout, so an element laid
+	out alongside another is indistinguishable there from one stacked under it.
+
+	**What earns it is the defect and its size.** Falsified by restoring the old flex row, the
+	identity line measures **191px inside a 300px card** — over a third of every card's width
+	going to a button while the title wrapped to three lines beside it. Found by Simon opening
+	the board, which is where eleven of this browser's defects have come from.
+
+	**Read for fat**: two assertions and one query. The first is the defect; the second says the
+	properties and the action went *under* the title rather than being deleted, which is the
+	other way a title could be given its width and is not this.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -843,8 +858,8 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 14, (
-		f"this file holds {len(tests)} tests: {tests}. Fourteen answering what only a browser "
+	assert len(tests) <= 15, (
+		f"this file holds {len(tests)} tests: {tests}. Fifteen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
@@ -1011,4 +1026,56 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	assert page.evaluate("document.documentElement.dataset.theme") == "light", (
 		"the shell did not apply the stored theme, so a pinned choice flashes the wrong one "
 		"on every load"
+	)
+
+
+def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None:
+	"""`#911`, reported by Simon from the board on a real screen.
+
+	*Complete* cannot be nested in the row — a button inside a button is invalid — so it is a
+	sibling, and a sibling laid out beside the row takes width down the card's entire height.
+	Four titles of four wrapped to three lines each while the space alongside the button stood
+	empty.
+
+	**Two assertions, and the first is the defect.** The identity line must be as wide as the
+	card: under the old layout it was narrower by the width of a button, which is what pushed
+	the title into wrapping. The second says where the properties and the action went — under
+	the title rather than beside it — because a title could also be given its width by deleting
+	the control, and that is not this.
+
+	Only a browser can answer either. `tests/dom.js` has no cascade and no layout, so it cannot
+	tell an element laid out beside another from one laid out below it.
+	"""
+
+	opened, _written = running
+	page = opened("/projects?view=board")
+	page.wait_for_selector(".board .rows li", timeout=10_000)
+
+	measured = page.eval_on_selector(
+		".board .rows li:has(.finish)",
+		"""card => {
+			const row = card.querySelector(".row");
+			const meta = card.querySelector(".meta");
+			return {
+				card: Math.round(card.getBoundingClientRect().width),
+				row: Math.round(row.getBoundingClientRect().width),
+				rowBottom: Math.round(row.getBoundingClientRect().bottom),
+				metaTop: meta ? Math.round(meta.getBoundingClientRect().top) : null,
+			};
+		}""",
+	)
+
+	assert measured["metaTop"] is not None, (
+		"no card carries a Complete button, so this measured a card without the thing that "
+		"used to take the width"
+	)
+
+	assert measured["row"] == measured["card"], (
+		f"the identity line is {measured['row']}px inside a {measured['card']}px card, so "
+		f"something beside it is taking width the title could have used: {measured}"
+	)
+
+	assert measured["metaTop"] >= measured["rowBottom"], (
+		f"the properties and the action are level with the title rather than under it, so the "
+		f"title's width is whatever they left: {measured}"
 	)

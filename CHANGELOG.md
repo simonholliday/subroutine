@@ -16,6 +16,17 @@ upgrade involves.
 
 ### Changed
 
+- **A row gives its whole width to the title, and puts its properties and actions in the same
+  place every time.** *Complete* used to sit beside the row and take width from it down the
+  card's whole height, so titles wrapped to three lines while the space next to the button stood
+  empty — on a board card, over a third of the width. The title now spans the card, with every
+  property and then every action on the line beneath it, the same way on the list, the board and
+  the agenda.
+
+  **One thing behaves differently**: a row's chips and its date are no longer part of the link,
+  so clicking one does not open the item. The title spans the card and wraps to as many lines as
+  it needs, so the area that does open it is larger than it was.
+
 - **A listing shows a project's name rather than its key.** A row's chips read
   `Subroutine` and `Web UI` where they used to read `subroutine` and `ui` — every other chip on
   a row is something written for a person, and the project was the one address among them. The

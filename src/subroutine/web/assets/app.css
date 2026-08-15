@@ -697,16 +697,17 @@ fieldset {
 	font-size: var(--text-small);
 }
 
-/* A card is a row without the horizontal grid: in a 260px column a three-cell line wraps into
-   nonsense, so the title takes the width and everything else sits under it. */
+/* A card is a row without the horizontal grid: in a 260px column a 4.5rem address column
+   leaves a title about 150px wide, which wraps into nonsense. The ref sits on the title's line
+   instead and the title takes what is left — which since `#911` is the whole card, because the
+   properties and the action moved beneath it rather than standing alongside. */
 .board .row {
 	display: block;
-	padding: var(--space-5) var(--space-6);
+	padding: var(--space-5) var(--space-6) 0;
 }
 
 .board .row .ref { display: inline; margin-right: var(--space-3); }
-.board .row .when { display: block; margin-top: var(--space-1); }
-.board .row .marks { margin-top: var(--space-3); }
+.board .meta { padding: var(--space-3) var(--space-6) var(--space-5); }
 
 /* How the rows are arranged (`#651`). Two words, so it reads as a choice rather than as a
    toolbar. */
@@ -796,14 +797,13 @@ fieldset {
 */
 .row {
 	display: grid;
-	grid-template-columns: 4.5rem 1fr auto;
+	grid-template-columns: 4.5rem 1fr;
 	gap: var(--space-2) var(--space-6);
 	align-items: baseline;
 	width: 100%;
-	padding: var(--space-5) var(--space-7);
+	padding: var(--space-5) var(--space-7) 0;
 	background: none;
 	border: 0;
-	border-top: 1px solid var(--line);
 	color: inherit;
 	font: inherit;
 	text-align: left;
@@ -811,24 +811,42 @@ fieldset {
 	cursor: pointer;
 }
 
-/* The row and its Complete button are siblings inside the item, because a button cannot
-   contain another one. The `li` is what makes them read as one line. */
-.rows li {
+/*
+	**The properties, then the actions, under a title that had the whole width** (`#911`).
+
+	These were laid out beside the row: the button was a flex sibling, so it took width down the
+	card's entire height and the title wrapped against it while the space alongside stood empty.
+	It is a sibling because a button cannot be nested in a button — so the only place it can go
+	without narrowing the title is a line of its own, and the chips join it there rather than
+	leaving two half-empty lines.
+
+	**Order is fixed and is the point**: every property, then every action, on the list, the
+	board and the agenda alike. A reader scanning a column should not have to find where each
+	card put its control.
+*/
+.meta {
 	display: flex;
-	align-items: stretch;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-3) var(--space-7) var(--space-5);
+}
+
+/* Pushed to the far end, so the actions are one group however many chips precede them. */
+.meta .finish { margin-left: auto; }
+
+/* The row, its properties and its actions are one item, and the `li` is what says so. */
+.rows li {
+	display: block;
 	border-top: 1px solid var(--line);
 }
 
 .rows li:first-child { border-top: 0; }
 .rows li:hover { background: var(--bg-sunken); }
 
-.row { border-top: 0; }
 .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .finish {
-	flex: 0 0 auto;
-	align-self: center;
-	margin: 0 var(--space-5) 0 var(--space-2);
 	padding: var(--space-2) var(--space-5);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line-strong);
@@ -846,10 +864,9 @@ fieldset {
 
 .row .ref { color: var(--ink-faint); font-size: var(--text-small); }
 .row .title { font-weight: 500; }
-.row .when { color: var(--ink-soft); font-size: var(--text-small); white-space: nowrap; }
+.meta .when { color: var(--ink-soft); font-size: var(--text-small); white-space: nowrap; }
 
-.row .marks {
-	grid-column: 2 / -1;
+.meta .marks {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-3);
@@ -946,8 +963,10 @@ fieldset {
 	`grab` only where a card can be lifted — a row on a list is not draggable, so it must not
 	claim to be.
 */
-.board .rows li[draggable="true"] .row { cursor: grab; }
-.board .rows li[draggable="true"] .row:active { cursor: grabbing; }
+/* On the `li` rather than on `.row`, because since `#911` the card is two elements and a
+   grab cursor on one of them says the other cannot be picked up. `.finish` sets its own. */
+.board .rows li[draggable="true"] { cursor: grab; }
+.board .rows li[draggable="true"]:active { cursor: grabbing; }
 
 .column.over {
 	border: 1px dashed var(--accent);
@@ -1223,7 +1242,6 @@ fieldset {
 
 @media (max-width: 620px) {
 	.row { grid-template-columns: 3.5rem 1fr; }
-	.row .when { grid-column: 2; }
 	.facts { grid-template-columns: 1fr; gap: var(--space-1); }
 	.facts dd { margin-bottom: var(--space-4); }
 }
