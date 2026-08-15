@@ -17,6 +17,7 @@ the arrangement. The output looked entirely reasonable.
 """
 
 import datetime
+import types
 import typing
 
 import pytest
@@ -254,3 +255,51 @@ def test_the_view_side_band_agrees_with_the_predicate_the_query_uses (
 		)
 
 	assert subroutine.domain.ordering.put_off(Row()) == expected
+
+
+def test_an_unestimated_task_sorts_last_whichever_way_the_estimate_runs () -> None:
+	"""`#319`'s open design question, answered by measuring rather than by banding.
+
+	That item expected this to need §6.3a's treatment — explicit bands, because most of the
+	backlog has no estimate. Two measurements changed it. **105 of 163 open tasks carry one**
+	(64%, not "most have none"), and `NULLS LAST` is already applied in **both** directions by
+	`ordering.terms`, which is exactly the arrangement bands would have been built to produce.
+
+	The reason no band is needed is that the two fields are different shapes. `priority_score`
+	bands because a part-ranked item has a real value on a *different scale* — one axis runs 1
+	to 5 where the product runs 1 to 25 — so one column would sort "critically important,
+	urgency unjudged" below "judged trivial". An estimate has one scale and one absence.
+
+	**Both directions, because one of them passing proves nothing.** Ascending means shortest
+	first and an unestimated task is not known to be short; descending means longest first and
+	it is not known to be long. Last is honest either way, and a test of one direction would be
+	satisfied by an ordering that put nulls first in the other.
+	"""
+
+	for expression in ("estimate_minutes", "-estimate_minutes"):
+		terms = subroutine.domain.ordering.clauses(
+			expression,
+			allowed=subroutine.domain.ordering.TASK_FIELDS,
+			default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+			tiebreak=subroutine.db.models.work.Task.id,
+		)
+
+		rendered = str(terms[0].compile(compile_kwargs={"literal_binds": True}))
+
+		assert "NULLS LAST" in rendered.upper(), f"{expression} put the unestimated first"
+
+
+def test_the_estimate_can_be_sorted_on_by_a_merged_listing () -> None:
+	"""A sort field the CLI silently ignores is worse than one it refuses.
+
+	This file already fails if `TASK_FIELDS` grows a name `VIEW_READERS` has not got — this
+	names the one `#319` added, so the failure has a case beside it rather than only a rule.
+	"""
+
+	assert "estimate_minutes" in subroutine.domain.ordering.VIEW_READERS
+
+	reader = subroutine.domain.ordering.VIEW_READERS["estimate_minutes"]
+
+	assert reader(types.SimpleNamespace(estimate_minutes=90)) == 90
+	# A document has no estimate, and a merged page holds both kinds.
+	assert reader(types.SimpleNamespace()) is None

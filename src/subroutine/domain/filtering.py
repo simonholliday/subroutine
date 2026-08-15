@@ -40,6 +40,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.schedule
@@ -144,7 +145,7 @@ def _day_predicate (
 	)
 
 	if day is None:
-		raise _unreadable(field, value)
+		raise _unreadable(field, value, DAY)
 
 	return OPERATORS[operator](column, day)
 
@@ -165,6 +166,32 @@ def _no_predicate_of_its_own (
 	"""
 
 	raise AssertionError(f"{field!r} compiles as part of a group, not on its own")
+
+
+def _duration_predicate (
+	column: typing.Any,
+	operator: str,
+	value: str,
+	field: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> typing.Any:
+	"""Compare a column holding minutes against §6.4's grammar.
+
+	**Through `durations.parse`, which is the one place that grammar lives** — so `2h` means
+	here exactly what `~2h` means in a captured line, and `1d` means 24 hours here exactly as
+	it does there. That last one is a trap `#544` records and this deliberately does not
+	soften: a filter that read a working day where the rest of the program reads a calendar one
+	would be a second answer to a question already settled.
+	"""
+
+	try:
+		minutes = subroutine.domain.durations.parse(value, field=field)
+
+	except subroutine.errors.ValidationError:
+		raise _unreadable(field, value, DURATION) from None
+
+	return OPERATORS[operator](column, minutes)
 
 
 class Kind (typing.NamedTuple):
@@ -227,6 +254,20 @@ WHO = Kind(
 	predicate=_no_predicate_of_its_own,
 	expects="a username",
 	operators=frozenset({"eq"}),
+)
+
+#: How long the work is expected to take — `#319`, and the half of that question there was no
+#: way to express at all.
+#:
+#: **Every operator, unlike :data:`INSTANT`.** The argument that refuses `created_at.eq` is
+#: about precision: a timestamp is stored to the microsecond, so equality against one almost
+#: never matches what somebody meant. An estimate is a whole number of minutes that a person
+#: typed, so `estimate_minutes.eq=2h` compares two numbers and means what it says — and `ne`
+#: with it, which reads as *not the ones I said were two hours*.
+DURATION = Kind(
+	predicate=_duration_predicate,
+	expects="a length of time, like `30m`, `2h` or `1h30m` — or a bare number of minutes",
+	operators=frozenset(OPERATORS),
 )
 
 
@@ -307,6 +348,14 @@ TASK_FILTERS: dict[str, Filterable] = {
 	# timezone here, and comparing it against a UTC instant is `#773` waiting to happen.
 	"planned_for": Filterable(
 		column=subroutine.db.models.work.Task.planned_for, kind=DAY
+	),
+	# `#319`. **No index, and here anyway on the same measured grounds as `completed_at` and
+	# `start_at` above**: the question it was filed for — *what is short and not blocked* —
+	# needs it, and the largest workspace on this instance holds 163 open tasks. The comment at
+	# the head of this registry is the promise being weighed, and this entry is a place to look
+	# when it stops being true.
+	"estimate_minutes": Filterable(
+		column=subroutine.db.models.work.Task.estimate_minutes, kind=DURATION
 	),
 	**_worked_on(subroutine.db.models.work.Task.id),
 }
@@ -739,17 +788,33 @@ def _no_such_operator (
 	)
 
 
-def _unreadable (field: str, value: str) -> subroutine.errors.ValidationError:
-	"""Refuse a value that named no moment at all, which is what an empty one does."""
+def _unreadable (
+	field: str, value: str, kind: Kind = INSTANT
+) -> subroutine.errors.ValidationError:
+	"""Refuse a value this field could not read, saying what it does take.
+
+	**The wording comes from the kind rather than from this function** (`#319`). It said
+	*"does not say when"* and pointed at the date grammar, which was true of every field there
+	was until an estimate became filterable — and would then have answered a caller who wrote
+	``estimate_minutes.lte=fortnight`` with advice about `relative_dates`. One of a thing, in a
+	refusal: the message was correct for as long as there was only one kind of value.
+
+	``INSTANT`` is the default because three of the four callers are date-shaped and passing it
+	at each would be noise; the one that is not says so.
+	"""
 
 	return subroutine.errors.ValidationError(
-		f"{value!r} does not say when.",
+		f"{value!r} could not be read.",
 		errors=[
 			subroutine.errors.FieldError(
 				field=field,
 				code="invalid_field_value",
-				message=f"{field!r} could not be read as a moment.",
-				hint="GET /v1/meta publishes the date grammar under `relative_dates`.",
+				message=f"{field!r} takes {kind.expects}.",
+				hint=(
+					"GET /v1/meta publishes the date grammar under `relative_dates`."
+					if kind is INSTANT or kind is DAY
+					else "GET /v1/meta publishes what each filter accepts."
+				),
 			)
 		],
 	)

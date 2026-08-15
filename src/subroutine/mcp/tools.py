@@ -103,9 +103,15 @@ DATE_FILTER = {
 	"type": "object",
 	"additionalProperties": {"type": "string"},
 	"description": (
-		"Narrow by when and by whom: {'created_at.gte': 'yesterday'}; two entries make a "
-		f"range. gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}; "
+		"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
+		"entries make a range. gt/gte/lt/lte on "
+		f"{_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}; "
 		f"{_fields_of(subroutine.domain.filtering.DAY)} is a day and takes eq too. "
+		# **`#319`, and it is named here because `#821` is what happens otherwise**: a field
+		# accepted and unpublished is one an agent never learns, because it does not send the
+		# word and get corrected — it never sends it. 48 bytes, from slack rather than by
+		# moving the cap, and it is the one filter that answers *what can I finish now*.
+		f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
 		"touched_at is *worked on* — a comment or status change counts, which no other "
 		"field sees. touched_by takes a username and pairs with it."
 	),

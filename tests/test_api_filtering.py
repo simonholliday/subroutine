@@ -324,17 +324,42 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 		# **The value follows the field's kind**, read from the registry rather than fixed —
 		# `touched_by` takes a username, and driving every combination with `today` refused it
 		# with *there is no account called 'today'*, which is the route working correctly.
-		value = (
-			world.user.username
-			if subroutine.domain.filtering.FILTERS[entity][
-				name.partition(".")[0]
-			].kind
-			is subroutine.domain.filtering.WHO
-			else "today"
-		)
+		kind = subroutine.domain.filtering.FILTERS[entity][name.partition(".")[0]].kind
+		value = _sample(kind, world)
+
 		answer = world.call("GET", f"{published_path(published, entity)}?{name}={value}")
 
 		assert answer.status_code == 200, f"{name} is published and refused: {answer.text}"
+
+
+#: A value each kind of filter can actually read.
+#:
+#: **A map with a completeness check rather than a chain of conditions** (`#319`). This was an
+#: if/else on `WHO`, so a third kind fell through to `today` — and `estimate_minutes.lte=today`
+#: is refused, which arrives looking like a broken route rather than like a test that has not
+#: been told about a new kind. The failure below names the real problem instead.
+_SAMPLES: dict[str, str] = {
+	"INSTANT": "today",
+	"DAY": "today",
+	"DURATION": "2h",
+}
+
+
+def _sample (kind: subroutine.domain.filtering.Kind, world: World) -> str:
+	"""Return something this kind of filter will accept."""
+
+	if kind is subroutine.domain.filtering.WHO:
+		return str(world.user.username)
+
+	for name, value in _SAMPLES.items():
+		if kind is getattr(subroutine.domain.filtering, name):
+			return value
+
+	raise AssertionError(
+		f"no sample value for a filter of this kind ({kind.expects!r}). Add one to _SAMPLES, "
+		f"or the case above will drive it with something it cannot read and report the route "
+		f"as broken."
+	)
 
 
 def published_path (published: list[str], entity: str) -> str:
@@ -521,3 +546,85 @@ def test_working_on_something_unfinished_is_a_question_you_may_still_ask (
 
 	assert answer.status_code == 200, answer.text
 	assert "the 1st" not in [item["title"] for item in answer.json()["items"]]
+
+
+def test_a_listing_answers_what_is_short (world: World) -> None:
+	"""`#319`, and the half there was no way to express at all.
+
+	``~2h`` is one of four things the capture grammar reads off a line, it is rendered by
+	three surfaces and published in ``/v1/meta`` — so people are asked to supply it and it
+	then answered no question. `#251`'s shape: collected, displayed, and read by nothing that
+	decides anything.
+
+	**§6.4's grammar, through ``durations.parse``**, so ``2h`` means here exactly what ``~2h``
+	means in a captured line. Driven with all three spellings of the same length, because a
+	filter that took only the bare number would be a second grammar for one value.
+	"""
+
+	world.call("POST", "/v1/tasks", json={"text": "Quick one ~20m"})
+	world.call("POST", "/v1/tasks", json={"text": "Medium ~2h"})
+	world.call("POST", "/v1/tasks", json={"text": "Long one ~3d"})
+	world.call("POST", "/v1/tasks", json={"title": "Unestimated"})
+
+	for spelling in ("2h", "120", "1h30m"):
+		answer = world.call("GET", f"/v1/tasks?estimate_minutes.lte={spelling}")
+
+		assert answer.status_code == 200, answer.text
+
+		titles = {row["title"] for row in answer.json()["items"]}
+		expected = {"Quick one", "Medium"} if spelling != "1h30m" else {"Quick one"}
+
+		assert titles == expected, f"{spelling} selected {titles}"
+
+	# **The unestimated are not "short".** Absent from every comparison, which is what a null
+	# means in SQL and is also the honest answer: nobody has said how long it takes.
+	both = world.call("GET", "/v1/tasks?estimate_minutes.gte=0").json()["items"]
+
+	assert "Unestimated" not in {row["title"] for row in both}
+
+
+def test_the_question_the_item_was_filed_for (world: World) -> None:
+	"""*Not blocked, and small* — asked for by Simon on 2026-08-02 and unanswerable until now.
+
+	``--ready`` answered the first half from the beginning and there was no way to say the
+	second on any surface. Driven as one request because that is how it was asked.
+	"""
+
+	world.call("POST", "/v1/tasks", json={"text": "Quick and free ~20m"})
+	world.call("POST", "/v1/tasks", json={"text": "Quick but big ~3d"})
+
+	blocked = world.call("POST", "/v1/tasks", json={"text": "Quick but blocked ~15m"}).json()
+	blocker = world.call("POST", "/v1/tasks", json={"title": "In the way"}).json()
+
+	world.call(
+		"POST",
+		f"/v1/tasks/{blocker['ref']}/links",
+		json={"target": blocked["ref"], "link_type": "blocks", "target_type": "task"},
+	)
+
+	answer = world.call(
+		"GET", "/v1/tasks?ready=true&estimate_minutes.lte=1h&order=estimate_minutes"
+	)
+
+	assert answer.status_code == 200, answer.text
+	assert [row["title"] for row in answer.json()["items"]] == ["Quick and free"]
+
+
+def test_a_length_that_cannot_be_read_is_refused_in_its_own_words (world: World) -> None:
+	"""**The refusal says what the field takes, and it used to say what a date takes.**
+
+	`_unreadable` answered *"does not say when"* and pointed at `relative_dates`, which was
+	true of every filterable field there was until an estimate became one — so a caller writing
+	``estimate_minutes.lte=fortnight`` would have been given the date grammar. One of a thing,
+	in a refusal.
+	"""
+
+	answer = world.call("GET", "/v1/tasks?estimate_minutes.lte=fortnight")
+
+	assert answer.status_code == 422, answer.text
+
+	reported = answer.json()["errors"][0]
+
+	assert reported["field"] == "estimate_minutes"
+	assert "30m" in reported["message"], "it has to say what a length looks like"
+	assert "relative_dates" not in (reported["hint"] or ""), "and not what a date looks like"

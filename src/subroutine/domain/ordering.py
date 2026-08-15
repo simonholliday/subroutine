@@ -388,6 +388,22 @@ TASK_FIELDS: dict[str, Sortable] = {
 	"completed_at": subroutine.db.models.work.Task.completed_at,
 	"due_at": subroutine.db.models.work.Task.due_at,
 	"planned_for": subroutine.db.models.work.Task.planned_for,
+	# **A plain column, and the null question §6.3a needed bands for does not arise here**
+	# (`#319`). That item asked what an unestimated task should mean to this ordering, and
+	# expected the answer to be a banded expression like `priority_score` above.
+	#
+	# It is not, because the two are different shapes. `priority_score` bands because a
+	# *part*-ranked item has a real value on a different scale — one axis runs 1 to 5 and the
+	# product runs 1 to 25 — so leaving them in one column sorts "critically important, urgency
+	# unjudged" below "judged trivial". An estimate has one scale and one absence: either
+	# minutes, or nothing.
+	#
+	# So `NULLS LAST` is the whole rule, and it is right in **both** directions rather than
+	# convenient in one. Ascending means *shortest first* and an unestimated task is not known
+	# to be short; descending means *longest first* and it is not known to be long. Last is the
+	# honest place either way, which is §6.3a's principle — more known before less known —
+	# reached without a band.
+	"estimate_minutes": subroutine.db.models.work.Task.estimate_minutes,
 	"importance": subroutine.db.models.work.Task.importance,
 	"urgency": subroutine.db.models.work.Task.urgency,
 	"priority_score": Derived(
@@ -475,6 +491,9 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	"completed_at": lambda item: getattr(item, "completed_at", None),
 	"due_at": lambda item: getattr(item, "due_at", None),
 	"planned_for": lambda item: getattr(item, "planned_for", None),
+	# `#319`. Read rather than derived from `estimate_human`, which is the same number said
+	# for a person and would have to be parsed back to compare two of them.
+	"estimate_minutes": lambda item: getattr(item, "estimate_minutes", None),
 	"importance": lambda item: getattr(item, "importance", None),
 	"urgency": lambda item: getattr(item, "urgency", None),
 	"priority_score": lambda item: getattr(item, "rank", None),

@@ -49,6 +49,24 @@ upgrade involves.
 
 ### Added
 
+- **The backlog can be asked what is short.** An estimate is now something you can sort by
+  and filter on, so *"what is small and not blocked"* is one question:
+
+  ```console
+  $ subroutine list --ready --order estimate_minutes --filter estimate_minutes.lte=2h
+  ```
+
+  The filter takes the same grammar as `~2h` in a captured line, so `30m`, `1h30m` and a bare
+  number of minutes all work, and every comparison is available — `lte`, `gte`, `eq` and the
+  rest. `GET /v1/tasks?estimate_minutes.lte=2h&order=estimate_minutes` over HTTP.
+
+  **A task nobody has estimated sorts last in both directions.** Ascending means shortest
+  first and an unestimated task is not known to be short; descending means longest first and
+  it is not known to be long.
+
+  An estimate has been read off a captured line, rendered by three surfaces and published in
+  `/v1/meta` since the beginning, and answered no question until now.
+
 - **An item can be moved under another one, or back to the top level.** `subroutine move 42
   --under 7` makes #42 part of #7; `subroutine move 42 --top` takes it back out. Its own
   parts travel with it.
