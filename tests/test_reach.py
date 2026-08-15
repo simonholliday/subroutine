@@ -328,12 +328,15 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"agent that reaches for it is told, and `subroutine_call_api` reaches "
 		"`POST /v1/tasks/{ref}/move` today. That escape hatch is what `#484` built for "
 		"exactly this shape of capability.\n\n"
-		"**`#17` is what would change it**, and is parked and Simon's: if a release's "
-		"contents become its sub-tasks, then assembling one out of items that already exist "
-		"*is* re-parenting, and it becomes something an agent does routinely rather than "
-		"once. Adding the tool then is a raise of both the count and the byte cap, with the "
-		"argument written into `tests/test_mcp.py` as §21.2 requires. **Deleting this entry "
-		"is what would close that.**",
+		"**What would change it is a model in which membership is the parent link** — if a "
+		"release's contents become its sub-tasks, then assembling one out of items that "
+		"already exist *is* re-parenting, and it becomes something an agent does routinely "
+		"rather than once. Adding the tool then is a raise of both the count and the byte "
+		"cap, with the argument written into `tests/test_mcp.py` as §21.2 requires. "
+		"**Deleting this entry is what would close that.**\n\n"
+		"That question was `#17`, which is **in the trash** as of 2026-08-15 — so the "
+		"condition is written out here rather than left as a ref, because an excuse whose "
+		"trigger is an item nobody can reach is one that can never fire (`#820`'s shape).",
 	),
 	"count_tasks": (
 		"budget",
