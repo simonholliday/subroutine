@@ -18,7 +18,7 @@ Rails application, you have already done this.
 
 **If you are not the one standing the server up, you want
 [docs/connecting.md](connecting.md) instead.** This page is the operator's end; that one is
-organised by which of five situations a person reaching an instance is in, and says what to ask
+organised by which of six situations a person reaching an instance is in, and says what to ask
 you for. Sending it to whoever you issue a token to saves the conversation.
 
 > **One thing that is not optional.** Subroutine authenticates with bearer tokens, and a bearer
@@ -1317,11 +1317,11 @@ copy where it landed, migrate, then read the schema back rather than assuming.
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema c7d419e6a2b8.
-  The database is at 233f898a2bee.
+  Subroutine 0.7.1 expects schema c7d419e6a2b8.
+  The database is at ce11c7d2df2f.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
-  Backed up to /srv/backups/subroutine/subroutine-20260731T144206Z-233f898a2bee.sql (60,069 bytes).
-  Upgraded from 547fe53b263c to c7d419e6a2b8.
+  Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-ce11c7d2df2f.sql (63,584 bytes).
+  Upgraded from ce11c7d2df2f to c7d419e6a2b8.
 ```
 
 It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
@@ -1329,7 +1329,7 @@ also the cheapest way to ask the question:
 
 ```console
 $ subroutine db upgrade
-  Subroutine 0.5.0 expects schema c7d419e6a2b8.
+  Subroutine 0.7.1 expects schema c7d419e6a2b8.
   The database is at c7d419e6a2b8.
   Nothing to do.
 ```

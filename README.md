@@ -126,7 +126,7 @@ The full hosting recipe is in [docs/hosting.md](https://github.com/simonholliday
 commands and `subroutine explain dates` covers the ideas behind them.
 
 **Reaching an instance somebody else runs is [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)**, which
-is organised by which of five situations you are in rather than by how the software is built.
+is organised by which of six situations you are in rather than by how the software is built.
 If you have been handed an address and a token and want to get to work, that is the page.
 
 ---
@@ -572,7 +572,7 @@ repository.
 
 ## Documentation
 
-- **[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)** — the five ways to reach an instance, organised
+- **[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)** — the six ways to reach an instance, organised
   by which one you are. Start here if somebody has handed you an address and a token.
 - **[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** — running it as a service, end to end.
 - **[CHANGELOG.md](https://github.com/simonholliday/subroutine/blob/main/CHANGELOG.md)** — what changed, and which releases need a database

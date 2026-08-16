@@ -359,6 +359,14 @@ upgrade involves.
 
 ### Fixed
 
+- **`starlette` is a declared dependency now.** Nineteen modules here import it directly and
+  nothing named it, so the version you got was whatever FastAPI last chose. Nothing changes for
+  an existing install; it means a resolver can no longer hand you one these imports do not
+  exist in.
+
+- **`SECURITY.md` no longer tells you to run a command that was renamed**, and four pages that
+  counted the ways to reach an instance no longer say five when there are six.
+
 - **A document's owner must be somebody who is in the workspace.** Writing one with an
   `owner_id` naming an account that does not exist answered a bare 500; naming a real account
   outside the workspace answered 201 and left the document owned by somebody who cannot see it.

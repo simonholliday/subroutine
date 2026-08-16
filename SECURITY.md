@@ -63,7 +63,8 @@ boundary is exactly where mistakes hide:
 **The most recent release**, which is the only version that gets a fix. Subroutine is `0.x`: it
 is early, the surface is still moving, and pretending to maintain several lines at once would be
 a promise nobody could keep. Upgrading is `uv tool upgrade subroutine` or `pipx upgrade
-subroutine` — whichever you installed it with — and then `subroutine upgrade` for the database.
+subroutine` — whichever you installed it with — and then `subroutine db upgrade` for the
+database.
 
 ## One thing this project cannot do for you
 

@@ -296,7 +296,7 @@ Claude Code and the desktop apps only.
 connector.** This is not built yet, and saying so is more useful than a page that implies
 otherwise.
 
-It is a different problem from the four above rather than a bigger one. A connector's traffic
+It is a different problem from the ways above rather than a bigger one. A connector's traffic
 comes *from Anthropic's servers* rather than from your machine, so:
 
 - the instance has to be reachable from the public internet — a laptop or a machine behind a

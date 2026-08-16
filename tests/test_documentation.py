@@ -12,6 +12,7 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 "still accurate" from "reworded" would fail on every edit and be switched off.
 """
 
+import json
 import pathlib
 import re
 import shlex
@@ -35,6 +36,7 @@ HOSTING = ROOT / "docs" / "hosting.md"
 CONNECTING = ROOT / "docs" / "connecting.md"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
+RELEASES = ROOT / "docs" / "releases.json"
 
 
 @pytest.fixture
@@ -1877,6 +1879,237 @@ def test_the_connecting_page_counts_its_own_ways_correctly () -> None:
 
 	assert len(rows) == _WAYS.index(stated[0]) + 1, (
 		f"the page says {stated[0]} ways and its table routes to {len(rows)}"
+	)
+
+
+#: A command written into prose rather than into a console block: `` `subroutine db upgrade` ``
+#: in the middle of a sentence. The console blocks are read and *run* by the scan further down;
+#: this catches the ones nobody would type from a transcript and everybody reads.
+_NAMED_IN_PROSE = re.compile(r"`(subroutine\s+[^`]*)`")
+
+#: Every page a stranger reads that names a command in prose.
+#:
+#: **`SECURITY.md` is here because nothing scanned it at all**, and it told a person patching a
+#: vulnerability to run ``subroutine upgrade`` — removed by `#509`, which deliberately kept no
+#: alias because the name had come to mean very nearly the opposite. So the one page whose
+#: reader is in a hurry and cannot ask us pointed at a command that exits 2.
+#:
+#: The changelog is deliberately absent, for ``PUBLISHED``'s reason: it records what a release
+#: did, and a release that renames a command has to be able to say the old name.
+_PROSE_PAGES: tuple[pathlib.Path, ...] = (
+	README,
+	HOSTING,
+	CONNECTING,
+	ROOT / "SECURITY.md",
+	ROOT / "CONTRIBUTING.md",
+)
+
+
+def test_every_command_named_in_prose_exists () -> None:
+	"""The console blocks are run; the sentences around them were read by nothing.
+
+	``tests/test_plugin.py`` puts this on the skill and :func:`test_the_readme_only_shows_commands_that_exist`
+	puts it on the README's blocks — and a command named in the middle of a sentence went
+	through neither. That is where the stale one was.
+
+	Only the word after ``subroutine`` is checked, and only when it is a plain word: a page
+	writing ``subroutine <ref>`` or ``subroutine --version`` is not naming a command, and a
+	guard that guessed at those would be turned off rather than trusted. Measured over every
+	page here before it was written — 37 spans, no false positives.
+	"""
+
+	registered = {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+	} | {group.name for group in subroutine.cli.main.app.registered_groups if group.name}
+
+	named: dict[str, set[str]] = {}
+
+	for page in _PROSE_PAGES:
+		for span in _NAMED_IN_PROSE.finditer(page.read_text(encoding="utf-8")):
+			words = span.group(1).split()
+
+			if len(words) > 1 and words[1].isalpha():
+				named.setdefault(page.name, set()).add(words[1])
+
+	assert sum(len(words) for words in named.values()) > 20, (
+		f"only {named} were found, so this is reading almost nothing"
+	)
+
+	wrong = {
+		name: sorted(words - registered - _NOT_A_COMMAND)
+		for name, words in named.items()
+		if words - registered - _NOT_A_COMMAND
+	}
+
+	assert not wrong, f"These pages name commands that do not exist: {wrong}"
+
+
+def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> None:
+	"""Three impossible things in six quoted lines, and every one of them a rendered variable.
+
+	The page opens by promising that every quoted output is what the program actually printed,
+	"with only paths and hostnames moved". The upgrade transcript said the database was at one
+	revision and then that it had been upgraded *from a different one* — two renderings of one
+	variable, disagreeing. Its backup filename was missing the instance-name segment that every
+	other example on the page carries. And its version and schema were a pair no release has
+	ever had.
+
+	**Checked against what the program does rather than against a copy of the transcript.** The
+	two revisions have to be the same value because one variable prints them both, and the
+	filename is rebuilt from the parts ``db/backup`` composes it from.
+
+	**The version and the schema are deliberately not compared against
+	``docs/releases.json``**, and the review that found the other two thought they should be.
+	They cannot both hold: `#314` requires the ``expects schema`` line to name *this build's*
+	head, because that is the line a reader compares against their own instance, and this
+	build's head is by definition unreleased whenever a migration is unshipped. `#343` settled
+	the other half — the version is illustrative and is not pinned, because pinning it would
+	make every release edit this page. So the pair is a version from ``releases.json`` beside
+	the schema the reader will actually see, and the third thing the review counted is a
+	consequence of two decisions rather than a mistake.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	quoted = re.search(
+		r"Subroutine (?P<version>\S+) expects schema (?P<head>\w+)\.\n"
+		r"\s*The database is at (?P<at>\w+)\.\n"
+		r"\s*About to upgrade[^\n]*\n"
+		r"\s*Backed up to (?P<backup>\S+) \([\d,]+ bytes\)\.\n"
+		r"\s*Upgraded from (?P<origin>\w+) to (?P<reached>\w+)\.",
+		page,
+	)
+
+	assert quoted is not None, "the upgrade transcript is not on the page in the shape it had"
+
+	assert quoted["at"] == quoted["origin"], (
+		f"the database is said to be at {quoted['at']} and then upgraded from "
+		f"{quoted['origin']} — one variable, printed twice, disagreeing"
+	)
+	assert quoted["head"] == quoted["reached"], (
+		f"it expects {quoted['head']} and reaches {quoted['reached']}"
+	)
+
+	# The filename `db/backup` composes: the program, the instance, the instant, the revision
+	# it was taken at. The instance segment is what the old example had lost.
+	name = pathlib.PurePosixPath(quoted["backup"]).name
+	parts = name.removesuffix(".sql").split("-")
+
+	assert parts[0] == "subroutine", name
+	assert parts[1] == "default", f"{name} names no instance, and every backup here does"
+	assert parts[-1] == quoted["origin"], f"{name} is not stamped with the revision it holds"
+
+	published = {
+		release["version"] for release in json.loads(RELEASES.read_text(encoding="utf-8"))["releases"]
+	}
+
+	assert quoted["version"] in published, (
+		f"the transcript quotes version {quoted['version']}, which was never released — the "
+		f"version is illustrative but it should still be one somebody could have installed"
+	)
+
+
+def _signposts () -> set[str]:
+	"""Return the commands that exist only to say where they went.
+
+	Derived from the callback's name rather than listed, so it cannot fall behind — and
+	asserted non-empty, because a derivation that finds nothing reads exactly like a tree with
+	nothing to find. `#509` is the one there is: ``subroutine upgrade`` is registered, hidden,
+	and prints a sentence naming ``subroutine db upgrade``.
+	"""
+
+	found = {
+		command.name
+		for command in subroutine.cli.main.app.registered_commands
+		if command.callback is not None and command.callback.__name__.endswith("_moved")
+	}
+
+	assert found, (
+		"no command reads as a signpost, so either they are all gone or the suffix that "
+		"marks one has been renamed — see cli/main.upgrade_moved"
+	)
+
+	return {name for name in found if name}
+
+
+def test_no_page_tells_somebody_to_run_a_command_that_only_says_it_moved () -> None:
+	"""Which is what the last guard cannot see, because such a command *does* exist.
+
+	`SECURITY.md` told a person patching a vulnerability to run ``subroutine upgrade``. That is
+	still registered — `#509` kept it deliberately, because Typer's nearest match for it is
+	``update``, which edits a task, so a bare removal pointed an operator migrating a database
+	at the command that renames things. It prints where the command went and stops.
+
+	So *does this command exist* answers yes, and the page is still wrong: it sends somebody
+	who is in a hurry down an extra round trip, on the one page whose reader cannot ask us.
+	Naming one of these in prose is what is refused, and the changelog — which has to be able
+	to say the old name — is deliberately not scanned.
+	"""
+
+	moved = _signposts()
+	wrong = []
+
+	for page in _PROSE_PAGES:
+		for span in _NAMED_IN_PROSE.finditer(page.read_text(encoding="utf-8")):
+			words = span.group(1).split()
+
+			if len(words) > 1 and words[1] in moved:
+				wrong.append(f"{page.name} says {' '.join(words[:2])!r}")
+
+	assert not wrong, (
+		"These pages tell somebody to run a command that exists only to say it moved: "
+		+ ", ".join(sorted(wrong))
+		+ ". Name where it went instead."
+	)
+
+
+#: Where else the number of ways to reach an instance is written down, and the phrase each one
+#: uses. Two words apiece, because "three ways past the TLS refusal" and "Three ways in, and
+#: they compose" are different counts of different things on the same pages — a guard matching
+#: ``<word> ways`` alone would fire on those and be turned off.
+_ALSO_COUNTS: tuple[tuple[str, str], ...] = (
+	("README.md", "is organised by which of {word} situations you are in"),
+	("README.md", "the {word} ways to reach an instance"),
+	("docs/hosting.md", "organised by which of {word} situations a person reaching an instance"),
+)
+
+
+def test_every_page_that_counts_the_ways_in_counts_the_same () -> None:
+	"""The guard above read one page, and the number is written on three.
+
+	Its own docstring says a number in prose that nothing checks is this repository's signature
+	defect — and it was written to check *the page that owns the number*, which left the two
+	that quote it unguarded. `connecting.md` grew a sixth way; the README said five twice and
+	the hosting page said five once, for as long as anybody cared to look.
+
+	**The count is derived from the routing table**, exactly as the guard above derives it, so
+	there is still only one place where the answer lives. What is added is the other readers,
+	and each is matched on the whole sentence rather than on ``<word> ways`` — both pages
+	*also* count other things in those words, and a guard that fired on those would be relaxed
+	rather than fixed.
+	"""
+
+	page = CONNECTING.read_text(encoding="utf-8")
+	table = page.split("| --- | --- | --- |\n", 1)[1].split("\n\n", 1)[0]
+	ways = len([line for line in table.splitlines() if line.startswith("|")])
+	word = _WAYS[ways - 1]
+
+	wrong = []
+
+	for name, phrase in _ALSO_COUNTS:
+		text = (ROOT / name).read_text(encoding="utf-8")
+		found = [
+			written for written in _WAYS if phrase.format(word=written) in text
+		]
+
+		if found != [word]:
+			wrong.append(f"{name} says {found or 'nothing recognisable'} where the table has {ways}")
+
+	assert not wrong, (
+		"These pages disagree with the number of ways connecting.md routes to: "
+		+ "; ".join(wrong)
+		+ ". The table is the answer; correct the prose, or correct the phrase here if the "
+		+ "sentence was reworded."
 	)
 
 

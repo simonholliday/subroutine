@@ -59,6 +59,13 @@ dependencies = [
 	"python-dateutil>=2.9",
 	"rich>=13.7",
 	"sqlalchemy>=2.0.30",
+	# **Declared even though FastAPI brings it** (`#927`'s M-46). 19 modules here import
+	# it directly — every route class, every request and response type, the whole of
+	# `api/problems` — so it is a dependency of this program whatever else happens to pull it
+	# in. Undeclared, the version that arrives is whatever FastAPI last decided, and a
+	# resolver is free to satisfy that with something these imports do not exist in. The floor
+	# is FastAPI's own, because that is the pairing this is actually tested against.
+	"starlette>=0.46",
 	"typer>=0.12",
 	"tzdata>=2024.1",
 	"uuid6>=2024.7",

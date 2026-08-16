@@ -12,8 +12,11 @@ an install by, and exactly the shape of every other defect found the same week: 
 nothing checks.**
 """
 
+import ast
+import importlib.metadata
 import pathlib
 import re
+import sys
 import tomllib
 
 import pytest
@@ -575,4 +578,85 @@ def test_the_pythons_claimed_are_the_ones_the_suite_actually_runs_on () -> None:
 	assert claimed == tested, (
 		f"the package claims Python {sorted(claimed)} and CI runs the suite on "
 		f"{sorted(tested)}. Add the version to the matrix, or stop claiming it."
+	)
+
+
+def _imported_distributions () -> dict[str, set[str]]:
+	"""Return every third-party module imported under ``src``, and what ships it.
+
+	Resolved through :func:`importlib.metadata.packages_distributions` rather than a map
+	written here: ``dateutil`` comes from ``python-dateutil`` and ``argon2`` from
+	``argon2-cffi``, and a hand-written table of those is a second copy of something the
+	installed environment already knows.
+	"""
+
+	shipped_by = importlib.metadata.packages_distributions()
+	found: dict[str, set[str]] = {}
+
+	for path in sorted((ROOT / "src").rglob("*.py")):
+		tree = ast.parse(path.read_text(encoding="utf-8"))
+
+		for node in ast.walk(tree):
+			if isinstance(node, ast.Import):
+				names = [alias.name for alias in node.names]
+
+			elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+				names = [node.module]
+
+			else:
+				continue
+
+			for name in names:
+				top = name.split(".")[0]
+
+				if top in sys.stdlib_module_names or top == "subroutine":
+					continue
+
+				found.setdefault(top, set()).update(shipped_by.get(top, set()))
+
+	return found
+
+
+def _named (requirement: str) -> str:
+	"""Return the distribution a requirement string names, normalised as PEP 503 says."""
+
+	name = re.split(r"[<>=!~\[;\s]", requirement.strip(), maxsplit=1)[0]
+
+	return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def test_every_package_this_program_imports_is_one_it_declares () -> None:
+	"""``starlette`` was imported by nineteen modules here and declared by nothing.
+
+	It arrived through FastAPI, which is not the same as being a dependency of FastAPI's
+	choosing: this program imports it directly — every route class, every request and response
+	type, the whole of ``api/problems`` — so what version arrives was whatever FastAPI last
+	decided, with no floor of our own and nothing to say if that decision changed.
+
+	**Derived from the imports rather than from a list**, which is the only version of this
+	worth having: a list of dependencies checked against a list of dependencies confirms a
+	spelling. The mapping from module to distribution comes from the installed environment,
+	because ``dateutil`` is ``python-dateutil`` and ``argon2`` is ``argon2-cffi`` and a table
+	of those written here would be a copy of something already known.
+	"""
+
+	declared = {
+		_named(requirement)
+		for requirement in tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"][
+			"dependencies"
+		]
+	}
+	imported = _imported_distributions()
+
+	assert len(imported) > 10, f"only {sorted(imported)} were found, so this reads almost nothing"
+
+	undeclared = sorted(
+		module
+		for module, distributions in imported.items()
+		if not {_named(name) for name in distributions} & declared
+	)
+
+	assert not undeclared, (
+		f"These are imported under src/ and declared by nothing: {undeclared}. Add them to "
+		f"[project] dependencies with a floor — arriving transitively is not a promise."
 	)
