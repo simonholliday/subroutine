@@ -266,8 +266,18 @@ reason to ask about one thing is to read what a list left out.
 
 There is no login for local use: the file permissions on your database
 are what protect it. If you want to give an agent narrower access than
-your own, issue it a token and set SUBROUTINE_TOKEN; the same limits
-then apply here as would apply over the network.""",
+your own, issue it a token and set SUBROUTINE_TOKEN. Every command that
+reads or changes your work then obeys it exactly as it would over the
+network — a token scoped to task:read cannot add anything.
+
+What it does not bound is anybody who can reach the file. The 'db'
+commands open the database directly, because they have to work when the
+service will not start, so 'db backup' and 'db restore' answer to the
+file permissions rather than to a token. Neither could anything else:
+somebody who can run these can read your config.toml, find the database
+and open it themselves. **If the boundary has to hold, it needs a server
+between them and the file** — that is what 'subroutine serve' and a
+token over the network are for.""",
 	),
 )
 

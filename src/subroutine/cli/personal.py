@@ -843,6 +843,71 @@ class Located:
 		return "task" if isinstance(self.item, subroutine.views.Task) else "document"
 
 
+#: What an event is about, when it is about the model rather than about an item. Only these
+#: two arise: everything else an event names has a title, which is what the line prints. §13.5b
+#: forbids both words on this path, and ``subroutine init`` writes one of each.
+_AN_EVENT_ABOUT = {"workspace": "this list", "workspace_member": "your account"}
+
+#: What a changed column is called by the person whose task it is. A change line lists the
+#: *names* of what moved, and the names are the database's — so a defer read
+#: ``(snoozed_is_all_day, snoozed_until)``, and a status change would have printed one of the
+#: seven words §13.5b says this path never uses.
+#:
+#: Several columns collapse to one phrase deliberately: a date and its all-day flag are one
+#: fact to a reader and always move together, so listing both says the same thing twice.
+_A_CHANGE_TO = {
+	"assignee_id": "who has it",
+	"assigned_by_id": "who has it",
+	"claimed_by_id": "who is holding it",
+	"claim_expires_at": "who is holding it",
+	"claimed_at": "who is holding it",
+	"completed_at": "whether it is done",
+	"due_at": "the deadline",
+	"due_is_all_day": "the deadline",
+	"estimate_minutes": "how long it takes",
+	"importance": "how it is ranked",
+	"urgency": "how it is ranked",
+	"parent_task_id": "what it is part of",
+	"project_id": "where it is filed",
+	"recurrence_anchor": "how it repeats",
+	"recurrence_rule": "how it repeats",
+	"recurrence_text": "how it repeats",
+	"recurrence_trigger": "how it repeats",
+	"snoozed_until": "when it comes back",
+	"snoozed_is_all_day": "when it comes back",
+	"spent_minutes": "time spent",
+	"starts_at": "when it starts",
+	"starts_is_all_day": "when it starts",
+	"status_id": "how it is going",
+	"type_id": "what kind it is",
+	"owner_id": "whose it is",
+	"supersedes_id": "what it replaces",
+	"timezone": "its timezone",
+	# Never moves on an item — §5.4 refuses a cross-workspace move outright — and it is here
+	# because the guard beside this asks every column rather than the ones that have moved so
+	# far. A phrase for something that cannot happen costs a line; a leak costs the rule.
+	"workspace_id": "which list it is in",
+}
+
+
+def _field_in_words (name: str) -> str:
+	"""Return what a person calls the thing that changed.
+
+	The internal suffixes come off anything unmapped — ``_id`` names a row nobody can see and
+	``_at`` says nothing a reader needs — so a column added tomorrow reads as words rather than
+	as a schema. ``title`` and ``description`` are already what they are called, which is why
+	most of this file's own fields are not in the table.
+	"""
+
+	if name in _A_CHANGE_TO:
+		return _A_CHANGE_TO[name]
+
+	for suffix in ("_is_all_day", "_id", "_at"):
+		name = name.removesuffix(suffix)
+
+	return name.replace("_", " ")
+
+
 def register (
 	app: typer.Typer,
 	*,
@@ -5231,7 +5296,7 @@ def register (
 		named = (
 			f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
 			if event.item_ref is not None and event.item_title is not None
-			else event.item_title or event.entity_type
+			else event.item_title or _in_this_persons_terms(event.entity_type)
 		)
 		verb = event.action.replace("_", " ")
 
@@ -5240,10 +5305,25 @@ def register (
 		if event.entity_type == "comment":
 			verb = f"{verb} a comment on"
 
-		fields = sorted(event.changes or {})
+		fields = sorted({_field_in_words(name) for name in (event.changes or {})})
 		listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
 		return f"{verb:<12}  {named}{listed}"
+
+	def _in_this_persons_terms (entity_type: str) -> str:
+		"""Name the thing an event is about, for an event that is not about an item.
+
+		The rows ``init`` writes have no item to name, so this printed the entity type — which
+		is ``workspace`` and ``workspace_member``, two of the seven words §13.5b says a person
+		setting up a to-do list must never meet. Every other row already reads well, because
+		every other row has a title.
+
+		Anything unmapped keeps its own name rather than being made up: a word a reader has not
+		met is better than a wrong one, and the guard beside this is what stops a new kind
+		arriving unnoticed.
+		"""
+
+		return _AN_EVENT_ABOUT.get(entity_type, entity_type)
 
 	def _only_this_connection (world: World, name: str) -> World:
 		"""Return the world with only the named connection in it — `#272`.

@@ -29,6 +29,8 @@ import subroutine.cli.topics
 import subroutine.config
 import subroutine.connections
 import subroutine.context
+import subroutine.db.models.project
+import subroutine.db.models.work
 import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
@@ -5893,3 +5895,109 @@ def test_a_title_carrying_terminal_escapes_is_printed_rather_than_obeyed (
 	refused = run("show", "\x1b[2K999", expect=1)
 
 	assert "\x1b[2K" not in refused.output
+
+
+def test_a_change_line_names_no_column_and_no_table (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`subroutine changes` printed the schema at somebody keeping a to-do list.
+
+	Two leaks, both §13.5b's forbidden vocabulary arriving through the one command that
+	renders a row it did not shape. The rows ``init`` writes have no item to name, so the line
+	fell back to the entity type — ``created  workspace_member``, ``created  workspace`` — and
+	a deferred task read ``updated  #2 Water the plants  (snoozed_is_all_day, snoozed_until)``,
+	which is two column names for one fact.
+
+	Driven rather than read: these come out of `init` itself and of ordinary commands, so the
+	transcript is what a person meets on their second day.
+	"""
+
+	# Everything a test writes is younger than the feed's watermark, so without this the
+	# transcript is "Nothing new." and the assertions below pass by reading an empty screen.
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	run("init")
+	run("add", "Water the plants")
+	run("defer", "1", "tomorrow")
+	run("start", "1")
+
+	transcript = run("changes").output
+
+	for word in FORBIDDEN:
+		assert word not in transcript.lower(), transcript
+
+	assert "when it comes back" in transcript, "the defer is still reported, in words"
+	assert "your account" in transcript and "this list" in transcript
+
+
+def test_every_column_an_event_can_name_reads_as_words (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Derived from the models, because the two that leaked were found by looking at a screen.
+
+	An event's ``changes`` names whatever column the service moved, so the set of things this
+	line can print is the set of columns on the three item models. Each is rendered and asked
+	whether a person setting up a to-do list would meet a word §13.5b says they must not —
+	which is what makes a column added tomorrow fail here rather than on somebody's terminal.
+
+	It also refuses a rendering that is still plainly a database name, because *not forbidden*
+	is a lower bar than *readable* and the ``_id`` suffix is the tell.
+	"""
+
+	columns = {
+		column.name
+		for model in (
+			subroutine.db.models.work.Task,
+			subroutine.db.models.work.Document,
+			subroutine.db.models.project.Project,
+		)
+		for column in model.__table__.columns
+	}
+
+	assert len(columns) > 40, f"only {len(columns)} columns were found"
+
+	unreadable = []
+
+	for name in sorted(columns):
+		words = subroutine.cli.personal._field_in_words(name)
+
+		if any(word in words.lower() for word in FORBIDDEN) or words.endswith(("_id", " id")):
+			unreadable.append(f"{name} → {words!r}")
+
+	assert not unreadable, (
+		"These columns would be printed to somebody keeping a to-do list as they are named in "
+		"the database: " + ", ".join(unreadable) + ". Give each a phrase in _A_CHANGE_TO."
+	)
+
+
+def test_a_local_token_bounds_the_work_commands_and_says_what_it_does_not (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``explain scripting`` promised a boundary the command line cannot hold.
+
+	It said that setting ``SUBROUTINE_TOKEN`` locally meant *"the same limits then apply here
+	as would apply over the network"*. Measured: a ``--scope task:read`` token really does
+	stop ``add``, and ``db backup`` — a complete copy of every workspace — runs anyway,
+	because the ``db`` group opens the database directly so that it works when the service
+	will not start.
+
+	**The defect is the promise, not the missing check.** Anybody who can run these commands
+	can read ``config.toml``, find the database and open it themselves, so no check here could
+	make the sentence true. The page says what is true now and names what does hold it: a
+	server between them and the file.
+	"""
+
+	run("init")
+
+	issued = run("token", "create", "--title", "readonly", "--scope", "task:read").output
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.split() if word.startswith("sr_"))
+	)
+
+	assert "task:write" in run("add", "Nope", expect=1).output, "the work commands do obey it"
+	assert run("db", "backup").exit_code == 0, "and the file-level ones cannot"
+
+	said = run("explain", "scripting").output
+
+	assert "db backup" in said, "so the page names the exception"
+	assert "same limits" not in said, "rather than the promise it could not keep"

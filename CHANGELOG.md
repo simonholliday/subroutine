@@ -26,6 +26,17 @@ upgrade involves.
 
 ### Security
 
+- **`subroutine changes` no longer prints the database at you.** A deferred task read
+  `(snoozed_is_all_day, snoozed_until)` and the rows `init` writes read `created
+  workspace_member`. It says what changed in the words you would use — "when it comes back",
+  "your account" — and every column an event can name is now held to that by a test.
+
+- **`subroutine explain scripting` no longer promises a boundary it cannot hold.** It said a
+  token set locally applied "the same limits as would apply over the network". Your work
+  commands do obey it; the `db` commands open the database directly so they still work when the
+  service will not, and nothing on this side of the file could change that. The page says so,
+  and names what does hold the boundary.
+
 - **A task's title cannot repaint your terminal.** Rich's markup was already neutralised in
   titles; ANSI escapes were not, so a title carrying `ESC[2K` cleared the line above it when
   anything printed it. Titles arrive from other people, from agents, and from instances merged
