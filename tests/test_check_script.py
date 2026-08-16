@@ -326,3 +326,74 @@ def test_the_workflow_is_actually_read () -> None:
 
 	assert len(steps) > 8, f"only {len(steps)} run-steps parsed out of {WORKFLOW}"
 	assert ("Lint and types", "Ruff") in steps, "and the one every commit depends on is there"
+
+
+#: The flag that spreads a command across every core, and the one command that must not carry it.
+_PARALLEL = "-n"
+
+
+def test_the_browser_command_is_not_spread_across_workers () -> None:
+	"""`#936` — parallelising the browser tests does not merely fail to help, it fails.
+
+	Measured on 8 cores: `pytest tests/test_browser.py` takes 9.9s serially and **15.7s with a
+	red run** under `-n auto`, because a worker apiece launches its own Chromium and the
+	machine saturates. What breaks is a 10-second `expect_event("page")` in
+	`test_a_modified_click_still_belongs_to_the_browser` — a load-sensitive timeout rather
+	than a defect, and exactly the flake that reads in CI as a real fault in the app.
+
+	**Being spread through four thousand other tests does not save it**, which was the first
+	thing tried and is why this guard is worded about the file rather than about the command.
+	The argument was that only a few browsers would be alive at once; two full parallel runs
+	passed, and the third — a gate run — failed on the same test for the same reason. So the
+	whole-suite command excludes the file outright and this one runs it serially.
+
+	Worth a guard rather than a comment, because adding `-n` to the remaining serial command is
+	the obvious next tidy-up and the failure it buys is intermittent, which is the kind that
+	gets three people re-running CI before anybody reads it.
+	"""
+
+	for entry in script.CHECKS:
+		if "tests/test_browser.py" not in entry.command:
+			continue
+
+		assert _PARALLEL not in entry.command, (
+			f"{entry.step!r} runs the browser tests across workers, which flakes on a "
+			f"10-second page-event timeout — see this test's reasoning"
+		)
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+		for job in (loaded.get("jobs") or {}).values():
+			for step in job.get("steps") or []:
+				# **Split into words before asking**, because the whole-suite command names
+				# this same path — inside `--ignore=`, which is the opposite of running it. A
+				# substring test flagged that as a browser command the moment the exclusion
+				# was added, which is this repository's own lesson about guarding a spelling
+				# rather than a thing, met inside the guard written to hold a measurement.
+				words = (step.get("run") or "").split()
+
+				if "tests/test_browser.py" in words:
+					assert _PARALLEL not in words, (
+						f"{path.name} runs the browser tests across workers"
+					)
+
+
+def test_the_suite_is_actually_run_across_workers () -> None:
+	"""And the other direction, so the saving cannot be quietly reverted.
+
+	The whole point of `#936` is that a gate run costs two minutes rather than twelve. Dropping
+	the flag would give back ten minutes a run and fail nothing — the suite passes either way,
+	which is what makes it worth asserting rather than trusting.
+
+	`worksteal` by name, not merely `-n`: the default scheduler measures 160s against 125s
+	here, so a quarter of the saving is in that flag alone and it would be the first thing
+	dropped by somebody simplifying the command.
+	"""
+
+	suite = next(entry for entry in script.CHECKS if entry.step.startswith("Tests on"))
+
+	assert _PARALLEL in suite.command, "the whole-suite run is back to one core"
+	assert "worksteal" in suite.command, (
+		"the default scheduler leaves workers idle at the tail of this suite's long fixtures"
+	)

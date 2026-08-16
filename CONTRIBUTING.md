@@ -74,6 +74,24 @@ skips into failures — a green build there means both backends really ran.
 Each run creates and drops its own database, named with a random suffix, so two `pytest`
 processes on one machine do not destroy each other's schema.
 
+That is also what makes the suite safe to spread across every core, which is worth doing —
+it is over four thousand tests and the great majority of them are fast:
+
+```console
+$ pytest -n auto --dist worksteal
+```
+
+Measured on eight cores, with both backends and the browser app: **two minutes rather than
+twelve**. `--dist worksteal` rather than the default matters more than it looks, because a
+handful of tests here cost seconds of fixture setup while a typical one costs milliseconds,
+and the default scheduler strands workers at the tail waiting for them.
+
+It is deliberately not switched on for you. A bare `pytest` stays serial so that running one
+test while you debug it costs a second rather than four, and so that the output is in order
+when reading it is the point. The **one** thing not to parallelise is
+`pytest tests/test_browser.py` on its own — a worker apiece launches its own browser and they
+time each other out.
+
 Before pushing:
 
 ```console

@@ -83,7 +83,27 @@ CHECKS: tuple[Check, ...] = (
 	Check(
 		job="Tests (Python ${{ matrix.python-version }})",
 		step="Tests on SQLite and PostgreSQL",
-		command=("pytest",),
+		# **Across every core** (`SR#936`). Measured on 8 cores with both backends: 742s
+		# serial against ~125s. `--dist worksteal` is worth a quarter of that on its own —
+		# this suite's durations range from ~10ms to ~2.5s of fixture setup per test, and the
+		# default scheduler hands out a static queue that strands workers at the tail.
+		#
+		# **The browser file is excluded, and that was found by running rather than reasoned
+		# about.** It has its own step below, so nothing here is lost. It was left in at first
+		# on the argument that its 38 tests are spread through four thousand others, so only a
+		# few browsers would be alive at once — and two full runs passed, which is what made
+		# the argument look sound. The gate then failed on
+		# `test_a_modified_click_still_belongs_to_the_browser`, waiting 10s for a page event
+		# that a saturated machine did not deliver. Scheduling luck, not a defect, and not
+		# something to leave in a gate.
+		command=(
+			"pytest",
+			"-n",
+			"auto",
+			"--dist",
+			"worksteal",
+			"--ignore=tests/test_browser.py",
+		),
 		# **The ones that must not be dropped to make a red run green.** Without the first an
 		# unreachable PostgreSQL is a skip, and the run reports success on half a suite;
 		# without the second a missing Node skips 198 tests the same way (`SR#927`'s H-17).

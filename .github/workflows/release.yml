@@ -78,6 +78,13 @@ jobs:
       - name: Install a browser
         run: playwright install --with-deps chromium
 
+      # **Serial, where CI and the local gate run this in parallel** (`SR#936`). This is the one
+      # job that installs a browser *and* runs the whole suite in one command, so `-n` here
+      # would put `tests/test_browser.py` under a distributed scheduler — measured on 8 cores,
+      # that fails: `TimeoutError: Timeout 10000ms exceeded while waiting for event "page"`,
+      # because a worker apiece launches its own Chromium. A release runs once and a flake here
+      # costs a version number, so the twelve minutes are bought deliberately.
+      #
       # Both backends, and an absent PostgreSQL, Node or browser is a failure rather than a
       # skip — a release verified on part of a test run is not verified.
       #

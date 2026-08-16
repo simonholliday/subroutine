@@ -85,6 +85,22 @@ dev = [
 	"playwright>=1.44",
 	"pytest>=8.2",
 	"pytest-cov>=5.0",
+	# **Running the suite across every core, which takes the gate from 12 minutes to 2**
+	# (`#936`). Measured here on 8 cores, both backends, browser app included: 742s serial
+	# against 125s, with the same 4231 passed and 21 skipped either way.
+	#
+	# `--dist worksteal` rather than the default `load`, and that is worth a quarter of the
+	# saving on its own — 125s against 160s. The duration spread in this suite is enormous
+	# (`served()` in `test_cli_connections.py` costs ~2.5s of setup per test against ~10ms
+	# for a typical one), and `load` hands out a static queue that leaves workers idle at the
+	# tail. `--dist loadfile` is worse than either: it pins a file to one worker, which makes
+	# `test_web.py` a long pole nothing can help with.
+	#
+	# **Deliberately not in `addopts`**, so a bare `pytest` stays serial: worker start-up is
+	# ~2.6s, which is most of a one-test debugging run, and interleaved output is worst on
+	# exactly the runs where reading it is the point. The two whole-suite commands ask for it
+	# by name — `scripts/check.py` and `ci.yml`, which `test_check_script` holds together.
+	"pytest-xdist>=3.6",
 	# Reading the plugin skill's YAML frontmatter, which nothing parsed until a colon in it
 	# made the skill load with no metadata at all and 2,391 tests passed over it.
 	"pyyaml>=6.0",
