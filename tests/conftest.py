@@ -37,17 +37,29 @@ POSTGRES_ADMIN_URL = os.environ.get(
 #: separate false alarms, one of them mid-review. `test_migrations` already did this.
 TEST_DATABASE_NAME = f"subroutine_test_{uuid.uuid4().hex[:12]}"
 
+#: What counts as *set* for a ``SUBROUTINE_TEST_REQUIRE_*`` variable.
+_MEANS_YES = frozenset({"1", "true", "yes", "on"})
+
+
+def required (name: str) -> bool:
+	"""Whether a missing resource should fail this run rather than skip it.
+
+	**One reader for all three of them** (`#927`'s H-17). This was written out here for
+	PostgreSQL and again in ``tests/test_browser.py`` as ``== "1"`` — so
+	``SUBROUTINE_TEST_REQUIRE_BROWSER=true`` set the browser guard and did nothing, which is
+	a guard reading a spelling rather than a value. Two copies of a rule is how they come to
+	disagree, and this pair already had.
+	"""
+
+	return os.environ.get(name, "").strip().lower() in _MEANS_YES
+
+
 #: Turns an unreachable PostgreSQL from a skip into a failure. Set in CI, and the single
 #: most important line in this file: without it, a runner whose database service failed to
 #: start would run half the suite and report success, which is precisely the state the
 #: dual-backend rule exists to prevent. A skip is a courtesy to someone working locally,
 #: not something the build should ever be allowed to do quietly.
-REQUIRE_POSTGRES = os.environ.get("SUBROUTINE_TEST_REQUIRE_POSTGRES", "").strip().lower() in {
-	"1",
-	"true",
-	"yes",
-	"on",
-}
+REQUIRE_POSTGRES = required("SUBROUTINE_TEST_REQUIRE_POSTGRES")
 
 
 @pytest.fixture(autouse=True)

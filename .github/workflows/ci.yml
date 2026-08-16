@@ -180,10 +180,15 @@ jobs:
       # No `-q`. `addopts` in pyproject.toml already carries one, so a second made this `-qq`
       # — which suppresses the "N passed" line, leaving a log of dots where a collection error
       # reducing the suite to five tests would look exactly like success (`SR#402`).
+      # `SUBROUTINE_TEST_REQUIRE_NODE` for the same reason as the line above it, and it was
+      # missing until `SR#927`'s H-17: the step sets up Node and nothing checked that the
+      # setup worked, so a runner whose Node install failed would skip 198 tests and report
+      # success — the exact state the PostgreSQL variable exists to prevent, one runtime over.
       - name: Tests on SQLite and PostgreSQL
         env:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+          SUBROUTINE_TEST_REQUIRE_NODE: "1"
         run: pytest
 
   # **One job rather than a step in the matrix, and that is the cost decision** (`SR#795`).
@@ -231,6 +236,7 @@ jobs:
       - name: Tests in a browser
         env:
           SUBROUTINE_TEST_REQUIRE_BROWSER: "1"
+          SUBROUTINE_TEST_REQUIRE_NODE: "1"
         run: pytest tests/test_browser.py
 
   # Proves the thing a new user actually does, on a clean machine with nothing configured:

@@ -20,13 +20,14 @@ still run everything else, and in CI it would mean reporting success on half a t
 
 import functools
 import json
-import os
 import pathlib
 import re
+import shutil
 import typing
 
 import pytest
 
+import conftest
 import subroutine.api.policy
 import subroutine.api.web
 import test_web
@@ -63,22 +64,43 @@ LOOKS_LIKE_THE_BROWSER: dict[str, str] = {}
 
 @functools.cache
 def _unavailable () -> str | None:
-	"""Why a browser cannot be driven here, or None if one can — worked out once.
+	"""Why this file cannot run here, and what to do about it — or None if it can.
 
 	Cached because launching a browser to ask is not free, and every item in this file asks.
+
+	**Each answer carries its own remedy**, because there are three causes now and one shared
+	remedy is wrong for two of them. The first version of the refusal below said *install one
+	with 'playwright install chromium'* whatever the reason, so the very first run of the new
+	Node check advised a command that cannot supply Node — `#734`'s rule, met in the change
+	that made it reachable.
 	"""
+
+	# **Node before the browser, and that omission was the whole of `#927`'s H-17.** Every
+	# fixture here renders the app in Node before Chromium ever sees it, so a machine with a
+	# browser and no runtime cannot run this file — but this function asked only about the
+	# browser, so `SUBROUTINE_TEST_REQUIRE_BROWSER` was satisfied, nothing raised, and each
+	# test then skipped *inside* the fixture. Measured on a Node-less PATH: 1 passed, 37
+	# skipped, exit 0, from the variable whose entire purpose is refusing that skip. The
+	# defect this file's guard exists to close, one level along and wearing its own clothes.
+	#
+	# Cheapest question first, too: this is a PATH lookup where the next one starts a browser.
+	if shutil.which("node") is None:
+		return (
+			"there is no JavaScript runtime on PATH and every fixture here renders in one, "
+			"so install Node"
+		)
 
 	try:
 		import playwright.sync_api
 	except ImportError:
-		return "playwright is not installed"
+		return "playwright is not installed, so install it with `pip install -e '.[dev]'`"
 
 	try:
 		with playwright.sync_api.sync_playwright() as running:
 			running.chromium.launch().close()
 	# Every failure here means the same thing to a caller: there is no browser to drive.
 	except Exception as why:
-		return f"chromium could not be launched: {why}"
+		return f"chromium could not be launched ({why}), so run `playwright install chromium`"
 
 	return None
 
@@ -96,12 +118,15 @@ UNAVAILABLE = _unavailable()
 #: It was undetectable from this machine by construction: Chromium launches here, so
 #: `UNAVAILABLE` is None and the skip path was dead from the day it was written. *A test that
 #: cannot fail reads exactly like the point of the test*, one layer out.
-if UNAVAILABLE is not None and os.environ.get("SUBROUTINE_TEST_REQUIRE_BROWSER") == "1":
+#: **Through `conftest.required`, which is the second half of H-17.** This read `== "1"` where
+#: `SUBROUTINE_TEST_REQUIRE_POSTGRES` has always accepted `true`, `yes` and `on` — so spelling
+#: the variable either of the other ways set the guard and did nothing at all.
+if UNAVAILABLE is not None and conftest.required("SUBROUTINE_TEST_REQUIRE_BROWSER"):
 	raise RuntimeError(
-		f"SUBROUTINE_TEST_REQUIRE_BROWSER is set and {UNAVAILABLE}. Install one with "
-		f"'playwright install chromium', or unset the variable — but not to make a red build "
-		f"green: the skip exists so a machine without a browser can run everything else, and "
-		f"here it would mean reporting success on a suite that did not run."
+		f"SUBROUTINE_TEST_REQUIRE_BROWSER is set and {UNAVAILABLE}. Do that, or unset the "
+		f"variable — but not to make a red build green: the skip exists so a machine without "
+		f"a browser can run everything else, and here it would mean reporting success on a "
+		f"suite that did not run."
 	)
 
 #: Skipped rather than failed where there is simply no browser, exactly as PostgreSQL is.

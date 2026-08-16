@@ -32,6 +32,7 @@ import sqlalchemy.orm
 import starlette.requests
 
 import api_support
+import conftest
 import subroutine.api.app
 import subroutine.api.documents
 import subroutine.api.pagination
@@ -320,17 +321,30 @@ def _served_modules () -> dict[str, str]:
 
 
 def _node () -> str:
-	"""Return a JavaScript runtime, or skip.
+	"""Return a JavaScript runtime, or skip — unless CI has said a skip is not acceptable.
 
 	**Skipped rather than faked.** A stub that pretended to render would be a test that cannot
 	fail, which is the shape this project has been bitten by most; a skip at least says out
 	loud that nothing was checked here.
+
+	**And a skip CI can refuse**, exactly as PostgreSQL and a browser are (`#927`'s H-17).
+	Until this existed there was no way to say *a run without Node is not a run*: the release
+	workflow installed none, so 198 of this file's tests skipped in silence on every release
+	this project has ever cut, and the job reported success.
 	"""
 
 	found = shutil.which("node")
 
 	if found is None:
-		pytest.skip("no JavaScript runtime on PATH, so the app cannot be rendered")
+		reason = "no JavaScript runtime on PATH, so the app cannot be rendered"
+
+		if conftest.required("SUBROUTINE_TEST_REQUIRE_NODE"):
+			pytest.fail(
+				f"{reason}\n\nSUBROUTINE_TEST_REQUIRE_NODE is set, so a missing runtime "
+				f"fails the run rather than quietly leaving the browser app unchecked."
+			)
+
+		pytest.skip(reason)
 
 	return found
 

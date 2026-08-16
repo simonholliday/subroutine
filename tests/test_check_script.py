@@ -1,4 +1,10 @@
-"""``scripts/check.py`` and ``.github/workflows/ci.yml`` name the same steps — item ``#402``.
+"""``scripts/check.py`` and the workflows agree about what is checked — items ``#402``, ``#927``.
+
+Two questions, and the second was added by `#927`'s H-17. The first is what this file was
+written for: ``scripts/check.py`` and ``ci.yml`` name the same steps, running the same commands.
+The second is that **every workflow which runs the suite refuses every skip the suite offers** —
+because ``release.yml`` ran it having installed neither Node nor a browser, so every release this
+project has cut published on a suite that never rendered the browser app, and reported success.
 
 **Without this file the script is a third place for the truth to live**, which is the defect it
 was written to answer rather than a step towards answering it. `#401` happened because "the
@@ -18,6 +24,7 @@ checks while pytest is still collecting.
 
 import importlib.util
 import pathlib
+import re
 import sys
 import types
 import typing
@@ -26,7 +33,9 @@ import pytest
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+TESTS = pathlib.Path(__file__).resolve().parent
+WORKFLOWS = ROOT / ".github" / "workflows"
+WORKFLOW = WORKFLOWS / "ci.yml"
 SCRIPT = ROOT / "scripts" / "check.py"
 
 #: How the workflow spells the interpreter. The script uses ``sys.executable``, because a bare
@@ -161,27 +170,127 @@ def test_a_checks_command_is_the_one_the_workflow_runs (entry: typing.Any) -> No
 
 
 def test_the_suite_is_told_to_fail_rather_than_skip () -> None:
-	"""``SUBROUTINE_TEST_REQUIRE_POSTGRES`` is the one environment variable that matters here.
+	"""Every ``SUBROUTINE_TEST_REQUIRE_*`` the local gate sets is one the workflow sets too.
 
-	Without it an unreachable PostgreSQL is a *skip*, so a local run reports success over half
-	a suite — and the backend-portability defects this project cares most about are precisely
-	the ones invisible on SQLite. Read from the workflow rather than compared against a
-	literal, so the two cannot disagree about the name.
+	Without them a missing resource is a *skip*, so a run reports success over part of a suite
+	— and the defects this project cares most about are precisely the ones invisible without
+	the missing half. Read from the workflow rather than compared against a literal, so the two
+	cannot disagree about the name.
+
+	**Compared as a set rather than by naming one** (`#927`'s H-17). This asserted
+	``SUBROUTINE_TEST_REQUIRE_POSTGRES`` alone, which was every variable there was on the day
+	it was written and two out of three by the time anybody looked.
 	"""
 
-	suite = next(entry for entry in script.CHECKS if entry.step.startswith("Tests on"))
 	workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-	declared: dict[str, typing.Any] = {}
 
-	for job in workflow["jobs"].values():
-		for step in job["steps"]:
-			if step.get("name") == suite.step:
-				declared = step["env"]
+	for entry in script.CHECKS:
+		if not entry.env:
+			continue
 
-	assert "SUBROUTINE_TEST_REQUIRE_POSTGRES" in declared
-	assert dict(suite.env)["SUBROUTINE_TEST_REQUIRE_POSTGRES"] == str(
-		declared["SUBROUTINE_TEST_REQUIRE_POSTGRES"]
+		declared: dict[str, typing.Any] = {}
+
+		for job in workflow["jobs"].values():
+			for step in job["steps"]:
+				if step.get("name") == entry.step:
+					declared = step.get("env") or {}
+
+		wanted = {name: value for name, value in entry.env if name.startswith(_REFUSES_A_SKIP)}
+		published = {
+			name: str(value)
+			for name, value in declared.items()
+			if name.startswith(_REFUSES_A_SKIP)
+		}
+
+		assert wanted == published, f"{entry.step!r} sets {wanted} locally and {published} in CI"
+
+
+#: The prefix every "fail rather than skip" variable shares.
+_REFUSES_A_SKIP = "SUBROUTINE_TEST_REQUIRE_"
+
+
+def _refusable () -> set[str]:
+	"""Return every skip the suite offers to turn into a failure, read off the suite.
+
+	Derived rather than listed, for `#405`'s reason: a list of what CI must set is a second
+	copy of what the suite offers, and the copy is the one that goes stale. ``ADMIN_URL`` and
+	friends are excluded by the prefix — they configure the harness rather than refuse a skip.
+	"""
+
+	found: set[str] = set()
+
+	for path in sorted(TESTS.glob("*.py")):
+		found.update(re.findall(rf"{_REFUSES_A_SKIP}[A-Z_]+", path.read_text(encoding="utf-8")))
+
+	return found
+
+
+def _refused_by (path: pathlib.Path) -> set[str]:
+	"""Return every such variable a workflow sets, anywhere in it.
+
+	The union across the whole file rather than per job, because splitting the suite across
+	jobs is a legitimate arrangement — ``ci.yml`` runs the browser tests in their own job so
+	Chromium is downloaded once rather than once per Python version. What must not happen is a
+	workflow running the tests and covering *none* of a resource.
+	"""
+
+	loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+	found: set[str] = set()
+
+	for job in (loaded.get("jobs") or {}).values():
+		for step in job.get("steps") or []:
+			found.update(
+				name for name in (step.get("env") or {}) if name.startswith(_REFUSES_A_SKIP)
+			)
+
+	return found
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda one: one.name)
+def test_a_workflow_that_runs_the_suite_refuses_every_skip (workflow: pathlib.Path) -> None:
+	"""`#927`'s H-17 — every release published on a suite that never ran the browser app.
+
+	``release.yml`` installed neither Node nor a browser and set only the PostgreSQL variable,
+	so 198 of ``test_web.py``'s tests and all 38 of ``test_browser.py``'s skipped in silence
+	and the job reported success. **Nothing read that file for what it runs**, so the gap was
+	invisible from inside the repository — and it is the shape ``SUBROUTINE_TEST_REQUIRE_*``
+	exists to prevent, met one level up by the workflow that publishes.
+
+	Parametrised over the workflows rather than looping inside one test, so a second one
+	falling behind fails on its own name instead of hiding behind the first.
+	"""
+
+	if not any(
+		"pytest" in (step.get("run") or "")
+		for job in (yaml.safe_load(workflow.read_text(encoding="utf-8")).get("jobs") or {}).values()
+		for step in job.get("steps") or []
+	):
+		pytest.skip(f"{workflow.name} does not run the suite")
+
+	missing = _refusable() - _refused_by(workflow)
+
+	assert not missing, (
+		f"{workflow.name} runs the suite and never sets {sorted(missing)}, so a runner "
+		f"missing that resource would skip those tests and report success"
 	)
+
+
+def test_the_suite_offers_the_skips_this_file_thinks_it_does () -> None:
+	"""And the floor: that the scan above found anything at all.
+
+	Every assertion in the parametrised test is a subtraction, and an empty left-hand side
+	makes each one vacuously true — the "reads nothing and passes" shape this repository has
+	now met three times. Named individually as well as counted, because a scan finding two of
+	three is what H-17 actually was.
+	"""
+
+	found = _refusable()
+
+	assert {
+		"SUBROUTINE_TEST_REQUIRE_POSTGRES",
+		"SUBROUTINE_TEST_REQUIRE_NODE",
+		"SUBROUTINE_TEST_REQUIRE_BROWSER",
+	} <= found, f"only {sorted(found)} were found under {TESTS}"
 
 
 def test_the_comparison_notices_a_command_that_has_drifted () -> None:

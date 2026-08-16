@@ -64,15 +64,35 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # **Node and a browser, because without them this job was not the gate it claims to be**
+      # (`SR#927`'s H-17). CI splits these across two jobs to avoid downloading Chromium once
+      # per Python version; there is one version here, so one job runs the lot.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
       - name: Install
         run: python -m pip install -e '.[dev,postgres]'
 
-      # Both backends, and an unreachable PostgreSQL is a failure rather than a skip — a
-      # release verified on half a test run is not verified.
+      # `--with-deps` is the system libraries Chromium needs on a bare runner.
+      - name: Install a browser
+        run: playwright install --with-deps chromium
+
+      # Both backends, and an absent PostgreSQL, Node or browser is a failure rather than a
+      # skip — a release verified on part of a test run is not verified.
+      #
+      # **Every release before this one published on a suite that never rendered the browser
+      # app.** This job installed neither runtime and set only the PostgreSQL variable, so 198
+      # tests in `test_web.py` and every one in `test_browser.py` skipped in silence and the
+      # job went green. Adding the variables is half the fix; `tests/test_check_script.py`
+      # derives the full set from the suite and fails when a workflow covers less than all of
+      # it, because a list of what CI must set is a second copy of what the suite offers.
       - name: Tests on SQLite and PostgreSQL
         env:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
+          SUBROUTINE_TEST_REQUIRE_NODE: "1"
+          SUBROUTINE_TEST_REQUIRE_BROWSER: "1"
         run: pytest
 
   build:

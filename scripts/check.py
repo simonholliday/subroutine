@@ -84,9 +84,13 @@ CHECKS: tuple[Check, ...] = (
 		job="Tests (Python ${{ matrix.python-version }})",
 		step="Tests on SQLite and PostgreSQL",
 		command=("pytest",),
-		# **The one that must not be dropped to make a red run green.** Without it an
-		# unreachable PostgreSQL is a skip, and the run reports success on half a suite.
-		env=(("SUBROUTINE_TEST_REQUIRE_POSTGRES", "1"),),
+		# **The ones that must not be dropped to make a red run green.** Without the first an
+		# unreachable PostgreSQL is a skip, and the run reports success on half a suite;
+		# without the second a missing Node skips 198 tests the same way (`SR#927`'s H-17).
+		env=(
+			("SUBROUTINE_TEST_REQUIRE_POSTGRES", "1"),
+			("SUBROUTINE_TEST_REQUIRE_NODE", "1"),
+		),
 	),
 	# **Run again here, and the duplication is deliberate** (`SR#795`). In CI these tests skip
 	# in the job above — the runner has no browser — and this job is the only place they run at
@@ -97,7 +101,10 @@ CHECKS: tuple[Check, ...] = (
 		job="Browser tests",
 		step="Tests in a browser",
 		command=("pytest", "tests/test_browser.py"),
-		env=(("SUBROUTINE_TEST_REQUIRE_BROWSER", "1"),),
+		env=(
+			("SUBROUTINE_TEST_REQUIRE_BROWSER", "1"),
+			("SUBROUTINE_TEST_REQUIRE_NODE", "1"),
+		),
 	),
 )
 
