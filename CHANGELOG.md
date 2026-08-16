@@ -26,6 +26,12 @@ upgrade involves.
 
 ### Security
 
+- **A mistyped project key no longer lists projects you cannot see.** Filing with `+nosuchkey`
+  answered "Projects here: …" with every project in the workspace, private ones included — so
+  an ordinary member could learn the name and the existence of a project they are not in, by
+  making a typo. Filing *into* one was already refused, so nothing could be written where it
+  should not be; what leaked was the list.
+
 - **The token you give the local plugin now decides what that session may do.** It was read by
   nothing. `SUBROUTINE_TOKEN`, `SUBROUTINE_TOKEN_<NAME>` and `credentials.toml` were all
   ignored on a local connection, so the same `--scope task:read` service account was
@@ -352,6 +358,12 @@ upgrade involves.
   project. The refusal names both projects and the command that moves it there first.
 
 ### Fixed
+
+- **A search containing a backslash no longer fails.** On an instance using the indexed
+  search backend, `C:\Users` or `re:\d+` — a Windows path, a regular expression — came back as
+  a 500. Where the text happened to survive, the search was quietly wrong: a stray `E` arrived
+  as one of the words being searched for. A search carrying a NUL byte failed the same way on
+  both backends and now simply finds nothing.
 
 - **A blocker in a project you have thrown away no longer holds work up.** Deleting a project
   leaves its tasks where they are — every listing hides them by joining the project — so one of

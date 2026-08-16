@@ -140,9 +140,15 @@ def terms (query: str) -> list[str]:
 	``split()`` with no argument, so any run of whitespace separates and leading or trailing
 	space contributes nothing — which means a query of spaces alone is *no words*, and the
 	caller can tell that from an empty list rather than by inspecting the string itself.
+
+	**NUL is dropped first**, because a text field cannot hold one: the driver refuses the
+	parameter outright, so a query string carrying ``%00`` reached both backends as a 500
+	rather than as a search that found nothing. Dropped rather than refused by name — it
+	arrives from a URL somebody's tooling built, not from a person typing, and there is
+	nothing for them to do differently.
 	"""
 
-	return query.split()
+	return query.replace("\x00", "").split()
 
 
 def matching (

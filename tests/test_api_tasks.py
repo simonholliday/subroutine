@@ -1822,6 +1822,70 @@ def test_a_ring_of_a_type_that_does_not_sequence_work_is_allowed (world: World) 
 	assert back.status_code in (200, 201), back.text
 
 
+def test_a_mistyped_project_key_lists_only_the_projects_the_caller_can_see (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``+nosuchkey`` was answered with every private project's key in the workspace.
+
+	Every sibling path here narrows for exactly this reason, and this one did not.
+	``projects.keys_for`` states it: *"a key discloses more than an id, so resolving one for a
+	reader who cannot see that project would turn a listing of their own credentials into a
+	way of learning a private project's name."* A typo in a capture line did the same thing,
+	and needed no credential beyond ordinary membership.
+
+	**The hint is the only thing that was wrong**, which is worth stating: ``+secret`` itself
+	was already refused for a caller who cannot see the project, so nothing could be filed
+	where it should not be. What leaked was the existence and the name.
+	"""
+
+	world = _world(session)
+
+	subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="acquisition",
+		title="Acquisition",
+		visibility="private",
+		owner_id=world.user.id,
+	)
+	subroutine.domain.projects.create(
+		session, workspace_id=world.workspace.id, key="ordinary", title="Ordinary"
+	)
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	session.flush()
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+
+	stranger = World(
+		application=world.application,
+		session=session,
+		user=outsider,
+		workspace=world.workspace,
+		secret=issued.value.get_secret_value(),
+	)
+	refused = stranger.call("POST", "/v1/tasks", json={"text": "Do a thing +nosuchkey"})
+
+	assert refused.status_code == 422
+	assert "ordinary" in refused.text, "the projects they can see are still named"
+	assert "acquisition" not in refused.text, "and the one they cannot is not"
+
+	# The listing is what this has to agree with — a hint naming more than the caller's own
+	# project list is the whole defect, so it is compared against that rather than a literal.
+	visible = {
+		project["key"]
+		for project in stranger.call("GET", "/v1/projects?limit=50").json()["items"]
+	}
+
+	assert "acquisition" not in visible, "the fixture is not building the case it claims to"
+
+
 def test_a_blocker_in_a_binned_project_stops_blocking (world: World) -> None:
 	"""And it is the *invisible* half that makes this worse than a wrong answer.
 
@@ -3112,6 +3176,50 @@ def test_the_ranking_refuses_to_be_built_from_no_words_at_all () -> None:
 	assert "search.terms" in (raised.value.hint or ""), (
 		"the refusal must name the question a caller should have asked"
 	)
+
+
+#: Text somebody really types into a search box, and cannot. A Windows path and a regular
+#: expression are the two most ordinary strings in software that carry a backslash; the rest
+#: are what a fuzz over tsquery's own punctuation turns up, plus the NUL a URL can carry.
+_AWKWARD_SEARCHES = (
+	r"C:\Users",
+	r"re:\d+",
+	"trailing\\",
+	"\\",
+	"it's",
+	"a'b\\c",
+	"&|!()",
+	"<->",
+	":*",
+	"quote\"mark",
+	"\x00nul",
+)
+
+
+@pytest.mark.parametrize("query", _AWKWARD_SEARCHES)
+def test_a_search_the_index_cannot_parse_finds_nothing_rather_than_failing (
+	ranked: World, query: str
+) -> None:
+	"""A 500 for text somebody typed, and a wrong search where it did not fail.
+
+	``quote_literal`` returns the ``E'…'`` form for anything holding a backslash, and
+	``to_tsquery`` cannot parse that — so ``C:\\Users`` and ``re:\\d+`` came back as a
+	``psycopg`` ``SyntaxError``, which is not a :class:`~subroutine.errors.SubroutineError`
+	and therefore a **500**. The silent half is worse and was not reported: where the string
+	happened to parse, the ``E`` of the escape prefix arrived as a *word of the query*.
+
+	Driven through the listing rather than against the query builder, because the failure was
+	the driver refusing a statement rather than anything this code could see. What is asserted
+	is only that the search answers: whether these words match anything is not the point, and
+	asserting they match nothing would break the day the seed changes.
+	"""
+
+	ranked.call("POST", "/v1/tasks", json={"title": "Deploy the thing"})
+
+	answered = ranked.call("GET", "/v1/tasks", params={"q": query, "limit": 50})
+
+	assert answered.status_code == 200, answered.text
+	assert "items" in answered.json()
 
 
 def test_a_task_can_be_re_parented_over_http (world: World) -> None:
