@@ -50,6 +50,13 @@ INSTANCE_ZONE = "Europe/London"
 #: How long to wait for a freshly started server before giving up on it.
 STARTUP_TIMEOUT_SECONDS = 20.0
 
+#: How many ports to try before deciding the machine, rather than a race, is the problem.
+PORT_ATTEMPTS = 5
+
+#: What a server prints when something else bound the port between choosing it and starting.
+#: Matched on the sentence rather than the number, which is errno 98 here and 48 on macOS.
+PORT_TAKEN = "address already in use"
+
 
 @pytest.fixture
 def home (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
@@ -103,17 +110,38 @@ def declare (home: pathlib.Path, text: str) -> None:
 
 
 def free_port () -> int:
-	"""Return a port nothing is listening on.
+	"""Return a port that was free a moment ago.
 
 	Bound and released rather than picked from a range: a hard-coded port makes a test that
 	fails when somebody happens to be running something, which is the worst kind of failure to
 	debug because it is about the machine and not the code.
+
+	It is free *a moment ago* and not now, and that is not fixable here — a subprocess binds
+	its own socket, so this one has to be released before ``serve`` starts, and the suite runs
+	across workers all doing the same thing. Whoever hands the port to a server retries;
+	whoever wants an address that refuses uses ``refusing`` below, which keeps the socket.
 	"""
 
 	with socket.socket() as probe:
 		probe.bind(("127.0.0.1", 0))
 
 		return int(probe.getsockname()[1])
+
+
+@contextlib.contextmanager
+def refusing () -> typing.Iterator[str]:
+	"""Yield an address that is refused, and hold it so nothing can start answering there.
+
+	Bound without listening: connecting is refused immediately, which is what a test about an
+	unreachable connection wants, and the port cannot be taken while it is held. Choosing one
+	and releasing it would leave a test asserting that a connection *cannot* be reached while
+	another worker's server was free to bind exactly that port.
+	"""
+
+	with socket.socket() as held:
+		held.bind(("127.0.0.1", 0))
+
+		yield f"http://127.0.0.1:{held.getsockname()[1]}"
 
 
 class Remote(typing.NamedTuple):
@@ -169,53 +197,85 @@ def served (tmp_path: pathlib.Path) -> typing.Iterator[Remote]:
 	token = next(
 		word for word in issued.split() if word.startswith("sr_")
 	)
-	port = free_port()
 
-	server = subprocess.Popen(
-		[sys.executable, "-m", "subroutine", "serve", "--port", str(port)],
-		env=environment,
-		stdout=subprocess.PIPE,
-		stderr=subprocess.STDOUT,
-		text=True,
-	)
-	url = f"http://127.0.0.1:{port}"
-
-	try:
-		_await(server, url)
-
+	with serving(environment) as url:
 		yield Remote(url=url, token=token, home=root)
 
-	finally:
-		server.terminate()
 
-		# ``communicate`` rather than ``wait``, because it also *closes* the pipe. Leaving it
-		# open leaks a file object, and this suite runs with ``filterwarnings = ["error"]``, so
-		# the ResourceWarning arrives as a collection error at teardown — pointing at pytest's
-		# internals rather than at the fixture that caused it.
-		try:
-			server.communicate(timeout=10)
+@contextlib.contextmanager
+def serving (environment: dict[str, str]) -> typing.Iterator[str]:
+	"""Serve an installation on a port nothing else took, and stop it afterwards.
 
-		except subprocess.TimeoutExpired:
-			server.kill()
-			server.communicate()
+	Retried rather than prevented: the gap between choosing a port and the server binding it
+	belongs to the whole machine, and cannot be closed from here — see ``free_port``. Losing
+	that race is a normal event under parallel workers and reads, unhandled, as the server
+	having failed to start.
+	"""
+
+	for _attempt in range(PORT_ATTEMPTS):
+		port = free_port()
+
+		server = subprocess.Popen(
+			[sys.executable, "-m", "subroutine", "serve", "--port", str(port)],
+			env=environment,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+		)
+		url = f"http://127.0.0.1:{port}"
+
+		said = _await(server, url)
+
+		if said is None:
+			try:
+				yield url
+
+			finally:
+				_stop(server)
+
+			return
+
+		if PORT_TAKEN not in said.lower():
+			pytest.fail(f"the server exited early:\n{said}")
+
+	pytest.fail(f"{PORT_ATTEMPTS} ports in a row were taken before the server could bind")
 
 
-def _await (server: subprocess.Popen[str], url: str) -> None:
-	"""Wait until the server answers, or say what it printed instead of starting."""
+def _await (server: subprocess.Popen[str], url: str) -> str | None:
+	"""Wait until the server answers, and return what it printed if it gave up instead."""
 
 	deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
 
 	while time.monotonic() < deadline:
 		if server.poll() is not None:
-			pytest.fail(f"the server exited early:\n{server.communicate()[0]}")
+			return server.communicate()[0]
 
 		with contextlib.suppress(httpx.HTTPError):
 			if httpx.get(f"{url}/healthz", timeout=1.0).status_code == 200:
-				return
+				return None
 
 		time.sleep(0.2)
 
 	pytest.fail(f"the server did not answer within {STARTUP_TIMEOUT_SECONDS:g} seconds")
+
+
+def _stop (server: subprocess.Popen[str]) -> None:
+	"""Stop a server and close the pipe it was writing to.
+
+	``communicate`` rather than ``wait``, because it also *closes* the pipe. Leaving it open
+	leaks a file object, and this suite runs with ``filterwarnings = ["error"]``, so the
+	ResourceWarning arrives as a collection error at teardown — pointing at pytest's internals
+	rather than at the fixture that caused it.
+	"""
+
+	server.terminate()
+
+	try:
+		server.communicate(timeout=10)
+
+	except subprocess.TimeoutExpired:
+		server.kill()
+		server.communicate()
 
 
 @pytest.fixture
@@ -495,10 +555,11 @@ def test_an_unreachable_connection_is_named_and_skipped (
 	run("init", "--workspace", "Personal")
 	run("add", "Pay the gas bill")
 
-	declare(home, f'\n[connections.work]\nurl = "http://127.0.0.1:{free_port()}"\n')
-	subroutine.credentials.store("work", "sr_not_a_real_token")
+	with refusing() as nowhere:
+		declare(home, f'\n[connections.work]\nurl = "{nowhere}"\n')
+		subroutine.credentials.store("work", "sr_not_a_real_token")
 
-	result = run("today")
+		result = run("today")
 
 	assert "work" in result.output, "the connection that failed is named"
 	assert "Pay the gas bill" in result.output, "and the rest of the list still prints"
@@ -560,10 +621,12 @@ def test_strict_makes_an_unreachable_connection_fatal_and_says_so_plainly (
 	"""
 
 	run("init", "--workspace", "Personal")
-	declare(home, f'\n[connections.work]\nurl = "http://127.0.0.1:{free_port()}"\n')
-	subroutine.credentials.store("work", "sr_not_a_real_token")
 
-	result = run("today", "--strict", expect=1)
+	with refusing() as nowhere:
+		declare(home, f'\n[connections.work]\nurl = "{nowhere}"\n')
+		subroutine.credentials.store("work", "sr_not_a_real_token")
+
+		result = run("today", "--strict", expect=1)
 
 	assert "could not be reached" in result.output
 	assert "Traceback" not in result.output
@@ -717,15 +780,16 @@ def test_nothing_is_written_when_the_instance_cannot_be_reached (
 
 	run("init", "--workspace", "Personal")
 
-	refused = run(
-		"connections",
-		"add",
-		"work",
-		"--url",
-		f"http://127.0.0.1:{free_port()}",
-		input="sr_whatever\n",
-		expect=1,
-	)
+	with refusing() as nowhere:
+		refused = run(
+			"connections",
+			"add",
+			"work",
+			"--url",
+			nowhere,
+			input="sr_whatever\n",
+			expect=1,
+		)
 
 	assert "could not be reached" in refused.output
 	assert "connections.work" not in _configured(home)
@@ -901,6 +965,59 @@ def test_the_listing_is_still_what_a_bare_connections_prints (
 
 
 # --- Serving, and issuing a credential -------------------------------------------------
+
+
+def test_an_address_called_unreachable_stays_unreachable_while_it_is_held () -> None:
+	"""Both halves, because a test about a connection being down needs both.
+
+	Choosing a port and letting it go proves it was free a moment ago, which is a different
+	claim from *nothing will answer there* — and under parallel workers the difference is
+	another server in this same file binding it and answering the request that was supposed
+	to fail.
+	"""
+
+	with refusing() as nowhere:
+		port = int(nowhere.rsplit(":", 1)[1])
+
+		with pytest.raises(ConnectionRefusedError), socket.socket() as caller:
+			caller.settimeout(5.0)
+			caller.connect(("127.0.0.1", port))
+
+		with pytest.raises(OSError), socket.socket() as rival:
+			rival.bind(("127.0.0.1", port))
+
+
+def test_a_port_taken_before_the_server_binds_it_is_tried_again (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Losing the race for a port is a normal event, not a failure to start.
+
+	This file starts thirty-odd servers and the suite runs across workers, so two of them
+	choosing the same free port and one of them binding it first is only a matter of time —
+	and it arrives as ``the server exited early``, which reads like a broken build. Held here
+	by a listener on the port the fixture is handed, which is what losing that race looks like
+	from inside.
+	"""
+
+	with socket.socket() as held:
+		held.bind(("127.0.0.1", 0))
+		held.listen(1)
+
+		taken = int(held.getsockname()[1])
+		unlucky = [taken]
+		choose = free_port
+
+		def once () -> int:
+			"""Hand out the port somebody else is on, then real ones."""
+
+			return unlucky.pop() if unlucky else choose()
+
+		monkeypatch.setattr(sys.modules[__name__], "free_port", once)
+
+		with served(tmp_path) as remote:
+			assert not unlucky, "the fixture was handed the taken port"
+			assert remote.url != f"http://127.0.0.1:{taken}", "and did not serve on it"
+			assert httpx.get(f"{remote.url}/healthz", timeout=5.0).status_code == 200
 
 
 def test_serve_refuses_a_non_loopback_bind_without_tls (
@@ -1528,24 +1645,15 @@ def test_a_service_account_token_actually_works_over_http (
 
 	issued = run("token", "create", "--service-account", "claude")
 	token = next(word for word in issued.output.split() if word.startswith("sr_"))
-	port = free_port()
 
-	server = subprocess.Popen(
-		[sys.executable, "-m", "subroutine", "serve", "--port", str(port)],
-		env={
-			**os.environ,
-			"XDG_CONFIG_HOME": str(home / "xdg_config_home"),
-			"XDG_DATA_HOME": str(home / "xdg_data_home"),
-			"XDG_STATE_HOME": str(home / "xdg_state_home"),
-		},
-		stdout=subprocess.PIPE,
-		stderr=subprocess.STDOUT,
-		text=True,
-	)
-	url = f"http://127.0.0.1:{port}"
+	environment = {
+		**os.environ,
+		"XDG_CONFIG_HOME": str(home / "xdg_config_home"),
+		"XDG_DATA_HOME": str(home / "xdg_data_home"),
+		"XDG_STATE_HOME": str(home / "xdg_state_home"),
+	}
 
-	try:
-		_await(server, url)
+	with serving(environment) as url:
 		headers = {"authorization": f"Bearer {token}"}
 
 		created = httpx.post(
@@ -1557,16 +1665,6 @@ def test_a_service_account_token_actually_works_over_http (
 
 		# And it can read back what it wrote, which needs the read half of the role too.
 		assert httpx.get(f"{url}/v1/tasks", headers=headers).status_code == 200
-
-	finally:
-		server.terminate()
-
-		try:
-			server.communicate(timeout=10)
-
-		except subprocess.TimeoutExpired:
-			server.kill()
-			server.communicate()
 
 
 def test_a_token_is_never_issued_against_an_unusable_credentials_file (
