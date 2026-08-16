@@ -151,6 +151,11 @@ def _clean (body: str) -> str:
 		subroutine.domain.text.require(body, field="body"),
 		field="body",
 		limit=MAX_BODY_LENGTH,
+		# **The one field here that is genuinely prose** (`#927` H-8). Everything else
+		# `text.fit` sees is a title, a name or a slug, and those are one line by definition —
+		# so the default collapses whitespace and this says out loud that a comment is the
+		# exception. Somebody writing paragraphs meant to.
+		multiline=True,
 	)
 
 

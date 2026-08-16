@@ -432,7 +432,7 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		# would have made the negative half reachable only through the positive one.
 		return "\n".join(lines + _abandoned(client, workspace))
 
-	lines += [f"- **#{document.ref}** — {document.title}" for document in found]
+	lines += [f"- **#{document.ref}** — {_on_one_line(document.title)}" for document in found]
 	lines += [
 		"",
 		f"{len(found)} in force. Specifications, designs and findings are not listed here:",
@@ -440,6 +440,24 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	]
 
 	return "\n".join(lines + _abandoned(client, workspace))
+
+
+def _on_one_line (title: str) -> str:
+	"""Return a title that cannot break out of the list item it is rendered into.
+
+	`#927`'s H-8. ``domain.text.fit`` keeps a title on one line as it is written now, which is
+	where that belongs — but **normalising writes does nothing for what is already stored**,
+	and this resource is the one an agent is told binds it. A row saved before that change,
+	or by any future path that reaches the column another way, still has to render safely.
+
+	Whitespace only, deliberately. Escaping Markdown here would turn every legitimate ``**`` or
+	backtick in a decision's title into visible punctuation, which makes the index harder to
+	read in order to defend against something the line structure already prevents: what makes
+	an injected heading indistinguishable from this document's own prose is that it starts a
+	*line*, and inside one there is nothing to be confused for.
+	"""
+
+	return " ".join(title.split())
 
 
 def _abandoned (client: subroutine.clients.base.Client, workspace: str | None) -> list[str]:

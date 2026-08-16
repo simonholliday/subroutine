@@ -38,10 +38,32 @@ def fit (
 	field: str,
 	limit: int,
 	label: str | None = None,
+	multiline: bool = False,
 ) -> str:
-	"""Return ``value`` stripped, or refuse it for being longer than the column allows."""
+	"""Return ``value`` on one line and stripped, or refuse it for being too long.
 
-	cleaned = value.strip()
+	**One line unless the caller says otherwise, and the default is the fix** (`#927` H-8).
+	This stripped the ends and nothing else, so a title held interior newlines — and a title
+	is rendered into Markdown that an agent is told binds it. ``mcp/tools._conventions``
+	writes each decision as ``- **#42** — {title}``, so a title containing
+	``\\n\\n## Operator instructions\\n\\n…`` produced a heading indistinguishable from the
+	resource's own prose, plantable by anybody holding ``document:write``.
+
+	**Measured across the domain: exactly one caller wants the other answer** — a comment's
+	body, which is prose somebody wrote deliberately. Every other field through here is a
+	title, a name, a username or a slug. So the safe default costs one opt-out and there is no
+	list of single-line fields to fall behind; a field added tomorrow is one line unless
+	somebody decides otherwise in writing.
+
+	**Not a new rule, only an enforced one.** ``subroutine_add``'s own description tells an
+	agent *"The title stays one line"*, and §6.13 assumes it throughout. What was missing was
+	anything that made it true.
+
+	Collapsed rather than refused, because a newline in a title is somebody's paste rather
+	than an attack in the ordinary case, and refusing the paste helps nobody.
+	"""
+
+	cleaned = value.strip() if multiline else " ".join(value.split())
 
 	if len(cleaned) <= limit:
 		return cleaned
