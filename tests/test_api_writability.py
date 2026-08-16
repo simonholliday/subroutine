@@ -161,6 +161,15 @@ DERIVED: dict[str, str] = {
 		"false by linking or by finishing what it holds up."
 	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
+	# **`estimate_human`'s twin, and filed under the same argument** (`SR#925`). §6.7 requires a
+	# repeat to be read back in *different words* from the ones typed — that is what makes it a
+	# check rather than a mirror — so this is generated from `recurrence_rule` and its anchor
+	# and can never be sent. Sending it would be sending the confirmation instead of the thing
+	# being confirmed.
+	"recurrence_description": (
+		"recurrence_rule as a sentence, generated rather than echoed (§6.7). Written by "
+		"sending `recurrence`."
+	),
 	"completed_at": "Follows the status category (§10.7 invariant 5), never set directly.",
 	"archived_at": "Archiving is its own operation, not a field to assign a timestamp to.",
 	"deleted_at": "Deletion is its own operation; DELETE sets it.",

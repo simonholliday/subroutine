@@ -12,6 +12,7 @@ parses perfectly and throws when it is rendered — which is a blank page for th
 green build for us. Syntax checking cannot see it; only rendering can.
 """
 
+import ast
 import datetime
 import json
 import pathlib
@@ -8447,6 +8448,51 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	)
 
 
+def test_every_glyph_this_client_names_is_one_that_was_vendored () -> None:
+	"""`SR#925`. **A name with no path data draws nothing, and says nothing about it.**
+
+	`Icon` returns null for a name it does not have, deliberately and rightly — the type map is
+	one client's opinion about a vocabulary a workspace owns, so being handed an unknown name is
+	a normal event rather than an error. The cost is that a **typo in this client's own maps** is
+	indistinguishable from that: the chip renders, the word is there, and the picture silently is
+	not. `SR#251`'s inert control, drawn at 16 pixels.
+
+	The seeded-type guard above asks whether every type *has* a name; this asks whether every
+	name *is* one. Both directions, because they fail differently: a type with no entry falls
+	back to a glyph meant for a stranger's vocabulary, and an entry naming nothing falls back to
+	blank.
+	"""
+
+	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	vendored = (
+		subroutine.web.vendored.DIRECTORY / "phosphor.js"
+	).read_text(encoding="utf-8")
+
+	held = set(re.findall(r'^\t"([a-z-]+)":', vendored, re.M))
+
+	assert len(held) >= 14, f"only {sorted(held)} were vendored, so this checks almost nothing"
+
+	named = set()
+
+	for constant in ("TYPE_ICONS", "MARK_ICONS"):
+		mapping = re.search(rf"export const {constant} = \{{(.*?)\}};", source, re.DOTALL)
+
+		assert mapping is not None, f"`{constant}` has moved, so this is scanning nothing"
+
+		named |= set(re.findall(r':\s*"([a-z-]+)"', mapping.group(1)))
+
+	named |= set(re.findall(r'export const UNKNOWN_ICON = "([a-z-]+)"', source))
+
+	assert named, "no glyph names were found, so this is checking nothing"
+
+	missing = sorted(named - held)
+
+	assert not missing, (
+		f"{missing} are named as glyphs and no path data was vendored for them, so every "
+		f"chip using one draws no picture at all and nothing else says so"
+	)
+
+
 def test_a_repeat_and_its_anchor_travel_together_or_not_at_all (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -8537,3 +8583,188 @@ def test_a_repeating_item_opens_its_form_with_the_words_that_were_written (
 	assert compiled["recurrence"] == "FREQ=MONTHLY;BYMONTHDAY=30", (
 		"a rule sent directly left the box empty, so reopening the item and saving would stop it"
 	)
+
+
+def _read_by_python (module: typing.Any, function: str, variable: str) -> set[str]:
+	"""Return the view fields one Python renderer reads off the item it is given.
+
+	`SR#427`'s method, and the same extraction `tests/test_mcp.py` uses to compare the terminal's
+	renderers with the agent's — reading the renderer rather than listing beside it is the only
+	reason such a comparison stays true as either surface grows.
+	"""
+
+	tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
+	found = set()
+
+	for node in ast.walk(tree):
+		if not isinstance(node, ast.FunctionDef) or node.name != function:
+			continue
+
+		found |= {
+			read.attr
+			for read in ast.walk(node)
+			if isinstance(read, ast.Attribute)
+			and isinstance(read.value, ast.Name)
+			and read.value.id == variable
+		}
+
+	return found
+
+
+#: A fact the terminal's listing row carries that a browser row deliberately does not, and why.
+#: The same register `tests/test_mcp.py` keeps for the agent's row, asked of the third rendering.
+SAID_ANOTHER_WAY: dict[str, str] = {
+	# **The same fact through a better field** (`SR#925`). The terminal reads the rule and its
+	# anchor and calls `recurrence.describe` on them; a browser cannot, because that function is
+	# Python — so it would need a second copy of the grammar, free to disagree in silence. It
+	# reads `recurrence_description` instead, which is `describe`'s answer computed once on the
+	# server. Two fields there, one here, and the one carries both.
+	#
+	# **What would remove these**: the terminal reading `recurrence_description` too, which is
+	# the tidier end state and is a change to `cli/personal._when` rather than to this file.
+	"recurrence_rule": "recurrence_description",
+	"recurrence_anchor": "recurrence_description",
+}
+
+
+#: A fact the terminal's listing row carries that a browser row does not report at all, and why.
+NOT_ON_A_BROWSER_ROW: dict[str, str] = {
+	"timezone": (
+		"Read to render a day-scale date in the zone that stored it, which a browser row does "
+		"too — through `day(value, item.timezone, …)`, so it is a *use* rather than a fact "
+		"drawn. It is on the terminal's list because that renderer names the field directly."
+	),
+}
+
+
+def test_a_browser_row_reports_what_the_command_lines_row_reports () -> None:
+	"""`SR#925`, Simon: *"nothing indicates that it is a repeating task"*.
+
+	**The third rendering of one row, and nothing compared it to either of the others.** `SR#583`
+	put a guard on the terminal's two renderings and `SR#922` on the terminal against the agent;
+	both stopped at the surfaces written in Python. So the browser — the surface `SR#755` made a
+	person's primary one — carried a repeat nowhere at all, for as long as the feature existed,
+	and it was found by Simon opening a page.
+
+	**Why no existing guard could see it.** `NOT_ON_THE_FORM` compares *controls* against what
+	`POST /v1/tasks` accepts, which is a question about writing;
+	`test_a_listing_asks_for_every_field_its_rows_render` compares what a row draws against what
+	the request asks for, which is satisfied when a row draws nothing. Neither asks whether this
+	surface says what the others say.
+	"""
+
+	source = _served_modules()["app.js"]
+	surface = ["Row", "marks", "when", "overdue"]
+	bodies = {name: _function_body(source, name) for name in surface}
+
+	browser = set()
+
+	for body in bodies.values():
+		browser |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
+
+	terminal = _read_by_python(subroutine.cli.personal, "_when", "task")
+
+	assert browser, "no fields were found in the browser's row, so this is checking nothing"
+	assert terminal, "no fields were found at the command line, so this is checking nothing"
+
+	missing = sorted(terminal - browser - set(NOT_ON_A_BROWSER_ROW) - set(SAID_ANOTHER_WAY))
+
+	assert not missing, (
+		f"a listing row at the terminal reports {missing} and a browser row does not. Draw "
+		f"them, name the field that stands in for each in SAID_ANOTHER_WAY, or record in "
+		f"NOT_ON_A_BROWSER_ROW what a reader gets instead."
+	)
+
+	# **The substitution is checked, not taken on trust**, and the first version of this guard
+	# was inert for want of it: excusing the two recurrence fields as *read another way* made
+	# the comparison vacuous, so deleting the chip from `marks` — the exact state Simon found —
+	# left it green. An excuse naming a stand-in nobody verifies is this project's own signature
+	# defect, written into the guard built to catch it.
+	unread = sorted(set(SAID_ANOTHER_WAY.values()) - browser)
+
+	assert not unread, (
+		f"SAID_ANOTHER_WAY says a browser row reports {unread} instead of a field the terminal "
+		f"draws, and no browser row reads {'it' if len(unread) == 1 else 'them'}. So neither is "
+		f"shown and the excuse is the only thing saying otherwise."
+	)
+
+
+def test_every_fact_excused_from_a_browser_row_is_still_read_at_the_command_line () -> None:
+	"""So neither register can go on excusing a fact no terminal row renders — `SR#405`'s rule."""
+
+	terminal = _read_by_python(subroutine.cli.personal, "_when", "task")
+	unknown = sorted(
+		field
+		for field in (set(NOT_ON_A_BROWSER_ROW) | set(SAID_ANOTHER_WAY))
+		if field not in terminal
+	)
+
+	assert not unknown, (
+		f"NOT_ON_A_BROWSER_ROW names {unknown}, which a terminal row no longer reads."
+	)
+
+
+def test_a_repeating_row_says_so_and_the_item_page_says_how (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#925`, Simon's own split: an indicator on a row, the whole sentence on the item page.
+
+	**A card is narrow and is scanned**, so *does this come back* is the question a row is being
+	asked; *how* is what somebody opens it to check. Both are rendered from
+	`recurrence_description`, which the server generates from the stored rule — so the item page
+	shows what will happen rather than the phrase somebody typed, which is the whole of his
+	objection and of §6.7's read-back rule.
+	"""
+
+	[row, facts] = _rendered(tmp_path, {
+		"Row": {"item": dict(
+			SAMPLES["Row"]["item"], recurrence_description="every other week, on Tuesday"
+		)},
+		"Facts": {"item": {
+			"ref": 42,
+			"title": "Water the plants",
+			"recurrence_description": "every 3 days, from when it is done",
+		}},
+	}).values()
+
+	assert "Repeats" in row, row
+
+	# **The sentence is not on the row**, which is the half that says the split was made rather
+	# than one of the two simply being forgotten.
+	assert "every other week" not in row, row
+
+	assert "Repeats" in facts and "every 3 days, from when it is done" in facts, facts
+
+
+def test_a_form_opened_on_a_repeat_says_what_is_in_force_before_anybody_types (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#925`. **The check was there while typing and absent while reviewing.**
+
+	Simon: *"I see 'every monday' in the 'How often' box, but this does not tell me how it has
+	been parsed"*. The live preview fires on `onInput`, so reopening a repeat to check it showed
+	the one thing that confirms nothing — his own string back. The stored sentence is on the
+	item, so this needs no request: the disclosure can say what is in force the moment it opens.
+	"""
+
+	[opened] = _rendered(tmp_path, {"Repeats": {
+		"busy": False,
+		"held": {
+			"recurrence": "every monday",
+			"recurrence_anchor": "schedule",
+			"recurrence_description": "every Monday",
+		},
+	}}).values()
+
+	assert "every Monday" in opened, opened
+
+	# **And a live answer still wins**, because somebody typing has moved on from what is
+	# stored — the seed is the resting state, not a value that outranks the server's reply.
+	[typing] = _rendered(tmp_path, {"Repeats": {
+		"busy": False,
+		"held": {"recurrence": "every monday", "recurrence_description": "every Monday"},
+		"reading": {"description": "every other week, on Tuesday"},
+	}}).values()
+
+	assert "every other week, on Tuesday" in typing, typing
+	assert "every Monday" not in typing, typing

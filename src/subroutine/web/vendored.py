@@ -85,10 +85,11 @@ CATALOGUE: tuple[Vendored, ...] = (
 		package="@phosphor-icons/core",
 		version="2.1.1",
 		licence="MIT",
-		# **Not the file that is served** — unlike the three above, this is fourteen `<path>`
+		# **Not the file that is served** — unlike the three above, this is a handful of `<path>`
 		# strings lifted out of `assets/regular/*.svg` in that tarball, because the package ships
-		# 1,512 icons per weight in six weights and an instance needs fourteen. The address is
-		# what a replacement starts from; `phosphor.js`'s own comment says what was taken.
+		# 1,512 icons per weight in six weights and an instance needs fifteen. The address is
+		# what a replacement starts from; `phosphor.js`'s own comment says what was taken, and
+		# is the one place the count lives — a second copy here rotted the day `#925` added one.
 		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
 		notice="phosphor.LICENSE",
 	),

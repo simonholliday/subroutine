@@ -90,6 +90,11 @@ const TASK_FIELDS = [
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
 	"blocking",
+	/* **That it comes back** (`#925`). The row shows a short mark rather than this sentence,
+	   so what is asked for is more than what is drawn — deliberately, because the *presence*
+	   of the sentence is the fact and asking for `recurrence_rule` instead would make the
+	   browser hold a copy of the grammar to read it. */
+	"recurrence_description",
 	"status", "status_is_default", "status_category",
 	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
 	   `Task` or `Document`, which answers what shape it has and not what it is about, and
@@ -1376,6 +1381,18 @@ export function fromItem (item) {
 		*/
 		recurrence: said.recurrence_text || said.recurrence_rule || "",
 		recurrence_anchor: said.recurrence_anchor || "",
+		/*
+			**What the server made of it, carried into the form** — `#925`. The box above holds
+			the words somebody typed, and Simon's objection is exactly that: *"this does not
+			tell me how it has been parsed, and whether it will behave as expected"*. The
+			preview only fired on a keystroke, so reopening a repeat to check it showed the one
+			thing that confirms nothing — your own input.
+
+			**No request for it**, unlike the live preview: the item already carries the
+			sentence, so a form filled from an item can say what is in force before anybody
+			touches anything.
+		*/
+		recurrence_description: said.recurrence_description || "",
 	};
 }
 
@@ -2678,7 +2695,7 @@ export const TYPE_ICONS = {
    something else is holding shut, and a key for the item that opens it — which is `#861`'s
    stated intent, that the blocker is *the item you should pick* rather than a thing to warn
    about. A stop-hand or a warning triangle would say the opposite. */
-export const MARK_ICONS = { Blocked: "lock-simple", Blocker: "key" };
+export const MARK_ICONS = { Blocked: "lock-simple", Blocker: "key", Repeats: "repeat" };
 
 /* What an item type this client does not recognise is drawn as. */
 export const UNKNOWN_ICON = "circle-dashed";
@@ -2783,6 +2800,23 @@ export function marks (item, showKind, ordering = null, projects = null) {
 		and still stands; what outweighed it is that one relationship had two names.
 	*/
 	if (item.blocking) found.push({ text: "Blocker", tone: "quiet" });
+	/*
+		**That it comes back at all** — `#925`, Simon: *"nothing indicates that it is a repeating
+		task"*. The terminal's row has said so since the day the CLI learned about repeats and
+		the agent's since `#922`; this was the third rendering of one fact and the only one
+		silent about it, on the surface `#755` made a person's primary one.
+
+		**A short mark here and the whole sentence on the item page**, which is his split and is
+		right for the medium: a card is narrow and is scanned, so *does this come back* is the
+		question a row is being asked, where *how* is what somebody opens it to check. The full
+		parsed description is one click away in `Facts`.
+
+		**A glyph beside the word, like the two `blocks` marks** — and it is the fifteenth of
+		1,512, vendored from Phosphor's own source rather than drawn from memory. `#102` is what
+		decides the order of that sentence: the word carries the information and the picture is
+		what makes it findable at a glance, so a reader who cannot see the glyph loses nothing.
+	*/
+	if (item.recurrence_description) found.push({ text: "Repeats", tone: "quiet" });
 	/*
 		**`quiet`, not `late`** (`#862`). A deferred item is not a problem — it is a decision
 		somebody made, and the mark exists so the reader can see the decision rather than be
@@ -3705,6 +3739,16 @@ export function Repeats ({ busy, held, reading, onReading }) {
 	*/
 	const rule = (held || {}).recurrence || "";
 	const anchor = (held || {}).recurrence_anchor || "";
+	/*
+		**What is in force, until somebody types** — `#925`. `reading` is the live answer and
+		arrives only after a keystroke, so an item opened for editing showed its own phrase back
+		and nothing else. Falling back to the stored sentence means the check is there the
+		moment the disclosure opens, which is when a person is *reviewing* rather than writing —
+		and reviewing is the case §6.7's read-back exists for.
+	*/
+	const said = reading || (rule && (held || {}).recurrence_description
+		? { description: (held || {}).recurrence_description }
+		: null);
 
 	return html`
 		<details class="repeats wide" open=${Boolean(rule)}>
@@ -3738,7 +3782,7 @@ export function Repeats ({ busy, held, reading, onReading }) {
 						`)}
 					</select></label>
 
-				<${Reading} reading=${reading} />
+				<${Reading} reading=${said} />
 			</div>
 		</details>
 	`;
@@ -4255,6 +4299,18 @@ export function Facts ({ item }) {
 	   the item page said *Starts* about a defer while the form beneath it said *Hidden until*
 	   about the same value — one column under two opposite names, three clicks apart. */
 	add("Hidden until", day(item.snoozed_until, item.timezone, item.snoozed_is_all_day));
+	/*
+		**How it repeats, in the words the *rule* produces** — `#925`, and §6.7's whole argument.
+		Simon: *"an indicator of how the task repeats, based on its parsed and translated status
+		in the database, **not** the original string that I typed in (which could have been
+		misinterpreted)"*.
+
+		`recurrence_description` is generated on the server by `recurrence.describe`, so this is
+		the one sentence every surface shows and no client holds a copy of the grammar. The
+		phrase somebody typed is deliberately not here: reading your own input back confirms
+		nothing, which is the difference between a check and a mirror.
+	*/
+	add("Repeats", item.recurrence_description);
 	add("Estimate", item.estimate_human);
 	add("Tags", item.tags && item.tags.length > 0 ? item.tags.join(", ") : null);
 	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);

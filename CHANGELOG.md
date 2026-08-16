@@ -177,6 +177,12 @@ upgrade involves.
   Emptying the box stops the repeat, the same way emptying any other box on that form clears
   what it holds.
 
+  **A repeating item says so wherever you meet it.** A list and a board mark it *Repeats*; the
+  item itself spells out how — *every 3 days, from when it is done* — and so does the form when
+  you open it, before you have typed anything. That sentence is always generated from the rule
+  that was stored, never from the words you wrote, so it is a check on what will actually happen
+  rather than an echo of what you asked for.
+
   `GET /v1/tasks/{ref}/occurrences` answers *when does this come round*, over a stretch you
   name — `?until=2026-12-31`, or `?until=%2B3+months`. It computes rather than stores, so a
   birthday stays one item for ever instead of becoming one per year, and asking costs nothing

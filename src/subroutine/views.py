@@ -53,6 +53,7 @@ import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.readiness
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -416,6 +417,22 @@ class Task(pydantic.BaseModel):
 	recurrence_text: str | None = None
 	recurrence_anchor: str | None = None
 	recurrence_trigger: str | None = None
+
+	#: The rule as a sentence, **generated from what is stored rather than echoed from what was
+	#: typed** — `#925`. §6.7's whole argument is that reading a repeat back in *different words*
+	#: is what turns an ambiguous natural-language feature into a checkable one, and until this
+	#: the only surface that could do it was one holding a copy of the grammar.
+	#:
+	#: **`estimate_human`'s precedent exactly**, and the same reason: a grammar rendered once, on
+	#: the server, so no client needs its own copy. The browser receives a rule and an anchor and
+	#: has no way to turn either into English — so without this it could either say nothing about
+	#: a repeating task, which is what it did, or carry a second implementation of `describe`
+	#: free to disagree with the first in silence.
+	#:
+	#: It carries the anchor where that is news, so *every 3 days, from when it is done* reads as
+	#: one fact rather than two fields a reader has to combine.
+	recurrence_description: str | None = None
+
 	occurrence_at: datetime.datetime | None = None
 	recurrence_template_ref: int | None = None
 	is_template: bool = False
@@ -1630,6 +1647,11 @@ def task (
 		or _from_a_live_series(vocabulary, row, "recurrence_anchor"),
 		recurrence_trigger=row.recurrence_trigger
 		or _from_a_live_series(vocabulary, row, "recurrence_trigger"),
+		# **Derived from the two fields above rather than beside them** (`#925`), so it cannot
+		# describe a rule the same response is not reporting — and so a stopped series, which
+		# resolves neither, is silent here too rather than announcing a rule that will never
+		# fire again.
+		recurrence_description=_described_repeat(vocabulary, row),
 		occurrence_at=row.occurrence_at,
 		recurrence_template_ref=_parent_field(
 			vocabulary, row.recurrence_template_id, "ref"
@@ -2461,6 +2483,32 @@ def _parent_field (
 		return None
 
 	return vocabulary.parents.get(parent_id, {}).get(field)
+
+
+def _described_repeat (
+	vocabulary: Vocabulary, row: subroutine.db.models.work.Task
+) -> str | None:
+	"""Return how a task repeats, as a sentence, or ``None`` when it does not.
+
+	**Generated from the stored rule, never from the words somebody typed** — `#925`. That is
+	§6.7's whole argument: *every other tuesday* coming back as *every other week, on Tuesday*
+	is what tells a reader the phrase was understood the way they meant it, and echoing their
+	own input back confirms nothing. Simon met the gap on the item page, where the browser said
+	nothing at all and the form showed him his own string.
+
+	Read through the same fallback the rule takes, so an occurrence describes its series and a
+	stopped one describes nothing.
+	"""
+
+	rule = row.recurrence_rule or _from_a_live_series(vocabulary, row, "recurrence_rule")
+
+	if rule is None:
+		return None
+
+	return subroutine.domain.recurrence.describe(
+		rule,
+		anchor=row.recurrence_anchor or _from_a_live_series(vocabulary, row, "recurrence_anchor"),
+	)
 
 
 def _from_a_live_series (
