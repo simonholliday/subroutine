@@ -152,11 +152,11 @@ not built — named here because a tool that overstates itself wastes your after
 | Search served by an index, with ranking — PostgreSQL, opt-in | **Built** |
 | Capture grammar — `Fix the deploy script by friday !4/2 ~2h #ops +web` | **Built** |
 | Moving a task to another project | **Built** |
-| Recurring tasks — today the grammar recognises `every monday` well enough to leave it alone and tell you it did | Planned |
+| Recurring tasks — `--repeat "every month on the 30th"`, from a captured line, and editable in the browser | **Built** |
 | Acceptance criteria and verification gates | Planned |
 | Session handoffs between agents | Planned |
 | Ordering a backlog by hand | Planned |
-| Moving a sub-task under a different parent | Planned |
+| Moving a sub-task under a different parent — `subroutine move 42 --under 7` | **Built** |
 | Attachments | Planned |
 | Time tracking — `~2h` records an estimate; it does not track one | Planned |
 
@@ -178,21 +178,22 @@ not built — named here because a tool that overstates itself wastes your after
 
 | | |
 | --- | --- |
-| HTTP API — OpenAPI at `/v1/openapi.json`, Swagger at `/docs` | **Built** |
+| HTTP API — OpenAPI at `/v1/openapi.json`, for any viewer you like | **Built** |
 | CLI, progressive — a shopping list needs none of the above | **Built** |
 | Web interface — list, read, complete, add, reassign, Markdown, shareable addresses | **Built** |
 | Sign-in links, revocable from the command line | **Built** |
 | MCP over stdio (`subroutine mcp`) and over HTTP (`POST /mcp`) | **Built** |
 | Two Claude Code plugins — one local, one needing nothing installed | **Built** |
 | Multiple connections merged into one agenda | **Built** |
-| The agenda as the browser's front page | Planned |
-| Board and calendar views in the browser | Planned |
+| The agenda as the browser's front page | **Built** |
+| A board in the browser, with drag-and-drop between columns | **Built** |
+| A calendar view | Planned |
 
 ### Running it
 
 | | |
 | --- | --- |
-| SQLite and PostgreSQL — every test runs against both | **Built** |
+| SQLite and PostgreSQL — anything that touches a database is tested against both | **Built** |
 | Migrations, with releases that announce a schema change in advance | **Built** |
 | Backups to wherever you point them, verified where they land | **Built** |
 | Restore, as a recovery or as a clone | **Built** |

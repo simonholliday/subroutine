@@ -24,6 +24,7 @@ import pytest
 import typer.main
 import typer.testing
 
+import subroutine.api.meta
 import subroutine.auth
 import subroutine.cli.main
 import subroutine.config
@@ -1990,3 +1991,66 @@ def test_a_documented_default_is_the_default () -> None:
 	# The floor. Every row could stop being a literal — by somebody rewording the column, or
 	# by the regex drifting — and a comparison of nothing passes silently.
 	assert compared >= 10, f"only {compared} defaults were literal enough to compare"
+
+
+def _readme_rows () -> dict[str, bool]:
+	"""Return the README's feature table: the row's text, and whether it claims **Built**.
+
+	The table is a two-column Markdown one whose right cell is exactly ``**Built**`` or
+	``Planned``. Anything else in the file is not a row of it and is skipped, which keeps this
+	from reading the transcripts and the install table as features.
+	"""
+
+	found: dict[str, bool] = {}
+
+	for line in README.read_text(encoding="utf-8").splitlines():
+		row = re.match(r"^\|\s*(.+?)\s*\|\s*(\*\*Built\*\*|Planned)\s*\|$", line)
+
+		if row is not None:
+			found[row.group(1)] = row.group(2) != "Planned"
+
+	return found
+
+
+def test_nothing_the_api_calls_unbuilt_is_advertised_as_built () -> None:
+	"""`#927`'s H-19 — the README's table drifted for fifteen commits and nothing read it.
+
+	Five rows were wrong when the review found them, and **all five understated**: recurring
+	tasks and re-parenting were shipped and still marked *Planned*, the board too, and the
+	agenda front page. A page whose premise is *"a tool that overstates itself wastes your
+	afternoon"* sent a reviewer looking for a feature that had landed a fortnight earlier.
+
+	**This does not check the whole table and says so.** Most rows name something no program
+	can be asked about. What it does check is the overlap with a list that *is* already
+	guarded: ``api.meta.UNBUILT`` is the sentence `/v1/docs/agent` tells every agent, and
+	`#355` fails the build when the app serves something it names. So the two published claims
+	about what does not exist yet cannot disagree — which is the half where being wrong reaches
+	a reader who has no way to check.
+
+    A row's *wording* is still nobody's to verify but a person's. This is a floor under it.
+	"""
+
+	rows = _readme_rows()
+
+	assert len(rows) > 30, f"only {len(rows)} feature rows were read from {README}"
+
+	for name, _fragment in subroutine.api.meta.UNBUILT:
+		claimed = [row for row, built in rows.items() if built and name.split()[0] in row.lower()]
+
+		assert not claimed, (
+			f"/v1/meta calls {name!r} unbuilt and the README lists it as Built: {claimed}"
+		)
+
+
+def test_the_readme_has_both_kinds_of_row () -> None:
+	"""The floor under the floor: a scan that read one kind would satisfy the test above.
+
+	If the pattern stopped matching ``Planned`` rows the comparison becomes vacuous — every
+	unbuilt feature would be trivially unclaimed — and a table entirely of **Built** would read
+	exactly the same way. Both counts, so a regex that has drifted fails here by name.
+	"""
+
+	rows = _readme_rows()
+
+	assert sum(rows.values()) > 25, "no Built rows were read"
+	assert sum(not built for built in rows.values()) > 5, "no Planned rows were read"

@@ -230,11 +230,14 @@ def document (
 			max_estimate_minutes=subroutine.domain.durations.MAX_MINUTES,
 		),
 		error_codes=sorted(subroutine.errors.REGISTRY),
+		# **No `human` entry** (`#927` H-18). It named `/docs`, which this instance served as a
+		# blank page: Swagger loads its bundle from a CDN and `script-src 'self'` refuses it.
+		# Publishing an address to a client is a claim that something is there, and the client
+		# has no way to find out otherwise.
 		docs={
 			"agent_guide": "/v1/docs/agent",
 			"examples": "/v1/docs/examples",
 			"openapi": "/v1/openapi.json",
-			"human": "/docs",
 		},
 	)
 

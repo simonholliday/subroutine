@@ -12,6 +12,7 @@ import uuid
 
 import fastapi
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -51,28 +52,99 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# told the method is wrong would mean a client had to authenticate before learning it had
 	# asked the wrong question — and a 405 discloses nothing that `/v1/openapi.json` does not.
 	"GET /mcp": "refuses the event stream this transport does not have, with Allow: POST",
+	# **Added by the framework rather than by this project** (`#927` H-18), and invisible to
+	# the walk until it learned to read the built application as well as `ROUTERS`.
+	#
+	# Public deliberately, and measured rather than assumed: it answers 200 with no credential
+	# and publishes all 34 parameter names, which is what `#898` relied on when it decided that
+	# refusing an unknown query parameter *before* authenticating discloses nothing. A schema
+	# somebody has to authenticate to read is one an agent cannot use to decide how to
+	# authenticate.
+	#
+	# Two entries for one path because Starlette gives its own routes both methods, and naming
+	# the pair is honest where collapsing them would hide which one was checked.
+	"GET /v1/openapi.json": "the API's own schema, which a client reads before it has a token",
+	"HEAD /v1/openapi.json": "the same route; Starlette answers HEAD for it as well",
 }
 
 
 def _registered () -> list[tuple[str, typing.Any]]:
-	"""Return every route the application registers, as ``("GET /v1/me", route)``."""
+	"""Return every route the application registers, as ``("GET /v1/me", route)``.
+
+	**Two sources, because neither sees the other's routes** (`#927` H-18). ``ROUTERS`` is the
+	declared data this project mounts, and it has to be read that way: ``include_router``
+	*copies* a route as it mounts it and leaves a private wrapper in ``app.routes`` with no
+	``.path`` at all, so a walk over the built application finds nothing for them.
+
+	But FastAPI attaches routes of its own — ``/v1/openapi.json``, and ``/docs``, ``/redoc``
+	and ``/docs/oauth2-redirect`` where those are enabled — directly to the application, and
+	those are invisible to the ``ROUTERS`` walk. **Eight method-path pairs**, measured, none of
+	which required a credential and none of which anything here had to excuse, under a
+	docstring in ``api/security.py`` saying this "walks every registered route".
+
+	The blind spot was known and worked around rather than closed: ``PUBLIC_ROUTES`` says the
+	app's own files are ordinary routes rather than a ``StaticFiles`` mount *"so that they
+	appear in this list at all"*. That reasoning is right and it only ever covered the routes
+	this project writes.
+	"""
 
 	found: list[tuple[str, typing.Any]] = []
+	declared: set[str] = set()
 
 	for prefix, router in subroutine.api.app.ROUTERS:
 		for route in router.routes:
 			described: typing.Any = route
 
 			for method in sorted(described.methods or ()):
-				found.append((f"{method} {prefix}{described.path}", described))
+				name = f"{method} {prefix}{described.path}"
+
+				declared.add(name)
+				found.append((name, described))
+
+	application = api_support.build_app(_no_database())
+
+	for route in application.routes:
+		path = getattr(route, "path", None)
+
+		if path is None:
+			continue
+
+		for method in sorted(getattr(route, "methods", None) or ()):
+			name = f"{method} {path}"
+
+			# The mounted copies come back here too, and they are already accounted for
+			# above — from the router objects, where their dependencies can be read.
+			if name not in declared:
+				found.append((name, route))
 
 	return found
 
 
-def _requires_principal (route: typing.Any) -> bool:
-	"""Report whether a route resolves a principal before its handler runs."""
+def _no_database () -> typing.Any:
+	"""A session factory nothing in this walk will use.
 
-	seen: list[typing.Any] = list(getattr(route.dependant, "dependencies", []))
+	Building the application is how the framework's own routes become visible, and building
+	one needs a factory. Nothing here calls a handler, so it never opens a connection.
+	"""
+
+	return sqlalchemy.orm.sessionmaker(bind=sqlalchemy.create_engine("sqlite://"))
+
+
+def _requires_principal (route: typing.Any) -> bool:
+	"""Report whether a route resolves a principal before its handler runs.
+
+	**A route with no ``dependant`` is one that cannot have a dependency at all** — the
+	framework's own are plain Starlette routes rather than FastAPI ones — so the honest answer
+	for them is *no*, which puts the burden where it belongs: they have to be named in
+	:data:`PUBLIC_ROUTES` with a reason, by somebody who has thought about it.
+	"""
+
+	dependant = getattr(route, "dependant", None)
+
+	if dependant is None:
+		return False
+
+	seen: list[typing.Any] = list(getattr(dependant, "dependencies", []))
 
 	while seen:
 		dependency = seen.pop()

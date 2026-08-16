@@ -192,8 +192,21 @@ def create_app (
 		description=DESCRIPTION,
 		version=subroutine.API_VERSION,
 		openapi_url="/v1/openapi.json",
-		docs_url="/docs",
-		redoc_url="/redoc",
+		# **No Swagger and no ReDoc, because this instance's own policy blocks them** (`#927`
+		# H-18). Both answered 200 with their single `<script>` pointing at
+		# `cdn.jsdelivr.net`, against `script-src 'self' <hashes>` — a blank page that looked
+		# like a served feature, advertised as *Built* in the README and published by
+		# `/v1/meta` as `"human"`.
+		#
+		# Three ways out, and this is the one that is not a decision about the product.
+		# Vendoring `swagger-ui-dist` is ~1MB of third-party JavaScript in a closure
+		# `check_licences.py` walks `importlib.metadata` and cannot see — the trade already
+		# refused for shadcn and Tailwind — and admitting the CDN would widen the policy
+		# `#805` exists to hold. **Nothing that worked stops working**: the page was blank.
+		#
+		# `/v1/openapi.json` is unchanged and is the contract; any viewer can be pointed at it.
+		docs_url=None,
+		redoc_url=None,
 		lifespan=_lifespan,
 	)
 
