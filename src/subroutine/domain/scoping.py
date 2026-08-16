@@ -35,6 +35,43 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.hierarchy
+import subroutine.permissions
+
+
+def refuse_a_read_out_of_scope (
+	principal: subroutine.domain.authentication.Principal, permission: str
+) -> None:
+	"""Refuse a listing the credential's own scopes do not reach (`#930`).
+
+	**A read verb gated nothing until this existed.** ``task:read``, ``project:read`` and
+	``workspace:read`` appeared in no check anywhere, so a token issued ``--scope task:delete``
+	read every task, document, agenda and change feed it could reach, while ``/v1/me``
+	reported the one permission it had. Every read-narrowed credential was wider than it was
+	issued (`#927` H-2).
+
+	**Here rather than at the callers**, of which there are ten: this module is already the
+	one place a listing is narrowed, and ``tests/test_scoping.py`` fails the build when a
+	query reaches those tables from anywhere else. A check spread over the call sites is a
+	list, and a list falls behind.
+
+	**Scopes only, and that is complete rather than partial.** The other half of
+	``role ∩ scopes`` is the role, and every seeded role carries every read verb — measured,
+	all five — while `#826` records that no installation can add one. So for reads the role
+	half is vacuous by construction, and the credential's own narrowing is the only thing that
+	can decide. It is also the half that needs no session, which is what lets the check live
+	in a query builder at all.
+
+	**It refuses rather than narrowing to nothing.** An empty page is a plausible, complete,
+	wrong answer to *may I read this*, and the operator's remedy is the refusal.
+	"""
+
+	if not subroutine.domain.authorization.outside_token_scope(principal, permission):
+		return
+
+	raise subroutine.domain.authorization.AuthorizationError(
+		subroutine.domain.authorization.AuthorizationFailure.OUT_OF_TOKEN_SCOPE,
+		permission=permission,
+	)
 
 
 def within_project_scope (
@@ -120,6 +157,7 @@ def readable_projects (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	include_deleted: bool = False,
 	include_archived: bool = False,
+	enforce_read_scope: bool = True,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.project.Project]]:
 	"""Return a select over the projects this principal may see, and no others.
 
@@ -133,6 +171,12 @@ def readable_projects (
 	away. A list of ``include_`` flags reads as considered; the one that is missing reads as
 	nothing at all.
 	"""
+
+	# **Opt-out rather than opt-in, so forgetting it is safe.** The single caller that turns it
+	# off is `projects.keys_for`, which resolves ids out of the caller's own token for display
+	# and is named in that function's own comment (`#930`).
+	if enforce_read_scope:
+		refuse_a_read_out_of_scope(principal, subroutine.permissions.PROJECT_READ)
 
 	project = subroutine.db.models.project.Project
 
@@ -172,6 +216,10 @@ def readable_documents (
 	join rather than thrown away, so folding the two together would put a document nobody
 	deleted into the trash listing.
 	"""
+
+	# A document is a work item under a task's permissions, so it is `task:read` that reaches
+	# one and there is no `document:read` to hold it to (§7.3a, `permissions.COVERAGE`).
+	refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
 
 	document = subroutine.db.models.work.Document
 	project = subroutine.db.models.project.Project
@@ -221,6 +269,8 @@ def readable_tasks (
 	visible world with it and come back with it". One flag for both would put a task nobody
 	deleted into the trash.
 	"""
+
+	refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
 
 	task = subroutine.db.models.work.Task
 	project = subroutine.db.models.project.Project

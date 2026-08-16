@@ -504,6 +504,18 @@ def keys_for (
 				workspace_ids=spaces,
 				include_deleted=True,
 				include_archived=True,
+				# **The one place a read scope is not applied, and the reason is whose rows
+				# these are** (`#930`). Every id here came out of the caller's *own* token, so
+				# naming them discloses nothing they do not already hold — where a listing of
+				# `/v1/projects` would. Enforcing it here would mean a credential narrowed to
+				# `task:read` could not run `whoami` or read `/v1/me`, the two things built to
+				# tell an agent the truth about itself, and `#203`'s whole point was that a
+				# reader should see `inbox` rather than a UUID to go and look up.
+				#
+				# The *visibility* narrowing above still applies, which is what this function's
+				# docstring is about: a private project somebody cannot see is still passed
+				# through as its stored id.
+				enforce_read_scope=False,
 			).where(subroutine.db.models.project.Project.id == wanted)
 		).first()
 

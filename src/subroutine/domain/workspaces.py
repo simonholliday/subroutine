@@ -298,10 +298,21 @@ def add_member (
 	"""
 
 	if actor is not None:
+		# **`user:admin`, which is what both published descriptions of it say** (`#930`).
+		# `permissions.py` calls it "managing who belongs to this workspace — inviting,
+		# removing, changing a member's role" and `COVERAGE` says "who belongs to this
+		# workspace"; this checked `workspace:admin`, so the verb named for the job gated
+		# nothing and the verb named for something else did it.
+		#
+		# **A no-op for every role and not for a token.** Measured: `workspace:admin`,
+		# `user:admin` and `token:admin` are held by owner and admin and by nobody else, so
+		# no seeded role changes hands here — but a token scoped `user:admin` could not
+		# administer membership and one scoped `workspace:admin` could, which is backwards
+		# from what an operator reading either description would expect.
 		subroutine.domain.authorization.authorize(
 			session,
 			actor,
-			subroutine.permissions.WORKSPACE_ADMIN,
+			subroutine.permissions.USER_ADMIN,
 			workspace_id=workspace.id,
 		)
 
@@ -393,7 +404,7 @@ def remove_member (
 		subroutine.domain.authorization.authorize(
 			session,
 			actor,
-			subroutine.permissions.WORKSPACE_ADMIN,
+			subroutine.permissions.USER_ADMIN,
 			workspace_id=workspace.id,
 		)
 

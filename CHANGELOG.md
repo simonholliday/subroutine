@@ -26,6 +26,30 @@ upgrade involves.
 
 ### Security
 
+- **A token scoped to particular permissions is now narrowed when it reads, not only when it
+  writes.** `task:read`, `project:read` and `workspace:read` were checked nowhere at all, so a
+  credential issued `--scope task:delete` could read every task, document, agenda and change
+  feed it could reach — while `GET /v1/me` truthfully reported the single permission it held.
+  Every read-narrowed credential was wider than it was issued.
+
+  **This can refuse a credential that worked yesterday**, which is the point of it: if you
+  issued a token with `--scope` and left a read verb out, it will now be told so by name, with
+  the verb it needs. Reissue it with the verb, or with no `--scope` at all, which has always
+  meant *as wide as its owner*. A token issued without scopes is unaffected.
+
+  Two verbs that could never have been enforced are recorded as such rather than left looking
+  like controls: `tag:write`, `status:write` and `link_type:write` gate nothing because no
+  surface can add a tag, status or link type; `workspace:delete` gates nothing because nothing
+  deletes a workspace. Each entry says what would remove it, and a test fails the build if a
+  permission is added and checked by nothing — or if one of those gaps is closed and the note
+  is left behind.
+
+- **Managing who belongs to a workspace needs the permission named for it.** Adding and
+  removing members checked `workspace:admin` where both published descriptions of `user:admin`
+  say that is its job. No role changes hands — every role that holds one holds the other — but
+  a token scoped to `user:admin` could not administer membership and one scoped to
+  `workspace:admin` could, which is the wrong way round.
+
 - **Restoring a backup can no longer run commands, and a file has to prove it is a backup.**
   `subroutine db restore` handed a PostgreSQL dump straight to `psql`, which executes backslash
   commands written inside a script — so a file that reached your backup directory could run

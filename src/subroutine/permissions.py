@@ -245,3 +245,45 @@ def described (names: typing.Iterable[str]) -> list[str]:
 		name if name not in COVERAGE else f"{name} ({COVERAGE[name]})"
 		for name in names
 	]
+
+
+#: The verbs this instance publishes and does not yet check, each with what removes it (`#930`).
+#:
+#: **A permission that gates nothing is a claim about what a credential cannot do**, made to
+#: every caller of ``/v1/me`` and to every operator reading ``--scope``. The cold review of
+#: 2026-08-16 (`#927` H-3) found eight of twenty in that state; three were defects and are now
+#: checked, and these five are honest gaps in features nobody has built.
+#:
+#: **Each entry names the thing that deletes it**, which is what makes this a record rather
+#: than a place to park an awkward verb. ``tests/test_authorization.py`` fails the build both
+#: ways: a verb that is neither checked nor listed here, **and** a verb listed here that has
+#: since gained a check. The second half is the one every allow-list in this repository has
+#: and the reason `#405` went round adding them.
+NOT_ENFORCED: dict[str, str] = {
+	TAG_WRITE: (
+		"No surface creates a tag deliberately — `#826`. A tag is made as a side effect of "
+		"writing one onto an item, which needs `task:write`. Delete this when a workspace can "
+		"curate its own vocabulary."
+	),
+	STATUS_WRITE: (
+		"`Status` rows are written by `db.seed` and by nothing else — `#826` — so no "
+		"installation can add, rename or remove one. Delete this when it can."
+	),
+	LINK_TYPE_WRITE: (
+		"`LinkType` rows are written by `db.seed` and by nothing else — `#826`. Delete this "
+		"when a workspace can define a link type of its own."
+	),
+	TOKEN_ADMIN: (
+		"`api/tokens.py` contains no authorisation call at all: issuing is bounded by "
+		"`_refuse_amplification`, which compares a request against the presenter's own reach, "
+		"and issuing *for somebody else* needs `instance:user_create`. Delete this when "
+		"administering another person's credentials is a capability distinct from issuing "
+		"your own."
+	),
+	WORKSPACE_DELETE: (
+		"No route deletes a workspace, nothing writes `workspace.deleted_at`, and this is the "
+		"*only* difference between the `owner` and `admin` roles — so the two are "
+		"indistinguishable in every observable way while it stays unbuilt. Whether that is "
+		"groundwork or an oversight is Simon's, and is Open Question 1 of `#927`."
+	),
+}

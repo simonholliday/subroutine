@@ -999,3 +999,88 @@ def test_the_scoping_guard_leaves_alone_a_module_that_queries_nothing (
 	)
 
 	assert _modules_touching_work(tmp_path) == {}
+
+
+def test_a_read_narrowed_credential_cannot_read_past_its_scope (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#930`, from `#927` H-2. A read verb gated nothing, so narrowing one did nothing.
+
+	**Measured before the fix**: a token issued ``--scope task:delete`` answered 200 for
+	``/v1/tasks``, ``/v1/documents``, ``/v1/agenda`` and ``/v1/changes`` while ``/v1/me``
+	reported the single permission it held. Every read-narrowed credential was wider than it
+	was issued.
+
+	**Both directions**, because a refusal that fires for everybody is not enforcement: the
+	credential holding the verb reads normally, and the one holding a different verb is
+	refused by name.
+	"""
+
+	deleting, _issued = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="delete only", scopes=["task:delete"]
+	)
+	reading, _also = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="read only", scopes=["task:read"]
+	)
+	session.flush()
+
+	narrowed = subroutine.domain.authentication.Principal(user=world.owner, token=deleting)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as refused:
+		subroutine.domain.scoping.readable_tasks(narrowed, workspace_ids=[world.workspace.id])
+
+	# Named, because the operator's remedy is to reissue with the verb it lacks.
+	assert "task:read" in str(refused.value)
+
+	permitted = subroutine.domain.authentication.Principal(user=world.owner, token=reading)
+
+	assert _titles(session, permitted, world.workspace)
+
+
+def test_a_credential_with_no_scopes_is_narrowed_by_none_of_this (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The sentinel, which is the half of this rule that fails open when it is got wrong.
+
+	An empty scope list means *no narrowing*, never *no permission* — §7.3, and the
+	shape `#201` found in the project-scope predicate where the two readings disagreed and the
+	query side admitted everything. Every credential on this instance is in this state, so a
+	check that read the list falsily would refuse every read there is.
+	"""
+
+	unscoped, _issued = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="as wide as its owner"
+	)
+	session.flush()
+
+	wide = subroutine.domain.authentication.Principal(user=world.owner, token=unscoped)
+
+	assert _titles(session, wide, world.workspace)
+
+
+def test_the_read_scope_can_be_waived_in_exactly_one_place () -> None:
+	"""`#930`. An opt-out with one caller is a decision; with three it is a hole.
+
+	``readable_projects`` takes ``enforce_read_scope=False`` for one reason: ``keys_for``
+	resolves ids that came out of the caller's *own* token, so naming them discloses nothing
+	they do not already hold, and enforcing there would stop a narrowed credential running
+	``whoami`` at all.
+
+	**Found by the suite rather than by reasoning.** The check went in without the exception
+	and took five tests with it, all of them about a credential describing itself — which is
+	the case the enforcement is least entitled to refuse.
+	"""
+
+	waivers = [
+		f"{path.relative_to(SOURCE)}:{number}"
+		for path in sorted(SOURCE.rglob("*.py"))
+		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+		if "enforce_read_scope=False" in line
+	]
+
+	assert len(waivers) == 1, (
+		f"the read-scope waiver is used {len(waivers)} times: {waivers}. Each one is a "
+		f"listing that is not narrowed by the caller's own scopes — add the reason to this "
+		f"test, or do not waive it."
+	)
+	assert waivers[0].startswith("domain/projects.py"), waivers

@@ -7,6 +7,7 @@ that widens instead of narrowing, a private project that answers "forbidden" and
 confirms it exists.
 """
 
+import ast
 import pathlib
 import re
 import typing
@@ -842,3 +843,174 @@ def test_a_described_permission_reads_as_a_permission_and_a_note () -> None:
 	)
 
 	assert said == ["comment:write", "task:write (tasks and documents)"]
+
+
+#: The functions that decide whether a principal may do something. A verb reaching one of
+#: these is enforced; a verb reaching none of them is a claim nothing stands behind.
+_GATES = frozenset(
+	{
+		"authorize",
+		"authorize_instance",
+		"_permitted",
+		"permitted",
+		"_refusal",
+		"_instance_refusal",
+		"refuse_a_read_out_of_scope",
+	}
+)
+
+
+def _verbs_reaching_a_gate (tree: pathlib.Path) -> dict[str, list[str]]:
+	"""Return each permission constant passed to a gate, and where.
+
+	Takes the tree as an argument so a synthetic offender can be fed to the real scanner —
+	`#405`'s rule, after `test_actor_discipline` was found re-implementing its own detection
+	inline and passing over a directory it never read.
+	"""
+
+	found: dict[str, list[str]] = {}
+
+	for path in sorted(tree.rglob("*.py")):
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if not isinstance(node, ast.Call):
+				continue
+
+			function = node.func
+			name = (
+				function.attr
+				if isinstance(function, ast.Attribute)
+				else getattr(function, "id", "")
+			)
+
+			if name not in _GATES:
+				continue
+
+			# The verb may be an argument of the call or nested in a keyword, so the whole
+			# call is walked rather than only its positional arguments.
+			for inner in ast.walk(node):
+				if isinstance(inner, ast.Attribute) and inner.attr.isupper():
+					found.setdefault(inner.attr, []).append(f"{path.name}:{node.lineno}")
+
+	return found
+
+
+def _declared_permissions () -> dict[str, str]:
+	"""Return every permission constant this module publishes, by attribute name."""
+
+	return {
+		name: value
+		for name in dir(subroutine.permissions)
+		if name.isupper()
+		and isinstance(value := getattr(subroutine.permissions, name), str)
+		and ":" in value
+	}
+
+
+def test_every_permission_is_enforced_or_says_why_not () -> None:
+	"""`#930`. A verb this instance publishes means something, or records that it does not.
+
+	**The census the cold review asked for** (`#927` H-3, and its own highest-leverage
+	recommendation). It found eight of twenty verbs reaching no check at all — including
+	``task:read`` and ``project:read``, so a token issued ``--scope task:delete`` read
+	everything it could reach while ``/v1/me`` reported the one permission it held.
+
+	A permission is a promise made to whoever reads ``/v1/me`` and to whoever types
+	``--scope``. This is what stops the next one being added and forgotten.
+	"""
+
+	source = pathlib.Path(subroutine.permissions.__file__).parent
+	gated = _verbs_reaching_a_gate(source)
+	declared = _declared_permissions()
+
+	unenforced = {
+		value
+		for name, value in declared.items()
+		if name not in gated and value not in subroutine.permissions.NOT_ENFORCED
+	}
+
+	assert not unenforced, (
+		f"These permissions are published and checked by nothing: {sorted(unenforced)}. "
+		f"Enforce them, or record why not in permissions.NOT_ENFORCED with what removes "
+		f"the entry."
+	)
+
+
+def test_no_permission_is_both_enforced_and_excused () -> None:
+	"""The half that makes the list above a record rather than a place to park a verb.
+
+	Every allow-list in this repository has this test, and `#405` is the pass that added them:
+	an entry that has quietly become true again reads exactly like a considered decision, and
+	nothing else will ever notice. Deleting the entry is what closes the work it names.
+	"""
+
+	source = pathlib.Path(subroutine.permissions.__file__).parent
+	gated = _verbs_reaching_a_gate(source)
+	declared = _declared_permissions()
+
+	by_value = {value: name for name, value in declared.items()}
+	stale = {
+		value
+		for value in subroutine.permissions.NOT_ENFORCED
+		if by_value.get(value, "") in gated
+	}
+
+	assert not stale, (
+		f"These are excused in permissions.NOT_ENFORCED and are now checked: {sorted(stale)}. "
+		f"Delete the entry — it names what its own removal means."
+	)
+
+
+def test_the_scanner_reads_something () -> None:
+	"""A floor, because a scan that reads nothing makes every entry look enforced.
+
+	`#408`'s recorded pattern: a floor catches a scanner that read *nothing* and is blind to
+	one that read most things. The two tests above are both satisfiable by an empty result —
+	the first trivially, the second by every verb looking unenforced — so the count is what
+	tells a working scan from a broken one.
+	"""
+
+	source = pathlib.Path(subroutine.permissions.__file__).parent
+	gated = _verbs_reaching_a_gate(source)
+
+	assert len(gated) >= 12, f"the scan found only {len(gated)} enforced permissions"
+
+
+def test_membership_is_administered_by_the_verb_named_for_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#930`, from `#927` H-3. The verb named for the job gated nothing and another did it.
+
+	``permissions.py`` describes ``user:admin`` as *"managing who belongs to this workspace —
+	inviting, removing, changing a member's role"*, and ``COVERAGE`` publishes it as *"who
+	belongs to this workspace"*. Both membership services checked ``workspace:admin``.
+
+	**A no-op for every role and not for a token**, which is why it is worth changing rather
+	than reworded: ``workspace:admin``, ``user:admin`` and ``token:admin`` are held by ``owner``
+	and ``admin`` and by nobody else, so no seeded role changes hands — but a credential scoped
+	to ``user:admin`` could not administer membership and one scoped to ``workspace:admin``
+	could, which is backwards from both descriptions an operator can read.
+	"""
+
+	source = pathlib.Path(subroutine.permissions.__file__).parent
+	gated = _verbs_reaching_a_gate(source)
+
+	assert "USER_ADMIN" in gated, "user:admin is published as membership and checked nowhere"
+
+	# The seeded roles must still be indistinguishable here, or this changed who can do what
+	# rather than which verb says so.
+	holders = {
+		verb: {
+			seed.key
+			for seed in subroutine.db.seed._SYSTEM_ROLES
+			if verb in seed.permissions
+		}
+		for verb in (
+			subroutine.permissions.WORKSPACE_ADMIN,
+			subroutine.permissions.USER_ADMIN,
+		)
+	}
+
+	assert (
+		holders[subroutine.permissions.WORKSPACE_ADMIN]
+		== holders[subroutine.permissions.USER_ADMIN]
+	), f"the correction moved a capability between roles: {holders}"

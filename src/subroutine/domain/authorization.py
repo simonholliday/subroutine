@@ -352,6 +352,27 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
+def outside_token_scope (
+	principal: subroutine.domain.authentication.Principal, permission: str
+) -> bool:
+	"""Report whether the credential's own narrowing forbids this verb (§7.3).
+
+	**Empty means no narrowing, not no permission**, which is the trap this rule keeps: a
+	token issued with no scopes is as wide as its owner, and reading the list truthily is what
+	tells the two apart.
+
+	Lifted out because it was written twice and was about to be written a third time — the two
+	refusal paths below, and `#930`'s read check in :mod:`subroutine.domain.scoping`, which
+	needs the answer without a session and so cannot go through :func:`authorize`. A rule this
+	codebase keeps finding in two places that disagree gets one home the moment there is a
+	third caller.
+	"""
+
+	scopes = principal.scopes
+
+	return bool(scopes) and permission not in scopes
+
+
 def _instance_refusal (
 	principal: subroutine.domain.authentication.Principal, permission: str
 ) -> AuthorizationFailure | None:
@@ -368,11 +389,9 @@ def _instance_refusal (
 	if not principal.is_superuser:
 		return AuthorizationFailure.NOT_A_SUPERUSER
 
-	scopes = principal.scopes
-
 	# A superuser bypasses roles, never token scopes — otherwise a leaked agent token
 	# belonging to an administrator would be unbounded (SPEC.md §7.3).
-	if scopes and permission not in scopes:
+	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
 	return None
@@ -434,9 +453,7 @@ def _refusal (
 	if permission not in granted:
 		return AuthorizationFailure.ROLE_LACKS_PERMISSION
 
-	scopes = principal.scopes
-
-	if scopes and permission not in scopes:
+	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
 	if project is not None and not _within_project_scope(principal, project):
