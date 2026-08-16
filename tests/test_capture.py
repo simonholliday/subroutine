@@ -186,6 +186,72 @@ def test_the_preview_quotes_the_recurrence_a_person_actually_wrote () -> None:
 	assert _parse("Ask everyone about it").unparsed == ()
 
 
+def test_a_date_word_inside_another_word_is_not_a_date_word () -> None:
+	"""`#929`. ``\\b`` is not "a word starts here", and ``_DATED`` was the one pattern using it.
+
+	**Both edges were wrong and each loses a word**, which is §6.13 rule 1's forbidden outcome:
+
+	- at the front it matched *inside* a hyphenated word, so ``add-on`` gave up its ``on`` and
+	  the task was filed as ``Ship the add-``;
+	- at the back it matched before an apostrophe, so ``by tomorrow's deadline`` filed
+	  ``Ship it 's deadline``.
+
+	The second is the defect this module already records as the reason ``_BARE_DAY`` is
+	anchored — written down, and fixed in one pattern of the two it was true of.
+	"""
+
+	for line in (
+		"Ship the add-on tomorrow",
+		"Fix the stand-by wednesday",
+		"Review the sign-on flow on monday",
+		"Ship it by tomorrow's deadline",
+	):
+		captured = _parse(line)
+
+		# Rule 1 is about *words*, so the assertion is about words rather than about the
+		# whole title: `on monday` above is a real date and correctly leaves the title.
+		for word in ("add-on", "stand-by", "sign-on", "tomorrow's"):
+			if word in line:
+				assert word in captured.title, f"{line!r} lost {word!r}, filing {captured.title!r}"
+
+	# Falsifying the fix must not cost the dates that made it worth having, so the ordinary
+	# forms are asserted here rather than trusted to another test. `on` plans a day and `by`
+	# sets a deadline, which is why the two are read off different fields.
+	assert _parse("Call the dentist on monday").starts_at is not None
+	assert _parse("Pay the rent by 2026-08-19.").due is not None
+
+
+def test_a_time_given_back_is_not_reported_as_a_failed_repeat () -> None:
+	"""`#929`. Three things reach ``unparsed`` and ``explain`` sorted them into two.
+
+	A ``+`` nobody could parse, a repeat phrased in a way the grammar does not know, **and a
+	time this module read and deliberately gave back** — the third being reported as the
+	second. So ``Email Bob re: 3pm``, which is ``explain capture``'s own worked example and
+	whose documented point is that none of it is grammar, answered *"not a repeat this
+	understands"*.
+	"""
+
+	timed = _parse("Email Bob re: 3pm")
+
+	assert timed.title == "Email Bob re: 3pm", "rule 1: the words are untouched"
+	assert timed.unparsed == ("3pm",)
+
+	about_a_time = subroutine.domain.capture.explain(timed.unparsed)
+
+	assert about_a_time is not None
+	assert "repeat" not in about_a_time, about_a_time
+	assert "at" in about_a_time
+
+	# The other half: a real repeat attempt must still be told it is one, or this is simply a
+	# check that the sentence stopped being said.
+	about_a_repeat = subroutine.domain.capture.explain(
+		_parse("Water plants every fortnight").unparsed
+	)
+
+	assert about_a_repeat is not None
+	assert "not a repeat this understands" in about_a_repeat
+
+
 def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
 	"""`SR#778`, Simon 2026-08-10, reading a title in the browser.
 

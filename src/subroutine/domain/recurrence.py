@@ -433,7 +433,15 @@ def _checked (value: str, *, field: str) -> str:
 	except (ValueError, TypeError) as unreadable:
 		raise _refuse(value, field=field, why=str(unreadable)) from None
 
-	return written
+	# **Stored as it was checked, not as it was typed** (`#929`). Every part of an ``RRULE`` is
+	# case-insensitive and this function upper-cases each *name* to validate it — then returned
+	# the original string, so ``freq=weekly;byday=mo`` was accepted, stored verbatim, and
+	# described back as ``"every "``. The read-back is the whole point of taking a rule this
+	# way, so it failing on a rule the parser accepted is the worst available outcome.
+	#
+	# Safe to upper-case whole: an ``RRULE``'s values are keywords, integers and a UTC
+	# timestamp, none of which carries meaning in its case.
+	return written.upper()
 
 
 def names_its_own_day (stored: str) -> bool:
@@ -572,6 +580,12 @@ def describe (stored: str, *, anchor: str | None = None) -> str:
 	checking a repeat against what they meant cannot do it from the rule alone — and a caller
 	who has just set ``recurrence_anchor`` has nowhere to see that it landed.
 	"""
+
+	# **Does not assume its argument was canonicalised** (`#929`). `_checked` upper-cases what
+	# it stores now, so everything written since reads back correctly — but this is also handed
+	# rules by callers and by rows written before that, and answering `"every "` about a rule
+	# the parser accepts is worse than answering slowly.
+	stored = stored.upper()
 
 	parts = dict(
 		[*piece.split("=", 1), ""][:2] for piece in stored.split(";") if "=" in piece

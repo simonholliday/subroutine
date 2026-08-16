@@ -322,3 +322,25 @@ def test_asking_for_a_window_stops_at_the_end_of_it () -> None:
 	assert len(found) == 6, [moment.isoformat() for moment in found]
 	assert found[0] == NOW
 	assert all(moment <= ceiling for moment in found)
+
+
+def test_a_rule_is_stored_as_it_was_checked_rather_than_as_it_was_typed () -> None:
+	"""`#929`. Every part of an ``RRULE`` is case-insensitive and only the check knew it.
+
+	``_checked`` upper-cases each part *name* to validate it and then returned the original
+	string, so ``freq=weekly;byday=mo`` was accepted by the parser, stored verbatim, and
+	described back as ``"every "``.
+
+	**That is the worst place for it to fail.** Reading a rule back in different words is the
+	whole reason a phrase or an ``RRULE`` may be handed to this at all — a repeat that cannot
+	be confirmed is a repeat nobody can check against what they meant.
+	"""
+
+	read = subroutine.domain.recurrence.rule("freq=weekly;byday=mo")
+
+	assert read.rule == "FREQ=WEEKLY;BYDAY=MO"
+	assert subroutine.domain.recurrence.describe(read.rule) == "every Monday"
+
+	# A row written before this was fixed is still out there, so `describe` does not assume
+	# its argument came from `_checked`.
+	assert subroutine.domain.recurrence.describe("freq=weekly;byday=mo") == "every Monday"

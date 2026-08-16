@@ -269,6 +269,30 @@ upgrade involves.
 
 ### Fixed
 
+- **A hyphenated word no longer loses its second half to the date grammar.**
+  `subroutine add "Ship the add-on tomorrow"` filed a task called `Ship the add-`: the `on`
+  inside `add-on` was read as the word that introduces a date. `stand-by`, `sign-on`,
+  `hands-on` and anything else ending in `on`, `by`, `due`, `from` or `before` did the same.
+  The date still reads — only the word stays whole.
+
+  The same rule was wrong at the other end, so `Ship it by tomorrow's deadline` filed
+  `Ship it 's deadline`. Both are fixed, and an ordinary `due friday,` or `by 2026-08-19.`
+  reads exactly as it did.
+
+- **A time you typed is no longer reported as a repeat you got wrong.** `Email Bob re: 3pm`
+  answered *"not a repeat this understands"* and listed the recurrence forms — about a string
+  nobody offered as a repeat. It now says what would have made it a time, and a phrase that
+  genuinely was an attempt at a repeat is still told so.
+
+- **A repeat written in lower case reads back properly.** `freq=weekly;byday=mo` was accepted
+  and stored as typed, then described back as `every ` — nothing after the word. Rules are
+  stored in one form now, so the sentence you are shown to check against what you meant says
+  `every Monday`.
+
+- **`subroutine explain capture` said repeats were not read yet.** They have been since the
+  previous release. The page now lists `every <phrase>` with the rest of the grammar and says
+  what happens to a phrase it cannot read.
+
 - **A change to the web UI reaches your browser on the next load.** Its files were served with
   a five-minute cache and nothing to check them against, so after updating an instance you could
   be looking at the previous version's styling with no way to tell — and once the five minutes

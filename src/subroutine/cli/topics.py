@@ -127,6 +127,10 @@ def _capture_body () -> str:
 		(", ".join(subroutine.domain.capture.BARE_PLANNED_WORDS), "the same, said shorter"),
 		(f"{', '.join(subroutine.domain.capture.DEFER_WORDS)} <date>", "hides it until then"),
 		("at <time>", "the time of day, after a date or on its own"),
+		# Added when the page was found still saying repeats were unread, four days after
+		# they shipped (`#929`). The grammar reads them, so the table that lists the grammar
+		# has to say so.
+		("every <phrase>", "repeats — 'every day', 'every other tuesday'"),
 		("#tag", "labels it, creating the tag if it is new — but #12 means task 12"),
 		("@name", "assigns it to somebody"),
 		("!1 to !5", "how important it is"),
@@ -154,7 +158,8 @@ Rules worth knowing:
 
   An estimate needs a unit ({units}), so '~5 people' is not five minutes.
 
-  'every monday' is not read yet. It stays in the title and is left alone."""
+  A repeat it cannot read stays in the title and says so, rather than being
+  guessed at: 'every fortnight' is left alone and 'every 14 days' is read."""
 
 
 TOPICS: tuple[Topic, ...] = (

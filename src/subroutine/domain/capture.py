@@ -108,9 +108,26 @@ _PHRASE = (
 	r")"
 )
 
+#: A date preposition and the phrase after it — ``by friday``, ``due 2026-08-19``.
+#:
+#: **Both edges are guarded against ``\b`` and neither was** (`#929`). ``\b`` sits between any
+#: word character and any non-word character, which is not the same question as *does a word
+#: start here*:
+#:
+#: - At the front it matched **inside** a hyphenated word, so ``Ship the add-on tomorrow`` read
+#:   the ``on`` of ``add-on`` as a date preposition and filed a task called ``Ship the add-``.
+#:   Every other pattern in this module uses ``_STARTS_A_WORD`` and this one did not.
+#: - At the back it matched **before an apostrophe**, so ``Ship it by tomorrow's deadline``
+#:   became ``Ship it 's deadline``. That is the defect recorded three lines below as the
+#:   reason ``_BARE_DAY`` is anchored — found, written down, and fixed in one pattern of the
+#:   two it was true of.
+#:
+#: Both are §6.13 rule 1's forbidden outcome: a word vanished and no field gained it. The
+#: trailing guard refuses a word character *or* an apostrophe, so ``due friday,`` and
+#: ``due friday.`` still read, which is what an ordinary sentence looks like.
 _DATED = re.compile(
-	rf"\b(?P<word>{'|'.join((*DEADLINE_WORDS, *PLANNED_WORDS, *DEFER_WORDS))})"
-	rf"\s+(?P<phrase>{_PHRASE})\b",
+	rf"{_STARTS_A_WORD}(?P<word>{'|'.join((*DEADLINE_WORDS, *PLANNED_WORDS, *DEFER_WORDS))})"
+	rf"\s+(?P<phrase>{_PHRASE})(?![\w'])",
 	re.IGNORECASE,
 )
 
@@ -335,19 +352,39 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	if not unparsed:
 		return None
 
+	# **Three things end up here and there were two buckets** (`#929`). A `+` nobody could
+	# parse, a repeat phrased in a way the grammar does not know, **and a time that was read
+	# and deliberately given back** — which was being reported as a failed repeat, so
+	# `explain capture`'s own worked example, `Email Bob re: 3pm`, answered *"not a repeat this
+	# understands"* about a string nobody offered as one.
+	#
+	# Sorted by asking `_EVERY`, which is the pattern that put the repeat here in the first
+	# place, rather than by a second description of what a repeat looks like.
 	said = [one for one in unparsed if one.startswith("+")]
-	timed = [one for one in unparsed if not one.startswith("+")]
+	rest = [one for one in unparsed if not one.startswith("+")]
+	repeats = [one for one in rest if _EVERY.match(one)]
+	timed = [one for one in rest if not _EVERY.match(one)]
 
 	clauses = []
 
-	if timed:
+	if repeats:
 		# **The reason changed when the feature landed** (`#94`). It said *"recurring tasks are
 		# not supported yet"*, which was true of every unread token here and is now true of
 		# none of them: a repeat this grammar cannot read is a repeat *phrased* in a way it
 		# does not know, and pointing at the forms that work is what a reader can act on.
 		clauses.append(
-			f"Left as written: {', '.join(timed)} — not a repeat this understands. "
+			f"Left as written: {', '.join(repeats)} — not a repeat this understands. "
 			f"{subroutine.domain.recurrence.PHRASE_HINT}"
+		)
+
+	if timed:
+		# **Says what would have made it a date**, because the rule is not guessable from the
+		# outcome: a time is read after `at`, or straight after a day that has already been
+		# read. Without one it stays in the title, which is `#797`'s decision and is why this
+		# is a note rather than a refusal.
+		clauses.append(
+			f"Left as written: {', '.join(timed)} — a time is read after 'at', or straight "
+			f"after a day, as in 'Dentist on Monday at 2pm'."
 		)
 
 	if said:
