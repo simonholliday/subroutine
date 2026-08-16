@@ -864,6 +864,28 @@ class Client:
 			summary=subroutine.domain.capture.summarise(read),
 		)
 
+	def read_repeat (
+		self,
+		*,
+		text: str,
+		start: datetime.datetime | None = None,
+		timezone: str | None = None,
+	) -> subroutine.views.Reading:
+		"""Say what a written repeat means, without storing anything."""
+
+		body = self._json(
+			"POST",
+			"/v1/recurrence/parse",
+			json=_given(
+				text=text,
+				timezone=timezone,
+				**({} if start is None else {"from": start.isoformat()}),
+			),
+		)
+
+		return self._parsed(subroutine.views.Reading, body)
+
+
 	def skip (
 		self,
 		*,

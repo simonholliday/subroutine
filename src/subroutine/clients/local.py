@@ -57,6 +57,7 @@ import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.readiness
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.scoping
@@ -1622,6 +1623,45 @@ class Client:
 				unparsed=captured.unparsed,
 				summary=subroutine.domain.capture.summarise(captured),
 			)
+
+	def read_repeat (
+		self,
+		*,
+		text: str,
+		start: datetime.datetime | None = None,
+		timezone: str | None = None,
+	) -> subroutine.views.Reading:
+		"""Say what a written repeat means, without storing anything.
+
+		**Read-only, so it is not refused on a read-only connection.** It creates nothing and
+		names nothing that exists: handing it a phrase and being told what the phrase means is
+		the same kind of act as asking what a date expression resolves to.
+		"""
+
+		with self._opened() as (session, actor):
+			zone = timezone or subroutine.domain.schedule.zone_for(
+				user=actor.user,
+				workspace=subroutine.domain.selection.workspace(
+					session, actor, requested=None
+				),
+				instance=subroutine.domain.instances.get(session),
+			)
+
+		read = subroutine.domain.recurrence.rule(text, field="text")
+		moment = start or subroutine.db.types.utcnow()
+
+		return subroutine.views.Reading(
+			rule=read.rule,
+			description=subroutine.domain.recurrence.describe(read.rule),
+			text=read.text,
+			occurrences=subroutine.domain.recurrence.occurrences(
+				read.rule,
+				start=moment,
+				timezone=zone,
+				limit=subroutine.domain.recurrence.AHEAD,
+			),
+		)
+
 
 	def skip (
 		self,

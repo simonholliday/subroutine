@@ -92,6 +92,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("PATCH", "/v1/tasks/{id_or_ref}"): "update",
 	("POST", "/v1/tasks/{id_or_ref}/complete"): "complete",
 	("POST", "/v1/tasks/{id_or_ref}/skip"): "skip",
+	("POST", "/v1/recurrence/parse"): "read_repeat",
 	("POST", "/v1/tasks/{id_or_ref}/comments"): "remark",
 	("POST", "/v1/documents"): "create_document",
 	("POST", "/v1/users"): "create_user",
@@ -277,6 +278,11 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"read_repeat": (
+		"disclosure",
+		"`#94`. §6.7 built this so a caller can confirm a phrase *before* committing to it, and at a terminal there is nothing to confirm before: `subroutine add \"Pay the rent on the 30th of every month\"` answers with the repeat rendered back from the stored rule — *every month, on the 30th* — in the same breath as creating it. A preview command would be a second way to ask a question the create already answers, which is the duplication `#154` closed for `help` and `explain`.\n\n"
+		"**What would remove it**: a surface where the answer arrives too late to act on. That is a form, and the browser calls this endpoint directly.",
+	),
 	"call_api": (
 		"protocol",
 		"`#485`. This exists because the *tool* surface is a budget — decision `#484` measured "
@@ -321,6 +327,11 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"read_repeat": (
+		"budget",
+		"`#94`. The argument is the CLI's and one more: `subroutine_add` and `subroutine_update` already answer with the repeat read back from the stored rule, so an agent that files one is told what it means without asking. Creating is cheap and reversible here, which is what makes *confirm afterwards* an honest substitute for *confirm first* on this surface and not on a form.\n\n"
+		"Reachable through `subroutine_call_api` meanwhile, which is exactly what `#485` built it for. **What would remove it**: measured evidence of an agent filing repeats it did not mean, or enough headroom under §21.2's cap that the question stops being a trade.",
+	),
 	"move": (
 		"budget",
 		"`#44`. Asked of `#484`'s test — *what would an agent get wrong without it?* — and "
@@ -911,6 +922,9 @@ SPELLED_DIFFERENTLY = {
 	#: both sides rather than assumed: `api/changes.py` compares it against `ACTOR_ME` and
 	#: passes `mine=actor_filter == ACTOR_ME`, and the client sends `actor="me" if mine`.
 	#: One capability, and the only filter `#501`'s guard reported that is not a gap.
+	# The body field is `from`, which is a Python keyword, so the model aliases it `from_`
+	# and the client — having no such constraint on a *parameter* name — calls it `start`.
+	"from_": {"start"},
 	"actor_filter": {"mine"},
 }
 

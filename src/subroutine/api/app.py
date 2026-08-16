@@ -32,6 +32,7 @@ import subroutine.api.policy
 import subroutine.api.problems
 import subroutine.api.projects
 import subroutine.api.query
+import subroutine.api.recurrence
 import subroutine.api.routing
 import subroutine.api.sessions
 import subroutine.api.tasks
@@ -84,6 +85,7 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.tokens.router),
 	("", subroutine.api.meta.router),
 	("", subroutine.api.agenda.router),
+	("", subroutine.api.recurrence.router),
 	("", subroutine.api.tasks.router),
 	# The link sub-resources come after the routers whose paths they extend. They cannot
 	# shadow or be shadowed — `/{id_or_ref}/links` is longer than anything in either — but

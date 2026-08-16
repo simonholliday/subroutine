@@ -52,6 +52,12 @@ PARTS: frozenset[str] = frozenset({
 	"BYDAY", "BYMONTHDAY", "BYMONTH",
 })
 
+#: How many dates to show back. **Five, following §6.7's own wording**, and the number is a
+#: judgement about confirmation rather than about pagination: enough to see a weekly rule
+#: land on the right weekday and a monthly one skip February, few enough to read at a glance.
+AHEAD = 5
+
+
 #: What a caller may write instead of a rule, in the order somebody would reach for them.
 #: Published through every refusal, so the shapes that work are named where the failure is.
 PHRASE_HINT = (

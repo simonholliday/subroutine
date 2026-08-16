@@ -882,6 +882,24 @@ class Client(typing.Protocol):
 		should not be told apart by a plural.
 		"""
 
+	def read_repeat (
+		self,
+		*,
+		text: str,
+		start: datetime.datetime | None = None,
+		timezone: str | None = None,
+	) -> subroutine.views.Reading:
+		"""Say what a written repeat means, without storing anything (§6.7).
+
+		**A calculator, and that is what makes it worth having on a client.** It turns an
+		ambiguous natural-language feature into a checkable one: the description comes back in
+		different words from the ones sent, so a caller can see whether the thing understood is
+		the thing they meant *before* committing to it.
+
+		Refuses exactly as a create would, because it is the same function — so checking first
+		and then committing cannot produce two different answers about one phrase.
+		"""
+
 	def skip (
 		self,
 		*,

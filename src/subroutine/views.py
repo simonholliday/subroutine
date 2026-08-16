@@ -172,6 +172,24 @@ class WorkspaceRef(pydantic.BaseModel):
 	title: str
 
 
+class Reading(pydantic.BaseModel):
+	"""What a written repeat turned out to mean."""
+
+	#: The stored form — RFC 5545, and what every calendar application reads.
+	rule: str
+
+	#: The same thing as a sentence, generated rather than echoed. This is the field that
+	#: makes the endpoint a check rather than a mirror.
+	description: str
+
+	#: The words that were sent, when they were words. Null when a rule was sent directly,
+	#: which is the honest answer: nobody wrote a sentence.
+	text: str | None
+
+	#: The next few occurrences, in UTC, computed where the caller is.
+	occurrences: list[datetime.datetime]
+
+
 class Task(pydantic.BaseModel):
 	"""A task as the API reports it."""
 
