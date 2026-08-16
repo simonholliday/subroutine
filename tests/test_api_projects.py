@@ -275,6 +275,34 @@ def test_a_project_under_a_deleted_one_is_not_restored_alone (
 	assert "web" in refused.json()["detail"]
 
 
+def test_restoring_a_project_whose_key_was_reused_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""Three ordinary commands produced a 500, and the index is why.
+
+	The uniqueness of a key is a *partial* index, ignoring deleted rows — which is exactly
+	what makes the key reusable once a project is in the trash. So delete, create another with
+	the same key, restore the first, and the constraint fires at flush time as an unhandled
+	``IntegrityError``: a 500 over HTTP, a bare traceback at the terminal.
+
+	Refused with the command to run instead. There is nothing to do on the caller's behalf: a
+	restore that renamed one of the two would be choosing which project keeps the name people
+	have been typing.
+	"""
+
+	old = world.call("POST", "/v1/projects", json={"key": "web", "title": "Old site"}).json()
+
+	world.call("DELETE", "/v1/projects/web")
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "New site"})
+
+	# By id, because the key now names the live one — which is the whole situation.
+	refused = world.call("POST", f"/v1/projects/{old['id']}/restore")
+
+	assert refused.status_code == 409, refused.text
+	assert refused.json()["code"] == "duplicate_key"
+	assert "project rename" in refused.text, "and it names the way out"
+
+
 def test_the_inbox_cannot_be_deleted (world: test_api_tasks.World) -> None:
 	"""A workspace without one has nowhere to file a task with no project."""
 

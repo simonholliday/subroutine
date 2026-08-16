@@ -367,6 +367,97 @@ def by_username (
 	return found
 
 
+def member (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, given: str, *, field: str
+) -> subroutine.db.models.identity.User:
+	"""Return the member of this workspace named by a username or an id, or refuse by name.
+
+	**Membership, not existence**, and that is the whole of it. Handing something to somebody
+	who is not in the workspace hands it to somebody who cannot see it — so the account being
+	real is not the question, and a check that asks only that produces a document owned by a
+	stranger and reports success.
+
+	**Here rather than in the caller**, because there were two and they disagreed:
+	:func:`subroutine.domain.tasks.assignee_for` asked this properly, ``documents.create``
+	asked nothing at all — an unknown id reached the foreign key and left as a 500 — and
+	``documents.update`` asked whether the account existed and never whether it was a member.
+	Three answers to one question, one of them a crash.
+
+	``field`` names the field in the refusal, because *assignee* and *owner* are what the
+	caller sent and neither reader should be told about the other.
+
+	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
+	and :func:`subroutine.domain.selection.user`; anything else is a username.
+	"""
+
+	try:
+		identifier = uuid.UUID(given)
+
+	except ValueError:
+		return _member_by_name(session, workspace_id, given, field=field)
+
+	model = subroutine.db.models.identity.User
+	found = session.scalars(_members(workspace_id).where(model.id == identifier)).one_or_none()
+
+	if found is not None:
+		return found
+
+	raise subroutine.errors.ValidationError(
+		f"There is nobody with the id {given!r} in this workspace.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="not_found",
+				message=f"No member of this workspace has the id {given!r}.",
+				hint="Name them by username instead — 'subroutine user list' shows them.",
+			)
+		],
+	)
+
+
+def _member_by_name (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, username: str, *, field: str
+) -> subroutine.db.models.identity.User:
+	"""Return a member of this workspace by username, or say who is here."""
+
+	model = subroutine.db.models.identity.User
+	found = session.scalars(
+		_members(workspace_id).where(model.username_normalized == normalize(username))
+	).one_or_none()
+
+	if found is not None:
+		return found
+
+	available = sorted(member.username for member in session.scalars(_members(workspace_id)))
+
+	raise subroutine.errors.ValidationError(
+		f"There is nobody called {username!r} in this workspace.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="not_found",
+				message=f"No member of this workspace is called {username!r}.",
+				hint=f"Members here: {', '.join(available)}." if available else None,
+			)
+		],
+	)
+
+
+def _members (
+	workspace_id: uuid.UUID,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.identity.User]]:
+	"""Return a select over the live members of one workspace."""
+
+	model = subroutine.db.models.identity.User
+	membership = subroutine.db.models.identity.WorkspaceMember
+
+	return (
+		sqlalchemy.select(model)
+		.join(membership, membership.user_id == model.id)
+		.where(membership.workspace_id == workspace_id, model.deleted_at.is_(None))
+	)
+
+
 def set_password (
 	session: sqlalchemy.orm.Session,
 	user: subroutine.db.models.identity.User,

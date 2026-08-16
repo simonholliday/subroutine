@@ -758,7 +758,9 @@ def create_from_text (
 		"assignee_id": (
 			None
 			if captured.assignee is None
-			else _user_by_name(session, workspace.id, captured.assignee).id
+			else subroutine.domain.users.member(
+				session, workspace.id, captured.assignee, field="assignee"
+			).id
 		),
 	}
 	fields.update(overrides)
@@ -845,88 +847,16 @@ def assignee_for (
 	:func:`subroutine.domain.selection.user`.** That one resolves across the instance because a
 	*filter* must not refuse in the workspaces somebody is not a member of — asking what is
 	assigned to Jo is a fair question everywhere. Assigning work to Jo is only a fair act where
-	Jo is a member, so this narrows and :func:`_user_by_name` already refuses by name with the
-	members listed. **The same grammar, two questions**, and collapsing them would let a task be
-	handed to somebody who cannot see it.
+	Jo is a member, so this narrows and refuses by name with the members listed. **The same
+	grammar, two questions**, and collapsing them would let a task be handed to somebody who
+	cannot see it.
 
-	A value that parses as a UUID is taken as an id, matching ``id_or_ref`` and ``id_or_key``
-	and :func:`subroutine.domain.selection.user`; anything else is a username.
+	The resolution itself is :func:`subroutine.domain.users.member`, because a document's owner
+	is the same question and was answered two other ways. This name stays because the argument
+	above is about assigning work, and it is where a reader of this module will look for it.
 	"""
 
-	try:
-		identifier = uuid.UUID(given)
-
-	except ValueError:
-		return _user_by_name(session, workspace_id, given)
-
-	member = subroutine.db.models.identity.WorkspaceMember
-	user = subroutine.db.models.identity.User
-	found = session.scalars(
-		sqlalchemy.select(user)
-		.join(member, member.user_id == user.id)
-		.where(
-			member.workspace_id == workspace_id,
-			user.id == identifier,
-			user.deleted_at.is_(None),
-		)
-	).one_or_none()
-
-	if found is not None:
-		return found
-
-	raise subroutine.errors.ValidationError(
-		f"There is nobody with the id {given!r} in this workspace.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="assignee",
-				code="not_found",
-				message=f"No member of this workspace has the id {given!r}.",
-				hint="Name them by username instead — 'subroutine user list' shows them.",
-			)
-		],
-	)
-
-
-def _user_by_name (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, username: str
-) -> subroutine.db.models.identity.User:
-	"""Return a member of this workspace by username, or say who is here."""
-
-	user = subroutine.db.models.identity.User
-	member = subroutine.db.models.identity.WorkspaceMember
-
-	found = session.scalars(
-		sqlalchemy.select(user)
-		.join(member, member.user_id == user.id)
-		.where(
-			member.workspace_id == workspace_id,
-			user.username_normalized == subroutine.domain.users.normalize(username),
-			user.deleted_at.is_(None),
-		)
-	).one_or_none()
-
-	if found is not None:
-		return found
-
-	available = sorted(
-		session.scalars(
-			sqlalchemy.select(user.username)
-			.join(member, member.user_id == user.id)
-			.where(member.workspace_id == workspace_id, user.deleted_at.is_(None))
-		)
-	)
-
-	raise subroutine.errors.ValidationError(
-		f"There is nobody called {username!r} in this workspace.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="assignee",
-				code="not_found",
-				message=f"No member of this workspace is called {username!r}.",
-				hint=f"Members here: {', '.join(available)}." if available else None,
-			)
-		],
-	)
+	return subroutine.domain.users.member(session, workspace_id, given, field="assignee")
 
 
 def update (

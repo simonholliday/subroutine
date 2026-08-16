@@ -568,6 +568,38 @@ def restore (
 			hint=f"Restore '{buried.key}' first, and this comes back with it.",
 		)
 
+	model = subroutine.db.models.project.Project
+
+	# **The key it had may not be free any more**, and the index that guarantees so is partial
+	# — it ignores deleted rows, which is what lets the key be reused in the first place. So a
+	# project deleted, replaced and then restored met the constraint at flush time and left as
+	# an unhandled `IntegrityError`: a 500 over HTTP and a bare traceback at the terminal, for
+	# an ordinary sequence of three commands.
+	taken = session.scalars(
+		sqlalchemy.select(model.key).where(
+			model.workspace_id == project.workspace_id,
+			model.key == project.key,
+			model.id != project.id,
+			model.deleted_at.is_(None),
+		)
+	).first()
+
+	if taken is not None:
+		raise subroutine.errors.Conflict(
+			f"'{project.key}' is another project's key now.",
+			code="duplicate_key",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="duplicate_key",
+					message=f"A live project already answers to {project.key!r} in this "
+					f"workspace.",
+				)
+			],
+			hint=f"Rename that one with 'subroutine project rename {project.key} <new-key>', "
+			f"then restore this.",
+		)
+
 	project.deleted_at = None
 
 	# A restore is a change, and §8.9's guard compares a number that has to move or it silently

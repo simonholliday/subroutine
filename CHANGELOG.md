@@ -359,6 +359,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A document's owner must be somebody who is in the workspace.** Writing one with an
+  `owner_id` naming an account that does not exist answered a bare 500; naming a real account
+  outside the workspace answered 201 and left the document owned by somebody who cannot see it.
+  Changing the owner later checked that the account existed and not that they were a member.
+  All three now answer the same way, naming the field — which is what assigning a task has
+  always done.
+
+- **Restoring something whose place was taken says so instead of failing.** A project's key can
+  be reused once the project is in the trash, and a document can be superseded by something
+  else while it is in there — so restoring the original hit a constraint and produced a 500
+  over HTTP and a traceback at the terminal, from three ordinary commands. Both now refuse with
+  what took the place and what to do about it.
+
 - **A search containing a backslash no longer fails.** On an instance using the indexed
   search backend, `C:\Users` or `re:\d+` — a Windows path, a regular expression — came back as
   a 500. Where the text happened to survive, the search was quietly wrong: a stray `E` arrived

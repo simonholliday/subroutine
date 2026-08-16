@@ -23,7 +23,6 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -37,6 +36,7 @@ import subroutine.domain.patch
 import subroutine.domain.refs
 import subroutine.domain.tags
 import subroutine.domain.text
+import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
@@ -102,6 +102,14 @@ def create (
 	"""Write a document into a project, allocating its ref and recording that it happened."""
 
 	cleaned_title = _clean_title(title)
+
+	if owner_id is not None:
+		# The same question, and this path asked nothing at all: an id naming nobody reached
+		# the foreign key and left as an unhandled `IntegrityError`, which is a 500 for a
+		# field a caller sent, and a real account outside the workspace was accepted.
+		subroutine.domain.users.member(
+			session, project.workspace_id, str(owner_id), field="owner_id"
+		)
 
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
@@ -330,18 +338,13 @@ def update (
 			],
 		)
 
-	if (
-		owner_id is not subroutine.domain.patch.UNSET
-		and owner_id is not None
-		and session.get(subroutine.db.models.identity.User, owner_id) is None
-	):
-		raise subroutine.errors.ValidationError(
-			"That owner does not exist.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="owner_id", code="not_found", message=f"No user with id {owner_id}."
-				)
-			],
+	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
+		# **Membership, not existence**, and it asked only about existence — so a document
+		# could be handed to an account that is not in this workspace and cannot see it, and
+		# the request was answered 201. `users.member` is the same question `assignee_for`
+		# already asked properly about a task.
+		subroutine.domain.users.member(
+			session, document.workspace_id, str(owner_id), field="owner_id"
 		)
 
 	# Assignment pass.
@@ -648,6 +651,41 @@ def restore (
 
 	if document.deleted_at is None:
 		return document
+
+	# **Something else may supersede what this superseded**, and the index saying only one
+	# thing can is partial — it ignores deleted rows, which is what allowed the second one to
+	# be written. So a document deleted, replaced and then restored met the constraint at
+	# flush time and left as an unhandled `IntegrityError`: a 500 over HTTP and a bare
+	# traceback at the terminal, from three ordinary commands. `projects.restore` carries the
+	# same check about a key.
+	if document.supersedes_id is not None:
+		model = subroutine.db.models.work.Document
+		instead = session.scalars(
+			sqlalchemy.select(model.ref).where(
+				model.supersedes_id == document.supersedes_id,
+				model.id != document.id,
+				model.deleted_at.is_(None),
+			)
+		).first()
+
+		if instead is not None:
+			superseded = session.get(model, document.supersedes_id)
+			replaced = "" if superseded is None else f" {subroutine.domain.refs.format_ref(superseded.ref)}"
+
+			raise subroutine.errors.Conflict(
+				f"Something else supersedes{replaced} now.",
+				code="duplicate_key",
+				errors=[
+					subroutine.errors.FieldError(
+						field="supersedes_id",
+						code="duplicate_key",
+						message=f"{subroutine.domain.refs.format_ref(instead)} was written "
+						f"while this was in the trash, and a document can be superseded once.",
+					)
+				],
+				hint=f"Throw {subroutine.domain.refs.format_ref(instead)} away, or leave this "
+				f"one where it is.",
+			)
 
 	document.deleted_at = None
 	document.version += 1

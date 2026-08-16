@@ -686,3 +686,79 @@ def test_a_document_can_be_nested_over_http (world: test_api_tasks.World) -> Non
 
 	assert loose.status_code == 200, loose.text
 	assert loose.json()["parent_id"] is None
+
+
+def test_restoring_a_document_whose_place_was_taken_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""A 500 from three ordinary commands, and the shape it shares with a project's key.
+
+	Every unique index here is partial — it ignores deleted rows, which is exactly what lets
+	the thing be re-used while the original is in the trash. So a document that supersedes
+	another can be thrown away, replaced, and then restored, at which point the constraint
+	fires at flush time as an unhandled ``IntegrityError``: a 500 over HTTP and a bare
+	traceback at the terminal.
+
+	Refused with what to do about it instead. There is nothing this could do on the caller's
+	behalf — putting the row back means deciding which of the two supersedes the original, and
+	that is not a decision a restore should take in silence.
+	"""
+
+	original = world.call("POST", "/v1/documents", json={"title": "Original"}).json()
+	first = world.call(
+		"POST", "/v1/documents", json={"title": "Replacement", "supersedes": original["ref"]}
+	).json()
+
+	world.call("DELETE", f"/v1/documents/{first['ref']}")
+
+	second = world.call(
+		"POST", "/v1/documents", json={"title": "Second try", "supersedes": original["ref"]}
+	)
+
+	assert second.status_code == 201, "the place really was taken while it was in the trash"
+
+	answered = world.call("POST", f"/v1/documents/{first['ref']}/restore")
+
+	assert answered.status_code == 409, answered.text
+	assert answered.json()["code"] == "duplicate_key"
+	assert f"#{second.json()['ref']}" in answered.text, "and it names what took the place"
+
+
+def test_a_document_owner_must_be_somebody_who_can_see_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Membership, not existence — and the two paths gave three different answers.
+
+	``create`` asked nothing: an id naming nobody reached the foreign key and left as an
+	unhandled ``IntegrityError``, so a **500** for a field the caller sent. ``update`` asked
+	whether the account existed and never whether it was a member, so a document could be
+	owned by somebody outside the workspace who cannot see it — answered 200.
+	``tasks.assignee_for`` had asked this properly all along, one field over.
+	"""
+
+	world = test_api_tasks._world(session)
+	outsider = subroutine.domain.users.create(
+		session, username=f"outside-{uuid.uuid4().hex[:8]}"
+	)
+	session.flush()
+
+	nobody = uuid.uuid4()
+
+	unknown = world.call("POST", "/v1/documents", json={"title": "x", "owner_id": str(nobody)})
+
+	assert unknown.status_code == 422, unknown.text
+	assert unknown.json()["errors"][0]["field"] == "owner_id"
+
+	stranger = world.call(
+		"POST", "/v1/documents", json={"title": "x", "owner_id": str(outsider.id)}
+	)
+
+	assert stranger.status_code == 422, stranger.text
+
+	mine = world.call("POST", "/v1/documents", json={"title": "Mine"}).json()
+	handed_over = world.call(
+		"PATCH", f"/v1/documents/{mine['ref']}", json={"owner_id": str(outsider.id)}
+	)
+
+	assert handed_over.status_code == 422, handed_over.text
+	assert handed_over.json()["errors"][0]["field"] == "owner_id"
