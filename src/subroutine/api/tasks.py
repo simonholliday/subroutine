@@ -651,6 +651,15 @@ def change (
 			"due",
 			"starts",
 			"snooze",
+			# **Declared and discarded until now** (`#94`). `PATCH` advertised these three and
+			# the handler never forwarded them, so a caller setting a repeat on an existing
+			# task got a 200 having changed nothing — a documented field silently dropped,
+			# which is what the `unknown_field` refusal exists to argue against. `test_reach`
+			# could not see it: it checks a *client* passes the field, not that the handler
+			# does anything with it.
+			"recurrence",
+			"recurrence_anchor",
+			"recurrence_trigger",
 			"tags",
 		)
 		if name in supplied

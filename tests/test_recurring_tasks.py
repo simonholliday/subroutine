@@ -379,3 +379,98 @@ def test_a_snooze_is_not_carried_into_the_next_occurrence (
 
 	assert _next_live(session, template).snoozed_until is None
 
+
+def test_a_repeat_can_be_changed_from_the_occurrence_in_hand (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§6.7: editing the template affects future occurrences — and nobody navigates to one.
+
+	**The template is in no listing**, so a person changing *how this repeats* is looking at
+	the instance and addressing it. Applying the rule to that one occurrence instead would
+	write it onto a row that mints nothing and is forgotten the moment it is completed.
+	"""
+
+	first = _repeating(session, recurrence="every day")
+	template = _template(session, first)
+
+	subroutine.domain.tasks.update(session, first, recurrence="every monday", now=NOW)
+
+	session.refresh(template)
+
+	assert template.recurrence_rule == "FREQ=WEEKLY;BYDAY=MO"
+	assert first.recurrence_rule is None, "the occurrence still carries it by reference only"
+
+
+def test_a_repeat_can_be_stopped_and_the_occurrence_stays (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Stopping is not deleting: the work in hand is real and keeps its ref and history."""
+
+	first = _repeating(session, recurrence="every day")
+	template = _template(session, first)
+
+	subroutine.domain.tasks.update(session, first, recurrence=None, now=NOW)
+
+	session.refresh(template)
+
+	assert template.completed_at is not None, "a stopped series is a finished template"
+	assert first.completed_at is None, "the occurrence in hand was not touched"
+
+	# **And nothing follows it**, which is the whole point rather than a side effect.
+	subroutine.domain.tasks.complete(session, first, now=NOW)
+
+	live = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.recurrence_template_id == template.id,
+			subroutine.db.models.work.Task.completed_at.is_(None),
+		)
+	).all()
+
+	assert not live, "a stopped series should not mint another occurrence"
+
+
+def test_an_ordinary_task_can_be_made_to_repeat_and_keeps_its_number (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Adding a repeat to something already on the list must not replace it.
+
+	It has a ref somebody has written down, a history and possibly comments. Turning the task
+	itself into the template would take it out of every listing and put an identical-looking
+	stranger in its place — which is what a person would see, without being told why.
+	"""
+
+	plain = test_schedule._task(
+		session, title="Pay the rent", now=NOW, due=datetime.date(2026, 8, 30)
+	)
+	was = plain.ref
+
+	subroutine.domain.tasks.update(
+		session, plain, recurrence="every month on the 30th", now=NOW
+	)
+
+	assert plain.ref == was, "the task somebody was looking at kept its number"
+	assert not plain.is_template
+	assert plain.recurrence_template_id is not None
+
+	template = _template(session, plain)
+
+	assert template.is_template
+	assert template.recurrence_rule == "FREQ=MONTHLY;BYMONTHDAY=30"
+
+	# And it now behaves like any other occurrence.
+	subroutine.domain.tasks.complete(session, plain, now=NOW)
+
+	assert _next_live(session, template).occurrence_at is not None
+
+
+def test_stopping_something_that_does_not_repeat_is_refused_by_name (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Rather than answered with a cheerful 200 that changed nothing."""
+
+	plain = test_schedule._task(session, title="One-off", now=NOW)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.stop_repeating(session, plain, now=NOW)
+
+	assert "not part of a repeating series" in str(refused.value)

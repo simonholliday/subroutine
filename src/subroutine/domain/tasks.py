@@ -307,6 +307,14 @@ def materialise (
 	if template.recurrence_rule is None:
 		raise ValueError("materialise() was given a task that carries no repeat.")
 
+	# **A finished template is a stopped series** (`#94`). That is what `stop_repeating` does
+	# and it is why it needs no column: completing the rule-bearing row says *the series ran,
+	# here is what it was, and no more are coming* — where clearing the rule and un-templating
+	# would put a second copy of the task into every listing, since the template carries the
+	# same title as the live occurrence.
+	if template.completed_at is not None:
+		return None
+
 	anchor = series_start(template)
 	zone = template.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
 
@@ -887,6 +895,9 @@ def update (
 	starts_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	snooze: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	snoozed_is_all_day: bool | None = subroutine.domain.patch.UNSET,
+	recurrence: str | None = subroutine.domain.patch.UNSET,
+	recurrence_anchor: str | None = subroutine.domain.patch.UNSET,
+	recurrence_trigger: str | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = None,
@@ -1221,6 +1232,27 @@ def update (
 		task.snoozed_until = defer.instant
 		task.snoozed_is_all_day = defer.is_all_day
 
+	# **Applied before the "nothing changed" return below**, because a repeat lives on the
+	# *series* rather than on this row: `changes_between` compares the task with itself and
+	# sees nothing, so anything after that return is unreachable for a caller who changed
+	# only how something repeats — which is every caller who came to change only that.
+	if recurrence is not subroutine.domain.patch.UNSET:
+		_repeat_changed(
+			session,
+			task,
+			rule=recurrence,
+			anchor=(
+				None if recurrence_anchor is subroutine.domain.patch.UNSET else recurrence_anchor
+			),
+			trigger=(
+				None
+				if recurrence_trigger is subroutine.domain.patch.UNSET
+				else recurrence_trigger
+			),
+			now=instant,
+			actor=actor,
+		)
+
 	changes = subroutine.domain.events.changes_between(before, _snapshot(session, task))
 
 	if not changes:
@@ -1507,6 +1539,198 @@ def skip (
 		expected_version=expected_version,
 		actor=actor,
 	)
+
+
+
+def series_of (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+) -> subroutine.db.models.work.Task | None:
+	"""Return the rule-bearing row behind a task, whichever end the caller is holding.
+
+	**A person is always looking at the occurrence.** The rule lives on the template, which is
+	in no listing and which nobody navigates to — so a change to *how this repeats* arrives
+	addressed to the instance and has to be routed. Returning ``None`` for a task that is part
+	of no series is what lets a caller tell "not repeating" from "template missing".
+	"""
+
+	if task.is_template:
+		return task
+
+	if task.recurrence_template_id is None:
+		return None
+
+	return session.get(subroutine.db.models.work.Task, task.recurrence_template_id)
+
+
+def stop_repeating (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""End a series, leaving the occurrence in hand exactly as it is.
+
+	**Stopping is not deleting and not clearing.** The occurrence somebody is looking at is
+	real work with a ref, a history and possibly comments; the series ending says only that
+	nothing follows it. So the template is completed — which records what repeated and until
+	when — and the live occurrence is untouched.
+
+	Idempotent, for `#723`'s reason: stopping something already stopped is not a second act
+	and must not move the record of when it happened.
+	"""
+
+	series = series_of(session, task)
+
+	if series is None:
+		raise subroutine.errors.ValidationError(
+			"That is not part of a repeating series, so there is nothing to stop.",
+			code="invalid_field_value",
+			hint="Only something that repeats can stop repeating.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="recurrence",
+					code="invalid_field_value",
+					message="This task does not repeat.",
+				)
+			],
+		)
+
+	if series.completed_at is None:
+		complete(session, series, now=now, actor=actor)
+
+	return task
+
+
+
+def begin_repeating (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	repeat: subroutine.domain.recurrence.Repeat,
+	*,
+	now: datetime.datetime,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.work.Task:
+	"""Make an existing task the first occurrence of a new series.
+
+	**The task stays the task.** Somebody adding a repeat to something already on their list
+	is not asking for it to be replaced — it has a ref they have written down, a history and
+	perhaps comments — so a template is created *from* it and the task becomes that template's
+	first occurrence. Turning the task itself into the template would take it out of every
+	listing and put an identical-looking stranger in its place.
+	"""
+
+	template = subroutine.db.models.work.Task(
+		id=subroutine.db.types.new_uuid(),
+		workspace_id=task.workspace_id,
+		project_id=task.project_id,
+		parent_task_id=task.parent_task_id,
+		type_id=task.type_id,
+		ref=subroutine.domain.refs.allocate(session, task.workspace_id),
+		title=task.title,
+		description=task.description,
+		status_id=task.status_id,
+		assignee_id=task.assignee_id,
+		importance=task.importance,
+		urgency=task.urgency,
+		estimate_minutes=task.estimate_minutes,
+		due_at=task.due_at,
+		due_is_all_day=task.due_is_all_day,
+		starts_at=task.starts_at,
+		starts_is_all_day=task.starts_is_all_day,
+		timezone=task.timezone,
+		recurrence_rule=repeat.rule,
+		recurrence_text=repeat.text,
+		recurrence_anchor=repeat.anchor,
+		recurrence_trigger=repeat.trigger,
+		is_template=True,
+		path="",
+		depth=0,
+		created_by=None if actor is None else actor.user.id,
+	)
+	subroutine.domain.hierarchy.place(
+		template, None, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH
+	)
+
+	session.add(template)
+	session.flush()
+
+	# Refused after the template exists rather than before, so the message is the one
+	# `series_start` gives — one rule about what a repeat needs a date for, in one place.
+	series_start(template)
+
+	task.recurrence_template_id = template.id
+	task.occurrence_at = task.due_at or task.starts_at
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=template.workspace_id,
+		entity_type="task",
+		entity_id=template.id,
+		action=subroutine.domain.events.EventAction.CREATED,
+		changes={
+			"ref": {"from": None, "to": template.ref},
+			"title": {"from": None, "to": template.title},
+		},
+		actor=actor,
+	)
+	session.flush()
+
+	return template
+
+
+
+def _repeat_changed (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	rule: str | None,
+	anchor: str | None,
+	trigger: str | None,
+	now: datetime.datetime,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> None:
+	"""Apply a change to how a task repeats, whichever end the caller is holding.
+
+	**Editing a repeat edits the series, not this occurrence** (§6.7). The caller is looking
+	at the instance because the template is in no listing, so a rule addressed to the instance
+	is addressed to the series — and the alternative, applying it to one occurrence, would be
+	a rule on a row that mints nothing and is silently forgotten the moment it is completed.
+
+	``None`` stops the series rather than clearing a column; :func:`stop_repeating` carries
+	why.
+	"""
+
+	if rule is None:
+		if series_of(session, task) is not None:
+			stop_repeating(session, task, now=now, actor=actor)
+
+		return
+
+	repeat = _repeat(rule, anchor=anchor, trigger=trigger)
+
+	if repeat is None:
+		return
+
+	series = series_of(session, task)
+
+	if series is None:
+		begin_repeating(session, task, repeat, now=now, actor=actor)
+
+		return
+
+	series.recurrence_rule = repeat.rule
+	series.recurrence_text = repeat.text
+	series.recurrence_anchor = repeat.anchor
+	series.recurrence_trigger = repeat.trigger
+	series.version += 1
+
+	# **Re-opened if it had been stopped**, because setting a rule on a stopped series is
+	# somebody restarting it, and a finished template mints nothing.
+	if series.completed_at is not None:
+		update(session, series, status_key=status_for(session, series.workspace_id, None).key, now=now, actor=actor)
+
+	session.flush()
 
 
 def delete (
