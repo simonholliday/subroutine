@@ -1467,6 +1467,15 @@ def register (
 		description: str = typer.Option(
 			"", "--description", help="What it is about, in full. The title stays one line."
 		),
+		repeat: str = typer.Option(
+			"", "--repeat", help="How often it comes round, like 'every other tuesday'."
+		),
+		repeat_from: str = typer.Option(
+			"",
+			"--repeat-from",
+			help="Measure the next one from 'schedule' or from 'completion'. Defaults to "
+			"schedule.",
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
 		"""Add something to your list.
@@ -1481,9 +1490,17 @@ def register (
 
 		  subroutine add "Cache the roster" --description "Measured at 400ms a call."
 
+		  subroutine add "Pay the rent" --due "30 aug" --repeat "every month on the 30th"
+
+		  subroutine add "Water the plants" --repeat "every 3 days" --repeat-from completion
+
 		'--description' is where the reasoning goes, so the title can say what will be true
 		when the work is done rather than what is wrong today. A title stating a condition
 		becomes false when the condition changes; one stating an outcome cannot.
+
+		'--repeat-from schedule' keeps the rhythm whatever you do — rent is due on the 30th
+		whether or not last month's was paid late. '--repeat-from completion' measures from
+		when you finished, which is what "every three days" means about watering.
 		"""
 
 		text = " ".join(words or [])
@@ -1514,6 +1531,19 @@ def register (
 				# unreachable from every client. Reported by an agent asked why the six items
 				# it had just filed had no descriptions.
 				description=description.strip() or None,
+				# **Set precisely, rather than only read out of a sentence** (`#94`, Simon's
+				# direction of 2026-08-16). The grammar reads *"every 14 days"* out of a
+				# captured line, which is the fast path and stays the fast path — but a line
+				# can only ever *create* a repeat, and the words for one it cannot read are
+				# simply left in the title. A flag is how somebody says exactly what they
+				# mean, and it is the same argument `--type` already makes.
+				recurrence=repeat.strip() or None,
+				recurrence_anchor=repeat_from.strip() or None,
+				# **No `--repeat-trigger`, deliberately** (`#94`). `time` is refused by name
+				# until `#916` expands a rule into a date-ranged view, so the flag would offer
+				# one accepted value and one that always fails — a control with nothing to
+				# decide, which is this codebase's second signature defect. It arrives with
+				# the calendar, when there is a second answer for it to carry.
 			)
 
 			if json_output:
@@ -2712,6 +2742,18 @@ def register (
 		timezone: str = typer.Option(
 			UNGIVEN, "--timezone", show_default=False, help="The zone the deadline is read in."
 		),
+		repeat: str = typer.Option(
+			UNGIVEN,
+			"--repeat",
+			show_default=False,
+			help="How often it comes round. Pass '' to stop it repeating.",
+		),
+		repeat_from: str = typer.Option(
+			UNGIVEN,
+			"--repeat-from",
+			show_default=False,
+			help="Measure the next one from 'schedule' or from 'completion'.",
+		),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -2728,6 +2770,14 @@ def register (
 		  subroutine update 42 --assignee jo --due friday
 
 		  subroutine update 42 --title "Fix the parser, not the tokeniser"
+
+		  subroutine update 42 --repeat "every other tuesday"
+
+		  subroutine update 42 --repeat ""
+
+		A repeat belongs to the series rather than to the one in front of you, so changing it
+		changes every occurrence after this one. '--repeat ""' stops it: the work in hand keeps
+		its number and its history, and nothing follows it.
 		"""
 
 		changes: dict[str, typing.Any] = {}
@@ -2779,6 +2829,33 @@ def register (
 		if timezone is not UNGIVEN:
 			changes["timezone"] = timezone or None
 
+		# **Editing a repeat, which a captured line can never do** (`#94`, Simon's direction of
+		# 2026-08-16). The grammar reads one out of a sentence at creation and that is the fast
+		# path — but a line only ever *makes* one, so before this the only way to change how
+		# something came round was the API. Empty stops the series, which `stop_repeating`
+		# explains is completing the template rather than clearing a column.
+		if repeat is not UNGIVEN:
+			changes["recurrence"] = repeat.strip() or None
+
+		# **Sent on its own as well as beside a rule**, exactly as `--timezone` is beside a date
+		# and for the same reason: *how often* can be right while *measured from where* is
+		# wrong, and re-sending a rule in order to change the field next to it is how a rule
+		# gets retyped slightly differently. `#918` is what made that reach anything.
+		if repeat_from is not UNGIVEN:
+			# **No empty form, unlike every sentinel above it.** Those clear a field that can
+			# legitimately hold nothing; a series always measures from *somewhere*, so there is
+			# no state for this to clear to — and passing it empty would reach the service as
+			# *not given*, which answers "Changed" having changed nothing. `#918`, met once
+			# already today, one layer up.
+			if not repeat_from.strip():
+				stop(
+					"A repeat is always measured from something.",
+					"Say --repeat-from schedule or --repeat-from completion, or use "
+					"--repeat '' to stop it repeating at all.",
+				)
+
+			changes["recurrence_anchor"] = repeat_from.strip()
+
 		# **Moving between projects, which `update` could not do until `#169`.** The endpoint
 		# has taken it since `#43`; I added this command without it, and the sequence a new
 		# user actually performs — accumulate tasks, notice a theme, make a project, file them
@@ -2796,7 +2873,7 @@ def register (
 			stop(
 				"Nothing to change.",
 				"Name a field: --title, --description, --importance, --urgency, "
-				"--estimate, --type or --status.",
+				"--estimate, --type, --status or --repeat.",
 			)
 
 		with opened() as world:
@@ -6065,7 +6142,11 @@ def _facts (located: Located) -> list[str]:
 			facts.append(f"starts {_render_date(item.starts_at, item.timezone)}")
 
 		if item.recurrence_rule is not None:
-			facts.append(subroutine.domain.recurrence.describe(item.recurrence_rule))
+			facts.append(
+				subroutine.domain.recurrence.describe(
+					item.recurrence_rule, anchor=item.recurrence_anchor
+				)
+			)
 
 		if item.completed_at is not None:
 			facts.append(f"done {_render_date(item.completed_at, item.timezone)}")
@@ -6194,7 +6275,9 @@ def _when (item: Item) -> str:
 			# it says what was understood and not what was typed.
 			None
 			if task.recurrence_rule is None
-			else subroutine.domain.recurrence.describe(task.recurrence_rule),
+			else subroutine.domain.recurrence.describe(
+				task.recurrence_rule, anchor=task.recurrence_anchor
+			),
 			None
 			if task.starts_at is None
 			else f"starts {_render_date(task.starts_at, task.timezone)}",

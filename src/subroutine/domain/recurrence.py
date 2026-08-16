@@ -552,13 +552,25 @@ def _described_weekdays (setting: str) -> str:
 	return " and ".join(said)
 
 
-def describe (stored: str) -> str:
+#: How a completion anchor reads, said once so that no two surfaces word it differently
+#: (`#674`). **Only the non-default is ever said**, on `views.status_is_news`'s rule: a
+#: schedule anchor is what "every month on the 30th" already sounds like, so naming it would
+#: put a clause on every repeating row to tell the reader nothing.
+_MEASURED_FROM_COMPLETION = "from when it is done"
+
+
+def describe (stored: str, *, anchor: str | None = None) -> str:
 	"""Return a rule as a sentence somebody can check against what they meant.
 
 	**This exists so an agent can confirm before committing** (§6.7's ``/v1/recurrence/parse``):
 	an ambiguous natural-language feature becomes a checkable one the moment the thing it
 	understood is read back in different words from the ones that were typed. Echoing the input
 	would confirm nothing.
+
+	``anchor`` is what makes that confirmation complete rather than half of one. *Every three
+	days* is two different schedules depending on where it is measured from, so a reader
+	checking a repeat against what they meant cannot do it from the rule alone — and a caller
+	who has just set ``recurrence_anchor`` has nowhere to see that it landed.
 	"""
 
 	parts = dict(
@@ -600,6 +612,9 @@ def describe (stored: str) -> str:
 
 	if "UNTIL" in parts:
 		said = f"{said}, until {parts['UNTIL']}"
+
+	if anchor == "completion":
+		said = f"{said}, {_MEASURED_FROM_COMPLETION}"
 
 	return said
 

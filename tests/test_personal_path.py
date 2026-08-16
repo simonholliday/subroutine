@@ -5737,3 +5737,125 @@ def test_a_move_that_says_nothing_about_where_is_refused (
 		refused = run(*arguments, expect=1)
 
 		assert "Say where to move it" in refused.output
+
+
+def test_a_repeat_can_be_set_precisely_rather_than_only_written_in_a_sentence (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#94`, Simon's direction of 2026-08-16.
+
+	**The grammar can only ever create one.** Reading *"every 14 days"* out of a captured line
+	is the fast path and stays it, but a line is typed once — so before this the only way to
+	change how something came round, or to stop it, was the API. That is the half a person
+	needs most: a repeat somebody set months ago is exactly the thing they later want to move.
+	"""
+
+	run("init")
+
+	made = run("add", "Pay the rent by 2026-08-30", "--repeat", "every month on the 30th")
+
+	assert "every month, on the 30th" in made.output
+
+	# **`#2`, not `#1`.** Filing a repeat makes the template first and hands back the
+	# occurrence, so the row a person sees is never the number they would guess — which is
+	# worth a test knowing, since it is what every surface addresses.
+	changed = run("update", "2", "--repeat", "every other tuesday")
+
+	assert changed.exit_code == 0
+
+	shown = run("show", "2")
+
+	assert "every other week, on Tuesday" in shown.output
+	assert "on the 30th" not in shown.output, "the old rule should be gone, not beside it"
+
+
+def test_a_repeat_can_be_stopped_from_the_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And the work in hand stays, which is the whole difference between stopping and deleting.
+
+	**Reading it back is the assertion that matters** (`#920`): stopping completes the template
+	rather than clearing a column, so a row that went on describing the rule would tell somebody
+	their stop had not worked when it had.
+	"""
+
+	run("init")
+	run("add", "Water the plants by 2026-08-20", "--repeat", "every 3 days")
+
+	stopped = run("update", "2", "--repeat", "")
+
+	assert stopped.exit_code == 0
+
+	shown = run("show", "2")
+
+	assert "Water the plants" in shown.output
+	assert "every 3 days" not in shown.output
+
+
+def test_how_a_repeat_is_measured_is_set_and_read_back_at_the_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#918` at the surface it was found from, and `#920`'s sibling question — is it *news*?
+
+	*Every three days* is two different schedules depending on where it is measured from, so a
+	flag that set it and no rendering that said so would be `#251`'s inert control: a written
+	value nobody can see. **Only the non-default is said**, on `views.status_is_news`'s rule —
+	a schedule anchor is what "every month on the 30th" already sounds like, so naming it would
+	put a clause on every repeating row to tell the reader nothing.
+	"""
+
+	run("init")
+	run(
+		"add",
+		"Water the plants by 2026-08-20",
+		"--repeat",
+		"every 3 days",
+		"--repeat-from",
+		"completion",
+	)
+	run("add", "Pay the rent by 2026-08-30", "--repeat", "every month on the 30th")
+
+	assert "from when it is done" in run("show", "2").output
+
+	# **The default stays quiet**, which is the half a test asserting only the first would
+	# pass without: a rendering that said it always would satisfy the line above and be wrong.
+	assert "from when it is done" not in run("show", "4").output
+
+	# And it can be moved without re-sending the rule it qualifies (`#918`).
+	run("update", "4", "--repeat-from", "completion")
+
+	moved = run("show", "4")
+
+	assert "from when it is done" in moved.output
+	assert "on the 30th" in moved.output, "the rule it qualifies is untouched"
+
+
+def test_saying_how_a_repeat_is_measured_without_saying_how_often_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#918`. And the refusal names no wire field, because at a terminal there is no such flag.
+
+	The service's message describes the *thing* rather than saying *send `recurrence`*, which
+	is advice nobody here can follow — `#547`'s defect, met on the surface where the argument
+	is spelled `--repeat`. The structured half still carries the field name for a caller that
+	wants it.
+	"""
+
+	run("init")
+	run("add", "Just the once")
+
+	refused = run("update", "1", "--repeat-from", "completion", expect=1)
+
+	assert "does not repeat" in refused.output
+
+	# The *advice* names no wire field. `recurrence_anchor:` still labels the structured half
+	# — unquoted, and that is the machine-readable name a script wants — but nothing in the
+	# prose tells a person to send something they have no way to type.
+	assert "'recurrence'" not in refused.output
+
+	# **An empty anchor is refused too**, unlike every other clearable field: a series always
+	# measures from somewhere, so there is no state to clear to — and passing it empty would
+	# reach the service as *not given* and answer "Changed" having changed nothing.
+	empty = run("update", "1", "--repeat-from", "", expect=1)
+
+	assert "always measured from something" in empty.output

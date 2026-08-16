@@ -151,8 +151,16 @@ upgrade involves.
   stored as a rule nobody re-reads — a misread deadline is one wrong day, a misread repeat is
   a wrong day for ever.
 
-  **Not yet**: setting a repeat from a captured line, so at a terminal this is reachable
-  through the API rather than through `subroutine add`. That is next.
+  **You can write it in the line or set it precisely.** `subroutine add "Pay the rent on the
+  30th of every month"` reads it out of the sentence; `--repeat "every month on the 30th"`
+  says it exactly. The second is what a captured line can never do, because a line is typed
+  once: `subroutine update 42 --repeat "every other tuesday"` changes how something comes
+  round, `--repeat ""` stops it, and `--repeat-from completion` measures the next one from
+  when you finished rather than from the grid.
+
+  **A repeat belongs to the series, so changing it changes every occurrence after this one.**
+  Stopping keeps the work in hand — it holds its number and its history, and nothing follows
+  it.
 
 - **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
   *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did

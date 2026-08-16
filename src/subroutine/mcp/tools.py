@@ -1601,7 +1601,11 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		# changes what the others mean, because "due Thursday" on something that comes back
 		# every fortnight is a different statement from "due Thursday" on a one-off.
 		if item.recurrence_rule is not None:
-			facts.append(subroutine.domain.recurrence.describe(item.recurrence_rule))
+			facts.append(
+				subroutine.domain.recurrence.describe(
+					item.recurrence_rule, anchor=item.recurrence_anchor
+				)
+			)
 
 	# The project only when somebody filed it somewhere. The Inbox is where things go when
 	# nobody said, so naming it would be reporting the absence of a decision.

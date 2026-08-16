@@ -188,15 +188,20 @@ def _repeat (
 		]
 
 		if named:
+			# **The prose names no field and the structured half names them all** (`#547`).
+			# A refusal saying *send `recurrence`* is unfollowable at a terminal, where the
+			# flag is `--repeat`, and MCP's renaming layer reaches tool arguments rather than
+			# a domain message. Describing the *thing* instead is true on every surface, and
+			# `errors[].field` still carries the wire name for a caller that wants it.
 			raise subroutine.errors.ValidationError(
-				"That describes a repeat, and nothing here repeats.",
+				"That describes how something repeats, and nothing here repeats.",
 				code="invalid_field_value",
-				hint="Send 'recurrence' as well — it is the rule these two qualify.",
+				hint="Say how often it comes round as well — this only qualifies that.",
 				errors=[
 					subroutine.errors.FieldError(
 						field=field,
 						code="invalid_field_value",
-						message="This qualifies 'recurrence', which was not given.",
+						message="This qualifies a repeat, and none was given.",
 					)
 					for field in named
 				],
@@ -1746,14 +1751,14 @@ def _repeat_changed (
 	if rule is subroutine.domain.patch.UNSET:
 		if series is None:
 			raise subroutine.errors.ValidationError(
-				"That describes a repeat, and this does not repeat.",
+				"That describes how something repeats, and this does not repeat.",
 				code="invalid_field_value",
-				hint="Send 'recurrence' as well, which is the rule these two qualify.",
+				hint="Give it a repeat first — this describes one rather than starting one.",
 				errors=[
 					subroutine.errors.FieldError(
 						field=field,
 						code="invalid_field_value",
-						message="This qualifies 'recurrence', which this task does not have.",
+						message="This qualifies a repeat, and this task does not have one.",
 					)
 					for field, value in (
 						("recurrence_anchor", anchor), ("recurrence_trigger", trigger)
