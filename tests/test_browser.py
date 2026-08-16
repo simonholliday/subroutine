@@ -343,6 +343,35 @@ ROWS = {
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
+#: What `POST /v1/recurrence/parse` answers here, keyed by the phrase (`SR#94`, §6.7).
+#:
+#: **Copied from the real endpoint rather than invented**, and the wording matters: the whole
+#: property being drawn is that the sentence comes back in *different words from the ones
+#: typed*, so a fixture echoing its own key would make the page's test vacuous by agreeing
+#: with it. What the server makes of a phrase is `tests/test_api_recurrence.py`'s question.
+READABLE_REPEATS = {
+	"every other tuesday": {
+		"rule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU",
+		"description": "every other week, on Tuesday",
+		"text": "every other tuesday",
+		"occurrences": ["2026-08-18T09:00:00Z", "2026-09-01T09:00:00Z"],
+	},
+}
+
+#: And what it answers for one it cannot read — a problem document, which is what `api`'s
+#: `refusal` parses and what the disclosure has to turn into a sentence beside the box.
+UNREADABLE_REPEAT = {
+	"type": "about:blank",
+	"title": "Unprocessable Entity",
+	"status": 422,
+	"code": "invalid_field_value",
+	"detail": (
+		"'every fortnight' is not a repeat this understands. Try 'every day', "
+		"'every 14 days', 'every other tuesday', 'every month on the 30th', "
+		"'every month on the last thursday' or 'every year on 19 august'."
+	),
+}
+
 
 @pytest.fixture(scope="module")
 def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
@@ -389,6 +418,29 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			return
 
 		if wanted.startswith("v1/"):
+			# **Before the catch-all below, which answers every write with a task** (`SR#94`).
+			# A repeat preview is a POST that stores nothing, so without this it was handed a
+			# card and the page rendered an empty sentence — the narrower-path-first trap this
+			# fixture already records twice, arriving by method rather than by prefix.
+			#
+			# **It decides yes or no from the phrase**, because both branches are the point:
+			# what this stands in for is the server saying *I understood* or *I did not*, and a
+			# route that always agreed would leave the refusal path drawn by nothing. What the
+			# words actually mean is `tests/test_api_recurrence.py`'s question, not this one.
+			if wanted == "v1/recurrence/parse":
+				asked = json.loads(route.request.post_data or "{}").get("text", "")
+				known = asked in READABLE_REPEATS
+
+				route.fulfill(
+					status=200 if known else 422,
+					body=json.dumps(
+						READABLE_REPEATS[asked] if known else UNREADABLE_REPEAT
+					),
+					content_type="application/json",
+				)
+
+				return
+
 			if route.request.method != "GET":
 				written.append((route.request.method, wanted, route.request.post_data))
 				route.fulfill(
@@ -851,6 +903,28 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**Read for fat**: two assertions and one query. The first is the defect; the second says the
 	properties and the action went *under* the title rather than being deleted, which is the
 	other way a title could be given its width and is not this.
+
+	**Raised to sixteen for `#94`, and it paid for itself before it was committed.** The repeat
+	preview is `#640` in its purest form: every piece of it is pure and separately tested — the
+	request builder, the component, the two rules that decide what goes on the wire — and the
+	*wire* is a real `input` event, a fetch, and a `useState` that has to land in the render
+	that reads it. That is the seam four faults have shipped through, each found by Simon
+	rather than by the build, and `tests/dom.js` calls components as plain functions so it can
+	render an answer handed to it and can never ask whether anything fetches one.
+
+	**What it caught on its first run was mine, and it was live.** The guard dropping an answer
+	overtaken in flight compared the new phrase against the one already *held* — true of every
+	new phrase — so the first preview stuck and nothing typed after it was ever shown. Every
+	other test passed. The fix is a ref written at ask-time, which is a question only something
+	recorded when the request goes out can answer.
+
+	**Read for fat**: two gestures and three assertions, and none is removable. The first pair
+	is the readable branch and the property that makes it a check rather than a mirror — the
+	sentence must not be the words that were typed. The third is the refusal, which is a
+	different path through `App` and the one a reader stuck on wording actually meets; without
+	it the `catch` is drawn by nothing. What the server makes of a phrase is deliberately not
+	asked here — that is `tests/test_api_recurrence.py`, and this fixture stands in for the
+	server saying yes or no rather than for its judgement.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -858,8 +932,8 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 15, (
-		f"this file holds {len(tests)} tests: {tests}. Fifteen answering what only a browser "
+	assert len(tests) <= 16, (
+		f"this file holds {len(tests)} tests: {tests}. Sixteen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
@@ -1079,3 +1153,52 @@ def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None
 		f"the properties and the action are level with the title rather than under it, so the "
 		f"title's width is whatever they left: {measured}"
 	)
+
+
+def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typing.Any) -> None:
+	"""`#94`, §6.7, and Simon's completion bar: *recurring events are not completed until a user
+	can add and edit an item's recurrence via the Web UI*.
+
+	**The preview is the only reason the endpoint exists**, and it is the one part of this
+	feature that lives entirely in `App`'s wiring — a real `input` event, a fetch, and a
+	`useState` that has to land in the render that reads it. `#640` is the item saying nothing
+	covers that, and four faults have shipped from it, every one found by Simon rather than by
+	the build. `tests/dom.js` calls components as plain functions, so it can render `Reading`
+	with an answer handed to it and can never ask whether anything *fetches* one.
+
+	**Both branches, because they fail differently and separately.** A phrase this can read has
+	to come back **in different words from the ones typed** — that is what makes it a check
+	rather than a mirror, and *every month on the 30th* against *every 30 days* is the pair
+	whose difference does not show until February. A phrase it cannot read has to say so where
+	somebody can still change it, which is the `catch` and a different path through `App`.
+	"""
+
+	opened, _written = running
+	page = opened("/projects")
+
+	page.click(".adding .more")
+	page.wait_for_selector(".adding .details", timeout=10_000)
+	page.click(".repeats summary")
+
+	page.fill(".repeats input[name=recurrence]", "every other tuesday")
+	page.wait_for_selector(".repeats .reading strong", timeout=10_000)
+
+	read = page.inner_text(".repeats .reading")
+
+	assert "Tuesday" in read, read
+	assert "every other tuesday" not in read, (
+		f"the preview echoed the phrase back rather than reading it: {read!r}. Echoing confirms "
+		f"nothing — the words have to come from the stored rule."
+	)
+
+	page.fill(".repeats input[name=recurrence]", "every fortnight")
+	page.wait_for_selector(".repeats .reading.bad", timeout=10_000)
+
+	refused = page.inner_text(".repeats .reading.bad")
+
+	assert "every day" in refused, (
+		f"a phrase this cannot read must name the shapes that work: {refused!r}. A reader stuck "
+		f"on wording needs an example rather than a complaint."
+	)
+
+	page.close()

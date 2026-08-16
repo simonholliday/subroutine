@@ -167,6 +167,16 @@ upgrade involves.
   something comes round, on both surfaces — *due Thursday* on something fortnightly is a
   different statement from *due Thursday* on a one-off.
 
+  **In the browser it is a *Repeats* section on the form**, closed by default and open on an
+  item that already repeats. Type how often, and the page shows you what it understood along
+  with the next few dates — *every other tuesday* comes back as *every other week, on Tuesday*,
+  in different words on purpose, because that is what tells you it read the phrase the way you
+  meant it. *Every month on the 30th* and *every 30 days* look alike and are not, and the
+  difference does not show up until February.
+
+  Emptying the box stops the repeat, the same way emptying any other box on that form clears
+  what it holds.
+
 - **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
   *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did
   before. The point of the other two is the case the system setting cannot cover: a machine set

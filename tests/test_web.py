@@ -221,6 +221,20 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 	},
 	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
+	# **Filled rather than empty**, because the disclosure's own rule is that it opens when the
+	# item already repeats — a sample with no rule in it would render the closed case and say
+	# nothing about the one a reader editing a repeat actually meets (`SR#94`).
+	"Repeats": {
+		"busy": False,
+		"held": {"recurrence": "every other tuesday", "recurrence_anchor": "completion"},
+		"reading": {
+			"description": "every other week, on Tuesday",
+			"occurrences": ["2026-08-18T09:00:00Z", "2026-09-01T09:00:00Z"],
+		},
+	},
+	# The refusal, not the answer: `Repeats` above renders the readable case, so this covers the
+	# branch a reader stuck on wording actually sees.
+	"Reading": {"reading": {"problem": "That is not a repeat this understands."}},
 	"DocumentFields": {
 		"busy": False,
 		"values": {"body": "Prose.", "type": "decision", "status": "active"},
@@ -2894,15 +2908,17 @@ NOT_ON_THE_FORM = {
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.
 	"timezone": "the timezone chain answers this without asking",
-	# **A gap rather than a decision, and said so** (`#94`, in progress). A repeat is three
-	# fields that qualify each other — the rule, what its next date is measured from, and what
-	# brings it into being — so the control is a disclosure rather than a text box, and it
-	# wants the phrase preview `POST /v1/recurrence/parse` exists to serve. Goes away when
-	# that endpoint and the control land together; a box that took a phrase and could not show
-	# what it understood would be the ambiguous half of the feature with none of the check.
-	"recurrence": "#94 — the control lands with the phrase preview it needs",
-	"recurrence_anchor": "#94 — qualifies `recurrence`; no control without one",
-	"recurrence_trigger": "#94 — qualifies `recurrence`; no control without one",
+	# **A decision now rather than a gap** (`SR#94`). `recurrence` and `recurrence_anchor` are on
+	# the form, behind a *Repeats* disclosure and beside the phrase preview
+	# `POST /v1/recurrence/parse` exists to serve — the two entries that used to be here went
+	# when the control landed, which is what a written excuse naming its own removal is for.
+	#
+	# `recurrence_trigger` stays off, and for the reason the CLI and MCP left it off too: only
+	# `completion` is built, and a control offering one accepted value and one that is refused
+	# by name is a control with nothing to decide — `SR#251`'s inert control, drawn. It arrives
+	# with `SR#916`, when a date-ranged view gives `time` somewhere to be visible.
+	"recurrence_trigger": "SR#94 — only one value is built; a control would have no choice to "
+	"offer. Lands with SR#916.",
 }
 
 
@@ -2953,7 +2969,18 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	assert always is not None, "NEVER_CLEARED is gone, so `title` is not being counted"
 
-	read = set(re.findall(r'"([^"]+)"', found.group(1) + numbers.group(1) + always.group(1)))
+	# **A fourth register, because the rule joining its two names is *both or neither*** (`SR#94`).
+	# The anchor qualifies the rule and the service refuses it alone (`SR#918`), so the repeat
+	# fields are read by `repeating` rather than by either loop — and a name consumed only
+	# inside a function body is invisible here, which is how this guard first met them.
+	repeated = re.search(r"export const REPEATED = \[(.*?)\];", app, re.S)
+
+	assert repeated is not None, "REPEATED is gone, so the repeat's controls are not counted"
+
+	read = set(re.findall(
+		r'"([^"]+)"',
+		found.group(1) + numbers.group(1) + always.group(1) + repeated.group(1),
+	))
 	read |= {"tags"}
 	# `title` and `text` are the naming control, drawn by `Editing` and `Adding` rather than by
 	# `Fields`, so they are not in the slice above.
@@ -3008,7 +3035,11 @@ def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 
 		return re.findall(r'"([^"]+)"', found.group(1))
 
+	# `REPEATED` is read by `repeating` rather than by either loop, because its two names travel
+	# together or not at all (`SR#94`, `SR#918`) — but they are controls the form draws and
+	# fields the endpoint accepts, which is the only question here.
 	offers = set(listed("SAID_AS_WRITTEN")) | set(listed("SAID_AS_NUMBERS"))
+	offers |= set(listed("REPEATED"))
 	offers |= {"text", "tags", "workspace_id"}
 
 	accepted = set(subroutine.api.tasks.Create.model_fields)
@@ -4437,6 +4468,12 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# across every workspace, so a request that named one would answer a different question
 		# and look right doing it.
 		("agendaRequest", []),
+		# **The phrase preview, both ways it is called** (`SR#94`, §6.7). With a zone, which is
+		# what the form sends, and without — because the parameter is optional and the branch
+		# that omits it is the one nothing else would drive. It writes nothing, so unlike every
+		# other entry here it needs no spare row and can be asked anything.
+		("readingRequest", ["every other tuesday", "Europe/London"]),
+		("readingRequest", ["every month on the 30th"]),
 	]
 
 
@@ -8407,4 +8444,96 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	assert seeded <= drawn, (
 		f"{sorted(seeded - drawn)} are seeded item types with no glyph, so they fall back to "
 		f"the one meant for a type this client has never heard of"
+	)
+
+
+def test_a_repeat_and_its_anchor_travel_together_or_not_at_all (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#94`, and the rule neither field list can express — so it has its own function.
+
+	The anchor control always holds a value, because a repeat is always measured from
+	somewhere. The service refuses an anchor with no rule by name (`SR#918`), so a body that
+	copied the controls independently would **refuse every ordinary create**: nothing typed
+	into the phrase box, a select still reading *keep to the schedule*, and a 422 about a field
+	the reader never opened the disclosure to see.
+	"""
+
+	[alone] = _views(tmp_path, [("filed", {"slug": "projects", "values": {
+		"text": "buy milk", "recurrence": "", "recurrence_anchor": "schedule",
+	}})])
+
+	assert alone == {"workspace_id": "projects", "text": "buy milk"}, (
+		f"an untouched disclosure sent {sorted(alone)}, and an anchor without a rule is a 422"
+	)
+
+	[together] = _views(tmp_path, [("filed", {"slug": "projects", "values": {
+		"text": "water the plants",
+		"recurrence": "every 3 days", "recurrence_anchor": "completion",
+	}})])
+
+	assert together["recurrence"] == "every 3 days"
+	assert together["recurrence_anchor"] == "completion"
+
+
+def test_clearing_the_repeat_box_stops_the_series (tmp_path: pathlib.Path) -> None:
+	"""`SR#94`. **This form's only way to say *stop repeating*, and it is the same word as
+	everywhere else on it.**
+
+	Every other control here is nulled when it is blank, because §8.3 makes that the difference
+	between *unchanged* and *cleared* — and a repeat reads it identically: the series ends, the
+	work in hand keeps its number and its record, and nothing follows it. So a reader who wants
+	something to stop coming back empties the box, which is what emptying a box means on every
+	other field of the same form.
+
+	**The anchor is not sent alongside**, for the reason above: on the way to a `PATCH` a lone
+	anchor is refused exactly as it is on the way to a `POST`.
+	"""
+
+	[body] = _views(tmp_path, [("edited", {
+		"values": {
+			"title": "Water the plants", "status": "open", "type": "task", "project": "inbox",
+			"recurrence": "", "recurrence_anchor": "completion",
+		},
+		"item": {"version": 3},
+	})])
+
+	assert body["recurrence"] is None, (
+		f"an emptied box sent {body.get('recurrence')!r}, which leaves the series running while "
+		f"the form reports success — a silent no-op, and the worst of the three failures"
+	)
+	assert "recurrence_anchor" not in body, (
+		"the anchor went without a rule to qualify, which the service refuses by name"
+	)
+
+
+def test_a_repeating_item_opens_its_form_with_the_words_that_were_written (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#94`. **A box that opened empty would read as *this does not repeat* — and then save
+	as *stop repeating*, because that is what blank means here.**
+
+	`recurrence_text` is null when a caller sent an `RRULE` directly, so the rule itself is the
+	fallback. It is ugly and it is the truth, and `POST /v1/recurrence/parse` accepts it back —
+	which is what stops the fallback being a value the form cannot re-submit.
+	"""
+
+	[written] = _views(tmp_path, [("fromItem", {"item": {
+		"title": "Water the plants",
+		"recurrence_text": "every 3 days",
+		"recurrence_rule": "FREQ=DAILY;INTERVAL=3",
+		"recurrence_anchor": "completion",
+	}})])
+
+	assert written["recurrence"] == "every 3 days"
+	assert written["recurrence_anchor"] == "completion"
+
+	[compiled] = _views(tmp_path, [("fromItem", {"item": {
+		"title": "Pay the rent",
+		"recurrence_text": None,
+		"recurrence_rule": "FREQ=MONTHLY;BYMONTHDAY=30",
+	}})])
+
+	assert compiled["recurrence"] == "FREQ=MONTHLY;BYMONTHDAY=30", (
+		"a rule sent directly left the box empty, so reopening the item and saving would stop it"
 	)

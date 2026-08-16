@@ -1197,7 +1197,65 @@ export function filed (values, slug) {
 
 	if (tags.length > 0) body.tags = tags;
 
+	repeating(said).forEach(([name, value]) => { body[name] = value; });
+
 	return body;
+}
+
+export function readingRequest (phrase, zone = null) {
+	/*
+		Ask what a written repeat means, without storing anything — `#94`, §6.7.
+
+		**The zone travels with it**, because the dates that come back are days: *every monday*
+		asked from Sydney and answered in UTC lands a day out either side of midnight, which is
+		`#773` at the other end of the same wire.
+
+		Pure, like every other request builder here (`#661`) — the guard that drives every one
+		of them against a real instance derives its cases from these, so a request assembled
+		inline would be the one nothing checks.
+	*/
+	return {
+		path: "/recurrence/parse",
+		method: "POST",
+		body: zone ? { text: phrase, timezone: zone } : { text: phrase },
+	};
+}
+
+/*
+	The repeat's two controls, named rather than written inline — `#94`.
+
+	They are read by `repeating` rather than by either loop above, because the rule joining them
+	is *both or neither* and a list cannot say that. Declared anyway, and in the same shape as
+	`SAID_AS_WRITTEN` and `NEVER_CLEARED`, because the guard comparing the controls the form
+	draws against the names the body reads works by reading these registers — a field consumed
+	only inside a function body is one it cannot see, and it would fail saying the form draws a
+	control nothing reads. Which it did, immediately.
+*/
+export const REPEATED = ["recurrence", "recurrence_anchor"];
+
+export function repeating (said) {
+	/*
+		The repeat fields, or none at all — `#94`, and the one rule the loops above cannot say.
+
+		**`recurrence_anchor` travels with `recurrence` or not at all.** It qualifies the rule
+		and means nothing without one, so the service refuses it alone by name (`#918`) — and
+		the anchor control always holds a value, because a repeat is always measured from
+		somewhere. Sending the pair independently would therefore refuse **every ordinary
+		create**: no phrase typed, a select still reading *the schedule*, and a 422 about a
+		field the reader never opened the disclosure to see.
+
+		Returned as pairs rather than written into a body, so `filed` and `edited` can each
+		apply their own rule about what an empty control means and neither has to know the
+		other's.
+	*/
+	const [ruleName, anchorName] = REPEATED;
+	const rule = said(ruleName);
+
+	if (!rule) return [];
+
+	const anchor = said(anchorName);
+
+	return anchor ? [[ruleName, rule], [anchorName, anchor]] : [[ruleName, rule]];
 }
 
 export function readForm (form) {
@@ -1309,6 +1367,15 @@ export function fromItem (item) {
 		due: dateFor(said.due_at, said.due_is_all_day, said.timezone),
 		due_time: timeFor(said.due_at, said.due_is_all_day, said.timezone),
 		tags: (said.tags || []).join(", "),
+		/*
+			**The words somebody typed, falling back to the rule they compiled to** (`#94`).
+			`recurrence_text` is null when a caller sent an `RRULE` directly, and a box that
+			opened empty on a task that plainly repeats would read as *this does not repeat* —
+			then save as *stop repeating*, because that is what blank means here. A rule in the
+			box is ugly and is the truth, and `POST /v1/recurrence/parse` accepts it back.
+		*/
+		recurrence: said.recurrence_text || said.recurrence_rule || "",
+		recurrence_anchor: said.recurrence_anchor || "",
 	};
 }
 
@@ -1368,6 +1435,21 @@ export function edited (values, item) {
 		.split(/[\s,]+/)
 		.map((one) => one.replace(/^#/, ""))
 		.filter((one) => one !== "");
+
+	/*
+		**Blank stops the repeat, which is this form's only way to say so** (`#94`). The rest of
+		this function nulls an empty control because §8.3 makes that the difference between
+		*unchanged* and *cleared*, and a repeat reads it the same way — the series ends, the
+		work in hand keeps its number and its record, and nothing follows it.
+
+		The anchor rides along only when there is a rule, for `repeating`'s reason: on the way
+		to a `PATCH` a lone anchor is refused just as it is on the way to a `POST`.
+	*/
+	const repeat = repeating(said);
+
+	body.recurrence = repeat.length > 0 ? repeat[0][1] : null;
+
+	if (repeat.length > 1) body.recurrence_anchor = repeat[1][1];
 
 	return body;
 }
@@ -3462,7 +3544,9 @@ export const DATE_FIELDS = [
 */
 export const TIMED = DATE_FIELDS.filter(([, , , time]) => time).map(([name]) => name);
 
-export function Fields ({ busy, vocabulary, projects, members, project, values }) {
+export function Fields ({
+	busy, vocabulary, projects, members, project, values, reading, onReading,
+}) {
 	/*
 		Every field beyond the one that names the item — shared by adding and editing (`#757`).
 
@@ -3578,7 +3662,120 @@ export function Fields ({ busy, vocabulary, projects, members, project, values }
 			<label class="wide"><span>Tags</span>
 				<input name="tags" disabled=${busy} placeholder="health, admin"
 					defaultValue=${held.tags || ""} /></label>
+
+			<${Repeats} busy=${busy} held=${held} reading=${reading} onReading=${onReading} />
 		</fieldset>
+	`;
+}
+
+//: What the anchor offers, and the words for it. **Not read from `/v1/meta`**, unlike every
+//: vocabulary control beside it — `schedule` and `completion` are this application's own
+//: constants rather than a workspace's renameable keys (§5.5), so publishing them would be
+//: inventing a vocabulary nobody can change. `#826` is the item if that ever stops being true.
+export const ANCHORS = [
+	["schedule", "The schedule"],
+	["completion", "When it was last done"],
+];
+
+export function Repeats ({ busy, held, reading, onReading }) {
+	/*
+		How often something comes round — `#94`, and Simon's direction of 2026-08-16: *recurring
+		events are not completed until a user can add and edit an item's recurrence via the Web
+		UI*.
+
+		**A disclosure inside a disclosure**, which is his suggested shape and is what §1.4 makes
+		a form anyway. Most items do not repeat, so three more controls unfolded on every capture
+		would be the page telling every reader about a feature almost none of them is using.
+
+		**`<details>` rather than a checkbox and a rule about what it reveals.** It is a
+		disclosure natively — keyboard-reachable, announced as one, and open or closed with no
+		state anywhere. That matters more here than usual: a component calling a hook cannot be
+		rendered by this project's harness (`#640`), and four faults have shipped out of
+		decisions left inside `App` for want of that.
+
+		**Open when the item already repeats.** A rule folded out of sight on the one item it
+		applies to is the same failure as no control at all — somebody edits the deadline, saves,
+		and cannot see that the thing they did not touch is still there.
+
+		**The preview is the whole argument for the endpoint** (§6.7). *Every month on the 30th*
+		and *every 30 days* are different schedules that read alike, and the difference does not
+		show until February. Reading it back **in different words from the ones typed** is what
+		turns an ambiguous natural-language feature into a checkable one; echoing the input would
+		confirm nothing.
+	*/
+	const rule = (held || {}).recurrence || "";
+	const anchor = (held || {}).recurrence_anchor || "";
+
+	return html`
+		<details class="repeats wide" open=${Boolean(rule)}>
+			<summary>Repeats</summary>
+
+			${/* **A wrapper, and it is not tidiness — measured** (`#94`). `display: grid` on a
+			     `<details>` lays out the summary and then puts everything after it in one
+			     anonymous slot box, so the fields are not grid items at all: every one of them
+			     came out 219px wide inside a 938px row, stacked down the left, with the select
+			     clipped and the preview wrapped. `::details-content` is the direct fix and is
+			     too new to rely on. Nothing short of a browser could have found this — the
+			     computed `grid-column` reads `1 / -1` on children that are not participating,
+			     which is what makes the shim's answer look right. */ null}
+			<div class="fields">
+				<label class="wide"><span>How often</span>
+					<input name="recurrence" disabled=${busy} defaultValue=${rule}
+						placeholder="every other tuesday"
+						onInput=${onReading && ((event) => onReading(event.target.value))} />
+					<small>Leave it empty to stop repeating.</small></label>
+
+				${/* **Measured from**, and the reason it is a control rather than a guess:
+				     *every three days* means the third of every third day to somebody paying
+				     rent and three days after you last did it to somebody watering plants,
+				     and there is no way to tell those apart from the words. */ null}
+				<label><span>Measured from</span>
+					<select name="recurrence_anchor" disabled=${busy}>
+						${ANCHORS.map(([value, label]) => html`
+							<option key=${value} value=${value}
+								selected=${anchor ? anchor === value : value === "schedule"}
+								>${label}</option>
+						`)}
+					</select></label>
+
+				<${Reading} reading=${reading} />
+			</div>
+		</details>
+	`;
+}
+
+export function Reading ({ reading }) {
+	/*
+		What the server made of the phrase — `#94`, §6.7.
+
+		**Three states and they are not two.** Nothing typed yet says nothing at all; a phrase
+		this cannot read says so and names the shapes that work, because a reader stuck on
+		wording needs an example rather than a complaint; and a phrase it can read comes back as
+		a sentence *and* the next few dates, which is the part that catches a rule that parses
+		and means the wrong thing.
+
+		**`role="status"` rather than `alert`.** This updates while somebody is typing, and an
+		assertive live region would interrupt a screen reader on every keystroke — which is how
+		a helpful thing becomes the reason somebody turns the page off.
+	*/
+	if (!reading) return null;
+
+	if (reading.problem) {
+		return html`
+			<p class="reading bad" role="status">${reading.problem}</p>
+		`;
+	}
+
+	return html`
+		<p class="reading" role="status">
+			<strong>${reading.description}</strong>
+			${reading.occurrences && reading.occurrences.length > 0 && html`
+				<span class="next">Next: ${reading.occurrences
+					.slice(0, 3)
+					.map((one) => calendarDay(one))
+					.join(", ")}</span>
+			`}
+		</p>
 	`;
 }
 
@@ -3643,7 +3840,7 @@ export function DocumentFields ({ busy, vocabulary, projects, project, values })
 
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
-	writing, onWriting,
+	writing, onWriting, reading, onReading,
 }) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
@@ -3715,7 +3912,8 @@ export function Adding ({
 				? html`<${DocumentFields} busy=${busy} vocabulary=${vocabulary}
 					projects=${projects} project=${project} />`
 				: html`<${Fields} busy=${busy} vocabulary=${vocabulary}
-					projects=${projects} members=${members} project=${project} />`)}
+					projects=${projects} members=${members} project=${project}
+					reading=${reading} onReading=${onReading} />`)}
 
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
 			     every page would be the column that says the same thing on every row (§12.2a);
@@ -3726,7 +3924,7 @@ export function Adding ({
 }
 
 export function Editing ({
-	item, busy, onSave, onCancel, vocabulary, projects, members, conflict,
+	item, busy, onSave, onCancel, vocabulary, projects, members, conflict, reading, onReading,
 }) {
 	/*
 		The same form, filled from an item — `#757`.
@@ -3762,7 +3960,8 @@ export function Editing ({
 			${conflict && html`<${Conflict} theirs=${conflict} />`}
 
 			<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
-				members=${members} values=${fromItem(item)} />
+				members=${members} values=${fromItem(item)}
+				reading=${reading} onReading=${onReading} />
 		</form>
 	`;
 }
@@ -4237,7 +4436,7 @@ export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, st
 export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
-	onStatus, statuses, onComment, onLink, onUnlink,
+	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
 }) {
 	const body = item.description || item.body;
 
@@ -4265,7 +4464,8 @@ export function Detail ({
 			${editing
 				? html`<${Editing} item=${item} busy=${busy} onSave=${onSave}
 					onCancel=${() => onEdit(false)} conflict=${conflict}
-					vocabulary=${vocabulary} projects=${projects} members=${members} />`
+					vocabulary=${vocabulary} projects=${projects} members=${members}
+					reading=${reading} onReading=${onReading} />`
 				: html`
 					<h2>#${item.ref} ${item.title}</h2>
 					<${Facts} item=${item} />
@@ -4557,6 +4757,14 @@ export function App () {
 	   to say about a 409 is what the item says now. */
 	const [editing, setEditing] = useState(false);
 	const [conflict, setConflict] = useState(null);
+	/* What the server made of the repeat somebody is typing (`#94`, §6.7). Null until they
+	   type something, so the disclosure opens saying nothing rather than complaining about an
+	   empty box. Shared by both forms because only one of them is ever on screen. */
+	const [reading, setReading] = useState(null);
+	/* The newest phrase asked about, so an answer overtaken in flight can be dropped. A ref
+	   rather than state: it is read by the callback that wrote it and never rendered, so
+	   putting it in state would re-render the page on every keystroke to no effect. */
+	const latestRepeat = useRef("");
 	const [vocabulary, setVocabulary] = useState(null);
 	const [filable, setFilable] = useState([]);
 	/*
@@ -5412,6 +5620,57 @@ export function App () {
 		status(item, chosen.key);
 	}, [status, vocabulary]);
 
+	const readRepeat = useCallback(async (phrase) => {
+		/*
+			**The same refusal a save would give, arriving while there is still time to change
+			it** (`#94`, §6.7). It is the same function on the server, so a phrase this accepts
+			and the create refuses cannot exist — which is the whole reason to check first.
+
+			**Not routed through `wrote`**, unlike every other call from this component: nothing
+			is stored, nothing is re-read, and a *Repeat read* toast on every keystroke would be
+			the noise that makes somebody stop reading toasts. A refusal is rendered inside the
+			disclosure it belongs to, beside the box it is about.
+
+			**The last phrase asked wins, and an answer overtaken while in flight is dropped.**
+			Typing *every monda* and then *every monday* sends two, and the shorter one can land
+			second — so an answer is shown only while the phrase it was for is still the newest
+			one asked, which is cheaper and steadier than cancelling requests.
+
+			**A ref rather than the state**, and getting that wrong is what the browser test
+			caught: comparing against the answer already *held* asks whether this differs from
+			the last one shown, which is true of every new phrase — so the first answer stuck
+			and nothing after it was ever displayed. The question is *is this still what they
+			are typing*, and only something written at ask-time can answer it.
+		*/
+		const asked = String(phrase || "").trim();
+
+		latestRepeat.current = asked;
+
+		if (asked === "") {
+			setReading(null);
+
+			return;
+		}
+
+		const zone = (workspace && workspace.timezone) || null;
+		const current = () => latestRepeat.current === asked;
+
+		try {
+			const answer = await sent(readingRequest(asked, zone));
+
+			if (current()) setReading({ ...answer, asked });
+		} catch (why) {
+			if (current()) {
+				setReading({
+					asked,
+					problem: (why.body && why.body.detail)
+						|| why.message
+						|| "That is not a repeat this understands.",
+				});
+			}
+		}
+	}, [workspace]);
+
 	const comment = useCallback(async (body) => {
 		/* **The item is re-read afterwards rather than the comment appended locally**, because
 		   what comes back is what the instance stored — a `#42` in it becomes a mention, and a
@@ -5673,6 +5932,10 @@ export function App () {
 	const adding = {
 		expanded, onExpand: setExpanded, vocabulary, projects: filable, members, project,
 		writing, onWriting: setWriting,
+		/* **In the bundle rather than threaded** (`#912`'s argument, one item along): `Agenda`,
+		   `Board` and `Listing` each pass this through and none of them has any business
+		   knowing what a repeat preview is. */
+		reading, onReading: readRepeat,
 	};
 
 	if (error) {
@@ -5786,6 +6049,7 @@ export function App () {
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${save}
+					reading=${reading} onReading=${readRepeat}
 					onStatus=${status} statuses=${vocabulary && vocabulary.statuses}
 					onComment=${comment} onLink=${link} onUnlink=${unlink}
 					vocabulary=${vocabulary} projects=${filable}

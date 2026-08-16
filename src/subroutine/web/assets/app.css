@@ -425,6 +425,74 @@ fieldset {
 
 .adding .details .wide { grid-column: 1 / -1; }
 
+/* How often something comes round — `SR#94`, and a disclosure inside a disclosure.
+
+   **It carries the field grid rather than inheriting it.** `.details` is the grid and a
+   `<details>` inside it is one cell, so its own controls would stack in a single column
+   however wide the page was. Repeating the declaration here is what makes the phrase, the
+   anchor and the preview lay out like every other field beside them.
+
+   `list-style: none` and the marker rule are what let the summary read as a control rather
+   than as a bullet — Chromium draws a triangle from `::-webkit-details-marker` and every other
+   engine from `::marker`, so both are named or it is styled in one browser. */
+.adding .details .repeats {
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: var(--space-5) var(--space-6);
+	background: var(--bg);
+}
+
+/* **The grid is on a wrapper inside, not on the `<details>` itself**, and that was measured
+   rather than chosen. Chromium lays a `<details>`'s content out in an anonymous slot box, so
+   `display: grid` here made grid items of the summary and that box alone — every field came
+   out 219px wide inside a 938px row, stacked down the left, with the select clipped and the
+   preview wrapped. `::details-content` addresses it directly and is too new to rely on. */
+.adding .details .repeats .fields {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	gap: var(--space-5) var(--space-6);
+	margin-top: var(--space-5);
+}
+
+.adding .details .repeats summary {
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+	cursor: pointer;
+	list-style: none;
+}
+
+.adding .details .repeats summary::-webkit-details-marker { display: none; }
+.adding .details .repeats summary::marker { content: ""; }
+
+/* The affordance the marker rule takes away, put back as a word rather than as a glyph — it
+   has to say which way it will go, and `Repeats ▾` reads as a state where a bare triangle
+   reads as decoration. */
+.adding .details .repeats summary::after {
+	content: " ▸";
+	color: var(--ink-faint);
+}
+
+.adding .details .repeats[open] summary::after { content: " ▾"; }
+
+/* What the server made of the phrase — read while typing, so it is quiet by default and only
+   the refusal takes a colour. `SR#102`: the colour marks an exception and the sentence carries
+   the information, so nothing here exists only as a hue. */
+.adding .details .reading {
+	grid-column: 1 / -1;
+	margin: 0;
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+	line-height: 1.4;
+}
+
+.adding .details .reading.bad { color: var(--warn); }
+
+.adding .details .reading .next {
+	display: block;
+	color: var(--ink-faint);
+	font-size: var(--text-fine);
+}
+
 /* Editing an item is the same form with the title in place of the capture line — `SR#757`. */
 .adding.editing { margin: 0 0 var(--space-7); }
 
