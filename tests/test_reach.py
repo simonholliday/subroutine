@@ -908,6 +908,56 @@ def test_every_denied_route_is_one_that_exists () -> None:
 		assert instead, f"{verb} {template} refuses without naming what to do instead"
 
 
+def test_every_route_that_answers_with_a_credential_is_denied_to_an_agent () -> None:
+	"""`#927`'s H-7, and the direction the deny-list could not answer for itself.
+
+	`DENIED` had three entries against roughly forty-three writing routes, and its written
+	reason covered one kind of risk: consequential, no undo, a confirmation step. Two routes
+	sat outside it that fail differently — `POST /v1/tokens` answers with a secret that exists
+	nowhere else ever, and `POST /v1/login-links` with a working sign-in URL that takes a
+	`username`, so it can be minted for somebody else. **A tool result is text in a model's
+	context**, which is the one place this project cannot revoke anything from.
+
+	Not an escalation: `_refuse_amplification` correctly stops a credential widening itself.
+	A disclosure — and `api/mcp.py` already argues that this transport must refuse browser
+	sessions because it is *"driven by an agent reading item text that anybody with a
+	credential may have written"*. The same reader must not be handed a credential.
+
+	**Derived from the response models rather than from the two paths.** A list of routes that
+	return a secret is a second copy of a fact the routes already carry, and the copy is the
+	one that goes stale — so this asks which routes answer with one of
+	`tools.CARRIES_A_SECRET` and requires each to be refused. A third such route cannot be
+	added without somebody deciding about this.
+
+	The floor matters as much as the check: if the response models stopped being readable this
+	would find nothing and pass, which is the "reads nothing and succeeds" shape met three
+	times in this repository already.
+	"""
+
+	minting = {
+		(method, f"{prefix}{route.path}")
+		for prefix, router in subroutine.api.app.ROUTERS
+		for route in typing.cast(list[typing.Any], router.routes)
+		for method in sorted(getattr(route, "methods", None) or ())
+		if getattr(route, "response_model", None) in subroutine.mcp.tools.CARRIES_A_SECRET
+	}
+
+	assert len(minting) >= 2, (
+		f"only {len(minting)} routes were found to answer with a credential — has the "
+		f"response model stopped being readable from the route?"
+	)
+
+	refused = {(verb, template) for verb, template, _instead in subroutine.mcp.tools.DENIED}
+	reachable = minting - refused
+
+	# A `HEAD` or a `GET` on one of these would be a different question and there are none;
+	# every one found is a mint.
+	assert not reachable, (
+		f"these routes answer with a live credential and subroutine_call_api can reach them: "
+		f"{sorted(reachable)}. A tool result is text in a model's context."
+	)
+
+
 # --- Fields, not only methods (`#427`) --------------------------------------------------
 #
 # **The guard above answers "can a client call this route", and cannot answer "can a client

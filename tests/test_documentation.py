@@ -2027,7 +2027,7 @@ def test_nothing_the_api_calls_unbuilt_is_advertised_as_built () -> None:
 	about what does not exist yet cannot disagree — which is the half where being wrong reaches
 	a reader who has no way to check.
 
-    A row's *wording* is still nobody's to verify but a person's. This is a floor under it.
+	A row's *wording* is still nobody's to verify but a person's. This is a floor under it.
 	"""
 
 	rows = _readme_rows()

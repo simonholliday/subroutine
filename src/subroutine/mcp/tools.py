@@ -174,9 +174,24 @@ ADDS = {"destructiveHint": False}
 
 #: Routes ``call_api`` will not reach, and what to do instead — decision `#484`.
 #:
-#: **One shared reason: consequential, no undo, and the safety is a confirmation step.** The CLI
+#: **Two reasons, and the second was added by `#927`'s H-7.**
+#:
+#: The first three are *consequential, no undo, and the safety is a confirmation step*. The CLI
 #: half of each counts what will change and asks before doing it, which is not a shape a tool
 #: call has today.
+#:
+#: The last two **return a live credential in readable form**, and a tool result is text in a
+#: model's context: `POST /v1/tokens` answers with the secret, which exists nowhere else ever,
+#: and `POST /v1/login-links` with a working sign-in URL that takes a `username`, so it can be
+#: minted *for somebody else*. Not an escalation — `_refuse_amplification` correctly stops a
+#: credential widening itself — but a disclosure, into the one place this project has no way to
+#: revoke: a transcript. `api/mcp.py` argues at length that this transport must refuse browser
+#: sessions because it is "driven by an agent reading item text that anybody with a credential
+#: may have written"; the same reader must not be handed a credential either.
+#:
+#: **That second reason is derived rather than remembered.** ``tests/test_reach.py`` asks which
+#: routes answer with a view model carrying a live secret and fails when one of them is missing
+#: from here, so a third such route cannot be added without this being decided about it.
 #:
 #: **The written reason used to say a tool call *cannot* express that, and the protocol has
 #: retired it** — elicitation is part of revision ``2025-06-18``, which is the one this server
@@ -207,7 +222,17 @@ DENIED: tuple[tuple[str, str, str], ...] = (
 	("POST", "/v1/workspaces", "subroutine workspace create"),
 	("PATCH", "/v1/workspaces/{id_or_slug}", "subroutine workspace rename"),
 	("POST", "/v1/projects/{id_or_key}/move", "subroutine project move"),
+	("POST", "/v1/tokens", "subroutine token create"),
+	("POST", "/v1/login-links", "subroutine login link"),
 )
+
+#: The view models that carry a credential somebody could use, at the one moment it is readable.
+#:
+#: Named here so :data:`DENIED` can be checked against the routes rather than against a memory
+#: of which ones there are. Both say so in their own docstrings — *"the secret is in the URL and
+#: nowhere else in this object"*, *"a credential at the one moment its secret exists in readable
+#: form"* — and this is that fact made reachable by a guard.
+CARRIES_A_SECRET = (subroutine.views.IssuedToken, subroutine.views.SignInLink)
 
 #: How much of a response is worth returning. **A refusal rather than a truncation**, because a
 #: truncated JSON document is unparseable and reads as an answer: the caller gets something
