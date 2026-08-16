@@ -28,6 +28,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.errors
@@ -49,6 +50,7 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 
 	link = subroutine.db.models.work.Link
 	blocker = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
 	kind = subroutine.db.models.vocabulary.LinkType
 
 	return ~sqlalchemy.exists(
@@ -58,10 +60,11 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 			blocker,
 			sqlalchemy.and_(blocker.id == link.source_id, link.source_type == "task"),
 		)
+		.join(filed_in, filed_in.id == blocker.project_id)
 		.where(
 			link.target_type == "task",
 			link.target_id == model.id,
-			*_live_blocks_edge(link, kind, blocker),
+			*_live_blocks_edge(link, kind, blocker, filed_in),
 		)
 		.correlate(model)
 	)
@@ -82,30 +85,33 @@ def blocking (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 
 	link = subroutine.db.models.work.Link
 	held = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
 	kind = subroutine.db.models.vocabulary.LinkType
 
 	return sqlalchemy.exists(
 		sqlalchemy.select(link.id)
 		.join(kind, kind.id == link.link_type_id)
 		.join(held, sqlalchemy.and_(held.id == link.target_id, link.target_type == "task"))
+		.join(filed_in, filed_in.id == held.project_id)
 		.where(
 			link.source_type == "task",
 			link.source_id == model.id,
-			*_live_blocks_edge(link, kind, held),
+			*_live_blocks_edge(link, kind, held, filed_in),
 		)
 		.correlate(model)
 	)
 
 
 def _live_blocks_edge (
-	link: type[typing.Any], kind: type[typing.Any], other: typing.Any
+	link: type[typing.Any], kind: type[typing.Any], other: typing.Any, filed_in: typing.Any
 ) -> tuple[sqlalchemy.ColumnElement[bool], ...]:
 	"""Return what makes a ``blocks`` link count: it is live and its far end is unfinished.
 
 	**Read in both directions and stated once.** :func:`unblocked` asks what is holding a row
 	up and :func:`blocking` asks what a row is holding up; the rule about which edges are real
 	is the same, mirrored, so each caller supplies only the clauses saying which end it is
-	standing at. ``other`` is the task at the far end, whichever end that is.
+	standing at. ``other`` is the task at the far end, whichever end that is, and ``filed_in``
+	is the project it is filed in.
 	"""
 
 	return (
@@ -115,6 +121,13 @@ def _live_blocks_edge (
 		# release would go on marking everything that ever blocked it.
 		other.completed_at.is_(None),
 		other.deleted_at.is_(None),
+		# **And the project it is filed in is still there.** `projects.delete` does not touch
+		# its tasks — "every listing joins the project and excludes deleted ones, so they
+		# leave the visible world with it" — so a task in a binned project keeps a null
+		# `deleted_at` and went on blocking live work from outside every listing there is.
+		# Worse than a wrong answer: the caller was told an item was blocked and shown no
+		# link at all, because `links.edges` drops an end they cannot see.
+		filed_in.deleted_at.is_(None),
 	)
 
 

@@ -353,6 +353,25 @@ upgrade involves.
 
 ### Fixed
 
+- **A blocker in a project you have thrown away no longer holds work up.** Deleting a project
+  leaves its tasks where they are — every listing hides them by joining the project — so one of
+  them could go on blocking live work from outside every listing there is. The item was marked
+  blocked, `--ready` skipped it, and opening it showed **no links at all**, because a link with
+  an end you cannot see is not shown. Restoring the project was the only cure, and nothing said
+  so. If the project comes back, so does the block.
+
+- **A ring of blocking links is refused, and the refusal names the ring.** Nothing stopped you
+  recording that A blocks B, B blocks C and C blocks A — after which none of the three could
+  ever be started, every item was correctly reported as blocked, and no surface said why.
+  `docs/errors.md` has listed `cycle_detected` as covering "a chain of blocking links" since
+  the first release; now something raises it. `relates_to` is unaffected: it says two items are
+  connected, not which comes first.
+
+- **"Next Friday" said at a weekend is no longer a week late.** `next <weekday>` took the
+  soonest such day and added a week, so once that day had passed it skipped a week entirely —
+  "next Monday" said on a Tuesday was a fortnight away. It is now the named day of the week
+  after this one, which is the same answer as before wherever the old one was right.
+
 - **Five endpoints ignored the version you asked them to check.** `If-Match` and
   `expected_version` were read by `PATCH`, `DELETE`, `complete`, `skip` and `restore`, and
   silently dropped by `claim`, `release` and all three `move` endpoints — so a caller doing

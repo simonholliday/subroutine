@@ -205,6 +205,59 @@ def test_the_week_starts_on_monday () -> None:
 		assert _london("end_of_week", now=when).date() == datetime.date(2026, 7, 19)
 
 
+@pytest.mark.parametrize("name", sorted(set(subroutine.domain.dates.WEEKDAYS.values())))
+def test_next_names_one_day_however_far_through_the_week_it_is_said (name: int) -> None:
+	"""Seven people saying "next Friday" in one week mean the same Friday.
+
+	That is the whole property, and stating it that way is what makes it checkable: the
+	implementation took the *soonest* such day and added seven, so on any day later in the
+	week than the one being named, the soonest was already in the week the speaker meant and
+	the addition skipped it. "Next Monday" said on a Tuesday was a fortnight away.
+
+	**Wrong in 21 of the 49 combinations of name and day**, measured — the review found two
+	of them, both about Friday at a weekend, which is the shape where a person notices.
+	"""
+
+	spelling = next(
+		word for word, number in sorted(subroutine.domain.dates.WEEKDAYS.items()) if number == name
+	)
+	monday = datetime.date(2026, 8, 17)
+	answers = {
+		subroutine.domain.dates.day_named(
+			f"next {spelling}", today=monday + datetime.timedelta(days=offset)
+		)
+		for offset in range(7)
+	}
+
+	assert len(answers) == 1, f"'next {spelling}' named {sorted(str(a) for a in answers)}"
+
+	answered = answers.pop()
+
+	assert answered is not None
+	assert answered.weekday() == name, "and it is that day of the week"
+	assert monday + datetime.timedelta(days=7) <= answered < monday + datetime.timedelta(days=14), (
+		"in the week after the one it was said in"
+	)
+
+
+def test_a_bare_weekday_at_a_weekend_agrees_with_next () -> None:
+	"""Because on a Saturday the soonest Friday *is* next week's, and both should say so.
+
+	The two readings differ for as long as there is a day of that name still to come this
+	week, and stop differing once there is not. An implementation where they still differ at
+	the weekend is one that has counted a week twice.
+	"""
+
+	saturday = datetime.date(2026, 8, 22)
+
+	assert subroutine.domain.dates.day_named("friday", today=saturday) == datetime.date(
+		2026, 8, 28
+	)
+	assert subroutine.domain.dates.day_named("next friday", today=saturday) == datetime.date(
+		2026, 8, 28
+	)
+
+
 def test_end_of_day_matches_what_an_all_day_deadline_stores () -> None:
 	"""``end_of_day`` and "due Friday" must be the same instant, not nearly (SPEC.md §6.5)."""
 

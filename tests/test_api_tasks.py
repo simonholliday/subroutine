@@ -1757,6 +1757,115 @@ def test_a_withdrawn_block_stops_blocking (world: World) -> None:
 	assert second in listed
 
 
+def test_a_ring_of_blocking_links_is_refused_and_the_chain_is_named (world: World) -> None:
+	"""Because a ring is silent, and silence is the whole cost of it.
+
+	``A blocks B blocks C blocks A`` leaves all three permanently un-ready with nothing
+	anywhere saying why: every item is correctly reported as blocked and every blocker is
+	correctly reported as unfinished, so the state is self-consistent and wrong. Somebody has
+	to notice by hand that the work cannot begin, and then work out which of three links to
+	withdraw.
+
+	``errors.py`` has described ``cycle_detected`` as covering "a chain of blocking links"
+	since the registry was written, and nothing ever raised one. The chain is named because
+	the refusal is useless without it: a caller closing a ring is looking at one link and the
+	answer is about the other two.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "First"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Second"}).json()["ref"]
+	third = world.call("POST", "/v1/tasks", json={"title": "Third"}).json()["ref"]
+
+	_blocking(world, first, second)
+	_blocking(world, second, third)
+
+	closing = world.call(
+		"POST",
+		f"/v1/tasks/{third}/links",
+		json={"target": first, "target_type": "task", "link_type": "blocks"},
+	)
+
+	assert closing.status_code == 409
+	assert closing.json()["code"] == "cycle_detected"
+	assert closing.json()["errors"][0]["message"].count("→") == 2, "the chain, not the ends"
+
+	for ref in (first, second, third):
+		assert f"#{ref}" in closing.text
+
+	# And nothing was written: the two links that were there are the two that are there.
+	assert len(world.call("GET", f"/v1/tasks/{first}/links").json()["items"]) == 1
+
+
+def test_a_ring_of_a_type_that_does_not_sequence_work_is_allowed (world: World) -> None:
+	"""``relates_to`` says a pair is connected, not which comes first, so a ring holds nothing up.
+
+	The refusal is aimed at the one type ``readiness`` reads. Aiming it at every type would be
+	refusing an arrangement that costs nobody anything — two items that mention each other —
+	which is a rule a person has to learn in order to tell it from a bug.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "First"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Second"}).json()["ref"]
+
+	there = world.call(
+		"POST",
+		f"/v1/tasks/{first}/links",
+		json={"target": second, "target_type": "task", "link_type": "relates_to"},
+	)
+	back = world.call(
+		"POST",
+		f"/v1/tasks/{second}/links",
+		json={"target": first, "target_type": "task", "link_type": "relates_to"},
+	)
+
+	assert there.status_code == 201, there.text
+	assert back.status_code in (200, 201), back.text
+
+
+def test_a_blocker_in_a_binned_project_stops_blocking (world: World) -> None:
+	"""And it is the *invisible* half that makes this worse than a wrong answer.
+
+	Deleting a project does not touch its tasks — `projects.delete` says so, because every
+	listing joins the project and excludes the deleted ones, "so they leave the visible world
+	with it and come back with it". A task in a binned project therefore keeps a null
+	``deleted_at`` and a null ``completed_at``, which is exactly what the blocking predicate
+	reads, so it went on holding live work up from outside every listing there is.
+
+	The caller was then told an item was blocked and shown **no link at all**, because
+	``links.edges`` drops an end they cannot see. Nothing on any surface named the cause, and
+	restoring the project is the only thing that would have fixed it.
+
+	Asserted with the link still there, deliberately: the edge is not withdrawn, it has
+	stopped counting, and it starts counting again if the project comes back.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "old", "title": "Retired"})
+
+	blocker = world.call(
+		"POST", "/v1/tasks", json={"title": "In the old project", "project": "old"}
+	).json()["ref"]
+	waiting = world.call("POST", "/v1/tasks", json={"title": "Live work"}).json()["ref"]
+
+	_blocking(world, blocker, waiting)
+
+	def startable () -> list[int]:
+		"""What the caller is offered as ready to begin."""
+
+		listed = world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+
+		return [item["ref"] for item in listed]
+
+	assert waiting not in startable(), "blocked while the blocker is somewhere real"
+
+	world.call("DELETE", "/v1/projects/old")
+
+	assert waiting in startable(), "the blocker left the visible world and stopped blocking"
+
+	world.call("POST", "/v1/projects/old/restore")
+
+	assert waiting not in startable(), "and blocks again when the project comes back"
+
+
 def test_a_blocker_the_caller_cannot_see_still_blocks (
 	session: sqlalchemy.orm.Session,
 ) -> None:

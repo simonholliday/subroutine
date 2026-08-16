@@ -104,7 +104,7 @@ def day_named (written: str, *, today: datetime.date) -> datetime.date | None:
 		if name not in WEEKDAYS:
 			return None
 
-		return _soonest(name, today=today) + datetime.timedelta(days=7)
+		return _next_week(name, today=today)
 
 	if lowered not in WEEKDAYS:
 		return None
@@ -116,6 +116,24 @@ def _soonest (name: str, *, today: datetime.date) -> datetime.date:
 	"""Return the soonest date with this weekday name, counting today."""
 
 	return today + datetime.timedelta(days=(WEEKDAYS[name] - today.weekday()) % 7)
+
+
+def _next_week (name: str, *, today: datetime.date) -> datetime.date:
+	"""Return the day with this name in the week after the one ``today`` falls in.
+
+	**Counted from the start of the week, not from the soonest such day**, and at the weekend
+	those are a week apart. Saying "next Friday" on a Saturday used to mean thirteen days
+	away: the soonest Friday is already six days off — in the week the speaker is calling
+	*next* — and adding seven to it skipped that week entirely. Sunday was twelve.
+
+	Weeks begin on a Monday, which is what decides Sunday. On a Sunday "next Friday" is five
+	days away rather than twelve, because a Sunday is the end of the week a person has just
+	had rather than the start of the one they are talking about.
+	"""
+
+	monday = today - datetime.timedelta(days=today.weekday())
+
+	return monday + datetime.timedelta(days=7 + WEEKDAYS[name])
 
 
 def resolve (
