@@ -243,6 +243,10 @@ def create_app (
 
 	application.middleware("http")(subroutine.api.middleware.correlate)
 
+	# Outermost, because it decides what the request *is* before anything else reads the
+	# method. Added after `correlate` for that reason: Starlette runs the last one first.
+	application.middleware("http")(subroutine.api.middleware.answer_head_with_get)
+
 	if resolved.cors_origins:
 		# Only when configured. A browser is not the primary client here, and a default
 		# that allows credentialed cross-origin requests is a hole nobody asked for.
@@ -267,6 +271,12 @@ def create_app (
 	# Checked before anything is mounted, so a violation is a refusal to build rather than
 	# an application that starts with an endpoint nobody can reach (SPEC.md §8.1).
 	subroutine.api.routing.check(ROUTERS)
+
+	# What this application accepts, per path, for the two answers that have to know: a 405
+	# saying which methods a path really takes, and `HEAD` reaching the `GET` beside it. Read
+	# off the declared routers rather than the built application, for `mounted`'s recorded
+	# reason — an included router is opaque and composes its paths at match time.
+	application.state.declared_routes = subroutine.api.routing.declarations(ROUTERS)
 
 	for prefix, router in ROUTERS:
 		# **Every route refuses a query parameter it does not declare, from here** (`#898`).

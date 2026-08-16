@@ -17,10 +17,13 @@ import httpx
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
+import starlette.requests
+import starlette.responses
 
 import api_support
 import subroutine.addressing
 import subroutine.api.app
+import subroutine.api.middleware
 import subroutine.api.query
 import subroutine.api.routing
 import subroutine.config
@@ -562,6 +565,177 @@ def test_every_route_refuses_a_query_parameter_it_does_not_declare (
 		+ ". Every route is refused one by default since `#898` — add the route to "
 		+ "api/query.NOT_REFUSED with a reason if it must answer whatever it is asked."
 	)
+
+
+def _by_path () -> dict[str, set[str]]:
+	"""Return every method this application declares, gathered under the path that takes it."""
+
+	found: dict[str, set[str]] = {}
+
+	for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		found.setdefault(path, set()).update(methods)
+
+	return found
+
+
+def _stood_in (path: str) -> str:
+	"""Return a path template with something requestable in place of each segment."""
+
+	address = path
+
+	for segment, stand_in in _SEGMENTS.items():
+		address = address.replace("{" + segment + "}", stand_in)
+
+	assert "{" not in address, f"{path} names a segment _SEGMENTS has no value for"
+
+	return address
+
+
+def test_a_refusal_names_every_method_the_path_accepts (world: test_api_tasks.World) -> None:
+	"""RFC 9110 wants a 405 to say what would have worked, and this said one of them.
+
+	Starlette answers out of the *first* route whose path matched and FastAPI registers one
+	route per method, so ``PUT /v1/tasks`` was told ``Allow: POST`` and "This path accepts
+	POST" — with the ``GET`` registered beside it unmentioned. Twenty paths here take more
+	than one method, and a caller mapping the surface from its refusals is exactly who reads
+	this header.
+
+	Driven with ``PUT``, which this application accepts nowhere, so what comes back is the
+	refusal being asked about rather than a body that would not parse. That assumption is
+	asserted rather than assumed, because the day something accepts ``PUT`` is the day this
+	test starts writing.
+	"""
+
+	declared = _by_path()
+	shared = {path: methods for path, methods in declared.items() if len(methods) > 1}
+
+	assert len(shared) >= 15, f"only {len(shared)} paths take more than one method"
+	assert not any("PUT" in methods for methods in declared.values()), (
+		"PUT is accepted somewhere now, so it is no longer a method that only ever refuses"
+	)
+
+	quiet = []
+
+	for path, methods in sorted(shared.items()):
+		answered = world.call("PUT", _stood_in(path))
+		allowed = answered.headers.get("Allow", "")
+
+		if answered.status_code != 405 or any(method not in allowed for method in methods):
+			quiet.append(f"{path} answered {answered.status_code} with Allow: {allowed!r}")
+
+	assert not quiet, (
+		"These paths accept more methods than their refusal named: " + ", ".join(quiet)
+	)
+
+
+def test_head_answers_wherever_get_does (world: test_api_tasks.World) -> None:
+	"""FastAPI's ``APIRoute`` does not pair ``HEAD`` with ``GET`` and Starlette's own does.
+
+	So ``/v1/openapi.json``, which FastAPI registers itself, answered ``HEAD`` and everything
+	this application declares answered 405 — including ``/healthz``, where the caller is a
+	load balancer whose default check is ``HEAD``, reporting an instance that is serving
+	perfectly well as down.
+
+	Compared against ``GET`` at the same address rather than against 200, because most of
+	these are driven with a stand-in segment and answer 404 or 422. What is being asserted is
+	that the two agree.
+	"""
+
+	addresses = sorted(path for path, methods in _by_path().items() if "GET" in methods)
+
+	assert len(addresses) >= 25, f"only {len(addresses)} paths answer GET, so this reads little"
+
+	disagreed = []
+
+	for path in addresses:
+		address = _stood_in(path)
+		by_get = world.call("GET", address)
+		by_head = world.call("HEAD", address)
+
+		if by_head.status_code != by_get.status_code:
+			disagreed.append(f"{path}: GET {by_get.status_code}, HEAD {by_head.status_code}")
+
+	assert not disagreed, (
+		"These paths answer GET and refuse HEAD: " + ", ".join(disagreed)
+	)
+
+
+def test_head_where_nothing_answers_get_is_refused_as_head (
+	world: test_api_tasks.World,
+) -> None:
+	"""The other half: a write-only path refuses, and refuses the method that was sent.
+
+	``HEAD`` is answered by rewriting it to ``GET`` before routing, which is what keeps the
+	published contract from growing a ``head`` operation on every path — so the rewrite is
+	done only where a ``GET`` really exists, rather than turning every ``HEAD`` into a
+	request nobody made.
+
+	**Only what a caller can read is asserted here**, which is the status and the header: a
+	response to ``HEAD`` carries no body, so the detail naming the method is unreachable over
+	HTTP by construction. That the request is left as ``HEAD`` rather than rewritten to a
+	``GET`` nobody sent is a decision nothing outside can observe, so it is driven directly
+	in :func:`test_a_head_where_no_get_exists_reaches_the_route_unchanged`.
+	"""
+
+	answered = world.call("HEAD", "/v1/tasks/1/claim")
+
+	assert answered.status_code == 405
+	assert answered.headers.get("Allow") == "POST"
+
+
+def _asked (application: fastapi.FastAPI, method: str, path: str) -> str:
+	"""Run the HEAD middleware over one request and return the method routing would see."""
+
+	seen: list[str] = []
+
+	async def onwards (request: starlette.requests.Request) -> starlette.responses.Response:
+		"""Stand in for the rest of the application, recording what it was asked."""
+
+		seen.append(str(request.scope["method"]))
+
+		return starlette.responses.Response(status_code=204)
+
+	request = starlette.requests.Request(
+		{
+			"type": "http",
+			"method": method,
+			"path": path,
+			"raw_path": path.encode(),
+			"query_string": b"",
+			"headers": [],
+			"scheme": "http",
+			"server": ("testserver", 80),
+			"app": application,
+		}
+	)
+
+	asyncio.run(subroutine.api.middleware.answer_head_with_get(request, onwards))
+
+	return seen[0]
+
+
+def test_a_head_where_a_get_exists_reaches_the_route_as_a_get (
+	world: test_api_tasks.World,
+) -> None:
+	"""Which is what makes the ``GET`` handler answer at all — FastAPI pairs neither method."""
+
+	assert _asked(world.application, "HEAD", "/v1/tasks") == "GET"
+	assert _asked(world.application, "GET", "/v1/tasks") == "GET", "and nothing else moves"
+
+
+def test_a_head_where_no_get_exists_reaches_the_route_unchanged (
+	world: test_api_tasks.World,
+) -> None:
+	"""A request nobody made is not a better answer than a refusal.
+
+	Rewriting every ``HEAD`` would be shorter and would produce the same 405 here, so nothing
+	a caller reads can tell the two apart — the difference is what this application recorded
+	about the request, which is what reaches its own log. Driven directly for that reason:
+	a decision no response can show is still a decision, and one nothing exercises is one
+	somebody deletes as dead weight.
+	"""
+
+	assert _asked(world.application, "HEAD", "/v1/tasks/1/claim") == "HEAD"
 
 
 def test_an_excused_route_still_answers (world: test_api_tasks.World) -> None:

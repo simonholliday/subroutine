@@ -353,7 +353,19 @@ upgrade involves.
 
 ### Fixed
 
-- **`expected_version` now refuses a change that is overtaken while it is being written.** It
+- **`Retry-After` no longer sends you back too early.** A caller refused with a `429` was told
+  how long to wait, rounded *down* — so waiting the 8 seconds it asked for when it needed 8.6
+  earned a second refusal. It is rounded up now, and still never less than a second.
+
+- **A `405` names every method the path takes.** `PUT /v1/tasks` answered `Allow: POST` and
+  "This path accepts POST", with no mention of the `GET` beside it — twenty paths here accept
+  more than one method, and each of them named one. If you are mapping this API from its own
+  refusals, they are worth re-reading.
+
+- **`HEAD` works wherever `GET` does**, which for most people means `HEAD /healthz`: a load
+  balancer using the commonest default check there is was told `405 Method Not Allowed` and
+  reported a perfectly healthy instance as down. A path that accepts no `GET` still refuses,
+  and says what it does accept.
   refused one that was already stale, which is the common case and still works — but it
   compared the number against the row as read *in that request*, and nothing stopped two
   requests reading the same number. Both passed the check, both wrote, and one person's edit

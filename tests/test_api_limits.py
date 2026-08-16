@@ -58,6 +58,44 @@ def test_a_credential_going_too_fast_is_slowed_down (
 	assert int(refused.headers["Retry-After"]) >= 1
 
 
+def test_a_caller_that_waits_exactly_as_long_as_it_was_told_is_served (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The header is an instruction, and obeying it has to be enough.
+
+	``Retry-After`` was computed as a float and then truncated by three separate ``int()``
+	calls, so a caller needing 8.6 seconds was told 8 — came back on time, and was refused a
+	second time. That is the exact failure the one-second floor was added to prevent, arriving
+	through the other end of the same number, under a docstring saying the value was rounded
+	up.
+
+	Seven a minute, because 60/7 is not a whole number of seconds: a rate that divides evenly
+	makes truncation and rounding agree, which is a fixture that cannot tell them apart. The
+	clock is injected so this asserts the arithmetic rather than sleeping through it.
+	"""
+
+	world = test_api_tasks._world(session)
+	_limited(world, rate_limit_per_minute=7)
+
+	now = [0.0]
+	world.application.state.limits.requests = subroutine.api.limits.Limiter(
+		per_minute=7, clock=lambda: now[0]
+	)
+
+	for _ in range(7):
+		assert world.call("GET", "/v1/tasks").status_code == 200
+
+	refused = world.call("GET", "/v1/tasks")
+
+	assert refused.status_code == 429
+
+	now[0] += int(refused.headers["Retry-After"])
+
+	assert world.call("GET", "/v1/tasks").status_code == 200, (
+		"a caller that waited as long as it was told is served, not refused again"
+	)
+
+
 def test_two_credentials_are_counted_separately (session: sqlalchemy.orm.Session) -> None:
 	"""Per *token*, so one runaway client cannot spend everybody's allowance.
 

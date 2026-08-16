@@ -21,6 +21,7 @@ import starlette.requests
 import starlette.responses
 
 import subroutine.api.middleware
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.domain.versions
 import subroutine.errors
@@ -87,7 +88,7 @@ def respond (
 	waiting = error.extensions.get("retry_after")
 
 	if error.status == 429 and waiting is not None and "retry-after" not in response.headers:
-		response.headers["Retry-After"] = str(int(waiting))
+		response.headers["Retry-After"] = str(waiting)
 
 	subroutine.api.middleware.apply_headers(request, response)
 
@@ -116,6 +117,7 @@ def handle_http_exception (
 
 	detail = str(exception.detail) if exception.detail else definition.title
 	hint = None
+	headers = dict(exception.headers or {})
 
 	if exception.status_code == 404:
 		# The default detail is the single word "Not Found", which tells a caller nothing
@@ -124,13 +126,37 @@ def handle_http_exception (
 		hint = "See /v1/openapi.json for the paths this instance serves."
 
 	elif exception.status_code == 405:
-		allowed = (exception.headers or {}).get("Allow")
+		allowed = _accepted_at(request) or headers.get("Allow")
 		detail = f"{request.method} is not accepted at {request.url.path}."
 		hint = None if allowed is None else f"This path accepts {allowed}."
 
+		if allowed is not None:
+			headers["Allow"] = allowed
+
 	error = _rebuild(definition.status, code, detail, hint=hint)
 
-	return respond(request, error, headers=exception.headers)
+	return respond(request, error, headers=headers)
+
+
+def _accepted_at (request: starlette.requests.Request) -> str | None:
+	"""Return every method this instance accepts at the requested path, as an ``Allow`` value.
+
+	Starlette answers a 405 out of the first route whose *path* matched, and FastAPI registers
+	one route per method — so ``PUT /v1/tasks`` was told ``Allow: POST`` and "This path accepts
+	POST", with the ``GET`` beside it unmentioned. RFC 9110 requires the header to list what the
+	path accepts, and a caller mapping the surface from its refusals is exactly who reads it.
+
+	``None`` where the application was assembled without the map — a test building one by hand —
+	so the framework's own answer is used rather than none at all. A missing header must never be
+	the reason a request fails.
+	"""
+
+	declared = getattr(request.app.state, "declared_routes", None)
+
+	if declared is None:
+		return None
+
+	return ", ".join(sorted(subroutine.api.routing.accepted(declared, request.url.path))) or None
 
 
 def handle_validation_error (

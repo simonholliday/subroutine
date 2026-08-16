@@ -14,6 +14,7 @@ import starlette.responses
 import uuid6
 
 import subroutine
+import subroutine.api.routing
 
 REQUEST_ID_HEADER = "X-Request-Id"
 API_VERSION_HEADER = "X-Subroutine-Api-Version"
@@ -83,6 +84,42 @@ def apply_headers (
 
 	for name, value in getattr(request.app.state, "policy_headers", {}).items():
 		response.headers[name] = value
+
+
+async def answer_head_with_get (
+	request: starlette.requests.Request,
+	call_next: typing.Callable[
+		[starlette.requests.Request], typing.Awaitable[starlette.responses.Response]
+	],
+) -> starlette.responses.Response:
+	"""Let ``HEAD`` reach the ``GET`` at the same path.
+
+	FastAPI's ``APIRoute`` does not pair the two, where Starlette's own ``Route`` does — so
+	``/v1/openapi.json``, which FastAPI registers itself, answered ``HEAD`` and every route in
+	this application answered 405. RFC 9110 requires a general-purpose server to support both,
+	and the caller who meets it first is a load balancer: ``HEAD /healthz`` is the commonest
+	default there is, and an instance serving perfectly well is reported as down.
+
+	**Here rather than as ``methods=["GET", "HEAD"]`` on sixty decorators.** A list is a list of
+	the routes somebody thought of, and FastAPI documents every method a route declares — so
+	that spelling would also put a ``head`` operation on every path in ``/v1/openapi.json``,
+	doubling the published contract to say something no reader needs told.
+
+	Rewritten only where a ``GET`` really exists, so a ``HEAD`` at a write-only path is still
+	refused as ``HEAD`` rather than as a ``GET`` nobody sent. The body the handler produces is
+	discarded by the server, measured against uvicorn rather than assumed: a ``HEAD`` is
+	answered with the headers and ``Content-Length`` of the ``GET`` and none of its bytes.
+	"""
+
+	if request.scope["method"] == "HEAD":
+		declared = getattr(request.app.state, "declared_routes", None)
+
+		if declared is not None and "GET" in subroutine.api.routing.accepted(
+			declared, request.url.path
+		):
+			request.scope["method"] = "GET"
+
+	return await call_next(request)
 
 
 async def correlate (

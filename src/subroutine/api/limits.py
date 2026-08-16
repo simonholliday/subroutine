@@ -36,6 +36,7 @@ limitation, on an instance where it was already closed.
 
 import dataclasses
 import logging
+import math
 import threading
 import time
 import typing
@@ -84,11 +85,18 @@ class Limiter:
 		# makes the limit approximately rather than actually a limit.
 		self._lock = threading.Lock()
 
-	def take (self, key: str) -> float | None:
+	def take (self, key: str) -> int | None:
 		"""Spend one request against ``key``, or return how long until one is free.
 
-		``None`` means it was allowed. A number is the ``Retry-After`` value, in seconds and
-		rounded up — a caller told to wait 0 seconds retries immediately and is refused again.
+		``None`` means it was allowed. A number is the ``Retry-After`` value: whole seconds,
+		**rounded up**, never below one.
+
+		Rounded here rather than where the header is written, because the rule has to survive
+		every reader — it did not. This returned a float saying "wait 1.7 seconds" and three
+		separate ``int()`` calls turned that into "wait 1", so a caller obeying the header
+		came back too early and was refused a second time. That is the exact failure the
+		floor of one second was added to prevent, arriving through the other end of the same
+		number.
 		"""
 
 		if self.per_minute <= 0:
@@ -130,7 +138,7 @@ class Limiter:
 			# next request, not to be restored to a fresh allowance.
 			needed = (1.0 - bucket.tokens) * 60.0 / self.per_minute
 
-			return max(1.0, needed)
+			return max(1, math.ceil(needed))
 
 	def _sweep (self, now: float) -> None:
 		"""Drop every key whose allowance has fully refilled. Called with the lock held."""
@@ -204,8 +212,8 @@ class Limits:
 
 		raise subroutine.errors.RateLimited(
 			"This credential is making requests faster than this instance serves them.",
-			hint=f"Wait {int(waiting)} seconds and try again.",
-			extensions={"retry_after": int(waiting)},
+			hint=f"Wait {waiting} seconds and try again.",
+			extensions={"retry_after": waiting},
 		)
 
 	def count_a_failure (self, request: starlette.requests.Request) -> None:
@@ -235,8 +243,8 @@ class Limits:
 
 		raise subroutine.errors.RateLimited(
 			"Too many credentials that did not work.",
-			hint=f"Wait {int(waiting)} seconds and try again.",
-			extensions={"retry_after": int(waiting)},
+			hint=f"Wait {waiting} seconds and try again.",
+			extensions={"retry_after": waiting},
 		)
 
 

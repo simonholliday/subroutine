@@ -120,6 +120,28 @@ def declarations (routers: typing.Sequence[Mounting]) -> list[Declaration]:
 	return [(path, methods) for path, methods, _route in mounted(routers)]
 
 
+def accepted (routes: typing.Sequence[Declaration], path: str) -> frozenset[str]:
+	"""Return every method this application accepts at ``path``.
+
+	**Every route, not the first one that matched**, and that is the whole point. FastAPI
+	registers one route per method, and Starlette answers a 405 out of whichever route it
+	partially matched first — so ``PUT /v1/tasks`` was told ``Allow: POST``, with no mention
+	of the ``GET`` registered beside it. A caller discovering the surface from its refusals
+	learns something false, which is worse than learning nothing.
+
+	Empty means no route claims the path at all, which is a 404 rather than a 405 and is not
+	this function's question.
+	"""
+
+	found: set[str] = set()
+
+	for declared, methods in routes:
+		if subroutine.addressing.matches(declared, path):
+			found |= methods
+
+	return frozenset(found)
+
+
 def shadowed (routes: typing.Sequence[Declaration]) -> list[str]:
 	"""Return a description of every route an earlier one would swallow.
 
