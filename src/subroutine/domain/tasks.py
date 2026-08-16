@@ -174,6 +174,34 @@ def _repeat (
 	"""
 
 	if rule is None:
+		# **Refused rather than dropped** (`#918`). Both of these qualify a rule and neither
+		# means anything without one, so a caller who sent an anchor and no rule has said
+		# something this cannot act on. It answered 201 and stored nothing until now, which is
+		# `#379`'s swallowed argument in a second place: the caller is told it worked, and the
+		# only evidence otherwise is a field that reads back null.
+		named = [
+			field
+			for field, value in (
+				("recurrence_anchor", anchor), ("recurrence_trigger", trigger)
+			)
+			if value is not None
+		]
+
+		if named:
+			raise subroutine.errors.ValidationError(
+				"That describes a repeat, and nothing here repeats.",
+				code="invalid_field_value",
+				hint="Send 'recurrence' as well — it is the rule these two qualify.",
+				errors=[
+					subroutine.errors.FieldError(
+						field=field,
+						code="invalid_field_value",
+						message="This qualifies 'recurrence', which was not given.",
+					)
+					for field in named
+				],
+			)
+
 		return None
 
 	read = subroutine.domain.recurrence.rule(rule)
@@ -1236,7 +1264,14 @@ def update (
 	# *series* rather than on this row: `changes_between` compares the task with itself and
 	# sees nothing, so anything after that return is unreachable for a caller who changed
 	# only how something repeats — which is every caller who came to change only that.
-	if recurrence is not subroutine.domain.patch.UNSET:
+	# **Any of the three, not the rule alone** (`#918`). The two qualifiers were readable only
+	# once the rule had been named, so *change how this is measured, keep the rule* reached
+	# nothing at all — and answered as though it had.
+	if (
+		recurrence is not subroutine.domain.patch.UNSET
+		or recurrence_anchor is not subroutine.domain.patch.UNSET
+		or recurrence_trigger is not subroutine.domain.patch.UNSET
+	):
 		_repeat_changed(
 			session,
 			task,
@@ -1697,12 +1732,45 @@ def _repeat_changed (
 	is addressed to the series — and the alternative, applying it to one occurrence, would be
 	a rule on a row that mints nothing and is silently forgotten the moment it is completed.
 
-	``None`` stops the series rather than clearing a column; :func:`stop_repeating` carries
-	why.
+	``rule`` carries three answers, not two. ``UNSET`` is *leave the rule alone and change
+	what qualifies it*, ``None`` stops the series, and a string replaces the rule.
+	:func:`stop_repeating` carries why stopping is not clearing a column.
 	"""
 
+	series = series_of(session, task)
+
+	# **Changing how an existing repeat is measured, without re-sending the rule** (`#918`).
+	# The anchor and the trigger used to be readable only inside the rule's own branch, so
+	# naming either alone reached nothing, moved no version and answered *Changed* — the
+	# capability was unreachable from every surface and every surface reported success.
+	if rule is subroutine.domain.patch.UNSET:
+		if series is None:
+			raise subroutine.errors.ValidationError(
+				"That describes a repeat, and this does not repeat.",
+				code="invalid_field_value",
+				hint="Send 'recurrence' as well, which is the rule these two qualify.",
+				errors=[
+					subroutine.errors.FieldError(
+						field=field,
+						code="invalid_field_value",
+						message="This qualifies 'recurrence', which this task does not have.",
+					)
+					for field, value in (
+						("recurrence_anchor", anchor), ("recurrence_trigger", trigger)
+					)
+					if value is not None
+				],
+			)
+
+		# The rule the series already carries, so the two qualifiers are re-checked against it
+		# — `_repeat` is what refuses a `time` trigger and the pair that cannot mean anything,
+		# and routing round it here would be a second opinion about the same combination.
+		rule = series.recurrence_rule
+		anchor = anchor or series.recurrence_anchor
+		trigger = trigger or series.recurrence_trigger
+
 	if rule is None:
-		if series_of(session, task) is not None:
+		if series is not None:
 			stop_repeating(session, task, now=now, actor=actor)
 
 		return
@@ -1711,8 +1779,6 @@ def _repeat_changed (
 
 	if repeat is None:
 		return
-
-	series = series_of(session, task)
 
 	if series is None:
 		begin_repeating(session, task, repeat, now=now, actor=actor)

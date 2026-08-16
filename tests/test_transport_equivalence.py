@@ -1262,6 +1262,48 @@ def test_both_skip_an_occurrence_the_same_way (pair: Pair) -> None:
 		assert "repeating series" in str(refused.value)
 
 
+def test_both_change_how_a_repeat_is_measured_without_re_sending_the_rule (
+	pair: Pair,
+) -> None:
+	"""`#918`, driven over both transports because it is a whole-wire claim.
+
+	The domain tests prove the rule; this proves the value survives the journey. Every one of
+	this arc's three silent-discard defects was a field that a signature accepted and a body
+	dropped somewhere between the client and the column, so the check that matters is *send
+	it, read it back, and see that it moved*.
+	"""
+
+	first = pair.local.capture(
+		text="Water the plants by 2026-12-01", recurrence="every 3 days"
+	).task
+	second = pair.local.capture(
+		text="And these ones by 2026-12-01", recurrence="every 3 days"
+	).task
+
+	local, remote = pair.both()
+
+	assert first.recurrence_anchor == "schedule", "the default these move off"
+
+	by_local = local.update(ref=first.ref, recurrence_anchor="completion")
+	by_remote = remote.update(ref=second.ref, recurrence_anchor="completion")
+
+	assert by_local.recurrence_anchor == by_remote.recurrence_anchor == "completion"
+
+	# **And the rule it qualifies is untouched on both**, which is what a caller was
+	# previously forced to re-send in order to change the field beside it.
+	assert by_local.recurrence_rule == by_remote.recurrence_rule == "FREQ=DAILY;INTERVAL=3"
+
+	# Refused identically where there is no repeat to qualify, for the reason the skip test
+	# above gives: a message that differs by transport is a client learning two products.
+	plain = make(pair, "This one happens once")
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.update(ref=plain.ref, recurrence_anchor="completion")
+
+		assert "does not repeat" in str(refused.value)
+
+
 def test_both_schedule_a_task_the_same_way (pair: Pair) -> None:
 	"""And both tell an omitted field from a null one (§8.3)."""
 

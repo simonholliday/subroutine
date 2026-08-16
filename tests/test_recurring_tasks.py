@@ -23,6 +23,7 @@ import subroutine.domain.authentication
 import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.errors
+import subroutine.views
 import test_schedule
 
 LONDON = test_schedule.LONDON
@@ -474,3 +475,95 @@ def test_stopping_something_that_does_not_repeat_is_refused_by_name (
 		subroutine.domain.tasks.stop_repeating(session, plain, now=NOW)
 
 	assert "not part of a repeating series" in str(refused.value)
+
+
+def test_how_a_repeat_is_measured_can_be_changed_without_re_sending_the_rule (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#918`. **The capability was unreachable and every surface reported success.**
+
+	``recurrence_anchor`` and ``recurrence_trigger`` were readable only inside the rule's own
+	branch of ``update``, so naming either alone reached nothing, moved no version and
+	answered *Changed*. A caller had to re-send a rule they were not changing in order to
+	change the thing beside it.
+
+	The anchor is the field that decides what the *next* date will be, so getting it wrong is
+	not cosmetic: on a schedule anchor this comes back every third day whatever you do, and on
+	a completion anchor three days after you last finished.
+	"""
+
+	first = _repeating(session, recurrence="every 3 days")
+	template = _template(session, first)
+
+	assert template.recurrence_anchor == "schedule", "the default this test moves off"
+
+	subroutine.domain.tasks.update(session, first, recurrence_anchor="completion", now=NOW)
+
+	session.refresh(template)
+
+	assert template.recurrence_anchor == "completion"
+
+	# **And the rule it qualifies is untouched**, which is the half a caller was previously
+	# forced to re-send — and therefore the half most likely to be sent back slightly wrong.
+	assert template.recurrence_rule == "FREQ=DAILY;INTERVAL=3"
+
+
+def test_naming_only_a_qualifier_on_something_that_does_not_repeat_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#918`, the other half — and the two want opposite answers.
+
+	An anchor with a series behind it means *measure it differently*; an anchor with nothing
+	behind it describes a repeat that does not exist, so there is nothing to apply it to.
+	Accepting it stored nothing and said so nowhere, which is `#379`'s swallowed argument.
+	"""
+
+	plain = test_schedule._task(session, title="One-off", now=NOW)
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(session, plain, recurrence_anchor="completion", now=NOW)
+
+	# **Names the field**, per review dimension 4: a caller told only "invalid" has to guess
+	# which of the three it sent is the problem.
+	assert "recurrence_anchor" in str(refused.value.errors)
+
+
+def test_a_qualifier_at_creation_with_no_rule_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#918`. ``create`` had the mirror of ``update``'s hole and lost the value just as quietly.
+
+	``_repeat`` returned ``None`` the moment the rule was ``None``, before it read either
+	qualifier — so a task was filed, 201 was answered, and the anchor was gone.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		_repeating(session, title="No rule at all", recurrence_anchor="completion")
+
+	assert "recurrence_anchor" in str(refused.value.errors)
+
+
+def test_an_occurrence_reports_how_it_is_measured_and_not_only_how_often (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#918`'s read half, and the reason one field falling back is worse than none.
+
+	``recurrence_rule`` resolved through to the template and its two qualifiers did not, so an
+	occurrence answered *every three days* with ``recurrence_anchor: null`` — which reads as
+	*not set* rather than as *not carried on this row*. A caller who had just changed the
+	anchor could not read back what they had set.
+	"""
+
+	first = _repeating(session, recurrence="every 3 days", recurrence_anchor="completion")
+
+	shown = subroutine.views.task(
+		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+	)
+
+	assert shown.recurrence_rule == "FREQ=DAILY;INTERVAL=3"
+	assert shown.recurrence_anchor == "completion"
+	assert shown.recurrence_trigger == "completion"
+
+	# The words somebody typed travel with it too — read back from the template, so a form
+	# reopening this shows the phrase rather than the rule it compiled to.
+	assert shown.recurrence_text == "every 3 days"

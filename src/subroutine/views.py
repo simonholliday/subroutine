@@ -375,10 +375,15 @@ class Task(pydantic.BaseModel):
 	#: `#345` and `#482`: a client one release behind must not be refused outright for fields
 	#: it has never heard of.
 	#:
-	#: The rule and its qualifiers sit on the **template**; ``occurrence_at`` and
-	#: ``recurrence_template_ref`` sit on an **instance**. Reading which is which is what
-	#: ``is_template`` answers, and it is the only thing that explains why a row with a ref
-	#: appears in no listing.
+	#: The rule and its qualifiers are *stored* on the **template** and **reported on both**,
+	#: so an occurrence can say how it repeats without a second call; ``occurrence_at`` and
+	#: ``recurrence_template_ref`` belong to an **instance** alone. Reading which is which is
+	#: what ``is_template`` answers, and it is the only thing that explains why a row with a
+	#: ref appears in no listing.
+	#:
+	#: **Write them on whichever end is in hand.** A repeat addressed to an occurrence is
+	#: addressed to its series (§6.7), because the template is in no listing and nobody
+	#: navigates to one — so the field a client reads here is the field it sends back.
 	recurrence_rule: str | None = None
 	recurrence_text: str | None = None
 	recurrence_anchor: str | None = None
@@ -1419,11 +1424,24 @@ class Vocabulary:
 			session,
 			subroutine.db.models.work.Task,
 			parent_ids,
-			# **`recurrence_rule` rides along** (`#94`), because an instance is the row a
-			# person sees and it does not carry the rule — so without this "Water the plants"
+			# **The whole repeat rides along** (`#94`, `#918`), because an instance is the row
+			# a person sees and it carries none of this — so without it "Water the plants"
 			# reads as an ordinary task and nothing on any surface says it comes back. The
-			# rows are already being fetched; this asks them for one more column.
-			("ref", "title", "recurrence_rule"),
+			# rows are already being fetched; this asks them for more columns.
+			#
+			# **All four, not the rule alone**, which is `#918`'s read half: the rule fell
+			# back and its two qualifiers did not, so an occurrence reported *every three
+			# days* and said nothing about whether that counts from the schedule or from the
+			# last time somebody finished — half a fact, and the half that decides what the
+			# next date will be.
+			(
+				"ref",
+				"title",
+				"recurrence_rule",
+				"recurrence_text",
+				"recurrence_anchor",
+				"recurrence_trigger",
+			),
 		)
 
 		# **One query for every assignee on the page** (`#511`), for the reason the parents load
@@ -1552,14 +1570,25 @@ def task (
 		starts_is_all_day=row.starts_is_all_day,
 		snoozed_until=row.snoozed_until,
 		snoozed_is_all_day=row.snoozed_is_all_day,
-		# **Falls back to the template's**, so an occurrence can say how it repeats. The rule
-		# lives on the template and the instance is what anybody looks at; a view reporting
-		# only what the row itself holds would make every occurrence read as a one-off.
+		# **All four fall back to the template's**, so an occurrence can say how it repeats.
+		# They live on the template and the instance is what anybody looks at; a view
+		# reporting only what the row itself holds would make every occurrence read as a
+		# one-off.
+		#
+		# **The rule alone fell back until `#918`**, which is that item's read half: an
+		# occurrence answered *every three days* and left `recurrence_anchor` null, so
+		# nothing said whether the next one is measured from the schedule or from the last
+		# completion — and a caller who had just changed it could not read back what they
+		# set. One of three qualifying fields resolving is worse than none, because the two
+		# that stay null read as *not set* rather than as *not carried here*.
 		recurrence_rule=row.recurrence_rule
 		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_rule"),
-		recurrence_text=row.recurrence_text,
-		recurrence_anchor=row.recurrence_anchor,
-		recurrence_trigger=row.recurrence_trigger,
+		recurrence_text=row.recurrence_text
+		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_text"),
+		recurrence_anchor=row.recurrence_anchor
+		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_anchor"),
+		recurrence_trigger=row.recurrence_trigger
+		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_trigger"),
 		occurrence_at=row.occurrence_at,
 		recurrence_template_ref=_parent_field(
 			vocabulary, row.recurrence_template_id, "ref"
