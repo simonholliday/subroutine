@@ -165,18 +165,40 @@ export function target (raw) {
 	const stripped = trimmed.replace(/[\u0000-\u0020]/g, "");
 
 	/*
+		**A backslash is a slash here, because a browser treats it as one** (`#927` H-16).
+
+		Control-stripping takes off the C0 range; a backslash is `0x5C` and survives it. So
+		`/\evil.example/x` began with `/`, did not begin with `//`, and was returned as a path
+		on this instance — while the WHATWG URL parser, resolving it against a page whose scheme
+		is special, treats `\` exactly as `/` in the relative-slash state and lands on
+		`https://evil.example/x`. Measured in Node, which implements that parser: `/\`, `\\` and
+		`\/` all resolve off-origin, and the first two took *opposite* branches below, so
+		neither was caught by the protocol-relative refusal.
+
+		Anyone who can write a comment can plant one, and it reads to the eye as an internal
+		path. Normalising the value the decision is made on, rather than adding a second
+		refusal, is what makes those two branches agree — both spellings reduce to `//` — and
+		it keeps `#682`'s rule that every test here reads one value.
+
+		A single leading backslash stays allowed, deliberately: `\evil.example/x` resolves to a
+		path on *this* instance, so refusing it would be refusing an ordinary destination for
+		how it looks.
+	*/
+	const slashes = stripped.replace(/\\/g, "/");
+
+	/*
 		A fragment or a query is this page; a single leading slash is this instance. `//` is
 		refused deliberately: it is protocol-relative and points at another host entirely,
 		which reads like a path and is not one.
 	*/
-	if (stripped.startsWith("#") || stripped.startsWith("?")) return trimmed;
-	if (stripped.startsWith("/")) return stripped.startsWith("//") ? null : trimmed;
+	if (slashes.startsWith("#") || slashes.startsWith("?")) return trimmed;
+	if (slashes.startsWith("/")) return slashes.startsWith("//") ? null : trimmed;
 
 	/*
 		The scheme is read from that same value, never matched as a prefix — schemes are
 		case-insensitive too, so `JavaScript:` reduces to the same name before it is looked up.
 	*/
-	const scheme = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(stripped);
+	const scheme = /^([a-zA-Z][a-zA-Z0-9+.\-]*):/.exec(slashes);
 
 	if (scheme === null) return trimmed;
 

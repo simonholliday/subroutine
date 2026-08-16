@@ -1553,6 +1553,12 @@ HOSTILE = [
 	# test read the trimmed destination while the *scheme* test read the stripped one. Measured
 	# before the fix — it came back unchanged, and a browser resolves it to evil.example.
 	"[click](\u0001//evil.example/steal)",
+	# `#927` H-16: the same address written with backslashes, which a browser resolves
+	# identically and which took **both** branches of the slash test — `/\` began with `/` and
+	# not `//`, and `\\` began with neither, so no single refusal could have caught both.
+	"[click](/\\evil.example/steal)",
+	"[click](\\\\evil.example/steal)",
+	"[click](\\/evil.example/steal)",
 	"[click](data:text/html,<script>alert(1)</script>)",
 	"[click](vbscript:msgbox(1))",
 	'![x](https://evil.example/p.gif" onerror="alert(1))',
@@ -1718,7 +1724,12 @@ def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
 			# version of this loop that tested `href` directly could not see that, because the
 			# string does not *start* with `//`. It had exactly the defect it was guarding
 			# against: a check shaped around the same assumption as the code it checks.
-			bare = re.sub(r"[\x00-\x20]", "", href)
+			# **And a backslash is a slash to a browser** (`#927` H-16). This loop stripped
+			# controls and stopped there, so `/\evil.example` did not *start* with `//` here
+			# either — the guard carrying the same blind spot as the code, which is the very
+			# thing the paragraph above says it was rewritten to stop doing. Measured against
+			# the WHATWG parser: `/\`, `\\` and `\/` all resolve off-origin.
+			bare = re.sub(r"[\x00-\x20]", "", href).replace("\\", "/")
 			scheme = bare.split(":", 1)[0].lower() if ":" in bare else ""
 
 			assert scheme in ("", "http", "https", "mailto"), f"{source!r} linked to {href!r}"
@@ -1737,6 +1748,64 @@ def test_a_refused_link_shows_what_was_written (tmp_path: pathlib.Path) -> None:
 
 	assert "<a " not in rendered
 	assert "javascript:alert(1)" in rendered, "the destination stopped being visible"
+
+
+#: The ways of writing *another host* that a browser reads as one and the eye reads as a path.
+#:
+#: All three resolve to ``https://evil.example/steal`` against a page on this instance, measured
+#: with the WHATWG URL parser. They are here as a table rather than folded into ``HOSTILE``
+#: because the assertion is different in kind: ``HOSTILE`` proves nothing became *markup*, and
+#: this proves a destination was refused — a payload that silently stopped being parsed as a
+#: link at all would satisfy the first and say nothing about the second.
+AUTHORITY_RELATIVE = [
+	"//evil.example/steal",
+	"/\\evil.example/steal",
+	"\\\\evil.example/steal",
+	"\\/evil.example/steal",
+	"\u0001//evil.example/steal",
+	"\u0001/\\evil.example/steal",
+]
+
+
+@pytest.mark.parametrize("destination", AUTHORITY_RELATIVE)
+def test_a_destination_naming_another_host_is_refused (
+	tmp_path: pathlib.Path, destination: str
+) -> None:
+	"""`#927`'s H-16 — three spellings of another host were returned as this instance's path.
+
+	``target`` refused ``//`` and nothing else, and a backslash survives control-stripping. So
+	``/\\evil.example/x`` began with ``/``, did not begin with ``//``, and came back unchanged —
+	while a browser resolves it off-origin, because the URL parser treats ``\\`` as ``/`` in the
+	relative-slash state. Anyone who can write a comment could plant one that reads as internal.
+
+	**Both branches, which is why one refusal could not have closed it**: ``/\\`` took the
+	is-a-path branch and ``\\\\`` took neither, so they were wrong in two different places.
+
+	The parametrisation is over spellings rather than a loop inside one test, so a spelling that
+	starts getting through fails on its own name.
+	"""
+
+	[rendered] = _markdown(tmp_path, [f"[click]({destination})"])
+
+	assert "<a " not in rendered, f"{destination!r} was rendered as a link"
+
+	# And `#682`'s rule: the destination is still on the page, because a refusal that hid it
+	# would make a suspicious link invisible rather than obvious.
+	assert "evil.example" in rendered
+
+
+def test_an_ordinary_path_is_still_a_link (tmp_path: pathlib.Path) -> None:
+	"""The other half of H-16's fix, and the reason it is a normalisation rather than a ban.
+
+	A *single* leading backslash resolves to a path on this instance and nobody else's, so
+	refusing it would be refusing an ordinary destination for how it looks. Without this, the
+	cheap fix — reject anything containing a backslash — passes every test above.
+	"""
+
+	for destination in ("/ordinary/path", "\\ordinary/path", "#fragment", "?q=1"):
+		[rendered] = _markdown(tmp_path, [f"[click]({destination})"])
+
+		assert "<a " in rendered, f"{destination!r} stopped being a link"
 
 
 def test_an_external_link_cannot_reach_back (tmp_path: pathlib.Path) -> None:

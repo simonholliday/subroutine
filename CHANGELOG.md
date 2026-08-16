@@ -26,6 +26,17 @@ upgrade involves.
 
 ### Security
 
+- **A link in stored prose can no longer name another host by writing it with backslashes.**
+  The browser refused `//evil.example/x`, which reads like a path and is not one — but a
+  backslash is not a slash to that check and is one to a browser. `/\evil.example/x`,
+  `\\evil.example/x` and `\/evil.example/x` were all rendered as ordinary links to this
+  instance, and all three resolve to `https://evil.example/x` when clicked.
+
+  Anyone who can write a description or a comment could plant one, on somebody else's item,
+  and it reads to the eye as an internal path. A destination is now normalised before it is
+  judged, so the two spellings cannot disagree. A single leading backslash is still a link:
+  it resolves to a path on this instance and nobody else's.
+
 - **`serve --host` now configures the instance as well as the socket.** The flag reached
   uvicorn and stopped there, so an instance bound to `0.0.0.0` was still *built* as though it
   were on loopback. Two things read that and both fail open: the limiter that bounds credential
