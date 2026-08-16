@@ -175,7 +175,17 @@ def _over_http (
 		headers={
 			"Authorization": f"Bearer {resolved.token}",
 			"Content-Type": "application/json",
-			"Accept": "application/json",
+			# **Both, because the transport says a client must offer both** — a server is free
+			# to answer a stream, and one that does would find this client saying it could not
+			# read the only reply it is able to give. Ours answers JSON and always has; this
+			# is about what a *different* server is entitled to assume, which is the half a
+			# client written against one implementation never exercises.
+			"Accept": "application/json, text/event-stream",
+			# The version this session speaks, on every request after the handshake, as the
+			# transport requires. Sent unconditionally rather than after `initialize`: this
+			# forwarder speaks exactly one version, so there is nothing to negotiate and
+			# nothing that could make the header disagree with the session.
+			"MCP-Protocol-Version": subroutine.mcp.protocol.PROTOCOL_VERSION,
 			"User-Agent": f"subroutine/{subroutine.API_VERSION}",
 		},
 	)

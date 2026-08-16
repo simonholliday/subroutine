@@ -380,6 +380,16 @@ upgrade involves.
   over HTTP and a traceback at the terminal, from three ordinary commands. Both now refuse with
   what took the place and what to do about it.
 
+- **An agent can name the other end of a link the way this program prints it.** `subroutine_link`
+  published that its `other` argument took `#42` as well as `42`, and then refused the first —
+  with a message telling the caller to "pass the number in the listing", which is the value that
+  had just failed. Every other ref on that surface had always taken both.
+
+- **Reading one very large item no longer spends a whole context window.** `subroutine_show` had
+  no ceiling, so a 200 KB document came back in full — around fifty thousand tokens from a tool
+  an agent uses to *check* something. The body is trimmed now, and says where it was cut and
+  where to read the rest.
+
 - **A search containing a backslash no longer fails.** On an instance using the indexed
   search backend, `C:\Users` or `re:\d+` — a Windows path, a regular expression — came back as
   a 500. Where the text happened to survive, the search was quietly wrong: a stray `E` arrived

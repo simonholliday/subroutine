@@ -1559,6 +1559,123 @@ def test_an_item_can_still_be_named_the_way_this_program_prints_it (
 	assert "whole number or text" in text, text
 
 
+#: What to send beside a ref so the call gets as far as *reading* it. A tool that needs a body
+#: stops on the missing body, and one asked to change nothing says so without ever looking the
+#: item up — neither of which says anything about the argument under test. Sent whenever the
+#: tool declares the property, rather than only when it is required, for that reason.
+_BESIDE_A_REF: dict[str, typing.Any] = {
+	"body": "Recorded.",
+	"type": "relates_to",
+	"title": "Renamed",
+}
+
+#: A ref nothing answers to. Well-formed, so a tool that reads it gets as far as a lookup and
+#: refuses *by that number* — which is the observation this test is built on, because a tool
+#: that refused the spelling instead never sees the number at all.
+_NO_SUCH_REF = 999999
+
+
+def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``A_REF`` is used seven times and one argument was checked, which is how the eighth broke.
+
+	``subroutine_link.other`` published ``["integer", "string"]`` and then read the value with
+	``isinstance(other, int)`` — so the schema promised a spelling the tool refused, and the
+	refusal said *pass the number in the listing*, which every listing writes ``#2``: the value
+	that had just failed, handed back as the remedy. `A_REF`'s own comment describes exactly
+	this the other way up, as the thing publishing the union was meant to stop.
+
+	**Derived from the schemas rather than named**, because the test above it drove one
+	argument on one tool and was true. Every property this surface types as a ref is sent one
+	the way this program prints it, and an argument added tomorrow is asked without anybody
+	remembering.
+	"""
+
+	real = _added(bound, "Something to point at")
+
+	asked = 0
+	unread = []
+
+	for tool in bound.tools.values():
+		properties = tool.schema.get("properties", {})
+		refs = [
+			name
+			for name, declared in properties.items()
+			if declared.get("type") == subroutine.mcp.tools.A_REF
+		]
+
+		for under_test in refs:
+			arguments: dict[str, typing.Any] = {
+				name: value for name, value in _BESIDE_A_REF.items() if name in properties
+			}
+			arguments.update(dict.fromkeys(refs, real))
+			arguments[under_test] = f"#{_NO_SUCH_REF}"
+
+			for name in tool.schema.get("required", []):
+				assert name in arguments, (
+					f"{tool.name} requires {name!r} and this test has no value for it"
+				)
+
+			asked += 1
+			text, _failed = _called(bound, tool.name, **arguments)
+
+			if str(_NO_SUCH_REF) not in text:
+				unread.append(f"{tool.name}.{under_test} answered {text!r}")
+
+	assert asked >= 7, f"only {asked} ref arguments were found, so this reads almost nothing"
+	assert not unread, (
+		"These published a ref and did not read one written the way every listing prints it: "
+		+ "; ".join(unread)
+	)
+
+
+def test_reading_one_very_large_item_does_not_spend_the_whole_context (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""``subroutine_show`` was the one answer here with no ceiling on it.
+
+	A 200 KB document came back whole — about fifty thousand tokens, in one call, from the
+	tool an agent reaches for to *check* something before writing. ``subroutine_call_api``
+	refuses the same object at the same size and names three ways to narrow the request.
+
+	**Trimmed rather than refused**, which is the difference between the two: that one answers
+	in JSON, where a truncation is unparseable and still looks like a result, and this one
+	answers in prose, where a cut that says so is legible. What is asserted is that the answer
+	shrank, that it says it was cut, and that the *end* of it survived — the links and the
+	record are written last and are what a caller most often came for.
+	"""
+
+	answered, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Enormous",
+		body="paragraph. " * 20_000,
+	)
+
+	assert not failed, answered
+
+	ref = int(answered.split()[1].lstrip("#"))
+	text, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, text
+	assert len(text) <= subroutine.mcp.tools.MAX_ANSWER, f"{len(text)} characters came back"
+	assert "cut here" in text, "a reader has to be able to tell this is not the whole thing"
+	assert "Enormous" in text, "and the parts that are not the body survived"
+
+
+def test_an_ordinary_item_is_not_marked_as_cut (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The other half. A ceiling nothing reaches is one nobody would notice was wrong."""
+
+	ref = _added(bound, "Something short")
+	text, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed
+	assert "cut here" not in text
+
+
 def test_a_null_is_passed_over_rather_than_refused (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

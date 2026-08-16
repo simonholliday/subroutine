@@ -1729,9 +1729,11 @@ def _shown (
 	body = (
 		found.description if isinstance(found, subroutine.views.Task) else found.body
 	)
+	body_at = None
 
 	if body:
 		parts.append("")
+		body_at = len(parts)
 		parts.append(body)
 
 	# **Echoed because this tool accepts them** (`#819`). `#673`'s lesson is quoted in `_line`
@@ -1770,6 +1772,47 @@ def _shown (
 		parts.extend(
 			f"{remark.created_at.date().isoformat()}  {remark.body}" for remark in remarks
 		)
+
+	return _within_budget(parts, body_at=body_at, ref=ref, kind=kind)
+
+
+def _within_budget (
+	parts: list[str], *, body_at: int | None, ref: int, kind: str
+) -> str:
+	"""Return this item's answer, trimming its body if the whole is more than it is worth.
+
+	**Uncapped until now, where every other answer on this surface has been.** A 200 KB
+	document came back whole — around fifty thousand tokens, in one call, from a tool an agent
+	reaches for to *check* something. ``subroutine_call_api`` refuses the same object at 64 KB
+	and names three ways to ask more narrowly.
+
+	**Trimmed rather than refused, and that is the difference between the two.** ``call_api``
+	refuses because its answer is JSON and a truncated JSON document is unparseable while
+	still looking like a result — the caller cannot tell. This answer is prose written for a
+	reader, so a cut that says it is a cut is legible, and refusing outright would be refusing
+	to answer the question the tool exists for.
+
+	**The body is what gives way**, not the end of the answer, because the links, the record
+	and the tags are what a caller most often came for and they are written last. Where there
+	is no body to trim the answer is left whole: everything else here is bounded by how many
+	links and comments somebody wrote, and cutting those without saying which is worse than
+	being long.
+	"""
+
+	answer = "\n".join(parts)
+
+	if len(answer) <= MAX_ANSWER or body_at is None:
+		return answer
+
+	body = parts[body_at]
+	where = "/v1/tasks" if kind == "task" else "/v1/documents"
+	note = (
+		f"\n\n[… cut here. This item is longer than the {MAX_ANSWER // 1024} KB this tool "
+		f"returns, so the rest of the body is not shown. Read it whole with 'subroutine show "
+		f"{ref}' at a terminal, or GET {where}/{ref} — neither is capped.]"
+	)
+	allowance = max(0, len(body) - (len(answer) - MAX_ANSWER) - len(note))
+	parts[body_at] = body[:allowance] + note
 
 	return "\n".join(parts)
 
@@ -2050,18 +2093,25 @@ def _completed (
 	)
 
 
-def _ref (arguments: dict[str, typing.Any]) -> int:
+def _ref (arguments: dict[str, typing.Any], *, field: str = "ref") -> int:
 	"""Return the ref an argument names, accepting ``42`` and ``"#42"`` alike.
 
 	A model reads ``#42`` everywhere this system writes an address, so it will send that back
 	sooner or later — and refusing it over a sigil would be refusing the caller its own
 	notation (§6.2).
+
+	**``field`` exists because ``subroutine_link.other`` was the one ref this did not read.**
+	It published ``A_REF`` — both spellings, because both work — and then checked
+	``isinstance(other, int)`` by hand, so the schema promised a string and the tool refused
+	one. The refusal said *pass the number in the listing*, and every listing writes that
+	number ``#2``: the value that had just failed, offered back as the remedy. `A_REF`'s own
+	comment describes the inverse of this as the thing it was added to stop.
 	"""
 
-	given = arguments.get("ref")
+	given = arguments.get(field)
 
 	if isinstance(given, bool) or given is None:
-		raise ValueError("Which item? Pass 'ref', the number in the listing.")
+		raise ValueError(f"Which item? Pass {field!r}, the number in the listing.")
 
 	found = subroutine.domain.refs.parse_ref(str(given))
 
@@ -2140,10 +2190,7 @@ def _linked (
 
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
-	other = arguments.get("other")
-
-	if not isinstance(other, int) or isinstance(other, bool):
-		raise ValueError("Which other item? Pass 'other', the number in the listing.")
+	other = _ref(arguments, field="other")
 
 	_, kind = _item(client, ref, workspace)
 

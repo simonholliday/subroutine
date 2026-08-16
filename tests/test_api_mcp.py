@@ -23,6 +23,7 @@ import json
 import os
 import typing
 
+import httpx
 import pytest
 import sqlalchemy.orm
 
@@ -915,3 +916,64 @@ def test_the_credential_write_does_not_hold_the_database_for_the_handler (
 
 	finally:
 		engine.dispose()
+
+
+def test_a_remote_session_reaches_the_endpoint_and_speaks_the_transport (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``_over_http`` is what every plugin with a URL and a token runs, and nothing drove it.
+
+	The local forwarder above is exercised by half this file; the remote one — the whole point
+	of the second plugin — was covered by nothing at all, which is how it came to be missing
+	two headers the transport requires of a client. ``Accept`` offered JSON alone, so a server
+	entitled to answer a stream would have found this client saying it could not read the only
+	reply it can give; and no request carried ``MCP-Protocol-Version``, which the transport
+	says a client must send on everything after the handshake.
+
+	Driven through the real ``httpx.Client`` against the real application, with only the
+	transport replaced — so the URL, the credential resolution, the headers and the error
+	translation are all the ones a served session uses.
+	"""
+
+	sent: list[httpx.Headers] = []
+
+	class Recording(httpx.BaseTransport):
+		"""The in-process bridge, keeping what the relay asked it to send."""
+
+		def __init__ (self) -> None:
+			"""Wrap the transport the rest of the suite drives applications through."""
+
+			self._inner = api_support.SyncTransport(world.application)
+
+		def handle_request (self, request: httpx.Request) -> httpx.Response:
+			"""Record the outgoing headers and answer from the application."""
+
+			sent.append(request.headers)
+
+			return self._inner.handle_request(request)
+
+	built = httpx.Client
+	monkeypatch.setattr(
+		httpx,
+		"Client",
+		lambda **kwargs: built(**{**kwargs, "transport": Recording()}),
+	)
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", world.secret)
+
+	connection = subroutine.connections.Connection(name="work", url=api_support.BASE_URL)
+	answered = subroutine.mcp.relay.answering(
+		connection,
+		subroutine.connections.Roster(connections=(connection,), default="work"),
+		subroutine.config.Settings(dev_mode=True),
+		workspace=None,
+	)('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
+
+	assert answered is not None, "the remote forwarder answered nothing at all"
+	assert answered["result"]["serverInfo"]["name"] == "subroutine"
+
+	assert sent, "no request reached the transport"
+	assert sent[0]["mcp-protocol-version"] == subroutine.mcp.protocol.PROTOCOL_VERSION
+	assert "application/json" in sent[0]["accept"]
+	assert "text/event-stream" in sent[0]["accept"], (
+		"a client must offer both, because a server is free to answer with a stream"
+	)
