@@ -63,6 +63,30 @@ depends_on: str | typing.Sequence[str] | None = None
 FALLBACK_TIMEZONE = 'UTC'
 
 
+#: The task columns this migration reads and writes, **carrying their real types**.
+#:
+#: A value bound through a bare ``sqlalchemy.text()`` has no type information, so the driver
+#: falls back to its own adapter — and on SQLite pysqlite renders a datetime as
+#: ``2026-03-10 00:00:00+00:00`` where :class:`subroutine.db.types.UtcDateTime` renders
+#: ``2026-03-10 00:00:00.000000``. Both read back as the same instant, so a migrated row looks
+#: right everywhere a person would check it. But SQLite compares a DATETIME as *text*, and
+#: ``+`` sorts before ``.``, so the migrated row falls outside the very range query its own
+#: column exists to answer: a planned day absorbed by this migration was invisible to the
+#: agenda while ``show`` displayed the correct date.
+#:
+#: Declared once and shared by both directions, so the read and the write cannot disagree
+#: about a column's type — which would silently change what a workspace id compares equal to.
+TASK = sqlalchemy.table(
+    'task',
+    sqlalchemy.column('id', subroutine.db.types.uuid_column()),
+    sqlalchemy.column('workspace_id', subroutine.db.types.uuid_column()),
+    sqlalchemy.column('timezone', sqlalchemy.String()),
+    sqlalchemy.column('planned_for', subroutine.db.types.CalendarDate()),
+    sqlalchemy.column('starts_at', subroutine.db.types.UtcDateTime()),
+    sqlalchemy.column('starts_is_all_day', sqlalchemy.Boolean()),
+)
+
+
 def _zone (named: str) -> datetime.tzinfo:
     """Return a named zone, falling back to UTC where this machine cannot name it.
 
@@ -78,7 +102,12 @@ def _zone (named: str) -> datetime.tzinfo:
 
 
 def _zones (connection: sqlalchemy.Connection) -> dict[typing.Any, str]:
-    """Return the timezone in force for each workspace, falling back to the instance's."""
+    """Return the timezone in force for each workspace, falling back to the instance's.
+
+    Keyed through the same UUID type :data:`TASK` reads its ``workspace_id`` with. A raw
+    ``text()`` select hands back a bare string on SQLite and a ``uuid.UUID`` on PostgreSQL,
+    so a key read one way and looked up the other misses on exactly one backend.
+    """
 
     instance = connection.execute(
         sqlalchemy.text('SELECT timezone FROM instance LIMIT 1')
@@ -86,8 +115,14 @@ def _zones (connection: sqlalchemy.Connection) -> dict[typing.Any, str]:
 
     default = instance or FALLBACK_TIMEZONE
 
+    workspaces = sqlalchemy.table(
+        'workspace',
+        sqlalchemy.column('id', subroutine.db.types.uuid_column()),
+        sqlalchemy.column('timezone', sqlalchemy.String()),
+    )
+
     rows = connection.execute(
-        sqlalchemy.text('SELECT id, timezone FROM workspace')
+        sqlalchemy.select(workspaces.c.id, workspaces.c.timezone)
     ).all()
 
     return {row[0]: row[1] or default for row in rows}
@@ -103,20 +138,15 @@ def _absorb_planned_days (connection: sqlalchemy.Connection) -> None:
     """
 
     planned = connection.execute(
-        sqlalchemy.text(
-            'SELECT id, workspace_id, timezone, planned_for FROM task '
-            'WHERE planned_for IS NOT NULL'
-        )
+        sqlalchemy.select(
+            TASK.c.id, TASK.c.workspace_id, TASK.c.timezone, TASK.c.planned_for
+        ).where(TASK.c.planned_for.is_not(None))
     ).all()
 
     if not planned:
         return
 
     workspaces = _zones(connection)
-
-    update = sqlalchemy.text(
-        'UPDATE task SET starts_at = :instant, starts_is_all_day = :all_day WHERE id = :id'
-    )
 
     for identifier, workspace_id, stored, day in planned:
         named = stored or workspaces.get(workspace_id) or FALLBACK_TIMEZONE
@@ -126,18 +156,12 @@ def _absorb_planned_days (connection: sqlalchemy.Connection) -> None:
         # never carried a zone at all.
         zone: datetime.tzinfo = _zone(named)
 
-        if isinstance(day, str):
-            day = datetime.date.fromisoformat(day)
-
         local = datetime.datetime.combine(day, datetime.time.min, tzinfo=zone)
 
         connection.execute(
-            update,
-            {
-                'instant': local.astimezone(datetime.UTC),
-                'all_day': True,
-                'id': identifier,
-            },
+            sqlalchemy.update(TASK)
+            .where(TASK.c.id == identifier)
+            .values(starts_at=local.astimezone(datetime.UTC), starts_is_all_day=True)
         )
 
 
@@ -149,10 +173,9 @@ def _restore_planned_days (connection: sqlalchemy.Connection) -> None:
     """
 
     starting = connection.execute(
-        sqlalchemy.text(
-            'SELECT id, workspace_id, timezone, starts_at FROM task '
-            'WHERE starts_at IS NOT NULL'
-        )
+        sqlalchemy.select(
+            TASK.c.id, TASK.c.workspace_id, TASK.c.timezone, TASK.c.starts_at
+        ).where(TASK.c.starts_at.is_not(None))
     ).all()
 
     if not starting:
@@ -160,21 +183,15 @@ def _restore_planned_days (connection: sqlalchemy.Connection) -> None:
 
     workspaces = _zones(connection)
 
-    update = sqlalchemy.text('UPDATE task SET planned_for = :day WHERE id = :id')
-
     for identifier, workspace_id, stored, instant in starting:
         named = stored or workspaces.get(workspace_id) or FALLBACK_TIMEZONE
 
         zone: datetime.tzinfo = _zone(named)
 
-        if isinstance(instant, str):
-            instant = datetime.datetime.fromisoformat(instant)
-
-        if instant.tzinfo is None:
-            instant = instant.replace(tzinfo=datetime.UTC)
-
         connection.execute(
-            update, {'day': instant.astimezone(zone).date(), 'id': identifier}
+            sqlalchemy.update(TASK)
+            .where(TASK.c.id == identifier)
+            .values(planned_for=instant.astimezone(zone).date())
         )
 
 

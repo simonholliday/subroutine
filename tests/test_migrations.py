@@ -304,6 +304,189 @@ def test_a_comment_event_written_before_subjects_gains_one (migrated_url: str) -
 		engine.dispose()
 
 
+#: The revision before ``start_at`` split into an appointment and a defer.
+_BEFORE_THE_DATE_SPLIT = "a3f9c21d7e40"
+
+
+#: The task table as it stood at :data:`_BEFORE_THE_DATE_SPLIT`, carrying its real types.
+#:
+#: The current models no longer describe ``planned_for`` or ``start_is_all_day``, so a seed
+#: written through ``Base.metadata`` cannot reach either. Typed rather than a ``text()``
+#: statement for the reason this test exists: an untyped bind is rendered by the driver
+#: rather than by the column.
+_TASK_BEFORE = sqlalchemy.table(
+	"task",
+	sqlalchemy.column("id", subroutine.db.types.uuid_column()),
+	sqlalchemy.column("workspace_id", subroutine.db.types.uuid_column()),
+	sqlalchemy.column("project_id", subroutine.db.types.uuid_column()),
+	sqlalchemy.column("type_id", subroutine.db.types.uuid_column()),
+	sqlalchemy.column("status_id", subroutine.db.types.uuid_column()),
+	sqlalchemy.column("ref", sqlalchemy.Integer()),
+	sqlalchemy.column("title", sqlalchemy.String()),
+	sqlalchemy.column("planned_for", subroutine.db.types.CalendarDate()),
+	sqlalchemy.column("due_is_all_day", sqlalchemy.Boolean()),
+	sqlalchemy.column("start_is_all_day", sqlalchemy.Boolean()),
+	sqlalchemy.column("spent_minutes", sqlalchemy.Integer()),
+	sqlalchemy.column("is_template", sqlalchemy.Boolean()),
+	sqlalchemy.column("path", sqlalchemy.String()),
+	sqlalchemy.column("depth", sqlalchemy.Integer()),
+	sqlalchemy.column("position", sqlalchemy.Integer()),
+	sqlalchemy.column("metadata", subroutine.db.types.json_column()),
+	sqlalchemy.column("content_updated_at", subroutine.db.types.UtcDateTime()),
+	sqlalchemy.column("created_at", subroutine.db.types.UtcDateTime()),
+	sqlalchemy.column("updated_at", subroutine.db.types.UtcDateTime()),
+	sqlalchemy.column("version", sqlalchemy.Integer()),
+)
+
+
+def _a_workspace_with_one_task (
+	connection: sqlalchemy.Connection,
+	table: sqlalchemy.TableClause,
+	**task: typing.Any,
+) -> uuid.UUID:
+	"""Seed a workspace, a project and one task, inserting the task into ``table``.
+
+	The task's shape differs either side of the revision under test, so the caller names it:
+	:data:`_TASK_BEFORE` for the older schema, the live table for the current one. Everything
+	else goes through the current models, which describe those tables unchanged across it.
+	"""
+
+	workspace, project, kind, status, identifier = (
+		subroutine.db.types.new_uuid() for _ in range(5)
+	)
+
+	# A slug is unique across the instance, and this seeds a second workspace for the
+	# application-written row it compares against. From the *end* of the UUID: version 7
+	# leads with a timestamp, so two minted in the same millisecond share their prefix.
+	slug = f"w{workspace.hex[-8:]}"
+
+	_insert(connection, "workspace", {"id": workspace, "slug": slug, "title": slug})
+	_insert(
+		connection,
+		"item_type",
+		{"id": kind, "workspace_id": workspace, "key": "task", "label": "Task"},
+	)
+	_insert(
+		connection,
+		"status",
+		{"id": status, "workspace_id": workspace, "key": "open", "label": "Open"},
+	)
+	_insert(
+		connection,
+		"project",
+		{
+			"id": project,
+			"workspace_id": workspace,
+			"key": "p",
+			"title": "P",
+			"status_id": status,
+			"path": "p",
+		},
+	)
+
+	stamp = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+
+	values: dict[str, typing.Any] = {
+		"id": identifier,
+		"workspace_id": workspace,
+		"project_id": project,
+		"type_id": kind,
+		"status_id": status,
+		"ref": 1,
+		"title": "Dentist",
+		"due_is_all_day": False,
+		"spent_minutes": 0,
+		"is_template": False,
+		"path": str(identifier),
+		"depth": 0,
+		"position": 1,
+		"metadata": {},
+		"content_updated_at": stamp,
+		"created_at": stamp,
+		"updated_at": stamp,
+		"version": 1,
+	}
+
+	# Renamed by the revision under test, so it exists in one shape and not the other.
+	if "start_is_all_day" in table.c:
+		values["start_is_all_day"] = False
+
+	connection.execute(sqlalchemy.insert(table).values(**values, **task))
+
+	return identifier
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_an_absorbed_planned_day_is_stored_as_the_application_would_store_it (
+	migrated_url: str,
+) -> None:
+	"""`#927`'s H-14 — the migrated row was invisible to its own column's range query.
+
+	``_absorb_planned_days`` bound a Python datetime through a bare ``text()``, which carries
+	no type information, so pysqlite rendered it ``2026-03-10 00:00:00+00:00`` where
+	:class:`subroutine.db.types.UtcDateTime` renders ``2026-03-10 00:00:00.000000``.
+
+	**Both read back as the same instant**, which is what made this worth a test rather than a
+	glance: ``show`` displayed the right date and every equality comparison agreed. But SQLite
+	compares a DATETIME as text and ``+`` sorts before ``.``, so the absorbed row fell outside
+	the range query the agenda is built on — a planned day that survived the upgrade and then
+	appeared on no list.
+
+	Asserted two ways, because either alone is weak. The range query is the behaviour that
+	broke and is meaningful on both backends. The comparison against a row the *application*
+	wrote is the general rule — a backfilled value is indistinguishable from a live one — and
+	it is what would catch the next migration doing this to a different column.
+	"""
+
+	day = datetime.date(2026, 3, 10)
+	start = datetime.datetime.combine(day, datetime.time.min, tzinfo=datetime.UTC)
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_THE_DATE_SPLIT)
+
+		with engine.begin() as connection:
+			absorbed = _a_workspace_with_one_task(
+				connection, _TASK_BEFORE, planned_for=day
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		table = subroutine.db.base.Base.metadata.tables["task"]
+
+		with engine.begin() as connection:
+			# A second task holding the same instant, written the way the application writes
+			# one — through the column's own type.
+			written = _a_workspace_with_one_task(connection, table, starts_at=start)
+
+			found = connection.execute(
+				sqlalchemy.select(table.c.id).where(
+					table.c.starts_at >= start,
+					table.c.starts_at < start + datetime.timedelta(days=1),
+				)
+			).scalars().all()
+
+			# Compared as text, because that is where the two disagree: on PostgreSQL both
+			# rows are the same `timestamptz` and this says so trivially, where on SQLite it
+			# is the raw stored string and the whole finding.
+			stored: dict[typing.Any, typing.Any] = dict(
+				connection.execute(
+					sqlalchemy.select(
+						table.c.id, sqlalchemy.cast(table.c.starts_at, sqlalchemy.String)
+					)
+				).tuples().all()
+			)
+
+		assert absorbed in found, "the absorbed planned day is outside its own day's range"
+		assert written in found
+
+		assert stored[absorbed] == stored[written]
+
+	finally:
+		engine.dispose()
+
+
 def _events_about (
 	engine: sqlalchemy.engine.Engine, entity_id: uuid.UUID, *names: str
 ) -> list[sqlalchemy.RowMapping]:
@@ -492,6 +675,11 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 				"status_id": status,
 				"ref": 2,
 				"title": "A task",
+				# A migration that *backfills* returns early on an empty column, so seeding
+				# none left every backfill here running over nothing — the DDL was walked and
+				# the reason the migration exists was not. `f2b8c1a94d63` is the first one
+				# this reaches, whose downgrade writes a planned day back out of it.
+				"starts_at": datetime.datetime(2026, 3, 10, tzinfo=datetime.UTC),
 			},
 		),
 		("task_tag", {"task_id": task, "tag_id": tag}),
