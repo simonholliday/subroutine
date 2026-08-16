@@ -688,6 +688,12 @@ def serve (
 	# to name the agent guide and nothing else, so an MCP server started on every `serve` and
 	# said nothing — the one way into this product that needs nothing installed at the far end.
 	# `api.serving()` answers what is mounted; the widths are the only thing decided here.
+	# **Built before anything is announced** (`#927` H-20). Constructing the application is
+	# what first opens a database, so with this below the print an instance configured for
+	# PostgreSQL on a machine without the driver said `Serving on http://…` and *then* died.
+	# A reader who has been told a thing is serving does not go looking for a reason it is not.
+	application = api.create_app(settings=settings)
+
 	surfaces = api.serving()
 	column = max((len(surface.path) for surface in surfaces), default=0)
 	bound = f"http://{shown}:{listening}"
@@ -712,7 +718,7 @@ def serve (
 		_say(f"  {surface.path:<{column}}  {surface.what} — {surface.note}")
 
 	listen(
-		api.create_app(settings=settings),
+		application,
 		host=where,
 		port=listening,
 		log_level=(log_level.strip() or settings.log_level).lower(),

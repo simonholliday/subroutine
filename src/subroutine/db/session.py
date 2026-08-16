@@ -72,7 +72,11 @@ def create_engine (
 
 	_refuse_an_unsupported_backend(database_url)
 
-	engine = sqlalchemy.create_engine(database_url, echo=echo, future=True, **kwargs)
+	try:
+		engine = sqlalchemy.create_engine(database_url, echo=echo, future=True, **kwargs)
+
+	except ModuleNotFoundError as missing:
+		_refuse_a_backend_with_no_driver(database_url, missing)
 
 	if engine.dialect.name == "sqlite":
 		sqlalchemy.event.listen(engine, "connect", _apply_sqlite_pragmas)
@@ -103,6 +107,46 @@ def _refuse_an_unsupported_backend (database_url: str) -> None:
 			f"'subroutine config show' says where the file is."
 		),
 	)
+
+
+def _refuse_a_backend_with_no_driver (
+	database_url: str, missing: ModuleNotFoundError
+) -> typing.NoReturn:
+	"""Refuse a supported backend whose driver was never installed, naming what installs it.
+
+	`#927`'s H-20, and the sibling of :func:`_refuse_an_unsupported_backend` one step along:
+	that one is a database this cannot use, and this is one it can, on a machine that did not
+	take the extra. PostgreSQL is optional precisely so a person keeping a shopping list is not
+	made to install a database driver, so meeting this is an ordinary state rather than a rare
+	one — anyone who edits ``database_url`` before running ``pip install 'subroutine[postgres]'``.
+
+	**Untranslated it reads as a bug in this program.** ``ModuleNotFoundError`` escaped
+	``clients/local.Client.__init__``, which builds its engine outside every guard, so
+	``subroutine list`` answered *"Something went wrong that should not have… please report it
+	at github.com"* and wrote a crash file. ``serve`` printed ``Serving on …`` and *then* died,
+	and ``doctor`` showed the raw exception. Three surfaces, none naming the one line in the
+	README that fixes it.
+
+	Raised as a ``SubroutineError`` so it travels: ``fanout._attempt`` catches only those, so
+	this reaches an operator as one connection failing rather than as the whole agenda dying.
+	"""
+
+	backend = sqlalchemy.engine.make_url(database_url).get_backend_name()
+	extra = _EXTRA_FOR.get(backend, backend)
+
+	raise subroutine.errors.ServiceUnavailable(
+		f"This installation has no {backend} driver: {missing.name} is not installed.",
+		hint=(
+			f"Install it with \"pip install 'subroutine[{extra}]'\", or point 'database_url' "
+			f"at a 'sqlite:///…' path. 'subroutine config show' says where that setting is."
+		),
+	)
+
+
+#: Which optional dependency supplies each backend's driver, for the refusal above. Keyed on
+#: the backend rather than on the module, because the module is what is *missing* and the
+#: extra is what an operator types.
+_EXTRA_FOR = {"postgresql": "postgres"}
 
 
 def create_session_factory (

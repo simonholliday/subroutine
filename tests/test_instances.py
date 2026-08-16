@@ -1341,6 +1341,50 @@ def test_an_unsupported_backend_is_named_rather_than_missing_a_driver (
 	assert "MySQLdb" not in refused.output
 
 
+def test_a_supported_backend_with_no_driver_names_what_installs_it (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`#927`'s H-20 — the sibling of the test above, and the commoner of the two.
+
+	PostgreSQL is an *optional* dependency, deliberately: §1.4's shopping-list user must not be
+	made to install a database driver. So a `postgresql://` URL on a machine that never took
+	the extra is an ordinary state — anybody who edits `database_url` before running
+	`pip install 'subroutine[postgres]'` — where `mysql://` is a mistake.
+
+	**It reported that as a bug in Subroutine.** `ModuleNotFoundError` escaped
+	`clients/local.Client.__init__`, which builds its engine outside every guard `cli/main`
+	has, so the answer was *"Something went wrong that should not have… please report it"*
+	plus a crash file holding a traceback. The one line that fixes it is in the README and
+	appeared on none of the three surfaces that met this.
+
+	Driven through `list` rather than by calling `create_engine`, because the defect was never
+	in what that raised — it was that nothing between it and the reader turned it into a
+	sentence.
+
+	A bare `postgresql://` names no driver, so SQLAlchemy reaches for `psycopg2`, which this
+	project does not ship under any extra. That is the same failure as a missing `psycopg` and
+	is reachable on a machine that *has* the extra installed, which is what makes it testable
+	here at all.
+	"""
+
+	run("init", "--workspace", "Real")
+
+	configuration = subroutine.config.config_file_path()
+
+	with configuration.open("a", encoding="utf-8") as handle:
+		handle.write('\ndatabase_url = "postgresql://user@localhost/thing"\n')
+
+	refused = run("list", expect=1)
+
+	assert "no postgresql driver" in refused.output
+	assert "subroutine[postgres]" in refused.output
+
+	# **The half that is the finding.** The message it replaced was the crash report, which
+	# tells a reader to open an issue about their own configuration.
+	assert "should not have" not in refused.output
+	assert "report it" not in refused.output
+
+
 def test_a_failed_pragma_closes_the_connection_it_was_handed (tmp_path: pathlib.Path) -> None:
 	"""`#228`. The one moment nothing else can clean up after a connection.
 
