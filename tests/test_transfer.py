@@ -292,3 +292,100 @@ def test_every_table_is_carried_rather_than_a_listed_few (
 	assert sum(1 for count in before.values() if count) >= 15, (
 		"the fixture stopped filling most tables, so this test is no longer measuring much"
 	)
+
+
+def test_a_child_stored_before_its_parent_still_copies (
+	sqlite_url: str, postgres_database: str
+) -> None:
+	"""``sorted_tables`` orders tables and says nothing about the rows inside one.
+
+	Five tables here point at themselves — a sub-task, a section of a document, a project
+	inside a project, the person an agent answers to, a reply to a comment — and the copy
+	inserted their rows in whatever order the source returned them. A child before its parent
+	is a foreign key violation, so ``add``, ``add``, ``move --under`` was enough to make the
+	migration this command exists for permanently impossible.
+
+	**Read order is not creation order**, which is what makes this reachable rather than
+	theoretical, and PostgreSQL is where it is easiest to show: an updated row is written to
+	the end of the heap, so a parent edited after its child comes back second. The direction is
+	PostgreSQL to SQLite for that reason — the case is about the *source*, and this is the
+	source that can be put into the state.
+	"""
+
+	_filled(postgres_database)
+
+	engine = subroutine.db.session.create_engine(postgres_database)
+	tasks = subroutine.db.base.Base.metadata.tables["task"]
+
+	try:
+		with engine.begin() as connection:
+			parent = connection.execute(
+				sqlalchemy.select(tasks).where(tasks.c.parent_task_id.is_(None))
+			).mappings().one()
+
+			# Rewriting the row moves it to the end of the heap, which is what a `move --under`
+			# or any other edit does to a parent in the ordinary course of using this.
+			connection.execute(
+				sqlalchemy.update(tasks)
+				.where(tasks.c.id == parent["id"])
+				.values(title=parent["title"] + " (edited)")
+			)
+
+		with engine.connect() as connection:
+			read = connection.execute(sqlalchemy.select(tasks.c.id)).scalars().all()
+
+		assert read[0] != parent["id"], "the parent is still read first, so this proves nothing"
+
+	finally:
+		engine.dispose()
+
+	before = _counts(postgres_database)
+	copied = subroutine.db.transfer.copy_into(postgres_database, sqlite_url)
+
+	assert copied.rows == sum(before.values())
+	assert _counts(sqlite_url) == before
+
+	# And the tree survived: a copy that dropped the reference to satisfy the constraint would
+	# pass every count above.
+	target = subroutine.db.session.create_engine(sqlite_url)
+
+	try:
+		with target.connect() as connection:
+			joined = connection.execute(
+				sqlalchemy.select(sqlalchemy.func.count())
+				.select_from(tasks)
+				.where(tasks.c.parent_task_id.is_not(None))
+			).scalar_one()
+
+		assert joined == 1, "the child came across with no parent"
+
+	finally:
+		target.dispose()
+
+
+def test_a_database_holding_somebody_elses_tables_is_refused (
+	sqlite_url: str, postgres_database: str
+) -> None:
+	"""The empty check walked *this* schema's tables, so anything else read as empty.
+
+	`#306` moved that check before the migration precisely so a target is established as unused
+	before anything touches it — and a database belonging to another application answered "no
+	rows in any of Subroutine's tables", which is true and is not the question. The migration
+	that followed would then have created an instance's tables alongside somebody's data.
+	"""
+
+	_filled(sqlite_url)
+
+	engine = subroutine.db.session.create_engine(postgres_database)
+
+	try:
+		with engine.begin() as connection:
+			connection.execute(sqlalchemy.text("CREATE TABLE invoices (id integer)"))
+
+	finally:
+		engine.dispose()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.db.transfer.copy_into(sqlite_url, postgres_database)
+
+	assert "invoices" in str(refused.value)

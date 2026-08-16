@@ -25,6 +25,7 @@ backend suite exercises this in both directions rather than in the one we happen
 """
 
 import dataclasses
+import typing
 
 import sqlalchemy
 import sqlalchemy.engine
@@ -141,6 +142,27 @@ def _prepare (target_url: str, target: sqlalchemy.engine.Engine) -> None:
 			),
 		)
 
+	# **And nothing else's tables either** (`#927`'s M-20). ``_counts`` walks the tables *this*
+	# schema declares, so a database holding somebody else's application read as empty — and
+	# the migration that follows would then create Subroutine's tables inside it. That is the
+	# same harm `#306` moved this check earlier to prevent, arriving through the door marked
+	# *not one of ours*.
+	strangers = sorted(
+		set(sqlalchemy.inspect(target).get_table_names())
+		- {table.name for table in _tables()}
+		- {"alembic_version"}
+	)
+
+	if strangers:
+		raise subroutine.errors.ValidationError(
+			f"The target database holds tables this does not know about: "
+			f"{', '.join(strangers)}.",
+			hint=(
+				"That looks like somebody else's database. Copy into an empty one — this "
+				"would put an instance's tables alongside whatever is already in there."
+			),
+		)
+
 	if not subroutine.db.migrate.is_up_to_date(target):
 		subroutine.db.migrate.upgrade(target_url)
 
@@ -206,16 +228,67 @@ def _copy_table (
 	this file knowing anything about either.
 	"""
 
+	inwards = _points_at_itself(table)
+	keys = [column.name for column in table.primary_key.columns]
 	moved = 0
+	deferred: list[dict[str, typing.Any]] = []
+
 	result = reading.execution_options(stream_results=True).execute(
 		sqlalchemy.select(table)
 	)
 
 	while batch := result.mappings().fetchmany(BATCH):
-		writing.execute(sqlalchemy.insert(table), [dict(row) for row in batch])
+		rows = [dict(row) for row in batch]
+
+		for row in rows:
+			if any(row[name] is not None for name in inwards):
+				deferred.append(
+					{f"_{name}": row[name] for name in keys}
+					| {name: row[name] for name in inwards}
+				)
+
+				for name in inwards:
+					row[name] = None
+
+		writing.execute(sqlalchemy.insert(table), rows)
 		moved += len(batch)
 
+	if deferred:
+		writing.execute(
+			sqlalchemy.update(table).where(
+				*(
+					table.columns[name] == sqlalchemy.bindparam(f"_{name}")
+					for name in keys
+				)
+			),
+			deferred,
+		)
+
 	return moved
+
+
+def _points_at_itself (table: sqlalchemy.Table) -> list[str]:
+	"""Return the columns of a table that reference the same table.
+
+	**``sorted_tables`` orders tables and says nothing about rows** (`#927`'s M-20), and five
+	of these point at *themselves*: a sub-task, a section of a document, a project inside a
+	project, the person an agent answers to, a reply to a comment. Insert a child before its
+	parent and the foreign key refuses it — so ``add``, ``add``, ``move --under`` was enough to
+	make the SQLite-to-PostgreSQL migration this command exists for permanently impossible, on
+	an installation that had done nothing unusual.
+
+	**Written last rather than sorted first**, because sorting is only exact where the table
+	carries a depth — ``task``, ``document`` and ``project`` do; ``user`` and ``comment`` do
+	not, and an accountability chain is a tree with no such column. Inserting the reference as
+	null and filling it in afterwards is one mechanism that needs no order at all, and it goes
+	on streaming: only the rows that *have* a parent are held, as a pair of identifiers.
+	"""
+
+	return [
+		column.name
+		for column in table.columns
+		if column.nullable and any(key.column.table is table for key in column.foreign_keys)
+	]
 
 
 def _restart_sequences (

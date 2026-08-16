@@ -31,6 +31,13 @@ upgrade involves.
   the password out of `/proc`. It travels in the child's environment now. Nothing changes where
   PostgreSQL authenticates over a Unix socket, which is the ordinary setup.
 
+- **`subroutine db copy` survives a sub-task, a section or a sub-project.** Rows were inserted
+  in whatever order the source returned them, and five tables here point at themselves — so a
+  child arriving before its parent was refused by the database, and `add`, `add`, `move --under`
+  was enough to make the SQLite-to-PostgreSQL migration permanently impossible. It also refuses
+  a target holding tables it does not recognise, rather than reading somebody else's database as
+  empty.
+
 - **There is a limit on how large a request body this reads**, `max_body_bytes`, ten megabytes
   by default. `docs/errors.md` has described one since the first release and there was neither a
   setting nor a check, so a caller could stream as much as it liked at a route that would then
