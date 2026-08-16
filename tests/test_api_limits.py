@@ -14,6 +14,8 @@ Two of these are the point rather than coverage:
   the address key safe behind a proxy, where every request appears to come from one place.
 """
 
+import asyncio
+import json
 import pathlib
 import typing
 
@@ -24,6 +26,7 @@ import uvicorn
 
 import subroutine.api.app
 import subroutine.api.limits
+import subroutine.api.middleware
 import subroutine.cli.main
 import subroutine.config
 import subroutine.domain.authentication
@@ -502,3 +505,163 @@ def test_serve_does_not_let_uvicorn_read_the_forwarded_header (
 	assert seen.get("proxy_headers") is False, (
 		"uvicorn will rewrite the client address from a header this application parses itself"
 	)
+
+
+def test_a_body_larger_than_this_instance_reads_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""``docs/errors.md`` has documented this limit since the registry was written.
+
+	*"A field **or the request body** exceeds the **configured** limit"* — and there was
+	neither a configuration nor a check. §6.10 bounds each *field* after the body has been
+	parsed, which is a different promise arriving far too late: nothing stopped a caller
+	streaming as much as it liked at a route that would then read it into memory.
+
+	Driven with a small limit rather than ten megabytes, so the test is about the rule instead
+	of about how fast this machine can move bytes. The refusal is asserted by code, because a
+	413 could as easily come from somewhere else.
+	"""
+
+	world = test_api_tasks._world(session, instance={"max_body_bytes": 2_048})
+
+	# **A long *description*, not a long title.** §6.10 caps a title at 512 characters and
+	# refuses a longer one with this very code — so a title would make this pass whether the
+	# body limit existed or not, which is a test that cannot fail. A description is the field
+	# that is meant to be long.
+	refused = world.call(
+		"POST", "/v1/tasks", json={"title": "Ordinary", "description": "x" * 4_000}
+	)
+
+	assert refused.status_code == 413, refused.text
+	assert refused.json()["code"] == "payload_too_large"
+
+	# And an ordinary write is untouched, which is what makes the limit a backstop rather than
+	# a policy: everything anybody actually sends is orders of magnitude under it.
+	assert world.call("POST", "/v1/tasks", json={"title": "Buy milk"}).status_code == 201
+
+
+def test_an_authenticated_answer_says_it_must_not_be_stored (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""RFC 9111 lets a shared cache store a response that says nothing, and this said nothing.
+
+	Its one built-in protection is for requests carrying ``Authorization``, which the browser's
+	do not — `#248` authenticates it with a cookie — so a proxy in front of an instance was
+	free to store one person's agenda and hand it to the next reader. ``docs/hosting.md``
+	recommends putting a proxy in front of an instance.
+
+	**The app's own files are the exception and are checked here too**, because they really are
+	cacheable, carry a validator derived from their bytes (`#914`), and are the same for
+	everybody — a blanket rule would have quietly undone that.
+	"""
+
+	world = test_api_tasks._world(session)
+	answered = world.call("GET", "/v1/tasks")
+
+	assert answered.headers["Cache-Control"] == "no-store"
+	assert "Cookie" in answered.headers["Vary"]
+	assert "Authorization" in answered.headers["Vary"]
+
+	asset = world.call("GET", "/app/app.js")
+
+	assert asset.status_code == 200
+	assert asset.headers["Cache-Control"] != "no-store", (
+		"the app's own files are cacheable and say so; a blanket rule would have stopped them"
+	)
+
+
+def test_a_body_with_no_declared_length_is_bounded_too () -> None:
+	"""The half a ``Content-Length`` check would miss, and it is the half an attacker sends.
+
+	A chunked request declares no length at all, so refusing on the header alone would be a
+	limit anybody could opt out of by not mentioning it. The body is counted as it arrives and
+	the request is marked, which is what ``api/problems`` answers as a 413 — FastAPI wraps
+	reading a body, so anything *raised* in there comes back as "There was an error parsing the
+	body", a 400 saying nothing about why.
+
+	Driven at the ASGI layer rather than through the test client, because the point is a
+	request with no declared length and every HTTP client here declares one.
+	"""
+
+	seen: dict[str, typing.Any] = {}
+
+	async def downstream (scope: typing.Any, receive: typing.Any, send: typing.Any) -> None:
+		"""Read the body the way a route would, and record what arrived."""
+
+		read = b""
+
+		while True:
+			message = await receive()
+			read += message.get("body", b"")
+
+			if not message.get("more_body"):
+				break
+
+		seen["body"] = read
+		seen["marked"] = scope.get(subroutine.api.middleware.TOO_LARGE, False)
+
+	pieces = [b"x" * 400 for _ in range(6)]
+	sending = iter(pieces)
+
+	async def receive () -> typing.Any:
+		"""Hand over one chunk at a time, announcing nothing about the total."""
+
+		piece = next(sending, None)
+
+		return (
+			{"type": "http.request", "body": piece, "more_body": True}
+			if piece is not None
+			else {"type": "http.request", "body": b"", "more_body": False}
+		)
+
+	async def sent (message: typing.Any) -> None:
+		"""Stand in for the server, which is not reached on this path."""
+
+	bounded = subroutine.api.middleware.BodyLimit(downstream, limit=1_000)
+
+	asyncio.run(bounded({"type": "http", "headers": []}, receive, sent))
+
+	assert seen["marked"], "the body ran past the limit and nothing said so"
+	assert len(seen["body"]) <= 1_200, (
+		f"{len(seen['body'])} bytes reached the route, so the limit stopped nothing"
+	)
+
+
+def test_an_announced_body_is_refused_without_being_read () -> None:
+	"""Which is the whole point on the request this exists for.
+
+	A caller announcing a gigabyte should be answered before one byte of it crosses the wire.
+	Counting alone would refuse it too — and only after reading the whole thing, which is the
+	cost being avoided. So this asserts what the counting path cannot: that ``receive`` was
+	never called at all.
+	"""
+
+	asked = [0]
+
+	async def receive () -> typing.Any:
+		"""Count how many times the body was asked for."""
+
+		asked[0] += 1
+
+		return {"type": "http.request", "body": b"x" * 4_000, "more_body": False}
+
+	answered: list[typing.Any] = []
+
+	async def sent (message: typing.Any) -> None:
+		"""Keep what the middleware answered."""
+
+		answered.append(message)
+
+	async def downstream (scope: typing.Any, receive: typing.Any, send: typing.Any) -> None:
+		"""Stand in for the application, which must not be reached."""
+
+		raise AssertionError("the application was called for a body it was never going to read")
+
+	bounded = subroutine.api.middleware.BodyLimit(downstream, limit=1_000)
+	scope = {"type": "http", "headers": [(b"content-length", b"4000")]}
+
+	asyncio.run(bounded(scope, receive, sent))
+
+	assert asked == [0], "the body was read before being refused"
+	assert answered[0]["status"] == 413
+	assert json.loads(answered[1]["body"])["code"] == "payload_too_large"

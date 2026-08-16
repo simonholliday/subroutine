@@ -31,6 +31,16 @@ upgrade involves.
   the password out of `/proc`. It travels in the child's environment now. Nothing changes where
   PostgreSQL authenticates over a Unix socket, which is the ordinary setup.
 
+- **There is a limit on how large a request body this reads**, `max_body_bytes`, ten megabytes
+  by default. `docs/errors.md` has described one since the first release and there was neither a
+  setting nor a check, so a caller could stream as much as it liked at a route that would then
+  try to parse it. Nothing anybody sends comes near it.
+
+- **Nothing this API answers is cached by a proxy in front of it.** Responses carried no
+  `Cache-Control` at all, and the one protection HTTP gives by default is for requests carrying
+  `Authorization` — which the web UI's do not, because it signs in with a cookie. The app's own
+  files are still cached, as they were.
+
 - **A repeat that names a date which does not exist is refused.** "The 31st of February" was
   accepted, stored, and described back to you as `every day, on 31 February` — and asking when
   it next came round spent nearly three seconds of the server working out that it never does.

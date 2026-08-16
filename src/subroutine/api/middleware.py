@@ -6,6 +6,7 @@ what makes the failure diagnosable at all (SPEC.md §8.1). ``X-Subroutine-Api-Ve
 tells a client which wire contract it is talking to without a round trip to ``/v1/meta``.
 """
 
+import json
 import re
 import typing
 
@@ -15,6 +16,7 @@ import uuid6
 
 import subroutine
 import subroutine.api.routing
+import subroutine.errors
 
 REQUEST_ID_HEADER = "X-Request-Id"
 API_VERSION_HEADER = "X-Subroutine-Api-Version"
@@ -84,6 +86,145 @@ def apply_headers (
 
 	for name, value in getattr(request.app.state, "policy_headers", {}).items():
 		response.headers[name] = value
+
+	# **Nothing here is cacheable, and only the assets said so** (`#927`'s M-9). RFC 9111 lets
+	# a shared cache store a response with no explicit directive, and its one built-in
+	# protection is for requests carrying `Authorization` — which the browser's do not, because
+	# `#248` authenticates it with a cookie. So a proxy in front of an instance was free to
+	# store one person's agenda and hand it to the next reader, and `docs/hosting.md`
+	# recommends putting a proxy in front of an instance.
+	#
+	# **Left alone where the response set its own**, which is `api/web`'s files: those really
+	# are cacheable, carry a validator derived from their bytes (`#914`), and are the same for
+	# everybody. Everything else is one person's work.
+	if "cache-control" not in response.headers:
+		response.headers["Cache-Control"] = "no-store"
+
+		# What the answer depends on, for anything that stores it anyway. Both, because two
+		# credential kinds reach the same routes and a cache keyed on one would serve an
+		# agent's answer to a browser.
+		response.headers["Vary"] = "Cookie, Authorization"
+
+
+#: Set on the ASGI scope when a body ran past the limit while being read. Named as an
+#: extension key rather than put on ``request.state``, because it is set before anything has
+#: built a request — and read by ``api/problems``, which cannot import this module.
+TOO_LARGE = "subroutine.body_too_large"
+
+
+class BodyLimit:
+	"""Refuse a request body larger than this instance is willing to read.
+
+	**``docs/errors.md`` has described this since the registry was written** — *"a field or the
+	request body exceeds the configured limit"* — and there was neither a configuration nor a
+	check (`#927`'s M-2). §6.10 bounds each *field* after the body has been parsed, which is a
+	different promise and arrives far too late: nothing stopped a caller streaming gigabytes at
+	a route that would then try to read them into memory.
+
+	**Counted as it arrives rather than read off ``Content-Length``.** A header is what the
+	caller says, a chunked request need not carry one at all, and the check has to hold either
+	way — so this is the only rule, and there is no faster path that could disagree with it.
+
+	Raised rather than answered here, so the refusal is built by the ordinary handler and comes
+	back as the same problem document as everything else. The exception surfaces where the body
+	is awaited, which is inside the route.
+
+	Pure ASGI rather than ``BaseHTTPMiddleware`` because reading the body is exactly what this
+	must not do: that class hands the downstream app its own receive channel, so consuming the
+	body to measure it would leave the route with nothing to parse.
+	"""
+
+	def __init__ (self, app: typing.Any, *, limit: int) -> None:
+		"""Wrap an application, refusing anything longer than ``limit`` bytes."""
+
+		self.app = app
+		self.limit = limit
+
+	async def __call__ (
+		self, scope: typing.Any, receive: typing.Any, send: typing.Any
+	) -> None:
+		"""Pass the request on, counting the body on its way through."""
+
+		if scope["type"] != "http":
+			await self.app(scope, receive, send)
+
+			return
+
+		if self._declared(scope) > self.limit:
+			# Refused before the application is called at all, which is the whole point on the
+			# request this exists for: a caller announcing a gigabyte is answered without one
+			# byte of it being read.
+			await self._refuse(scope, send)
+
+			return
+
+		read = 0
+
+		async def counted () -> typing.Any:
+			"""Return the next piece of the body, marking the request once there is too much."""
+
+			nonlocal read
+
+			message = await receive()
+
+			if message["type"] == "http.request":
+				read += len(message.get("body", b""))
+
+				if read > self.limit:
+					# **Marked rather than raised.** FastAPI wraps reading the body and turns
+					# anything raised there into *"There was an error parsing the body"* — a
+					# 400 that tells the caller nothing about why. The mark is what lets
+					# `problems` answer the question that was actually asked; the body is
+					# truncated here so nothing further is read.
+					scope[TOO_LARGE] = True
+					message = {"type": "http.request", "body": b"", "more_body": False}
+
+			return message
+
+		await self.app(scope, counted, send)
+
+	def _declared (self, scope: typing.Any) -> int:
+		"""Return the body length the caller announced, or zero when it announced none."""
+
+		for name, value in scope.get("headers", ()):
+			if name.lower() == b"content-length" and value.isdigit():
+				return int(value)
+
+		return 0
+
+	async def _refuse (self, scope: typing.Any, send: typing.Any) -> None:
+		"""Answer with the same problem document every other refusal here produces.
+
+		Built from ``subroutine.errors`` rather than through ``api.problems``, which imports
+		this module — the cycle ``apply_headers`` already documents. What is lost by not going
+		through it is the request id, and this is the one answer given before a request has
+		been looked at.
+		"""
+
+		document = subroutine.errors.problem_document(self._too_large())
+		body = json.dumps(document, separators=(",", ":")).encode("utf-8")
+
+		await send(
+			{
+				"type": "http.response.start",
+				"status": 413,
+				"headers": [
+					(b"content-type", b"application/problem+json"),
+					(b"content-length", str(len(body)).encode("ascii")),
+				],
+			}
+		)
+		await send({"type": "http.response.body", "body": body})
+
+	def _too_large (self) -> subroutine.errors.PayloadTooLarge:
+		"""Return the refusal, worded once for both the announced and the counted case."""
+
+		return subroutine.errors.PayloadTooLarge(
+			f"That request body is larger than this instance reads "
+			f"({self.limit // 1024} KB).",
+			hint="Send less in one request — a listing takes 'limit', and a document's body "
+			"is the one field that is meant to be long.",
+		)
 
 
 async def answer_head_with_get (

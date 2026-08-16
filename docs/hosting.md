@@ -147,6 +147,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `rate_limit` | on when reachable | Whether to limit requests. Unset means "on unless this is loopback-only and has no `public_url`" |
 | `rate_limit_per_minute` | `600` | Requests per credential per minute, once limiting is on |
 | `rate_limit_failures_per_minute` | `30` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
+| `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy — every field has its own limit, and ten megabytes is far more than any legitimate write |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
 | `cors_origins` | `[]` | Other origins a browser may call this API from — **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |

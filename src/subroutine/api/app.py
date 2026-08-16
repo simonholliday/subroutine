@@ -243,6 +243,12 @@ def create_app (
 
 	application.middleware("http")(subroutine.api.middleware.correlate)
 
+	# Outside everything, because a body too large to read is not a request this application
+	# should be building objects for.
+	application.add_middleware(
+		subroutine.api.middleware.BodyLimit, limit=resolved.max_body_bytes
+	)
+
 	# Outermost, because it decides what the request *is* before anything else reads the
 	# method. Added after `correlate` for that reason: Starlette runs the last one first.
 	application.middleware("http")(subroutine.api.middleware.answer_head_with_get)

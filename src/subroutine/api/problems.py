@@ -65,6 +65,19 @@ def respond (
 ) -> starlette.responses.Response:
 	"""Render a failure as the response the caller receives."""
 
+	if request.scope.get(subroutine.api.middleware.TOO_LARGE):
+		# **The body ran past the limit while it was being read**, and what the framework made
+		# of the truncated remainder is not the answer (`#927`'s M-2). FastAPI wraps reading a
+		# body, so anything *raised* in there arrives as "There was an error parsing the body";
+		# a body cut short instead arrives as a missing field. Neither says why, and both are
+		# the same request. Answered here rather than in one handler, because it can reach more
+		# than one of them.
+		error = subroutine.errors.PayloadTooLarge(
+			"That request body is larger than this instance reads.",
+			hint="Send less in one request — a listing takes 'limit', and a document's body "
+			"is the one field that is meant to be long.",
+		)
+
 	response = starlette.responses.JSONResponse(
 		status_code=error.status,
 		content=subroutine.errors.problem_document(

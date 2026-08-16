@@ -576,6 +576,18 @@ class Settings(pydantic_settings.BaseSettings):
 	# attempt.
 	rate_limit_failures_per_minute: int = 30
 
+	# The largest request body this instance will read, in bytes. `docs/errors.md` has
+	# described `payload_too_large` as *"a field **or the request body** exceeds the
+	# **configured** limit"* since the registry was written, and there was no such
+	# configuration and no such check — so a caller could stream gigabytes at a route that
+	# would then try to parse them (`#927`'s M-2).
+	#
+	# **Generous, because it is a backstop rather than a policy.** A document's body is prose
+	# somebody wrote and §6.10 already bounds each field; what this stops is the request nobody
+	# meant to send. Ten megabytes is far more than any legitimate write here and far less than
+	# a machine's memory.
+	max_body_bytes: int = 10 * 1024 * 1024
+
 	# The proxies whose `X-Forwarded-For` this instance believes (`#277`). Empty means the
 	# header is ignored entirely and the immediate peer is the key, which is right for a
 	# direct bind and wrong behind Nginx Proxy Manager, where every caller shares the proxy's
