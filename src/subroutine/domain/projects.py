@@ -217,11 +217,14 @@ def move (
 	*,
 	parent: subroutine.db.models.project.Project | None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
 	"""Move a project and everything under it, returning how many rows were rewritten."""
 
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+
+	subroutine.domain.versions.require(project, expected_version, noun="project")
 
 	previous_parent = project.parent_id
 	previous_path = project.path

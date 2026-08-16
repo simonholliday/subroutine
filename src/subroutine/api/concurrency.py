@@ -8,6 +8,15 @@ a notebook. Neither is required, and sending both is fine as long as they agree.
 The header is quoted (``If-Match: "7"``), because that is what an entity tag is; the quotes
 are stripped rather than demanded, since a caller that sends ``If-Match: 7`` meant the same
 thing and refusing it would teach nobody anything.
+
+**No response carries an ``ETag``, deliberately.** The tag a caller sends back is the
+``version`` field, which every entity already publishes and every client here already reads —
+so an ``ETag`` header would be a second copy of it, and one carrying cache semantics this API
+does not implement: nothing here honours ``If-None-Match`` and no entity response is
+cacheable. There was an ``etag()`` helper for a header nothing sent, which is the inert
+control this project keeps finding, and `#303`'s answer to one of those is usually to delete
+rather than wire. The agent guide and §8.9 both say to send the version, which is what the
+version is.
 """
 
 import contextlib
@@ -123,9 +132,3 @@ def reporting (render: typing.Callable[[], typing.Any]) -> typing.Iterator[None]
 			)
 
 		raise
-
-
-def etag (entity: typing.Any) -> str:
-	"""Return the entity tag for an entity, for the ``ETag`` response header."""
-
-	return f'"{entity.version}"'

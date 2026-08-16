@@ -857,9 +857,11 @@ def occurrences (
 
 @router.post("/{id_or_ref}/claim", summary="Take a task, so nobody else does")
 def take (
+	request: fastapi.Request,
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	minutes: int | None = fastapi.Query(
 		None, description="How long the lease lasts. Defaults to the instance's setting."
 	),
@@ -879,15 +881,23 @@ def take (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
-	held = subroutine.domain.claims.claim(
-		session, task, minutes=minutes, settings=subroutine.config.load_settings(), actor=actor
-	)
+
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		held = subroutine.domain.claims.claim(
+			session,
+			task,
+			minutes=minutes,
+			settings=settings,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
 
 	return _rendered(session, held)
 
 
 @router.post("/{id_or_ref}/release", summary="Give a task back")
 def give_back (
+	request: fastapi.Request,
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
@@ -905,7 +915,13 @@ def give_back (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
-	freed = subroutine.domain.claims.release(session, task, actor=actor)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		freed = subroutine.domain.claims.release(
+			session,
+			task,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
 
 	return _rendered(session, freed)
 
@@ -921,6 +937,10 @@ class Move(subroutine.api.schemas.RequestModel):
 
 	parent: str | None = None
 
+	#: The version this move is based on. Optional; ``If-Match`` does the same job for a
+	#: client that prefers the header, and sending neither means the check was not asked for.
+	expected_version: int | None = None
+
 	def requested (self) -> bool:
 		"""Report whether the caller actually named a destination."""
 
@@ -929,6 +949,7 @@ class Move(subroutine.api.schemas.RequestModel):
 
 @router.post("/{id_or_ref}/move", summary="Move a task under another, or to the top level")
 def move (
+	request: fastapi.Request,
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	body: Move,
 	actor: subroutine.api.security.PrincipalDep,
@@ -966,7 +987,14 @@ def move (
 	# forbidden — which is §7.3a, and the reason this is not a bare id lookup.
 	parent = None if body.parent is None else _resolve(session, actor, workspace, body.parent)
 
-	subroutine.domain.tasks.move(session, task, parent=parent, actor=actor)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+		subroutine.domain.tasks.move(
+			session,
+			task,
+			parent=parent,
+			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			actor=actor,
+		)
 
 	return _rendered(session, task)
 

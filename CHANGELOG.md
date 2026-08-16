@@ -353,6 +353,13 @@ upgrade involves.
 
 ### Fixed
 
+- **Five endpoints ignored the version you asked them to check.** `If-Match` and
+  `expected_version` were read by `PATCH`, `DELETE`, `complete`, `skip` and `restore`, and
+  silently dropped by `claim`, `release` and all three `move` endpoints — so a caller doing
+  read-modify-write properly was answered `200` for a change it had asked to have refused.
+  They honour it now, and answer the same `409` and `version_conflict` as everything else.
+  Sending no version is unchanged, and is still the default.
+
 - **`Retry-After` no longer sends you back too early.** A caller refused with a `429` was told
   how long to wait, rounded *down* — so waiting the 8 seconds it asked for when it needed 8.6
   earned a second refusal. It is rounded up now, and still never less than a second.

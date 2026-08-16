@@ -38,6 +38,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
 import subroutine.domain.readiness
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
@@ -82,6 +83,7 @@ def claim (
 	minutes: int | None = None,
 	settings: subroutine.config.Settings | None = None,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal,
 ) -> subroutine.db.models.work.Task:
 	"""Take a lease on a task, or renew one this actor already holds.
@@ -116,6 +118,8 @@ def claim (
 	# **Before the conflict is reported, not after.** Whether somebody else is working on this
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
 	_permitted(session, actor, task)
+
+	subroutine.domain.versions.require(task, expected_version, noun="task")
 
 	model = subroutine.db.models.work.Task
 	mine = sqlalchemy.and_(
@@ -188,6 +192,7 @@ def release (
 	task: subroutine.db.models.work.Task,
 	*,
 	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal,
 ) -> subroutine.db.models.work.Task:
 	"""Give a task back, so somebody else can take it.
@@ -205,6 +210,8 @@ def release (
 	moment = now or subroutine.db.types.utcnow()
 
 	_permitted(session, actor, task)
+
+	subroutine.domain.versions.require(task, expected_version, noun="task")
 
 	if held_by(task, now=moment) is None:
 		return task

@@ -1354,6 +1354,7 @@ def move (
 	*,
 	parent: subroutine.db.models.work.Task | None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
 	"""Re-parent a task and everything under it, returning how many rows were rewritten.
@@ -1378,6 +1379,8 @@ def move (
 		project=filed_in,
 		workspace_id=task.workspace_id,
 	)
+
+	subroutine.domain.versions.require(task, expected_version, noun="task")
 
 	if parent is not None and parent.project_id != task.project_id:
 		# **Refused rather than carried, and this is the decision worth reading** (`#44`).

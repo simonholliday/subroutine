@@ -474,6 +474,7 @@ def move (
 	*,
 	parent: subroutine.db.models.work.Document | None,
 	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
 	"""Re-nest a document and everything under it, returning how many rows were rewritten.
@@ -499,6 +500,8 @@ def move (
 		project=filed_in,
 		workspace_id=document.workspace_id,
 	)
+
+	subroutine.domain.versions.require(document, expected_version, noun="document")
 
 	if parent is not None and parent.project_id != document.project_id:
 		destination = session.get(subroutine.db.models.project.Project, parent.project_id)

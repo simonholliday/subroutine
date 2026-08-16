@@ -10,12 +10,15 @@ think about versions at all.
 
 import concurrent.futures
 import threading
+import typing
 import uuid
 
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.api.app
+import subroutine.api.routing
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.versions
@@ -233,6 +236,144 @@ def test_projects_and_documents_are_guarded_the_same_way (
 		f"/v1/documents/{document['ref']}",
 		json={"title": "x", "expected_version": document["version"]},
 	).status_code == 409
+
+
+#: The prefixes whose entities carry a version, and how to address one of them.
+_ENTITIES = (("/v1/tasks/", "{id_or_ref}"), ("/v1/documents/", "{id_or_ref}"),
+	("/v1/projects/", "{id_or_key}"))
+
+#: What to send where a route needs a body before it gets as far as the version check. A move
+#: has to name a destination, because an omitted parent and an explicit ``null`` mean different
+#: things (§8.3). Everything else takes none, and a route that grows a required body fails here
+#: rather than quietly passing on a 422.
+_BODIES: dict[str, dict[str, typing.Any]] = {
+	"POST /v1/tasks/{id_or_ref}/move": {"parent": None},
+	"POST /v1/documents/{id_or_ref}/move": {"parent": None},
+	"POST /v1/projects/{id_or_key}/move": {"parent": None},
+	"PATCH /v1/tasks/{id_or_ref}": {"title": "Renamed"},
+	"PATCH /v1/documents/{id_or_ref}": {"title": "Renamed"},
+	"PATCH /v1/projects/{id_or_key}": {"title": "Renamed"},
+}
+
+#: Routes at an entity's address that change something else, and so have no version of this
+#: entity to be asked about. Keyed ``"METHOD path"``, like ``PUBLIC_ROUTES`` and
+#: ``NOT_REFUSED``, and each entry says what it writes instead.
+#:
+#: **Not "these are exempt from concurrency"** — a comment and a link each have their own
+#: identity, and neither changes the row it hangs off. An ``If-Match`` naming the task's
+#: version would compare a number nothing here moves, which is a check that always passes:
+#: worse than no check, because a caller would believe it.
+NOT_A_CHANGE_TO_THE_ENTITY: dict[str, str] = {
+	"POST /v1/tasks/{id_or_ref}/comments": "writes a comment, which is its own entity",
+	"POST /v1/documents/{id_or_ref}/comments": "writes a comment, which is its own entity",
+	"POST /v1/projects/{id_or_key}/comments": "writes a comment, which is its own entity",
+	"POST /v1/tasks/{id_or_ref}/links": "writes a link, which is its own entity",
+	"POST /v1/documents/{id_or_ref}/links": "writes a link, which is its own entity",
+	"DELETE /v1/tasks/{id_or_ref}/links/{link_id}": "removes a link, addressed by its own id",
+	"DELETE /v1/documents/{id_or_ref}/links/{link_id}": (
+		"removes a link, addressed by its own id"
+	),
+}
+
+
+def _changes_an_entity () -> list[tuple[str, str, str, str]]:
+	"""Return every declared route that changes a task, a document or a project.
+
+	As ``(name, method, path, segment)`` — the segment being what the entity's own address is
+	spelled with, which differs between a ref and a key.
+	"""
+
+	found: list[tuple[str, str, str, str]] = []
+
+	for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		for prefix, segment in _ENTITIES:
+			if not path.startswith(prefix):
+				continue
+
+			for method in sorted(methods - {"GET", "HEAD"}):
+				found.append((f"{method} {path}", method, path, segment))
+
+	return found
+
+
+def test_every_change_to_an_entity_honours_the_version_it_was_given (
+	world: test_api_tasks.World,
+) -> None:
+	"""Derived from the routes, because the hand-written version of this fell behind.
+
+	``If-Match`` was read by ``PATCH``, ``DELETE``, ``complete``, ``skip`` and ``restore`` and
+	silently ignored by ``claim``, ``release`` and all three ``move`` endpoints — against RFC
+	9110 §13.1.1, which says an unsafe method must not be performed when the condition fails.
+	Silently is the whole problem: a caller doing read-modify-write correctly was told 200 for
+	a change it had asked to have refused.
+
+	A route that changes something else — a comment, a link — says so in
+	``NOT_A_CHANGE_TO_THE_ENTITY`` with what it writes instead. Anything else is asked, and a
+	route added tomorrow is asked without anybody remembering to add it here.
+	"""
+
+	# Repeating, because `skip` refuses a task that is not — a real 422 that would otherwise
+	# hide whether the route reads the header at all.
+	filed = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Guarded", "due": "2026-09-01", "recurrence": "every 14 days"},
+	)
+
+	assert filed.status_code == 201, filed.text
+
+	task = filed.json()
+	document = world.call("POST", "/v1/documents", json={"title": "Guarded"}).json()
+	project = world.call("POST", "/v1/projects", json={"key": "web", "title": "Site"}).json()
+
+	stale = {
+		"/v1/tasks/": (str(task["ref"]), task["version"]),
+		"/v1/documents/": (str(document["ref"]), document["version"]),
+		"/v1/projects/": ("web", project["version"]),
+	}
+
+	# Moved on, so the version each caller holds is genuinely out of date. Without this every
+	# route would pass by agreeing with a version that never changed.
+	world.call("PATCH", f"/v1/tasks/{task['ref']}", json={"description": "moved on"})
+	world.call("PATCH", f"/v1/documents/{document['ref']}", json={"body": "moved on"})
+	world.call("PATCH", "/v1/projects/web", json={"description": "moved on"})
+
+	routes = _changes_an_entity()
+
+	assert len(routes) >= 15, f"only {len(routes)} routes were found, so this reads almost nothing"
+
+	ignored = []
+
+	for name, method, path, segment in routes:
+		if name in NOT_A_CHANGE_TO_THE_ENTITY:
+			continue
+
+		prefix = next(start for start, _ in _ENTITIES if path.startswith(start))
+		address, version = stale[prefix]
+		answered = world.call(
+			method,
+			path.replace("{" + segment.strip("{}") + "}", address),
+			headers={"if-match": f'"{version}"'},
+			json=_BODIES.get(name),
+		)
+
+		if answered.status_code != 409:
+			ignored.append(f"{name} answered {answered.status_code}")
+
+	assert not ignored, (
+		"These routes were given a version that is no longer current and changed the entity "
+		"anyway: " + ", ".join(sorted(ignored)) + ". Pass concurrency.expected(request) to "
+		"the service, or record in NOT_A_CHANGE_TO_THE_ENTITY what the route writes instead."
+	)
+
+
+def test_nothing_is_excused_that_no_longer_exists () -> None:
+	"""An excuse outliving its route is a decision nobody can find to reverse."""
+
+	declared = {name for name, _method, _path, _segment in _changes_an_entity()}
+	gone = sorted(set(NOT_A_CHANGE_TO_THE_ENTITY) - declared)
+
+	assert not gone, f"These excused routes no longer exist: {', '.join(gone)}"
 
 
 def test_two_writers_holding_the_same_version_do_not_both_win (

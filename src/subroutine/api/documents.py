@@ -470,6 +470,10 @@ class Move(subroutine.api.schemas.RequestModel):
 
 	parent: str | None = None
 
+	#: The version this move is based on. Optional; ``If-Match`` does the same job for a
+	#: client that prefers the header, and sending neither means the check was not asked for.
+	expected_version: int | None = None
+
 	def requested (self) -> bool:
 		"""Report whether the caller actually named a destination."""
 
@@ -480,6 +484,7 @@ class Move(subroutine.api.schemas.RequestModel):
 	"/{id_or_ref}/move", summary="Nest a document under another, or move it to the top level"
 )
 def move (
+	request: starlette.requests.Request,
 	id_or_ref: subroutine.api.schemas.ItemAddress,
 	body: Move,
 	actor: subroutine.api.security.PrincipalDep,
@@ -513,7 +518,14 @@ def move (
 	document = _resolve(session, actor, workspace, id_or_ref)
 	parent = None if body.parent is None else _resolve(session, actor, workspace, body.parent)
 
-	subroutine.domain.documents.move(session, document, parent=parent, actor=actor)
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):
+		subroutine.domain.documents.move(
+			session,
+			document,
+			parent=parent,
+			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			actor=actor,
+		)
 
 	return _rendered(session, document)
 
