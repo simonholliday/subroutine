@@ -141,7 +141,27 @@ def _the_connections (settings: subroutine.config.Settings) -> list[Finding]:
 	if not roster.connections:
 		return [Finding(area="connections", detail="none are configured", unknown=True)]
 
-	return [_one_connection(connection, roster, settings) for connection in roster.connections]
+	found: list[Finding] = []
+
+	for connection in roster.connections:
+		found.append(_one_connection(connection, roster, settings))
+
+		# **Its own line rather than folded into the one above**, because the two are different
+		# facts and either can be true without the other. A connection that cannot be reached
+		# is reported as unreachable — and folding this in there would mean the exposure was
+		# only ever mentioned about servers that happened to answer, which is precisely
+		# backwards for somebody who has just typed the address wrong.
+		if subroutine.connections.in_the_clear(connection):
+			found.append(
+				Finding(
+					area=connection.name,
+					detail="reached over plain http, so its token crosses the network "
+					"readable by anything in between",
+					ok=False,
+				)
+			)
+
+	return found
 
 
 def _one_connection (

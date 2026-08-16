@@ -26,6 +26,16 @@ upgrade involves.
 
 ### Security
 
+- **A task's title cannot repaint your terminal.** Rich's markup was already neutralised in
+  titles; ANSI escapes were not, so a title carrying `ESC[2K` cleared the line above it when
+  anything printed it. Titles arrive from other people, from agents, and from instances merged
+  across connections. They are printed as text now, everywhere the command line prints.
+
+- **A connection reached over plain `http` says so** — when you add it, in `subroutine
+  connections`, and in `subroutine doctor`. `serve` refuses to *be* the other end of that, in
+  as many words; the client stored the token and sent it on every request without a murmur.
+  Loopback is unaffected, because nothing leaves the machine.
+
 - **A mistyped project key no longer lists projects you cannot see.** Filing with `+nosuchkey`
   answered "Projects here: …" with every project in the workspace, private ones included — so
   an ordinary member could learn the name and the existence of a project they are not in, by
@@ -358,6 +368,15 @@ upgrade involves.
   project. The refusal names both projects and the command that moves it there first.
 
 ### Fixed
+
+- **A credentials file anyone can read is now mentioned by commands you actually run.** The
+  warning existed, promised "any command that reads a token from the file", and was produced by
+  exactly one — which is hidden from `--help` until you have a second connection.
+
+- **`subroutine add` resolves dates in your timezone rather than each instance's.** `subroutine
+  today` has always done so, and says why: two instances configured for different zones would
+  otherwise file two different Fridays into one merged list. A `default_timezone` that is not a
+  real zone is now refused by both, where `add` used to ignore it.
 
 - **`starlette` is a declared dependency now.** Nineteen modules here import it directly and
   nothing named it, so the version you got was whatever FastAPI last chose. Nothing changes for

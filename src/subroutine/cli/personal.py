@@ -39,6 +39,7 @@ import rich.text
 import typer
 import typer.core
 
+import subroutine.cli.output
 import subroutine.clients.base
 import subroutine.clients.opening
 import subroutine.config
@@ -889,6 +890,8 @@ def register (
 
 		resolved = settings()
 
+		_warn_about_the_credentials_file(warn)
+
 		try:
 			roster = subroutine.connections.roster(resolved)
 			marker = subroutine.directory.find()
@@ -1562,6 +1565,13 @@ def register (
 				# mean, and it is the same argument `--type` already makes.
 				recurrence=repeat.strip() or None,
 				recurrence_anchor=repeat_from.strip() or None,
+				# **This machine's zone, for the reason `today` states in the same words**
+				# (§13.7): resolved here so every connection reads "friday" as the same day.
+				# It was not passed at all, so each instance applied its own notion of the
+				# caller — a person whose work profile says America/New_York and whose
+				# personal one says Europe/London filed *two different Fridays* and then
+				# merged them into one agenda that had already decided which day it was.
+				timezone=world.settings.default_timezone,
 				# **No `--repeat-trigger`, deliberately** (`#94`). `time` is refused by name
 				# until `#916` expands a rule into a date-ranged view, so the flag would offer
 				# one accepted value and one that always fails — a control with nothing to
@@ -4625,10 +4635,15 @@ def register (
 		except subroutine.errors.SubroutineError as error:
 			fail(error)
 
-		warning = subroutine.credentials.permission_warning()
+		_warn_about_the_credentials_file(warn)
 
-		if warning is not None:
-			warn(warning)
+		# Named per connection, because a person with three of them needs to know *which*.
+		for exposed in roster:
+			if subroutine.connections.in_the_clear(exposed):
+				warn(
+					f"{exposed.name} is reached over plain http, so its token crosses the "
+					f"network readable by anything in between."
+				)
 
 		rows = [_connection_row(connection, roster, resolved, current) for connection in roster]
 		widths = [max(len(row[column]) for row in rows) for column in range(3)]
@@ -4848,6 +4863,18 @@ def register (
 
 		else:
 			say(f"Its token comes from {found.source}.")
+
+		# **The rule `serve` enforces, said from the other end.** An instance refuses to listen
+		# beyond its own machine without TLS — "bearer tokens sent over plain HTTP are
+		# compromised tokens" — and nothing said a word to somebody pointing a *client* at
+		# exactly that address and handing it a credential. Said rather than refused: this is
+		# somebody else's server and the reader may have no say over it, so the useful thing is
+		# knowing rather than being stopped.
+		if subroutine.connections.in_the_clear(connection):
+			warn(
+				f"{wanted} is reached over plain http, so its token crosses the network "
+				f"readable by anything in between. Ask whoever runs it for an https address."
+			)
 
 		# **Three sentences because there are three situations**, and the differences are what a
 		# reader needs. A read-only connection is where a bare number points and is not where
@@ -5559,6 +5586,32 @@ def _matching (
 			return client
 
 	raise LookupError(f"No open client for connection {name!r}.")
+
+
+def _warn_about_the_credentials_file (
+	warn: typing.Callable[[str], None],
+) -> None:
+	"""Say once that the credentials file is readable by anyone else, if it is.
+
+	**The warning existed and one command produced it.** Its own docstring promised
+	``subroutine connections`` *and any command that actually reads a token from the file* —
+	and ``connections`` was the only caller, which §1.4 hides from ``--help`` until a second
+	connection exists. So the person most likely to have a loose file, and least likely to go
+	looking, was told nothing by anything they would run.
+
+	Called where every command that opens a connection passes through, which is what the
+	sentence claimed all along. **No once-per-process flag**, tempting as one is for a command
+	opening three connections: this is called from two places and each runs once, and a module
+	flag would be state that survives an invocation — which in a test process means the
+	warning is said to whichever test happens to run first and to none of the others. ``ssh`` refuses a private key with loose permissions outright;
+	this warns, because the consequence of refusing is somebody unable to see their own to-do
+	list, and their tasks are not their SSH key.
+	"""
+
+	warning = subroutine.credentials.permission_warning()
+
+	if warning is not None:
+		warn(warning)
 
 
 def _client (
@@ -6765,4 +6818,4 @@ def suggest (command: str, about: str | None = None) -> None:
 	thing and lined up with nothing else on the screen.
 	"""
 
-	_suggest(rich.console.Console(), command, about)
+	_suggest(subroutine.cli.output.Terminal(), command, about)

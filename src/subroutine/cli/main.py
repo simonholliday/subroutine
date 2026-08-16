@@ -19,7 +19,6 @@ import traceback
 import typing
 
 import pydantic
-import rich.console
 import rich.text
 import sqlalchemy
 import sqlalchemy.engine
@@ -29,6 +28,7 @@ import typer
 
 import subroutine
 import subroutine.auth
+import subroutine.cli.output
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.clients.base
@@ -119,8 +119,8 @@ app.add_typer(profile_app, name="profile")
 
 #: Soft wrapping leaves line breaking to the terminal. Rich's own wrapper breaks inside a
 #: long path, which makes an unreadable mess of exactly the values a user needs to copy.
-_out = rich.console.Console(soft_wrap=True)
-_err = rich.console.Console(stderr=True, soft_wrap=True)
+_out = subroutine.cli.output.Terminal(soft_wrap=True)
+_err = subroutine.cli.output.Terminal(stderr=True, soft_wrap=True)
 
 
 def _say (message: str) -> None:
@@ -130,7 +130,7 @@ def _say (message: str) -> None:
 	square bracket in a task title should appear, not be interpreted.
 	"""
 
-	_out.print(message, markup=False, highlight=False)
+	_out.print(subroutine.cli.output.plain(message), markup=False, highlight=False)
 
 
 def _fail (error: subroutine.errors.SubroutineError) -> typing.NoReturn:
@@ -281,10 +281,10 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 	about `typer.Exit`.
 	"""
 
-	_err.print(error.detail, markup=False, highlight=False)
+	_err.print(subroutine.cli.output.plain(error.detail), markup=False, highlight=False)
 
 	if error.hint is not None:
-		_err.print(error.hint, markup=False, highlight=False)
+		_err.print(subroutine.cli.output.plain(error.hint), markup=False, highlight=False)
 
 	for field in error.errors:
 		# A single field error whose message is already the detail — or already the hint —
@@ -297,14 +297,16 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 		said = len(error.errors) == 1 and field.message in (error.detail, error.hint)
 
 		if not said:
-			_err.print(f"  {field.field}: {field.message}", markup=False, highlight=False)
+			_err.print(subroutine.cli.output.plain(f"  {field.field}: {field.message}"), markup=False, highlight=False)
 
 		if field.hint is None or field.hint in (error.hint, field.message):
 			continue
 
 		# Indented under the field it belongs to when that was printed, so a refusal naming
 		# several fields does not run their remedies together.
-		_err.print(f"{'  ' if said else '    '}{field.hint}", markup=False, highlight=False)
+		_err.print(
+			subroutine.cli.output.plain(f"{'  ' if said else '    '}{field.hint}"), markup=False, highlight=False
+		)
 
 
 def _stop (message: str, hint: str | None = None) -> typing.NoReturn:

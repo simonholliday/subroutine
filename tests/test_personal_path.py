@@ -5859,3 +5859,37 @@ def test_saying_how_a_repeat_is_measured_without_saying_how_often_is_refused (
 	empty = run("update", "1", "--repeat-from", "", expect=1)
 
 	assert "always measured from something" in empty.output
+
+
+def test_a_title_carrying_terminal_escapes_is_printed_rather_than_obeyed (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Rich neutralises its own markup and passes ANSI straight through.
+
+	Measured before this was written: ``ESC[2K`` survives a plain string *and* a
+	``rich.text.Text``, where ``BEL`` is dropped by Rich itself. So a title could clear the
+	line above it, repaint what was there, or move the cursor — and every listing, every
+	agenda and every ``show`` prints titles.
+
+	**Titles arrive from other people**, which is what makes it worth doing: on a shared
+	instance the text being printed was written by somebody who is not the reader, and §13.7
+	merges an agenda across connections that are not even the same installation.
+
+	Driven through the real commands rather than against the helper, because the listing does
+	not print strings — it builds ``rich.text.Text`` and prints that, which is the path a check
+	on the string helper would have missed entirely.
+	"""
+
+	run("init")
+	run("add", "Buy milk \x1b[2K\x1b[1;31mDANGER\x1b[0m")
+
+	for command in (("list",), ("today",), ("show", "1")):
+		printed = run(*command).output
+
+		assert "\x1b[2K" not in printed, f"'{' '.join(command)}' passed an escape through"
+		assert "DANGER" in printed, f"'{' '.join(command)}' lost the text around it"
+
+	# And the refusal path, which prints what the caller typed back at them.
+	refused = run("show", "\x1b[2K999", expect=1)
+
+	assert "\x1b[2K" not in refused.output

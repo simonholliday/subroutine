@@ -325,6 +325,31 @@ def check_url (value: str) -> str:
 	)
 
 
+def in_the_clear (connection: Connection) -> bool:
+	"""Report whether reaching this connection puts its token on the network unprotected.
+
+	**The rule ``serve`` already enforces, asked from the other end.** An instance refuses to
+	listen beyond its own machine without TLS, in as many words — *"bearer tokens sent over
+	plain HTTP are compromised tokens"* — and a *client* would happily be pointed at exactly
+	that address, store the token and send it on every request, saying nothing. The README
+	states the rule twice; nothing on this side of it ever did.
+
+	Loopback is not in the clear: nothing leaves the machine, which is the same exception
+	``serve`` makes and for the same reason. A URL that cannot be parsed is treated as
+	exposed, because guessing wrong in that direction only costs a line of output.
+	"""
+
+	if connection.url is None:
+		return False
+
+	parsed = urllib.parse.urlparse(connection.url)
+
+	if parsed.scheme != "http":
+		return False
+
+	return not subroutine.config.is_loopback(parsed.hostname or "")
+
+
 def _connection (name: str, table: dict[str, typing.Any]) -> Connection:
 	"""Build one connection from its configuration table."""
 

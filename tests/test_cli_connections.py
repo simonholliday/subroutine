@@ -2827,3 +2827,124 @@ def test_whoami_lists_permissions_for_a_role_that_does_not_hold_everything (
 	assert "Narrowed to" not in answer, "the fixture narrowed the credential, so it proves nothing"
 	assert "may: " in answer, "a contributor was told its role and not what the role may do"
 	assert "task:read" in answer
+
+
+def test_a_token_crossing_the_network_in_the_clear_is_said_on_every_surface (
+	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`serve` refuses to *be* the other end of this and the client said nothing.
+
+	An instance declines to listen beyond its own machine without TLS, in as many words —
+	"bearer tokens sent over plain HTTP are compromised tokens". A client pointed at exactly
+	that address stored the token, sent it on every request and mentioned it nowhere:
+	not when the connection was added, not in the listing, not in `doctor`. The README states
+	the rule twice.
+
+	Driven on all three, because the finding is that three surfaces were silent rather than
+	that one was. Said rather than refused: the server is somebody else's and the reader may
+	have no say over it, so what helps is knowing.
+	"""
+
+	assert two.url.startswith("http://127.0.0.1"), "the fixture serves over loopback"
+
+	# Loopback is not in the clear — nothing leaves the machine — so the ordinary fixture must
+	# say nothing at all, or the warning is one nobody would read twice.
+	assert "plain http" not in run("connections").output
+	assert "plain http" not in run("doctor").output
+
+	declare(home, '\n[connections.remote]\nurl = "http://tasks.example.com"\n')
+	subroutine.credentials.store("remote", "sr_not_a_real_token")
+
+	listed = run("connections").output
+
+	assert "plain http" in listed
+	assert "remote" in listed
+
+	# `doctor` exits 1 when something wants acting on, which this does.
+	assert "plain http" in run("doctor", expect=1).output
+
+
+def test_adding_a_connection_over_plain_http_says_so (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The moment somebody is choosing, which is the one moment they can ask for an https one."""
+
+	run("init", "--workspace", "Personal")
+
+	with served(tmp_path) as remote:
+		added = run(
+			"connections",
+			"add",
+			"work",
+			"--url",
+			remote.url.replace("127.0.0.1", "localhost"),
+			input=f"{remote.token}\n",
+		)
+
+		assert "plain http" not in added.output, "localhost is loopback and leaves the machine"
+
+
+def test_a_credentials_file_anybody_can_read_is_said_by_an_ordinary_command (
+	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""The warning existed, promised every command that reads a token, and reached one.
+
+	`credentials.permission_warning`'s own docstring said it was reported by ``subroutine
+	connections`` *and by any command that actually reads a token from the file*. There was
+	one caller, and §1.4 hides that command from ``--help`` until a second connection exists —
+	so the person most likely to have a loose file, and least likely to go looking for it, was
+	told by nothing they would ever run.
+
+	Driven through ``list``, which is what somebody actually types.
+	"""
+
+	where = subroutine.credentials.credentials_file_path()
+
+	assert where.is_file(), "the fixture stored a token, so there is a file to loosen"
+
+	where.chmod(0o644)
+
+	listed = run("list")
+
+	assert str(where) in listed.output, "the file is named, because the remedy is on it"
+	assert "chmod" in listed.output, "and the command that fixes it"
+
+	where.chmod(0o600)
+
+	assert str(where) not in run("list").output, "and nothing is said when it is not loose"
+
+
+def test_a_timezone_this_machine_cannot_use_is_refused_by_add_as_it_is_by_today (
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``today`` resolved the day here and ``add`` let each instance decide.
+
+	``today``'s own comment states the rule in as many words — *"resolved once, here, in this
+	machine's zone, because each instance would otherwise apply its own notion of the caller's
+	timezone, and a person whose work profile says America/New_York and whose personal one
+	says Europe/London would get two different days merged into one list"*. ``add`` passed no
+	timezone at all, so the argument held for reading and not for writing.
+
+	**Asserted through the misconfiguration rather than through a date**, deliberately: a test
+	comparing days depends on what time it is run, which this suite has been bitten by, and a
+	setting neither command can use is true at every hour. Before this, ``today`` refused it
+	and ``add`` filed happily — which is the same divergence stated in a way a clock cannot
+	move.
+	"""
+
+	run("init", "--workspace", "Personal")
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", "Nowhere/Atall")
+
+	refused = run("today", expect=1)
+
+	assert "Nowhere/Atall" in refused.output, "today has always refused it"
+
+	filed = run("add", "Pay the rent by friday", expect=1)
+
+	assert "Nowhere/Atall" in filed.output, (
+		"add read the zone from nowhere, so a setting today refuses was invisible to it"
+	)

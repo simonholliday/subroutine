@@ -335,8 +335,13 @@ def permission_warning () -> str | None:
 
 	``ssh`` refuses a private key with loose permissions outright. This warns instead,
 	because the consequence of refusing is that a person cannot see their own to-do list —
-	and their tasks are not their SSH key. It is reported by ``subroutine connections`` and by any
-	command that actually reads a token from the file.
+	and their tasks are not their SSH key.
+
+	**Reported by every command that opens a connection**, which is what this sentence said
+	and was not. There was one caller — ``subroutine connections`` — and §1.4 hides that from
+	``--help`` until a second connection exists, so the promise reached nobody who had not
+	already gone looking. ``cli/personal._warn_about_the_credentials_file`` is where it is
+	said now, once per invocation.
 	"""
 
 	path = credentials_file_path()
