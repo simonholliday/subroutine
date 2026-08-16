@@ -10,6 +10,7 @@ for everybody who does not live in one.
 """
 
 import datetime
+import time
 import zoneinfo
 
 import pytest
@@ -344,3 +345,59 @@ def test_a_rule_is_stored_as_it_was_checked_rather_than_as_it_was_typed () -> No
 	# A row written before this was fixed is still out there, so `describe` does not assume
 	# its argument came from `_checked`.
 	assert subroutine.domain.recurrence.describe("freq=weekly;byday=mo") == "every Monday"
+
+
+@pytest.mark.parametrize(
+	"impossible",
+	[
+		"FREQ=DAILY;BYMONTH=2;BYMONTHDAY=31",
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30",
+		"FREQ=YEARLY;BYMONTH=4;BYMONTHDAY=31",
+		"FREQ=MONTHLY;BYMONTH=6,9;BYMONTHDAY=31",
+	],
+)
+def test_a_rule_naming_a_date_that_does_not_exist_is_refused (impossible: str) -> None:
+	"""Well-formed, legal, and asking for the 31st of February.
+
+	Nothing rejected it. It parses, it stores, ``describe`` renders it as *"every day, on 31
+	February"*, and asking for its occurrences sends ``dateutil`` walking the calendar day by
+	day until its own internal limit — **2.68 seconds of CPU, synchronously, measured**, for
+	one request on an endpoint whose default rate limit is 600 a minute.
+
+	**Refused rather than bounded, and the measurement is why.** A ceiling on the search was
+	written first and thrown away: ``dateutil`` applies ``UNTIL`` to candidates it *generates*,
+	so a rule that generates none runs to its internal limit whatever ceiling it is given —
+	measured at the same 2.66 seconds with one in place, which is an inert control. Refusing
+	also answers the better question: this is not a date, rather than a date with nothing on it.
+	"""
+
+	started = time.monotonic()
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.recurrence.rule(impossible)
+
+	assert time.monotonic() - started < 1.0, "refused, but only after doing the work anyway"
+
+
+@pytest.mark.parametrize(
+	"possible",
+	[
+		# A birthday somebody has.
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29",
+		# The 31st of whichever months have one, which is what the rule means.
+		"FREQ=MONTHLY;BYMONTHDAY=31",
+		# February can never be the 31st and March always can, so the pair is satisfiable.
+		"FREQ=YEARLY;BYMONTH=2,3;BYMONTHDAY=31",
+		# Counting back from the end of a short month is fine.
+		"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1",
+	],
+)
+def test_a_rare_date_is_not_an_impossible_one (possible: str) -> None:
+	"""The half that makes the refusal above worth having rather than merely strict.
+
+	Each of these looks like the refused shape and comes round: a leap day, a month that has a
+	31st only sometimes, a pair where one month can and the other cannot, and a day counted
+	back from the end. A check that refused these would be one somebody has to work around.
+	"""
+
+	assert subroutine.domain.recurrence.rule(possible).rule

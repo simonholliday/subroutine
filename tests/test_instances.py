@@ -1786,3 +1786,41 @@ def test_a_refusal_says_who_is_holding_it_rather_than_how_many (
 	# an autovacuum worker, which was one of the hypotheses this could not previously rule out.
 	assert "client backend" in said, f"the refusal does not say what is holding it: {said}"
 	assert "s old" in said, f"the refusal does not say how long it has been there: {said}"
+
+
+def test_a_database_password_is_never_written_onto_a_command_line () -> None:
+	"""``/proc/<pid>/cmdline`` is world-readable, and a dump of a large database runs for minutes.
+
+	The URL handed to ``pg_dump`` and ``psql`` carried the password, so for the whole life of a
+	backup every process on the machine could read it — including one belonging to somebody who
+	has an account and nothing else. ``PGPASSWORD`` in the child's environment is the supported
+	alternative and is what these tools document.
+
+	Both halves are asserted, because passing neither is also a way to keep the password off the
+	command line, and it does not work.
+	"""
+
+	# A real engine, not a mock: `_connectable` and `_secret_of` both read `engine.url`, and a
+	# stand-in without one would be a test of the stand-in. Nothing connects — SQLAlchemy builds
+	# an engine lazily — so the address need not exist.
+	engine = sqlalchemy.create_engine("postgresql+psycopg://someone:hunter2@db.example:5432/work")
+
+	connectable = subroutine.db.backup._connectable(engine)
+
+	assert "hunter2" not in connectable, connectable
+	assert "someone@db.example" in connectable, "and everything else survives"
+	assert connectable.startswith("postgresql://"), "the DBAPI is still stripped"
+
+	assert subroutine.db.backup._secret_of(engine) == {"PGPASSWORD": "hunter2"}
+
+
+def test_a_url_with_no_password_adds_nothing_to_the_environment () -> None:
+	"""Which is the ordinary case here — authentication by Unix socket — and it must not change.
+
+	An empty mapping means the child inherits this process's environment untouched, so the
+	common path is byte for byte what it was.
+	"""
+
+	engine = sqlalchemy.create_engine("postgresql+psycopg:///subroutine")
+
+	assert subroutine.db.backup._secret_of(engine) == {}

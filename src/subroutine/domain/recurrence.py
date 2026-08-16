@@ -433,6 +433,8 @@ def _checked (value: str, *, field: str) -> str:
 	except (ValueError, TypeError) as unreadable:
 		raise _refuse(value, field=field, why=str(unreadable)) from None
 
+	_refuse_a_day_that_never_comes(value, found, field=field)
+
 	# **Stored as it was checked, not as it was typed** (`#929`). Every part of an ``RRULE`` is
 	# case-insensitive and this function upper-cases each *name* to validate it — then returned
 	# the original string, so ``freq=weekly;byday=mo`` was accepted, stored verbatim, and
@@ -442,6 +444,66 @@ def _checked (value: str, *, field: str) -> str:
 	# Safe to upper-case whole: an ``RRULE``'s values are keywords, integers and a UTC
 	# timestamp, none of which carries meaning in its case.
 	return written.upper()
+
+
+#: The most days each month can have. February's 29 is a leap year, which is rare and real —
+#: "every 29 February" is a birthday somebody has.
+_DAYS_IN = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+
+
+def _refuse_a_day_that_never_comes (
+	value: str, parts: dict[str, str], *, field: str
+) -> None:
+	"""Refuse a rule that is well-formed, legal, and names a date that does not exist.
+
+	``FREQ=DAILY;BYMONTH=2;BYMONTHDAY=31`` asks for the 31st of February. Nothing rejected it:
+	it parses, it stores, ``describe`` renders it as *"every day, on 31 February"*, and asking
+	for its occurrences sends ``dateutil`` walking the calendar day by day until its own
+	internal limit — **2.68 seconds of CPU, synchronously, measured**, for one request on an
+	endpoint whose default rate limit is 600 a minute.
+
+	**Refused rather than bounded**, and that is the decision. A time limit on the search would
+	answer *"no occurrences"* to a question whose real answer is *"that is not a date"*, and
+	would leave the rule stored — so the same three seconds would be spent again by every
+	listing that expanded it. This is a validity check the rule was always missing, and the
+	pathological cost goes with it.
+
+	Only the combination that is decidable from the rule alone: every month it names against
+	the longest that month can be. A rule with no ``BYMONTHDAY`` names no impossible day, and
+	one whose months include a long enough one is satisfiable somewhere.
+	"""
+
+	days = [
+		int(piece) for piece in parts.get("BYMONTHDAY", "").split(",")
+		if piece.strip().lstrip("-").isdigit()
+	]
+	months = [
+		int(piece) for piece in parts.get("BYMONTH", "").split(",")
+		if piece.strip().isdigit()
+	]
+
+	if not days or not months:
+		return
+
+	# A negative day counts back from the end of the month, so it is possible wherever the
+	# month is at least that long — the same comparison, and never impossible for 1 to 28.
+	reachable = [
+		(month, day) for month in months for day in days
+		if abs(day) <= _DAYS_IN.get(month, 31)
+	]
+
+	if reachable:
+		return
+
+	names = {2: "February", 4: "April", 6: "June", 9: "September", 11: "November"}
+	month, day = months[0], days[0]
+
+	raise _refuse(
+		value,
+		field=field,
+		why=f"There is no {abs(day)} {names.get(month, 'th month'.replace('th month', str(month)))} "
+		f"in any year, so this would never come round.",
+	)
 
 
 def names_its_own_day (stored: str) -> bool:

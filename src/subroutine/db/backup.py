@@ -1158,6 +1158,7 @@ def _take_postgresql (engine: sqlalchemy.engine.Engine, target: pathlib.Path) ->
 			_connectable(engine),
 		],
 		what="pg_dump",
+		secrets=_secret_of(engine),
 	)
 
 
@@ -1184,19 +1185,55 @@ def _connectable (engine: sqlalchemy.engine.Engine) -> str:
 	* SQLAlchemy's drivername carries the DBAPI — ``postgresql+psycopg`` — and ``pg_dump`` has
 	  never heard of it. Handed one, it reads the *whole URL* as a database name and reports
 	  that no such database exists, which sends the reader looking in the wrong place.
+
+	**The password is not in it**, and :func:`_secret_of` is the other half: a command line is
+	world-readable in ``/proc/<pid>/cmdline`` for as long as the process runs, and a dump of a
+	large database runs for minutes. It travels in the child's environment instead, which is
+	what ``PGPASSWORD`` is for.
 	"""
 
 	url = engine.url
 
-	return url.set(drivername=url.get_backend_name()).render_as_string(hide_password=False)
+	# **``_replace`` rather than ``set``, and this is a trap worth naming.** ``URL.set`` builds
+	# from the arguments that are *not* ``None``, so ``set(password=None)`` is "leave it alone"
+	# and quietly returns the URL with the password still in it — which passes every reading of
+	# this function and defeats the whole point of it. ``set(password="")`` leaves a bare colon
+	# that some tools then send as an empty password.
+	return url._replace(
+		drivername=url.get_backend_name(), password=None
+	).render_as_string(hide_password=False)
 
 
-def _run (command: list[str], *, what: str) -> None:
-	"""Run one of the PostgreSQL tools, reporting its complaint rather than a traceback."""
+def _secret_of (engine: sqlalchemy.engine.Engine) -> dict[str, str]:
+	"""Return the environment a PostgreSQL tool needs to authenticate, if it needs one.
+
+	Empty where the URL carries no password — the ordinary case here, where authentication is
+	by Unix socket — so the child inherits this process's environment untouched and nothing
+	about the common path changes.
+	"""
+
+	password = engine.url.password
+
+	return {} if not password else {"PGPASSWORD": str(password)}
+
+
+def _run (
+	command: list[str], *, what: str, secrets: dict[str, str] | None = None
+) -> None:
+	"""Run one of the PostgreSQL tools, reporting its complaint rather than a traceback.
+
+	``secrets`` are added to the child's environment rather than written into ``command``,
+	because everything in a command line is readable by every process on the machine for as
+	long as this one runs (`#927`'s M-22).
+	"""
 
 	try:
 		process = subprocess.Popen(
-			command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+			command,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE,
+			text=True,
+			env=None if not secrets else {**os.environ, **secrets},
 		)
 
 	except FileNotFoundError as error:
@@ -1443,6 +1480,7 @@ def _restore_postgresql (
 			_connectable(engine),
 		],
 		what="psql",
+		secrets=_secret_of(engine),
 	)
 
 

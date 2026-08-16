@@ -26,6 +26,17 @@ upgrade involves.
 
 ### Security
 
+- **A database password is no longer written onto a command line.** `pg_dump` and `psql` were
+  handed the whole URL, so for the length of a backup every process on the machine could read
+  the password out of `/proc`. It travels in the child's environment now. Nothing changes where
+  PostgreSQL authenticates over a Unix socket, which is the ordinary setup.
+
+- **A repeat that names a date which does not exist is refused.** "The 31st of February" was
+  accepted, stored, and described back to you as `every day, on 31 February` — and asking when
+  it next came round spent nearly three seconds of the server working out that it never does.
+  A rare date is not an impossible one: 29 February, and the 31st of whichever months have one,
+  are unaffected.
+
 - **A refused write no longer takes what you typed with it.** The capture box, the link box and
   the comment box all cleared themselves the moment you pressed enter, while the request was
   still in flight — so a permission refusal, a conflict or a dropped connection reported the
