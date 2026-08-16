@@ -366,10 +366,16 @@ function tableAt (lines, start, where) {
 		return rule.startsWith(":") ? "left" : null;
 	});
 
+	/* **A class rather than an inline style** (`#927`'s M-28). This emitted
+	   `style="text-align:center"` — the only inline style the app produces anywhere — and
+	   `api/policy` says in as many words that the app *"uses no inline styles"*, which is the
+	   measurement `default-src 'self'` was chosen on. So the one construct that needed the
+	   exception was blocked by the policy written on the assumption there was none, and a
+	   centred column simply arrived left-aligned with a violation in the console. */
 	const styled = (column) => {
 		const how = alignments[column];
 
-		return how === null || how === undefined ? "" : ` style="text-align:${how}"`;
+		return how === null || how === undefined ? "" : ` class="align-${how}"`;
 	};
 
 	let out = "<table><thead><tr>";

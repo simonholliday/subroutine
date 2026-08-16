@@ -26,6 +26,16 @@ upgrade involves.
 
 ### Security
 
+- **A refused write no longer takes what you typed with it.** The capture box, the link box and
+  the comment box all cleared themselves the moment you pressed enter, while the request was
+  still in flight — so a permission refusal, a conflict or a dropped connection reported the
+  failure over a box that was already empty. They clear when the write has landed and not
+  before.
+
+- **A Markdown table's column alignment works.** It was written as an inline style, which this
+  app's own security policy blocks, so an aligned column arrived left-aligned with a complaint
+  in the browser console.
+
 - **`subroutine changes` no longer prints the database at you.** A deferred task read
   `(snoozed_is_all_day, snoozed_until)` and the rows `init` writes read `created
   workspace_member`. It says what changed in the words you would use — "when it comes back",

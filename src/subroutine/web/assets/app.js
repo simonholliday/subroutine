@@ -3925,8 +3925,14 @@ export function Adding ({
 
 		if (form.elements.text.value.trim() === "" || busy) return;
 
-		onAdd(readForm(form), Boolean(writing));
-		form.reset();
+		/* **Cleared once the write has landed, never before it** (`#927`'s M-24). This reset
+		   ran synchronously while the request was still in flight, so a 403, a 409, a 429 or a
+		   dropped connection answered *"That was not added"* over a box that had already been
+		   emptied — everything typed, gone, with nothing to retry from. `Conflict`'s own
+		   comment below calls exactly that the worst possible answer. */
+		Promise.resolve(onAdd(readForm(form), Boolean(writing))).then((landed) => {
+			if (landed) form.reset();
+		});
 	};
 
 	return html`
@@ -4657,8 +4663,12 @@ export function Linking ({ onLink, types, busy }) {
 
 		if (ref === "" || busy) return;
 
-		onLink(ref, form.elements.link_type.value);
-		form.reset();
+		/* Cleared once the write has landed, for the capture box's reason: a ref refused —
+		   because it names nothing, or names something in a project this reader cannot see —
+		   used to take the typed number with it. */
+		Promise.resolve(onLink(ref, form.elements.link_type.value)).then((landed) => {
+			if (landed) form.reset();
+		});
 	};
 
 	if (types.length === 0) return null;
@@ -4731,8 +4741,11 @@ export function Saying ({ onComment, busy }) {
 
 		if (written === "" || busy) return;
 
-		onComment(written);
-		form.reset();
+		/* Cleared once the write has landed, and this is the box where it costs most: a
+		   comment is the longest thing anybody types here, and a refusal used to empty it. */
+		Promise.resolve(onComment(written)).then((landed) => {
+			if (landed) form.reset();
+		});
 	};
 
 	return html`
@@ -5570,8 +5583,16 @@ export function App () {
 			await (agenda !== null
 				? readAgenda(me ? me.workspaces : [])
 				: load(workspace, project));
+
+			/* **Whether it landed, so the form knows whether to clear itself.** `wrote` has
+			   answered this way all along — the answer or null — and this one swallowed the
+			   refusal and returned nothing, which is what let the capture box empty on a
+			   failure. */
+			return true;
 		} catch (failure) {
 			setNote({ text: `That was not added. ${failure.message}`, tone: "bad" });
+
+			return false;
 		} finally {
 			setBusy(false);
 		}
@@ -5742,13 +5763,13 @@ export function App () {
 		   what comes back is what the instance stored — a `#42` in it becomes a mention, and a
 		   thread assembled on this side would drift from the one everybody else sees. `wrote`
 		   does the re-read, which is why this goes through it like every other write. */
-		if (!open) return;
+		if (!open) return false;
 
-		await wrote(
+		return Boolean(await wrote(
 			open.item,
 			() => ({ text: `Noted on #${open.item.ref}.`, tone: "good" }),
 			() => sent(commentRequest(open.item, body, workspace)),
-		);
+		));
 	}, [open, workspace, wrote]);
 
 	const link = useCallback(async (target, linkType) => {
@@ -5762,7 +5783,7 @@ export function App () {
 			would make a cycle — is the answer, and swallowing it to try the next kind would
 			report *there is no #42* about an item that is right there.
 		*/
-		if (!open) return;
+		if (!open) return false;
 
 		setBusy(true);
 
@@ -5784,8 +5805,12 @@ export function App () {
 			setNote({ text: `#${open.item.ref} ${made.label.toLowerCase()} `
 				+ `#${made.other.ref}.`, tone: "good" });
 			await show(open.item, { history: false });
+
+			return true;
 		} catch (failure) {
 			setNote({ text: `That link was not made. ${failure.message}`, tone: "bad" });
+
+			return false;
 		} finally {
 			setBusy(false);
 		}

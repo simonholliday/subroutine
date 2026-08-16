@@ -1326,6 +1326,15 @@ fieldset {
 
 .prose th, .comments .body th { background: var(--bg-sunken); font-weight: 600; }
 
+/*
+	A Markdown table says how each column is aligned, and the renderer used to say so with an
+	inline style — which `#805`'s policy blocks, because the policy was written on a measurement
+	that the app emits none. Three classes cost three rules and keep both true.
+*/
+.prose .align-left, .comments .body .align-left { text-align: left; }
+.prose .align-center, .comments .body .align-center { text-align: center; }
+.prose .align-right, .comments .body .align-right { text-align: right; }
+
 .prose a, .comments .body a { color: var(--accent); }
 
 .prose del, .comments .body del { color: var(--ink-faint); }

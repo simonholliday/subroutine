@@ -52,6 +52,21 @@ class Vendored:
 	#: with the code and both minified builds arrive without one.
 	notice: str
 
+	#: What the file must hash to, as ``sha256:<hex>``.
+	#:
+	#: **Nothing pinned these** (`#927`'s M-29): the catalogue recorded the package, the
+	#: version, the licence and the address, and none of that says what arrived. Replacing
+	#: ``preact.js`` with arbitrary code passed the entire suite, and ``script-src 'self'``
+	#: admits it by definition — the policy's whole argument is that the app loads nothing
+	#: from another host, which says nothing about what is *in* the files it does load.
+	#:
+	#: **The digest of the file as it is served rather than of the upstream download.**
+	#: ``phosphor.js`` is not the upstream file at all — it is a handful of path strings
+	#: lifted out of a tarball — so a digest of the source would be uncheckable for a quarter
+	#: of the catalogue and would answer a different question anyway: what matters is that the
+	#: bytes in this repository are the bytes somebody reviewed.
+	digest: str
+
 
 CATALOGUE: tuple[Vendored, ...] = (
 	Vendored(
@@ -61,6 +76,7 @@ CATALOGUE: tuple[Vendored, ...] = (
 		licence="MIT",
 		source="https://unpkg.com/preact@10.27.2/dist/preact.module.js",
 		notice="preact.LICENSE",
+		digest="sha256:a1cefabf06ec626adcb92731537e1e04fd09a7908e22551bab50540106dc950d",
 	),
 	Vendored(
 		filename="preact-hooks.js",
@@ -71,6 +87,7 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# Ships in the same package as `preact`, so one notice covers both. Named explicitly
 		# rather than left blank: a missing notice and a shared one look identical otherwise.
 		notice="preact.LICENSE",
+		digest="sha256:9295b344df14b5395a612fed63350619d029e91cc2e80e9a2a5f920e38b88972",
 	),
 	Vendored(
 		filename="htm.js",
@@ -79,6 +96,7 @@ CATALOGUE: tuple[Vendored, ...] = (
 		licence="Apache-2.0",
 		source="https://unpkg.com/htm@3.1.1/dist/htm.module.js",
 		notice="htm.LICENSE",
+		digest="sha256:ab33dd3f38059b9be4d5f5350128eefb2356639c4e0bbe9d9e8b3ba75847e9e4",
 	),
 	Vendored(
 		filename="phosphor.js",
@@ -92,5 +110,6 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# is the one place the count lives — a second copy here rotted the day `#925` added one.
 		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
 		notice="phosphor.LICENSE",
+		digest="sha256:a5798ee9c44adff95ea39bf38197c59e1126d66d3d63b88c921d15f3686befdb",
 	),
 )

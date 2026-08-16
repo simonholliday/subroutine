@@ -14,6 +14,7 @@ green build for us. Syntax checking cannot see it; only rendering can.
 
 import ast
 import datetime
+import hashlib
 import json
 import pathlib
 import re
@@ -79,6 +80,7 @@ TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
 		licence="MIT",
 		source="https://unpkg.com/preact-render-to-string@6.7.0/dist/index.mjs",
 		notice="render-to-string.LICENSE",
+		digest="sha256:619dd7d8058ec9f9d5dec610023f51b80493b28228c16c9e275d815e412675be",
 	),
 )
 
@@ -939,10 +941,16 @@ def test_every_vendored_file_is_recorded_with_its_licence () -> None:
 		)
 
 
+#: Every copied file and where it sits, so both tests below ask about all of them.
+_VENDORED = (
+	[(entry, subroutine.web.vendored.DIRECTORY) for entry in subroutine.web.vendored.CATALOGUE]
+	+ [(entry, TEST_VENDOR) for entry in TEST_ONLY]
+)
+
+
 @pytest.mark.parametrize(
 	("entry", "directory"),
-	[(entry, subroutine.web.vendored.DIRECTORY) for entry in subroutine.web.vendored.CATALOGUE]
-	+ [(entry, TEST_VENDOR) for entry in TEST_ONLY],
+	_VENDORED,
 	ids=lambda value: value.filename if isinstance(value, subroutine.web.vendored.Vendored) else "",
 )
 def test_each_vendored_file_carries_a_permissive_licence (
@@ -961,6 +969,42 @@ def test_each_vendored_file_carries_a_permissive_licence (
 
 	assert notice.is_file(), f"{entry.filename} has no licence text beside it"
 	assert notice.stat().st_size > 500, f"{notice.name} is too short to be a licence"
+
+
+@pytest.mark.parametrize(
+	("entry", "directory"),
+	_VENDORED,
+	ids=lambda value: value.filename if isinstance(value, subroutine.web.vendored.Vendored) else "",
+)
+def test_every_vendored_file_is_the_one_that_was_reviewed (
+	entry: subroutine.web.vendored.Vendored, directory: pathlib.Path
+) -> None:
+	"""Nothing pinned these, and `script-src 'self'` admits whatever is in them by definition.
+
+	The catalogue recorded the package, the version, the licence and the address it was fetched
+	from — and none of that says what *arrived*. Replacing ``preact.js`` with arbitrary code
+	passed the entire suite, and the policy's own argument is that the app loads nothing from
+	another host, which is a claim about where the files come from rather than about what is in
+	them.
+
+	**The digest is of the file as it is served, not of the upstream download.**
+	``phosphor.js`` is not the upstream file at all — it is a handful of path strings lifted
+	out of a tarball — so pinning the source would be uncheckable for a quarter of the
+	catalogue, and would answer a different question anyway. What matters is that the bytes in
+	this repository are the bytes somebody read.
+
+	Updating one is then: fetch it, look at it, and record the new digest in the same commit —
+	which is the review, made into a step somebody has to take rather than one they might.
+	"""
+
+	body = (directory / entry.filename).read_bytes()
+	found = f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+	assert found == entry.digest, (
+		f"{entry.filename} is not the file recorded in the catalogue: it hashes to {found} and "
+		f"{entry.digest} was written down. If you updated it deliberately, read the diff and "
+		f"record the new digest in the same commit."
+	)
 
 
 def test_a_file_only_the_tests_run_is_never_served () -> None:
@@ -8866,3 +8910,33 @@ def test_a_form_opened_on_a_repeat_says_what_is_in_force_before_anybody_types (
 
 	assert "every other week, on Tuesday" in typing, typing
 	assert "every Monday" not in typing, typing
+
+
+def test_a_table_column_says_how_it_is_aligned_without_an_inline_style (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The one inline style the app produced, blocked by the app's own policy.
+
+	`api/policy` states the measurement `default-src 'self'` was chosen on — the app *"uses no
+	inline styles and no ``url()`` in its stylesheet"* — and this renderer emitted
+	``style="text-align:center"`` for every aligned column of every Markdown table. So the one
+	construct that needed the exception was refused by the policy written on the assumption
+	there was none, and a centred column arrived left-aligned with a violation in the console.
+
+	Both halves: the alignment still reaches the page, and it reaches it as a class the
+	stylesheet defines — a rendering that names a class nothing styles is the same defect
+	wearing the fix.
+	"""
+
+	table = "| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |"
+	html = _markdown(tmp_path, [table])[0]
+
+	assert "style=" not in html, f"an inline style survives: {html!r}"
+
+	for how in ("left", "center", "right"):
+		assert f'class="align-{how}"' in html, f"{how} alignment is not rendered: {html!r}"
+
+	styles = subroutine.api.web.FILES["app.css"][0].decode("utf-8")
+
+	for how in ("left", "center", "right"):
+		assert f".align-{how}" in styles, f"the stylesheet does not define align-{how}"

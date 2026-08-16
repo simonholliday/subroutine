@@ -355,6 +355,13 @@ CARD: dict[str, typing.Any] = {
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
+#: What the instance answers when it will not do something — a problem document, which is what
+#: every refusal here really is. The detail is what the page shows beside the form.
+REFUSED: dict[str, typing.Any] = {
+	"type": "about:blank", "title": "Forbidden", "status": 403, "code": "forbidden",
+	"detail": "This needs the 'task:write' permission.",
+}
+
 #: The row for :data:`CARD` itself, by its own address rather than by position.
 CARD_ROW = ".rows li:has(a[href$='/42'])"
 
@@ -426,6 +433,8 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: without them. A holder rather than an argument to `answered`, because the route is
 	#: registered on the context once and every page shares it.
 	listing: list[typing.Any] = [ROWS]
+	#: The status every write is answered with, or ``None`` for the ordinary success.
+	refusing: list[int | None] = [None]
 
 	def answered (route: typing.Any) -> None:
 		"""Serve one request the way the instance would.
@@ -468,6 +477,20 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 			if route.request.method != "GET":
 				written.append((route.request.method, wanted, route.request.post_data))
+
+				# **A write can be made to fail**, because half of what a form does is decided
+				# by the refusal: a page that only ever succeeds cannot show whether typing
+				# survives one. A holder rather than an argument, for `listing`'s reason — the
+				# route is registered on the context once and every page shares it.
+				if refusing[0] is not None:
+					route.fulfill(
+						status=refusing[0],
+						body=json.dumps(REFUSED),
+						content_type="application/problem+json",
+					)
+
+					return
+
 				route.fulfill(
 					status=200, body=json.dumps(CARD),
 					content_type="application/json",
@@ -551,7 +574,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		return page
 
 	try:
-		yield opened, written
+		yield opened, written, refusing
 	finally:
 		context.close()
 
@@ -565,7 +588,7 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	predicts was covered by nothing**, and it is the half that reaches a reader.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	page = opened("/projects")
 
 	page.wait_for_selector("a[href]", timeout=10_000)
@@ -608,7 +631,7 @@ def test_a_card_is_draggable_on_the_board_and_nowhere_else (running: typing.Any)
 	and nothing else by decision: it is a text harness, and an attribute is not text.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	board = opened("/projects?view=board")
 
 	board.wait_for_selector(".board .rows li", timeout=10_000)
@@ -638,7 +661,7 @@ def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> Non
 	against `seed.py` and fail on the first instance that renames anything.
 	"""
 
-	opened, written = running
+	opened, written, _refusing = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -673,7 +696,7 @@ def test_a_card_dropped_where_it_already_was_is_not_a_write (running: typing.Any
 	being driven went somewhere else. A mutation that survives is a finding about the tests.
 	"""
 
-	opened, written = running
+	opened, written, _refusing = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -704,7 +727,7 @@ def test_a_column_is_a_drop_target_for_its_whole_height (running: typing.Any) ->
 	rather than at its middle, which is the point the old layout had nothing under.
 	"""
 
-	opened, written = running
+	opened, written, _refusing = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -950,6 +973,24 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	it the `catch` is drawn by nothing. What the server makes of a phrase is deliberately not
 	asked here — that is `tests/test_api_recurrence.py`, and this fixture stands in for the
 	server saying yes or no rather than for its judgement.
+
+	**Raised to seventeen for `#927`'s M-24, and the case is that this file could not see the
+	*failing* half of anything.** Every harness here answers a write with a card, so the whole
+	of what a form does when a write is refused — which is where its typing lives — was drawn
+	by nothing. Three forms cleared themselves synchronously while the request was in flight, so
+	a 403, a 409, a 429 or a dropped connection reported the failure over a box that had already
+	been emptied.
+
+	It is not a category this file has covered and it is exactly what it is for: a real
+	``submit``, a promise that has not settled, and the value of a DOM node afterwards.
+	``tests/dom.js`` calls components as plain functions, so there is no event to dispatch and
+	no element to read back — the same argument as `#94`'s above, aimed at the branch nobody had
+	built a fixture for.
+
+	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
+	success half is not padding — it is one line away from the refusal half in the code, and a
+	form that never cleared would put the last capture into the next one, which is the failure
+	this change could most easily have introduced.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -957,8 +998,8 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 16, (
-		f"this file holds {len(tests)} tests: {tests}. Sixteen answering what only a browser "
+	assert len(tests) <= 17, (
+		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
 	)
@@ -978,7 +1019,7 @@ def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) ->
 	columns fit when there is room and scroll when there is not, which is the whole claim.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	mixed = {
 		"items": [
 			dict(CARD, ref=n, kind=kind, status_category=category, title=f"{category} {n}")
@@ -1031,7 +1072,7 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	this repository has recorded three times.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	measured = {}
 
 	for view, address in (("list", "/projects"), ("board", "/projects?view=board")):
@@ -1093,7 +1134,7 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	only thing that could have.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 
 	def background (page: typing.Any) -> str:
 		painted = page.eval_on_selector(
@@ -1146,7 +1187,7 @@ def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None
 	tell an element laid out beside another from one laid out below it.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	page = opened("/projects?view=board")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
@@ -1198,7 +1239,7 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	somebody can still change it, which is the `catch` and a different path through `App`.
 	"""
 
-	opened, _written = running
+	opened, _written, _refusing = running
 	page = opened("/projects")
 
 	page.click(".adding .more")
@@ -1224,6 +1265,50 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	assert "every day" in refused, (
 		f"a phrase this cannot read must name the shapes that work: {refused!r}. A reader stuck "
 		f"on wording needs an example rather than a complaint."
+	)
+
+	page.close()
+
+
+def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any) -> None:
+	"""The capture box emptied itself while the request was still in flight.
+
+	`form.reset()` ran synchronously after handing the values over, so a 403, a 409, a 429 or a
+	dropped connection answered *"That was not added"* over a box that had already been cleared
+	— everything typed, gone, with nothing to retry from and no way to get it back.
+	`Conflict`'s own comment in `app.js` calls exactly that the worst possible answer, about
+	the neighbouring case.
+
+	**Only a browser can ask this.** It is a real ``submit`` event, a promise that has not
+	settled, and the value of a DOM node afterwards — three things `tests/dom.js` has none of:
+	it calls components as plain functions, so there is no event to dispatch and no element to
+	read back. The failing path is also the one nothing else covers, because every other
+	harness here answers a write with a card.
+
+	Both branches, because they are one line apart and fail in opposite directions: a refusal
+	must keep the text, and success must still clear it — a form that never cleared would put
+	the last capture into the next one.
+	"""
+
+	opened, written, refusing = running
+	page = opened("/projects")
+
+	refusing[0] = 403
+	page.fill(".adding input[name=text]", "Something worth not losing")
+	page.press(".adding input[name=text]", "Enter")
+	page.wait_for_selector(".note.bad", timeout=10_000)
+
+	assert written, "the page did not even try to write"
+	assert page.input_value(".adding input[name=text]") == "Something worth not losing", (
+		"the box was emptied while the write was in flight, so a refusal took the typing with it"
+	)
+
+	refusing[0] = None
+	page.press(".adding input[name=text]", "Enter")
+	page.wait_for_selector(".note.good", timeout=10_000)
+
+	assert page.input_value(".adding input[name=text]") == "", (
+		"a write that landed has to clear the box, or the next capture starts with this one"
 	)
 
 	page.close()
