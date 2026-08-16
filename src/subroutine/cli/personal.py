@@ -55,6 +55,7 @@ import subroutine.domain.durations
 import subroutine.domain.filtering
 import subroutine.domain.ordering
 import subroutine.domain.projects
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.search
@@ -6063,6 +6064,9 @@ def _facts (located: Located) -> list[str]:
 		if item.starts_at is not None:
 			facts.append(f"starts {_render_date(item.starts_at, item.timezone)}")
 
+		if item.recurrence_rule is not None:
+			facts.append(subroutine.domain.recurrence.describe(item.recurrence_rule))
+
 		if item.completed_at is not None:
 			facts.append(f"done {_render_date(item.completed_at, item.timezone)}")
 
@@ -6182,6 +6186,15 @@ def _when (item: Item) -> str:
 	said = [
 		phrase
 		for phrase in (
+			# **The repeat first, because it is the thing somebody just typed** (`#94`). A
+			# captured line is confirmed by this function, and *"every 14 days"* read out of a
+			# sentence needs the same confirmation a date does — §6.13's rule is that a word
+			# may only vanish if a field was set, and that is a property of the code rather
+			# than something a person can see. Read back from the rule rather than echoed, so
+			# it says what was understood and not what was typed.
+			None
+			if task.recurrence_rule is None
+			else subroutine.domain.recurrence.describe(task.recurrence_rule),
 			None
 			if task.starts_at is None
 			else f"starts {_render_date(task.starts_at, task.timezone)}",

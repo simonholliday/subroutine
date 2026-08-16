@@ -511,14 +511,25 @@ def test_the_capture_grammar_reaches_the_database (
 def test_a_recurring_phrase_is_kept_and_explained (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""``every …`` waits for M7. The words survive, and the user is told why."""
+	"""A phrase this cannot read survives, and the user is told why.
+
+	**`#94` reversed which phrases those are.** `every monday` is a rule now, so the sentence
+	is about a repeat *phrased* in a way this does not know rather than about the feature not
+	existing — and the readable case is asserted beside it, because a complaint printed on
+	every capture is one nobody reads.
+	"""
 
 	run("init")
 
-	result = run("add", "Water the plants every monday")
+	result = run("add", "Water the plants every fortnight")
 
-	assert "Water the plants every monday" in result.output
-	assert "not supported yet" in result.output
+	assert "Water the plants every fortnight" in result.output
+	assert "not a repeat this understands" in result.output
+
+	read = run("add", "Water the plants every monday")
+
+	assert "Left as written" not in read.output
+	assert "every Monday" in read.output, "the repeat was read and not confirmed"
 
 
 def test_plan_and_defer_move_a_task_between_days (

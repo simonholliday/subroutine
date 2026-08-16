@@ -60,7 +60,7 @@ class Absent (typing.NamedTuple):
 #: :func:`test_every_absent_path_is_still_absent` fails on, so it cannot be left behind.
 ABSENT: dict[str, Absent] = {
 	"SPEC.md": Absent(
-		ceiling=440,
+		ceiling=439,
 		why=(
 			"Moved into the instance on 2026-08-04 as 25 documents under the SPEC project, "
 			"index #472, and deleted from disk. Was never in the repository."

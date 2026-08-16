@@ -27,6 +27,7 @@ import typing
 
 import subroutine.domain.dates
 import subroutine.domain.durations
+import subroutine.domain.recurrence
 import subroutine.domain.schedule
 import subroutine.errors
 
@@ -65,13 +66,29 @@ _STARTS_A_WORD = r"(?<![^\s])"
 #: the one surface whose job is confirming their words survived. The title was always right;
 #: the report of it was not.
 #:
-#: The count and ``other`` are the two things that come between ``every`` and its unit, so
-#: they are what the pattern has to reach past. It stays deliberately loose about the unit
-#: itself — "every fortnight" is reserved and reported exactly like "every monday", because
-#: the point here is to *decline* a phrase rather than to understand one.
+#: **It is read rather than merely reserved since `#94`, and it stays deliberately greedy.**
+#: A qualifier can follow the unit — *every month on the 30th*, *every year on 19 august* —
+#: and ``on`` is a planned-day word, so a pattern stopping at the unit would hand "on the 30th"
+#: to the date grammar and set a start from inside a phrase that belongs to the repeat. So this
+#: takes as much as it plausibly can and :func:`_repeat_in` trims from the right until
+#: :mod:`subroutine.domain.recurrence` accepts it — which keeps the grammar in one place rather
+#: than being restated here as a second pattern that has to agree.
+#: **Both word orders, and the fronted one is not optional.** *On the last Thursday of every
+#: month* anchored on ``every`` matched only ``every month``: the rule came out as a plain
+#: monthly repeat — the wrong schedule — and *"on the last thursday of"* was left in the title.
+#: A wrong date and a mangled title from one line is §6.13 rule 1's exact failure, and it is
+#: the phrasing the brief was written in.
 _EVERY = re.compile(
-	rf"{_STARTS_A_WORD}every\s+(?:other\s+)?(?:\d+\s+)?\S+", re.IGNORECASE
+	rf"{_STARTS_A_WORD}(?:"
+	rf"on\s+the\s+\S+(?:\s+\S+)?\s+of\s+every\s+\S+"
+	rf"|every\s+(?:other\s+)?(?:\d+\s+)?\S+(?:\s+on\s+(?:the\s+)?\S+(?:\s+\S+)?)?"
+	rf")",
+	re.IGNORECASE,
 )
+
+#: How many words a repeat's phrase may be trimmed back by before this gives up on it. Three
+#: covers every qualifier the grammar has — ``on the last thursday`` is the longest.
+_TRIM = 3
 
 _WEEKDAY_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.WEEKDAYS, key=len, reverse=True)
@@ -258,6 +275,13 @@ class Capture:
 	starts_is_all_day: bool | None = None
 	snooze: datetime.date | str | None = None
 	snoozed_is_all_day: bool | None = None
+
+	#: How often this repeats, as a stored ``RRULE``, and the words it was written as (`#94`).
+	#: **Parsed here rather than reserved**, which is what `every 14 days` used to be: the span
+	#: was claimed so the date grammar could not steal `monday` out of it, and the words were
+	#: reported as unread. A phrase this still cannot read is reported exactly as it was.
+	recurrence: str | None = None
+	recurrence_text: str | None = None
 	importance: int | None = None
 	urgency: int | None = None
 	estimate_minutes: int | None = None
@@ -317,8 +341,13 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	clauses = []
 
 	if timed:
+		# **The reason changed when the feature landed** (`#94`). It said *"recurring tasks are
+		# not supported yet"*, which was true of every unread token here and is now true of
+		# none of them: a repeat this grammar cannot read is a repeat *phrased* in a way it
+		# does not know, and pointing at the forms that work is what a reader can act on.
 		clauses.append(
-			f"Left as written: {', '.join(timed)} — recurring tasks are not supported yet."
+			f"Left as written: {', '.join(timed)} — not a repeat this understands. "
+			f"{subroutine.domain.recurrence.PHRASE_HINT}"
 		)
 
 	if said:
@@ -421,12 +450,34 @@ def parse (
 	tags: list[str] = []
 	unparsed: list[str] = []
 
-	# Recurrence first, and only to reserve it: claiming the span stops `every monday` from
-	# being read as a planned day, while leaving the words in the title (M7).
-	for match in _EVERY.finditer(text):
-		unparsed.append(match.group(0))
+	# **Recurrence first, because the phrase contains words the date grammar wants.** Claiming
+	# the span is what stops `every monday` being read as a planned day and `every month on the
+	# 30th` being read as one — and since `#94` the phrase is *read* rather than only reserved,
+	# so the words leave the title when they became a rule and stay in it when they did not.
+	reserved: list[tuple[int, int]] = []
 
-	reserved = [match.span() for match in _EVERY.finditer(text)]
+	for match in _EVERY.finditer(text):
+		read = _repeat_in(match.group(0))
+
+		if read is None:
+			# Reserved and reported, exactly as before: "every fortnight" is not a rule this
+			# knows, and inventing one is what §6.13 rule 1 forbids.
+			unparsed.append(match.group(0))
+			reserved.append(match.span())
+
+			continue
+
+		rule, words = read
+
+		if "recurrence" not in fields:
+			fields["recurrence"] = rule
+			fields["recurrence_text"] = words
+
+		# **Only the words that were used**, so a trailing phrase this did not read stays in
+		# the title and can still be claimed by another rule — `every 14 days by friday` keeps
+		# its deadline.
+		start, _end = match.span()
+		claimed.append((start, start + len(words)))
 
 	before = len(claimed)
 
@@ -813,6 +864,36 @@ def _read_phrase (
 	# Everything else — a §9.3 expression or an ISO value — is handed to `schedule`, which
 	# already knows how to read both and how to infer all-day from the form.
 	return written, None
+
+
+
+def _repeat_in (phrase: str) -> tuple[str, str] | None:
+	"""Return the longest readable repeat in a claimed phrase, and the words it used.
+
+	**Trimmed from the right rather than matched exactly**, because :data:`_EVERY` is greedy
+	on purpose: it has to swallow a following ``on …`` so the date grammar cannot take half of
+	one phrase, and what it swallows is sometimes not part of the repeat at all. *Water the
+	plants every 14 days on friday* has no meaning as a rule, and the honest answer is the rule
+	for ``every 14 days`` with the rest left in the title rather than a refusal of the whole.
+
+	``None`` when nothing in it parses, which is what keeps *every fortnight* reported rather
+	than swallowed — the words stay in the title and the writer is told they were not read.
+	"""
+
+	words = phrase.split()
+
+	for taken in range(len(words), max(len(words) - _TRIM, 1) - 1, -1):
+		candidate = " ".join(words[:taken])
+
+		try:
+			read = subroutine.domain.recurrence.phrase(candidate)
+
+		except subroutine.errors.SubroutineError:
+			continue
+
+		return read, candidate
+
+	return None
 
 
 def _as_date (

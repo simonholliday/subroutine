@@ -36,6 +36,7 @@ import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.filtering
+import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.text
@@ -1594,6 +1595,13 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 
 		if item.completed_at is not None:
 			facts.append(f"done {item.completed_at.date().isoformat()}")
+
+		# **Both renderings say it, which `#674`'s guard is what made true** (`#94`). It caught
+		# this within the hour of the terminal gaining it: a repeat is the fact that most
+		# changes what the others mean, because "due Thursday" on something that comes back
+		# every fortnight is a different statement from "due Thursday" on a one-off.
+		if item.recurrence_rule is not None:
+			facts.append(subroutine.domain.recurrence.describe(item.recurrence_rule))
 
 	# The project only when somebody filed it somewhere. The Inbox is where things go when
 	# nobody said, so naming it would be reporting the absence of a decision.

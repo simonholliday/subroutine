@@ -1398,7 +1398,14 @@ class Vocabulary:
 		# to resolve a UUID before it can print anything — which is the second call review
 		# dimension 4 exists to prevent, multiplied by the page.
 		self.parents = _by_id(
-			session, subroutine.db.models.work.Task, parent_ids, ("ref", "title")
+			session,
+			subroutine.db.models.work.Task,
+			parent_ids,
+			# **`recurrence_rule` rides along** (`#94`), because an instance is the row a
+			# person sees and it does not carry the rule — so without this "Water the plants"
+			# reads as an ordinary task and nothing on any surface says it comes back. The
+			# rows are already being fetched; this asks them for one more column.
+			("ref", "title", "recurrence_rule"),
 		)
 
 		# **One query for every assignee on the page** (`#511`), for the reason the parents load
@@ -1527,7 +1534,11 @@ def task (
 		starts_is_all_day=row.starts_is_all_day,
 		snoozed_until=row.snoozed_until,
 		snoozed_is_all_day=row.snoozed_is_all_day,
-		recurrence_rule=row.recurrence_rule,
+		# **Falls back to the template's**, so an occurrence can say how it repeats. The rule
+		# lives on the template and the instance is what anybody looks at; a view reporting
+		# only what the row itself holds would make every occurrence read as a one-off.
+		recurrence_rule=row.recurrence_rule
+		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_rule"),
 		recurrence_text=row.recurrence_text,
 		recurrence_anchor=row.recurrence_anchor,
 		recurrence_trigger=row.recurrence_trigger,

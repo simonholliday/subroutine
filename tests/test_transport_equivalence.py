@@ -593,13 +593,30 @@ def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	from_local = local.capture(text="Water the plants every monday")
-	from_remote = remote.capture(text="Water the plants every monday")
+	from_local = local.capture(text="Water the plants every fortnight")
+	from_remote = remote.capture(text="Water the plants every fortnight")
 
-	assert from_local.unparsed == from_remote.unparsed == ("every monday",)
+	assert from_local.unparsed == from_remote.unparsed == ("every fortnight",)
 
 	# §6.13 rule 1: nothing is lost, so the words stay in the title on both paths.
-	assert from_local.task.title == from_remote.task.title == "Water the plants every monday"
+	assert (
+		from_local.task.title == from_remote.task.title == "Water the plants every fortnight"
+	)
+
+	# **And what the grammar *does* read has to agree too** (`#94`). The HTTP client parses the
+	# line a second time locally to produce its advisory sentence, so the two ends can disagree
+	# about one line — which is the assumption `/v1/meta` publishes the grammar to make
+	# checkable, and this is the cheap half of that check.
+	read_local = local.capture(text="Pay the rent on the 30th of every month")
+	read_remote = remote.capture(text="Pay the rent on the 30th of every month")
+
+	assert read_local.unparsed == read_remote.unparsed == ()
+	assert read_local.task.title == read_remote.task.title == "Pay the rent"
+	assert (
+		read_local.task.recurrence_rule
+		== read_remote.task.recurrence_rule
+		== "FREQ=MONTHLY;BYMONTHDAY=30"
+	)
 
 
 def test_both_report_which_work_is_blocked (pair: Pair) -> None:

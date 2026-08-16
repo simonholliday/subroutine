@@ -129,18 +129,26 @@ def test_text_that_does_not_parse_is_returned_verbatim (text: str) -> None:
 	assert _parse(text).title == text
 
 
-def test_recurrence_is_recognised_only_well_enough_to_be_left_alone () -> None:
-	"""``every …`` waits for M7, and until then stays in the title (SPEC.md §6.13).
+def test_a_repeat_is_read_off_the_line_and_leaves_the_title (  ) -> None:
+	"""``every …`` is parsed since `#94`, and the words go because a field was set.
 
-	It is matched, but only to reserve the span so that ``every monday`` is not read as a
-	planned day. The words themselves are untouched, and the caller is told why.
+	**This test used to assert the opposite** — that the phrase was reserved and left in the
+	title — and the reservation was never about the words: it stopped ``every monday`` being
+	read as a planned day while the rule could not be stored. Now that it can, §6.13's rule
+	applies the other way round: a word may vanish exactly when a field was set, and one was.
+
+	The span is still claimed *first*, and that is unchanged and still load-bearing: ``on`` and
+	``monday`` both belong to the date grammar, so anything reading the line before this would
+	take half a repeat and set a date from it.
 	"""
 
 	captured = _parse("Water the plants every monday")
 
-	assert captured.title == "Water the plants every monday"
+	assert captured.title == "Water the plants"
+	assert captured.recurrence == "FREQ=WEEKLY;BYDAY=MO"
+	assert captured.recurrence_text == "every monday"
 	assert captured.starts_at is None
-	assert captured.unparsed == ("every monday",)
+	assert captured.unparsed == ()
 
 
 def test_the_preview_quotes_the_recurrence_a_person_actually_wrote () -> None:
@@ -151,16 +159,18 @@ def test_the_preview_quotes_the_recurrence_a_person_actually_wrote () -> None:
 	The title was always right; the report of it was not, which is the half §6.13 rule 1
 	cannot check for itself because the words are all still there.
 
-	A count and ``other`` are the two things that come between ``every`` and its unit. Beyond
-	that it stays loose: the point is to *decline* a phrase, not to understand one, so
-	"every fortnight" is quoted as faithfully as "every monday".
+	A count and ``other`` are the two things that come between ``every`` and its unit, so they
+	are what the pattern has to reach past before it can quote anything.
+
+	**Every line here is one the grammar still cannot read** — `#94` made the readable ones a
+	rule, so quoting them back is no longer the question asked of them. What survives is the
+	obligation for the rest: the words stay, and they are quoted whole.
 	"""
 
 	for line, phrase in (
-		("Water plants every 2 days", "every 2 days"),
-		("Bins out every other tuesday", "every other tuesday"),
 		("Review the budget every fortnight", "every fortnight"),
-		("Standup every monday", "every monday"),
+		("Water plants every sausages", "every sausages"),
+		("Bins out every 0 days", "every 0 days"),
 	):
 		captured = _parse(line)
 
@@ -212,10 +222,10 @@ def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
 
 	# **Both kinds at once get both reasons**, which is why the sentence is built per kind
 	# rather than being one string with one ending.
-	both = subroutine.domain.capture.explain(_parse("Bins out every monday +a/b").unparsed)
+	both = subroutine.domain.capture.explain(_parse("Bins out every fortnight +a/b").unparsed)
 
 	assert both is not None
-	assert "recurring" in both and "project" in both
+	assert "repeat" in both and "project" in both
 
 
 def test_a_plus_inside_a_word_is_not_a_project_name () -> None:
@@ -295,12 +305,18 @@ def test_what_can_be_reported_is_what_could_have_been_a_key () -> None:
 
 
 def test_a_recurring_phrase_does_not_swallow_a_real_date () -> None:
-	"""Reserving the recurrence span must not cost the deadline beside it."""
+	"""Claiming the recurrence span must not cost the deadline beside it.
+
+	**Sharper since `#94` widened the pattern**, because it is now greedy on purpose: it has
+	to reach past ``on the 30th`` so the date grammar cannot take half a repeat, and a pattern
+	that reaches too far takes a deadline that was never part of one.
+	"""
 
 	captured = _parse("Water the plants every monday by friday")
 
 	assert captured.due == datetime.date(2026, 7, 31)
-	assert captured.title == "Water the plants every monday"
+	assert captured.recurrence == "FREQ=WEEKLY;BYDAY=MO"
+	assert captured.title == "Water the plants"
 
 
 def test_a_weekday_today_means_today () -> None:
@@ -475,6 +491,7 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 				captured.tags,
 				captured.assignee,
 				captured.project_key,
+				captured.recurrence,
 			)
 		)
 
@@ -587,16 +604,30 @@ def test_a_bare_day_plans_only_at_the_end_of_the_line (
 
 
 def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> None:
-	"""``every monday`` stays in the title (M7), so a ``tomorrow`` before it is mid-sentence.
+	"""A phrase this cannot read stays in the title, so a ``tomorrow`` before it is prose.
 
-	This is the edge the sigil refinement had to not break: a claimed span is one that
-	*leaves* the title, and a reserved one is not.
+	**The distinction the sigil refinement had to not break, and it survived `#94`**: a claimed
+	span *leaves* the title and a reserved one does not, and a bare day is only read at the end
+	of what is left. ``every fortnight`` is still reserved rather than claimed, so the words
+	after ``tomorrow`` are still words.
 	"""
 
-	captured = _parse("Do it tomorrow every monday")
+	captured = _parse("Do it tomorrow every fortnight")
 
 	assert captured.starts_at is None
-	assert captured.title == "Do it tomorrow every monday"
+	assert captured.title == "Do it tomorrow every fortnight"
+
+	# **And the readable one is the mirror**, which is what says the rule is about claiming
+	# rather than about the word `every`: the phrase goes, so `tomorrow` is now at the end.
+	read = _parse("Do it tomorrow every monday")
+
+	assert read.title == "Do it"
+	assert read.recurrence == "FREQ=WEEKLY;BYDAY=MO"
+
+	# **`tomorrow` becomes readable because the repeat left**, which is the whole point: a bare
+	# day is only read at the end of what remains, so claiming the phrase in front of it moves
+	# the end. Starts tomorrow, comes back every Monday — both, and both wanted.
+	assert read.starts_at == datetime.date(2026, 7, 31)
 
 
 def test_a_captured_line_can_set_both_priority_axes () -> None:
@@ -667,6 +698,12 @@ REPORTED_AS = {
 	"starts_at": "date, rendered beside the title",
 	"starts_is_all_day": "date, rendered beside the title",
 	"snooze": "date, rendered beside the title",
+	#: **Rendered rather than echoed**, exactly as a date is, and for the same reason: the
+	#: useful confirmation is *what it turned out to mean*. `recurrence.describe` reads the
+	#: stored rule back — "every month, on the 30th" — so the words come back changed, which
+	#: is what lets somebody see whether the thing understood is the thing they meant.
+	"recurrence": "rendered beside the title, from the rule",
+	"recurrence_text": "the words as typed; the rendering above is what is shown",
 	"snoozed_is_all_day": "date, rendered beside the title",
 	"title": "is the title",
 	"unparsed": "reported by explain(), which is this function's mirror",

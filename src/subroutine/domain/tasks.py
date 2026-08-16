@@ -255,7 +255,16 @@ def series_start (
 	is a date they did not choose and will not remember choosing.
 	"""
 
+	rule = template.recurrence_rule or ""
 	anchor = template.due_at or template.starts_at
+
+	# **A rule that names its own day needs no date beside it** (`#94`, found by driving).
+	# "On the 30th of every month" was refused for not saying when, which is exactly what it
+	# does say — and the refusal arrived on the phrasing the brief was written in. Anchored on
+	# the moment it was filed, which for a self-anchoring rule invents nothing: the first
+	# occurrence is the next 30th either way.
+	if anchor is None and subroutine.domain.recurrence.names_its_own_day(rule):
+		return template.created_at or subroutine.db.types.utcnow()
 
 	if anchor is None:
 		raise subroutine.errors.ValidationError(
@@ -684,6 +693,9 @@ def create_from_text (
 		"due_is_all_day": captured.due_is_all_day,
 		"starts": captured.starts_at,
 		"starts_is_all_day": captured.starts_is_all_day,
+		# **`recurrence_text` is not passed**: `create` derives it from what it parsed, and a
+		# captured line and a structured field must not disagree about the words somebody wrote.
+		"recurrence": captured.recurrence,
 		"snooze": captured.snooze,
 		"snoozed_is_all_day": captured.snoozed_is_all_day,
 		"importance": captured.importance,

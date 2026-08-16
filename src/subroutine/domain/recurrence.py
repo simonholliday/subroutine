@@ -430,6 +430,28 @@ def _checked (value: str, *, field: str) -> str:
 	return written
 
 
+def names_its_own_day (stored: str) -> bool:
+	"""Report whether a rule says which day it falls on, without being told a start.
+
+	**"On the 30th of every month" says when; "every 14 days" does not** — fourteen days from
+	*what?* — and that is the whole distinction. A rule carrying a ``BY…`` part has named its
+	days, and a daily one falls on every day including this one, so both can be anchored on the
+	moment they were written without inventing anything. Anything else genuinely needs a date,
+	and asking for one is better than picking whichever day somebody happened to type it.
+	"""
+
+	parts = {
+		piece.split("=", 1)[0].strip().upper()
+		for piece in stored.split(";")
+		if "=" in piece
+	}
+
+	if parts & {"BYDAY", "BYMONTHDAY", "BYMONTH"}:
+		return True
+
+	return "FREQ=DAILY" in stored.upper() and "INTERVAL=" not in stored.upper()
+
+
 def occurrences (
 	stored: str,
 	*,

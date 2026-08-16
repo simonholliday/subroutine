@@ -1850,11 +1850,18 @@ def test_the_adapter_says_what_the_grammar_declined_to_read (
 	opposite mistake.
 	"""
 
-	text, failed = _called(bound, "subroutine_add", text="Water the plants every monday")
+	text, failed = _called(bound, "subroutine_add", text="Water the plants every fortnight")
 
 	assert not failed, "the task was created, so this is a success"
-	assert "every monday" in text
-	assert "not supported yet" in text
+	assert "every fortnight" in text
+	assert "not a repeat this understands" in text
+
+	# **And the readable case says nothing**, which is the other half of §6.13's obligation:
+	# a complaint on every capture is a complaint nobody reads. `#94` made `every monday` a
+	# rule, so this line is the control that keeps the sentence rare.
+	read, _ = _called(bound, "subroutine_add", text="Water the plants every monday")
+
+	assert "Left as written" not in read
 
 
 def test_a_planned_day_is_reported_where_a_deadline_is (
