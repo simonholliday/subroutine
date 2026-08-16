@@ -315,6 +315,18 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent's first write after a pause no longer fails with "database is locked".** Every
+  write through `POST /mcp` failed if the credential had not been used for a minute — which is
+  to say, whenever an agent stopped to think. The request recorded that the credential had been
+  used, held that write open for the length of the call, and then blocked against itself when
+  the tool went to do the work. After five seconds it gave up and blamed the operator's
+  `database_url`.
+
+  Measured on a served SQLite instance: a write took 0.04s on a credential used seconds
+  earlier, and 5.04s and failed on one idle two minutes. It now takes 0.03s after ninety
+  minutes idle. SQLite only — PostgreSQL locks the row rather than the file — but SQLite is
+  the default.
+
 - **A hyphenated word no longer loses its second half to the date grammar.**
   `subroutine add "Ship the add-on tomorrow"` filed a task called `Ship the add-`: the `on`
   inside `add-on` was read as the word that introduces a date. `stand-by`, `sign-on`,

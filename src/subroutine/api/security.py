@@ -383,7 +383,51 @@ def principal (
 	if limits is not None and counted is not None:
 		limits.count_a_request(counted)
 
+	_release_the_authentication_write(session)
+
 	return found
+
+
+def _release_the_authentication_write (session: sqlalchemy.orm.Session) -> None:
+	"""Commit the ``last_used_at`` touch now, so it holds no lock into the handler (`#932`).
+
+	**A request that authenticated more than a minute after the last one deadlocked itself.**
+	:func:`subroutine.domain.authentication._record_use` writes ``last_used_at`` through the
+	ORM, so it joins the request's transaction — and ``api/routing.Transactional`` holds that
+	transaction until after the handler returns. Any handler that then opens a *second* session
+	and writes blocks on the row lock the request itself is holding, until SQLite's
+	``busy_timeout`` gives up five seconds later and answers "database is locked".
+
+	``POST /mcp`` is exactly that shape by design (`#539`): the tool acts through its own
+	client with its own session, for two good reasons written out at ``api/mcp._client``.
+	Measured: a write **0.04s** on a credential used seconds ago and **5.04s and refused** on
+	one idle two minutes — so it failed precisely when an agent paused to think, and told the
+	operator their ``database_url`` was at fault.
+
+	**The neighbouring fix covered the second *authentication*, not the second *write*.**
+	`#565` gave the MCP resolver ``record_use=False`` so the row is not written twice; the
+	write that takes the lock is this one, and it was untouched.
+
+	**Committing here is the change ``_record_use``'s own docstring asks for** — *"this is
+	telemetry, and it must never be the reason a request is held open"* — which joining the
+	caller's transaction is what defeated. Nothing else has touched this session yet:
+	dependencies run before the handler, so the only pending change is the timestamp.
+
+	The trade it names does reverse, and the new side is the more truthful one: a request that
+	fails after authenticating now records that the credential *was* presented, which is what
+	happened.
+	"""
+
+	# **Unconditional, because the cheap-looking guard cannot answer the question.** The first
+	# version was `if session.dirty`, which is about changes that have not been *flushed* — and
+	# a flush is exactly what takes the lock. Once anything upstream had flushed, `dirty` was
+	# empty, the commit was skipped, and the lock stayed held. The two-connection test below
+	# caught it: the reproduction half went on failing after the "fix".
+	#
+	# A commit with nothing pending is a no-op on both backends, so the ordinary request — one
+	# whose credential was used inside `LAST_USED_INTERVAL` — pays for a round trip that does
+	# nothing rather than for a lock that outlives it.
+	session.commit()
 
 
 #: Declared as an annotation so an endpoint reads ``actor: PrincipalDep``. Its presence on

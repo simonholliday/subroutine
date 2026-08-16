@@ -774,3 +774,98 @@ def test_a_token_is_untouched_by_that_refusal (world: test_api_tasks.World) -> N
 
 	assert answered.status_code == 200, answered.text
 	assert answered.json()["result"]["tools"], "a bearer token stopped reaching the tools"
+
+
+def test_the_credential_write_does_not_hold_the_database_for_the_handler (
+	tmp_path: typing.Any
+) -> None:
+	"""`#932`, from `#927` H-6. `#565` fixed the second authentication and left the first write.
+
+	An MCP request authenticates in the request's session — writing ``last_used_at`` when the
+	credential is more than a minute old — and ``api/routing.Transactional`` holds that
+	transaction until after the handler. The handler then acts through its own client with its
+	own session, for the two reasons ``api/mcp._client`` sets out. **On SQLite a write
+	transaction locks the whole file**, so that second session blocked on the request's own
+	lock until ``busy_timeout`` gave up.
+
+	**Measured end to end on a served instance**: a write took ``0.04s`` on a credential used
+	seconds before and ``5.04s``, refused with *"database is locked"*, on one idle two minutes.
+	It failed exactly when an agent paused to think, and told the operator their
+	``database_url`` was at fault.
+
+	SQLite rather than PostgreSQL, and that is the opposite of `#565`'s test one screen up:
+	that one needs a *row* lock, which only PostgreSQL has. This one needs a whole-file lock,
+	which only SQLite has. The same request deadlocks against itself for two different reasons
+	on the two backends, and neither harness can show the other's.
+
+	**Both halves are asserted**, because a test that only shows the fix working cannot tell
+	you it has stopped reproducing the defect.
+	"""
+
+	database = tmp_path / "held.db"
+	engine = sqlalchemy.create_engine(
+		f"sqlite:///{database}", connect_args={"timeout": 1.0}
+	)
+
+	try:
+		subroutine.db.base.Base.metadata.create_all(engine)
+		factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+		with factory() as setup:
+			made = subroutine.domain.bootstrap.initialise(
+				setup, username="si", instance_name="Test"
+			)
+			_row, issued = subroutine.domain.authentication.issue_token(
+				setup, user=made.user, title="probe"
+			)
+			setup.commit()
+			secret = issued.value.get_secret_value()
+
+		# Older than LAST_USED_INTERVAL, so authenticating genuinely writes.
+		cold = subroutine.db.types.utcnow() - datetime.timedelta(hours=1)
+
+		def the_handler_can_write (releasing: bool) -> bool:
+			"""Return whether a second session can write while the request holds its own."""
+
+			with factory() as request, factory() as handler:
+				subroutine.domain.authentication.authenticate(request, secret, now=cold)
+
+				# **Both branches flush**, so both have genuinely taken the write lock and the
+				# only difference is whether it is then released. An earlier version flushed in
+				# one branch only, so emptying the release turned the comparison into "a lock
+				# against no lock at all" and the falsification passed without the fix.
+				request.flush()
+
+				if releasing:
+					subroutine.api.security._release_the_authentication_write(request)
+
+				try:
+					# An UPDATE of a row that exists, so the statement assumes nothing about
+					# the schema. The first version of this was an INSERT naming a column the
+					# table does not have — which raises `OperationalError` too, so **both**
+					# halves failed for the same unrelated reason and the reproduction half
+					# passed without ever taking a lock.
+					handler.execute(sqlalchemy.text("UPDATE instance SET name = 'probe'"))
+					handler.commit()
+
+					return True
+
+				except sqlalchemy.exc.OperationalError as blocked:
+					assert "locked" in str(blocked), (
+						f"the handler failed for a reason that is not a lock: {blocked}"
+					)
+
+					return False
+
+		assert not the_handler_can_write(releasing=False), (
+			"an unreleased credential write no longer blocks the handler, so this test has "
+			"stopped reproducing the defect and the assertion below proves nothing"
+		)
+
+		assert the_handler_can_write(releasing=True), (
+			"the handler still blocks on the request's own credential write — every MCP write "
+			"on a credential idle a minute fails with 'database is locked'"
+		)
+
+	finally:
+		engine.dispose()
