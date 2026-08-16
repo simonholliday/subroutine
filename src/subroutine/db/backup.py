@@ -64,6 +64,64 @@ _INSERT_STATEMENT = re.compile(
 	r"INSERT INTO\s+[\w.\"]*alembic_version[^\n]*VALUES\s*\(\s*'([0-9a-z]+)'", re.IGNORECASE
 )
 
+#: The tables every Subroutine database has had since the beginning, and still has (`#928`).
+#:
+#: **A schema version alone does not make a file a backup.** ``check_restorable`` used to ask
+#: only whether ``alembic_version`` held a revision this installation could migrate forward
+#: from — so a 12 KB file holding that one table and a table called ``loot`` was accepted,
+#: installed over the live database, and reported as a success.
+#:
+#: **Why these tables and not the current ones.** A backup may legitimately be older than this
+#: installation, so it cannot be held to the shape of ``Base.metadata`` today. These are the
+#: tables the initial migration creates; every revision since has added tables and dropped
+#: none, so they are the floor at *every* restorable revision rather than at the newest one.
+#: ``tests/test_backup.py`` asserts they are still a subset of the live metadata, so dropping
+#: one fails the build loudly instead of quietly making every backup unrestorable.
+CORE_TABLES = frozenset(
+	{
+		"alembic_version",
+		"api_token",
+		"comment",
+		"document",
+		"event",
+		"instance",
+		"item_type",
+		"link",
+		"link_type",
+		"mention",
+		"project",
+		"role",
+		"status",
+		"tag",
+		"task",
+		"user",
+		"workspace",
+	}
+)
+
+#: The backslash commands a ``pg_dump`` script legitimately contains, and the only ones a
+#: restore will carry to ``psql`` (`#928`).
+#:
+#: **``psql`` interprets backslash meta-commands inside a ``--file`` script**: ``\!`` runs a
+#: shell command, ``\i`` includes any file, ``\copy`` reads and writes the filesystem. So a
+#: backup file is a code-execution vector unless something reads it first.
+#:
+#: **Measured rather than assumed, because refusing all of them would refuse our own dumps.** A
+#: real dump of this schema carries 25: twenty-three ``\.`` terminating ``COPY`` blocks, and one
+#: each of ``\restrict`` and ``\unrestrict``, which are PostgreSQL's own guard against exactly
+#: this and which ``psql`` 16 honours — verified, a ``\!`` after ``\restrict`` is refused by
+#: name. That guard protects a *genuine* dump and does nothing about a forged one, which simply
+#: omits the pair, so the scan below is ours to do.
+_SAFE_META_COMMANDS = frozenset({".", "restrict", "unrestrict"})
+
+#: A ``COPY … FROM stdin;`` line, after which every line is *data* until a lone ``\.`` — so a
+#: scan for meta-commands has to know which of the two it is reading.
+_COPY_BEGINS = re.compile(r"^\s*COPY\s+.*\bFROM\s+stdin\s*;", re.IGNORECASE)
+
+#: A backslash command: the leading backslash, then the name. ``psql`` allows leading
+#: whitespace, so the scan does too rather than matching only at column one.
+_META_COMMAND = re.compile(r"^\s*\\([a-zA-Z.?!]+)")
+
 #: How long ``pg_dump`` and ``psql`` are given. Generous, because a large database on slow
 #: storage is not an error, and bounded, because a hung subprocess with a full pipe is.
 _SUBPROCESS_TIMEOUT_SECONDS = 600
@@ -722,6 +780,146 @@ def _single_head (values: list[str], path: pathlib.Path) -> str:
 	return values[0]
 
 
+def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
+	"""Refuse a delivered SQLite backup whose pages do not hold together (`#928`).
+
+	**The size and the schema head are both satisfied by a torn file.** A copy that lost pages
+	in the middle is very often exactly the right length and still answers
+	``SELECT version_num`` — the two checks beside this one were measured passing 112 of 121
+	deliberately corrupted copies. ``PRAGMA integrity_check`` is what actually reads the pages.
+
+	Only SQLite, because a PostgreSQL dump is a script rather than a database: what would
+	corrupt it is a truncated write, which the size comparison already catches.
+	"""
+
+	if engine_in(path) != "SQLite":
+		return
+
+	connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+	try:
+		# The pragma answers a single row reading ``ok``, or one row per problem found — and
+		# a copy torn badly enough raises instead of answering at all. Both are the same fact
+		# about the file, so both become the same sentence rather than one of them reaching
+		# the operator as a driver error.
+		answered = [row[0] for row in connection.execute("PRAGMA integrity_check").fetchall()]
+
+	except sqlite3.Error as error:
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup written to {path} is the right size and names its schema, and "
+			f"could not be read back: {error}. It has been removed rather than left looking "
+			f"usable."
+		) from error
+
+	finally:
+		connection.close()
+
+	if answered != ["ok"]:
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup written to {path} is the right size and names its schema, and its "
+			f"contents do not hold together. It has been removed rather than left looking "
+			f"usable."
+		)
+
+
+def tables_in (path: pathlib.Path) -> frozenset[str]:
+	"""Return the names of the tables a backup contains.
+
+	The companion to :func:`head_in`, and asked for the same reason: what a file *claims* about
+	itself decides whether real data gets overwritten, so the claim is read from the file
+	rather than believed.
+	"""
+
+	if engine_in(path) == "SQLite":
+		return _tables_in_sqlite(path)
+
+	return _tables_in_dump(path)
+
+
+def _tables_in_sqlite (path: pathlib.Path) -> frozenset[str]:
+	"""List the tables in a SQLite backup."""
+
+	try:
+		connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+	except sqlite3.Error as error:
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' could not be opened as a database: {error}"
+		) from error
+
+	try:
+		rows = connection.execute(
+			"SELECT name FROM sqlite_master WHERE type = 'table'"
+		).fetchall()
+
+	except sqlite3.Error as error:
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' could not be read as a database: {error}"
+		) from error
+
+	finally:
+		connection.close()
+
+	return frozenset(str(row[0]) for row in rows)
+
+
+def _tables_in_dump (path: pathlib.Path) -> frozenset[str]:
+	"""List the tables a PostgreSQL dump creates."""
+
+	text = path.read_text(encoding="utf-8", errors="replace")
+
+	# The schema qualifier and the quoting are both optional and both appear in the wild, so
+	# the name is taken as the last dotted part with any quotes stripped.
+	found = re.findall(r"CREATE TABLE\s+([\w.\"]+)", text, re.IGNORECASE)
+
+	return frozenset(name.split(".")[-1].strip('"') for name in found)
+
+
+def refuse_unsafe_commands (path: pathlib.Path) -> None:
+	"""Refuse a dump carrying a ``psql`` meta-command that is not one ``pg_dump`` writes.
+
+	**A restore runs its source through ``psql``, which executes backslash commands.** ``\\!``
+	is a shell escape, ``\\i`` includes another file and ``\\copy`` reads and writes the
+	filesystem — so without this a backup file is arbitrary code execution as the operator, and
+	``docs/hosting.md`` invites putting backups on a shared volume (`#928`).
+
+	**Read as ``psql`` reads it, because anything less is a different question.** Inside a
+	``COPY … FROM stdin;`` block every line is data, a leading backslash is an escape, and the
+	block ends at a lone ``\\.``; outside one, a leading backslash starts a command. A scan that
+	does not track which of the two it is in would refuse ordinary rows that happen to begin
+	with a backslash.
+	"""
+
+	if engine_in(path) != "PostgreSQL":
+		return
+
+	inside_copy = False
+
+	for number, line in enumerate(
+		path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+	):
+		if inside_copy:
+			inside_copy = line.rstrip() != "\\."
+			continue
+
+		if _COPY_BEGINS.match(line):
+			inside_copy = True
+			continue
+
+		found = _META_COMMAND.match(line)
+
+		if found is None or found.group(1) in _SAFE_META_COMMANDS:
+			continue
+
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' line {number} carries the command '\\{found.group(1)}', which "
+			f"'pg_dump' does not write. A backup that runs commands is not a backup — this "
+			f"one has not been restored.",
+			hint="Take a fresh backup with 'subroutine db backup', and treat this file as "
+			"hostile rather than as damaged.",
+		)
+
+
 def take (
 	engine: sqlalchemy.engine.Engine,
 	settings: subroutine.config.Settings,
@@ -906,6 +1104,8 @@ def _delivered (
 				f"It has been removed rather than left looking usable."
 			)
 
+		_refuse_a_corrupt_copy(target)
+
 	except Exception:
 		with contextlib.suppress(OSError):
 			target.unlink(missing_ok=True)
@@ -1052,6 +1252,22 @@ def check_restorable (path: pathlib.Path) -> str:
 		raise subroutine.errors.InternalError(
 			"This installation has no migrations, so it cannot judge whether a backup fits."
 		)
+
+	# A schema version is one string, and one string is not evidence that a file holds a
+	# database. Checked before the revision comparison below so that a file which is not a
+	# backup is told so, rather than being told its schema is too new (`#928`).
+	missing = CORE_TABLES - tables_in(path)
+
+	if missing:
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' records a schema version but is missing "
+			f"{len(missing)} of the tables every Subroutine database has: "
+			f"{', '.join(sorted(missing))}. It has not been restored.",
+			hint="Check that this is the file you meant. A backup taken by "
+			"'subroutine db backup' carries the whole database.",
+		)
+
+	refuse_unsafe_commands(path)
 
 	if backup_head == ours or _is_ancestor(backup_head, ours):
 		return backup_head
@@ -1212,6 +1428,13 @@ def _restore_postgresql (
 		[
 			"psql",
 			"--quiet",
+			# The operator's ``~/.psqlrc`` is a script this process would otherwise run as a
+			# side effect of restoring somebody else's file (`#928`).
+			"--no-psqlrc",
+			# So a dump that fails part-way leaves nothing rather than half a schema and no
+			# data. The schema is dropped in its own committed transaction above, so the
+			# failure is visible either way — this decides whether it is also recoverable.
+			"--single-transaction",
 			"--set",
 			"ON_ERROR_STOP=on",
 			"--file",

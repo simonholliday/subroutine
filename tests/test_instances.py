@@ -29,6 +29,7 @@ import conftest
 import subroutine.cli.main
 import subroutine.config
 import subroutine.db.backup
+import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models.system
 import subroutine.db.session
@@ -421,6 +422,134 @@ def test_a_newer_schema_is_refused_and_an_equal_one_is_not (
 
 	with pytest.raises(subroutine.errors.SchemaMismatch):
 		subroutine.db.backup.check_restorable(forged)
+
+
+def test_the_core_tables_are_still_tables_this_schema_has () -> None:
+	"""`#928`'s floor stays honest, or every backup becomes unrestorable in silence.
+
+	``CORE_TABLES`` names what a file must contain to be a backup at all. It is deliberately
+	the *initial* migration's tables rather than today's, so that an older backup still passes
+	— but that means nothing else notices if one is ever dropped, and the failure would be a
+	refusal to restore anything rather than an error anybody could read.
+	"""
+
+	live = set(subroutine.db.base.Base.metadata.tables)
+
+	# `alembic_version` is Alembic's and is not in our metadata, so it is excused by name
+	# rather than by weakening the comparison.
+	assert subroutine.db.backup.CORE_TABLES - {"alembic_version"} <= live
+
+
+def test_a_file_that_records_a_schema_and_holds_no_database_is_refused (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#928`. A schema version is one string, and one string is not a database.
+
+	Measured before the fix: a 12 KB file holding ``alembic_version`` and a table called
+	``loot`` was accepted, installed over the live database, and reported as a success.
+	"""
+
+	forged = tmp_path / "forged.db"
+	connection = sqlite3.connect(forged)
+
+	try:
+		connection.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+		connection.execute(
+			"INSERT INTO alembic_version VALUES (?)", (subroutine.db.migrate.head_revision(),)
+		)
+		connection.execute("CREATE TABLE loot (secret TEXT)")
+		connection.commit()
+
+	finally:
+		connection.close()
+
+	with pytest.raises(subroutine.errors.BadRequest) as refused:
+		subroutine.db.backup.check_restorable(forged)
+
+	# Named, because "this is not a backup" and "this backup is too new" send the reader to
+	# completely different places.
+	assert "missing" in str(refused.value)
+	assert "task" in str(refused.value)
+
+
+def test_a_dump_that_runs_a_command_is_refused (tmp_path: pathlib.Path) -> None:
+	"""`#928`. ``psql --file`` executes backslash commands, so a backup is code until read.
+
+	Reproduced before the fix with the restore's own invocation: ``\\!`` ran and psql exited 0.
+	"""
+
+	dump = tmp_path / "hostile.sql"
+	dump.write_text(
+		"SET client_encoding = 'UTF8';\n"
+		"\\! touch /tmp/owned\n"
+		"CREATE TABLE alembic_version (version_num character varying(32));\n"
+	)
+
+	with pytest.raises(subroutine.errors.BadRequest) as refused:
+		subroutine.db.backup.refuse_unsafe_commands(dump)
+
+	# The line number, because a dump is thousands of lines and "somewhere in here" is not
+	# something an operator can act on.
+	assert "line 2" in str(refused.value)
+
+
+def test_data_that_begins_with_a_backslash_is_not_read_as_a_command (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#928`'s other half, and the one a careless scan gets wrong.
+
+	Inside a ``COPY … FROM stdin;`` block a leading backslash is data — ``\\N`` is how every
+	NULL is written — and the block ends at a lone ``\\.``. A scan that does not track which
+	of the two it is reading refuses ordinary rows, so both directions are asserted here.
+	"""
+
+	body = (
+		"COPY public.task (id, title) FROM stdin;\n"
+		"\\N\tsomething\n"
+		"\\.\n"
+		"CREATE TABLE alembic_version (version_num character varying(32));\n"
+	)
+
+	inside = tmp_path / "ordinary.sql"
+	inside.write_text(body)
+
+	subroutine.db.backup.refuse_unsafe_commands(inside)
+
+	# The same file with a command *after* the block closes must still be refused, or the
+	# tolerance above is simply a scan that stopped looking.
+	after = tmp_path / "after.sql"
+	after.write_text(body + "\\i /etc/passwd\n")
+
+	with pytest.raises(subroutine.errors.BadRequest):
+		subroutine.db.backup.refuse_unsafe_commands(after)
+
+
+def test_a_backup_whose_pages_do_not_hold_together_is_refused (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+	"""`#928`. The size and the schema head are both satisfied by a torn file.
+
+	This is the check that reads the pages. Falsified by corrupting a copy in place, which
+	keeps the length identical and leaves the header — and therefore the recorded schema —
+	perfectly readable.
+	"""
+
+	if engine.dialect.name != "sqlite":
+		pytest.skip("The page check is SQLite's; a dump is a script, and truncation is size.")
+
+	written = subroutine.db.backup.take(engine, _settings())
+
+	torn = tmp_path / "torn.db"
+	original = written.path.read_bytes()
+
+	# Past the header and into the b-tree, and the same length, so every other check passes.
+	damaged = original[:2048] + bytes(len(original) - 4096) + original[-2048:]
+	torn.write_bytes(damaged)
+
+	assert len(torn.read_bytes()) == len(original)
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable):
+		subroutine.db.backup._refuse_a_corrupt_copy(torn)
 
 
 def _with_schema_head (

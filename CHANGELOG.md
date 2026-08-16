@@ -24,6 +24,32 @@ upgrade involves.
 > reclassified**: anything that was deferred stays deferred and goes on behaving exactly
 > as it did.
 
+### Security
+
+- **Restoring a backup can no longer run commands, and a file has to prove it is a backup.**
+  `subroutine db restore` handed a PostgreSQL dump straight to `psql`, which executes backslash
+  commands written inside a script — so a file that reached your backup directory could run
+  anything as the account doing the restore. `docs/hosting.md` recommends putting backups on a
+  shared network volume, which is exactly where somebody else can write one.
+
+  A dump is now read before it is used, and a command `pg_dump` does not write is refused by
+  name and line number. The scan follows the file the way `psql` does: inside a `COPY` block a
+  leading backslash is ordinary data, so real dumps — which contain hundreds of those — are
+  unaffected. `psql` is also run with `--no-psqlrc`, so your own start-up file is not executed
+  as a side effect of restoring somebody else's copy, and with `--single-transaction`, so a
+  dump that fails part-way leaves nothing behind rather than half a schema and no data.
+
+  Separately, **a restore checked one string**: whether `alembic_version` held a schema this
+  version could read. A 12 KB file holding that one table and nothing else was accepted,
+  written over the live database, and reported as a success — after which the instance could
+  not be read and the error blamed your `database_url`. A backup must now contain the tables
+  every Subroutine database has.
+
+- **A backup that is the right size and unreadable is no longer reported as good.** Verification
+  compared the length and re-read the schema version, and both of those survive a copy that lost
+  pages in the middle. The pages are now checked too, and a copy that fails is deleted rather
+  than left looking usable.
+
 ### Changed
 
 - **An appointment and a deferred task are different things, and are named differently.**
