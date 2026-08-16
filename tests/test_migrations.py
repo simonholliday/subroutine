@@ -899,3 +899,103 @@ def _filler (column: sqlalchemy.Column[typing.Any]) -> typing.Any:
 		return "x"
 
 	return subroutine.db.types.new_uuid()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_back_leaves_a_workspace_in_the_zone_it_was_inheriting (
+	migrated_url: str,
+) -> None:
+	"""``233f898a2bee`` made ``workspace.timezone`` nullable so a workspace could inherit.
+
+	Its downgrade has to put a value back, because the column stops allowing NULL — and it
+	wrote the literal ``'UTC'``. So every workspace that was inheriting was silently re-zoned,
+	by the operation whose whole job is putting things back, on any instance not in UTC. It
+	reads ``instance.timezone`` now, before that column is dropped a few lines further down.
+
+	**Seeded here rather than in ``_populate``**, because what makes the case is precisely a
+	NULL beside an instance that is not UTC — the general fixture has no reason to carry one,
+	and H-14 is the record of what a fixture that seeds no interesting value costs.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with engine.begin() as connection:
+			_insert(
+				connection,
+				"instance",
+				{
+					"id": subroutine.db.types.new_uuid(),
+					"name": "Test",
+					"timezone": "Australia/Sydney",
+				},
+			)
+			_insert(
+				connection,
+				"workspace",
+				{
+					"id": subroutine.db.types.new_uuid(),
+					"slug": "inheriting",
+					"title": "W",
+					"timezone": None,
+				},
+			)
+
+		# **To its parent, not to itself.** Downgrading *to* a revision runs the downgrades of
+		# everything after it and stops — so naming this one would leave its own untouched,
+		# which is a test that measures the revision above it.
+		subroutine.db.migrate.downgrade(migrated_url, "ea3e86ad12c4")
+
+		with engine.begin() as connection:
+			zone = connection.execute(
+				sqlalchemy.text("SELECT timezone FROM workspace WHERE slug = 'inheriting'")
+			).scalar_one()
+
+		assert zone == "Australia/Sydney", (
+			f"the workspace was inheriting the instance's zone and came back as {zone!r}"
+		)
+
+	finally:
+		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_back_past_a_reused_slug_says_what_is_in_the_way (
+	migrated_url: str,
+) -> None:
+	"""``ea3e86ad12c4`` made the slug index partial, which is what lets a slug be reused.
+
+	So an installation that deleted a workspace and made another with the same name has two
+	rows the older schema cannot hold — and the downgrade met that as an integrity error
+	naming a constraint, which tells an operator nothing about their own data.
+
+	It refuses by name now, saying which slug and what to do. That is the honest answer: the
+	old schema genuinely cannot represent this, and silently renaming somebody's workspace to
+	make room would be a data change nobody asked for inside an operation meant to undo one.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with engine.begin() as connection:
+			for deleted in (True, False):
+				_insert(
+					connection,
+					"workspace",
+					{
+						"id": subroutine.db.types.new_uuid(),
+						"slug": "reused",
+						"title": "W",
+						"deleted_at": (
+							datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+							if deleted
+							else None
+						),
+					},
+				)
+
+		with pytest.raises(RuntimeError, match="reused"):
+			subroutine.db.migrate.downgrade(migrated_url, "2fee457e5b0b")
+
+	finally:
+		engine.dispose()
