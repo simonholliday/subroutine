@@ -567,3 +567,65 @@ def test_an_occurrence_reports_how_it_is_measured_and_not_only_how_often (
 	# The words somebody typed travel with it too — read back from the template, so a form
 	# reopening this shows the phrase rather than the rule it compiled to.
 	assert shown.recurrence_text == "every 3 days"
+
+
+def test_a_stopped_series_stops_saying_it_repeats (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#920`. **A claim about the future that is already known to be false.**
+
+	Stopping a repeat completes the template rather than clearing a column, and the occurrence
+	in hand goes on pointing at it — so a view reading straight through advertised a rule that
+	would never fire again, on the one surface somebody checks to see their *stop* worked.
+	"""
+
+	first = _repeating(session, recurrence="every month on the 30th")
+
+	shown = subroutine.views.task(
+		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+	)
+
+	assert shown.recurrence_rule == "FREQ=MONTHLY;BYMONTHDAY=30", "the state this moves off"
+
+	subroutine.domain.tasks.update(session, first, recurrence=None, now=NOW)
+
+	stopped = subroutine.views.task(
+		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+	)
+
+	assert stopped.recurrence_rule is None
+	assert stopped.recurrence_anchor is None
+	assert stopped.recurrence_text is None
+
+	# **The backlink survives**, deliberately: *this came from that series* stays true after it
+	# ends, and it is how anybody reaches what happened before.
+	assert stopped.recurrence_template_ref is not None
+
+
+def test_an_exhausted_series_stops_saying_it_repeats_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#920`, by the other route to *nothing follows this* — and one condition covers both.
+
+	A ``COUNT`` running out closes the template through the same path a deliberate stop takes,
+	so a rule keyed on *was this stopped* rather than *is this template finished* would have
+	been right about one of the two and confidently wrong about the other.
+	"""
+
+	first = _repeating(session, recurrence="FREQ=DAILY;COUNT=2")
+	template = _template(session, first)
+
+	subroutine.domain.tasks.complete(session, first, now=NOW)
+
+	second = _next_live(session, template)
+
+	subroutine.domain.tasks.complete(session, second, now=NOW)
+	session.refresh(template)
+
+	assert template.completed_at is not None, "the series ran out, so the template closed"
+
+	spent = subroutine.views.task(
+		second, subroutine.views.Vocabulary.for_tasks(session, [second])
+	)
+
+	assert spent.recurrence_rule is None

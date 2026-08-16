@@ -1434,9 +1434,15 @@ class Vocabulary:
 			# days* and said nothing about whether that counts from the schedule or from the
 			# last time somebody finished — half a fact, and the half that decides what the
 			# next date will be.
+			#
+			# **And whether the series is still running** (`#920`), because a stopped one is
+			# a finished template rather than a cleared column — so without this the last
+			# occurrence of a stopped series goes on advertising a rule that will never fire
+			# again, on the one surface somebody would check to see that their *stop* worked.
 			(
 				"ref",
 				"title",
+				"completed_at",
 				"recurrence_rule",
 				"recurrence_text",
 				"recurrence_anchor",
@@ -1581,14 +1587,21 @@ def task (
 		# completion — and a caller who had just changed it could not read back what they
 		# set. One of three qualifying fields resolving is worse than none, because the two
 		# that stay null read as *not set* rather than as *not carried here*.
+		#
+		# **And only while the series is still running** (`#920`). Stopping a repeat completes
+		# the template rather than clearing a column, so a fallback that ignored that left the
+		# last occurrence promising *every month, on the 30th* about a series that would never
+		# fire again — a claim about the future already known to be false, on the surface
+		# somebody checks to see their *stop* worked. An exhausted `COUNT` closes the template
+		# by the same path, so one condition covers both routes to *nothing follows this*.
 		recurrence_rule=row.recurrence_rule
-		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_rule"),
+		or _from_a_live_series(vocabulary, row, "recurrence_rule"),
 		recurrence_text=row.recurrence_text
-		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_text"),
+		or _from_a_live_series(vocabulary, row, "recurrence_text"),
 		recurrence_anchor=row.recurrence_anchor
-		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_anchor"),
+		or _from_a_live_series(vocabulary, row, "recurrence_anchor"),
 		recurrence_trigger=row.recurrence_trigger
-		or _parent_field(vocabulary, row.recurrence_template_id, "recurrence_trigger"),
+		or _from_a_live_series(vocabulary, row, "recurrence_trigger"),
 		occurrence_at=row.occurrence_at,
 		recurrence_template_ref=_parent_field(
 			vocabulary, row.recurrence_template_id, "ref"
@@ -2420,6 +2433,32 @@ def _parent_field (
 		return None
 
 	return vocabulary.parents.get(parent_id, {}).get(field)
+
+
+def _from_a_live_series (
+	vocabulary: Vocabulary, row: subroutine.db.models.work.Task, field: str
+) -> typing.Any:
+	"""Return one of a template's repeat fields, or ``None`` if the series has stopped.
+
+	**A stopped series is a finished template rather than a cleared column** (§6.7), so the
+	occurrence in hand keeps pointing at one — and reading straight through made it advertise
+	a rule that would never fire again. `#920`: a row promising *every month, on the 30th*
+	about a series somebody had just stopped, on the surface they would check to see that the
+	stop had worked.
+
+	``recurrence_template_ref`` deliberately still resolves, because *this came from that
+	series* stays true after it ends and is how a client reaches the history.
+	"""
+
+	if row.recurrence_template_id is None:
+		return None
+
+	series = vocabulary.parents.get(row.recurrence_template_id, {})
+
+	if series.get("completed_at") is not None:
+		return None
+
+	return series.get(field)
 
 
 def _username (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:
