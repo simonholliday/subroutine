@@ -67,6 +67,7 @@ import subroutine.domain.sessions
 import subroutine.domain.tasks
 import subroutine.domain.tokens
 import subroutine.domain.users
+import subroutine.domain.versions
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -2227,6 +2228,14 @@ class Client:
 
 		try:
 			yield
+
+		# **Before the branch below, which would answer the wrong question about it** (`#927`
+		# H-12). A racing writer's `UPDATE` matching no row is a `StaleDataError`, which is a
+		# `SQLAlchemyError` — so without this it was reported as *could not be read*, sending
+		# the reader to check the database is reachable about a database that answered
+		# perfectly. The narrower case first, which is this file's own recorded rule.
+		except subroutine.domain.versions.RACED:
+			raise subroutine.domain.versions.raced() from None
 
 		except sqlalchemy.exc.SQLAlchemyError as error:
 			if self.settings.has_no_instance_yet():

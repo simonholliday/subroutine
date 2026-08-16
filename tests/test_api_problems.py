@@ -10,10 +10,16 @@ import typing
 
 import fastapi
 import pytest
+import sqlalchemy
+import sqlalchemy.exc
 import sqlalchemy.orm
 
 import api_support
 import subroutine.api.schemas
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
+import subroutine.domain.versions
 import subroutine.errors
 
 
@@ -43,6 +49,14 @@ def application (session: sqlalchemy.orm.Session) -> fastapi.FastAPI:
 		raise subroutine.errors.NotFound(
 			"There is no task SR-9999.",
 			hint="Run 'subroutine ls' to see the tasks you can reach.",
+		)
+
+	@built.get("/v1/overtaken")
+	def overtaken () -> dict[str, str]:
+		"""Fail the way a write that lost a race fails."""
+
+		raise subroutine.domain.versions.RACED(
+			"UPDATE statement on table 'task' expected to update 1 row(s); 0 were matched."
 		)
 
 	return built
@@ -183,3 +197,80 @@ def test_every_registered_code_has_a_documented_status () -> None:
 
 	for code, status in (("method_not_allowed", 405), ("service_unavailable", 503)):
 		assert subroutine.errors.definition(code).status == status
+
+
+def test_a_write_that_lost_a_race_is_a_conflict_rather_than_a_bug (
+	application: fastapi.FastAPI,
+) -> None:
+	"""`#927`'s H-12 — the other half of the fix, and the half nothing else exercises.
+
+	``VersionMixin`` writes every ``UPDATE`` under ``WHERE version = <what this transaction
+	read>``, so a racing writer's statement matches no row and SQLAlchemy raises. **Left
+	untranslated that is a 500**, on a caller who did nothing wrong, for the one condition
+	§8.9 exists to report — and a 500 tells a client to report a bug where a 409 tells it to
+	re-read and retry.
+
+	Driven through the real handler stack rather than by calling the function, because what
+	can rot is the *registration*: Starlette keys handlers by exception class, and a
+	`StaleDataError` with nothing registered for it falls to the catch-all.
+
+	A concurrent test could not reach this. ``test_api_concurrency`` proves the database
+	refuses the second writer, over two real connections; this proves what that refusal
+	*becomes* on the way out, which is a property of one request.
+	"""
+
+	response = api_support.call(application, "GET", "/v1/overtaken")
+
+	assert response.status_code == 409
+	assert response.headers["content-type"].startswith("application/problem+json")
+
+	body = response.json()
+
+	assert body["code"] == "version_conflict", (
+		"the same code a stale expected_version earns, because the remedy is the same"
+	)
+	assert "read it again" in body["hint"].lower()
+
+	# **And SQLAlchemy's own wording does not reach the caller.** The exception names a table
+	# and a row count, which describes our internals and answers a question nobody asked.
+	assert "UPDATE statement" not in response.text
+	assert "table" not in body["detail"]
+
+
+def test_the_local_client_calls_a_lost_update_a_conflict_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The same translation on the transport that does not go over HTTP.
+
+	`clients/local.py` turns any `SQLAlchemyError` into `service_unavailable`, deliberately:
+	a connection is allowed to fail and is not allowed to escape, because `fanout._attempt`
+	catches only this project's own errors. **A `StaleDataError` is a `SQLAlchemyError`**, so
+	without a narrower clause in front of it a caller who lost a race was told the instance
+	was unreachable — about a database that answered perfectly, and with a remedy aimed at a
+	machine rather than at the change they were making. `#899`'s shape: a broad refusal
+	declared first swallows the specific one.
+
+	*Which* outage it claimed depends on the instance, which is why this asserts the class
+	rather than the sentence: with a real database behind it the message is "could not be
+	read", and against the synthetic settings here it is "no instance has been set up yet".
+	Both are the same wrong answer.
+
+	The clause order is the whole assertion, so it is driven through `_reported` rather than
+	inspected: reordering the two `except` blocks is the edit this has to catch, and it is
+	invisible to anything that reads the file.
+	"""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with pytest.raises(subroutine.errors.Conflict) as refused, client._reported():
+		raise subroutine.domain.versions.RACED("0 were matched")
+
+	assert refused.value.code == "version_conflict"
+
+	# And the broad clause still answers for everything else, which is what it is there for.
+	with pytest.raises(subroutine.errors.ServiceUnavailable), client._reported():
+		raise sqlalchemy.exc.OperationalError("SELECT 1", {}, Exception("gone away"))

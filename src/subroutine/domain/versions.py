@@ -18,8 +18,47 @@ without the protection.
 
 import typing
 
+import sqlalchemy.orm.exc
+
 import subroutine.domain.refs
 import subroutine.errors
+
+#: What SQLAlchemy raises when a versioned ``UPDATE`` matches no row.
+#:
+#: Named here rather than spelled at each of the two places that catch it, so the answer to
+#: *what does a lost update look like on the way out* lives beside the answer to *what does a
+#: stale one look like on the way in*.
+RACED = sqlalchemy.orm.exc.StaleDataError
+
+
+def raced () -> subroutine.errors.Conflict:
+	"""Report a change that was overtaken between being checked and being written.
+
+	:func:`require` answers the commoner case — the caller read version 7 and the entity is
+	already at 9 — before any work is done, and it can name both numbers. This answers the
+	case it structurally cannot see: both writers read the same version, both passed, and the
+	database refused the second one's ``UPDATE`` because ``VersionMixin`` writes it under a
+	condition (`#927` H-12).
+
+	**Deliberately carrying no ``current`` entity**, where a stale ``expected_version`` does.
+	§8.9 promises the 409 holds the current one so a caller can merge rather than refetch, and
+	``api.concurrency.reporting`` supplies it — but it can only do that because ``require``
+	fires *before* a service has assigned anything. Here the flush has already failed, so the
+	only session in reach is one whose transaction is being rolled back, and a value read
+	through it would be a guess wearing the authority of a field. The remedy is the same
+	either way and it is in the hint.
+
+	The code is ``version_conflict`` too, and that is the point: a caller's remedy does not
+	change with *when* it lost the race, so a second code would be a second thing to handle
+	for no difference in what to do about it.
+	"""
+
+	return subroutine.errors.Conflict(
+		"Somebody else changed this while your change was being written.",
+		code="version_conflict",
+		hint="Nothing was changed. Read it again, apply your change to the current version, "
+		"and send it again.",
+	)
 
 
 def require (entity: typing.Any, expected: int | None, *, noun: str = "item") -> None:

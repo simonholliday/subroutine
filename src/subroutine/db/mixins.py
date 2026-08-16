@@ -126,11 +126,48 @@ class AuthorshipMixin:
 
 
 class VersionMixin:
-	"""Carries the optimistic-concurrency counter surfaced as an ETag."""
+	"""Carries the optimistic-concurrency counter surfaced as an ETag.
+
+	**The counter is also the condition every ``UPDATE`` is written under** (`#927` H-12).
+	Without that, §8.9's promise held only against a change that had *already* landed:
+	:func:`subroutine.domain.versions.require` compares the caller's number against the row
+	as loaded in this transaction, so two writers who both read version 1 both passed the
+	check and both wrote. Reproduced on both backends — two titles sent, one silently gone,
+	and the row left at **version 2 rather than 3**, so a client that read 1 and now sees 2
+	concludes that exactly one change happened. The mechanism built to report a lost update
+	was concealing it.
+
+	``version_id_col`` makes SQLAlchemy add ``WHERE version = <the value this transaction
+	read>`` to every ``UPDATE`` of these tables, and raise
+	:class:`~sqlalchemy.orm.exc.StaleDataError` when that matches no row.
+	``subroutine.api.problems`` and ``subroutine.clients.local`` turn that into the same 409
+	a stale ``expected_version`` earns.
+
+	**``version_id_generator`` is ``False`` on purpose, and it is what makes this one
+	declaration rather than thirty edits.** The automatic generator would bump the column
+	itself, so every ``row.version += 1`` in the services — the convention this project
+	documents — would count twice. With it off, the services go on owning the number and
+	SQLAlchemy only owns the condition. Measured: a solo write is unaffected, and a mutation
+	that does *not* bump the version is still allowed, which matters because that is the
+	state ``tasks.delete`` and ``documents.delete`` were both once in.
+	"""
 
 	version: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, default=1, nullable=False
 	)
+
+	@sqlalchemy.orm.declared_attr.directive
+	@classmethod
+	def __mapper_args__ (cls) -> dict[str, typing.Any]:
+		"""Point the mapper at this table's own ``version`` column.
+
+		Through ``cls.version`` rather than the mixin's own attribute: a mixin's
+		``mapped_column`` is a template copied per subclass, so naming it at class level would
+		hand every model one unattached column object. By the time a directive runs, ``cls`` is
+		the model and its attribute is that model's column.
+		"""
+
+		return {"version_id_col": cls.version, "version_id_generator": False}
 
 
 class SoftDeleteMixin:

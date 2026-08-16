@@ -22,6 +22,7 @@ import starlette.responses
 
 import subroutine.api.middleware
 import subroutine.api.security
+import subroutine.domain.versions
 import subroutine.errors
 
 #: Problem documents are ``application/problem+json``, not ``application/json``. A client
@@ -182,6 +183,30 @@ def handle_validation_error (
 	)
 
 
+def handle_a_lost_update (
+	request: starlette.requests.Request, exception: Exception
+) -> starlette.responses.Response:
+	"""Report a write the database refused because somebody else got there first.
+
+	`#927`'s H-12. ``VersionMixin`` writes every ``UPDATE`` under ``WHERE version = <what
+	this transaction read>``, so a racing writer's statement matches no row and SQLAlchemy
+	raises. Untranslated that is a 500 about a caller who did nothing wrong, on the one
+	condition §8.9 exists to report.
+
+	**At the application rather than around each service**, because the failure arrives from
+	two places: a service's own ``flush`` inside the handler, and ``Transactional``'s commit
+	after it returns. A wrapper at either one would cover half the writes and read as though
+	it covered them all.
+
+	``api.concurrency.reporting`` is untouched by this and must stay so: it attaches the
+	current entity to a :class:`~subroutine.errors.SubroutineError`, and what passes through
+	it here is SQLAlchemy's own exception, which it ignores. So the enrichment that needs a
+	healthy session never runs against a broken one.
+	"""
+
+	return respond(request, subroutine.domain.versions.raced())
+
+
 def handle_unexpected_error (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -223,6 +248,9 @@ def install (application: fastapi.FastAPI) -> None:
 	)
 	application.add_exception_handler(
 		fastapi.exceptions.RequestValidationError, handle_validation_error
+	)
+	application.add_exception_handler(
+		subroutine.domain.versions.RACED, handle_a_lost_update
 	)
 
 	# The catch-all. Registered last for readability only — Starlette keys handlers by

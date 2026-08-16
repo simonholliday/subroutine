@@ -8,10 +8,20 @@ Optional by default, which these also check: a solo user adding a task must not 
 think about versions at all.
 """
 
+import concurrent.futures
+import threading
+import uuid
+
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.identity
+import subroutine.db.models.work
+import subroutine.domain.versions
+import subroutine.errors
 import test_api_tasks
+import test_claims
 
 
 @pytest.fixture
@@ -223,3 +233,111 @@ def test_projects_and_documents_are_guarded_the_same_way (
 		f"/v1/documents/{document['ref']}",
 		json={"title": "x", "expected_version": document["version"]},
 	).status_code == 409
+
+
+def test_two_writers_holding_the_same_version_do_not_both_win (
+	engine: sqlalchemy.engine.Engine,
+) -> None:
+	"""`#927`'s H-12 — the check answered the wrong question until the ``UPDATE`` carried it.
+
+	Every test above sends one request at a time, so each one reads a version that has already
+	settled. That is the case ``versions.require`` handles: the caller read 7, the entity is at
+	9, refused before any work is done. **It could not see the case where both writers read the
+	same number**, because it compares against the row as loaded in *this* transaction and
+	nothing serialised the two.
+
+	Reproduced before the fix, on both backends: two titles sent, both accepted, one silently
+	gone — and the row left at **version 2 rather than 3**, so a client that read 1 and now sees
+	2 concludes exactly one change happened. The mechanism built to report a lost update was
+	concealing it.
+
+	**Both backends, unlike `#354`'s claim test, which skips on SQLite.** That one is about two
+	writers writing at once, which SQLite genuinely serialises. This one needs only two
+	overlapping *read-then-write* cycles, and serialising the writes does not prevent the
+	second from overwriting the first — which is why the skip would have been wrong here and is
+	the distinction worth keeping.
+
+	Real connections rather than the shared-transaction fixture, for that fixture's own stated
+	reason: it exists to stop tests seeing each other's transactions, and this test is entirely
+	about what two transactions do to one row.
+	"""
+
+	factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+	written: list[uuid.UUID] = []
+
+	try:
+		with factory() as setup:
+			workspace, project, owner = test_claims._place(setup)
+			task = test_claims._task(setup, project, "Both will try to rename this")
+
+			setup.commit()
+			task_id, workspace_id = task.id, workspace.id
+			written = [owner.user.id]
+
+		both_read = threading.Barrier(2)
+
+		def rename (title: str) -> str | None:
+			"""Read the task, wait for the other reader, then write claiming version 1."""
+
+			with factory() as writer:
+				row = writer.get(subroutine.db.models.work.Task, task_id)
+
+				assert row is not None and row.version == 1
+
+				# Both read, then both write. Without this one would finish before the other
+				# started, and the test would pass against the defect it was written for.
+				both_read.wait(timeout=30)
+
+				try:
+					subroutine.domain.versions.require(row, 1, noun="This task")
+
+					row.title = title
+					row.version += 1
+					writer.commit()
+
+					return title
+
+				except (subroutine.errors.Conflict, subroutine.domain.versions.RACED):
+					writer.rollback()
+
+					return None
+
+		with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+			results = [
+				future.result()
+				for future in [pool.submit(rename, name) for name in ("First", "Second")]
+			]
+
+		winners = [one for one in results if one is not None]
+
+		assert len(winners) == 1, "both writers were told their change landed"
+
+		with factory() as check:
+			row = check.get(subroutine.db.models.work.Task, task_id)
+
+			assert row is not None
+			assert row.title == winners[0], "the surviving title is the one that was accepted"
+
+			# **The number matters as much as the title.** Landing at 2 with two writes is what
+			# made the loss invisible: a reader who held 1 sees 2 and concludes one change.
+			assert row.version == 2, "one change was applied, so the version moved once"
+
+	finally:
+		# This test commits, so it owns everything it wrote — `test_concurrent_ref_allocation`
+		# is the recorded case of a test that cleaned up its workspace and not its accounts,
+		# and failed ten unrelated PostgreSQL tests only in a full run.
+		with factory() as tidy:
+			tidy.execute(
+				sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
+					subroutine.db.models.identity.Workspace.id == workspace_id
+				)
+			)
+
+			for user_id in written:
+				tidy.execute(
+					sqlalchemy.delete(subroutine.db.models.identity.User).where(
+						subroutine.db.models.identity.User.id == user_id
+					)
+				)
+
+			tidy.commit()

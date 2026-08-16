@@ -326,6 +326,22 @@ upgrade involves.
 
 ### Fixed
 
+- **`expected_version` now refuses a change that is overtaken while it is being written.** It
+  refused one that was already stale, which is the common case and still works — but it
+  compared the number against the row as read *in that request*, and nothing stopped two
+  requests reading the same number. Both passed the check, both wrote, and one person's edit
+  was gone with nothing reported anywhere.
+
+  **The count made it invisible.** Two writes left the row at version 2 rather than 3, so a
+  caller who read version 1 and now saw 2 concluded that exactly one change had happened. The
+  mechanism built to report a lost update was concealing it.
+
+  Every change to a task, project or document is now written under the version it was read
+  at, so the database itself refuses the second one. It arrives as the same `409` and the same
+  `version_conflict` a stale version has always earned — read it again, apply your change to
+  the current version, and send it again. Nothing else changes: a change sent without a
+  version is accepted exactly as before.
+
 - **An agent's first write after a pause no longer fails with "database is locked".** Every
   write through `POST /mcp` failed if the credential had not been used for a minute — which is
   to say, whenever an agent stopped to think. The request recorded that the credential had been

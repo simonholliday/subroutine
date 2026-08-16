@@ -9,8 +9,11 @@ and it appears in no listing; exactly one *instance* is live at a time; and fini
 instance is what brings the next one into being.
 """
 
+import concurrent.futures
 import datetime
+import threading
 import typing
+import uuid
 import zoneinfo
 
 import pytest
@@ -22,6 +25,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.scoping
 import subroutine.domain.tasks
+import subroutine.domain.versions
 import subroutine.errors
 import subroutine.views
 import test_schedule
@@ -629,3 +633,118 @@ def test_an_exhausted_series_stops_saying_it_repeats_too (
 	)
 
 	assert spent.recurrence_rule is None
+
+
+def test_two_completions_at_once_mint_one_next_occurrence (
+	engine: sqlalchemy.engine.Engine,
+) -> None:
+	"""`#927`'s H-11 — two terminals finishing the same chore left two of the next one.
+
+	``update`` reads the task at the top of its transaction, works out that this write is the
+	one that finishes it, and mints the next occurrence. Two transactions that both read the
+	unfinished row both concluded they had finished it, so the series advanced twice: two
+	occurrences at the same due date, two refs burnt, and a person left to work out which row
+	to delete. `README.md` sells *"Run several agents at once without collisions."*
+
+	**Closed by H-12's fix rather than by a second one**, which is worth stating because the
+	finding proposes serialising the status write. ``VersionMixin`` now writes every change
+	under the version it was read at, so the second completion's ``UPDATE`` matches no row and
+	never reaches ``materialise`` — the same condition, in the one place that covers every
+	write rather than in the one place somebody remembered. This test exists to hold that
+	claim: if the two ever stop being the same fix, it fails here rather than in a backlog.
+
+	Real connections and a barrier, for the reason ``test_api_concurrency`` gives: the shared
+	fixture exists to stop tests seeing each other's transactions, and this is entirely about
+	what two of them do to one row.
+	"""
+
+	factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+	workspace_id: uuid.UUID | None = None
+	accounts: set[uuid.UUID] = set()
+
+	def _users (session: sqlalchemy.orm.Session) -> set[uuid.UUID]:
+		"""Return every account id there is, so the seed's own can be told apart."""
+
+		return set(
+			session.scalars(sqlalchemy.select(subroutine.db.models.identity.User.id)).all()
+		)
+
+	try:
+		with factory() as setup:
+			# **Read before and after rather than naming what the helper makes.**
+			# `_repeating` reaches `test_schedule._workspace`, which creates a founder — and
+			# the first version of this cleanup deleted the workspace and not the account,
+			# which is the recorded shape of `test_concurrent_ref_allocation` exactly. It
+			# left 247 tests in `test_transport_equivalence` failing, in a full run only.
+			before = _users(setup)
+
+			instance = _repeating(setup, recurrence="every day")
+			template = _template(setup, instance)
+
+			setup.commit()
+			task_id, template_id = instance.id, template.id
+			workspace_id = instance.workspace_id
+			accounts = _users(setup) - before
+
+		both_read = threading.Barrier(2)
+
+		def finish () -> bool:
+			"""Complete the occurrence from an independent connection."""
+
+			with factory() as worker:
+				row = worker.get(subroutine.db.models.work.Task, task_id)
+
+				assert row is not None
+
+				both_read.wait(timeout=30)
+
+				try:
+					subroutine.domain.tasks.update(worker, row, status_key="done")
+					worker.commit()
+
+					return True
+
+				except (subroutine.errors.Conflict, subroutine.domain.versions.RACED):
+					worker.rollback()
+
+					return False
+
+		with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+			finished = [
+				future.result() for future in [pool.submit(finish) for _ in range(2)]
+			]
+
+		assert sum(finished) == 1, "both callers were told they finished the same occurrence"
+
+		with factory() as check:
+			series = check.scalars(
+				sqlalchemy.select(subroutine.db.models.work.Task).where(
+					subroutine.db.models.work.Task.recurrence_template_id == template_id
+				)
+			).all()
+
+			live = [one for one in series if one.completed_at is None]
+
+			assert len(live) == 1, (
+				f"the series advanced once per completion: {len(live)} occurrences are open"
+			)
+
+	finally:
+		# This test commits, so it owns **everything** it wrote. The workspace cascades to its
+		# projects and tasks; an account does not belong to one and has to go separately.
+		with factory() as tidy:
+			if workspace_id is not None:
+				tidy.execute(
+					sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
+						subroutine.db.models.identity.Workspace.id == workspace_id
+					)
+				)
+
+			if accounts:
+				tidy.execute(
+					sqlalchemy.delete(subroutine.db.models.identity.User).where(
+						subroutine.db.models.identity.User.id.in_(accounts)
+					)
+				)
+
+			tidy.commit()
