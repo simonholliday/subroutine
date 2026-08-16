@@ -14,13 +14,17 @@ Two of these are the point rather than coverage:
   the address key safe behind a proxy, where every request appears to come from one place.
 """
 
+import pathlib
 import typing
 
 import pytest
 import sqlalchemy.orm
 import starlette.requests
+import uvicorn
 
+import subroutine.api.app
 import subroutine.api.limits
+import subroutine.cli.main
 import subroutine.config
 import subroutine.domain.authentication
 import test_api_tasks
@@ -389,3 +393,74 @@ def test_the_sweep_still_forgets_a_bucket_that_has_refilled () -> None:
 
 	assert len(limiter._buckets) == 1, "a refilled bucket should be forgotten"
 	assert "the-one-that-triggers-it" in limiter._buckets, "and the new one should survive"
+
+
+def test_serve_builds_the_application_from_the_address_it_actually_binds (
+	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`#931`, from `#927` H-4. ``--host`` reached uvicorn and stopped there.
+
+	``serve`` put the flag in a local, handed it to uvicorn and to the TLS refusal, and then
+	built the application from **unmutated** settings still saying ``127.0.0.1``. Two things
+	read that and both fail open on a wide bind: :class:`Limits` turns the credential-guessing
+	limiter off when the socket stays on one machine, and ``/readyz`` decides from it whether a
+	driver error — an internal hostname, a database name, a filesystem path — may go to an
+	unauthenticated caller.
+
+	``api/app.py`` already argued for reading it from settings *"so an application started by
+	gunicorn or by a test gets the same answer as one started by the CLI"*. The CLI was the one
+	caller making that untrue.
+	"""
+
+	built: dict[str, typing.Any] = {}
+
+	def _capture (*, settings: subroutine.config.Settings) -> object:
+		built["settings"] = settings
+
+		return object()
+
+	monkeypatch.setattr(subroutine.api.app, "create_app", _capture)
+	monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: built.update(uvicorn=kwargs))
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
+	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)
+
+	subroutine.cli.main.serve(host="0.0.0.0", port=8199, log_level="", insecure=True)
+
+	assert built["settings"].host == "0.0.0.0", (
+		"the application was built for a different address from the one uvicorn was given"
+	)
+	assert built["settings"].port == 8199
+	assert built["uvicorn"]["host"] == "0.0.0.0"
+
+
+def test_serve_does_not_let_uvicorn_read_the_forwarded_header (
+	monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#931`, from `#927` H-5. Two mechanisms for one job, and the wrong one ran first.
+
+	uvicorn defaults ``proxy_headers`` **on**, with ``forwarded_allow_ips`` falling back to
+	``127.0.0.1``, and its middleware rewrites ``scope["client"]`` from ``X-Forwarded-For``
+	*before* the application sees the request. So :func:`subroutine.api.limits._where_from` —
+	which reads the peer, checks it against ``trusted_proxies`` and only then walks the header
+	from the right — was handed a forged address as the peer and returned it as the bucket key.
+
+	**Measured**: 40 failed authentications from one machine, each with a different forged
+	header, produced **0** refusals with uvicorn reading it and **10** with it off.
+	``docs/hosting.md`` says an empty ``trusted_proxies`` means "the header is ignored
+	entirely"; this is what makes that sentence true.
+	"""
+
+	seen: dict[str, typing.Any] = {}
+
+	monkeypatch.setattr(subroutine.api.app, "create_app", lambda *, settings: object())
+	monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: seen.update(kwargs))
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
+	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
+	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)
+
+	subroutine.cli.main.serve(host="", port=0, log_level="", insecure=False)
+
+	assert seen.get("proxy_headers") is False, (
+		"uvicorn will rewrite the client address from a header this application parses itself"
+	)

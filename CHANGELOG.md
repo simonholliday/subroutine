@@ -26,6 +26,28 @@ upgrade involves.
 
 ### Security
 
+- **`serve --host` now configures the instance as well as the socket.** The flag reached
+  uvicorn and stopped there, so an instance bound to `0.0.0.0` was still *built* as though it
+  were on loopback. Two things read that and both fail open: the limiter that bounds credential
+  guessing was switched off, and `/readyz` was willing to hand an unauthenticated caller the
+  raw database error — an internal hostname, a database name, a filesystem path.
+
+  Measured: 40 wrong tokens against a wide bind produced 40 refusals and no rate limiting.
+  They now produce 30 refusals and then `429`. Setting `SUBROUTINE_HOST=0.0.0.0` was always
+  safe; it was the flag — the form the command's own help suggests — that was not.
+
+  If you bind beyond loopback and have not set `rate_limit`, limiting is now on where it
+  previously was not. `rate_limit = false` turns it off deliberately.
+
+- **`X-Forwarded-For` is no longer believed from any process on the same machine.** The
+  documented rule is that an empty `trusted_proxies` ignores the header entirely, and this
+  application implements it correctly — but uvicorn was rewriting the client address from that
+  header before the application ever saw the request. So a caller could put any address in it
+  and be counted against a bucket of their own choosing.
+
+  Measured: 40 failed authentications from one machine, each with a different forged header,
+  were refused **none** of the time before and are refused as one caller now.
+
 - **A token scoped to particular permissions is now narrowed when it reads, not only when it
   writes.** `task:read`, `project:read` and `workspace:read` were checked nowhere at all, so a
   credential issued `--scope task:delete` could read every task, document, agenda and change

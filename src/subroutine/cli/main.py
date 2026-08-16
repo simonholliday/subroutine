@@ -639,6 +639,21 @@ def serve (
 			f"{settings.port}.",
 		)
 
+	# **The flags become the settings the application is built from** (`#931`, `#927` H-4).
+	# `--host` reached uvicorn and the TLS refusal and stopped there, so `create_app` was
+	# handed settings still saying `127.0.0.1` on an instance bound to the world. Two things
+	# read that: `Limits` turns credential-guessing limiting *off* when the bind keeps the
+	# socket on one machine, and `/readyz` decides from it whether a driver error — an internal
+	# hostname, a database name, a filesystem path — may go to an unauthenticated caller.
+	#
+	# `api/app.py` already says it reads the bind "from settings rather than from the `serve`
+	# flag, so an application started by gunicorn or by a test gets the same answer as one
+	# started by the CLI". That was right, and the CLI was the one caller not making it true.
+	#
+	# Rebound rather than passed separately so everything below — the refusals, the messages
+	# and the app — reads one description of where this instance is listening.
+	settings = settings.model_copy(update={"host": where, "port": listening})
+
 	_refuse_unusable_storage(settings)
 	_refuse_public_bind(settings, where, insecure=insecure)
 
@@ -702,6 +717,20 @@ def serve (
 		port=listening,
 		log_level=(log_level.strip() or settings.log_level).lower(),
 		timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
+		# **Off, because this application already does it and does it properly** (`#931`,
+		# `#927` H-5). uvicorn defaults it *on*, with `forwarded_allow_ips` falling back to
+		# `127.0.0.1`, and its middleware rewrites `scope["client"]` from `X-Forwarded-For`
+		# before the application sees the request. So `limits._where_from` — which reads the
+		# peer, checks it against `trusted_proxies` and only then walks the header from the
+		# right — was being handed a forged address as the peer, and returned it as the
+		# rate-limit bucket key. A caller could pick their own bucket.
+		#
+		# `docs/hosting.md` states that with `trusted_proxies` empty "the header is ignored
+		# entirely". That is what this makes true; uvicorn had already made it false.
+		#
+		# Two mechanisms for one job is this codebase's signature defect, and the one that
+		# stays is the one that can see the configuration.
+		proxy_headers=False,
 	)
 
 

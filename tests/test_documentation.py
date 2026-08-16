@@ -1919,3 +1919,74 @@ def test_the_prepared_section_check_survives_a_release_being_cut () -> None:
 	# The scan is what has to be non-empty. A changelog with nothing readable in it is the
 	# failure the floor exists for, and it still is.
 	assert not _changelog_headings("# Changelog\n\nNothing at all.\n")
+
+
+def test_a_documented_default_is_the_default () -> None:
+	"""`#931`. The settings table's *names* were checked and its *values* were not.
+
+	The section above it says "a test fails the build if the two disagree", and one did — the
+	guard beside this compares the first column only. So `rate_limit_per_minute` was published
+	as 120 against a real 600, and `rate_limit_failures_per_minute` as 20 against 30: an
+	operator sizing a proxy, or deciding whether the default was tight enough, was reading a
+	number nothing had checked since it was typed.
+
+	**Only literal defaults are compared, and that is the honest scope.** Several rows describe
+	theirs in prose — "SQLite under `$XDG_DATA_HOME`" — because the value is derived and a
+	backticked constant would be a worse answer than a sentence. Those are skipped by shape
+	rather than by name, so a row that *becomes* a literal is covered without anybody adding it
+	here.
+
+	**Read from ``model_fields`` rather than from ``Settings()``**, which was the first version
+	and was wrong: constructing one reads this machine's own `config.toml`, so it reported
+	`protected` and `default_connection` as drift when what it had actually found was the
+	developer's configuration. `tests/conftest.py` gives every test an empty XDG home for
+	exactly this reason and the model's declared default is the thing being documented anyway.
+	"""
+
+	text = HOSTING.read_text(encoding="utf-8")
+	heading = "### Every setting, and what it does"
+
+	assert heading in text, f"docs/hosting.md no longer has a {heading!r} section to check"
+
+	opening = text.index(heading)
+	section = text[opening : text.index("\n## ", opening)]
+
+	compared = 0
+	wrong: list[str] = []
+
+	for name, documented in re.findall(r"^\| `(\w+)` \| ([^|]+?) \|", section, re.MULTILINE):
+		said = documented.strip()
+
+		if not (said.startswith("`") and said.endswith("`")):
+			continue
+
+		field = subroutine.config.Settings.model_fields.get(name)
+
+		if field is None:
+			continue
+
+		default = (
+			field.default_factory()  # type: ignore[call-arg]
+			if field.default_factory is not None
+			else field.default
+		)
+
+		# A boolean is written `false` in a TOML-facing table and `False` in Python, and both
+		# are honest; a list is written the way it is spelled in a config file.
+		spellings = (
+			{str(default).lower()} if isinstance(default, bool) else {str(default), repr(default)}
+		)
+
+		compared += 1
+
+		if said.strip("`") not in spellings:
+			wrong.append(f"{name}: the page says {said} and the default is {default!r}")
+
+	assert not wrong, (
+		"docs/hosting.md publishes a default that is not the default:\n  "
+		+ "\n  ".join(wrong)
+	)
+
+	# The floor. Every row could stop being a literal — by somebody rewording the column, or
+	# by the regex drifting — and a comparison of nothing passes silently.
+	assert compared >= 10, f"only {compared} defaults were literal enough to compare"

@@ -145,8 +145,8 @@ disagree, so a setting that exists and is not here cannot ship.
 | `local_user` | unset | Which account to act as when the database holds more than one and nobody logged in |
 | `default_timezone` | the machine's | The last word in the timezone chain, when no user, workspace or instance says |
 | `rate_limit` | on when reachable | Whether to limit requests. Unset means "on unless this is loopback-only and has no `public_url`" |
-| `rate_limit_per_minute` | `120` | Requests per credential per minute, once limiting is on |
-| `rate_limit_failures_per_minute` | `20` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
+| `rate_limit_per_minute` | `600` | Requests per credential per minute, once limiting is on |
+| `rate_limit_failures_per_minute` | `30` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
 | `cors_origins` | `[]` | Other origins a browser may call this API from — **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |
