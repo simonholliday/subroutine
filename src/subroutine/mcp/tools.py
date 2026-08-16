@@ -624,8 +624,19 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			name="subroutine_add",
 			title="Add a task",
 			description=(
-				"Create a task from one line. Dates, tags, priority and estimate are parsed "
-				"out of it: 'Fix the boiler by friday !4/2 ~2h #home +SR'. "
+				# **`repeats` named, rather than a `repeat` argument** (`#94`). The grammar
+				# already reads one out of the line, so an argument would be a second way to
+				# say what `subroutine_add` exists to say — and this list is the only place an
+				# agent learns what the line carries, so a capability missing from it is a
+				# capability nobody uses. The phrase is spelled out because a repeat is the one
+				# part with no sigil to hint at it.
+				#
+				# **`+web` rather than `+SR`**: `sr` was this project's own key and was retired
+				# on 2026-08-08, so the published example named a project that resolves nowhere
+				# — and it matches `subroutine_project`'s own example now.
+				"Create a task from one line. Dates, tags, priority, estimate and repeats "
+				"('every other tuesday') are parsed out of it: "
+				"'Fix the boiler by friday !4/2 ~2h #home +web'. "
 				"!importance/urgency are 1-5, ~ is a duration, # is a tag, + is a project. "
 				"Anything not recognised stays in the title verbatim."
 			),
@@ -731,6 +742,21 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"defer": {
 						"type": "string",
 						"description": "Hide it until this day. '' to unhide.",
+					},
+					# **The one half of repeating an agent could not reach at all** (`#94`).
+					# `subroutine_add`'s line grammar already *creates* one, so that tool needs
+					# no argument — but a line is typed once, and until this there was no way
+					# on the curated surface to change how something came round or to stop it.
+					# That is the ratchet's test answered precisely (§21.2): what would an
+					# agent get wrong without it, rather than is there room.
+					#
+					# **How it is measured is deliberately not here.** `recurrence_anchor` is a
+					# second argument for a choice that matters to habits a person files, and
+					# `subroutine_call_api` reaches it — which is what `#484` built the escape
+					# hatch for, so the curated surface can stay an opinion.
+					"repeat": {
+						"type": "string",
+						"description": "How often it comes round. '' stops it.",
 					},
 					"workspace": WORKSPACE,
 				},
@@ -860,7 +886,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"For what the tools above do not cover. Prefer them: they carry the "
 				"conventions this instance expects, and subroutine_add's line grammar "
-				"(!4/2 ~2h #home +SR) is not applied to fields you send here. Read "
+				"(!4/2 ~2h #home +web) is not applied to fields you send here. Read "
 				"subroutine://meta for this workspace's keys and subroutine://docs/examples "
 				"for worked calls. Paths are like '/v1/tasks'."
 			),
@@ -1486,6 +1512,26 @@ def _line (
 
 		if item.due_at is not None:
 			cells.append(f"due {item.due_at.date().isoformat()}")
+
+		# **On the row, not only in `show`** (`#922`). `_more`'s own argument for carrying it
+		# is that a repeat changes what every other fact means — *due Thursday* on something
+		# fortnightly is a different statement from *due Thursday* on a one-off — and that
+		# reasoning is stronger here, because a listing is what an agent picks work from.
+		#
+		# **And this line is what a write is answered with**, so without it an agent that set
+		# a repeat through `subroutine_update` was told *Changed* and never saw the thing it
+		# had changed. That is `#674`'s status defect word for word, on the same surface, two
+		# months later.
+		#
+		# The terminal's row has carried it since the day the CLI learned about repeats; the
+		# guard could not see the difference because it compares `_facts` against the *union*
+		# of the three agent renderers, and a fact in `_more` alone satisfies a union.
+		if item.recurrence_rule is not None:
+			cells.append(
+				subroutine.domain.recurrence.describe(
+					item.recurrence_rule, anchor=item.recurrence_anchor
+				)
+			)
 
 		# **Who has it** (`#511`). `#493` gave an agent the ability to hand work over and this
 		# renderer could not report the result — so the tool that assigns and the tool that
@@ -2220,6 +2266,13 @@ def _updated (
 	if "estimate" in arguments:
 		changes["estimate"] = arguments["estimate"]
 
+	# **`''` stops the series rather than clearing a column** (`#94`), which is the same
+	# reading `assignee`, `plan` and `defer` above give an empty string — so this surface does
+	# not invent a fourth way to say *no longer set*. What it stops is the whole repeat: the
+	# occurrence in hand keeps its number and its record, and nothing follows it.
+	if "repeat" in arguments:
+		changes["recurrence"] = arguments["repeat"] or None
+
 	days = {
 		field: _day(arguments[field], field=field)
 		for field in ("plan", "defer")
@@ -2229,7 +2282,7 @@ def _updated (
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
-			"description, plan or defer."
+			"description, repeat, plan or defer."
 		)
 
 	ref = _ref(arguments)

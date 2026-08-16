@@ -1221,6 +1221,36 @@ def test_the_whole_tool_surface_stays_small (
 	  and the ``order`` examples are the grammar. So this raise buys the whole 51 rather than
 	  most of it having been there, which is the honest report and the opposite of `#819`'s.
 
+	* **`#94`, to 11,000** — ``repeat`` on ``subroutine_update``, and ``repeats`` named in
+	  ``subroutine_add``'s list of what the line carries.
+
+	  **The ratchet's test decided which tool got the argument, and the answer was one rather
+	  than both.** ``subroutine_add`` takes a captured line and the grammar already reads a
+	  repeat out of it, so an argument there would be a second way to say what that tool
+	  exists to say. What an agent could not do *at all* was change how something came round
+	  or stop it — a line is typed once. So the argument goes where the gap is, and
+	  ``subroutine_add`` gets twelve words naming the capability instead of 96 bytes
+	  duplicating it.
+
+	  **Measured at 121 bytes: 86 for the property, 34 for the description, 1 for a
+	  correction.** The fourteen tool descriptions and every property description were read
+	  longest-first before raising, and **there was no fat** — the two longest are
+	  ``subroutine_call_api``'s pointer and ``subroutine_comment``'s comment-against-document
+	  rule, both of which are things an agent gets wrong without them.
+
+	  **`recurrence_anchor` was weighed and left off**, which is where the restraint went. It
+	  is a second argument for a choice that matters mostly to habits a *person* files, and
+	  ``subroutine_call_api`` reaches it — `#484` built that escape hatch so the curated
+	  surface could stay an opinion rather than a complete one, and this is the first raise to
+	  spend it deliberately rather than for want of room.
+
+	  **And reading for bytes found a fossil, for the fourth time running.** The published
+	  example line ended ``+SR`` — this project's own key, retired on 2026-08-08 (`#176`) — so
+	  a schema shipped to every session named a project that resolves nowhere, and it appeared
+	  in ``subroutine_call_api`` as well. Driven to be sure: it is refused by name rather than
+	  ignored, which is `#778` working, but a worked example that fails is worse than none. It
+	  is ``+web`` now, matching ``subroutine_project``'s own example.
+
 **Three of the four things read for were corrections, not trims**, which is the finding
 	  worth keeping about this exercise: reading a schema for *bytes* is what made anybody read
 	  it at all.
@@ -1248,7 +1278,7 @@ def test_the_whole_tool_surface_stays_small (
 
 	size = len(json.dumps(tools))
 
-	assert size < 10900, f"the tool schemas are {size} bytes of every session's context"
+	assert size < 11000, f"the tool schemas are {size} bytes of every session's context"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -4327,6 +4357,60 @@ def test_the_agents_show_reports_what_the_command_lines_show_reports () -> None:
 	)
 
 
+#: A fact the terminal's listing row carries that the agent's row deliberately does not, and
+#: why. Same rule as `NOT_SHOWN_TO_AN_AGENT` above, asked of the *row* rather than of `show`.
+NOT_ON_AN_AGENTS_ROW: dict[str, str] = {
+	"snoozed_until": (
+		"The terminal marks a deferred row because a person asked for a list and got one "
+		"item fewer than they expected. An agent's listings hide deferred work by default "
+		"and it asks for it by name, so a row it is looking at is one it asked to see."
+	),
+	"timezone": (
+		"`NOT_SHOWN_TO_AN_AGENT`'s reason, unchanged: this surface sends ISO instants and "
+		"there is nothing to render *into*."
+	),
+}
+
+
+def test_the_agents_listing_row_reports_what_the_command_lines_row_reports () -> None:
+	"""`#922`. **The pair `#674`'s guard structurally cannot see.**
+
+	That one compares the terminal's `_facts` against the *union* of the three renderers the
+	agent's ``show`` is assembled from — which is right for ``show``, and means a fact carried
+	by ``_more`` alone satisfies it. So a row and a fact sheet were never told apart, and the
+	repeat sat in ``_more`` while ``_line`` said nothing.
+
+	**A row is not a smaller fact sheet, and on this surface it is not only a row.** ``_line``
+	is what every write is answered with, so a fact missing from it is a fact an agent cannot
+	see itself set — which is exactly the defect `#674` exists for, reappearing two months
+	later in the one place that guard was blind to.
+	"""
+
+	terminal = _read_by(subroutine.cli.personal, "_when", "task")
+	agent = _read_by(subroutine.mcp.tools, "_line", "item")
+
+	assert terminal, "No row renderer was read at the command line."
+	assert agent, "No row renderer was read on the agent's surface."
+
+	missing = sorted(terminal - agent - set(NOT_ON_AN_AGENTS_ROW))
+
+	assert not missing, (
+		f"a listing row at the terminal reports {missing} and the agent's row does not. Put "
+		f"them on it, or record in NOT_ON_AN_AGENTS_ROW what an agent gets instead."
+	)
+
+
+def test_every_fact_excused_from_an_agents_row_is_still_read_at_the_command_line () -> None:
+	"""So the register cannot go on excusing a fact no row renders any more — `#405`'s rule."""
+
+	terminal = _read_by(subroutine.cli.personal, "_when", "task")
+	unknown = sorted(field for field in NOT_ON_AN_AGENTS_ROW if field not in terminal)
+
+	assert not unknown, (
+		f"NOT_ON_AN_AGENTS_ROW names {unknown}, which a terminal row no longer reads."
+	)
+
+
 def test_every_fact_excused_from_the_agents_show_is_still_read_at_the_command_line () -> None:
 	"""So the register cannot go on excusing a fact nobody renders any more."""
 
@@ -4657,3 +4741,46 @@ def test_a_listing_row_says_when_an_item_is_finished (
 	assert "done" not in ordinary, (
 		f"an unfinished row was told it was over: {ordinary!r}"
 	)
+
+
+def test_an_agent_can_change_how_something_repeats_and_stop_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#94`. **The half of repeating that was unreachable from this surface entirely.**
+
+	``subroutine_add``'s line grammar creates one, so an agent could always file a repeating
+	task — and then had no way to change the rule or end it, because a captured line is typed
+	once. That is the ratchet's test answered precisely (§21.2): not *is there room* but *what
+	would an agent get wrong without it*, and the answer was everything after the first day.
+
+	Driven through the protocol rather than through ``_updated``, because every silent-discard
+	defect in this arc was a value lost between the schema that declared it and the column that
+	stores it — a handler test would have passed against all three.
+	"""
+
+	ref = _added(bound, "Water the plants by 2026-12-01 every 3 days")
+
+	changed, failed = _called(
+		bound, "subroutine_update", ref=ref, repeat="every other tuesday"
+	)
+
+	assert not failed, changed
+	assert "every other week, on Tuesday" in changed, changed
+
+	# **Read back through a second call**, not from the write's own answer: a handler that
+	# rendered what it was sent rather than what it stored would satisfy the line above.
+	shown, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "every other week, on Tuesday" in shown, shown
+
+	stopped, failed = _called(bound, "subroutine_update", ref=ref, repeat="")
+
+	assert not failed, stopped
+	assert "every other week" not in stopped, stopped
+
+	# And the work in hand survived, which is the whole difference between stopping a series
+	# and deleting one.
+	after, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "Water the plants" in after
+	assert "every other week" not in after, after

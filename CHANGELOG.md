@@ -162,6 +162,11 @@ upgrade involves.
   Stopping keeps the work in hand — it holds its number and its history, and nothing follows
   it.
 
+  Agents get the same two halves: a repeat written into `subroutine_add`'s line, and `repeat`
+  on `subroutine_update` to change it or stop it. Every listing row now says how often
+  something comes round, on both surfaces — *due Thursday* on something fortnightly is a
+  different statement from *due Thursday* on a one-off.
+
 - **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
   *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did
   before. The point of the other two is the case the system setting cannot cover: a machine set
