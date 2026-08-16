@@ -1242,7 +1242,7 @@ class Document(pydantic.BaseModel):
 
 
 class Agenda(pydantic.BaseModel):
-	"""The four buckets, and what they were computed against.
+	"""The sections of a day, and what they were computed against.
 
 	``date`` and ``timezone`` are both reported because "today" is not a fact about the
 	server (SPEC.md §6.5) — and a client merging several instances resolves the date *once*,

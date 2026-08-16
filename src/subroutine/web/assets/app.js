@@ -3032,18 +3032,28 @@ export function columns (items) {
 /* ---- the agenda (`#652`) ------------------------------------------------- */
 
 /*
-	**The four buckets, in the order a day is read.** Deliberately the same words `subroutine
-	today` prints, because §12.2 already decided what the agenda says and one product answering
-	one question two ways is worse than either answer.
+	**The sections, in the order a day is read.** Deliberately the same words `subroutine today`
+	prints, because §12.2 already decided what the agenda says and one product answering one
+	question two ways is worse than either answer.
 
 	`Next 7 days` rather than `Upcoming` for the same reason: the CLI says the horizon out loud
 	and a reader should not have to learn that two surfaces mean the same span.
+
+	**That sentence was untrue in two places until `#927`'s H-15, and nothing compared them.**
+	`in_progress` was missing outright, so an item somebody had started and given no date to
+	appeared in `subroutine today`, in the agent's agenda, and on **no** browser surface — nor
+	in its count. And the last section was still called `Unscheduled`, which the CLI renamed to
+	`Next` when it started ranking rather than listing by capture order.
+
+	`cli/personal.AGENDA_SECTIONS` is the list this must equal, and `tests/test_web.py` reads
+	both. Add a section there and this fails until it is here.
 */
 const BUCKETS = [
 	{ key: "overdue", label: "Overdue" },
 	{ key: "today", label: "Today" },
+	{ key: "in_progress", label: "In progress" },
 	{ key: "upcoming", label: "Next 7 days" },
-	{ key: "unscheduled", label: "Unscheduled" },
+	{ key: "unscheduled", label: "Next" },
 ];
 
 export function agendaBuckets (agenda, workspaces = []) {

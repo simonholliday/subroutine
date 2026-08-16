@@ -5243,26 +5243,41 @@ def test_a_bucket_with_nothing_in_it_is_not_shown (tmp_path: pathlib.Path) -> No
 
 
 def test_the_buckets_keep_the_order_a_day_is_read (tmp_path: pathlib.Path) -> None:
-	"""Overdue, today, next 7 days, unscheduled — the same words and order `today` prints.
+	"""The same words, and the same order, `subroutine today` prints.
 
 	§12.2 already decided what the agenda says, and one product answering one question two ways
 	is worse than either answer on its own.
+
+	**Read off the terminal's own list rather than written out here** (`#927`'s H-15). This
+	asserted a literal four-item list under a docstring claiming it matched the CLI — and by
+	the time anybody looked it matched neither: `in_progress` was missing entirely, so an item
+	somebody had started and dated nowhere appeared in `subroutine today`, in the agent's
+	agenda, and on no browser surface at all; and the last section was still `Unscheduled`
+	where the CLI had renamed it `Next`. **A test written as a literal cannot notice that the
+	thing it claims to mirror has moved** — it fails whoever changes the original instead.
+
+	Driven rather than scanned, so it is the rendering that is compared and not the source: a
+	`BUCKETS` entry nothing reads would satisfy a regex over `app.js` and still show nothing.
 	"""
 
 	row = {"ref": 1, "title": "A task", "workspace_id": "w1"}
+	wanted = subroutine.cli.personal.AGENDA_SECTIONS
+
+	assert len(wanted) > 3, "the CLI's sections could not be read"
+
 	[buckets] = _agenda(tmp_path, [(
 		"agendaBuckets",
 		{
-			"agenda": {
-				"unscheduled": [row], "upcoming": [row], "today": [row], "overdue": [row],
-			},
+			# Every section filled, because `agendaBuckets` drops an empty one — so a bucket
+			# the browser has lost would be indistinguishable from one that simply had no
+			# rows, and this test would pass against exactly the defect it was written for.
+			"agenda": {field: [row] for _label, field, _late in wanted},
 			"workspaces": [{"id": "w1", "slug": "projects"}],
 		},
 	)])
 
-	assert [bucket["label"] for bucket in buckets] == [
-		"Overdue", "Today", "Next 7 days", "Unscheduled",
-	]
+	assert [bucket["label"] for bucket in buckets] == [label for label, _f, _l in wanted]
+	assert [bucket["key"] for bucket in buckets] == [field for _label, field, _l in wanted]
 
 
 def test_every_agenda_row_is_told_which_workspace_it_came_from (tmp_path: pathlib.Path) -> None:

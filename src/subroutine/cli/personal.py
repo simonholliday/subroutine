@@ -298,6 +298,29 @@ UNGIVEN_NUMBER = -1
 #: only ever holds tasks, and passes them through the same helpers because a task is an item.
 Row = tuple[str, Item]
 
+#: The agenda's sections, in the order a day is read: heading, the field on
+#: :class:`subroutine.views.Agenda` that fills it, and whether it is late.
+#:
+#: **A module constant because a second surface renders the same sections** (`#927` H-15).
+#: §12.2 decided what the agenda says and the browser is held to the same words, so this being
+#: a local in one function meant the browser's copy could — and did — drift: it was missing
+#: ``in_progress`` entirely and still called the last section *Unscheduled*, under a comment
+#: claiming to print "deliberately the same words". `tests/test_web.py` compares them now.
+AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = (
+	("Overdue", "overdue", True),
+	("Today", "today", False),
+	# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
+	# neither scheduled nor a candidate to pick up, and it is the first thing to look at
+	# after what the day demands — a person who left something half-finished yesterday
+	# should not have to find it among two hundred captured tasks.
+	("In progress", "in_progress", False),
+	("Next 7 days", "upcoming", False),
+	# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
+	# by capture order — the heading names what the section is *for*, and the old one
+	# named only what its rows lacked.
+	("Next", "unscheduled", False),
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class Listing:
@@ -5614,20 +5637,7 @@ def _render (
 	The labelling rule is satisfied per row instead, which is what ``address_of`` is for.
 	"""
 
-	buckets = (
-		("Overdue", "overdue", True),
-		("Today", "today", False),
-		# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
-		# neither scheduled nor a candidate to pick up, and it is the first thing to look at
-		# after what the day demands — a person who left something half-finished yesterday
-		# should not have to find it among two hundred captured tasks.
-		("In progress", "in_progress", False),
-		("Next 7 days", "upcoming", False),
-		# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
-		# by capture order — the heading names what the section is *for*, and the old one
-		# named only what its rows lacked.
-		("Next", "unscheduled", False),
-	)
+	buckets = AGENDA_SECTIONS
 	rows: dict[str, list[Row]] = {}
 
 	for _heading, field, _late in buckets:
