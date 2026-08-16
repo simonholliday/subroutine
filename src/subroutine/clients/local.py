@@ -1663,6 +1663,70 @@ class Client:
 		)
 
 
+	def occurrences (
+		self,
+		*,
+		ref: int,
+		until: str | None = None,
+		limit: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Occurrences:
+		"""Say when a repeating task comes round, without materialising anything.
+
+		**Read-only**, and that is not a technicality: nothing is stored, so a read-only
+		connection may ask — which is the property that makes `#915`'s *one real occurrence,
+		the rest computed* worth anything to a calendar.
+		"""
+
+		with self._opened() as (session, actor):
+			row = self._require(session, actor, ref, workspace)
+			series = subroutine.domain.tasks.series_of(session, row) or row
+
+			if series.recurrence_rule is None:
+				raise subroutine.errors.NotFound(
+					f"#{row.ref} does not repeat, so there is nothing to expand.",
+					hint="Give it a repeat first — 'subroutine update "
+					f"{row.ref} --repeat \"every month\"'.",
+				)
+
+			zone = subroutine.domain.schedule.zone_for(
+				user=actor.user,
+				workspace=subroutine.domain.selection.workspace(
+					session, actor, requested=workspace
+				),
+				instance=subroutine.domain.instances.get(session),
+			)
+			wanted = subroutine.domain.recurrence.AHEAD if limit is None else limit
+			# One more than asked for, so *there are no more* and *I stopped counting* are
+			# told apart without a second pass — a rule with no end never runs out.
+			found = subroutine.domain.recurrence.occurrences(
+				series.recurrence_rule,
+				start=subroutine.domain.tasks.series_start(series),
+				timezone=zone,
+				until=(
+					None
+					if until is None
+					else subroutine.domain.schedule.interpret(
+						until,
+						boundary=subroutine.domain.schedule.Boundary.END,
+						timezone=zone,
+						now=subroutine.db.types.utcnow(),
+						field="until",
+					).instant
+				),
+				limit=wanted + 1,
+			)
+
+			return subroutine.views.Occurrences(
+				rule=series.recurrence_rule,
+				description=subroutine.domain.recurrence.describe(
+					series.recurrence_rule, anchor=series.recurrence_anchor
+				),
+				occurrences=found[:wanted],
+				has_more=len(found) > wanted,
+			)
+
+
 	def skip (
 		self,
 		*,

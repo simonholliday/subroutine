@@ -190,6 +190,34 @@ class Reading(pydantic.BaseModel):
 	occurrences: list[datetime.datetime]
 
 
+class Occurrences(pydantic.BaseModel):
+	"""When a repeating task comes round, over a stretch of time.
+
+	§6.7 reserved this for a calendar, and decision `#915` is why it is computed rather than
+	stored: **one occurrence is real and the rest are arithmetic**. A birthday is one row for
+	ever rather than one row per year since 1974, and *show me every occurrence* turns out to
+	be a question about a **view** rather than about the backlog.
+
+	**Dates and nothing else.** An occurrence that has not happened has no status, no assignee
+	and no comments — it is not a row and reporting it in a task's shape would invite a client
+	to act on something that does not exist. What it does carry is the description, so a
+	calendar can say what the rule *is* beside the dates it produced.
+	"""
+
+	#: The rule these came from, and the same rule as a sentence. Both, because a calendar
+	#: drawing a month needs something to label the series with and `RRULE` is not it — while
+	#: a client feeding another calendar needs exactly the `RRULE` and nothing else.
+	rule: str
+	description: str
+
+	occurrences: list[datetime.datetime]
+
+	#: Whether the answer stopped at `limit` rather than at `until`. A rule with no end runs
+	#: for ever, so *there are no more* and *I stopped counting* are different facts and a
+	#: caller drawing a month cannot tell them apart from the list alone.
+	has_more: bool
+
+
 class Task(pydantic.BaseModel):
 	"""A task as the API reports it."""
 

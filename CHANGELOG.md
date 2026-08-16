@@ -177,6 +177,11 @@ upgrade involves.
   Emptying the box stops the repeat, the same way emptying any other box on that form clears
   what it holds.
 
+  `GET /v1/tasks/{ref}/occurrences` answers *when does this come round*, over a stretch you
+  name — `?until=2026-12-31`, or `?until=%2B3+months`. It computes rather than stores, so a
+  birthday stays one item for ever instead of becoming one per year, and asking costs nothing
+  and changes nothing. It is what a calendar view will draw from.
+
 - **The web UI has a light and dark theme you can choose**, in the footer. Three settings —
   *Match system*, *Light*, *Dark* — and it starts on *Match system*, which is what the page did
   before. The point of the other two is the case the system setting cannot cover: a machine set

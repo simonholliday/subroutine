@@ -131,6 +131,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/agenda"): "agenda",
 	("GET", "/v1/tasks"): "tasks",
 	("GET", "/v1/tasks/{id_or_ref}"): "task",
+	("GET", "/v1/tasks/{id_or_ref}/occurrences"): "occurrences",
 	("GET", "/v1/tasks/{id_or_ref}/comments"): "comments",
 	("GET", "/v1/tasks/{id_or_ref}/links"): "links",
 	("GET", "/v1/documents"): "documents",
@@ -278,6 +279,17 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"occurrences": (
+		"disclosure",
+		"`SR#94`, §6.7. This exists for a **calendar**, and a terminal is not one: `show` "
+		"already reads the rule back as a sentence — *every month, on the 30th* — which is "
+		"the fact a person acts on, where a list of instants is the thing a month grid is "
+		"drawn from. A command printing the next five dates would be a second way to ask what "
+		"`show` answers, which is the duplication `SR#154` closed for `help` and `explain`.\n\n"
+		"**What would remove it**: a date-ranged view at the terminal. `subroutine today` is "
+		"the nearest thing and deliberately spans one day; `SR#916`'s feed is where a range "
+		"gets a consumer, and `SR#576` is where an event acquires a span to draw.",
+	),
 	"read_repeat": (
 		"disclosure",
 		"`#94`. §6.7 built this so a caller can confirm a phrase *before* committing to it, and at a terminal there is nothing to confirm before: `subroutine add \"Pay the rent on the 30th of every month\"` answers with the repeat rendered back from the stored rule — *every month, on the 30th* — in the same breath as creating it. A preview command would be a second way to ask a question the create already answers, which is the duplication `#154` closed for `help` and `explain`.\n\n"
@@ -327,6 +339,18 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"occurrences": (
+		"budget",
+		"`SR#94`, §6.7, and `SR#484`'s test rather than *is there room*: what would an agent get "
+		"wrong without it? Nothing — `subroutine_show` reads the rule back as a sentence, so "
+		"an agent knows a task comes round every other Tuesday, and a list of instants is what "
+		"a **calendar** draws a grid from. This is a fifteenth tool for a question no agent has "
+		"been measured asking.\n\n"
+		"Reachable through `subroutine_call_api` meanwhile, which is what `SR#485` built it for. "
+		"**What would remove it**: an agent measured needing the dates rather than the rule — "
+		"scheduling work around a series, or answering *when is the next one* without doing "
+		"the arithmetic itself.",
+	),
 	"read_repeat": (
 		"budget",
 		"`#94`. The argument is the CLI's and one more: `subroutine_add` and `subroutine_update` already answer with the repeat read back from the stored rule, so an agent that files one is told what it means without asking. Creating is cheap and reversible here, which is what makes *confirm afterwards* an honest substitute for *confirm first* on this surface and not on a form.\n\n"

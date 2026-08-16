@@ -886,6 +886,24 @@ class Client:
 		return self._parsed(subroutine.views.Reading, body)
 
 
+	def occurrences (
+		self,
+		*,
+		ref: int,
+		until: str | None = None,
+		limit: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Occurrences:
+		"""Say when a repeating task comes round, without materialising anything."""
+
+		body = self._json(
+			"GET",
+			f"/v1/tasks/{ref}/occurrences",
+			params=_given(until=until, limit=limit, workspace_id=workspace),
+		)
+
+		return self._parsed(subroutine.views.Occurrences, body)
+
 	def skip (
 		self,
 		*,

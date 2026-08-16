@@ -150,3 +150,87 @@ def test_every_published_example_survives_the_round_trip (
 
 		assert answer.status_code == 200, f"{text!r} answered {answer.status_code}"
 		assert answer.json()["occurrences"], f"{text!r} named no dates"
+
+
+def test_a_repeat_expands_into_the_dates_it_produces (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#94`, §6.7. **The endpoint that makes decision `#915` worth taking.**
+
+	One occurrence is real and the rest are arithmetic, so *show me every birthday* is a
+	question about a view rather than about the backlog — and a birthday stays one row for ever
+	rather than becoming one row per year since 1974. Nothing is stored and nothing is
+	materialised: a `GET` that wrote would break a read-only credential and race two readers.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"text": "Water the plants", "due": "2026-09-01", "recurrence": "every 3 days"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	answer = world.call("GET", f"/v1/tasks/{ref}/occurrences?limit=4")
+
+	assert answer.status_code == 200, answer.text
+
+	body = answer.json()
+
+	assert body["rule"] == "FREQ=DAILY;INTERVAL=3"
+	assert body["description"] == "every 3 days"
+	assert len(body["occurrences"]) == 4
+
+	# **A rule with no end never runs out**, so *there are no more* and *I stopped counting* are
+	# different facts and a caller drawing a month cannot tell them apart from the list alone.
+	assert body["has_more"] is True
+
+	# **Asked of the occurrence, answered about the series.** A person is always looking at the
+	# instance, because the template is in no listing — so a client that had to find the
+	# template first would be a client that cannot ask this at all.
+	assert world.call("GET", "/v1/tasks").json()["items"][0]["ref"] == ref
+
+
+def test_it_stops_where_the_caller_says_and_says_so (world: test_api_tasks.World) -> None:
+	"""``until`` takes §9.3's grammar, and a bare day means the **end** of it.
+
+	Stopping at the first instant of the last day drops an occurrence that falls on it, which
+	reads as an off-by-one with no visible cause — the same rule §6.5 already applies to a
+	deadline, arrived at from the other direction.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"text": "Stand up", "due": "2026-09-01", "recurrence": "every 7 days"},
+	)
+	ref = made.json()["ref"]
+
+	body = world.call("GET", f"/v1/tasks/{ref}/occurrences?until=2026-09-22").json()
+
+	assert [one[:10] for one in body["occurrences"]] == [
+		"2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22",
+	], body["occurrences"]
+
+	# **The run ended because it ran out, not because the limit did**, which is the other half
+	# of the pair above and the reason `has_more` is worth reporting at all.
+	assert body["has_more"] is False
+
+
+def test_asking_something_that_does_not_repeat_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""Rather than answered with an empty list, which reads as *it never comes round*.
+
+	An empty list is a plausible, complete, wrong answer — the shape this project keeps
+	finding — and here it would be indistinguishable from a rule whose `UNTIL` has passed.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"text": "Just the once"})
+	ref = made.json()["ref"]
+
+	answer = world.call("GET", f"/v1/tasks/{ref}/occurrences")
+
+	assert answer.status_code == 404, answer.text
+	assert "does not repeat" in answer.json()["detail"]

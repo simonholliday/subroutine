@@ -38,11 +38,14 @@ import subroutine.domain.authentication
 import subroutine.domain.claims
 import subroutine.domain.filtering
 import subroutine.domain.hierarchy
+import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.readiness
+import subroutine.domain.recurrence
 import subroutine.domain.refs
+import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
@@ -767,6 +770,89 @@ def skip (
 		)
 
 	return _rendered(session, skipped)
+
+
+#: How many occurrences one request will compute. A rule with no end runs for ever, so a
+#: caller asking *when does this happen* has to be given a stopping point — and this one is
+#: generous enough that a year of a weekly meeting fits in a single answer.
+MAX_OCCURRENCES = 200
+
+
+@router.get("/{id_or_ref}/occurrences", summary="When does this come round?")
+def occurrences (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	until: str | None = fastapi.Query(
+		None, description="Stop here. A date, an instant, or an expression like '+3 months'."
+	),
+	limit: int = fastapi.Query(
+		subroutine.domain.recurrence.AHEAD,
+		ge=1,
+		le=MAX_OCCURRENCES,
+		description="At most this many.",
+	),
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.Occurrences:
+	"""Expand a repeating task's rule into the dates it produces.
+
+	§6.7 reserved this and decision `#915` is why it exists at all: **one occurrence is real
+	and the rest are computed**, so *show me every birthday* is a question about a view rather
+	than about the backlog. Nothing is stored and nothing is materialised — a `GET` that wrote
+	would break a read-only credential and race two concurrent readers.
+
+	**It answers about the series, from whichever end the caller is holding.** A person is
+	always looking at an occurrence, because the template is in no listing; asking an
+	occurrence when it next comes round is asking its series.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	series = subroutine.domain.tasks.series_of(session, task) or task
+
+	if series.recurrence_rule is None:
+		raise subroutine.errors.NotFound(
+			f"#{task.ref} does not repeat, so there is nothing to expand.",
+			hint="Give it a repeat first — 'recurrence' on this task, or the Repeats section "
+			"of its form.",
+		)
+
+	zone = subroutine.domain.schedule.zone_for(
+		user=actor.user, workspace=workspace, instance=subroutine.domain.instances.get(session)
+	)
+	# **One more than asked for**, which is how `has_more` is answered without a second pass —
+	# the same trick every listing here uses, and the reason it matters more: a rule with no
+	# end never runs out, so *there are no more* and *I stopped counting* would otherwise be
+	# indistinguishable to a caller drawing a month.
+	found = subroutine.domain.recurrence.occurrences(
+		series.recurrence_rule,
+		start=subroutine.domain.tasks.series_start(series),
+		timezone=zone,
+		until=(
+			None
+			if until is None
+			# **The end of the day when a bare day is named**, which is what "until August"
+			# means to somebody drawing a calendar — the alternative drops an occurrence on the
+			# last day and reads as an off-by-one nobody can see the cause of.
+			else subroutine.domain.schedule.interpret(
+				until,
+				boundary=subroutine.domain.schedule.Boundary.END,
+				timezone=zone,
+				now=subroutine.db.types.utcnow(),
+				field="until",
+			).instant
+		),
+		limit=limit + 1,
+	)
+
+	return subroutine.views.Occurrences(
+		rule=series.recurrence_rule,
+		description=subroutine.domain.recurrence.describe(
+			series.recurrence_rule, anchor=series.recurrence_anchor
+		),
+		occurrences=found[:limit],
+		has_more=len(found) > limit,
+	)
 
 
 @router.post("/{id_or_ref}/claim", summary="Take a task, so nobody else does")

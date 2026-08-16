@@ -1262,6 +1262,43 @@ def test_both_skip_an_occurrence_the_same_way (pair: Pair) -> None:
 		assert "repeating series" in str(refused.value)
 
 
+def test_both_expand_a_repeat_into_the_same_dates (pair: Pair) -> None:
+	"""`SR#94`, §6.7 — and this file is hand-listed, which is how `SR#44`'s ``move`` went uncovered.
+
+	The two implementations are genuinely separate here: the HTTP client asks the endpoint and
+	the local one computes it, so *the same rule* is being applied twice rather than once
+	behind a shared call. A drift would be a calendar that disagrees with the API about which
+	Tuesday, which is the worst available failure — plausible on both sides and wrong on one.
+	"""
+
+	first = pair.local.capture(
+		text="Water the plants by 2026-12-01", recurrence="every 14 days"
+	).task
+	second = pair.local.capture(
+		text="And these ones by 2026-12-01", recurrence="every 14 days"
+	).task
+
+	local, remote = pair.both()
+
+	by_local = local.occurrences(ref=first.ref, limit=4)
+	by_remote = remote.occurrences(ref=second.ref, limit=4)
+
+	assert by_local.occurrences == by_remote.occurrences
+	assert by_local.rule == by_remote.rule == "FREQ=DAILY;INTERVAL=14"
+	assert by_local.description == by_remote.description
+	assert by_local.has_more == by_remote.has_more is True
+
+	# Refused identically where there is no repeat to expand — an empty list would read as
+	# *it never comes round*, which is a plausible, complete, wrong answer on both transports.
+	plain = make(pair, "This one happens once")
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.occurrences(ref=plain.ref)
+
+		assert "does not repeat" in str(refused.value)
+
+
 def test_both_change_how_a_repeat_is_measured_without_re_sending_the_rule (
 	pair: Pair,
 ) -> None:

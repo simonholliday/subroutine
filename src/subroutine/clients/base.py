@@ -912,6 +912,22 @@ class Client(typing.Protocol):
 		*I did not do this* is a different fact about the month from *I did*.
 		"""
 
+	def occurrences (
+		self,
+		*,
+		ref: int,
+		until: str | None = None,
+		limit: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Occurrences:
+		"""Say when a repeating task comes round, without materialising anything (§6.7).
+
+		**One occurrence is real and the rest are arithmetic** (decision `#915`), so this is
+		how a calendar asks about a birthday without the backlog growing a row per year. It
+		answers about the *series* whichever end the caller is holding, because a person is
+		always looking at an occurrence — the template is in no listing.
+		"""
+
 	def update (
 		self,
 		*,
