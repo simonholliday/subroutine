@@ -407,6 +407,52 @@ def test_a_stdio_session_is_answered_by_this_endpoint (
 	assert answered["result"]["serverInfo"]["name"] == "subroutine"
 
 
+def test_a_local_session_is_narrowed_by_the_credential_it_was_given (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#927`'s H-9 — the plugin's `token` field was advertised containment and read by nothing.
+
+	`_in_process` called `principal` with a username and no credential, so `SUBROUTINE_TOKEN`,
+	`SUBROUTINE_TOKEN_<NAME>` and `credentials.toml` were all ignored on a local connection —
+	while `_over_http` twelve lines up resolved one properly. The same `--scope task:read`
+	service account answered `claudebot (agent) … Narrowed to scopes task:read` at the terminal
+	and `si (person) … instance:admin` here.
+
+	**Nothing could have caught it.** `test_plugin` checks that the manifest wires the variable
+	into the process, which was true and is a different claim from anything reading it — a
+	control declared, documented and inert, which is this codebase's second signature defect.
+
+	Driven through `subroutine_whoami`, because who the session *is* is exactly what the defect
+	was about and it is the one tool whose whole answer is that.
+	"""
+
+	issued = world.call(
+		"POST",
+		"/v1/tokens",
+		json={"title": "narrow", "service_account": "claudebot", "scopes": ["task:read"]},
+	)
+
+	assert issued.status_code == 201, issued.text
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", issued.json()["token"])
+
+	answered = _through_the_adapter(
+		world,
+		monkeypatch,
+		message=(
+			'{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+			'"params":{"name":"subroutine_whoami","arguments":{}}}'
+		),
+	)
+
+	assert answered is not None, "the adapter answered nothing"
+
+	said = answered["result"]["content"][0]["text"]
+
+	assert "claudebot" in said, f"the session was not the credential's principal: {said}"
+	assert "task:read" in said, f"the narrowing was not in force: {said}"
+
+
 def test_the_adapter_names_the_connection_the_caller_typed (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

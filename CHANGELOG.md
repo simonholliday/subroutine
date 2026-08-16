@@ -26,6 +26,33 @@ upgrade involves.
 
 ### Security
 
+- **The token you give the local plugin now decides what that session may do.** It was read by
+  nothing. `SUBROUTINE_TOKEN`, `SUBROUTINE_TOKEN_<NAME>` and `credentials.toml` were all
+  ignored on a local connection, so the same `--scope task:read` service account was
+  `claudebot (agent) … Narrowed to scopes task:read` at the terminal and `si (person) …
+  instance:admin` over `subroutine mcp` — where a write the command line refuses succeeded.
+  The plugin advertises the field as *"if you want it to have less access than you do"*.
+
+  **If you set no token, nothing changes**: reaching the database is still the authentication
+  on your own machine, which is what a standalone install relies on.
+
+  **If you set one, it is now in force.** A stale, revoked or mistyped credential that was
+  previously ignored — leaving the session with your own authority — will be refused by name.
+  That is the point of it, and it is the one thing worth checking before you upgrade an
+  installation whose plugin has that field filled in.
+
+- **An agent can no longer be handed a credential in a tool result.** `subroutine_call_api`
+  would reach `POST /v1/tokens`, which answers with a secret that exists nowhere else ever,
+  and `POST /v1/login-links`, which answers with a working sign-in URL and accepts a username
+  so it can be minted for somebody else. A tool result is text in a model's context. Both are
+  refused now, naming `subroutine token create` and `subroutine login link` instead.
+
+- **A title cannot carry a heading into the document an agent is told binds it.** Titles held
+  interior newlines, and `subroutine://conventions` renders each decision as a list item — so
+  anybody able to write a document could plant prose that read as the resource's own. A title
+  is stored on one line now, as it has always been described. Comments are unaffected: their
+  paragraphs are prose somebody wrote deliberately.
+
 - **A link in stored prose can no longer name another host by writing it with backslashes.**
   The browser refused `//evil.example/x`, which reads like a path and is not one — but a
   backslash is not a slash to that check and is one to a browser. `/\evil.example/x`,

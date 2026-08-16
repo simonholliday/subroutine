@@ -61,7 +61,7 @@ def answering (
 	"""Return something that answers one raw JSON-RPC message from the chosen instance."""
 
 	forward = (
-		_in_process(settings, workspace=workspace)
+		_in_process(connection, roster, settings, workspace=workspace)
 		if connection.is_local
 		else _over_http(connection, roster, workspace=workspace)
 	)
@@ -203,7 +203,11 @@ def _over_http (
 
 
 def _in_process (
-	settings: subroutine.config.Settings, *, workspace: str | None
+	connection: subroutine.connections.Connection,
+	roster: subroutine.connections.Roster,
+	settings: subroutine.config.Settings,
+	*,
+	workspace: str | None,
 ) -> typing.Callable[[str], tuple[int, str]]:
 	"""Return a forwarder that drives this installation's own application.
 
@@ -211,6 +215,15 @@ def _in_process (
 	install runs no server, and refusing there would be missing exactly the machine an agent
 	meets first — so the application is driven in process rather than a second implementation
 	being kept for it.
+
+	**And the same credential, which is `#927`'s H-9.** This resolved none: it called
+	``principal`` with a username and nothing else, so ``SUBROUTINE_TOKEN``,
+	``SUBROUTINE_TOKEN_<NAME>`` and ``credentials.toml`` were all ignored on a local
+	connection — while ``_over_http`` twelve lines up resolved one properly. The same
+	``--scope task:read`` service account therefore answered ``claudebot (agent) … Narrowed to
+	scopes task:read`` at the terminal and ``si (person) … instance:admin`` here, and a write
+	the CLI refuses succeeded. ``plugin.json`` sells that field as *"if you want it to have
+	less access than you do"*.
 	"""
 
 	# A late import, using the house style's documented exception, exactly as `serve` and
@@ -221,16 +234,32 @@ def _in_process (
 
 	application = api.create_app(settings=settings)
 
+	# **Resolved once, outside the closure.** A credential can come from a `token_command` —
+	# `pass show`, `gpg` — and asking per message would run it on every tool call and could
+	# prompt for a passphrase in the middle of one.
+	held = subroutine.credentials.resolve(connection, default_connection=roster.default)
+
 	def resolve (
 		session: sqlalchemy.orm.Session,
 	) -> subroutine.domain.authentication.Principal:
 		"""Answer §12.1a: on this machine the filesystem permission is the authentication.
 
 		The same resolution every other local path takes, so ``SUBROUTINE_TOKEN_<NAME>`` and a
-		stored credential narrow a stdio session exactly as they narrow a command.
+		stored credential narrow a stdio session exactly as they narrow a command — which this
+		sentence claimed before anything did it (`#927` H-9).
+
+		**No credential is not an error here, unlike over HTTP.** A standalone install has
+		none and is not supposed to: §12.1a says reaching the file is the authentication, so
+		the fallthrough to ``local_user`` is the ordinary path and the token is the narrowing
+		somebody asks for on top of it.
 		"""
 
-		return principals.principal(session, local_user=settings.local_user)
+		return principals.principal(
+			session,
+			token=held.token,
+			token_source=held.source if held.token else None,
+			local_user=settings.local_user,
+		)
 
 	def forward (raw: str) -> tuple[int, str]:
 		"""Run one message through the application and return the status and body."""
