@@ -143,12 +143,43 @@ def test_the_link_parameter_is_one_the_route_really_declares () -> None:
 
 
 def test_every_secret_parameter_is_one_of_the_two_sources () -> None:
-	"""What makes an entry go away: the set is derived, so it cannot grow a name of its own."""
+	"""What makes an entry go away: the set is derived, so it cannot grow a name of its own.
 
-	assert subroutine.api.logs.secret_parameters() == (
-		frozenset(subroutine.api.security.TOKEN_PARAMETERS)
-		| {subroutine.api.sessions.LINK_PARAMETER}
+	**Folded, and the fold is asserted rather than assumed** (`#946`): comparing against the raw
+	union would pass today by luck, because every name in both sources happens to be lower case
+	already — so a name added in mixed case would silently stop being redacted.
+	"""
+
+	assert subroutine.api.logs.secret_parameters() == frozenset(
+		name.lower()
+		for name in (
+			*subroutine.api.security.TOKEN_PARAMETERS,
+			subroutine.api.sessions.LINK_PARAMETER,
+		)
 	)
+
+	assert all(name == name.lower() for name in subroutine.api.logs.secret_parameters())
+
+
+@pytest.mark.parametrize("spelling", ["TOKEN", "Token", "ApiKey", "AUTH", "Access_Token", "Link"])
+def test_a_capitalised_credential_does_not_reach_the_access_log (spelling: str) -> None:
+	"""`#946`, cold review `#927`'s L-13 — a query parameter name is case-sensitive and a
+	credential is a credential.
+
+	Whether this server would *honour* ``?TOKEN=`` is a different question from whether the
+	value reached a log file, and it did: written out verbatim, on the one line an operator
+	keeps for ever, about the one value they would want to have caught.
+
+	**Capitalised by hand rather than by transforming the constants**, so this cannot agree with
+	the code by construction.
+	"""
+
+	line = _logged(f"/v1/tasks?{spelling}=sr_live_looks_real.SsSsSsSsSsSsSsSs")
+
+	assert "sr_live_looks_real" not in line, (
+		f"?{spelling}= put a credential in the access log: {line}"
+	)
+	assert subroutine.api.logs.REDACTED in line
 
 
 def test_installing_it_twice_leaves_one_filter () -> None:

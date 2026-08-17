@@ -169,7 +169,17 @@ def _asked_about (request: starlette.requests.Request) -> set[str]:
 	# typo — so the caller corrects the spelling and never revokes the secret now sitting in
 	# an access log. `security.principal` refuses it by name, before authenticating, and says
 	# to treat it as compromised. Left in place this ran first and swallowed that.
-	names = set(request.query_params) - set(subroutine.api.security.TOKEN_PARAMETERS)
+	#
+	# **Compared folded, because the step-over has to reach exactly what the refusal does**
+	# (`#946`). This was an exact match while the refusal became case-insensitive, so `?TOKEN=`
+	# was stepped over by neither and answered `unknown_field` from here — `#899`'s defect
+	# restored by a fix to one of its two halves. **Third site**, and the one that decides:
+	# whichever of these runs first wins, and this one is a route dependency.
+	names = {
+		name
+		for name in request.query_params
+		if name.lower() not in subroutine.api.security.CREDENTIAL_PARAMETERS
+	}
 
 	if subroutine.api.filters.declared_by(request.scope.get("route")) is None:
 		return names

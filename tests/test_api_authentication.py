@@ -447,6 +447,43 @@ def test_a_credential_in_the_url_is_called_out_however_else_the_request_is_answe
 	assert other not in answered.text
 
 
+@pytest.mark.parametrize("spelling", ["TOKEN", "Token", "ApiKey", "AUTH", "Access_Token"])
+def test_a_credential_in_the_url_is_called_out_however_it_was_capitalised (
+	session: sqlalchemy.orm.Session, setup: Setup, spelling: str
+) -> None:
+	"""`#946`, cold review `#927`'s L-13 — `#899` again, in a case nobody thought of.
+
+	**A query parameter name is case-sensitive in HTTP, and that is not the point.** Whether
+	this server would *honour* ``TOKEN`` is a different question from whether a credential
+	reached a URL, and it did: before this, ``?TOKEN=`` fell past the refusal and was answered
+	``unknown_field`` — the typo report `#899` exists to stop somebody reading — while the live
+	value went into the access log verbatim.
+
+	**Driven rather than asserted against the register**, and capitalised by hand rather than by
+	upper-casing the constants: a test that derives its cases the same way the code derives its
+	comparison agrees with the code by construction, which is the shape this project keeps
+	finding. ``Access_Token`` is here because it is the one name where the fold and a simple
+	``.title()`` disagree.
+	"""
+
+	_, secret = _token(session, setup.user)
+
+	answered = api_support.call(
+		setup.application, "GET", f"/v1/tasks?{spelling}={secret}"
+	)
+
+	assert answered.status_code == 401, (
+		f"?{spelling}= was answered {answered.status_code}, so a credential in a URL was "
+		f"treated as a misspelled parameter"
+	)
+
+	body = answered.json()
+
+	assert body["code"] == "unauthenticated"
+	assert "compromised" in body["hint"], "the one sentence worth saying was not said"
+	assert secret not in answered.text
+
+
 @pytest.mark.parametrize(
 	"header",
 	["Basic dXNlcjpwYXNz", "Token sr_deadbeef_secret", "sr_deadbeef_secret"],

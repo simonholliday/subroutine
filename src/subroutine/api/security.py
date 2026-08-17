@@ -50,6 +50,29 @@ BEARER_SCHEME = "Bearer"
 #: before the fix, the warning reached one caller in four.
 TOKEN_PARAMETERS = ("token", "api_key", "apikey", "access_token", "auth")
 
+#: The same names folded, which is what :func:`_refuse_a_credential_in_the_url` compares
+#: against. Derived rather than written out, so a name added above cannot be added here in the
+#: wrong case and quietly stop matching.
+CREDENTIAL_PARAMETERS = frozenset(name.lower() for name in TOKEN_PARAMETERS)
+
+def misplaced_credentials (request: starlette.requests.Request) -> list[str]:
+	"""Return the query parameters of this request that are places a credential must not be.
+
+	**One function because the question was asked in four places and answered four ways**
+	(`#946`, cold review `#927`'s L-13). The refusal, the hint that refusal carries, the
+	unknown-parameter step-over in :mod:`subroutine.api.query` and the access-log redaction all
+	compared names exactly — so ``?TOKEN=`` was refused by none of them, logged verbatim, and
+	answered *"'TOKEN' is not a parameter of this endpoint"*, which is the typo report `#899`
+	exists to stop somebody reading. The review found two of the four; the other two were found
+	by fixing those and watching the test still fail.
+
+	Names are returned **as the caller wrote them**, so the refusal can quote what they sent
+	rather than a normalised form they would not recognise.
+	"""
+
+	return [name for name in request.query_params if name.lower() in CREDENTIAL_PARAMETERS]
+
+
 #: A resolver: find a credential of one kind and identify its holder. ``None`` means "not
 #: my kind of credential"; raising means "my kind, and not acceptable".
 class Resolver(typing.Protocol):
@@ -332,7 +355,15 @@ def _refuse_a_credential_in_the_url (request: starlette.requests.Request) -> Non
 	`401` is the answer a client already knows how to act on.
 	"""
 
-	misplaced = [name for name in TOKEN_PARAMETERS if name in request.query_params]
+	# **Matched without regard to case** (`#946`, cold review `#927`'s L-13). A query parameter
+	# name is case-sensitive in HTTP, so `TOKEN` really is a different parameter from `token`
+	# and no route declares it — but whether the server would *honour* it is a different
+	# question from whether a credential reached a URL, and it did. `?TOKEN=sr_…` was answered
+	# `unknown_field`, which is the typo report this function exists to stop somebody reading.
+	#
+	# **Measured before widening**: of the 35 query parameters the routes declare, none
+	# collides with a credential name case-insensitively, so this refuses nothing legitimate.
+	misplaced = misplaced_credentials(request)
 
 	if not misplaced:
 		return
@@ -533,7 +564,7 @@ def clear_session_cookie (
 def _how_to_authenticate (request: starlette.requests.Request) -> str:
 	"""Return a hint telling this particular caller what to do differently."""
 
-	misplaced = [name for name in TOKEN_PARAMETERS if name in request.query_params]
+	misplaced = misplaced_credentials(request)
 
 	if misplaced:
 		return (

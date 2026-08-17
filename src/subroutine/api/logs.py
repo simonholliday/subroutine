@@ -64,11 +64,20 @@ def secret_parameters () -> frozenset[str]:
 	**Derived rather than listed**, so a parameter added to either source is covered here
 	without anybody remembering: the token names come from the set that already exists to refuse
 	them, and the link name from the route that declares it.
+
+	**Folded, and compared folded** (`#946`, cold review `#927`'s L-13). ``?TOKEN=sr_…`` was
+	written to the access log verbatim, because a query parameter name is case-sensitive in HTTP
+	and this matched it exactly. Whether the server would *honour* that parameter is a different
+	question from whether a credential reached the log, and it had.
 	"""
 
-	return frozenset(subroutine.api.security.TOKEN_PARAMETERS) | {
-		subroutine.api.sessions.LINK_PARAMETER
-	}
+	return frozenset(
+		name.lower()
+		for name in (
+			*subroutine.api.security.TOKEN_PARAMETERS,
+			subroutine.api.sessions.LINK_PARAMETER,
+		)
+	)
 
 
 def redacted (path: str) -> str:
@@ -91,11 +100,11 @@ def redacted (path: str) -> str:
 	secrets = secret_parameters()
 	query = urllib.parse.parse_qsl(path[split + 1:], keep_blank_values=True)
 
-	if not any(name in secrets for name, _value in query):
+	if not any(name.lower() in secrets for name, _value in query):
 		return path
 
 	kept = [
-		(name, REDACTED if name in secrets else value) for name, value in query
+		(name, REDACTED if name.lower() in secrets else value) for name, value in query
 	]
 
 	return f"{path[:split]}?{urllib.parse.urlencode(kept)}"

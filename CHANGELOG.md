@@ -26,6 +26,13 @@ upgrade involves.
 
 ### Security
 
+- **A credential sent in a URL is caught however it was capitalised.** `?token=` was refused by
+  name, kept out of the access log, and answered with *treat that token as compromised*.
+  `?TOKEN=` was none of those: the value was written to the log verbatim and the caller was told
+  they had misspelled a parameter, which reads as a typo to correct rather than a secret to
+  revoke. Query parameter names are case-sensitive in HTTP, and whether the server would honour
+  one is a different question from whether a credential reached a log.
+
 - **A credential that may write in one project can now only comment there.** `comment:write` has
   always been one of the five verbs a credential's write set narrows, and it was the one the
   check never reached — so a token issued `--write acme` could add to the record of every project
