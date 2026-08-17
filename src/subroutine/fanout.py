@@ -153,19 +153,16 @@ def _collect (
 	return Gathered(answers=tuple(answers), failures=tuple(failures))
 
 
-def refuse_duplicate_instances (
+def duplicate_instances (
 	identities: typing.Sequence[Answer[subroutine.clients.base.Identity]],
-) -> None:
-	"""Refuse to go on when two connections turn out to be the same server.
+) -> subroutine.errors.ValidationError | None:
+	"""Return the refusal two connections naming one server deserve, or ``None``.
 
-	Two colleagues may call one server ``work`` and ``acme``, and one person may connect to
-	two servers both calling themselves "Office" — neither is a problem, because
-	``instance_id`` settles what is what (§13.7). What *is* a problem is the same instance
-	configured twice under two names, because then every task in a merged agenda is counted,
-	printed and offered for completion twice.
-
-	Named rather than deduplicated. Silently dropping one would leave a person with a
-	connection that does nothing and no way to find out why.
+	**Returned rather than raised, because whether it matters is decided later** (`#942`).
+	Two names for one instance is harmless for a command that reports each connection on its
+	own and fatal for one that combines them, and which of those is happening is known where
+	the answers are flattened rather than where they are fetched.
+	:func:`refuse_duplicate_instances` is this plus the raise, for callers that already know.
 	"""
 
 	seen: dict[str, str] = {}
@@ -182,7 +179,7 @@ def refuse_duplicate_instances (
 
 			continue
 
-		raise subroutine.errors.ValidationError(
+		return subroutine.errors.ValidationError(
 			f"Connections {first!r} and {answer.connection.name!r} are the same instance, so "
 			"everything on it would be counted twice.",
 			hint=f"Remove one of them from {subroutine.config.config_file_path()}, or turn "
@@ -196,3 +193,26 @@ def refuse_duplicate_instances (
 				)
 			],
 		)
+
+	return None
+
+
+def refuse_duplicate_instances (
+	identities: typing.Sequence[Answer[subroutine.clients.base.Identity]],
+) -> None:
+	"""Refuse to go on when two connections turn out to be the same server.
+
+	Two colleagues may call one server ``work`` and ``acme``, and one person may connect to
+	two servers both calling themselves "Office" — neither is a problem, because
+	``instance_id`` settles what is what (§13.7). What *is* a problem is the same instance
+	configured twice under two names, because then every task in a merged agenda is counted,
+	printed and offered for completion twice.
+
+	Named rather than deduplicated. Silently dropping one would leave a person with a
+	connection that does nothing and no way to find out why.
+	"""
+
+	found = duplicate_instances(identities)
+
+	if found is not None:
+		raise found

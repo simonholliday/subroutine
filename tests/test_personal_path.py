@@ -5124,82 +5124,13 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 	assert "A conclusion" not in shown
 
 
-#: The commands that open every connection and do *not* run the duplicate-instance guard,
-#: each with the reason it cannot count one instance twice (`#327`). Adding a fourth is
-#: meant to be an act: the guard exists so a merged read does not double-count, and getting
-#: that wrong in the permissive direction is silent.
-UNMERGED_COMMANDS = {
-	"_listed": "list and ls group by connection, one heading each, so a duplicate is shown "
-	"twice rather than counted twice",
-	"show": "one address resolved in one context, so there is nothing to combine",
-	"whoami": "one line per connection, which is the command somebody runs to find out "
-	"their configuration is ambiguous",
-}
-
-
-def _commands_skipping_the_duplicate_guard () -> dict[str, str]:
-	"""Return every command that opens the world with the duplicate check turned off.
-
-	Reads the tree rather than a list, so a synthetic offender reaches the real scan — the
-	shape `#405` settled after two guards here were found checking a copy of their own rule.
-	"""
-
-	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
-	found: dict[str, str] = {}
-	current = ""
-
-	for line in source.split("\n"):
-		named = re.match(r"\tdef (\w+) ?\(", line)
-
-		if named is not None:
-			current = named.group(1)
-
-		if "merged=False" in line and "def " not in line:
-			found[current] = line.strip()
-
-	return found
-
-
-def test_only_the_commands_that_report_per_connection_skip_the_duplicate_guard () -> None:
-	"""`#327`: the guard was applied to every command and belongs to the merge.
-
-	`fanout.refuse_duplicate_instances` stops a *merged* read counting one instance twice.
-	It ran wherever the world was opened, so it also refused `whoami` — which prints a line
-	per connection and combines nothing — and `list`, which groups by connection and would
-	have shown the collision plainly. During the 2026-08-03 migration that made it impossible
-	to verify a copy while the original still existed, which is why `#288`'s steps had to move.
-
-	**This is the ratchet, not the fix.** `today` merges into buckets and still refuses, so
-	`#337`'s conclusion survives: per-connection identity remains unusable for the operator
-	because their agenda is a merged read.
-	"""
-
-	found = _commands_skipping_the_duplicate_guard()
-
-	assert set(found) == set(UNMERGED_COMMANDS), (
-		"a command started or stopped skipping the duplicate-instance guard. Each one is a "
-		"claim that it cannot count an instance twice — add it to UNMERGED_COMMANDS with the "
-		"reason, or leave the guard on.\n"
-		f"in the code: {sorted(found)}\nrecorded here: {sorted(UNMERGED_COMMANDS)}"
-	)
-
-
-def test_the_command_that_merges_does_not_skip_the_duplicate_guard () -> None:
-	"""The other half, and the one that makes the list above safe to shorten.
-
-	A scan that read nothing would make the test above pass with an empty set on both sides,
-	so this names the command whose whole design is merging (§13.7 — the dentist and the
-	stand-up belong in one list) and fails if it ever appears in the skipping set.
-	"""
-
-	assert "today" not in _commands_skipping_the_duplicate_guard(), (
-		"`today` merges across connections by design, so it is the one read that genuinely "
-		"double-counts when two connections are the same instance"
-	)
-
-	assert _commands_skipping_the_duplicate_guard(), (
-		"the scan found nothing at all, so it is not measuring the tree"
-	)
+# **The duplicate-instance guard is no longer a spelling this file can scan for** (`#942`).
+# It used to be `merged=False` on `opened()`, and two tests here read the tree for it. The
+# guard moved onto the flatten — `World.merging()`, called from `_across` — so which
+# commands it stops is now decided by what each one does with the answers rather than by a
+# flag, and the only honest way to ask is to run them against two connections naming one
+# instance. That is `test_cli_connections.py`, which already starts servers:
+# `test_a_duplicate_stops_only_the_reads_that_combine_connections`.
 
 
 def test_a_listing_is_narrowed_by_a_date (
@@ -5587,6 +5518,24 @@ def test_a_search_does_not_sink_the_thing_that_was_searched_for (
 	)
 
 
+def _one_connection () -> typing.Any:
+	"""Return a world with nothing colliding, which is what `_merged` asks about.
+
+	`#942` moved the duplicate-instance refusal onto the flatten, so `_merged` now takes the
+	world in order to ask it. Built here rather than mocked, because a stub answering *no
+	collision* to anything would make every ordering test below pass against a `_merged`
+	that had stopped asking.
+	"""
+
+	return subroutine.cli.personal.World(
+		roster=subroutine.connections.Roster(connections=(), default="local"),
+		current=subroutine.context.Current(connection="local", connection_source="default"),
+		reached=(),
+		unreachable=(),
+		settings=subroutine.config.Settings(),
+	)
+
+
 def _gathered (rows: list[tuple[str, typing.Any]]) -> typing.Any:
 	"""Wrap rows as one connection's answer, the shape `_merged` is handed."""
 
@@ -5655,7 +5604,9 @@ def test_a_ranked_search_keeps_its_ranking_when_the_terminal_merges () -> None:
 
 	assert order[0] == ("relevance", True), f"the merge is not ranked: {order}"
 
-	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+	merged = subroutine.cli.personal._merged(
+		_one_connection(), _gathered(rows), order=order
+	)
 
 	assert [row[1].title for row in merged] == ["best", "middling", "worst"]
 
@@ -5672,7 +5623,9 @@ def test_a_listing_that_was_not_ranked_merges_as_it_always_did () -> None:
 
 	assert order == (("created_at", True), ("ref", False)), f"got {order}"
 
-	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+	merged = subroutine.cli.personal._merged(
+		_one_connection(), _gathered(rows), order=order
+	)
 
 	assert [row[1].title for row in merged] == ["third", "second", "first"]
 
@@ -5689,7 +5642,9 @@ def test_an_explicit_order_still_wins_over_the_servers_ranking () -> None:
 
 	assert order == (("title", False), ("ref", False)), f"got {order}"
 
-	merged = subroutine.cli.personal._merged(_gathered(rows), order=order)
+	merged = subroutine.cli.personal._merged(
+		_one_connection(), _gathered(rows), order=order
+	)
 
 	assert [row[1].title for row in merged] == ["best", "middling", "worst"]
 

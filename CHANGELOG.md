@@ -449,6 +449,17 @@ upgrade involves.
 
 ### Fixed
 
+- **Two connections that turn out to be one instance no longer stop the commands that cannot
+  double-count.** `add`, `done`, `update`, `claim`, `comment`, `plan`, `defer`, `use` and every
+  `project`, `user` and `workspace` command refused outright — including on a machine whose own
+  local list was working perfectly well. Only a read that *combines* connections can count one
+  instance twice, so only those refuse now: `today`, and any listing or feed asked for as one
+  merged sequence, including every `--json` one. `list` and `changes` go on showing a heading
+  per connection, which is what makes the duplicate visible rather than hidden.
+
+  It matters most exactly where it used to bite hardest: copying an instance and verifying the
+  copy before cutting over, and running two identities against one server from one machine.
+
 - **A credentials file anyone can read is now mentioned by commands you actually run.** The
   warning existed, promised "any command that reads a token from the file", and was produced by
   exactly one — which is hidden from `--help` until you have a second connection.

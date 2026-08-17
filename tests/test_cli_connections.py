@@ -652,6 +652,55 @@ def test_the_same_instance_configured_twice_is_refused_by_name (
 	assert "work" in result.output and "acme" in result.output
 
 
+def test_a_duplicate_stops_only_the_reads_that_combine_connections (
+	two: Remote,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#942`, cold review `#927`'s M-33 — the guard belongs to the merge, not to the command.
+
+	`#327` wrote the rule down — *the check runs unless the command reports each connection
+	separately or targets exactly one* — and applied it with a flag on ``opened()``, which asks
+	whether a command merges before the command has done anything. Thirty-five of thirty-eight
+	call sites took the fail-closed default and were never revisited, so ``subroutine add
+	"milk"`` was refused by a guard that protects a merge.
+
+	**Driven per command rather than scanned.** What this replaces read the tree for the
+	spelling ``merged=False``, so it could confirm only that spelling — and it went on passing
+	while `add`, `update`, `claim`, `comment`, `plan` and thirty others were refused, because
+	none of them had the spelling to find.
+
+	**Both halves, because a guard that refused everything would satisfy either alone.**
+	"""
+
+	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
+	subroutine.credentials.store("acme", two.token)
+
+	# Writes go to one connection; these listings print a heading per connection, which is
+	# what makes two names for one instance visible rather than doubled.
+	for allowed in (
+		("add", "Buy milk"),
+		("list",),
+		("whoami",),
+		("changes",),
+	):
+		run(*allowed)
+
+	# Every one of these puts rows from more than one connection into a single sequence.
+	for refused in (
+		("today",),
+		("today", "--json"),
+		("list", "--json"),
+		("list", "--merged"),
+		("changes", "--json"),
+	):
+		result = run(*refused, expect=1)
+
+		assert "same instance" in result.output, (
+			f"'subroutine {' '.join(refused)}' combines connections and must refuse"
+		)
+
+
 def test_the_scripted_path_carries_the_address_and_says_what_it_missed (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

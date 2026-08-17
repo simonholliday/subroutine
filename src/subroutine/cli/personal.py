@@ -24,7 +24,9 @@ Two rules shape the rendering, and both are product surface rather than polish:
 import contextlib
 import dataclasses
 import datetime
+import functools
 import json
+import operator
 import os
 import pathlib
 import shlex
@@ -163,6 +165,29 @@ class World:
 	#: decides whether a printed address still resolves once the flag is gone — which is
 	#: `#280`'s rule, met here by a filter rather than by a context flag.
 	narrowed_to: str | None = None
+
+	#: Two connections that turned out to name one instance, if any — held rather than raised
+	#: (`#942`). See :meth:`merging` for why it is carried this far.
+	collision: subroutine.errors.SubroutineError | None = None
+
+	def merging (self) -> None:
+		"""Refuse to combine answers from connections that turn out to be one instance.
+
+		**Called where answers are flattened, not where the world is opened** (`#942`, cold
+		review `#927`'s M-33). `#327` wrote the rule down — *the check runs unless the command
+		reports each connection separately or targets exactly one* — and then applied it with a
+		flag on :func:`opened`, which asks *"is this command a merge?"* before anybody knows
+		what the command will do. Thirty-five of thirty-eight call sites took the fail-closed
+		default and were never revisited, so ``subroutine add "milk"`` — §1.4's primary path,
+		writing to exactly one connection — was refused by a guard that protects a merge.
+
+		Asked here, the question is local and obvious: *this line is putting two connections'
+		rows in one list*. A command that prints a heading per connection never reaches it,
+		and a merge written next year is covered by reaching for the same flattener.
+		"""
+
+		if self.collision is not None:
+			raise self.collision
 
 	@property
 	def clients (self) -> list[subroutine.clients.base.Client]:
@@ -931,7 +956,7 @@ def register (
 	selected = Selected()
 
 	@contextlib.contextmanager
-	def opened (*, strict: bool = False, merged: bool = True) -> typing.Iterator[World]:
+	def opened (*, strict: bool = False) -> typing.Iterator[World]:
 		"""Yield every reachable connection, with the current context settled.
 
 		One ``identity()`` per connection, fanned out — which is what resolves a workspace
@@ -939,18 +964,11 @@ def register (
 		cheap query locally and one request remotely, and everything after it is narrower
 		for having been asked.
 
-		``merged`` says whether this command *combines* what the connections answer. The
-		duplicate-instance guard exists so a merged read does not count one instance twice
-		(`#327`), and it was applied to every command that opened the world — including
-		``whoami``, which reports each connection on its own line and cannot count anything.
-
-		**The rule: the check runs unless the command reports each connection separately or
-		targets exactly one.** ``today`` merges into buckets by design, so it keeps it.
-
-		**Default ``True``, and the default is the point.** A command that combines answers
-		and forgets to say so goes on refusing, which is the outcome nobody has to debug;
-		flipping it is a claim about one command that a test can hold. Getting a double-count
-		guard wrong in the permissive direction is silent, so it fails the other way.
+		**Two connections naming one instance is recorded here and refused elsewhere**
+		(`#942`). It used to be refused here, behind a ``merged`` flag saying whether this
+		command combines what the connections answer — which asks the question before the
+		command has done anything, so the answer had to be given thirty-eight times and was
+		given three. See :meth:`World.merging` for what replaced it.
 		"""
 
 		resolved = settings()
@@ -1003,11 +1021,10 @@ def register (
 					clients, lambda client: client.identity(), strict=strict
 				)
 
-				if merged:
-					subroutine.fanout.refuse_duplicate_instances(gathered.answers)
-
 			except subroutine.errors.SubroutineError as error:
 				fail(error)
+
+			collision = subroutine.fanout.duplicate_instances(gathered.answers)
 
 			reached = tuple(
 				Reached(client=_matching(clients, answer.connection.name), identity=answer.value)
@@ -1059,6 +1076,7 @@ def register (
 					unreachable=(*unbuilt, *gathered.failures),
 					settings=resolved,
 					marker=marker,
+					collision=collision,
 				)
 
 			except subroutine.errors.SubroutineError as error:
@@ -1804,7 +1822,7 @@ def register (
 
 		# Grouped by connection, one heading each, so the same instance under two names is
 		# shown twice rather than counted twice — which is what the file says (`#327`).
-		with opened(strict=strict, merged=False) as world:
+		with opened(strict=strict) as world:
 			if connection is not None:
 				world = _only_this_connection(world, connection)
 
@@ -1830,15 +1848,27 @@ def register (
 			# compare rows by the same keys the server paged them with, or a page boundary
 			# lands where the next page does not start (`#782`) — so the sunk spelling goes to
 			# both, from one variable, and the two cannot disagree about the leading key.
-			rows = _merged(gathered, order=_merge_order(sunk, gathered))
+			# **Flattened only where the output is flat** (`#942`). This used to run before the
+			# branch below, so a grouped listing paid for a merge it never printed — harmless
+			# until the merge became the thing that refuses two connections naming one
+			# instance, at which point computing it eagerly would have refused the one path
+			# that handles them correctly.
+			flat = functools.partial(
+				_merged, world, gathered, order=_merge_order(sunk, gathered)
+			)
+			empty = not any(answer.value.rows for answer in gathered.answers)
 			more = any(answer.value.more for answer in gathered.answers)
 
 			if json_output:
-				say(json.dumps([_as_json(world, name, item) for name, item in rows], indent=2))
+				say(
+					json.dumps(
+						[_as_json(world, name, item) for name, item in flat()], indent=2
+					)
+				)
 
 				return
 
-			if not rows and q:
+			if empty and q:
 				# **Not "nothing on your list".** The list is not empty; this search found
 				# nothing in it, and saying the first about the second is how somebody
 				# concludes their data is gone. The remedy named is the widening one,
@@ -1850,7 +1880,7 @@ def register (
 
 				return
 
-			if not rows:
+			if empty:
 				# **"Nothing on your list" is a claim, and it is false when something refused
 				# to answer.** The failure has already been named on stderr; following it with
 				# a cheerful empty list says the opposite — that the question was put and the
@@ -1881,10 +1911,27 @@ def register (
 
 				return
 
+			# **`shown` is the order the reader is looking at**, which the two paths disagree
+			# about: flat re-sorts across connections, grouped prints each connection's own
+			# order under its own heading. The tip below names a row, and it should name one
+			# near the top of the page rather than one the merge happened to rank first.
+			#
+			# **Grouping is a concatenation, not a merge**, which is why it does not go through
+			# `_across` (`#942`): nothing is combined into one ranked list, and two connections
+			# naming one instance are shown under two headings — visible, which is the whole
+			# reason that case is allowed here and refused in the flat one.
 			if merged or not world.qualifies_connection:
-				_flat(world, rows, console=console, term=q)
+				shown = flat()
+
+				_flat(world, shown, console=console, term=q)
 
 			else:
+				shown = [
+					(answer.connection.name, row[1])
+					for answer in gathered.answers
+					for row in answer.value.rows
+				]
+
 				_grouped(world, gathered, console=console, say=say, term=q)
 
 			if more:
@@ -1926,7 +1973,7 @@ def register (
 			# row — and the refusal it earned then pointed at plain `list`, which is precisely
 			# where a deleted item is not. `restore` is what a reader of this list wants, and
 			# `delete` named it a moment earlier.
-			address = _typeable(world, rows[0][0], rows[0][1])
+			address = _typeable(world, shown[0][0], shown[0][1])
 
 			_suggest(
 				console,
@@ -2239,9 +2286,8 @@ def register (
 				say(
 					json.dumps(
 						[
-							{"connection": answer.connection.name, **event.model_dump(mode="json")}
-							for answer in gathered.answers
-							for event in answer.value
+							{"connection": name, **event.model_dump(mode="json")}
+							for name, event in _across(world, gathered, lambda events: events)
 						],
 						indent=2,
 					)
@@ -2343,7 +2389,7 @@ def register (
 		"""
 
 		# One address resolved in one context, so there is nothing to combine (`#327`).
-		with opened(merged=False) as world:
+		with opened() as world:
 			located = _locate(
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
@@ -4515,7 +4561,7 @@ def register (
 
 		# One line per connection. Refusing this reported an ambiguous configuration through
 		# the one command somebody would run to find out about it (`#327`).
-		with opened(strict=strict, merged=False) as world:
+		with opened(strict=strict) as world:
 			gathered = subroutine.fanout.gather(
 				world.clients, lambda client: client.me(), strict=strict
 			)
@@ -5780,11 +5826,7 @@ def _render (
 		# rules out ("sorting is re-applied after the merge"). It also made the suggested
 		# `done` command name the first *connection's* first row rather than the newest one.
 		rows[field] = _in_order(
-			[
-				(answer.connection.name, task)
-				for answer in gathered.answers
-				for task in getattr(answer.value, field)
-			],
+			_across(world, gathered, operator.attrgetter(field)),
 			field,
 		)
 
@@ -6604,9 +6646,8 @@ def _agenda_json (
 		"timezone": None if first is None else first.timezone,
 		**{
 			field: [
-				_as_json(world, answer.connection.name, task)
-				for answer in gathered.answers
-				for task in getattr(answer.value, field)
+				_as_json(world, name, task)
+				for name, task in _across(world, gathered, operator.attrgetter(field))
 			]
 			for field in buckets
 		},
@@ -6819,7 +6860,36 @@ def _merge_order (
 	return ((subroutine.domain.ordering.RELEVANCE, True), ("ref", False))
 
 
+def _across (
+	world: World,
+	gathered: subroutine.fanout.Gathered[typing.Any],
+	of: typing.Callable[[typing.Any], typing.Iterable[typing.Any]],
+) -> list[tuple[str, typing.Any]]:
+	"""Return one flat sequence across every connection, each item paired with where it came from.
+
+	**This is the only place answers from more than one connection become one list, which is
+	what makes it the place the duplicate-instance guard belongs** (`#942`). Everything else
+	iterates the connections and prints a heading per group, and a heading is what makes two
+	names for one instance visible rather than doubled.
+
+	So the four callers are the four merges: a listing's rows, the agenda's buckets, the
+	agenda's JSON and the change feed's JSON. Reach for this to write a fifth and the guard
+	comes with it; write the comprehension by hand and it does not, which is the residual risk
+	and is why ``test_personal_path`` drives every command against a duplicated world rather
+	than scanning for the shape.
+	"""
+
+	world.merging()
+
+	return [
+		(answer.connection.name, item)
+		for answer in gathered.answers
+		for item in of(answer.value)
+	]
+
+
 def _merged (
+	world: World,
 	gathered: subroutine.fanout.Gathered[Listing],
 	*,
 	order: tuple[tuple[str, bool], ...],
@@ -6839,7 +6909,7 @@ def _merged (
 	the only one that decides.
 	"""
 
-	rows = [row for answer in gathered.answers for row in answer.value.rows]
+	rows = _across(world, gathered, lambda listing: (row[1] for row in listing.rows))
 
 	return subroutine.domain.ordering.merged(rows, key=lambda row: row[1], order=order)
 
