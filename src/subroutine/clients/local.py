@@ -43,6 +43,7 @@ import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
+import subroutine.domain.calendars
 import subroutine.domain.capture
 import subroutine.domain.claims
 import subroutine.domain.comments
@@ -1308,6 +1309,88 @@ class Client:
 			return subroutine.views.token(
 				stopped, owner=owner, session=session, principal=actor
 			)
+
+	def calendars (
+		self, *, include_revoked: bool = False
+	) -> list[subroutine.views.Calendar]:
+		"""List your own calendar feeds, newest first (`#916`)."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.calendar(row, session=session, principal=actor)
+				for row in subroutine.domain.calendars.feeds(
+					session, actor.user, include_revoked=include_revoked
+				)
+			]
+
+	def create_calendar (
+		self,
+		*,
+		title: str,
+		workspace: str | None = None,
+		project: str | None = None,
+		audience: str = "everything",
+		item_types: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedCalendar:
+		"""Mint a calendar feed and return its URL once (`#916`)."""
+
+		with self._writing() as (session, actor):
+			feed, minted = subroutine.domain.calendars.issue(
+				session,
+				actor,
+				title=title,
+				workspace=workspace,
+				project=project,
+				audience=audience,
+				item_types=item_types,
+				expires=expires,
+			)
+			rendered = subroutine.views.calendar(
+				feed,
+				url=subroutine.domain.calendars.address(
+					self.settings.public_url, minted
+				),
+				issued=True,
+				session=session,
+				principal=actor,
+			)
+
+		# The type the protocol promises. `views.calendar` answers with the base type when no
+		# URL was asked for, and a cast here would be a claim rather than a check.
+		assert isinstance(rendered, subroutine.views.IssuedCalendar)
+
+		return rendered
+
+	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
+		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
+
+		with self._writing() as (session, actor):
+			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
+			minted = subroutine.domain.calendars.reset(session, found)
+			rendered = subroutine.views.calendar(
+				found,
+				url=subroutine.domain.calendars.address(
+					self.settings.public_url, minted
+				),
+				issued=True,
+				session=session,
+				principal=actor,
+			)
+
+		assert isinstance(rendered, subroutine.views.IssuedCalendar)
+
+		return rendered
+
+	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
+		"""Stop a calendar feed for good, now (`#916`)."""
+
+		with self._writing() as (session, actor):
+			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
+
+			subroutine.domain.calendars.revoke(session, found)
+
+			return subroutine.views.calendar(found, session=session, principal=actor)
 
 	def users (self) -> list[subroutine.views.User]:
 		"""List the accounts on this instance."""

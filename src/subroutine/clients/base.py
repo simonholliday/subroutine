@@ -665,6 +665,57 @@ class Client(typing.Protocol):
 		overwriting, and a caller retrying a request it is unsure landed should not move it.
 		"""
 
+	def calendars (
+		self, *, include_revoked: bool = False
+	) -> list[subroutine.views.Calendar]:
+		"""List your own calendar feeds, newest first — item `#916`, docs/design.md §20.3.
+
+		Yours and nobody else's, on either transport. §20.6 accepts that a feed URL is a bearer
+		credential nobody can audit; an inventory of somebody's is the map that makes one worth
+		stealing, so there is no way to ask for another person's.
+
+		Never a secret: only a hash is stored, so there is nothing in a listing to leak.
+		``last_polled_at`` is what a reader is looking for — a feed nobody has fetched for six
+		months is one to revoke, and it is the only signal there is.
+		"""
+
+	def create_calendar (
+		self,
+		*,
+		title: str,
+		workspace: str | None = None,
+		project: str | None = None,
+		audience: str = "everything",
+		item_types: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedCalendar:
+		"""Mint a calendar feed and return its URL once — item `#916`.
+
+		**The URL is the credential**, so this is the only moment it exists outside the caller.
+		Only a hash of it is stored; nothing recovers it afterwards, including the instance.
+
+		``url`` comes back null where the instance has not been told its own ``public_url``.
+		Guessing one from wherever the request arrived would put the secret on whatever host a
+		proxy named, on every poll for as long as somebody stays subscribed.
+
+		The feed belongs to whoever asked for it and shows what *they* may see, which is why
+		there is no owner argument and why a bounded credential is refused outright.
+		"""
+
+	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
+		"""Give a feed a new URL, so the one somebody had stops working — item `#916`.
+
+		The feed survives: its scope, its audience and its polling record are all kept, which
+		is what makes this the answer to a leak rather than revoke-and-make-another.
+		"""
+
+	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
+		"""Stop a calendar feed for good, now — item `#916`.
+
+		Immediate, and idempotent: ``revoked_at`` is read on every poll rather than cached, and
+		a repeat call keeps the first time rather than moving it.
+		"""
+
 	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
 		"""List who belongs to one workspace, and with what role."""
 

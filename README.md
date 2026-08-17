@@ -127,7 +127,7 @@ The full hosting recipe is in [docs/hosting.md](https://github.com/simonholliday
 commands and `subroutine explain dates` covers the ideas behind them.
 
 **Reaching an instance somebody else runs is [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)**, which
-is organised by which of six situations you are in rather than by how the software is built.
+is organised by which of seven situations you are in rather than by how the software is built.
 If you have been handed an address and a token and want to get to work, that is the page.
 
 ---
@@ -173,7 +173,7 @@ not built — named here because a tool that overstates itself wastes your after
 | Deactivate a person and their agents stop with them | **Built** |
 | Every change attributed to a principal, permanently | **Built** |
 | Email sign-in — today the link is printed at a terminal | Planned |
-| Notifications, webhooks, calendar feeds | Planned |
+| Notifications and webhooks | Planned |
 
 ### Ways in
 
@@ -188,6 +188,7 @@ not built — named here because a tool that overstates itself wastes your after
 | Two Claude Code plugins — one local, one needing nothing installed | **Built** |
 | Multiple connections merged into one agenda | **Built** |
 | The agenda as the browser's front page | **Built** |
+| Calendar feeds — subscribe Google, Apple or Outlook to your work | **Built** |
 | A board in the browser, with drag-and-drop between columns | **Built** |
 | A calendar view | Planned |
 
@@ -578,7 +579,7 @@ repository.
 
 ## Documentation
 
-- **[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)** — the six ways to reach an instance, organised
+- **[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)** — the seven ways to reach an instance, organised
   by which one you are. Start here if somebody has handed you an address and a token.
 - **[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** — running it as a service, end to end.
 - **[CHANGELOG.md](https://github.com/simonholliday/subroutine/blob/main/CHANGELOG.md)** — what changed, and which releases need a database

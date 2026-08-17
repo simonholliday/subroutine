@@ -1137,6 +1137,92 @@ class IssuedToken(Token):
 	account_created: bool = False
 
 
+class Calendar(pydantic.BaseModel):
+	"""A calendar feed as it can safely be described — item `#916`, docs/design.md §20.3.
+
+	**Everything but the secret**, exactly as :class:`Token` is: only a hash of it is stored,
+	so there is nothing here to rebuild one from. ``prefix`` is the public half, and is what a
+	listing prints and what resetting and revoking take.
+
+	``last_polled_at`` is why this view is worth having at all. §20.3: a URL nobody has fetched
+	for six months is one to revoke, and there is no other way to tell — a feed has no login,
+	so *when was this last used* is the only signal that it is still wanted.
+	"""
+
+	id: uuid.UUID
+	title: str
+	prefix: str
+
+	#: Which workspace's work it shows. A feed is pinned to one, and that is the column's own
+	#: reason as well as this field's: an address that spanned workspaces could collide on refs.
+	workspace_id: uuid.UUID
+
+	#: ``everything`` or ``assigned_to_me`` — docs/design.md §20.1.
+	audience: str
+
+	#: The project it is narrowed to, and everything filed under it. Null means the whole
+	#: workspace.
+	project_id: uuid.UUID | None
+
+	#: The same, as the address a person types — resolved here rather than by whoever prints
+	#: it, for `#348`'s reason: a UUID in a listing is something to go and look up. Null
+	#: alongside ``project_id``, and passed through unresolved where it names nothing visible,
+	#: because a feed's reported reach must never look narrower than its real one.
+	project_key: str | None = None
+
+	#: The item types it shows, or null for all of them. **Ids rather than keys**, decision
+	#: `#972` §5: §5.5 makes the vocabulary renameable and a feed has no reader to complain
+	#: when it silently stops matching.
+	item_type_ids: list[uuid.UUID] | None
+
+	#: The same, as the keys that workspace currently gives them — what a person types back
+	#: into ``--type``, which is `#151`'s rule that what a caller is shown is what it can send.
+	#: A type that has since been deleted is simply absent, which is the honest rendering of a
+	#: filter that no longer matches anything.
+	item_types: list[str] | None = None
+
+	#: Whether the URL would be answered right now. False for revoked and expired alike, for
+	#: :class:`Token`'s reason: the question being asked at this moment is whether it works.
+	usable: bool
+
+	created_at: datetime.datetime
+	last_polled_at: datetime.datetime | None
+	expires_at: datetime.datetime | None
+	revoked_at: datetime.datetime | None
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — the prefix, as resetting takes it."""
+
+		return self.prefix
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this feed as the cells of one compact line."""
+
+		return (
+			self.prefix,
+			self.title,
+			self.project_key or "everything",
+			self.audience,
+			"never polled" if self.last_polled_at is None else "",
+			"" if self.usable else "not usable",
+		)
+
+
+class IssuedCalendar(Calendar):
+	"""A feed at the one moment its URL exists in readable form — item `#916`.
+
+	Returned by creating one and by resetting one, and by nothing else. A separate type rather
+	than an optional field, for :class:`IssuedToken`'s reason: a field that is usually absent
+	is one somebody eventually expects to find.
+	"""
+
+	#: Where to subscribe. **Null when the instance has not been told its own ``public_url``**
+	#: — the whole URL is the credential, so a host guessed from a request header is a secret
+	#: sent somewhere nobody chose. What a caller gets then is the feed with no URL, which says
+	#: plainly that the instance cannot address itself.
+	url: str | None = None
+
+
 class Member(pydantic.BaseModel):
 	"""One person's role in one workspace — item ``#174``.
 
@@ -2703,6 +2789,98 @@ def token (
 		return Token(**fields)
 
 	return IssuedToken(**fields, token=secret, account_created=account_created)
+
+
+def calendar (
+	row: subroutine.db.models.identity.CalendarFeed,
+	*,
+	url: str | None = None,
+	issued: bool = False,
+	now: datetime.datetime | None = None,
+	session: sqlalchemy.orm.Session | None = None,
+	principal: subroutine.domain.authentication.Principal | None = None,
+) -> Calendar:
+	"""Render one calendar feed, with its URL only where one has just been minted.
+
+	``issued`` rather than ``url is not None`` decides which type comes back, and the two are
+	genuinely different questions: an instance with no ``public_url`` mints a feed and can
+	describe it and *cannot say where it is*, so the URL is absent on a response that must
+	still be an :class:`IssuedCalendar`. Keying on the value would silently answer that case
+	with the listing type, and a caller reading it would report success with nothing to
+	subscribe to and no field to notice was missing.
+	"""
+
+	moment = now or subroutine.db.types.utcnow()
+	ids = None if row.item_type_ids is None else [uuid.UUID(one) for one in row.item_type_ids]
+	fields = {
+		"id": row.id,
+		"title": row.title,
+		"prefix": row.token_prefix,
+		"workspace_id": row.workspace_id,
+		"audience": row.audience,
+		"project_id": row.project_id,
+		# **Resolved here rather than by whoever prints it**, which is `#348`'s finding one
+		# credential kind along: doing it at print time through a session is something the
+		# HTTP client has not got, so the same command would report ids over a connection and
+		# addresses locally. `keys_for` narrows, so a project the reader cannot see stays a
+		# UUID rather than disclosing its name.
+		"project_key": (
+			None
+			if row.project_id is None or session is None or principal is None
+			else next(
+				iter(
+					subroutine.domain.projects.keys_for(
+						session, principal, [str(row.project_id)]
+					)
+				),
+				None,
+			)
+		),
+		"item_type_ids": ids,
+		"item_types": None if ids is None else _item_type_keys(session, ids),
+		"usable": row.revoked_at is None
+		and (row.expires_at is None or row.expires_at > moment),
+		"created_at": row.created_at,
+		"last_polled_at": row.last_polled_at,
+		"expires_at": row.expires_at,
+		"revoked_at": row.revoked_at,
+	}
+
+	if not issued:
+		return Calendar(**fields)
+
+	return IssuedCalendar(**fields, url=url)
+
+
+def _item_type_keys (
+	session: sqlalchemy.orm.Session | None, ids: typing.Sequence[uuid.UUID]
+) -> list[str] | None:
+	"""Return the keys of these item types, in the order the filter stores them.
+
+	**The key rather than the label**, because this is what goes back into ``--type`` and into
+	a request body. A label is for reading and a key is for typing, and a listing whose values
+	cannot be sent back is `#151`'s own complaint.
+
+	``None`` where there is no session to ask, which is a caller that cannot resolve rather
+	than a filter that matches everything — the difference matters, because ``item_type_ids``
+	says which it is and this field is only ever the readable rendering of that one.
+
+	**An id that names nothing is dropped rather than passed through**, which is the opposite
+	of what :func:`calendar` does with a project. A filter naming a deleted type genuinely
+	matches nothing, so reporting the raw id would read as a type whose key we failed to
+	find — the reach is not being under-reported, it is empty.
+	"""
+
+	if session is None:
+		return None
+
+	model = subroutine.db.models.vocabulary.ItemType
+	named = {
+		one.id: one.key
+		for one in session.scalars(sqlalchemy.select(model).where(model.id.in_(ids)))
+	}
+
+	return [named[one] for one in ids if one in named]
 
 
 def member (

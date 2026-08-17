@@ -1940,9 +1940,19 @@ def _timezone (
 
 
 def item_type_for (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	key: str,
+	*,
+	field: str = "type",
 ) -> subroutine.db.models.vocabulary.ItemType:
-	"""Return a task type by key, or list the ones this workspace has."""
+	"""Return a task type by key, or list the ones this workspace has.
+
+	``field`` names the thing the caller sent, because a refusal has to name a field that
+	caller actually has — `#547`'s rule. A calendar feed's type filter is ``item_types``, and
+	being told to correct ``type`` sends somebody looking for a field their request has not
+	got. The second caller is why this is a parameter rather than a literal.
+	"""
 
 	model = subroutine.db.models.vocabulary.ItemType
 
@@ -1967,7 +1977,7 @@ def item_type_for (
 		f"There is no task type called {key!r} here.",
 		errors=[
 			subroutine.errors.FieldError(
-				field="type",
+				field=field,
 				code="not_found",
 				message=f"No task type with key {key!r} exists in this workspace.",
 				hint=f"Types here: {', '.join(available)}." if available else None,

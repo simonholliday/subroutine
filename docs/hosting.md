@@ -18,7 +18,7 @@ Rails application, you have already done this.
 
 **If you are not the one standing the server up, you want
 [docs/connecting.md](connecting.md) instead.** This page is the operator's end; that one is
-organised by which of six situations a person reaching an instance is in, and says what to ask
+organised by which of seven situations a person reaching an instance is in, and says what to ask
 you for. Sending it to whoever you issue a token to saves the conversation.
 
 > **One thing that is not optional.** Subroutine authenticates with bearer tokens, and a bearer
@@ -39,6 +39,7 @@ you for. Sending it to whoever you issue a token to saves the conversation.
 - [Giving an agent a token](#giving-an-agent-a-token)
 - [Reaching it from your own machine](#reaching-it-from-your-own-machine)
 - [Reaching it from an agent, with nothing installed](#reaching-it-from-an-agent-with-nothing-installed)
+- [Calendar feeds](#calendar-feeds)
 - [Backups](#backups)
 - [Credentials](#credentials)
 - [Upgrading](#upgrading)
@@ -1080,6 +1081,56 @@ reachable address — see [A reverse proxy](#a-reverse-proxy).
 `GET` on the endpoint answers `405`, which is correct rather than a fault: this server has
 nothing to send that a client did not ask for, so there is no event stream to hold open. A
 client that tries carries on without one.
+
+## Calendar feeds
+
+A person can point Google Calendar, Apple Calendar, Outlook or Thunderbird at their work here,
+and see anything with a date beside the rest of their week. There is nothing to set up: the
+feature is on unless you turn it off, and each person makes their own subscription with
+
+```
+subroutine calendar create "My work"
+```
+
+which prints one address, once. That address **is** the credential — there is no header to send
+and no account to sign in to, because a calendar application has nowhere to put either. This is
+the whole of what you need to know about it, and it has three consequences worth reading before
+you decide whether to leave it on.
+
+**The address is built from `public_url`**, so an instance that has not been told its own
+address mints the feed and says it cannot give you one. Set `public_url` and run
+`subroutine calendar reset <reference>`; the feed itself was never broken. Nothing guesses from
+the `Host` header, deliberately — a proxy rewrites that, and a guessed host is a secret sent
+somewhere nobody chose, every fifteen minutes, for as long as the subscription lives.
+
+**A leak is not detectable from here.** The address ends up in a phone's account settings and
+in whatever synced them, and a fetch from somewhere unexpected looks exactly like a fetch from
+somewhere expected. What there is instead is the `last polled` column
+`subroutine calendar list` prints — a subscription nobody has fetched for months is one to
+revoke, and revoking costs nothing.
+
+**Revoking is immediate and resetting keeps the feed.** `subroutine calendar reset` gives a
+subscription a new address and stops the old one working that instant, keeping its name and its
+scope; `subroutine calendar revoke` stops it for good. Whoever held the old address is not told
+— there is nobody to tell — so their calendar quietly stops updating and you send them the new
+one the same way you sent the first.
+
+Two settings decide the shape of this, and both are in
+[the settings table](#every-setting-and-what-it-does):
+
+| | |
+| --- | --- |
+| `calendars_enabled` | Turn the whole feature off. Every feed address then answers `404`, exactly as an address naming nothing does — so an instance with it off is indistinguishable from one that never had a feed |
+| `rate_limit_polls_per_minute` | How often one feed may be fetched. Its own bucket rather than a share of the ordinary allowance, because a misconfigured calendar client should not empty the one its owner's terminal draws from |
+
+**Turn it off if you would rather not have bearer credentials in URLs at all.** That is a
+defensible position and it is why the setting exists: nothing else here puts a secret in a
+path, and the reason this does is that no calendar application will send anything else.
+
+**A feed shows what its owner may see, asked afresh on every fetch.** Somebody who loses sight
+of a project stops seeing it in their calendar the same day, and there is no way to make a feed
+of somebody else's work — the owner is whoever ran the command. Marking an account as having
+left stops its feeds too, which is why offboarding needs nothing extra here.
 
 ## Backups
 

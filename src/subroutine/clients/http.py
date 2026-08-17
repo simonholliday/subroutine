@@ -611,6 +611,68 @@ class Client:
 			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{id_or_prefix}")
 		)
 
+	def calendars (
+		self, *, include_revoked: bool = False
+	) -> list[subroutine.views.Calendar]:
+		"""List your own calendar feeds, newest first (`#916`)."""
+
+		return self._collected(
+			subroutine.views.Calendar,
+			self._json(
+				"GET",
+				"/v1/calendars",
+				params=_given(include_revoked=include_revoked or None),
+			),
+			endpoint="calendars",
+		)
+
+	def create_calendar (
+		self,
+		*,
+		title: str,
+		workspace: str | None = None,
+		project: str | None = None,
+		audience: str = "everything",
+		item_types: typing.Sequence[str] | None = None,
+		expires: str | None = None,
+	) -> subroutine.views.IssuedCalendar:
+		"""Mint a calendar feed and return its URL once (`#916`)."""
+
+		return self._parsed(
+			subroutine.views.IssuedCalendar,
+			self._json(
+				"POST",
+				"/v1/calendars",
+				json=_given(
+					title=title,
+					workspace=workspace,
+					project=project,
+					audience=audience,
+					# **Sent whenever it is a list, empty included.** `None` means every type
+					# and `[]` means none, so dropping an empty one here would turn a refusal
+					# into the opposite filter — which is the one mistake this field can make.
+					item_types=None if item_types is None else list(item_types),
+					expires=expires,
+				),
+			),
+		)
+
+	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
+		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
+
+		return self._parsed(
+			subroutine.views.IssuedCalendar,
+			self._json("POST", f"/v1/calendars/{id_or_prefix}/reset"),
+		)
+
+	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
+		"""Stop a calendar feed for good, now (`#916`)."""
+
+		return self._parsed(
+			subroutine.views.Calendar,
+			self._json("DELETE", f"/v1/calendars/{id_or_prefix}"),
+		)
+
 	def users (self) -> list[subroutine.views.User]:
 		"""List the accounts on this instance."""
 

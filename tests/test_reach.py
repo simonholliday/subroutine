@@ -106,6 +106,9 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
 	("POST", "/v1/projects"): "create_project",
 	("POST", "/v1/tokens"): "issue_token",
+	("POST", "/v1/calendars"): "create_calendar",
+	("POST", "/v1/calendars/{id_or_prefix}/reset"): "reset_calendar",
+	("DELETE", "/v1/calendars/{id_or_prefix}"): "revoke_calendar",
 	("POST", "/v1/login-links"): "create_login_link",
 	("POST", "/v1/users/{username}/signout"): "sign_out_everywhere",
 	("DELETE", "/v1/tokens/{id_or_prefix}"): "revoke_token",
@@ -159,6 +162,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/docs/agent"): "reference",
 	("GET", "/v1/docs/examples"): "reference",
 	("GET", "/v1/tokens"): "tokens",
+	("GET", "/v1/calendars"): "calendars",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 }
@@ -505,6 +509,33 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"budget",
 		"Revoking (`#348`). The undo of a write this surface cannot do, and the one whose "
 		"mistake locks a person out of their own instance.",
+	),
+	# **The four calendar methods, and the argument is one sentence rather than four** (`#916`,
+	# docs/design.md §20.3): a feed is a person subscribing their own diary to their own work,
+	# and an agent has no diary. Nothing an agent does is made possible by one, which is the
+	# test §21.2 asks of a fifteenth tool rather than whether there is room.
+	"calendars": (
+		"budget",
+		"The feed inventory. §20.6 accepts that a feed URL is a bearer credential nobody can "
+		"audit, so a list of somebody's is the map that makes one worth stealing — and the "
+		"whole surface exists for a reader who has no calendar to point at anything.",
+	),
+	"create_calendar": (
+		"budget",
+		"Minting one (§20.3). `issue_token`'s argument at a lower stake and with a worse "
+		"recovery: a feed URL is a credential that travels in a path, so it lands in a "
+		"calendar application's own logs and in whatever synced it — an agent handing one "
+		"out unprompted is a leak nobody is positioned to notice.",
+	),
+	"reset_calendar": (
+		"budget",
+		"Replacing a feed's URL (§20.3). The write whose *success* silently breaks somebody "
+		"else's calendar, with nobody to tell — an agent should not do that on a hunch.",
+	),
+	"revoke_calendar": (
+		"budget",
+		"Stopping one (§20.3), which is `revoke_token`'s argument: the undo of a write this "
+		"surface cannot make.",
 	),
 	"users": (
 		"budget",

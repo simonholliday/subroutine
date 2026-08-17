@@ -33,6 +33,7 @@ import typer.testing
 
 import subroutine
 import subroutine.api.app
+import subroutine.auth
 import subroutine.cli.main
 import subroutine.credentials
 import subroutine.domain.profiles
@@ -2997,3 +2998,102 @@ def test_a_timezone_this_machine_cannot_use_is_refused_by_add_as_it_is_by_today 
 	assert "Nowhere/Atall" in filed.output, (
 		"add read the zone from nowhere, so a setting today refuses was invisible to it"
 	)
+
+
+def test_a_calendar_address_is_printed_once_and_never_again (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""§20.3's four verbs from a terminal, on a self-hosted instance with no token at all.
+
+	**The whole point of the group** is that a person can subscribe their diary to their work
+	without a Python session, which was true of nothing before `SR#916`'s last third. So this is
+	driven through the real CLI rather than through a client.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+	run("add", "Dentist on Monday at 2pm")
+
+	made = run("calendar", "create", "My work")
+	address = next(
+		word for word in made.output.split() if word.startswith("https://tasks.example.com")
+	)
+
+	assert "only time it is shown" in made.output
+	assert address.endswith(".ics")
+
+	# **The address is in the response and in nothing on disk**, which is `token create`'s own
+	# promise and is what "reset it if it leaks" rests on.
+	assert address not in (
+		home / "xdg_config_home" / "subroutine" / "config.toml"
+	).read_text(encoding="utf-8")
+
+	listed = run("calendar", "list")
+
+	assert "My work" in listed.output
+	assert "never polled" in listed.output
+
+	# **Asked of the credential's *shape* rather than of this one address.** Only a hash of the
+	# secret is stored, so a listing genuinely cannot print the address it was given — the
+	# thing worth guarding is a future field carrying a credential in some other form, and
+	# `sr_` is what every one of them begins with.
+	assert subroutine.auth.TOKEN_SCHEME + "_" not in listed.output
+
+	reference = listed.output.split()[0]
+	again = run("calendar", "reset", reference)
+
+	assert "no longer works" in again.output
+	assert address not in again.output, "reset printed the address it had just replaced"
+
+	# **The scheme in front of a reference is read back**, for the reason a ref takes `42` and
+	# `#42`: a credential begins `sr_cal_`, so somebody eyeballing one and typing what they see
+	# should not be told it means nothing. Driven, because a spelling nothing exercises is a
+	# branch that can name the wrong segment and pass.
+	spelt = "_".join(
+		(
+			subroutine.auth.TOKEN_SCHEME,
+			subroutine.auth.CALENDAR_KIND,
+			# **Re-read, because a reset replaces the whole credential** — the reference the
+			# listing printed a moment ago names nothing now, which is `SR#972`'s consequence
+			# rather than a defect and is exactly why a feed is addressable by id too.
+			run("calendar", "list").output.split()[0],
+		)
+	)
+
+	assert "no longer works" in run("calendar", "reset", spelt).output
+
+	stopped = run("calendar", "revoke", run("calendar", "list").output.split()[0])
+
+	assert "Stopped My work" in stopped.output
+	assert "no calendar subscriptions" in run("calendar", "list").output.lower()
+	assert "revoked" in run("calendar", "list", "--revoked").output
+
+
+def test_a_whole_calendar_address_is_refused_rather_than_read_for_its_reference (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""The secret must not reach shell history, which is what `_named_prefix` is for.
+
+	**Asked of a feed's credential, which carries a kind where a token does not** — so the
+	underscore-counting version of this refusal let a whole `sr_cal_…` through, having been
+	written when there were three parts and never asked about four.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+
+	made = run("calendar", "create", "My work")
+	address = next(
+		word for word in made.output.split() if word.startswith("https://tasks.example.com")
+	)
+	prefix, secret = address.removesuffix(".ics").split("/v1/calendars/")[1].split("/")
+	whole = f"{subroutine.auth.TOKEN_SCHEME}_{subroutine.auth.CALENDAR_KIND}_{prefix}_{secret}"
+
+	refused = run("calendar", "revoke", whole, expect=1)
+
+	assert "not a reference" in refused.output
+	assert prefix in refused.output, "the refusal does not say what to pass instead"
+
+	# **And the reference it named really works**, or this refuses correctly and advises
+	# something that does not — which reads to a reader exactly like the command being broken.
+	assert "Stopped" in run("calendar", "revoke", prefix).output

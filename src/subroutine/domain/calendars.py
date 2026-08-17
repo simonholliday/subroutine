@@ -24,8 +24,15 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
+import subroutine.domain.instances
+import subroutine.domain.schedule
 import subroutine.domain.scoping
+import subroutine.domain.selection
+import subroutine.domain.tasks
+import subroutine.domain.tokens
 import subroutine.errors
+import subroutine.permissions
 
 #: How far back a feed reaches, from the moment of the request — Simon's decision of
 #: 2026-08-17, recorded in `#972`.
@@ -71,10 +78,9 @@ class Occasion:
 
 def create (
 	session: sqlalchemy.orm.Session,
-	actor: subroutine.domain.authentication.Principal | None,
+	actor: subroutine.domain.authentication.Principal,
 	*,
 	workspace_id: uuid.UUID,
-	owner: subroutine.db.models.identity.User,
 	title: str,
 	audience: str = "everything",
 	project_id: uuid.UUID | None = None,
@@ -87,9 +93,25 @@ def create (
 	The secret exists in readable form exactly once, here, which is why this returns the pair
 	rather than storing it: §20.3 prints the URL once, like a token, and it cannot be
 	recovered afterwards.
+
+	**A feed is always owned by whoever asked for it, and that is structural rather than a
+	rule a caller keeps.** An ``owner`` parameter would let one person mint a URL that renders
+	with *somebody else's* sight and hand it to themselves — the escalation `#829` found on
+	sign-in links, which is worse here because a feed has no login and nothing to audit. There
+	is no field for it and so nothing to check.
 	"""
 
 	moment = now if now is not None else subroutine.db.types.utcnow()
+	owner = actor.user
+
+	# **Asked as `task:read`, because that is exactly what the feed will do** — §20.1 says a
+	# feed shows what its owner may see, and this is the permission that decides that. It is
+	# not asked of the *project*: a feed on a project nobody may see mints happily and renders
+	# nothing, which is `scoping`'s answer everywhere else and is why §7.3a's privacy is a
+	# property of the query rather than of the credential.
+	subroutine.domain.authorization.authorize(
+		session, actor, subroutine.permissions.TASK_READ, workspace_id=workspace_id
+	)
 
 	if audience not in subroutine.db.models.identity.CALENDAR_AUDIENCES:
 		offered = ", ".join(subroutine.db.models.identity.CALENDAR_AUDIENCES)
@@ -125,6 +147,89 @@ def create (
 	session.flush()
 
 	return feed, minted
+
+
+def issue (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	*,
+	title: str,
+	workspace: str | None = None,
+	project: str | None = None,
+	audience: str = "everything",
+	item_types: typing.Sequence[str] | None = None,
+	expires: str | None = None,
+	now: datetime.datetime | None = None,
+) -> tuple[subroutine.db.models.identity.CalendarFeed, subroutine.auth.IssuedToken]:
+	"""Mint a feed from what somebody typed, resolving each name to what it points at.
+
+	**Here rather than in either transport**, for the reason :func:`subroutine.domain.tokens.issue`
+	is: both take the same words and the words have to mean the same thing. ``WEB`` is one
+	project whether it arrived on a command line or in a request body, and a resolver per
+	transport is the divergence S3-07 removed for the task shape.
+
+	**A workspace is required in the sense that one is always chosen**, and left unnamed it is
+	resolved the way every other request resolves it — refused with the alternatives where the
+	caller can reach more than one. A feed spanning workspaces could not exist anyway: refs
+	collide across them (§6.2), so two items would share an event identity.
+	"""
+
+	found = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+	scope = (
+		None
+		if project is None or not project.strip()
+		else subroutine.domain.selection.addressed(
+			session, actor, found, project.strip(), field="project"
+		)
+	)
+	types = None
+
+	if item_types is not None:
+		named = [key.strip() for key in item_types if key.strip()]
+
+		# **An empty filter is refused rather than read as no filter at all.** ``None`` means
+		# every type, so collapsing ``[]`` into it would answer *show me nothing* with *show me
+		# everything* — a plausible, complete, wrong answer on a feed nobody reads closely
+		# enough to notice, and the shape `#818` is this repository's worked example of.
+		if not named:
+			raise subroutine.errors.ValidationError(
+				"A calendar that shows no item types would show nothing at all.",
+				code="invalid_field_value",
+				errors=[
+					subroutine.errors.FieldError(
+						field="item_types",
+						code="invalid_field_value",
+						message="Name at least one type, or leave this out for all of them.",
+					)
+				],
+			)
+
+		types = [
+			subroutine.domain.tasks.item_type_for(
+				session, found.id, key, field="item_types"
+			).id
+			for key in named
+		]
+
+	return create(
+		session,
+		actor,
+		workspace_id=found.id,
+		title=title,
+		audience=audience,
+		project_id=None if scope is None else scope.id,
+		item_type_ids=types,
+		expires_at=subroutine.domain.tokens.expires_on(
+			expires,
+			timezone=subroutine.domain.schedule.zone_for(
+				user=actor.user,
+				workspace=found,
+				instance=subroutine.domain.instances.get(session),
+			),
+			now=now,
+		),
+		now=now,
+	)
 
 
 def resolve (
@@ -237,6 +342,73 @@ def feeds (
 		statement = statement.where(model.revoked_at.is_(None))
 
 	return list(session.scalars(statement.order_by(model.created_at.desc())))
+
+
+def mine (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	id_or_prefix: str,
+) -> subroutine.db.models.identity.CalendarFeed:
+	"""Find a feed this caller may act on, or report that there is no such thing.
+
+	Resolved out of :func:`feeds`, which is the set they may already read — so somebody
+	else's feed is *absent* rather than forbidden, and resetting discloses nothing a listing
+	would not. `tokens.mine` one credential kind along, and the same reasoning.
+
+	**Revoked feeds are searched too**, unlike the listing's default. Revoking twice should
+	say *already revoked* rather than *no such thing*, and somebody reading a revoked feed's
+	id off a listing they asked to include them must be able to name it.
+	"""
+
+	wanted = id_or_prefix.strip()
+
+	for candidate in feeds(session, actor.user, include_revoked=True):
+		if candidate.token_prefix == wanted or str(candidate.id) == wanted:
+			return candidate
+
+	raise subroutine.errors.NotFound(
+		f"No calendar here answers to {wanted!r}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="id_or_prefix",
+				code="not_found",
+				message=f"No calendar of yours is {wanted!r}.",
+				hint="'subroutine calendar list' prints the reference of each one, which is "
+				"what resetting and revoking take.",
+			)
+		],
+	)
+
+
+def address (base: str | None, minted: subroutine.auth.IssuedToken) -> str | None:
+	"""Return the URL a calendar application subscribes to, or ``None``.
+
+	**``None`` when the instance has not been told its own ``public_url``**, rather than a
+	guess assembled from wherever the request happened to arrive. That is the same refusal
+	:func:`subroutine.api.calendars._addresses` makes about an item's link and `#832`'s about
+	what an instance may infer about itself — and here it matters more, because the guess
+	*is* the credential: a URL naming the wrong host is one somebody pastes into a calendar
+	application, which then sends the secret there every fifteen minutes for ever.
+
+	The path is built from the credential's two halves rather than from the whole string, so
+	this and the route that reads it back cannot disagree about where the split is.
+	"""
+
+	if not base:
+		return None
+
+	secret = minted.value.get_secret_value()
+	parsed = subroutine.auth.parse_token(secret, kind=subroutine.auth.CALENDAR_KIND)
+
+	if parsed is None:
+		raise RuntimeError(
+			"A credential this program just minted did not parse as one. This should be "
+			"impossible; check that 'generate_token' and 'parse_token' still agree."
+		)
+
+	prefix, rest = parsed
+
+	return f"{str(base).rstrip('/')}/v1/calendars/{prefix}/{rest}.ics"
 
 
 def occasions (
@@ -353,7 +525,7 @@ def _unknown () -> subroutine.errors.NotFound:
 
 
 def _refuse_a_credential_that_would_be_widened (
-	actor: subroutine.domain.authentication.Principal | None,
+	actor: subroutine.domain.authentication.Principal,
 	*,
 	expires_at: datetime.datetime | None,
 	now: datetime.datetime,
@@ -372,12 +544,12 @@ def _refuse_a_credential_that_would_be_widened (
 	to it later is a deliberate act, where discovering the blunt version was needed is a leak.
 	Nothing is known to have met this wall.
 
-	``None`` and `is_local` are §12.1a, somebody at a terminal with the database file, which
-	no check here narrows — and is what keeps ``subroutine calendar create`` working for a
-	self-hoster who has issued themselves no token at all.
+	`is_local` is §12.1a, somebody at a terminal with the database file, which no check here
+	narrows — and is what keeps ``subroutine calendar create`` working for a self-hoster who
+	has issued themselves no token at all.
 	"""
 
-	if actor is None or actor.is_local:
+	if actor.is_local:
 		return
 
 	if actor.narrows:

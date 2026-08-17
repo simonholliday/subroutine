@@ -101,6 +101,15 @@ agent_app = typer.Typer(
 )
 app.add_typer(agent_app, name="agent")
 
+# Separate from `token` for the same reason `login` is: a third audience rather than a third
+# flag. A calendar feed is read by a program nobody here controls — Google, Apple, Outlook —
+# which is why its credential travels in a URL and why `create` prints something you paste
+# somewhere rather than something you export.
+calendar_app = typer.Typer(
+	help="Subscribe a calendar application to your work.", no_args_is_help=True
+)
+app.add_typer(calendar_app, name="calendar")
+
 # Separate from `token`, because these are separate audiences and not separate flags. A token
 # is for an agent or another machine; a sign-in link is for a person with a browser, and it is
 # the only one of the two that anybody would hand to somebody who does not use a terminal.
@@ -2241,7 +2250,274 @@ def token_revoke (
 	_say(f"Revoked {named}. It stops working immediately.")
 
 
-def _named_prefix (given: str) -> str:
+@calendar_app.command("create")
+def calendar_create (
+	title: str = typer.Argument("", help="What this calendar is for, as a person would say it."),
+	workspace: str = typer.Option(
+		"", "--workspace", help="Whose work to show. Unset means your only one."
+	),
+	project: str = typer.Option(
+		"", "--project", help="Narrow it to this project and everything under it."
+	),
+	mine: bool = typer.Option(
+		False, "--mine", help="Show only what is assigned to you, rather than everything."
+	),
+	item_type: list[str] = typer.Option(
+		None, "--type", help="Show only these item types. Repeatable."
+	),
+	expires: str = typer.Option(
+		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+90d."
+	),
+) -> None:
+	"""Make a calendar subscription, and print its address once.
+
+	Examples:
+
+	  subroutine calendar create "My work"
+
+	  subroutine calendar create "The web rebuild" --project ui
+
+	  subroutine calendar create "Just mine" --mine --type bug
+
+	Give the address to whatever you keep your diary in — Google Calendar, Apple Calendar,
+	Outlook and Thunderbird all take one. Anything with a date shows up there and updates on
+	its own; nothing you do in the calendar comes back here, which is the trade for it
+	working everywhere without an account.
+
+	The address is a password. Anybody who has it sees this work, so treat it the way you
+	would treat one: paste it into the calendar application and nowhere else. If it gets out,
+	'subroutine calendar reset' gives this feed a new one and the old address stops working.
+
+	It is shown exactly once, here. Nothing recovers it afterwards, including this program —
+	what is kept is a fingerprint of it rather than the address itself.
+
+	It shows what *you* can see, at the moment somebody's calendar asks. Losing sight of a
+	project takes it out of the feed the same day, and there is no way to make one that shows
+	somebody else's work.
+	"""
+
+	named = title.strip()
+
+	if not named:
+		_stop(
+			"What is this calendar for?",
+			"Give it a name you will recognise later, like: subroutine calendar create "
+			"\"My work\"",
+		)
+
+	with _administering() as client:
+		try:
+			made = client.create_calendar(
+				title=named,
+				workspace=workspace.strip() or None,
+				project=project.strip() or None,
+				audience="assigned_to_me" if mine else "everything",
+				item_types=[one for one in (item_type or []) if one.strip()] or None,
+				expires=expires.strip() or None,
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	_say(f"Made {made.title}, showing {_calendar_covers(made)}.")
+
+	# **Said before anything else that could fail**, the same way `token create` prints the
+	# secret before storing it. There is nothing after this that can go wrong, and that is
+	# the arrangement rather than a coincidence worth relying on later.
+	if made.url is None:
+		_say("")
+		_say("This instance has not been told its own address, so there is nothing to give")
+		_say("a calendar application. Set 'public_url' in config.toml, then run:")
+		_say(f"  subroutine calendar reset {made.prefix}")
+
+		return
+
+	_say("")
+	_say(made.url)
+	_say("")
+	_say("That is the only time it is shown. Add it to your calendar now.")
+	_say("Treat it as a password: anybody holding it sees this work.")
+
+
+@calendar_app.command("list")
+def calendar_list (
+	revoked: bool = typer.Option(
+		False, "--revoked", help="Include the ones that have been stopped."
+	),
+) -> None:
+	"""Show your calendar subscriptions.
+
+	Examples:
+
+	  subroutine calendar list
+
+	Never the address, which cannot be recovered — what is printed is the short reference
+	'reset' and 'revoke' take.
+
+	'last polled' is the one worth reading. A calendar application fetches every quarter of
+	an hour or so, so one that has not asked for months is a subscription nobody is using,
+	and revoking it costs nothing.
+	"""
+
+	with _administering() as client:
+		try:
+			listed = client.calendars(include_revoked=revoked)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	if not listed:
+		_say("You have no calendar subscriptions.")
+		_say("  subroutine calendar create \"My work\"")
+
+		return
+
+	width = max(len(row.prefix) for row in listed)
+
+	for row in listed:
+		_say(f"  {row.prefix.ljust(width)}  {row.title}  {_calendar_state(row)}")
+		_say(f"  {' ' * width}  {_calendar_covers(row)}")
+
+
+def _calendar_covers (feed: subroutine.views.Calendar) -> str:
+	"""Say what one feed shows, in the words somebody chose when they made it."""
+
+	parts = [feed.project_key or "everything"]
+
+	if feed.audience == "assigned_to_me":
+		parts.append("assigned to you")
+
+	if feed.item_types:
+		parts.append(", ".join(feed.item_types))
+
+	return ", ".join(parts)
+
+
+def _calendar_state (feed: subroutine.views.Calendar) -> str:
+	"""Say whether a feed still works, and when a calendar last asked it.
+
+	**Stated rather than left to be worked out from three nullable dates**, which is `token
+	list`'s own argument: a reader comparing an expiry against the clock is one who eventually
+	reads a dead subscription as live, on the day they are checking whether it is.
+	"""
+
+	if feed.revoked_at is not None:
+		return f"revoked {feed.revoked_at.date().isoformat()}"
+
+	if not feed.usable:
+		return f"expired {'?' if feed.expires_at is None else feed.expires_at.date().isoformat()}"
+
+	if feed.last_polled_at is None:
+		return "never polled"
+
+	return f"last polled {feed.last_polled_at.date().isoformat()}"
+
+
+@calendar_app.command("reset")
+def calendar_reset (
+	reference: str = typer.Argument("", help="The feed's reference, as 'calendar list' shows."),
+) -> None:
+	"""Give a subscription a new address, and print it once.
+
+	Examples:
+
+	  subroutine calendar reset a1b2c3d4
+
+	The old address stops working immediately, so this is what to run if one has got out. The
+	subscription itself survives — same name, same scope — which is why this exists rather
+	than making another one.
+
+	Whoever was subscribed to the old address will find their calendar quietly stops
+	updating. Nothing tells them, because there is nobody to tell: send them the new address
+	the same way you sent the first.
+	"""
+
+	named = _named_prefix(
+		reference, noun="calendar address", part="reference", listing="calendar list"
+	)
+
+	with _administering() as client:
+		try:
+			made = client.reset_calendar(id_or_prefix=named)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	if made.url is None:
+		_say(f"{made.title} has a new address, and this instance cannot say what it is.")
+		_say("Set 'public_url' in config.toml, then run this again.")
+
+		return
+
+	_say(f"{made.title} has a new address. The old one no longer works.")
+	_say("")
+	_say(made.url)
+	_say("")
+	_say("That is the only time it is shown. Update your calendar now.")
+
+
+@calendar_app.command("revoke")
+def calendar_revoke (
+	reference: str = typer.Argument("", help="The feed's reference, as 'calendar list' shows."),
+) -> None:
+	"""Stop a calendar subscription for good.
+
+	Examples:
+
+	  subroutine calendar revoke a1b2c3d4
+
+	Immediate, and there is no undoing it: the address is checked on every fetch rather than
+	remembered, so it stops working the moment this returns. If you only want a new address,
+	'subroutine calendar reset' keeps the subscription.
+	"""
+
+	named = _named_prefix(
+		reference, noun="calendar address", part="reference", listing="calendar list"
+	)
+
+	with _administering() as client:
+		# **Asked before, so "already revoked" can be said.** Revoking keeps the *first*
+		# instant, so the response alone cannot tell a first call from a repeat — and which of
+		# the two it was is the fact somebody re-running this wants. `token revoke`'s
+		# reasoning, and its shape.
+		try:
+			before = next(
+				(
+					row
+					for row in client.calendars(include_revoked=True)
+					if row.prefix == named
+				),
+				None,
+			)
+
+			if before is None:
+				_stop(
+					f"You have no calendar subscription called {named!r}.",
+					"Run 'subroutine calendar list' to see them.",
+				)
+
+			stopped = client.revoke_calendar(id_or_prefix=named)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
+
+	when = "?" if stopped.revoked_at is None else stopped.revoked_at.date().isoformat()
+
+	if before.revoked_at is not None:
+		_say(f"{stopped.title} was already stopped, on {when}.")
+
+		return
+
+	_say(f"Stopped {stopped.title}. Its address no longer works.")
+
+
+def _named_prefix (
+	given: str,
+	*,
+	noun: str = "token",
+	part: str = "prefix",
+	listing: str = "token list",
+) -> str:
 	"""Read the prefix out of whatever the caller pasted, or refuse.
 
 	A token is written ``sr_<prefix>_<secret>`` and only the prefix is stored, so ``token
@@ -2254,24 +2530,41 @@ def _named_prefix (given: str) -> str:
 	function. It would work — the prefix is right there in it — and it would put a live
 	credential into shell history and into ``ps`` output for every process on the machine,
 	which is the one thing §7.4 never lets a secret do.
+
+	``noun``, ``part`` and ``listing`` name what the caller is holding, what they should have
+	passed and where they saw it, because a refusal has to name something they actually have
+	(`#547`). A calendar feed's address is ``sr_cal_<prefix>_<secret>``, so it meets every
+	one of these refusals — and being told to run ``subroutine token list`` sends somebody to
+	a listing their feed is not in. The second caller is why these are parameters rather than
+	literals; the defaults are what this said before there was one.
 	"""
 
 	named = given.strip()
 
 	if not named:
-		_stop("Which credential?", "Run 'subroutine token list' to see their prefixes.")
+		_stop(f"Which {noun}?", f"Run 'subroutine {listing}' to see them.")
+
+	# **Asked of `parse_token` rather than by counting underscores**, because the secret half
+	# comes from `token_urlsafe` and may contain them — so a split cannot say where the prefix
+	# ends and a rule here would be a second, worse copy of the grammar that mints these.
+	# Every kind is tried, since which one somebody pasted is the thing being worked out.
+	for kind in (None, *subroutine.auth.CREDENTIAL_KINDS):
+		whole = subroutine.auth.parse_token(named, kind=kind)
+
+		if whole is not None:
+			_stop(
+				f"That is a whole {noun}, not a {part}.",
+				f"Pass only the {part} — '{whole[0]}' here — so the secret stays out of "
+				f"your shell history. 'subroutine {listing}' prints them.",
+			)
 
 	parts = named.split("_")
 
-	if len(parts) > 2:
-		_stop(
-			"That is a whole token, not a prefix.",
-			f"Pass only the prefix — '{parts[1]}' here — so the secret stays out of your "
-			f"shell history. 'subroutine token list' prints them.",
-		)
-
-	if len(parts) == 2 and parts[0] == subroutine.auth.TOKEN_SCHEME:
-		named = parts[1]
+	# The scheme is accepted in front of a bare reference, for the reason a ref accepts `42`
+	# and `#42`: the notation the program printed should be one it reads back. A kind between
+	# them is accepted too, since that is how a feed's reference reads inside its own address.
+	if parts[0] == subroutine.auth.TOKEN_SCHEME and len(parts) in (2, 3):
+		named = parts[-1]
 
 	return named
 

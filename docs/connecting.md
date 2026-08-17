@@ -1,8 +1,9 @@
 # Connecting to Subroutine
 
-There are six ways to reach a Subroutine instance, and the one that is right for you follows
+There are seven ways to reach a Subroutine instance, and the one that is right for you follows
 from two questions: **where does your work live**, and **who is asking for it** — you in a
-browser, you at a terminal, or an agent in your editor.
+browser, you at a terminal, an agent in your editor, or the calendar application you already
+keep your week in.
 
 This page is organised by the answer. Find yourself in the table, read that one section, and
 ignore the rest. [docs/hosting.md](hosting.md) is the other end of most of them — it is for
@@ -16,6 +17,7 @@ whoever is standing the server up, and if that is also you, read it first.
 | On this machine | An agent in your editor | [An agent, on the machine holding the work](#an-agent-on-the-machine-holding-the-work) |
 | On someone else's server | An agent in your editor | [An agent, with nothing installed](#an-agent-with-nothing-installed) |
 | On a public server | Claude on the web | [Claude on the web](#claude-on-the-web) |
+| Anywhere | Your calendar application | [Your work in your calendar](#your-work-in-your-calendar) |
 
 **Two of these can be true at once and that is normal.** Your own list on this laptop and your
 team's on a server is one arrangement, not two — `subroutine today` asks every instance you can
@@ -309,6 +311,74 @@ its own piece of work rather than a variation on the section above.
 **Until then**, the plugin in [An agent, with nothing installed](#an-agent-with-nothing-installed)
 reaches exactly the same instance from Claude Code and the desktop apps, with the same token, and
 needs nothing installed either.
+
+## Your work in your calendar
+
+**A seventh way in, and the only one that is not really a way *in*.** Anything here with a date
+can appear in Google Calendar, Apple Calendar, Outlook or Thunderbird, beside the rest of your
+week — so a deadline you filed at a terminal turns up on your phone without you doing anything
+else about it.
+
+You need a terminal once, to make the subscription:
+
+```
+subroutine calendar create "My work"
+```
+
+That prints one address ending `.ics`. Paste it into whatever you keep your diary in, under
+whatever it calls *subscribe to a calendar* or *add by URL*. From then on it updates on its own,
+every quarter of an hour or so, and you never touch it again.
+
+**Nothing comes back.** Moving an event in your calendar changes nothing here, and deleting one
+there does not complete anything. That is the trade for it working in every calendar
+application without an account: the feed is a **copy**, kept up to date, and the work still
+lives here.
+
+**The address is a password.** Anybody who has it can read everything the feed shows, for as
+long as it works, and nobody here can tell that they are — a fetch from somewhere unexpected
+looks exactly like one from your phone. So paste it into the calendar application and nowhere
+else, and if it gets out:
+
+```
+subroutine calendar reset <reference>
+```
+
+which gives that subscription a new address and stops the old one that instant. The
+subscription keeps its name and its scope; you re-add it in your calendar and carry on.
+`subroutine calendar revoke <reference>` stops one for good.
+
+**It is shown once.** Nothing recovers it afterwards, including the instance — what is kept is
+a fingerprint. If you lose it before you have subscribed, reset the feed and paste the new one.
+
+**Narrow it if the whole workspace is too much**, which it usually is:
+
+```
+subroutine calendar create "The web rebuild" --project ui
+subroutine calendar create "Just mine" --mine
+subroutine calendar create "Deadlines" --type bug --type feature
+```
+
+`--project` takes everything filed under that project too. `--mine` shows only what is assigned
+to you. `--expires` stops a feed working on a day you name, which is worth setting for anything
+temporary.
+
+**What shows up**: an item's start, an item's deadline, and both where it has both — the day you
+meant to do it and the day it is due are different facts, so a calendar showing one would hide
+the other. A deadline reads `Due: <title>`. An item that repeats on a fixed schedule arrives as
+a repeating event, so your calendar draws the whole series without this instance sending four
+hundred copies of it.
+
+**A week of the recent past, and a year or so ahead.** The past is kept on purpose: most
+calendar applications delete an event the moment a feed stops sending it, so dropping finished
+work would erase a meeting from your calendar's history the moment you ticked it off.
+
+**It shows what you can see, asked afresh every time.** Losing access to a project takes it out
+of the feed the same day. There is no way to make a feed of somebody else's work.
+
+**If `subroutine calendar create` says it has no address to give you**, the instance has not
+been told its own — ask whoever runs it to set `public_url`, then reset the feed. It is not
+broken; it simply cannot say where it lives. And if the command is refused outright, feeds may
+be turned off on that instance, which is a decision its operator is entitled to make.
 
 ## Which is which, if you have lost track
 

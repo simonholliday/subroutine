@@ -30,6 +30,7 @@ import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.calendars
 import subroutine.domain.icalendar
 import subroutine.domain.projects
@@ -37,6 +38,7 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import test_api_tasks
 
 NOW = datetime.datetime(2026, 8, 17, 9, 0, tzinfo=datetime.UTC)
@@ -94,12 +96,21 @@ def _feed (
 	owner: subroutine.db.models.identity.User,
 	**kwargs: typing.Any,
 ) -> tuple[subroutine.db.models.identity.CalendarFeed, subroutine.auth.IssuedToken]:
-	"""Mint a feed as somebody at a terminal, which no check narrows (§12.1a)."""
+	"""Mint a feed as somebody at a terminal, which no check narrows (§12.1a).
+
+	**The owner is the actor and there is no way to say otherwise**, which is why this takes
+	one argument where it used to take two: a feed renders with its owner's sight, so an owner
+	a caller could name would be somebody else's work handed to whoever asked.
+	"""
 
 	kwargs.setdefault("title", "My calendar")
 
 	return subroutine.domain.calendars.create(
-		session, None, workspace_id=workspace.id, owner=owner, now=NOW, **kwargs
+		session,
+		subroutine.domain.authentication.Principal(user=owner),
+		workspace_id=workspace.id,
+		now=NOW,
+		**kwargs,
 	)
 
 
@@ -235,8 +246,7 @@ def test_a_bounded_credential_cannot_mint_a_feed (
 
 	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		subroutine.domain.calendars.create(
-			session, narrowed, workspace_id=workspace.id, owner=owner,
-			title="Wider than me", now=NOW,
+			session, narrowed, workspace_id=workspace.id, title="Wider than me", now=NOW,
 		)
 
 	assert "bounded" in str(refused.value)
@@ -253,7 +263,7 @@ def test_a_bounded_credential_cannot_mint_a_feed (
 	made, _minted = subroutine.domain.calendars.create(
 		session,
 		subroutine.domain.authentication.Principal(user=owner, token=wide),
-		workspace_id=workspace.id, owner=owner, title="Fine", now=NOW,
+		workspace_id=workspace.id, title="Fine", now=NOW,
 	)
 
 	assert made.id is not None
@@ -282,14 +292,13 @@ def test_a_feed_may_not_outlive_the_credential_that_asked_for_it (
 
 	with pytest.raises(subroutine.errors.Forbidden) as refused:
 		subroutine.domain.calendars.create(
-			session, actor, workspace_id=workspace.id, owner=owner,
-			title="For ever", now=NOW,
+			session, actor, workspace_id=workspace.id, title="For ever", now=NOW,
 		)
 
 	assert "outlive" in str(refused.value)
 
 	made, _minted = subroutine.domain.calendars.create(
-		session, actor, workspace_id=workspace.id, owner=owner, title="Bounded",
+		session, actor, workspace_id=workspace.id, title="Bounded",
 		expires_at=NOW + datetime.timedelta(days=7), now=NOW,
 	)
 
@@ -459,7 +468,9 @@ def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
 	project = _project(session, world.workspace)
 	_task(session, project, world.user, title="Dentist", starts=NOW + datetime.timedelta(days=1))
 	feed, minted = subroutine.domain.calendars.create(
-		session, None, workspace_id=world.workspace.id, owner=world.user,
+		session,
+		subroutine.domain.authentication.Principal(user=world.user),
+		workspace_id=world.workspace.id,
 		title="Mine", now=NOW,
 	)
 	session.flush()
@@ -539,7 +550,9 @@ def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
 
 	world = test_api_tasks._world(session)
 	_feed_row, minted = subroutine.domain.calendars.create(
-		session, None, workspace_id=world.workspace.id, owner=world.user,
+		session,
+		subroutine.domain.authentication.Principal(user=world.user),
+		workspace_id=world.workspace.id,
 		title="Mine", now=NOW,
 	)
 	session.flush()
@@ -575,3 +588,313 @@ def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
 		"a disabled instance answers differently from one where the address names nothing, "
 		"which tells whoever holds a leaked URL that it was real"
 	)
+
+
+def test_a_feed_can_be_made_listed_reset_and_revoked_over_http (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§20.3's four verbs, driven end to end against the URL each one produces.
+
+	**Every claim is checked by fetching the address**, never by reading a column. Whether a
+	reset really stopped the old URL and whether the new one really works are the two facts
+	the whole feature rests on, and both are answerable only by asking.
+	"""
+
+	world = test_api_tasks._world(session, instance={"public_url": "https://example.test"})
+	project = _project(session, world.workspace)
+	_task(session, project, world.user, title="Dentist", starts=NOW + datetime.timedelta(days=1))
+	session.flush()
+
+	headers = {"authorization": f"Bearer {world.secret}"}
+	made = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "My work", "project": project.key},
+		headers=headers,
+	)
+
+	assert made.status_code == 201, made.text
+
+	first = made.json()["url"]
+
+	assert first.startswith("https://example.test/v1/calendars/"), first
+	assert first.endswith(".ics")
+	assert made.json()["project_key"] is not None, "the project is reported as an address"
+
+	path = first.removeprefix("https://example.test")
+
+	assert "Dentist" in api_support.call(world.application, "GET", path).text
+
+	# **The listing never carries the secret**, and that is asserted against the whole body
+	# rather than against a field: a URL leaking through some *other* key is exactly the
+	# mistake a field-by-field check cannot see.
+	listed = api_support.call(world.application, "GET", "/v1/calendars", headers=headers)
+
+	assert listed.status_code == 200, listed.text
+	assert [row["prefix"] for row in listed.json()["items"]] == [made.json()["prefix"]]
+	assert first not in listed.text, "a listing gave back the address"
+
+	again = api_support.call(
+		world.application,
+		"POST",
+		f"/v1/calendars/{made.json()['prefix']}/reset",
+		headers=headers,
+	)
+
+	assert again.status_code == 200, again.text
+
+	second = again.json()["url"]
+
+	assert second != first
+	assert api_support.call(world.application, "GET", path).status_code == 404
+	assert api_support.call(
+		world.application, "GET", second.removeprefix("https://example.test")
+	).status_code == 200
+
+	# **A reset replaces the whole credential, so the reference moves with it.** That is worth
+	# asserting rather than discovering: it is one minting path rather than two, and the `id`
+	# is what stays stable — which is why both address a feed.
+	assert again.json()["prefix"] != made.json()["prefix"]
+	assert again.json()["id"] == made.json()["id"]
+
+	stopped = api_support.call(
+		world.application, "DELETE", f"/v1/calendars/{again.json()['prefix']}", headers=headers
+	)
+
+	assert stopped.status_code == 200, stopped.text
+	assert stopped.json()["revoked_at"] is not None
+	assert stopped.json()["usable"] is False
+	assert api_support.call(
+		world.application, "GET", second.removeprefix("https://example.test")
+	).status_code == 404
+
+	# **Revoked feeds leave the listing and can still be named**, which is what makes revoking
+	# twice say *already stopped* rather than *no such thing*.
+	assert api_support.call(
+		world.application, "GET", "/v1/calendars", headers=headers
+	).json()["items"] == []
+	assert api_support.call(
+		world.application,
+		"GET",
+		"/v1/calendars?include_revoked=true",
+		headers=headers,
+	).json()["items"] != []
+
+
+def test_a_feed_cannot_be_made_for_somebody_else (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""There is no owner field, so the escalation `SR#829` found cannot be expressed.
+
+	A feed renders with its **owner's** sight, so one minted for another person would be their
+	work handed to whoever asked — and unlike a sign-in link there is no session to end and
+	nothing to audit afterwards.
+
+	**Driven rather than asserted about the model**, because a request model with no such field
+	and a handler that quietly ignored one look identical from the outside. What proves it is
+	the request being refused by name.
+	"""
+
+	world = test_api_tasks._world(session)
+	headers = {"authorization": f"Bearer {world.secret}"}
+	refused = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "Theirs", "owner": "someone-else"},
+		headers=headers,
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert refused.json()["code"] == "unknown_field"
+	assert "owner" in refused.text
+
+	made = api_support.call(
+		world.application, "POST", "/v1/calendars", json={"title": "Mine"}, headers=headers
+	)
+
+	assert made.status_code == 201, made.text
+
+	feed = session.get(
+		subroutine.db.models.identity.CalendarFeed, uuid.UUID(made.json()["id"])
+	)
+
+	assert feed is not None
+	assert feed.owner_id == world.user.id
+
+
+def test_a_feed_is_not_something_anybody_else_can_read_or_act_on (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§20.6: an inventory of somebody's feeds is the map that makes one worth stealing.
+
+	So a second person — a **superuser**, which is the strongest credential this instance
+	issues — sees none of them and cannot reset or revoke one. That is deliberately narrower
+	than `GET /v1/tokens`, where an administrator sees everything.
+	"""
+
+	world = test_api_tasks._world(session)
+	headers = {"authorization": f"Bearer {world.secret}"}
+	made = api_support.call(
+		world.application, "POST", "/v1/calendars", json={"title": "Mine"}, headers=headers
+	)
+
+	assert made.status_code == 201, made.text
+
+	stranger = subroutine.domain.users.create(
+		session, username=f"other-{uuid.uuid4().hex[:8]}", is_superuser=True
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=world.workspace, user=stranger, role_key="owner"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=stranger, title="Theirs"
+	)
+	session.flush()
+
+	theirs = {"authorization": f"Bearer {issued.value.get_secret_value()}"}
+	listed = api_support.call(world.application, "GET", "/v1/calendars", headers=theirs)
+
+	assert listed.status_code == 200, listed.text
+	assert listed.json()["items"] == [], "somebody else's feeds appeared in this listing"
+
+	# **Absent rather than forbidden**, which is `tokens.mine`'s rule: acting on one discloses
+	# no more than the listing does, so refusing with a 403 would confirm it exists.
+	for method, address in (
+		("POST", f"/v1/calendars/{made.json()['prefix']}/reset"),
+		("DELETE", f"/v1/calendars/{made.json()['prefix']}"),
+	):
+		refused = api_support.call(world.application, method, address, headers=theirs)
+
+		assert refused.status_code == 404, f"{method} {address}: {refused.text}"
+
+
+def test_a_type_filter_that_matches_nothing_is_refused_rather_than_read_as_all (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`[]` means *no types* and `None` means *every type*, so they must not collapse.
+
+	Reading an empty filter as no filter answers *show me nothing* with *show me everything* —
+	a plausible, complete, wrong answer on a feed nobody reads closely enough to notice, which
+	is `SR#818`'s shape.
+	"""
+
+	world = test_api_tasks._world(session)
+	headers = {"authorization": f"Bearer {world.secret}"}
+	refused = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "Nothing at all", "item_types": []},
+		headers=headers,
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "item_types" in refused.text
+
+	# **A type that does not exist is refused naming the field the caller sent**, which is
+	# `SR#547`: being told to correct `type` sends somebody looking for a field this request
+	# has not got.
+	unknown = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "Nonsense", "item_types": ["nosuchtype"]},
+		headers=headers,
+	)
+
+	assert unknown.status_code == 422, unknown.text
+	assert unknown.json()["errors"][0]["field"] == "item_types"
+
+	kept = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "Bugs", "item_types": ["bug"]},
+		headers=headers,
+	)
+
+	assert kept.status_code == 201, kept.text
+	assert kept.json()["item_types"] == ["bug"], "the filter reads back as what was typed"
+
+
+def test_an_instance_that_cannot_address_itself_says_so_rather_than_guessing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§20.2, and `SR#832`'s reasoning about what an instance may infer about itself.
+
+	The whole URL is the credential, so a host assembled from a request header would send the
+	secret wherever a proxy pointed, on every poll, for as long as somebody stays subscribed.
+	The feed is still made — it works, once the operator sets `public_url` and resets it.
+	"""
+
+	world = test_api_tasks._world(session)
+	made = api_support.call(
+		world.application,
+		"POST",
+		"/v1/calendars",
+		json={"title": "Mine"},
+		headers={"authorization": f"Bearer {world.secret}"},
+	)
+
+	assert made.status_code == 201, made.text
+	assert made.json()["url"] is None
+	assert made.json()["prefix"], "the feed exists and can be reset once there is an address"
+
+
+def test_somebody_who_may_not_read_the_work_cannot_mint_a_feed_of_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A feed does exactly one thing, and this is the permission that decides it.
+
+	**No seeded role can reach this**, which is the fact worth writing down rather than
+	discovering: `viewer` is the narrowest and it carries every read, and somebody who is not a
+	member cannot name the workspace at all. So the trigger is a role an installation made
+	itself — which §5.5 says it may, since permissions are a JSON list precisely so that a
+	custom role is a data change.
+
+	**Not deleted for being hard to reach**, which is the pull `SR#303` records. Without it the
+	feed is minted and renders through `scoping.readable_tasks`, which narrows by *membership*
+	and project visibility and asks nothing about verbs — so the URL would show work its owner
+	is not allowed to read, to a program that polls it every quarter of an hour.
+	"""
+
+	workspace, _founder = _world(session)
+	quiet = subroutine.domain.users.create(
+		session, username=f"quiet-{uuid.uuid4().hex[:8]}"
+	)
+	blind = subroutine.db.models.identity.Role(
+		workspace_id=workspace.id,
+		key="no-reading",
+		title="No reading",
+		permissions=[subroutine.permissions.COMMENT_WRITE],
+	)
+	session.add(blind)
+	session.flush()
+	membership = subroutine.db.models.identity.WorkspaceMember(
+		workspace_id=workspace.id, user_id=quiet.id, role_id=blind.id
+	)
+	session.add(membership)
+	session.flush()
+
+	actor = subroutine.domain.authentication.Principal(user=quiet)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.calendars.create(
+			session, actor, workspace_id=workspace.id, title="Not mine to see", now=NOW
+		)
+
+	# **And the same person with the ordinary role can**, or this is a rule that refuses
+	# everybody and the test above says nothing about which half fired. The membership is
+	# moved rather than a second one added: one person holds one role in one workspace.
+	membership.role_id = subroutine.domain.workspaces.find_role(
+		session, workspace.id, "viewer"
+	).id
+	session.flush()
+
+	made, _minted = subroutine.domain.calendars.create(
+		session, actor, workspace_id=workspace.id, title="Mine to see", now=NOW
+	)
+
+	assert made.owner_id == quiet.id

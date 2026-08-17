@@ -67,6 +67,26 @@ upgrade involves.
 
 ### Added
 
+- **Your work can appear in the calendar application you already use.**
+  `subroutine calendar create "My work"` prints one address; paste it into Google Calendar,
+  Apple Calendar, Outlook or Thunderbird and anything with a date shows up there and keeps
+  itself up to date. `--project`, `--mine`, `--type` and `--expires` narrow it; `calendar
+  list` says when each subscription was last fetched, `calendar reset` replaces the address
+  of one that has leaked without losing the subscription, and `calendar revoke` stops it.
+  An item's start and its deadline are separate events, so neither hides the other, and an
+  item that repeats on a fixed schedule arrives as a repeating event rather than as several
+  hundred copies. The feed keeps a week of the recent past — most calendar applications
+  delete an event the moment a feed stops sending it, so dropping finished work would erase
+  a meeting from your calendar's history the moment you ticked it off.
+
+  **The address is a credential**, and unlike every other one here it travels in a URL,
+  because no calendar application will send anything else. It is shown once, it shows only
+  what its owner may see at the moment somebody fetches it, and it stops working when that
+  person's account does. An operator who would rather not have that at all can set
+  `calendars_enabled = false`, and every feed address then answers 404 exactly as an address
+  naming nothing does. Over HTTP it is `POST /v1/calendars`, `GET /v1/calendars`,
+  `POST /v1/calendars/{id}/reset` and `DELETE /v1/calendars/{id}`, with the feed itself at
+  `GET /v1/calendars/{prefix}/{secret}.ics` — the one public route that reads work.
 - **An item's links say enough about each end to judge it without opening it.** In the
   browser they now carry the same marks a row on a list or a board does — the type, the
   status, the project, whether that end is blocked or blocking, who has it, and whether it
