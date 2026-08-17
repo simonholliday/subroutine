@@ -3041,6 +3041,260 @@ def test_a_sub_project_cannot_be_mistaken_for_a_root_one (tmp_path: pathlib.Path
 	)
 
 
+SPACES = [
+	{"id": "1", "slug": "projects", "title": "Subroutine"},
+	{"id": "2", "slug": "personal", "title": "Personal"},
+	{"id": "3", "slug": "acme", "title": "Acme"},
+]
+
+#: A workspace's projects as `projectsRequest` receives them: `order=path`, so a pre-order in
+#: creation order. Deliberately not alphabetical at either level.
+FILABLE = [
+	{"key": "substation", "title": "Substation", "depth": 0},
+	{"key": "dist", "title": "Packaging", "depth": 1},
+	{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0},
+	{"key": "alpha", "title": "Alpha", "depth": 0},
+]
+
+
+def test_only_a_query_that_is_nothing_but_a_ref_opens_an_item (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#976`, Simon's, and the sigil is the whole signal.
+
+	**A bare number stays a search.** `8471` is the port `docs/hosting.md` names and `403` and
+	`404` are throughout the prose here, so jumping on one would make those unfindable for as
+	long as an item happened to hold that number — and invisibly, because the reader would get
+	an item, which looks like a search that worked rather than one that never ran.
+
+	The grammar is `refs._TYPED`'s and `parseAddress`'s, so a number means one thing on every
+	surface: no leading zero, and nothing outside a ref's range.
+	"""
+
+	asked = [
+		"#916", "916", "#916 dentist", "dentist #916", "#0916", "# 916", "#", "#916#917",
+		"  #916  ", "#0", "#2147483647", "#2147483648", "",
+	]
+	answered = _views(tmp_path, [("refAsked", one) for one in asked])
+
+	assert dict(zip(asked, answered, strict=True)) == {
+		"#916": 916,
+		"916": None,
+		"#916 dentist": None,
+		"dentist #916": None,
+		"#0916": None,
+		"# 916": None,
+		"#": None,
+		"#916#917": None,
+		"  #916  ": 916,
+		"#0": None,
+		# `refs.MAX_REF`, so an out-of-range number is an ordinary search rather than a lookup
+		# the database refuses.
+		"#2147483647": 2147483647,
+		"#2147483648": None,
+		"": None,
+	}
+
+
+def test_the_masthead_offers_every_workspace_by_name (tmp_path: pathlib.Path) -> None:
+	"""`SR#975`, Simon's. It listed slugs, which are what you *type* rather than what you read.
+
+	**Alphabetically**, which the roster is not: `workspaces.readable` orders by `created_at`,
+	so the fixture arrives in the order somebody happened to make them.
+	"""
+
+	[shown] = _views(tmp_path, [("placesToGo", {
+		"workspaces": SPACES, "projects": [], "showing": {"agenda": True},
+	})])
+
+	assert [one["label"] for one in shown] == [
+		"All workspaces", "Acme", "Personal", "Subroutine",
+	]
+
+	# **The value is an address**, so `goTo` reads it back through `parseAddress` and the thing
+	# chosen is the thing that ends up in the bar — `SR#959`'s argument for the row labels.
+	assert [one["value"] for one in shown] == ["", "/acme", "/personal", "/projects"]
+
+	# On the agenda nothing else is selected, which is what `SR#969` settled: the control says
+	# what is showing, and what is showing at `/` is every workspace.
+	assert [one["chosen"] for one in shown] == [True, False, False, False]
+
+
+def test_only_the_workspace_you_are_in_offers_its_projects (tmp_path: pathlib.Path) -> None:
+	"""Simon's answer of 2026-08-17, and it is a measurement rather than a preference.
+
+	Projects arrive one workspace at a time — `scoped()` pins `workspace_id`, and `words(slug)`
+	returns early without one — so on the agenda the app holds none, and offering every
+	workspace's would cost a request per workspace on load.
+
+	**Two assertions, because one of them proves the wrong thing on its own.** That the current
+	workspace has its projects says nothing about whether the others wrongly share them; the
+	fixture has three workspaces and one project list, so a version that appended it to each
+	would pass the first and fail the second.
+	"""
+
+	[inside] = _views(tmp_path, [("placesToGo", {
+		"workspaces": SPACES, "projects": FILABLE,
+		"showing": {"workspace": "projects", "project": None, "agenda": False},
+	})])
+
+	assert [(one["label"], one["depth"]) for one in inside] == [
+		("All workspaces", 0),
+		("Acme", 0),
+		("Personal", 0),
+		("Subroutine", 0),
+		("Alpha", 1),
+		("Inbox", 1),
+		("Substation", 1),
+		("Packaging", 2),
+	]
+
+	# **The Inbox sorts by its name here**, unlike in the add form: this control is not choosing
+	# a destination, so there is no default to keep in view.
+	assert [one["label"] for one in inside[4:7]] == ["Alpha", "Inbox", "Substation"]
+
+
+def test_a_nested_project_is_offered_by_its_whole_address (tmp_path: pathlib.Path) -> None:
+	"""A `key` is unique only among its siblings since `SR#958`, so it cannot address anything.
+
+	`path` would say it exactly and is **not selectable** — measured by `SR#770` when it wrote
+	that request — so the address is rebuilt from the ancestry the tree walk already has.
+
+	**The fixture nests a project whose own key is ambiguous**, because a one-level fixture
+	passes against an implementation that just uses `key` and never notices.
+	"""
+
+	[shown] = _views(tmp_path, [("placesToGo", {
+		"workspaces": SPACES,
+		"projects": [
+			{"key": "substation", "title": "Substation", "depth": 0},
+			{"key": "dist", "title": "Packaging", "depth": 1},
+			{"key": "websites", "title": "Websites", "depth": 0},
+			{"key": "dist", "title": "Handouts", "depth": 1},
+		],
+		"showing": {"workspace": "projects", "project": "substation/dist", "agenda": False},
+	})])
+	addressed = {one["label"]: one["value"] for one in shown}
+
+	assert addressed["Packaging"] == "/projects/substation/dist"
+	assert addressed["Handouts"] == "/projects/websites/dist"
+
+	# **And the one the reader is inside is the one marked**, which two projects keyed `dist`
+	# is exactly the case that separates addressing from naming.
+	assert [one["label"] for one in shown if one["chosen"]] == ["Packaging"]
+
+
+def test_a_project_tree_is_alphabetical_within_each_parent (tmp_path: pathlib.Path) -> None:
+	"""`SR#974`, Simon's. What arrives is creation order wearing a tree order's clothes.
+
+	`projectsRequest` asks for `order=path`, and `path` is composed of ancestor **ids** — uuid7,
+	which lead with a timestamp. Measured on the live instance before this was built: `Null
+	sweep` after `Subroutine` at the root, and `Web UI` before `Release and hosting` beneath it.
+
+	**The fixture is deliberately three levels deep with a deep branch out of order**, because
+	the two cheap wrong implementations both pass on anything shallower. A flat `sort` by title
+	passes a one-level fixture; a sort that ignores parentage passes a two-level one where the
+	children happen to fall after their own parent alphabetically. Only a third level, whose
+	names sort *before* their grandparent's siblings, tells a real reassembly from either.
+	"""
+
+	# Pre-order as the server sends it, so a parent is immediately followed by its own subtree.
+	arriving = [
+		{"key": "sub", "title": "Subroutine", "depth": 0},
+		{"key": "ui", "title": "Web UI", "depth": 1},
+		{"key": "zebra", "title": "Zebra", "depth": 2},
+		{"key": "alpha", "title": "Alpha", "depth": 2},
+		{"key": "ops", "title": "Release and hosting", "depth": 1},
+		{"key": "null", "title": "Null sweep", "depth": 0},
+		{"key": "web", "title": "Websites", "depth": 0},
+	]
+
+	[ordered] = _views(tmp_path, [("treeOrdered", {"projects": arriving})])
+
+	assert [one["title"] for one in ordered] == [
+		"Null sweep",
+		"Subroutine",
+		"Release and hosting",
+		"Web UI",
+		"Alpha",
+		"Zebra",
+		"Websites",
+	]
+
+	# **Still a pre-order**, which is what the indentation depends on: a child may never appear
+	# before the parent it is indented under. Asserted structurally rather than by reading the
+	# list above, because that list is what a wrong implementation would also be edited to say.
+	seen: list[str] = []
+
+	for one in ordered:
+		assert one["depth"] <= len(seen), f"{one['title']} is indented under nothing"
+
+		seen[one["depth"]:] = [one["title"]]
+
+
+def test_a_project_list_that_is_not_a_tree_is_left_exactly_as_it_came (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The premise is `order=path`; when it does not hold, the server's order is the answer.
+
+	A row indented deeper than the one before it can be placed under nothing, so there is no
+	tree to rebuild. **Returning it untouched is not defensiveness** — a confidently assembled
+	wrong tree would indent items under parents they are not in, which reads as fact.
+	"""
+
+	broken = [
+		{"key": "a", "title": "Alpha", "depth": 0},
+		{"key": "c", "title": "Charlie", "depth": 2},
+		{"key": "b", "title": "Bravo", "depth": 0},
+	]
+
+	[left] = _views(tmp_path, [("treeOrdered", {"projects": broken})])
+
+	assert [one["title"] for one in left] == ["Alpha", "Charlie", "Bravo"]
+
+
+def test_the_form_puts_the_inbox_first_however_its_name_sorts (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Simon's answer of 2026-08-17, asked whether *within its parent* included the Inbox.
+
+	This control chooses where an item goes and the Inbox is what happens if you say nothing, so
+	burying the default halfway down an alphabetical list makes the form worse at its one job.
+
+	**The fixture renames it**, because an Inbox called `Inbox` sorts near the front on most
+	instances by luck — so a version of this that did nothing at all would pass against the
+	seeded name. `Zed` is where an unpinned one would land.
+	"""
+
+	[said] = _views(tmp_path, [("filableFor", {"project": None, "projects": [
+		{"key": "alpha", "title": "Alpha", "depth": 0},
+		{"key": "inbox", "title": "Zed", "is_inbox": True, "depth": 0},
+		{"key": "beta", "title": "Beta", "depth": 0},
+	]})])
+
+	assert [one["label"] for one in said] == ["Zed (default)", "Alpha", "Beta"]
+
+
+def test_promoting_the_inbox_takes_anything_filed_under_it (tmp_path: pathlib.Path) -> None:
+	"""A project can be re-parented (`SR#44`), so the Inbox may one day have children.
+
+	Lifting a parent out of a pre-order list without them would leave those children indented
+	under whatever happened to precede them — which is not a cosmetic fault: the indentation is
+	the only thing saying what a project is inside.
+	"""
+
+	[said] = _views(tmp_path, [("filableFor", {"project": None, "projects": [
+		{"key": "alpha", "title": "Alpha", "depth": 0},
+		{"key": "under", "title": "Under alpha", "depth": 1},
+		{"key": "inbox", "title": "Zed", "is_inbox": True, "depth": 0},
+		{"key": "kept", "title": "Kept", "depth": 1},
+	]})])
+
+	assert [one["label"] for one in said] == [
+		"Zed (default)", "\u00a0\u00a0Kept", "Alpha", "\u00a0\u00a0Under alpha",
+	]
+
+
 def test_a_new_item_goes_where_the_address_says (tmp_path: pathlib.Path) -> None:
 	"""Simon's requirement, verbatim: *if a project is already selected (in URL), that is default
 	project for the item to be added to*.
@@ -5724,6 +5978,10 @@ def _views (
 			: name === "filed" ? app.filed(argument.values, argument.slug)
 			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
 			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
+			: name === "treeOrdered" ? app.treeOrdered(argument.projects)
+			: name === "refAsked" ? app.refAsked(argument)
+			: name === "placesToGo"
+				? app.placesToGo(argument.workspaces, argument.projects, argument.showing)
 			: name === "edited" ? app.edited(argument.values, argument.item)
 			: name === "fromItem" ? app.fromItem(argument.item)
 			: name === "withTime" ? app.withTime(argument.day, argument.time)

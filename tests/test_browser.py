@@ -23,6 +23,7 @@ import json
 import pathlib
 import re
 import shutil
+import time
 import typing
 import urllib.parse
 
@@ -338,6 +339,11 @@ IDENTITY = {
 		{
 			"slug": "projects",
 			"id": "w1",
+			# **A title, because the masthead reads it now** (`#975`). `views.WorkspaceRef` has
+			# carried one since M1 and this fixture never sent it, so a control labelling
+			# workspaces by name would have been drawn here from the slug — passing while every
+			# real instance showed something else. The harness's own version of `#966`.
+			"title": "Subroutine",
 			"role": "owner",
 			"permissions": ["task:write", "comment:write", "task:delete"],
 		},
@@ -347,6 +353,7 @@ IDENTITY = {
 		{
 			"slug": "personal",
 			"id": "w2",
+			"title": "Personal",
 			"role": "owner",
 			"permissions": ["task:write", "comment:write", "task:delete"],
 		}
@@ -354,6 +361,62 @@ IDENTITY = {
 	"instance_permissions": [],
 	"credential": None,
 }
+
+#: One workspace, which is a different page rather than a smaller one — `#975`. The control
+#: naming it used to be inert text, so the only thing saying where the reader was could not be
+#: used to go there. Nothing here could reach that state until this.
+ALONE: dict[str, typing.Any] = {
+	**IDENTITY,
+	# Annotated where it is read, because `IDENTITY` is a literal and mypy infers a union of
+	# every value shape in it — so indexing one key is an error about all of them.
+	"workspaces": typing.cast(list[typing.Any], IDENTITY["workspaces"])[:1],
+}
+
+#: A workspace's projects as `projectsRequest` receives them: `order=path`, so a pre-order in
+#: **creation** order. Deliberately not alphabetical at either level, because that is what the
+#: server really sends (`#974`) and a fixture already in the right order proves nothing.
+PROJECTS: dict[str, typing.Any] = {
+	"items": [
+		{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0},
+		{"key": "websites", "title": "Websites", "depth": 0},
+		{"key": "handouts", "title": "Handouts", "depth": 1},
+		{"key": "acme", "title": "Acme", "depth": 0},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+#: What the instance answers for a ref nobody minted. Only the fields the app reads.
+NOWHERE: dict[str, typing.Any] = {
+	"type": "about:blank", "title": "Not found", "status": 404,
+	"detail": "There is no task here.", "code": "not_found",
+}
+
+
+def _until (settled: typing.Callable[[], bool], seconds: float = 5.0) -> None:
+	"""Give the page a moment to make the request a gesture set off.
+
+	A wait rather than a sleep, so a fast machine does not pay for a slow one — and bounded, so
+	the assertion that follows reports the claim rather than this timing out with nothing to say.
+	"""
+
+	deadline = time.monotonic() + seconds
+
+	while not settled() and time.monotonic() < deadline:
+		time.sleep(0.05)
+
+
+def _absent (wanted: str, refs: set[str]) -> bool:
+	"""Whether this path asks for an item the instance does not have.
+
+	Both kinds, because a ref names a task *or* a document and the app reads a 404 from the
+	first as *then it is the other* — so refusing one and answering the other would be an
+	instance where every missing ref is a document, which is not a state any instance has.
+	"""
+
+	found = re.fullmatch(r"v1/(?:tasks|documents)/(\d+)", wanted)
+
+	return found is not None and found.group(1) in refs
+
 
 EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
 
@@ -516,6 +579,19 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	daily: list[typing.Any] = [AGENDA]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
+	#: Who the reader is, so one test can ask about an instance holding a single workspace —
+	#: `#975`. A holder for `listing`'s reason: the route is registered on the context once.
+	roster: list[typing.Any] = [IDENTITY]
+	#: Refs this instance does not have, so a jump to one can be made to fall back — `#976`.
+	#: Both kinds refuse, because a ref names a task *or* a document (§6.2) and the app reads a
+	#: 404 from the first as *then it is the other*.
+	missing: list[set[str]] = [set()]
+	#: Every path the page asked for, reads included — `#975`. `written` holds the writes, and
+	#: a *read* is the only evidence that a navigation moved the page rather than the address
+	#: bar: `#962`'s defect leaves the URL right, the markup unchanged and no request made, so
+	#: asserting on either of the first two passes against it. `tests/dom.js` reaches the same
+	#: conclusion from the other end — *assert on the requests, not on the markup*.
+	reads: list[str] = []
 
 	def answered (route: typing.Any) -> None:
 		"""Serve one request the way the instance would.
@@ -533,6 +609,8 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			return
 
 		if wanted.startswith("v1/"):
+			reads.append(route.request.url.split("://", 1)[-1].split("/", 1)[-1])
+
 			# **Before the catch-all below, which answers every write with a task** (`SR#94`).
 			# A repeat preview is a POST that stores nothing, so without this it was handed a
 			# card and the page rendered an empty sentence — the narrower-path-first trap this
@@ -587,7 +665,11 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			# defect and this is the third place it has appeared.
 			answer = (
 				META if wanted.startswith("v1/meta")
-				else IDENTITY if wanted.startswith("v1/me")
+				else roster[0] if wanted.startswith("v1/me")
+				# **Before the two branches below it**, which answer any numbered path with a
+				# card — narrower path first, the trap this block records three times over.
+				else None if _absent(wanted, missing[0])
+				else PROJECTS if wanted.split("?")[0] == "v1/projects"
 				# **One task, by its ref, before the collection it lives in** — narrower path
 				# first, which is the trap this block already warns about twice. `v1/tasks/42`
 				# starts with `v1/tasks`, so it was served the *collection* envelope: the app
@@ -612,6 +694,14 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				else listing[0] if wanted.split("?")[0] == "v1/tasks"
 				else EMPTY
 			)
+
+			if answer is None:
+				route.fulfill(
+					status=404, body=json.dumps(NOWHERE),
+					content_type="application/problem+json",
+				)
+
+				return
 
 			route.fulfill(
 				status=200, body=json.dumps(answer), content_type="application/json"
@@ -681,8 +771,11 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 		return page
 
+	# **Unpacked with `*_` at every call site**, so a fifth holder costs one line here rather
+	# than eighteen edits to tests that do not care. What each one *is* is documented above;
+	# a test names only the holders it uses.
 	try:
-		yield opened, written, refusing
+		yield opened, written, refusing, roster, missing, reads
 	finally:
 		context.close()
 
@@ -696,7 +789,7 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	predicts was covered by nothing**, and it is the half that reaches a reader.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects")
 
 	page.wait_for_selector("a[href]", timeout=10_000)
@@ -739,7 +832,7 @@ def test_a_card_is_draggable_on_the_board_and_nowhere_else (running: typing.Any)
 	and nothing else by decision: it is a text harness, and an attribute is not text.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	board = opened("/projects?view=board")
 
 	board.wait_for_selector(".board .rows li", timeout=10_000)
@@ -769,7 +862,7 @@ def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> Non
 	against `seed.py` and fail on the first instance that renames anything.
 	"""
 
-	opened, written, _refusing = running
+	opened, written, _refusing, *_ = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -804,7 +897,7 @@ def test_a_card_dropped_where_it_already_was_is_not_a_write (running: typing.Any
 	being driven went somewhere else. A mutation that survives is a finding about the tests.
 	"""
 
-	opened, written, _refusing = running
+	opened, written, _refusing, *_ = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -835,7 +928,7 @@ def test_a_column_is_a_drop_target_for_its_whole_height (running: typing.Any) ->
 	rather than at its middle, which is the point the old layout had nothing under.
 	"""
 
-	opened, written, _refusing = running
+	opened, written, _refusing, *_ = running
 	page = opened("/projects?view=board")
 
 	page.wait_for_selector(".board .rows li[draggable='true']", timeout=10_000)
@@ -1175,6 +1268,21 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
 	this change could most easily have introduced.
+
+	**24 to 26, for `SR#975` and `SR#976`, and the two share one argument.** Both are new
+	instances of `SR#962` — `go` writes the address bar and nothing else, so a handler that stops
+	there moves the address and leaves the page as it was. That has shipped **three** times, was
+	found by a browser every time, and is invisible to everything cheaper: the callbacks live in
+	`App`, which `tests/dom.js` cannot execute (`SR#640`), and that file will not dispatch an
+	event on purpose — *a test that wants to click needs a real DOM, not a larger pretence*.
+
+	**What was kept out is the argument for the two that went in.** Which entries the masthead
+	offers, how a project tree orders, and whether a query is nothing but a ref are all pure
+	functions, and all three are checked in `tests/test_web.py` at no cost here. What is left is
+	the wiring, which is the only half that has ever actually broken.
+
+	**The number is more interesting than any single raise**, which `SR#964` is the item for: 17
+	to 26 in three days, and the shape most of them share is this one.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1182,11 +1290,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 24, (
+	assert len(tests) <= 26, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 24 in two days."
+		f"read every raise in this docstring as a set: it has moved 17 to 26 in three days."
 	)
 
 
@@ -1204,7 +1312,7 @@ def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) ->
 	columns fit when there is room and scroll when there is not, which is the whole claim.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	mixed = {
 		"items": [
 			dict(CARD, ref=n, kind=kind, status_category=category, title=f"{category} {n}")
@@ -1257,7 +1365,7 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	this repository has recorded three times.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	measured = {}
 
 	for view, address in (("list", "/projects"), ("board", "/projects?view=board")):
@@ -1319,7 +1427,7 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	only thing that could have.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 
 	def background (page: typing.Any) -> str:
 		painted = page.eval_on_selector(
@@ -1372,7 +1480,7 @@ def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None
 	tell an element laid out beside another from one laid out below it.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects?view=board")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
@@ -1424,7 +1532,7 @@ def test_a_written_repeat_is_read_back_before_it_is_committed_to (running: typin
 	somebody can still change it, which is the `catch` and a different path through `App`.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects")
 
 	page.click(".adding .more")
@@ -1475,7 +1583,7 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	the last capture into the next one.
 	"""
 
-	opened, written, refusing = running
+	opened, written, refusing, *_ = running
 	page = opened("/projects")
 
 	refusing[0] = 403
@@ -1510,7 +1618,7 @@ def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -
 	the most: the whole path, and clicking it leaves the page showing that project alone.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects")
 	page.wait_for_selector(".rows li .mark", timeout=10_000)
 
@@ -1570,7 +1678,7 @@ def test_an_item_opened_from_a_board_is_read_at_the_measure (running: typing.Any
 	the list — so a test that navigated straight there would have passed against the fault.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects?view=board")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
@@ -1623,7 +1731,7 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	project label in `SR#959`, and `widen`'s own missing half before it.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/projects?view=board&include_completed=true")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
@@ -1673,7 +1781,7 @@ def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.A
 	listing inside a workspace has short refs that sit on the floor.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/")
 	page.wait_for_selector(".listing.agenda .row", timeout=10_000)
 
@@ -1732,7 +1840,7 @@ def test_the_agenda_names_a_workspace_even_where_they_all_agree (
 	reach a state looks exactly like one nobody needed it to.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/", agenda=ONE_WORKSPACE)
 	page.wait_for_selector(".listing.agenda .mark", timeout=10_000)
 
@@ -1779,9 +1887,14 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 
 	**Driven as a round trip**, because a hint that cannot be chosen again would pass the first
 	half and leave the control one-way — which is the same inert shape one step along.
+
+	**Its values became addresses in `SR#975`** and the intent is unchanged: the control now
+	offers projects as well as workspaces, so an entry has to say which it is, and `placesToGo`
+	answers that by emitting the address `goTo` reads back. What is asserted here is the same
+	claim in the spelling the control now uses.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 	page = opened("/")
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
@@ -1791,17 +1904,126 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 		"the agenda shows every workspace and the control names one of them"
 	)
 
-	control.select_option("projects")
+	control.select_option("/projects")
 	page.wait_for_url("http://app.test/projects*", timeout=10_000)
 	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
 
-	assert control.input_value() == "projects", "narrowing left the control saying otherwise"
+	assert control.input_value() == "/projects", "narrowing left the control saying otherwise"
 
 	control.select_option("")
 	page.wait_for_url("http://app.test/", timeout=10_000)
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
 	assert control.input_value() == "", "there is no way back to everything from the control"
+
+
+def test_one_workspace_is_still_something_you_can_choose_and_go_into (
+	running: typing.Any,
+) -> None:
+	"""`SR#975`, Simon's, and it is two claims that need the same page.
+
+	**One workspace used to render the name as inert text**, so the only thing saying where the
+	reader was could not be used to reach it — and on the agenda, `/` is the only address there
+	is. **And the control now offers projects**, which is the half that has actually broken
+	elsewhere: `go` writes the address bar and nothing else (`SR#962`), so a handler that stops
+	there moves the address and leaves the page exactly as it was. That has shipped three times
+	and every one was found by a browser, because the callback lives in `App` (`SR#640`).
+
+	**So the address *and* the rows are both asserted.** Either alone passes against the defect:
+	the address moves whether or not the page followed, and the rows would be right if the app
+	had simply been opened there.
+
+	**A project the fixture nests**, because the address for one is rebuilt from the tree —
+	`key` is unique only among its siblings since `SR#958` — and a root project's address is its
+	key either way, so a one-level case cannot tell a reassembled path from a bare key.
+	"""
+
+	opened, _written, _refusing, roster, _missing, reads = running
+	roster[0] = ALONE
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	control = page.locator("header .who select")
+
+	assert control.count() == 1, "one workspace still has no control to choose it with"
+
+	# **By name, not by slug.** The fixture's workspace is `projects` and is called `Subroutine`,
+	# so a version reading the slug renders a different word here.
+	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
+		"All workspaces", "Subroutine",
+	]
+
+	control.select_option("/projects")
+	page.wait_for_url("http://app.test/projects*", timeout=10_000)
+	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
+
+	# The projects arrive with the workspace, so the tree is only offered once inside one.
+	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
+		"All workspaces", "Subroutine", "Acme", "Inbox", "Websites", "Handouts",
+	], "the tree is in creation order, or the nesting was flattened"
+
+	reads.clear()
+	control.select_option("/projects/websites/handouts")
+	page.wait_for_url("http://app.test/projects/websites/**", timeout=10_000)
+
+	# **The page followed, not only the bar** — the whole of `SR#962`, and the request is the
+	# only thing that says so. **Not the control's own value**, which was this test's first
+	# version and could not fail: `select_option` sets the DOM value itself, so it reads back
+	# whatever was chosen whether or not anything re-rendered. **Not the markup either**, since
+	# this fixture answers every listing with the same rows.
+	_until(lambda: any("project=websites%2Fhandouts" in one for one in reads))
+
+	assert any("project=websites%2Fhandouts" in one for one in reads), (
+		f"nothing was asked for that project, so the address moved and the page did not: {reads}"
+	)
+
+	# **The path, because the arrangement rides along by `SR#745`**: a view is written out even
+	# when it is the default, so what you send somebody is what you were looking at.
+	assert page.url.split("?")[0] == "http://app.test/projects/websites/handouts", (
+		"the page moved and the address did not"
+	)
+
+
+def test_searching_for_a_ref_opens_that_item_and_a_dead_one_still_searches (
+	running: typing.Any,
+) -> None:
+	"""`SR#976`, Simon's. Both halves, because either alone passes against the wrong build.
+
+	A version that always jumps passes the first; one that never jumps passes the second. What
+	separates them is one instance answering for `SR#42` and refusing `SR#4242`.
+
+	**In a browser because the wiring is the risk.** Whether `#4242` parses as a ref is a pure
+	function and is checked in `tests/test_web.py`; whether choosing it *moves the page* is
+	`SR#962`'s shape, which has shipped three times and has never once been caught by anything
+	else. `tests/dom.js` cannot dispatch an event, and says so.
+	"""
+
+	opened, _written, _refusing, _roster, missing, *_ = running
+	missing[0] = {"4242"}
+	page = opened("/projects")
+	page.wait_for_selector(".listing", timeout=10_000)
+
+	search = page.locator("header form.seeking input[name='q']")
+
+	search.fill("#42")
+	page.locator("header form.seeking button[type='submit']").click()
+
+	# **The item, not a results page.** `.detail` is the opened item; the address is asserted
+	# beside it because moving one without the other is the whole failure being guarded against.
+	page.wait_for_selector(".detail", timeout=10_000)
+	page.wait_for_url("http://app.test/projects/**42", timeout=10_000)
+
+	assert "q=" not in page.url, "a ref that resolved still wrote a search into the address"
+
+	# **And one that resolves nowhere is an ordinary search**, which is what keeps this a
+	# shortcut rather than a second grammar the reader has to know.
+	search.fill("#4242")
+	page.locator("header form.seeking button[type='submit']").click()
+	page.wait_for_url("**q=%234242", timeout=10_000)
+
+	assert page.locator(".detail").count() == 0, (
+		"a ref nobody minted opened something anyway"
+	)
 
 
 def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
@@ -1826,7 +2048,7 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 	than a class name.
 	"""
 
-	opened, _written, _refusing = running
+	opened, _written, _refusing, *_ = running
 
 	# **The row's own chip, read first and off a listing page.** It is the reference the claim
 	# is about, so it has to come from the surface being matched — a literal colour written

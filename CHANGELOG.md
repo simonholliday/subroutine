@@ -67,6 +67,20 @@ upgrade involves.
 
 ### Added
 
+- **The masthead takes you to any project, not just any workspace.** It lists every workspace
+  by name — it showed slugs — with the projects of the one you are in nested underneath and
+  indented, so a sub-project is one choice rather than an address to type. **And it is there
+  when there is only one workspace**, where it used to render the name as plain text: the only
+  thing saying where you were could not be used to go there, which on the agenda left `/` as
+  the only address you had.
+- **Both project dropdowns are in alphabetical order within each parent.** They arrived in the
+  order somebody created them, because a project's stored path is built from ids rather than
+  names. The add and edit form keeps the Inbox at the top whatever it is called, since that is
+  where an item goes if you say nothing.
+- **Searching for `#916` opens that item instead of listing it.** Any query that is nothing but
+  a ref goes straight there; if no such item exists it is an ordinary search, as is a bare
+  `916` — a number on its own is something you might genuinely be looking for.
+
 - **Your work can appear in the calendar application you already use.**
   `subroutine calendar create "My work"` prints one address; paste it into Google Calendar,
   Apple Calendar, Outlook or Thunderbird and anything with a date shows up there and keeps

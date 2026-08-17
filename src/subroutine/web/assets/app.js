@@ -1720,6 +1720,170 @@ export function projectName (key, projects) {
 	return named && named.title ? named.title : key;
 }
 
+export function treeOrdered (projects) {
+	/*
+		The same projects, with each parent's children in alphabetical order — `#974`.
+
+		**What arrives is creation order wearing a tree order's clothes**, and that is the whole
+		reason this exists. `projectsRequest` asks for `order=path`, and `project.path` is built
+		from ancestor *ids*; ids here are uuid7, which lead with a timestamp. So the server sorts
+		siblings by when somebody made them. Measured on the live instance: `Null sweep` after
+		`Subroutine` at the root, and `Web UI` before `Release and hosting` beneath it.
+
+		**No `order=` can do this instead.** A single `ORDER BY` gives alphabetical-within-tree
+		only if the sortable path is composed of the *names*, and `path` is composed of ids
+		deliberately — a key is renameable (`#508`, `#957`), so a materialised path of renameable
+		segments would have to be rewritten on every rename.
+
+		**`order=path` is what makes reassembling it here sound**, and it is worth stating rather
+		than relying on: a parent's path is a string prefix of every descendant's, so lexicographic
+		order is a genuine pre-order traversal — a parent is immediately followed by its whole
+		subtree, and sibling subtrees are contiguous. With `depth` beside it that is enough to
+		rebuild the tree. `path` itself is **not selectable** (`#770` measured that when it wrote
+		the request), so the arriving order plus a number is all there is, and it is sufficient.
+
+		**Sorted by what a reader sees**, which is the title where there is one, through
+		`localeCompare` — `<` on strings compares code points, so `Ä` would sort after `Z`.
+
+		**A list that is not in pre-order comes back untouched**, which is not defensiveness: it
+		is the honest answer when the premise this is built on does not hold, and a wrong tree
+		assembled confidently is worse than the order the server sent.
+	*/
+	const rows = projects || [];
+
+	if (rows.length === 0) return rows;
+
+	/* One node per row, and `children` filled by walking the pre-order with a stack of
+	   ancestors. `depth` says how far to pop: a row of depth 2 hangs off whatever is at
+	   depth 1, which is the last thing on the stack at that height. */
+	const roots = [];
+	const ancestry = [];
+
+	for (const row of rows) {
+		const node = { row, children: [] };
+		const depth = row.depth || 0;
+
+		if (depth > ancestry.length) return rows;
+
+		ancestry.length = depth;
+
+		if (depth === 0) roots.push(node);
+		else ancestry[depth - 1].children.push(node);
+
+		ancestry.push(node);
+	}
+
+	const named = (node) => `${node.row.title || node.row.key || ""}`;
+	const flattened = [];
+
+	const walk = (nodes) => {
+		for (const node of nodes.sort((a, b) => named(a).localeCompare(named(b)))) {
+			flattened.push(node.row);
+			walk(node.children);
+		}
+	};
+
+	walk(roots);
+
+	return flattened;
+}
+
+export function placesToGo (workspaces, projects, showing) {
+	/*
+		Everything the masthead can take you to — `#975`, Simon's.
+
+		**Workspaces by title, alphabetically, with the projects of the one you are in nested
+		underneath.** The control listed workspace *slugs* and nothing else, so the only way into a
+		project was a label on a row that happened to be in one, or typing the address.
+
+		**Only the current workspace's projects, and that is a measurement rather than a
+		preference** (Simon, 2026-08-17). Projects arrive one workspace at a time — `scoped()` pins
+		`workspace_id` on every request and `words(slug)` returns early without one — so on the
+		agenda at `/` the app holds none at all, and offering every workspace's would mean a
+		request per workspace on load. This costs nothing and leaves any project two hops away.
+
+		**A value is an address, not a pair**, so `narrow` can read it back through `parseAddress`
+		and the thing the reader chooses is the thing that ends up in the bar. That is `#959`'s own
+		argument for the row labels, and it is why nothing here has to know how to navigate.
+
+		**The path is rebuilt from the tree rather than asked for.** A project's `key` is unique
+		only among its siblings since `#958`, so `dist` may name two projects and cannot address
+		either; `path` would say it exactly and is **not selectable** — measured by `#770` when it
+		wrote that request. Reassembling it from the ancestry costs nothing here because the tree
+		has already been walked, and it is exact: a child's address is its parent's plus its key.
+	*/
+	const spaces = (workspaces || [])
+		.slice()
+		.sort((a, b) => `${a.title || a.slug}`.localeCompare(`${b.title || b.slug}`));
+	const where = showing || {};
+	const here = where.workspace || null;
+	const inside = where.project || null;
+	const options = [{
+		value: "",
+		label: "All workspaces",
+		depth: 0,
+		chosen: Boolean(where.agenda),
+	}];
+
+	for (const space of spaces) {
+		/* **Not on the agenda**, even though the app happens to hold this workspace's projects
+		   there: `chosenWorkspace` falls back to the first workspace when the address names
+		   none, so `words` has run. Offering one workspace's tree and not the others' would
+		   be a request that landed showing through as a rule nobody chose. */
+		const mine = !where.agenda && space.slug === here;
+
+		options.push({
+			value: `/${encodeURIComponent(space.slug)}`,
+			label: `${space.title || space.slug}`,
+			depth: 0,
+			chosen: !where.agenda && mine && !inside,
+		});
+
+		if (!mine) continue;
+
+		/* Ancestor keys by depth, so a row at depth 2 addresses as `parent/child`. The list is a
+		   pre-order (see `treeOrdered`), so whatever sits at each height is this row's ancestry. */
+		const ancestry = [];
+
+		for (const one of treeOrdered(projects)) {
+			const depth = one.depth || 0;
+
+			ancestry.length = depth;
+			ancestry.push(one.key);
+
+			const address = ancestry.map((part) => encodeURIComponent(part)).join("/");
+
+			options.push({
+				value: `/${encodeURIComponent(space.slug)}/${address}`,
+				label: `${one.title || one.key}`,
+				depth: depth + 1,
+				chosen: !where.agenda && inside === ancestry.join("/"),
+			});
+		}
+	}
+
+	return options;
+}
+
+function _inboxFirst (ordered) {
+	/*
+		The Inbox and everything filed under it, moved to the front — see `filableFor`.
+
+		**Only when it is a root.** An Inbox somebody has filed *inside* something else is left
+		where the tree puts it, because a row indented two levels at the top of the list reads as a
+		fault rather than as a default.
+	*/
+	const at = ordered.findIndex((one) => one.is_inbox);
+
+	if (at < 0 || (ordered[at].depth || 0) !== 0) return ordered;
+
+	let after = at + 1;
+
+	while (after < ordered.length && (ordered[after].depth || 0) > 0) after += 1;
+
+	return ordered.slice(at, after).concat(ordered.slice(0, at), ordered.slice(after));
+}
+
 export function filableFor (projects, project) {
 	/*
 		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
@@ -1744,7 +1908,23 @@ export function filableFor (projects, project) {
 		shape for it. Non-breaking, because an `<option>` is the one place a browser may collapse
 		leading whitespace and the indent is the whole of what is being said.
 	*/
-	const known = (projects || []).map((one) => ({
+	/*
+		**Alphabetical within each parent, and the Inbox first anyway** — `#974`, and Simon's
+		answer of 2026-08-17 when asked whether *within its parent* included it.
+
+		This control's job is choosing where an item goes, and the Inbox is what happens if you say
+		nothing — which is why it is the one entry labelled `(default)`. Burying the default halfway
+		down an alphabetical list makes the form worse at its one job, so the exception belongs
+		here, to this control's labelling, rather than to the ordering everything shares.
+
+		**Its subtree comes with it**, which is why `_inboxFirst` moves a run rather than a row: a
+		project can be re-parented (`#44`), so the Inbox may one day have children, and lifting a
+		parent out of a pre-order list without them would leave those children indented under
+		whatever happened to precede them.
+	*/
+	const promoted = _inboxFirst(treeOrdered(projects));
+
+	const known = promoted.map((one) => ({
 		key: one.key,
 		label: "  ".repeat(one.depth || 0)
 			+ `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
@@ -2370,6 +2550,42 @@ export function parseAddress (pathname) {
 		trail: middle.map(segment),
 		ref: names,
 	};
+}
+
+/*
+	The largest number a ref can be — `refs.MAX_REF`, which is a 32-bit signed maximum.
+
+	Here so that `#99999999999999` falls through to an ordinary search rather than becoming a
+	lookup the database refuses. `parse_ref` bounds it for the same reason on the other side.
+*/
+export const MAX_REF = 2147483647;
+
+export function refAsked (text) {
+	/*
+		The item a search box is really asking for, or `null` — `#976`, Simon's.
+
+		**The sigil is required, and a bare number is left as a search.** `#` is how a person
+		writes a ref (§6.15) and it is the whole signal. A bare `916` is a plausible search term
+		on any instance — `8471` is the port `docs/hosting.md` names, `403` and `404` appear
+		throughout — and jumping on one would make those unfindable for as long as an item
+		happened to hold that number. **The failure would be invisible in the direction that
+		matters**: the reader gets an item, which looks like a search that worked rather than one
+		that never ran.
+
+		**Anchored at both ends**, so this is the query and not a word in it. `#916 dentist` is a
+		search, because somebody who typed a second word wants both to count.
+
+		The grammar is `refs._TYPED`'s and `parseAddress`'s: `[1-9][0-9]*`, no leading zero, so
+		`#007` is a search here exactly as `subroutine show 007` is refused at a terminal. One
+		rule about what a number means, on every surface.
+	*/
+	const match = /^#([1-9][0-9]*)$/.exec(String(text || "").trim());
+
+	if (match === null) return null;
+
+	const ref = Number(match[1]);
+
+	return ref > MAX_REF ? null : ref;
 }
 
 export function chosenWorkspace (asked, available, current) {
@@ -5433,7 +5649,15 @@ export function App () {
 		return null;
 	}, []);
 
-	const show = useCallback(async (row, { history = true, slug = workspace } = {}) => {
+	const show = useCallback(async (
+		row, { history = true, slug = workspace, quiet = false } = {},
+	) => {
+		/*
+			**Reports whether it opened anything, and `quiet` suppresses the note when a
+			caller has its own answer to a ref that is not there** — `#976`. A search for
+			`#916` tries this first and falls back to searching for the text, so *there is no
+			#916 here* would be a refusal contradicted a moment later by the results.
+		*/
 		try {
 			const found = await fetched(row.ref, row.kind, slug);
 
@@ -5455,6 +5679,8 @@ export function App () {
 				{ replace: !history });
 
 			window.scrollTo(0, 0);
+
+			return true;
 		} catch (failure) {
 			/*
 				**A ref that is not there is a note, not the end of the page.**
@@ -5466,14 +5692,17 @@ export function App () {
 				version replaced the whole app with an error page for a typo in a description.
 			*/
 			if (failure.status === 404) {
-				setNote({ text: `There is no #${row.ref} in ${slug}.`, tone: "bad" });
+				if (!quiet) setNote({ text: `There is no #${row.ref} in ${slug}.`, tone: "bad" });
+
 				nowOpen(null);
 
-				return;
+				return false;
 			}
 
 			setError(failure);
 		}
+
+		return false;
 	}, [fetched, go, nowOpen, workspace]);
 
 	const close = useCallback(({ history = true } = {}) => {
@@ -6312,6 +6541,30 @@ export function App () {
 		}
 	}, [go, load, nowOpen, roster, words]);
 
+	const goTo = useCallback(async (address) => {
+		/*
+			**Where the masthead sends you** — `#975`. One control, two destinations, and which one
+			is a property of the address rather than of the option.
+
+			`placesToGo` emits an address per entry precisely so that this has nothing to decide:
+			`parseAddress` says whether a project was named, `narrow` goes into one and
+			`chooseWorkspace` changes the whole workspace. Both already do all three steps that
+			moving in this app takes — `go` writes the address bar and nothing else (`#962`), so a
+			handler that stopped there would leave the page as it was.
+
+			**A workspace is not narrowed into**, which is why this is a branch rather than one
+			call: `narrow` keeps the workspace and reloads a listing, and arriving from another
+			workspace needs the vocabulary, the roster and the project list asked again.
+		*/
+		const place = parseAddress(address);
+
+		if (place === null) return home();
+
+		return place.project
+			? narrow(address)
+			: chooseWorkspace(place.workspace);
+	}, [chooseWorkspace, home, narrow]);
+
 	const chooseSearch = useCallback(async (text) => {
 		/*
 			**A search is a selection, so it goes in the address** — decision `#649`, and it is
@@ -6325,6 +6578,33 @@ export function App () {
 			mistyped arrangement, arriving by a third door.
 		*/
 		const asked = text.trim();
+
+		/*
+			**A query that is nothing but a ref opens that item** — `#976`, Simon's.
+
+			`#867` made a ref *findable* and `#823` put the exact hit first, so `#916` already
+			returns the item — beside every row whose prose holds those digits, measured at four to
+			sixty of them per ref when `#867` was built, because `7` appears inside `17` and inside
+			every `2026-08-07`. This is the last step: a results page with one useful row on it is a
+			page the reader still has to read.
+
+			**Tried before the address is written**, so a ref that resolves never puts a search in
+			the bar, and one that does not is an ordinary search with nothing to undo. `show` does
+			all three steps that moving in this app takes — `go` writes the address bar and nothing
+			else (`#962`), three times over — and it reports whether it opened anything, which is
+			what makes the fall-through possible rather than guessed at.
+
+			**Quiet, because *there is no #916 here* would be contradicted a moment later** by the
+			search results this then runs.
+
+			The workspace is this one and there is nothing to decide: refs are allocated per
+			workspace (§6.2), and this control is rendered only off the agenda, so a search is
+			always inside exactly one.
+		*/
+		const jumping = refAsked(asked);
+
+		if (jumping !== null && await show({ ref: jumping, kind: null }, { quiet: true })) return;
+
 		const wanted = {
 			view: showing.view,
 			selection: asked === ""
@@ -6349,7 +6629,7 @@ export function App () {
 		} catch (failure) {
 			setNote({ text: `That search was refused. ${failure.message}`, tone: "bad" });
 		}
-	}, [agenda, go, load, nowOpen, nowShowing, project, showing, workspace]);
+	}, [agenda, go, load, nowOpen, nowShowing, project, show, showing, workspace]);
 
 	const chooseOrder = useCallback(async (asked) => {
 		/*
@@ -6496,7 +6776,7 @@ export function App () {
 				</h1>
 				<div class="who">
 					${me && html`<strong>${me.user.username}</strong>`}
-					${me && me.workspaces.length > 1 && html`
+					${me && html`
 						${" · "}
 						${/* **Named, because there is nowhere to put a visible label** (`#927`'s
 						     L-7). Every other select in this app sits inside a `<label>` carrying
@@ -6518,21 +6798,29 @@ export function App () {
 						     everything is a link elsewhere on the page — which is the same
 						     inert shape one step along. This is descriptive rather than an
 						     instruction: it says what you are looking at, which is what `/` is,
-						     and choosing it goes there. */ null}
-						<select aria-label="Which workspace"
+						     and choosing it goes there.
+
+						     **Shown however many workspaces there are** (`#975`, Simon's). One
+						     workspace used to render the name as inert text, so the only thing
+						     naming it could not be used to reach it — and on the agenda, `/` is
+						     the only address a reader has. Both options stay meaningful with one
+						     workspace, because `/` and `/{workspace}` are different pages: the
+						     agenda buckets by date and a listing does not.
+
+						     **What it offers is `placesToGo`**, which is pure and Node-tested —
+						     `#640`'s cheapest route, and the reason this markup holds no rule. */ null}
+						<select aria-label="Where to look"
 							onChange=${(event) => (event.target.value
-								? chooseWorkspace(event.target.value)
+								? goTo(event.target.value)
 								: home())}>
-							<option value="" selected=${agenda !== null}>All workspaces</option>
-							${me.workspaces.map((space) => html`
-								<option value=${space.slug}
-									selected=${agenda === null && space.slug === workspace}>
-									${space.slug}
+							${placesToGo(me.workspaces, filable,
+								{ workspace, project, agenda: agenda !== null }).map((one) => html`
+								<option key=${one.value} value=${one.value} selected=${one.chosen}>
+									${"\u00a0\u00a0".repeat(one.depth) + one.label}
 								</option>
 							`)}
 						</select>
 					`}
-					${me && me.workspaces.length === 1 && html` · ${workspace}`}
 					${me && html`
 						${" · "}
 						<button class="link" onClick=${signOut}>Sign out</button>
