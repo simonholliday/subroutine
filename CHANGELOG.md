@@ -42,11 +42,15 @@ upgrade involves.
 
 - **The masthead's home link takes the page home, not only the address.** Clicking
   **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
-  page exactly as it was. It also carried the board and the completed filter to an agenda that
-  has neither; `/` is now `/`.
+  page exactly as it was — and the agenda then arrived at the board's full width. It also
+  carried the board and the completed filter to an agenda that has neither; `/` is now `/`.
+- **The agenda at `/` says which workspace every row is in**, whether or not they all happen
+  to agree. It named none when they did, which is the one page whose address names no
+  workspace.
 - **A row's address no longer runs into the title beside it.** On the agenda at `/`, where a
-  row says which workspace it is from, `projects/#94` overflowed the fixed column it sits in
-  and overlapped the title by ten pixels. The column is a floor now rather than a width.
+  row says which workspace it is from as well as the number, the address overflowed the fixed
+  column it sits in and overlapped the title by ten pixels. That column is a floor now rather
+  than a width, so an address of any length has room for itself.
 - **An item opened from a board is read at the reading measure.** It inherited the board's
   uncapped width, because the frame asked which view was selected rather than whether a board
   was on screen — so the same item was full-width when opened from a board and correct when

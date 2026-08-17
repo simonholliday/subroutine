@@ -3537,14 +3537,18 @@ export function Agenda ({
 							     fallback only — a row that knows its own uses that, which is
 							     what keeps an agenda row's address pointing at the workspace
 							     it actually came from. */ null}
-							${/* **The place is whether this agenda names a workspace at all.**
-							     `showWhere` already answers that — it is `spansWorkspaces`, and
-							     an agenda spanning them shows each row's workspace in its
-							     address. The project label follows the same answer rather than
-							     asking the question a second way. */ null}
+							${/* **The agenda names no workspace, and that is a fact about the
+							     address rather than about the rows** (`#966`, decision `#957`
+							     §4). This asked `showWhere` — `spansWorkspaces` — so a label
+							     stopped naming the workspace whenever every row happened to be
+							     in one, which is the drop-if-uniform rule §4 rules out here and
+							     for the reason written into `projectLabel`: this page polls, so
+							     a label that shortens because a stranger filed something
+							     elsewhere is a clickable control changing under the cursor.
+							     Simon met it within the hour, on rows that had not changed. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
 								showKind=${false} showWhere=${showWhere} workspace=${where}
-								place=${{ workspace: showWhere ? null : where, project: null }}
+								place=${{ workspace: null, project: null }}
 								onGo=${onGo}
 								onOpen=${onOpen} onComplete=${onComplete} projects=${projects} />
 						`)}
@@ -6140,13 +6144,26 @@ export function App () {
 			means nothing where it lands. `addressOf` already knows this and returns `"/"` for
 			the agenda; `withShowing` does not, because `parseAddress("/")` is null.
 		*/
+		/*
+			**One expression for what is written and what is held** (`#967`). `go` decides the
+			address and `nowShowing` decides the state, which are two jobs — and passing a blank
+			arrangement to the first alone reads exactly like doing both. It shipped that way:
+			the address said `/` with no view and `showing.view` was still `"board"`, so
+			`#963`'s frame gave the agenda the board's width until the page was refreshed.
+
+			`nowShowing`'s own docstring is the rule this broke — *one writer, so the two cannot
+			disagree* — met from the side where one of them was simply not called.
+		*/
+		const plainly = { view: null, selection: {} };
+
 		nowOpen(null);
 		setProject(null);
 		setNote(null);
-		go("/", { arranged: { view: null, selection: {} } });
+		nowShowing(plainly);
+		go("/", { arranged: plainly });
 
 		await readAgenda(me ? me.workspaces : []);
-	}, [go, me, nowOpen, readAgenda]);
+	}, [go, me, nowOpen, nowShowing, readAgenda]);
 
 	const narrow = useCallback(async (address) => {
 		/*

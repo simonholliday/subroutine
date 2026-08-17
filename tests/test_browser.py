@@ -411,6 +411,20 @@ AGENDA: dict[str, typing.Any] = {
 	"unscheduled_total": 1,
 }
 
+#: An agenda whose rows are all in one workspace — `#966`'s case, and the one :data:`AGENDA`
+#: cannot make: it spans two on purpose, so `spansWorkspaces` is true and every row's address
+#: carries a workspace whether the label does or not.
+ONE_WORKSPACE: dict[str, typing.Any] = {
+	"date": "2026-08-17",
+	"timezone": "Europe/London",
+	"overdue": [],
+	"today": [],
+	"in_progress": [dict(CARD, ref=94, title="Recurring tasks", workspace_id="w1")],
+	"upcoming": [],
+	"unscheduled": [dict(CARD, ref=95, title="Release 0.8.0", workspace_id="w1")],
+	"unscheduled_total": 1,
+}
+
 #: One page of rows, in the envelope every listing here uses. Enough for a link to click.
 ROWS = {
 	"items": [CARD, *CROWD],
@@ -475,6 +489,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: without them. A holder rather than an argument to `answered`, because the route is
 	#: registered on the context once and every page shares it.
 	listing: list[typing.Any] = [ROWS]
+	daily: list[typing.Any] = [AGENDA]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
 
@@ -555,7 +570,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# read an item where a page was, and every attempt to open one landed on the
 				# failure page. Nothing was asserting on an open item, so it looked like a
 				# harness that simply had no test for it.
-				else AGENDA if wanted.split("?")[0] == "v1/agenda"
+				else daily[0] if wanted.split("?")[0] == "v1/agenda"
 				else CARD if re.fullmatch(r"v1/tasks/\d+", wanted)
 				# **The collection, and only the collection.** `startswith` also matched every
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
@@ -589,10 +604,16 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# a new tab would have been asserting on a tab that never loaded.
 	context.route("**/*", answered)
 
-	def opened (address: str = "/", rows: typing.Any = None) -> typing.Any:
+	def opened (
+		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None
+	) -> typing.Any:
 		"""Open one address and wait for the app to have painted."""
 
 		listing[0] = ROWS if rows is None else rows
+		# **A holder like `listing`, for the same reason**: the route is registered on the
+		# context once and every page shares it, so a caller that wants a different agenda
+		# cannot be given one as an argument to the route.
+		daily[0] = AGENDA if agenda is None else agenda
 
 		page = context.new_page()
 		page.on(
@@ -1077,6 +1098,16 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	it, because every one of these callbacks lives in `App`, which `tests/dom.js` cannot call
 	(`#640`). A category with three instances and no cheaper reader is what this file is for.
 
+	**Twenty-one for `#965`**, which is `#911`'s case with a different pair of boxes: whether an
+	address touches the title beside it is whether two rectangles overlap. The rule that
+	produces it is one CSS declaration with no JavaScript to unit-test, so unlike the others
+	here there is no cheaper reader at all.
+
+	**Twenty-two for `#966`**, and it is the only raise here that is not a new *category*: it is
+	`#959`'s claim driven on the state that broke it, an agenda whose rows are all in one
+	workspace. `AGENDA` spans two on purpose, so the case Simon met was the one nothing could
+	build — the second harness gap of the day, and the same shape as the first.
+
 	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
@@ -1088,7 +1119,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 21, (
+	assert len(tests) <= 22, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
@@ -1546,6 +1577,23 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 		"the address went home and the page did not follow it"
 	)
 
+	# **And the frame came with it** (`SR#967`). `SR#962` and `SR#963` shipped in one commit, each
+	# with its own guard, and the case that failed was where they touch: `home` wrote an
+	# address with no view and never told the state, so the agenda arrived at the board's
+	# width. This test pressed the control and asserted the rows changed, which was true.
+	#
+	# **Two fixes landing together are a third thing to check**, and neither one's own test
+	# can see it.
+	frame = page.evaluate(
+		"() => Math.round(document.querySelector('div.app').getBoundingClientRect().width)"
+	)
+	screen = page.evaluate("() => document.documentElement.clientWidth")
+
+	assert frame < screen, (
+		f"the agenda is {frame}px of a {screen}px screen — it kept the board's frame, because "
+		f"going home wrote the address and left the view saying 'board'"
+	)
+
 
 def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.Any) -> None:
 	"""`SR#965`, Simon 2026-08-17, from the agenda at `/`.
@@ -1601,4 +1649,37 @@ def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.A
 		assert row["gap"] > 0, (
 			f"the address {row['said']!r} touches the title beside it — its column is too "
 			f"narrow for it and a grid item overflows rather than wrapping: {measured}"
+		)
+
+
+def test_the_agenda_names_a_workspace_even_where_they_all_agree (
+	running: typing.Any,
+) -> None:
+	"""`SR#966`, Simon 2026-08-17. `/` names no workspace, so every row says which one it is in.
+
+	**This asked `spansWorkspaces` and so dropped the label whenever the rows agreed** — the
+	drop-if-uniform rule decision `SR#957` §4 rules out for this surface, and for the reason
+	written into `projectLabel`: the page polls, so a label that shortens because a stranger
+	filed something elsewhere is a clickable control changing under the cursor. It demonstrated
+	itself within the hour, on rows that had not changed.
+
+	**Driven on an agenda holding one workspace**, because the fixture spans two and the case
+	that broke is the one nothing built. That is the same gap twice today: a harness that cannot
+	reach a state looks exactly like one nobody needed it to.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/", agenda=ONE_WORKSPACE)
+	page.wait_for_selector(".listing.agenda .mark", timeout=10_000)
+
+	labels = page.eval_on_selector_all(
+		".listing.agenda a.mark", "marks => marks.map((mark) => mark.textContent.trim())"
+	)
+
+	assert labels, "no row carries a project label at all"
+
+	for said in labels:
+		assert said.startswith("projects/"), (
+			f"a row on the agenda says {said!r} and not which workspace it is in — every row "
+			f"being in one is not the address having named it"
 		)
