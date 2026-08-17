@@ -72,8 +72,9 @@ that is Claude Code's rather than ours.
 The same instance, the same schema, different defaults — so a shopping list never has to carry
 a workflow and six required fields.
 
-- **There is a web interface**, served by the instance itself. See the list, read an item in
-  full, complete it, add one, hand it to somebody. No terminal, no install.
+- **There is a web interface**, served by the instance itself. Your agenda, a list and a board;
+  read an item in full, add one, edit it, comment, link it to what is holding it up, complete
+  it, hand it to somebody. No terminal, no install.
 - **Signing in is a link, not a password.** `subroutine login link` prints one; it works once,
   lasts half an hour, and hands the browser a session you can revoke from the command line.
 - **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
@@ -180,7 +181,8 @@ not built — named here because a tool that overstates itself wastes your after
 | --- | --- |
 | HTTP API — OpenAPI at `/v1/openapi.json`, for any viewer you like | **Built** |
 | CLI, progressive — a shopping list needs none of the above | **Built** |
-| Web interface — list, read, complete, add, reassign, Markdown, shareable addresses | **Built** |
+| Web interface — add, edit, complete, comment, link, hand over, set a repeat, write a document | **Built** |
+| Markdown rendering, and a link to any item that you can send somebody | **Built** |
 | Sign-in links, revocable from the command line | **Built** |
 | MCP over stdio (`subroutine mcp`) and over HTTP (`POST /mcp`) | **Built** |
 | Two Claude Code plugins — one local, one needing nothing installed | **Built** |
@@ -345,10 +347,14 @@ rather than reading a boolean that would go stale on a page somebody leaves open
 The same instance serves a web interface at its own address. **TL;DR: `subroutine serve`, then
 `subroutine login link`, then open the link.**
 
-It shows one list — tasks and documents together, newest first, in the order the command line
-uses. Click one and you get it in full: the description, what it is linked to, and everything
-anybody has recorded against it. You can complete it, add something with one box that takes the
-same shorthand the CLI does, and hand a task to somebody from a list of the people in that
+It opens on your agenda. From there, a list — tasks and documents together, in the order the
+command line uses — or a board, where dragging a card between columns changes its status. Click
+anything and you get it in full: the description, what it is linked to, and everything anybody
+has recorded against it.
+
+You can add something with one box that takes the same shorthand the CLI does, edit it, comment
+on it, link it to what is holding it up, say how often it comes round, write a document and
+revise it, search, complete it, and hand a task to somebody from a list of the people in that
 workspace.
 
 - **Every item has an address you can send somebody**, and the project in the middle is there
