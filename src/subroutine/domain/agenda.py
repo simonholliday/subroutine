@@ -167,8 +167,20 @@ def build (
 		# NULLs last explicitly. SQLite sorts them first by default and PostgreSQL last, so
 		# the undated-but-planned tasks would appear at opposite ends of this list depending
 		# on which backend answered (docs/design.md §10.3).
+		#
+		# **`position` was the second key here and decided nothing** (`#951`, cold review
+		# `#927`'s L-9). It is `default=0, nullable=False` and no code writes it, so every row
+		# holds the same value and the clause could never separate two rows — while reading, to
+		# anybody skimming, like the thing that ordered them. What actually breaks a tie is
+		# `_run`'s `created_at`, which it appends to every bucket. Removed rather than wired,
+		# which is `#303`'s answer to a control that grants nothing.
+		#
+		# `#853` took the same column out of the *unscheduled* bucket for a stronger reason —
+		# there it was the only key, so the answer to "what should I work on" was "whatever you
+		# wrote down first". This one was harmless and is gone for tidiness rather than for a
+		# defect. The column stays: `#28` records it as unwritten and `#787` is what would
+		# write it.
 		sqlalchemy.asc(model.due_at).nullslast(),
-		sqlalchemy.asc(model.position),
 	)
 	today = tuple(task for task in today if task.id not in seen)
 	seen.update(task.id for task in today)
