@@ -349,6 +349,165 @@ AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = (
 
 
 @dataclasses.dataclass(frozen=True)
+class Program:
+	"""What a command has of the program around it: how to speak, and how to reach.
+
+	**Every one of these used to be a name closed over by `register`** (`#943`, cold review
+	`#927`'s L-1). Seven arrive as arguments and two are built from them, and a nested command
+	simply saw all nine — which is what made 4,769 lines one function and every helper in it
+	reachable only by running a Typer command.
+
+	Named rather than threaded one callable at a time, because the count is the point: most
+	helpers want one or two of these and the next surface wants a different one or two, so a
+	per-function parameter list would be nine ways to be inconsistent. What a reader gets from
+	the name is the answer to *where does this sentence go* — :attr:`say` for a line,
+	:attr:`console` for something with style in it, :attr:`stop` and :attr:`fail` for the two
+	kinds of ending — and that question was previously answered by scrolling.
+
+	**`selected` is mutable and deliberately so**, which is why this is frozen and it is not:
+	Typer resolves the callback's options before the command's, and the object is how the two
+	meet. Freezing the box does not freeze what is in it.
+	"""
+
+	say: typing.Callable[[str], None]
+	fail: typing.Callable[[subroutine.errors.SubroutineError], typing.NoReturn]
+	stop: typing.Callable[..., typing.NoReturn]
+	settings: typing.Callable[[], subroutine.config.Settings]
+	console: rich.console.Console
+	warn: typing.Callable[[str], None]
+	mask: typing.Callable[[str], str]
+	selected: Selected
+
+	@contextlib.contextmanager
+	def opened (self, *, strict: bool = False) -> typing.Iterator[World]:
+		"""Yield every reachable connection, with the current context settled.
+
+		One ``identity()`` per connection, fanned out — which is what resolves a workspace
+		slug, prints an address and notices the same instance configured twice. It is one
+		cheap query locally and one request remotely, and everything after it is narrower
+		for having been asked.
+
+		**Two connections naming one instance is recorded here and refused elsewhere**
+		(`#942`). It used to be refused here, behind a ``merged`` flag saying whether this
+		command combines what the connections answer — which asks the question before the
+		command has done anything, so the answer had to be given thirty-eight times and was
+		given three. See :meth:`World.merging` for what replaced it.
+		"""
+
+		resolved = self.settings()
+
+		_warn_about_the_credentials_file(self.warn)
+
+		try:
+			roster = subroutine.connections.roster(resolved)
+			marker = subroutine.directory.find()
+			current = subroutine.context.resolve(
+				roster,
+				connection=self.selected.connection,
+				workspace=self.selected.workspace,
+				marker=marker,
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			self.fail(error)
+
+		with contextlib.ExitStack() as stack:
+			clients = []
+
+			# **A connection that cannot even be built is a failure like any other** (`#175`).
+			# It used to be warned about and then forgotten, so with one broken connection and
+			# no others, `gathered.failures` was empty and the reader was told "No connection
+			# could be reached. Run 'subroutine connections'" — a generic line naming a cause
+			# that is not the cause, with the sentence explaining the real one already printed
+			# above it and its remedy thrown away. Collected here, they reach the same report
+			# as a connection that was reached and refused.
+			unbuilt: list[subroutine.fanout.Failure] = []
+
+			for connection in roster:
+				try:
+					clients.append(stack.enter_context(_client(connection, roster, resolved)))
+
+				except subroutine.errors.SubroutineError as error:
+					if strict:
+						self.fail(error)
+
+					unbuilt.append(
+						subroutine.fanout.Failure(connection=connection, error=error)
+					)
+
+			# Both inside one handler, because under ``--strict`` the gather *re-raises* rather
+			# than collecting — and a refusal that escapes to Typer arrives as a traceback,
+			# which is exactly what `fail` exists to prevent. Found by stopping a server and
+			# running the flag, which is the only way this shows up.
+			try:
+				gathered = subroutine.fanout.gather(
+					clients, lambda client: client.identity(), strict=strict
+				)
+
+			except subroutine.errors.SubroutineError as error:
+				self.fail(error)
+
+			collision = subroutine.fanout.duplicate_instances(gathered.answers)
+
+			reached = tuple(
+				Reached(client=_matching(clients, answer.connection.name), identity=answer.value)
+				for answer in gathered.answers
+			)
+
+			if not reached:
+				# **Say what each connection actually said** (`#127`). Every failure here already
+				# carries a sentence somebody can act on — `clients/local._reported` turns a
+				# SQLAlchemy error into "local could not be read: no such column tasks.ref", with
+				# a hint naming `database_url` — and this discarded all of it for a generic line
+				# plus an instruction to go and check configuration that is perfectly fine. That
+				# is worse than saying nothing, because it names a cause which is not the cause.
+				#
+				# The asymmetry that hid it: `_report` prints every failure beside the results
+				# that *did* arrive, so one connection down out of three read well. It runs after
+				# this context manager has yielded, so the case where everything failed — which
+				# is what "my only connection is broken" looks like — never reached it.
+				reasons = []
+
+				for failure in (*unbuilt, *gathered.failures):
+					reasons.append(failure.describe())
+
+					# Indented under the connection it belongs to, so several broken connections
+					# do not run their remedies together. Only here: beside a partial result a
+					# hint per failure is noise, which is why `describe()` still omits it.
+					if failure.error.hint is not None:
+						reasons.append(f"  {failure.error.hint}")
+
+				# **"Nothing could be read", not "no connection could be reached"**, once there
+				# are reasons to print. A database at the wrong schema *was* reached — it is the
+				# wrong shape — and the old line asserted a cause as confidently as the hint
+				# did. The original wording is still right for the case it was written for,
+				# which is having nothing to ask in the first place.
+				self.stop(
+					"Nothing could be read." if reasons else "No connection could be reached.",
+					"\n".join(reasons)
+					if reasons
+					else "Run 'subroutine connections' to see what is configured.",
+				)
+
+			try:
+				yield World(
+					roster=roster,
+					current=_settled(
+							self,
+						roster, _marker_taken_elsewhere(current, reached, marker), reached, marker
+					),
+					reached=reached,
+					unreachable=(*unbuilt, *gathered.failures),
+					settings=resolved,
+					marker=marker,
+					collision=collision,
+				)
+
+			except subroutine.errors.SubroutineError as error:
+				self.fail(error)
+
+
+@dataclasses.dataclass(frozen=True)
 class Listing:
 	"""One connection's rows, and whether there were more it did not return.
 
@@ -1786,6 +1945,1107 @@ def _acted (world: World, located: Located, verb: str) -> str:
 	return f"{verb}: {absolute}  {located.title}"
 
 
+def _say_where_a_bare_number_goes (
+	world: World, *, console: rich.console.Console
+) -> None:
+	"""Name the current context under a listing, when there is more than one to be in.
+
+	**Not a banner, and the distinction is the whole of `#271`.** §13.7's argument for
+	leaving it unsaid is that forgetting your context cannot cost you a *missed* item,
+	because reads span everything reachable — and that is true and is why there is no
+	banner on every response. It does not cover a **write**. Somebody reading a list of
+	fifty rows and typing a number off it is one keystroke from acting on the right number
+	in the wrong place, and the only thing telling them which place is which rows happen to
+	be printed bare.
+
+	Silent with one connection, so §13.5b's transcript and everybody who has never heard of
+	a connection see exactly what they saw before.
+	"""
+
+	if not world.qualifies_connection:
+		return
+
+	# The bare address rather than `describe`, which carries its provenance — useful when
+	# somebody asks where the context came from, and one clause too many under a list they
+	# are about to act on.
+	where = world.current.workspace or "(no workspace chosen)"
+	said = f"{world.current.connection}/{where}"
+
+	# **Except when the context will not outlive the command** (`#281`). Under `-c`/`-w`
+	# the sentence is true of the listing above and false of the next command, which is
+	# the one the reader is about to type — and it was read exactly that way: as evidence
+	# that the stored context had changed. Naming the source is what separates them, and
+	# `describe` already words it.
+	if not world.current.persists:
+		said = world.current.describe(qualified=True)
+
+	console.print(
+		rich.text.Text(
+			f"      A bare number means {said}. 'subroutine use' to change it.",
+			style=DETAIL,
+		)
+	)
+
+
+def _say_changes (
+	world: World,
+	gathered: subroutine.fanout.Gathered[list[subroutine.views.Event]],
+	*,
+	console: rich.console.Console,
+	say: typing.Callable[[str], None],
+) -> None:
+	"""Print what moved, grouped by connection and then by day.
+
+	**Grouped rather than merged**, unlike ``today``. §13.7 makes that call per command,
+	and the reason here is arithmetic rather than taste: a resume number belongs to one
+	instance, so a single interleaved list would carry two of them and no way to say which
+	row ended which.
+
+	The last number is printed at the end because it is the whole point — a feed you
+	cannot resume from is a feed you have to read twice.
+	"""
+
+	for answer in gathered.answers:
+		if world.qualifies_connection:
+			console.print(rich.text.Text(answer.connection.label, style=HEADING))
+
+		if not answer.value:
+			console.print(rich.text.Text("  Nothing new.", style=DETAIL))
+			say("")
+
+			continue
+
+		day = None
+
+		for event in answer.value:
+			when = event.created_at.astimezone()
+
+			if when.date() != day:
+				day = when.date()
+
+				console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
+
+			console.print(f"    {when:%H:%M}  {_change_line(event)}")
+
+		last = answer.value[-1].seq
+
+		say("")
+		_suggest(console, f"subroutine changes --since {last}", "carry on from here")
+		say("")
+
+	for failure in gathered.failures:
+		console.print(rich.text.Text(failure.describe(), style=LATE))
+
+
+# --- Helpers that take the program with them ------------------------------------------
+#
+# **Twenty more out of `register`'s closure, threaded through :class:`Program`** (`#943`).
+# Each wanted one or two of the nine names it used to see all of; the object is what makes
+# that a parameter rather than nine ways to be inconsistent about it.
+
+
+def _settled (
+	program: Program,
+	roster: subroutine.connections.Roster,
+	current: subroutine.context.Current,
+	reached: typing.Sequence[Reached],
+	marker: subroutine.directory.Marker | None,
+) -> subroutine.context.Current:
+	"""Answer steps 4 and 5 of §13.7's order, now that the connections have been asked.
+
+	**And drop a marker that names somewhere this connection has never heard of** — the
+	one thing a marker must not do is break the program (`#166`). It is advisory context
+	written by a machine into a directory, so a checkout marked for one instance must not
+	stop every command working against another; `--profile` puts a second instance one
+	flag away, and the suite itself proved the point by failing 154 tests the first time
+	this repository carried its own marker.
+
+	Anything a person typed *now* still refuses, loudly. The difference is who said it and
+	when.
+	"""
+
+	# **Said here rather than before the fan-out** (`#409`, moved by `#556`). Until the
+	# connections have been asked there is no way to know whether the marker can still be
+	# honoured, and a line saying "using X instead" printed above one that quietly used Y
+	# is the two-lines-of-one-act disagreement `#414` found.
+	if current.unusable_marker_connection is not None:
+		if current.marker_found_on is None:
+			program.warn(
+				f"{FILE_NAME} here names connection "
+				f"{current.unusable_marker_connection!r}, which is not configured. "
+				f"Using {current.connection!r} instead."
+			)
+
+		else:
+			# Not silence: the marker was honoured, and the file still names something
+			# this machine does not have, which somebody will want to put right.
+			program.warn(
+				f"{FILE_NAME} here names connection "
+				f"{current.unusable_marker_connection!r}, which is not configured — its "
+				f"workspace is on {current.marker_found_on!r}, so that is where this goes."
+			)
+
+	if (
+		current.workspace is not None
+		and current.workspace_source == subroutine.context.FROM_DIRECTORY
+	):
+		here = next((item for item in reached if item.name == current.connection), None)
+		# **Resolved by id where the marker carries one** (`#317`), so a workspace that has
+		# merely been renamed is followed rather than reported missing. Without it a
+		# `workspace rename` left every marked checkout printing the warning below on every
+		# command for ever — about nothing, since `project_id` went on carrying the work to
+		# the right place. Markers written before `#317` have no id and fall back to the
+		# slug, which is what they have always done.
+		resolved = (
+			None
+			if here is None or marker is None
+			else subroutine.directory.resolve_workspace(marker, here.identity.workspaces)
+		)
+
+		if here is not None and resolved is None:
+			# **Dropped to the next source in the chain, not to nothing** (`#324`). This
+			# assigned `workspace=None` and fell straight through to the sole-workspace
+			# default — so on an instance with two, a stale marker *erased* a perfectly
+			# good stored context and turned `use --here --project SR` into a refusal
+			# immediately after `use projects` had succeeded. The warning said "Ignoring
+			# it", and ignoring it is the one thing it did not do.
+			#
+			# Only the stored context can be the fallback, and that is not a choice: the
+			# marker won in the first place because the flag and the environment were
+			# empty, so §13.7's order has exactly one step left.
+			instead = subroutine.context.stored_workspace(current.connection)
+			usable = instead is not None and any(
+				workspace.slug == instead for workspace in here.identity.workspaces
+			)
+
+			program.warn(
+				f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
+				f"{current.connection}. "
+				+ (
+					f"Using {instead!r} instead."
+					if usable
+					else "Ignoring it."
+				)
+			)
+			current = (
+				current.with_workspace(
+					typing.cast("str", instead), subroutine.context.FROM_STORED
+				)
+				if usable
+				else dataclasses.replace(
+					current,
+					workspace=None,
+					workspace_source=subroutine.context.FROM_NOTHING,
+				)
+			)
+
+		elif resolved is not None and resolved != current.workspace:
+			current = dataclasses.replace(current, workspace=resolved)
+
+	if current.workspace is not None:
+		return current
+
+	here = next((item for item in reached if item.name == current.connection), None)
+
+	if here is None or not here.identity.workspaces:
+		return current
+
+	if len(here.identity.workspaces) == 1:
+		return current.with_workspace(
+			here.identity.workspaces[0].slug, subroutine.context.FROM_SOLE
+		)
+
+	# Deliberately *not* refused here. A read spans everything reachable and needs no
+	# context at all, so refusing at this point would stop `subroutine today` working
+	# for anybody with two workspaces — which is precisely the person §13.7 is for.
+	# The refusal belongs to the write, and `_writing_workspace` makes it.
+	return current
+
+
+def _locate (
+	program: Program,
+	world: World,
+	given: str,
+	*,
+	kinds: tuple[str, ...] = TASKS_ONLY,
+	verb: str = "done",
+) -> Located:
+	"""Resolve an address into one item, or refuse in a way that can be acted on.
+
+	**A bare number means the current context** (§13.7), which is what makes a number
+	typeable at all: refs are per-workspace, so every low number exists nearly everywhere
+	and a search for one is ambiguous by construction. ``acme/42`` says which workspace
+	and ``work/acme/42`` says which instance.
+
+	Two things soften that without weakening it. When a bare number is *not* in the
+	current context, everywhere else is asked before refusing — not to guess, but so the
+	refusal can say where it is instead. And when nothing has chosen a context at all,
+	everywhere is searched: one match is not ambiguous and refusing it would be pedantry,
+	while several is a refusal **naming the candidates with their titles**, so the choice
+	can be made without a second command.
+
+	Never a guess, in any of those paths. Until 2026-07-29 this resolved a bare ref with
+	``.first()`` on an unordered query across every readable workspace, so two workspaces
+	each holding a ``#1`` was enough to complete whichever row the database happened to
+	return — the same defect as the positional numbering this replaced.
+
+	``kinds`` is what a *reading* command needs and an acting one does not: ``show`` will
+	take a document, ``done`` will not. Both search the same way, because a number that
+	names a document has to be *found* before it can be turned down — telling somebody
+	``#4`` does not exist, when it is the plan they were just reading, is worse than
+	telling them it is not a task.
+	"""
+
+	address = subroutine.domain.refs.parse_address(given)
+
+	if address is None:
+		program.stop(
+			f"{given!r} is not an item number.",
+			"Items are named by the number 'subroutine list' prints beside them — "
+			f"'subroutine {verb} 42'.",
+		)
+
+	named = _named_place(program, world, address)
+
+	if named is None:
+		return _unqualified(program, world, address.ref, given, kinds=kinds, verb=verb)
+
+	found = _found_at(named[0], named[1], address.ref, kinds)
+
+	if found is not None:
+		return Located(connection=named[0].name, workspace=named[1], item=found)
+
+	# Not in the place the address named. Ask everywhere else before giving up, so the
+	# refusal can say where it *is* — the docstring above promised this and the code did
+	# not do it, which is the documented-but-absent shape this project keeps meeting.
+	# Only for a *bare* number: if the caller named a workspace, they meant that one.
+	elsewhere = (
+		[]
+		if address.workspace is not None or address.connection is not None
+		else [
+			item
+			for item in _everywhere(world, address.ref, kinds)
+			if item.workspace != named[1]
+		]
+	)
+
+	if not elsewhere:
+		program.stop(
+			f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
+			f"{_in_place(world, named[1])}.",
+			"Run 'subroutine list' to see what there is — or "
+			"'subroutine list --trash' if you deleted it.",
+		)
+
+	shown = [_absolute(world, item) for item in elsewhere]
+	width = max(len(text) for text in shown)
+	listed = "\n".join(
+		f"    {text:>{width}}  {item.title}"
+		for text, item in zip(shown, elsewhere, strict=True)
+	)
+
+	program.stop(
+		f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
+		f"{_in_place(world, named[1])}, but there is one here:\n{listed}",
+		f"Say which — 'subroutine {verb} "
+		f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
+	)
+
+
+def _a_task (program: Program, world: World, given: str, *, verb: str) -> tuple[Located, subroutine.views.Task]:
+	"""Resolve an address into a task, turning down a document by saying what it is.
+
+	**Documents are searched even though they cannot be acted on**, which looks like extra
+	work and is the whole value: refs are allocated from one counter per workspace, so a
+	command that only asked about tasks answered "there is no #4" about a specification
+	sitting in the same listing. Being told ``#4`` is a document, with its title, is an
+	answer somebody can act on; being told it does not exist is not.
+	"""
+
+	located = _locate(program, world, given, kinds=ANY_ITEM, verb=verb)
+	found = located.item
+
+	if not isinstance(found, subroutine.views.Task):
+		# The shortest form, not the absolute one: the caller named this item directly,
+		# so echoing back a qualified address they did not type reads as a correction.
+		shown = world.address_of_located(located)
+
+		program.stop(
+			f"{shown} is a document, not a task — {found.title}",
+			f"'subroutine {verb}' works on tasks. Read this one with 'subroutine show "
+			f"{shown.replace(subroutine.domain.refs.SIGIL, '')}'.",
+		)
+
+	return located, found
+
+
+def _a_document (
+	program: Program,
+	world: World, given: str, *, verb: str
+) -> tuple[Located, subroutine.views.Document]:
+	"""Resolve an address into a document, turning down a task by saying what it is.
+
+	``_a_task``'s argument run the other way (§12.2c, `#42`), and it needed making the
+	moment a document command took a ref: one counter per workspace serves both kinds, so
+	``doc edit 3`` may name a task perfectly reasonably — and "there is no #3" about
+	something sitting in the listing the reader just printed is exactly the answer that
+	item exists to stop being given.
+	"""
+
+	located = _locate(program, world, given, kinds=ANY_ITEM, verb=verb)
+	found = located.item
+
+	if not isinstance(found, subroutine.views.Document):
+		shown = world.address_of_located(located)
+		bare = shown.replace(subroutine.domain.refs.SIGIL, "")
+
+		program.stop(
+			f"{shown} is a task, not a document — {found.title}",
+			f"'subroutine doc {verb}' works on documents. Change this one with "
+			f"'subroutine update {bare}'.",
+		)
+
+	return located, found
+
+
+def _named_place (
+	program: Program,
+	world: World, address: subroutine.domain.refs.Address
+) -> tuple[Reached, str] | None:
+	"""Return the place an address names, or ``None`` when it named none.
+
+	``None`` covers a bare number with no context chosen, which is the one case that has
+	to go looking; every other case has somewhere definite to ask.
+	"""
+
+	name = address.connection or world.current.connection
+	item = world.connection(name)
+
+	if item is None:
+		program.stop(
+			f"There is no connection called {name!r} here, or it could not be reached.",
+			world.roster.alternatives(),
+		)
+
+	wanted = address.workspace or world.current.workspace
+
+	if wanted is None:
+		return None
+
+	if item.identity.workspace(wanted) is None:
+		program.stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
+
+	return item, wanted
+
+
+def _unqualified (
+	program: Program,
+	world: World, ref: int, given: str, *, kinds: tuple[str, ...], verb: str
+) -> Located:
+	"""Resolve a bare number when nothing has chosen a context, or refuse with the choice."""
+
+	candidates = _everywhere(world, ref, kinds)
+
+	if not candidates:
+		program.stop(
+			f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
+			"Run 'subroutine list' to see what there is — or "
+			"'subroutine list --trash' if you deleted it.",
+		)
+
+	if len(candidates) == 1:
+		return candidates[0]
+
+	shown = [_absolute(world, item) for item in candidates]
+	width = max(len(text) for text in shown)
+	listed = "\n".join(
+		f"    {text:>{width}}  {item.title}"
+		for text, item in zip(shown, candidates, strict=True)
+	)
+
+	program.stop(
+		f"{given!r} could mean any of these:\n{listed}",
+		f"Say which — 'subroutine {verb} "
+		f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}', or "
+		f"'subroutine use {_place_of(world, candidates[0])}' to keep working there.",
+	)
+
+
+def _listed (
+	program: Program,
+	*,
+	limit: int,
+	json_output: bool,
+	merged: bool,
+	strict: bool,
+	order: str | None = None,
+	project: str | None = None,
+	connection: str | None = None,
+	deferred: bool = False,
+	q: str | None = None,
+	ready: bool = False,
+	trash: bool = False,
+	assignee: str | None = None,
+	status: str | None = None,
+	type: str | None = None,
+	filters: dict[str, str] | None = None,
+) -> None:
+	"""Print the list. Registered twice — three times, with ``search`` — from one body."""
+
+	# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
+	# is a decision about a list somebody *reads*, which is what §6.5's "default views"
+	# means and the whole basis for leaving the API default alone. `--json` is the other
+	# half of that: a script asking for open work must not silently lose rows, and every
+	# row already carries `snoozed_until`, so it can make the same choice for itself.
+	#
+	# So the two outputs differ, deliberately, and only in this. It is the one place
+	# §12.2a's "the human path and the scripted path are the same code" gives way — the
+	# code is the same, the presentation rule is not applied.
+	hiding = not deferred and not json_output
+
+	# **Deferred work sinks to the bottom of a list it is in — `#877`, Simon's decision of
+	# 2026-08-14**: *"deferred items appearing last. That way they are not invisible, but
+	# neither are they confused with non-deferred items in lists."* A leading sort key, so
+	# it holds under every ordering rather than only under the default.
+	#
+	# **Not while hiding, because there is nothing to sink**, and **not while searching**,
+	# which is the exception worth stating: a search is ordered by how well a row answers
+	# the question asked, and a deferred item is still the best answer to it. `#867` is the
+	# case that decides it — typing a number finds that item, and sinking would put it
+	# below every row that merely mentions the digits.
+	sunk = _sunk(order) if not hiding and not q else order
+
+	# Grouped by connection, one heading each, so the same instance under two names is
+	# shown twice rather than counted twice — which is what the file says (`#327`).
+	with program.opened(strict=strict) as world:
+		if connection is not None:
+			world = _only_this_connection(program, world, connection)
+
+		gathered = _listing(
+			world,
+			limit=limit,
+			strict=strict,
+			order=sunk,
+			project=project,
+			deferred=not hiding,
+			q=q,
+			ready=ready,
+			trash=trash,
+			assignee=assignee,
+			status=status,
+			type=type,
+			filters=filters,
+		)
+
+		_report(program, world, gathered.failures)
+
+		# **The order that was *asked for*, not the one the reader typed.** The merge has to
+		# compare rows by the same keys the server paged them with, or a page boundary
+		# lands where the next page does not start (`#782`) — so the sunk spelling goes to
+		# both, from one variable, and the two cannot disagree about the leading key.
+		# **Flattened only where the output is flat** (`#942`). This used to run before the
+		# branch below, so a grouped listing paid for a merge it never printed — harmless
+		# until the merge became the thing that refuses two connections naming one
+		# instance, at which point computing it eagerly would have refused the one path
+		# that handles them correctly.
+		flat = functools.partial(
+			_merged, world, gathered, order=_merge_order(sunk, gathered)
+		)
+		empty = not any(answer.value.rows for answer in gathered.answers)
+		more = any(answer.value.more for answer in gathered.answers)
+
+		if json_output:
+			program.say(
+				json.dumps(
+					[_as_json(world, name, item) for name, item in flat()], indent=2
+				)
+			)
+
+			return
+
+		if empty and q:
+			# **Not "nothing on your list".** The list is not empty; this search found
+			# nothing in it, and saying the first about the second is how somebody
+			# concludes their data is gone. The remedy named is the widening one,
+			# because a search that missed is usually a search that was too narrow.
+			program.say(f"Nothing matches {q!r}.")
+
+			if not deferred:
+				_suggest(program.console, f'subroutine search "{q}" --deferred', "look in what you have put off too")
+
+			return
+
+		if empty:
+			# **"Nothing on your list" is a claim, and it is false when something refused
+			# to answer.** The failure has already been named on stderr; following it with
+			# a cheerful empty list says the opposite — that the question was put and the
+			# answer was none — and then suggests adding a task, which is wrong advice
+			# about a question that was never answered.
+			#
+			# `--project` is what made this ordinary rather than rare: before it, an empty
+			# listing with a failure meant a server was down, and now it means a typo'd
+			# key, which reads exactly like a project that happens to be empty.
+			if gathered.failures or world.unreachable:
+				program.say("Nothing to show — some of what you asked for could not be read.")
+
+				return
+
+			# And it is equally false when everything on the list is simply parked, which
+			# is the case a person hits after deferring the last thing they were avoiding.
+			# Telling them to add something would be advice about a list they have.
+			if hiding and any(answer.value.parked for answer in gathered.answers):
+				# Not "nothing to do today" — that is the agenda's sentence, and `list` is
+				# not the agenda. What is true is that everything open starts later.
+				program.say("Nothing you can start yet.")
+				_say_parked(gathered, console=program.console, hidden=True)
+
+				return
+
+			program.say("Nothing on your list.")
+			_suggest(program.console, 'subroutine add "something to do"')
+
+			return
+
+		# **`shown` is the order the reader is looking at**, which the two paths disagree
+		# about: flat re-sorts across connections, grouped prints each connection's own
+		# order under its own heading. The tip below names a row, and it should name one
+		# near the top of the page rather than one the merge happened to rank first.
+		#
+		# **Grouping is a concatenation, not a merge**, which is why it does not go through
+		# `_across` (`#942`): nothing is combined into one ranked list, and two connections
+		# naming one instance are shown under two headings — visible, which is the whole
+		# reason that case is allowed here and refused in the flat one.
+		if merged or not world.qualifies_connection:
+			shown = flat()
+
+			_flat(world, shown, console=program.console, term=q)
+
+		else:
+			shown = [
+				(answer.connection.name, row[1])
+				for answer in gathered.answers
+				for row in answer.value.rows
+			]
+
+			_grouped(world, gathered, console=program.console, say=program.say, term=q)
+
+		if more:
+			# The agenda has always said this about its own remainder; the list said
+			# nothing at all and simply stopped. Phrased as an instruction rather than a
+			# bare "there are more", because the reader's next question is how to see them.
+			#
+			# **It repeats the narrowing it was given.** A suggestion that dropped
+			# `--project` or `--order` would widen the list while claiming to extend it,
+			# and the reader would blame the flag rather than the advice.
+			repeated = (
+				f"subroutine search {shlex.quote(q)} --limit {limit * 2}"
+				if q
+				else f"subroutine list --limit {limit * 2}"
+			)
+
+			if order:
+				repeated += f" --order {order}"
+
+			if project:
+				repeated += f" --project {project}"
+
+			if deferred:
+				repeated += " --deferred"
+
+			program.console.print(
+				rich.text.Text(f"      …and more. '{repeated}' to see further.", style=DETAIL)
+			)
+
+		_say_parked(gathered, console=program.console, hidden=hiding)
+
+		_say_where_a_bare_number_goes(world, console=program.console)
+
+		program.say("")
+
+		# **The trash gets its own tip, because the ordinary one refuses every row it was
+		# printed under** (`#693`). `show` does not find a deleted item, so the generic
+		# suggestion was wrong for the whole of this listing rather than for an unlucky
+		# row — and the refusal it earned then pointed at plain `list`, which is precisely
+		# where a deleted item is not. `restore` is what a reader of this list wants, and
+		# `delete` named it a moment earlier.
+		address = _typeable(world, shown[0][0], shown[0][1])
+
+		_suggest(
+			program.console,
+			f"subroutine restore {address}" if trash else f"subroutine show {address}",
+			"put one of them back" if trash else "read one of them in full",
+		)
+
+
+def _filters (program: Program, dated: list[str] | None) -> dict[str, str]:
+	"""Read every ``--filter`` a command was given, refusing what is not one — `#815`.
+
+	**Through ``fail`` rather than by raising**, which is the difference between a sentence
+	somebody can act on and a traceback. A refusal raised in a command body escapes past
+	``opened``'s handler, and only ``main``'s outermost catch renders it — so a person sees
+	the right thing and anything driving the app through Click's runner sees nothing at all.
+	Here so that all three registrations share it, and so the message is asserted where it
+	is produced.
+	"""
+
+	try:
+		return subroutine.domain.filtering.parsed(dated or [])
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+
+def _refuse_words (program: Program, words: list[str] | None, looking_for: str) -> None:
+	"""Send somebody who tried to search a listing to the command that searches.
+
+	**Three shapes, one signpost** (`#282`). ``list -q words``, ``list --search words`` and
+	a bare ``list words`` were three different refusals naming neither each other nor
+	``search`` — and Click's did-you-mean made the middle one actively misleading by
+	offering ``--strict``, so the one message that tried to help pointed away from the
+	answer. §12.2a: a dead end where a signpost would do.
+
+	Caught as *hidden parameters* rather than by reading Click's usage errors, because
+	that keeps this in Typer's own vocabulary and out of an undeclared dependency's
+	internals. They refuse rather than search: `list` takes filters and `search` takes
+	words, and a hidden flag that quietly did the other command's job would be the second
+	way to do one thing that the `ls` synonym is hidden to avoid.
+	"""
+
+	wanted = " ".join(words or []).strip() or looking_for.strip()
+
+	if not wanted:
+		return
+
+	program.fail(
+		subroutine.errors.ValidationError(
+			"'subroutine list' filters what you have; it does not search it.",
+			hint=f'Try: subroutine search "{wanted}"',
+		)
+	)
+
+
+def _moved_to (program: Program, which: str, status: str, *, verb: str, said: str) -> None:
+	"""Move a task to a named status, in the shape `done` uses.
+
+	One body for both, because they differ in two words. **Neither says "status"** — §13.5b
+	forbids the vocabulary and does not need it: `done`, `plan` and `defer` are all actions
+	that happen to set a field, and "Started: <title>" is the same shape as "Done: <title>".
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb=verb,
+		)
+
+		if task.completed_at is not None:
+			# Nothing else would go wrong, and this is the honest answer: picking up
+			# something already ticked off is nearly always the wrong number.
+			program.say(_acted(world, located, "Already done"))
+			_suggest(program.console, "subroutine list", "everything still open")
+
+			return
+
+		client = _require_connection(program, world, located.connection)
+		moved = client.update(ref=task.ref, status=status, workspace=located.workspace)
+
+		program.say(_acted(world, dataclasses.replace(located, item=moved), said))
+		_suggest(program.console, "subroutine today")
+
+
+def _in_an_editor (program: Program, current: str) -> str:
+	"""Open text in the reader's editor and return what they saved.
+
+	**`$VISUAL` before `$EDITOR`**, which is the older convention and still the right one:
+	``VISUAL`` names the full-screen editor and ``EDITOR`` the line editor, so a terminal
+	that can run the first should get it.
+
+	Neither set is a refusal rather than a guess. Falling back to ``vi`` looks helpful
+	until it is not installed, and then the failure is about a program the reader never
+	chose — where "set EDITOR, or pass --body" is something they can act on (§13.5).
+
+	The scratch file goes wherever the platform puts temporary files, never beside the
+	checkout: this project's own working tree is on a share that does not honour
+	create-then-rename, which is the hazard that has eaten files here before.
+	"""
+
+	chosen = os.environ.get("VISUAL", "").strip() or os.environ.get("EDITOR", "").strip()
+
+	if not chosen:
+		program.fail(
+			subroutine.errors.ValidationError(
+				"Nothing says which editor to open.",
+				hint="Set $EDITOR, or pass --body, or pipe the text in.",
+			)
+		)
+
+	with tempfile.NamedTemporaryFile(
+		"w+", suffix=".md", delete=False, encoding="utf-8"
+	) as handle:
+		handle.write(current)
+		path = pathlib.Path(handle.name)
+
+	try:
+		# `shlex.split`, so `EDITOR="code --wait"` works — an editor setting carrying
+		# arguments is ordinary, and treating the whole string as a filename would look
+		# for a program with a space in its name.
+		subprocess.run([*shlex.split(chosen), str(path)], check=True)
+
+		return path.read_text(encoding="utf-8")
+
+	finally:
+		path.unlink(missing_ok=True)
+
+
+def _use_here (program: Program, world: World, where: str, project: str) -> None:
+	"""Write a marker into the current directory, and say what it will do.
+
+	The connection and workspace come from the *current context* unless the caller named
+	them, so ``subroutine use --here --project SR`` records where they already are rather
+	than making them type it again — which is the whole difference between adopting a
+	repository in one command and adopting it in an interview.
+	"""
+
+	connection, workspace = (
+		_chosen(program, world, where)
+		if where.strip()
+		else (world.current.connection, world.current.workspace)
+	)
+	key = subroutine.domain.projects.normalize_key(project) or None
+	identifier = None if key is None else _project_id_of(world, key)
+
+	if key is not None and identifier is None:
+		program.stop(
+			f"There is no project {key!r} here.",
+			"Run 'subroutine project list' to see them, or "
+			f"'subroutine project create {key} \"A title\"' to make it.",
+		)
+
+	written = subroutine.directory.write(
+		pathlib.Path.cwd(),
+		# **Always, not only when there is more than one connection** (`#273`). Omitting
+		# it saved one line in a file and made the marker's completeness depend on how
+		# many connections existed the day it was written — so configuring a second one
+		# later left every existing marker naming a workspace that may not be on the
+		# current connection, silently, for exactly the caller §13.7a says cannot be
+		# asked. It happened to an agent working in this repository within an hour of a
+		# second connection being added.
+		connection=connection,
+		workspace=workspace,
+		# **The same pairing as the project, and it was missing** (`#317`). A workspace
+		# could not be renamed when this file was designed, so its slug was durable by
+		# construction; `#295` made renaming possible and the marker went on recording only
+		# the name.
+		workspace_id=_workspace_id_of(world, workspace),
+		project=key,
+		# **The id is what makes this survive a rename** (`#177`). The key is written
+		# beside it so the file stays readable, and is the half that goes stale.
+		project_id=identifier,
+	)
+
+	program.say(f"Wrote {written}.")
+
+	if key is None:
+		program.say("New work here goes to the Inbox. Add --project to file it somewhere.")
+
+		return
+
+	program.say(f"New work started in this directory goes to {key}, unless a line says otherwise.")
+	program.say("")
+	_suggest(program.console, "subroutine add \"something to do\"")
+
+
+def _default_project (program: Program, world: World, text: str) -> str | None:
+	"""Return the project a captured line should go to when it does not say (§13.7a).
+
+	``None`` whenever the answer is "wherever it went before" — no marker, no project in the
+	marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
+	and must beat a file they may not know is there.
+	"""
+
+	if world.marker is None:
+		return None
+
+	if world.marker.project_id is None and world.marker.project is None:
+		return None
+
+	if subroutine.domain.capture.names_a_project(text):
+		return None
+
+	# **The id decides, and the key is what gets reported** (`#177`). A key can be renamed
+	# as of `#176`, so a marker naming one is stale the moment somebody does — and every
+	# checkout on every machine would silently start filing work into the Inbox. The id
+	# cannot change, so it is asked first.
+	named = _project_named_by(world, world.marker)
+
+	if named is None:
+		# **Ignored rather than refused** (`#166`). A marker is advisory context written by
+		# a machine, so a checkout marked for one instance must not stop `add` working
+		# against another.
+		shown = world.marker.project or world.marker.project_id
+
+		# **Two reasons, and only one of them is "there is no such project"** (`#414`).
+		# Where the marker names another connection, its project was never looked for —
+		# saying it "is not on local" would assert something the program has not checked
+		# and is often false, since a key like SR is exactly the kind two instances share.
+		# The whole marker applies somewhere else, which is a different thing to be told
+		# and a different thing to do about it.
+		if world.marker.speaks_for(world.current.connection):
+			program.warn(
+				f"{FILE_NAME} here names project {shown!r}, which is not on "
+				f"{world.current.connection}. Ignoring it."
+			)
+
+		else:
+			program.warn(
+				f"{FILE_NAME} here names project {shown!r} on "
+				f"{world.marker.connection}, and this is going to "
+				f"{world.current.connection}. Ignoring it."
+			)
+
+		return None
+
+	# **The one moment this file can explain itself.** The id resolved and the key beside
+	# it does not match what is stored, which is what a rename leaves behind — so say it
+	# once, here, rather than letting the file go on quietly disagreeing with itself.
+	#
+	# **Compared exactly, against the stored key** (`#554`). It used to normalise both
+	# sides, so a marker saying `WEB` matched `web` and nothing was ever said — and `#508`
+	# then changed the stored form, leaving every marker written before it holding a
+	# spelling this program no longer stores, prints or writes anywhere. The file said
+	# something no other surface agreed with and the one mechanism built to notice could
+	# not see it. *Resolution* stays case-insensitive, in `directory.resolve`, so those
+	# markers go on working; only the question "does this file agree with us" is exact.
+	if world.marker.project and world.marker.project != named:
+		# **Two different things to be told.** A rename changed which project the key
+		# names; a respelling changed nothing but how it is written, and saying "that
+		# project is now reprobate" about a marker reading `REPROBATE` would read as a
+		# rename that half-failed — which is exactly how this was met on a real instance.
+		respelling = (
+			subroutine.domain.projects.normalize_key(world.marker.project) == named
+		)
+
+		program.warn(
+			f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
+			f"as {named!r}. It still resolves, so nothing is broken — 'subroutine use "
+			f"--here --project {named}' brings the file into line."
+			if respelling
+			else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
+			f"now {named}. Run 'subroutine use --here --project {named}' to bring it up "
+			f"to date."
+		)
+
+	return named
+
+
+def _asked_for_a_token (program: Program, name: str) -> str:
+	"""Ask for a connection's token, or take it from a pipe when there is one.
+
+	Never an option on the command line (§12.3a): an argument lands in shell history and in
+	the process list, where a token that has been logged is a token that has been shared.
+	A pipe is the scripted path, so that 'pass show work' can supply one without either.
+	"""
+
+	if not sys.stdin.isatty():
+		piped = sys.stdin.readline().strip()
+
+		if piped:
+			return piped
+
+		program.stop(
+			f"Nothing was piped in, so there is no token for {name!r}.",
+			"Pipe it in, or run this at a terminal and it will ask.",
+		)
+
+	typed = str(typer.prompt(f"Token for {name}", hide_input=True)).strip()
+
+	if not typed:
+		program.stop(
+			f"No token was given, so {name!r} was not added.",
+			"Issue one on that instance with 'subroutine token create', then try again.",
+		)
+
+	return typed
+
+
+def _reaching (
+	program: Program,
+	connection: subroutine.connections.Connection,
+	roster: subroutine.connections.Roster,
+	resolved: subroutine.config.Settings,
+	secret: str,
+) -> Welcomed:
+	"""Reach an instance with a credential, and report what answered.
+
+	**The same call the fan-out makes**, deliberately: ``identity()`` is what every listing
+	begins with, so a connection that passes here is one that works rather than one that
+	merely parses. It is also the call that refuses a proxy, a captive portal or a typo'd
+	address answering 200 with something that is not an instance.
+
+	``me()`` beside it because the address being right is only half of what somebody wants
+	confirmed. The other half is that the credential they pasted is the one they meant, and
+	the only thing that says so is the name the far end gives back.
+	"""
+
+	try:
+		with subroutine.clients.opening.for_connection(
+			connection, roster, resolved, token=secret
+		) as client:
+			identity = client.identity()
+			me = client.me()
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+	return Welcomed(
+		instance=identity.instance,
+		username=me.user.username,
+		workspaces=tuple(workspace.slug for workspace in identity.workspaces),
+	)
+
+
+def _connection_row (
+	program: Program,
+	connection: subroutine.connections.Connection,
+	roster: subroutine.connections.Roster,
+	resolved: subroutine.config.Settings,
+	current: subroutine.context.Current,
+) -> tuple[str, str, str, str]:
+	"""Describe one connection: its name, where it is, its token, and what it is."""
+
+	try:
+		token = subroutine.credentials.resolve(
+			connection, default_connection=roster.default, describe_only=True
+		).source
+
+	except subroutine.errors.SubroutineError as error:
+		token = f"unusable — {error.detail}"
+
+	notes = []
+
+	# **"in use" first, because it is the one somebody is asking about** (`#278`). A
+	# reader scanning this column wants to know where their next command goes; "default"
+	# answers a narrower question — where it would go if nothing had chosen — and read as
+	# the first, which is how an agent came to tell Simon the wrong thing.
+	if connection.name == current.connection:
+		notes.append("in use")
+
+	if connection.name == roster.default:
+		notes.append("default")
+
+	if connection.read_only:
+		notes.append("read-only")
+
+	# The local connection's "address" is its database URL, masked — it is the one piece
+	# of configuration that routinely carries a password, and this output is exactly what
+	# ends up pasted into a bug report.
+	where = program.mask(resolved.database_url) if connection.is_local else str(connection.url)
+
+	return (connection.name, where, token, ", ".join(notes))
+
+
+def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
+	"""Read what ``use`` was given into a connection and a workspace."""
+
+	parts = [part.strip() for part in where.split(subroutine.domain.refs.SEPARATOR)]
+
+	if len(parts) > 2 or any(not part for part in parts):
+		program.stop(
+			f"{where!r} is not a place to work.",
+			"Give a workspace, or a connection and a workspace — 'subroutine use "
+			"work/acme'.",
+		)
+
+	name = parts[0] if len(parts) == 2 else world.current.connection
+	wanted = parts[-1]
+	item = world.connection(name)
+
+	if item is None:
+		program.stop(
+			f"There is no connection called {name!r} here, or it could not be reached.",
+			world.roster.alternatives(),
+		)
+
+	if item.identity.workspace(wanted) is None:
+		# **A bare connection name is the likely typo, and the program knows it is one**
+		# (`#270`). Told `use hpz2g4`, this looked for a *workspace* of that name on the
+		# current connection, did not find one, and reported about somewhere else
+		# entirely — while the roster listed `hpz2g4` on the line above.
+		named = world.connection(wanted)
+
+		if len(parts) == 1 and named is not None:
+			program.stop(
+				f"{wanted!r} is a connection, not a workspace.",
+				_completions(named),
+			)
+
+		program.stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
+
+	return item.name, wanted
+
+
+def _require_connection (
+	program: Program,
+	world: World, name: str
+) -> subroutine.clients.base.Client:
+	"""Return the open client for a connection a lookup already found something on."""
+
+	item = world.connection(name)
+
+	if item is None:
+		program.stop(f"{name} could not be reached.")
+
+	return item.client
+
+
+def _report (program: Program, world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
+	"""Name every connection that could not be reached, and carry on.
+
+	To standard error, and the command still exits 0: an agenda that refuses to print
+	because one of three servers is down is worse than an agenda with a line saying which
+	one. ``--strict`` is how a script says it would rather stop.
+	"""
+
+	for failure in (*world.unreachable, *failures):
+		program.warn(failure.describe())
+
+
+def _only_this_connection (program: Program, world: World, name: str) -> World:
+	"""Return the world with only the named connection in it — `#272`.
+
+	**A filter, not a context, and the difference is the whole item.** `-c` before the
+	command moves where a *write* goes; §13.7 keeps reads spanning everything reachable so
+	that forgetting which context you are in can never cost you a missed item. That leaves
+	"show me only what is on the work instance" — asked for its own sake while checking one
+	server, or driving one instance during a migration — with no spelling at all, and the
+	only way to say it was to disable the others in `config.toml` and put them back.
+
+	So it narrows the rows and changes nothing durable, exactly as `--project` does one
+	level up, and it is spelled *after* the command for that reason: before the command is
+	context, after it is a filter.
+
+	**The roster is left whole on purpose.** `World.address_of` qualifies an address when
+	more than one connection is configured, so rows still print as `work/#42` — which is
+	what somebody types next, after the flag is gone.
+	"""
+
+	wanted = world.roster.require(name)
+	kept = tuple(item for item in world.reached if item.client.connection.name == wanted.name)
+
+	if not kept:
+		# **Configured but not reached is a different answer from "nothing there"**, and an
+		# empty listing would report the second while meaning the first. The failure is
+		# already collected — a connection that could not be built or could not be read —
+		# so this says so rather than showing an empty list somebody would believe.
+		program.stop(
+			f"Connection {wanted.name!r} was asked for and could not be read.",
+			"Run 'subroutine connections' to see what this machine can reach.",
+		)
+
+	return dataclasses.replace(world, reached=kept, narrowed_to=wanted.name)
+
+
 def register (
 	app: typer.Typer,
 	*,
@@ -1807,449 +3067,16 @@ def register (
 	"""
 
 	selected = Selected()
-
-	@contextlib.contextmanager
-	def opened (*, strict: bool = False) -> typing.Iterator[World]:
-		"""Yield every reachable connection, with the current context settled.
-
-		One ``identity()`` per connection, fanned out — which is what resolves a workspace
-		slug, prints an address and notices the same instance configured twice. It is one
-		cheap query locally and one request remotely, and everything after it is narrower
-		for having been asked.
-
-		**Two connections naming one instance is recorded here and refused elsewhere**
-		(`#942`). It used to be refused here, behind a ``merged`` flag saying whether this
-		command combines what the connections answer — which asks the question before the
-		command has done anything, so the answer had to be given thirty-eight times and was
-		given three. See :meth:`World.merging` for what replaced it.
-		"""
-
-		resolved = settings()
-
-		_warn_about_the_credentials_file(warn)
-
-		try:
-			roster = subroutine.connections.roster(resolved)
-			marker = subroutine.directory.find()
-			current = subroutine.context.resolve(
-				roster,
-				connection=selected.connection,
-				workspace=selected.workspace,
-				marker=marker,
-			)
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
-
-		with contextlib.ExitStack() as stack:
-			clients = []
-
-			# **A connection that cannot even be built is a failure like any other** (`#175`).
-			# It used to be warned about and then forgotten, so with one broken connection and
-			# no others, `gathered.failures` was empty and the reader was told "No connection
-			# could be reached. Run 'subroutine connections'" — a generic line naming a cause
-			# that is not the cause, with the sentence explaining the real one already printed
-			# above it and its remedy thrown away. Collected here, they reach the same report
-			# as a connection that was reached and refused.
-			unbuilt: list[subroutine.fanout.Failure] = []
-
-			for connection in roster:
-				try:
-					clients.append(stack.enter_context(_client(connection, roster, resolved)))
-
-				except subroutine.errors.SubroutineError as error:
-					if strict:
-						fail(error)
-
-					unbuilt.append(
-						subroutine.fanout.Failure(connection=connection, error=error)
-					)
-
-			# Both inside one handler, because under ``--strict`` the gather *re-raises* rather
-			# than collecting — and a refusal that escapes to Typer arrives as a traceback,
-			# which is exactly what `fail` exists to prevent. Found by stopping a server and
-			# running the flag, which is the only way this shows up.
-			try:
-				gathered = subroutine.fanout.gather(
-					clients, lambda client: client.identity(), strict=strict
-				)
-
-			except subroutine.errors.SubroutineError as error:
-				fail(error)
-
-			collision = subroutine.fanout.duplicate_instances(gathered.answers)
-
-			reached = tuple(
-				Reached(client=_matching(clients, answer.connection.name), identity=answer.value)
-				for answer in gathered.answers
-			)
-
-			if not reached:
-				# **Say what each connection actually said** (`#127`). Every failure here already
-				# carries a sentence somebody can act on — `clients/local._reported` turns a
-				# SQLAlchemy error into "local could not be read: no such column tasks.ref", with
-				# a hint naming `database_url` — and this discarded all of it for a generic line
-				# plus an instruction to go and check configuration that is perfectly fine. That
-				# is worse than saying nothing, because it names a cause which is not the cause.
-				#
-				# The asymmetry that hid it: `_report` prints every failure beside the results
-				# that *did* arrive, so one connection down out of three read well. It runs after
-				# this context manager has yielded, so the case where everything failed — which
-				# is what "my only connection is broken" looks like — never reached it.
-				reasons = []
-
-				for failure in (*unbuilt, *gathered.failures):
-					reasons.append(failure.describe())
-
-					# Indented under the connection it belongs to, so several broken connections
-					# do not run their remedies together. Only here: beside a partial result a
-					# hint per failure is noise, which is why `describe()` still omits it.
-					if failure.error.hint is not None:
-						reasons.append(f"  {failure.error.hint}")
-
-				# **"Nothing could be read", not "no connection could be reached"**, once there
-				# are reasons to print. A database at the wrong schema *was* reached — it is the
-				# wrong shape — and the old line asserted a cause as confidently as the hint
-				# did. The original wording is still right for the case it was written for,
-				# which is having nothing to ask in the first place.
-				stop(
-					"Nothing could be read." if reasons else "No connection could be reached.",
-					"\n".join(reasons)
-					if reasons
-					else "Run 'subroutine connections' to see what is configured.",
-				)
-
-			try:
-				yield World(
-					roster=roster,
-					current=_settled(
-						roster, _marker_taken_elsewhere(current, reached, marker), reached, marker
-					),
-					reached=reached,
-					unreachable=(*unbuilt, *gathered.failures),
-					settings=resolved,
-					marker=marker,
-					collision=collision,
-				)
-
-			except subroutine.errors.SubroutineError as error:
-				fail(error)
-
-	def _settled (
-		roster: subroutine.connections.Roster,
-		current: subroutine.context.Current,
-		reached: typing.Sequence[Reached],
-		marker: subroutine.directory.Marker | None,
-	) -> subroutine.context.Current:
-		"""Answer steps 4 and 5 of §13.7's order, now that the connections have been asked.
-
-		**And drop a marker that names somewhere this connection has never heard of** — the
-		one thing a marker must not do is break the program (`#166`). It is advisory context
-		written by a machine into a directory, so a checkout marked for one instance must not
-		stop every command working against another; `--profile` puts a second instance one
-		flag away, and the suite itself proved the point by failing 154 tests the first time
-		this repository carried its own marker.
-
-		Anything a person typed *now* still refuses, loudly. The difference is who said it and
-		when.
-		"""
-
-		# **Said here rather than before the fan-out** (`#409`, moved by `#556`). Until the
-		# connections have been asked there is no way to know whether the marker can still be
-		# honoured, and a line saying "using X instead" printed above one that quietly used Y
-		# is the two-lines-of-one-act disagreement `#414` found.
-		if current.unusable_marker_connection is not None:
-			if current.marker_found_on is None:
-				warn(
-					f"{FILE_NAME} here names connection "
-					f"{current.unusable_marker_connection!r}, which is not configured. "
-					f"Using {current.connection!r} instead."
-				)
-
-			else:
-				# Not silence: the marker was honoured, and the file still names something
-				# this machine does not have, which somebody will want to put right.
-				warn(
-					f"{FILE_NAME} here names connection "
-					f"{current.unusable_marker_connection!r}, which is not configured — its "
-					f"workspace is on {current.marker_found_on!r}, so that is where this goes."
-				)
-
-		if (
-			current.workspace is not None
-			and current.workspace_source == subroutine.context.FROM_DIRECTORY
-		):
-			here = next((item for item in reached if item.name == current.connection), None)
-			# **Resolved by id where the marker carries one** (`#317`), so a workspace that has
-			# merely been renamed is followed rather than reported missing. Without it a
-			# `workspace rename` left every marked checkout printing the warning below on every
-			# command for ever — about nothing, since `project_id` went on carrying the work to
-			# the right place. Markers written before `#317` have no id and fall back to the
-			# slug, which is what they have always done.
-			resolved = (
-				None
-				if here is None or marker is None
-				else subroutine.directory.resolve_workspace(marker, here.identity.workspaces)
-			)
-
-			if here is not None and resolved is None:
-				# **Dropped to the next source in the chain, not to nothing** (`#324`). This
-				# assigned `workspace=None` and fell straight through to the sole-workspace
-				# default — so on an instance with two, a stale marker *erased* a perfectly
-				# good stored context and turned `use --here --project SR` into a refusal
-				# immediately after `use projects` had succeeded. The warning said "Ignoring
-				# it", and ignoring it is the one thing it did not do.
-				#
-				# Only the stored context can be the fallback, and that is not a choice: the
-				# marker won in the first place because the flag and the environment were
-				# empty, so §13.7's order has exactly one step left.
-				instead = subroutine.context.stored_workspace(current.connection)
-				usable = instead is not None and any(
-					workspace.slug == instead for workspace in here.identity.workspaces
-				)
-
-				warn(
-					f"{FILE_NAME} here names workspace {current.workspace!r}, which is not on "
-					f"{current.connection}. "
-					+ (
-						f"Using {instead!r} instead."
-						if usable
-						else "Ignoring it."
-					)
-				)
-				current = (
-					current.with_workspace(
-						typing.cast("str", instead), subroutine.context.FROM_STORED
-					)
-					if usable
-					else dataclasses.replace(
-						current,
-						workspace=None,
-						workspace_source=subroutine.context.FROM_NOTHING,
-					)
-				)
-
-			elif resolved is not None and resolved != current.workspace:
-				current = dataclasses.replace(current, workspace=resolved)
-
-		if current.workspace is not None:
-			return current
-
-		here = next((item for item in reached if item.name == current.connection), None)
-
-		if here is None or not here.identity.workspaces:
-			return current
-
-		if len(here.identity.workspaces) == 1:
-			return current.with_workspace(
-				here.identity.workspaces[0].slug, subroutine.context.FROM_SOLE
-			)
-
-		# Deliberately *not* refused here. A read spans everything reachable and needs no
-		# context at all, so refusing at this point would stop `subroutine today` working
-		# for anybody with two workspaces — which is precisely the person §13.7 is for.
-		# The refusal belongs to the write, and `_writing_workspace` makes it.
-		return current
-
-	def _locate (
-		world: World,
-		given: str,
-		*,
-		kinds: tuple[str, ...] = TASKS_ONLY,
-		verb: str = "done",
-	) -> Located:
-		"""Resolve an address into one item, or refuse in a way that can be acted on.
-
-		**A bare number means the current context** (§13.7), which is what makes a number
-		typeable at all: refs are per-workspace, so every low number exists nearly everywhere
-		and a search for one is ambiguous by construction. ``acme/42`` says which workspace
-		and ``work/acme/42`` says which instance.
-
-		Two things soften that without weakening it. When a bare number is *not* in the
-		current context, everywhere else is asked before refusing — not to guess, but so the
-		refusal can say where it is instead. And when nothing has chosen a context at all,
-		everywhere is searched: one match is not ambiguous and refusing it would be pedantry,
-		while several is a refusal **naming the candidates with their titles**, so the choice
-		can be made without a second command.
-
-		Never a guess, in any of those paths. Until 2026-07-29 this resolved a bare ref with
-		``.first()`` on an unordered query across every readable workspace, so two workspaces
-		each holding a ``#1`` was enough to complete whichever row the database happened to
-		return — the same defect as the positional numbering this replaced.
-
-		``kinds`` is what a *reading* command needs and an acting one does not: ``show`` will
-		take a document, ``done`` will not. Both search the same way, because a number that
-		names a document has to be *found* before it can be turned down — telling somebody
-		``#4`` does not exist, when it is the plan they were just reading, is worse than
-		telling them it is not a task.
-		"""
-
-		address = subroutine.domain.refs.parse_address(given)
-
-		if address is None:
-			stop(
-				f"{given!r} is not an item number.",
-				"Items are named by the number 'subroutine list' prints beside them — "
-				f"'subroutine {verb} 42'.",
-			)
-
-		named = _named_place(world, address)
-
-		if named is None:
-			return _unqualified(world, address.ref, given, kinds=kinds, verb=verb)
-
-		found = _found_at(named[0], named[1], address.ref, kinds)
-
-		if found is not None:
-			return Located(connection=named[0].name, workspace=named[1], item=found)
-
-		# Not in the place the address named. Ask everywhere else before giving up, so the
-		# refusal can say where it *is* — the docstring above promised this and the code did
-		# not do it, which is the documented-but-absent shape this project keeps meeting.
-		# Only for a *bare* number: if the caller named a workspace, they meant that one.
-		elsewhere = (
-			[]
-			if address.workspace is not None or address.connection is not None
-			else [
-				item
-				for item in _everywhere(world, address.ref, kinds)
-				if item.workspace != named[1]
-			]
-		)
-
-		if not elsewhere:
-			stop(
-				f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
-				f"{_in_place(world, named[1])}.",
-				"Run 'subroutine list' to see what there is — or "
-				"'subroutine list --trash' if you deleted it.",
-			)
-
-		shown = [_absolute(world, item) for item in elsewhere]
-		width = max(len(text) for text in shown)
-		listed = "\n".join(
-			f"    {text:>{width}}  {item.title}"
-			for text, item in zip(shown, elsewhere, strict=True)
-		)
-
-		stop(
-			f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
-			f"{_in_place(world, named[1])}, but there is one here:\n{listed}",
-			f"Say which — 'subroutine {verb} "
-			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
-		)
-
-	def _a_task (world: World, given: str, *, verb: str) -> tuple[Located, subroutine.views.Task]:
-		"""Resolve an address into a task, turning down a document by saying what it is.
-
-		**Documents are searched even though they cannot be acted on**, which looks like extra
-		work and is the whole value: refs are allocated from one counter per workspace, so a
-		command that only asked about tasks answered "there is no #4" about a specification
-		sitting in the same listing. Being told ``#4`` is a document, with its title, is an
-		answer somebody can act on; being told it does not exist is not.
-		"""
-
-		located = _locate(world, given, kinds=ANY_ITEM, verb=verb)
-		found = located.item
-
-		if not isinstance(found, subroutine.views.Task):
-			# The shortest form, not the absolute one: the caller named this item directly,
-			# so echoing back a qualified address they did not type reads as a correction.
-			shown = world.address_of_located(located)
-
-			stop(
-				f"{shown} is a document, not a task — {found.title}",
-				f"'subroutine {verb}' works on tasks. Read this one with 'subroutine show "
-				f"{shown.replace(subroutine.domain.refs.SIGIL, '')}'.",
-			)
-
-		return located, found
-
-	def _a_document (
-		world: World, given: str, *, verb: str
-	) -> tuple[Located, subroutine.views.Document]:
-		"""Resolve an address into a document, turning down a task by saying what it is.
-
-		``_a_task``'s argument run the other way (§12.2c, `#42`), and it needed making the
-		moment a document command took a ref: one counter per workspace serves both kinds, so
-		``doc edit 3`` may name a task perfectly reasonably — and "there is no #3" about
-		something sitting in the listing the reader just printed is exactly the answer that
-		item exists to stop being given.
-		"""
-
-		located = _locate(world, given, kinds=ANY_ITEM, verb=verb)
-		found = located.item
-
-		if not isinstance(found, subroutine.views.Document):
-			shown = world.address_of_located(located)
-			bare = shown.replace(subroutine.domain.refs.SIGIL, "")
-
-			stop(
-				f"{shown} is a task, not a document — {found.title}",
-				f"'subroutine doc {verb}' works on documents. Change this one with "
-				f"'subroutine update {bare}'.",
-			)
-
-		return located, found
-
-	def _named_place (
-		world: World, address: subroutine.domain.refs.Address
-	) -> tuple[Reached, str] | None:
-		"""Return the place an address names, or ``None`` when it named none.
-
-		``None`` covers a bare number with no context chosen, which is the one case that has
-		to go looking; every other case has somewhere definite to ask.
-		"""
-
-		name = address.connection or world.current.connection
-		item = world.connection(name)
-
-		if item is None:
-			stop(
-				f"There is no connection called {name!r} here, or it could not be reached.",
-				world.roster.alternatives(),
-			)
-
-		wanted = address.workspace or world.current.workspace
-
-		if wanted is None:
-			return None
-
-		if item.identity.workspace(wanted) is None:
-			stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
-
-		return item, wanted
-
-	def _unqualified (
-		world: World, ref: int, given: str, *, kinds: tuple[str, ...], verb: str
-	) -> Located:
-		"""Resolve a bare number when nothing has chosen a context, or refuse with the choice."""
-
-		candidates = _everywhere(world, ref, kinds)
-
-		if not candidates:
-			stop(
-				f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
-				"Run 'subroutine list' to see what there is — or "
-				"'subroutine list --trash' if you deleted it.",
-			)
-
-		if len(candidates) == 1:
-			return candidates[0]
-
-		shown = [_absolute(world, item) for item in candidates]
-		width = max(len(text) for text in shown)
-		listed = "\n".join(
-			f"    {text:>{width}}  {item.title}"
-			for text, item in zip(shown, candidates, strict=True)
-		)
-
-		stop(
-			f"{given!r} could mean any of these:\n{listed}",
-			f"Say which — 'subroutine {verb} "
-			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}', or "
-			f"'subroutine use {_place_of(world, candidates[0])}' to keep working there.",
-		)
+	program = Program(
+		say=say,
+		fail=fail,
+		stop=stop,
+		settings=settings,
+		console=console,
+		warn=warn,
+		mask=mask,
+		selected=selected,
+	)
 
 	# --- The commands --------------------------------------------------------------------
 
@@ -2307,9 +3134,9 @@ def register (
 			# JSON. The scripted path is the agent's path, and `topics.py` advertises it.
 			text = typer.prompt("What do you need to do?", err=True)
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
-			filed = _default_project(world, text)
+			filed = _default_project(program, world, text)
 			# **A flag rather than a sigil** (`#178`). §6.13's sigils are for things somebody
 			# types mid-sentence; "this is a bug" is a classification *about* the sentence
 			# rather than part of it — which is the argument `client.capture` already makes for
@@ -2427,7 +3254,7 @@ def register (
 		# order most people will try first — so the example above is written the working way
 		# round rather than the natural-reading way.
 
-		with opened(strict=strict) as world:
+		with program.opened(strict=strict) as world:
 			# **Resolved once, here, in this machine's zone** (§13.7). Each instance would
 			# otherwise apply its own notion of the caller's timezone, and a person whose work
 			# profile says America/New_York and whose personal one says Europe/London would
@@ -2454,7 +3281,7 @@ def register (
 				strict=strict,
 			)
 
-			_report(world, gathered.failures)
+			_report(program, world, gathered.failures)
 
 			if json_output:
 				say(json.dumps(_agenda_json(world, gathered), indent=2))
@@ -2462,251 +3289,6 @@ def register (
 				return
 
 			_render(world, gathered, say=say, console=console)
-
-	def _listed (
-		*,
-		limit: int,
-		json_output: bool,
-		merged: bool,
-		strict: bool,
-		order: str | None = None,
-		project: str | None = None,
-		connection: str | None = None,
-		deferred: bool = False,
-		q: str | None = None,
-		ready: bool = False,
-		trash: bool = False,
-		assignee: str | None = None,
-		status: str | None = None,
-		type: str | None = None,
-		filters: dict[str, str] | None = None,
-	) -> None:
-		"""Print the list. Registered twice — three times, with ``search`` — from one body."""
-
-		# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
-		# is a decision about a list somebody *reads*, which is what §6.5's "default views"
-		# means and the whole basis for leaving the API default alone. `--json` is the other
-		# half of that: a script asking for open work must not silently lose rows, and every
-		# row already carries `snoozed_until`, so it can make the same choice for itself.
-		#
-		# So the two outputs differ, deliberately, and only in this. It is the one place
-		# §12.2a's "the human path and the scripted path are the same code" gives way — the
-		# code is the same, the presentation rule is not applied.
-		hiding = not deferred and not json_output
-
-		# **Deferred work sinks to the bottom of a list it is in — `#877`, Simon's decision of
-		# 2026-08-14**: *"deferred items appearing last. That way they are not invisible, but
-		# neither are they confused with non-deferred items in lists."* A leading sort key, so
-		# it holds under every ordering rather than only under the default.
-		#
-		# **Not while hiding, because there is nothing to sink**, and **not while searching**,
-		# which is the exception worth stating: a search is ordered by how well a row answers
-		# the question asked, and a deferred item is still the best answer to it. `#867` is the
-		# case that decides it — typing a number finds that item, and sinking would put it
-		# below every row that merely mentions the digits.
-		sunk = _sunk(order) if not hiding and not q else order
-
-		# Grouped by connection, one heading each, so the same instance under two names is
-		# shown twice rather than counted twice — which is what the file says (`#327`).
-		with opened(strict=strict) as world:
-			if connection is not None:
-				world = _only_this_connection(world, connection)
-
-			gathered = _listing(
-				world,
-				limit=limit,
-				strict=strict,
-				order=sunk,
-				project=project,
-				deferred=not hiding,
-				q=q,
-				ready=ready,
-				trash=trash,
-				assignee=assignee,
-				status=status,
-				type=type,
-				filters=filters,
-			)
-
-			_report(world, gathered.failures)
-
-			# **The order that was *asked for*, not the one the reader typed.** The merge has to
-			# compare rows by the same keys the server paged them with, or a page boundary
-			# lands where the next page does not start (`#782`) — so the sunk spelling goes to
-			# both, from one variable, and the two cannot disagree about the leading key.
-			# **Flattened only where the output is flat** (`#942`). This used to run before the
-			# branch below, so a grouped listing paid for a merge it never printed — harmless
-			# until the merge became the thing that refuses two connections naming one
-			# instance, at which point computing it eagerly would have refused the one path
-			# that handles them correctly.
-			flat = functools.partial(
-				_merged, world, gathered, order=_merge_order(sunk, gathered)
-			)
-			empty = not any(answer.value.rows for answer in gathered.answers)
-			more = any(answer.value.more for answer in gathered.answers)
-
-			if json_output:
-				say(
-					json.dumps(
-						[_as_json(world, name, item) for name, item in flat()], indent=2
-					)
-				)
-
-				return
-
-			if empty and q:
-				# **Not "nothing on your list".** The list is not empty; this search found
-				# nothing in it, and saying the first about the second is how somebody
-				# concludes their data is gone. The remedy named is the widening one,
-				# because a search that missed is usually a search that was too narrow.
-				say(f"Nothing matches {q!r}.")
-
-				if not deferred:
-					_suggest(console, f'subroutine search "{q}" --deferred', "look in what you have put off too")
-
-				return
-
-			if empty:
-				# **"Nothing on your list" is a claim, and it is false when something refused
-				# to answer.** The failure has already been named on stderr; following it with
-				# a cheerful empty list says the opposite — that the question was put and the
-				# answer was none — and then suggests adding a task, which is wrong advice
-				# about a question that was never answered.
-				#
-				# `--project` is what made this ordinary rather than rare: before it, an empty
-				# listing with a failure meant a server was down, and now it means a typo'd
-				# key, which reads exactly like a project that happens to be empty.
-				if gathered.failures or world.unreachable:
-					say("Nothing to show — some of what you asked for could not be read.")
-
-					return
-
-				# And it is equally false when everything on the list is simply parked, which
-				# is the case a person hits after deferring the last thing they were avoiding.
-				# Telling them to add something would be advice about a list they have.
-				if hiding and any(answer.value.parked for answer in gathered.answers):
-					# Not "nothing to do today" — that is the agenda's sentence, and `list` is
-					# not the agenda. What is true is that everything open starts later.
-					say("Nothing you can start yet.")
-					_say_parked(gathered, console=console, hidden=True)
-
-					return
-
-				say("Nothing on your list.")
-				_suggest(console, 'subroutine add "something to do"')
-
-				return
-
-			# **`shown` is the order the reader is looking at**, which the two paths disagree
-			# about: flat re-sorts across connections, grouped prints each connection's own
-			# order under its own heading. The tip below names a row, and it should name one
-			# near the top of the page rather than one the merge happened to rank first.
-			#
-			# **Grouping is a concatenation, not a merge**, which is why it does not go through
-			# `_across` (`#942`): nothing is combined into one ranked list, and two connections
-			# naming one instance are shown under two headings — visible, which is the whole
-			# reason that case is allowed here and refused in the flat one.
-			if merged or not world.qualifies_connection:
-				shown = flat()
-
-				_flat(world, shown, console=console, term=q)
-
-			else:
-				shown = [
-					(answer.connection.name, row[1])
-					for answer in gathered.answers
-					for row in answer.value.rows
-				]
-
-				_grouped(world, gathered, console=console, say=say, term=q)
-
-			if more:
-				# The agenda has always said this about its own remainder; the list said
-				# nothing at all and simply stopped. Phrased as an instruction rather than a
-				# bare "there are more", because the reader's next question is how to see them.
-				#
-				# **It repeats the narrowing it was given.** A suggestion that dropped
-				# `--project` or `--order` would widen the list while claiming to extend it,
-				# and the reader would blame the flag rather than the advice.
-				repeated = (
-					f"subroutine search {shlex.quote(q)} --limit {limit * 2}"
-					if q
-					else f"subroutine list --limit {limit * 2}"
-				)
-
-				if order:
-					repeated += f" --order {order}"
-
-				if project:
-					repeated += f" --project {project}"
-
-				if deferred:
-					repeated += " --deferred"
-
-				console.print(
-					rich.text.Text(f"      …and more. '{repeated}' to see further.", style=DETAIL)
-				)
-
-			_say_parked(gathered, console=console, hidden=hiding)
-
-			_say_where_a_bare_number_goes(world, console=console)
-
-			say("")
-
-			# **The trash gets its own tip, because the ordinary one refuses every row it was
-			# printed under** (`#693`). `show` does not find a deleted item, so the generic
-			# suggestion was wrong for the whole of this listing rather than for an unlucky
-			# row — and the refusal it earned then pointed at plain `list`, which is precisely
-			# where a deleted item is not. `restore` is what a reader of this list wants, and
-			# `delete` named it a moment earlier.
-			address = _typeable(world, shown[0][0], shown[0][1])
-
-			_suggest(
-				console,
-				f"subroutine restore {address}" if trash else f"subroutine show {address}",
-				"put one of them back" if trash else "read one of them in full",
-			)
-
-	def _say_where_a_bare_number_goes (
-		world: World, *, console: rich.console.Console
-	) -> None:
-		"""Name the current context under a listing, when there is more than one to be in.
-
-		**Not a banner, and the distinction is the whole of `#271`.** §13.7's argument for
-		leaving it unsaid is that forgetting your context cannot cost you a *missed* item,
-		because reads span everything reachable — and that is true and is why there is no
-		banner on every response. It does not cover a **write**. Somebody reading a list of
-		fifty rows and typing a number off it is one keystroke from acting on the right number
-		in the wrong place, and the only thing telling them which place is which rows happen to
-		be printed bare.
-
-		Silent with one connection, so §13.5b's transcript and everybody who has never heard of
-		a connection see exactly what they saw before.
-		"""
-
-		if not world.qualifies_connection:
-			return
-
-		# The bare address rather than `describe`, which carries its provenance — useful when
-		# somebody asks where the context came from, and one clause too many under a list they
-		# are about to act on.
-		where = world.current.workspace or "(no workspace chosen)"
-		said = f"{world.current.connection}/{where}"
-
-		# **Except when the context will not outlive the command** (`#281`). Under `-c`/`-w`
-		# the sentence is true of the listing above and false of the next command, which is
-		# the one the reader is about to type — and it was read exactly that way: as evidence
-		# that the stored context had changed. Naming the source is what separates them, and
-		# `describe` already words it.
-		if not world.current.persists:
-			said = world.current.describe(qualified=True)
-
-		console.print(
-			rich.text.Text(
-				f"      A bare number means {said}. 'subroutine use' to change it.",
-				style=DETAIL,
-			)
-		)
 
 	class _Listing(typer.core.TyperCommand):
 		"""``list``, with its catch-all argument kept out of the usage line.
@@ -2724,51 +3306,6 @@ def register (
 			return [
 				piece for piece in super().collect_usage_pieces(ctx) if piece.strip("[]. ")
 			]
-
-	def _filters (dated: list[str] | None) -> dict[str, str]:
-		"""Read every ``--filter`` a command was given, refusing what is not one — `#815`.
-
-		**Through ``fail`` rather than by raising**, which is the difference between a sentence
-		somebody can act on and a traceback. A refusal raised in a command body escapes past
-		``opened``'s handler, and only ``main``'s outermost catch renders it — so a person sees
-		the right thing and anything driving the app through Click's runner sees nothing at all.
-		Here so that all three registrations share it, and so the message is asserted where it
-		is produced.
-		"""
-
-		try:
-			return subroutine.domain.filtering.parsed(dated or [])
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
-
-	def _refuse_words (words: list[str] | None, looking_for: str) -> None:
-		"""Send somebody who tried to search a listing to the command that searches.
-
-		**Three shapes, one signpost** (`#282`). ``list -q words``, ``list --search words`` and
-		a bare ``list words`` were three different refusals naming neither each other nor
-		``search`` — and Click's did-you-mean made the middle one actively misleading by
-		offering ``--strict``, so the one message that tried to help pointed away from the
-		answer. §12.2a: a dead end where a signpost would do.
-
-		Caught as *hidden parameters* rather than by reading Click's usage errors, because
-		that keeps this in Typer's own vocabulary and out of an undeclared dependency's
-		internals. They refuse rather than search: `list` takes filters and `search` takes
-		words, and a hidden flag that quietly did the other command's job would be the second
-		way to do one thing that the `ls` synonym is hidden to avoid.
-		"""
-
-		wanted = " ".join(words or []).strip() or looking_for.strip()
-
-		if not wanted:
-			return
-
-		fail(
-			subroutine.errors.ValidationError(
-				"'subroutine list' filters what you have; it does not search it.",
-				hint=f'Try: subroutine search "{wanted}"',
-			)
-		)
 
 	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
 	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
@@ -2839,9 +3376,9 @@ def register (
 		  subroutine list --filter completed_at.gte=2026-08-02 --filter completed_at.lt=today
 		"""
 
-		_refuse_words(words, looking_for)
+		_refuse_words(program, words, looking_for)
 
-		_listed(
+		_listed(program,
 			limit=limit,
 			json_output=json_output,
 			merged=merged,
@@ -2858,7 +3395,7 @@ def register (
 			# builtin and shadowing it inside a function that also annotates with `str | None`
 			# is how a signature comes to mean something it does not.
 			type=kind or None,
-			filters=_filters(dated),
+			filters=_filters(program, dated),
 		)
 
 	@app.command()
@@ -2902,7 +3439,7 @@ def register (
 		  subroutine search "boiler" --filter created_at.gte=yesterday
 		"""
 
-		_listed(
+		_listed(program,
 			limit=limit,
 			json_output=json_output,
 			merged=merged,
@@ -2912,7 +3449,7 @@ def register (
 			connection=connection or None,
 			deferred=deferred,
 			q=_asked(terms, "What are you looking for?"),
-			filters=_filters(dated),
+			filters=_filters(program, dated),
 		)
 
 	@app.command()
@@ -2943,7 +3480,7 @@ def register (
 		  subroutine changes --mine
 		"""
 
-		with opened(strict=strict) as world:
+		with program.opened(strict=strict) as world:
 			# **A number belongs to one instance.** Every connection counts its own events from
 			# one, so resuming from 412 against two of them would mean two different places in
 			# two different histories — and the half that was wrong would look like an ordinary
@@ -3035,9 +3572,9 @@ def register (
 		  subroutine ls
 		"""
 
-		_refuse_words(words, looking_for)
+		_refuse_words(program, words, looking_for)
 
-		_listed(
+		_listed(program,
 			limit=limit,
 			json_output=json_output,
 			merged=merged,
@@ -3051,7 +3588,7 @@ def register (
 			assignee=assignee or None,
 			status=status or None,
 			type=kind or None,
-			filters=_filters(dated),
+			filters=_filters(program, dated),
 		)
 
 	@app.command()
@@ -3075,8 +3612,8 @@ def register (
 		"""
 
 		# One address resolved in one context, so there is nothing to combine (`#327`).
-		with opened() as world:
-			located = _locate(
+		with program.opened() as world:
+			located = _locate(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				kinds=ANY_ITEM,
@@ -3185,13 +3722,13 @@ def register (
 		claim runs out. Your own never disappears from your own.
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="claim",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 
 			try:
 				held = client.claim(
@@ -3221,13 +3758,13 @@ def register (
 		agent that died mid-task somebody else's problem to solve rather than nobody's.
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="release",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 
 			try:
 				freed = client.release(ref=task.ref, workspace=located.workspace)
@@ -3253,7 +3790,7 @@ def register (
 		state that answers "what am I in the middle of" was reachable only over the API.
 		"""
 
-		_moved_to(which, "in_progress", verb="start", said="Started")
+		_moved_to(program, which, "in_progress", verb="start", said="Started")
 
 	@app.command("stop")
 	def stop_item (
@@ -3270,36 +3807,7 @@ def register (
 		putting it down is ordinary; having to finish it to stop showing as busy is not.
 		"""
 
-		_moved_to(which, "open", verb="stop", said="Stopped")
-
-	def _moved_to (which: str, status: str, *, verb: str, said: str) -> None:
-		"""Move a task to a named status, in the shape `done` uses.
-
-		One body for both, because they differ in two words. **Neither says "status"** — §13.5b
-		forbids the vocabulary and does not need it: `done`, `plan` and `defer` are all actions
-		that happen to set a field, and "Started: <title>" is the same shape as "Done: <title>".
-		"""
-
-		with opened() as world:
-			located, task = _a_task(
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb=verb,
-			)
-
-			if task.completed_at is not None:
-				# Nothing else would go wrong, and this is the honest answer: picking up
-				# something already ticked off is nearly always the wrong number.
-				say(_acted(world, located, "Already done"))
-				_suggest(console, "subroutine list", "everything still open")
-
-				return
-
-			client = _require_connection(world, located.connection)
-			moved = client.update(ref=task.ref, status=status, workspace=located.workspace)
-
-			say(_acted(world, dataclasses.replace(located, item=moved), said))
-			_suggest(console, "subroutine today")
+		_moved_to(program, which, "open", verb="stop", said="Stopped")
 
 	@app.command()
 	def done (
@@ -3315,8 +3823,8 @@ def register (
 		  subroutine done 42 --because "superseded by #99"
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="done",
@@ -3330,7 +3838,7 @@ def register (
 
 				return
 
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 			finished = client.complete(ref=task.ref, workspace=located.workspace)
 
 			_because(client, located, because, what="Done")
@@ -3352,13 +3860,13 @@ def register (
 		  subroutine skip 42 --because "away that week"
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="skip",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 			skipped = client.skip(ref=task.ref, workspace=located.workspace)
 
 			_because(client, located, because, what="Skipped")
@@ -3381,13 +3889,13 @@ def register (
 		  subroutine plan 42 friday --because "the review is on monday"
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="plan",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 
 			changed = client.schedule(
 				ref=task.ref,
@@ -3422,13 +3930,13 @@ def register (
 		  subroutine defer 42 2026-09-01 --because "waiting on the provider's reply"
 		"""
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="defer",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 
 			changed = client.schedule(
 				ref=task.ref,
@@ -3472,17 +3980,17 @@ def register (
 				"'--under 7' makes it part of #7; '--top' makes it a top-level item.",
 			)
 
-		with opened() as world:
+		with program.opened() as world:
 			# Either kind, because one counter serves both (§6.2) and a document's sections
 			# are a tree exactly as a task's subtasks are — so refusing a document here would
 			# be turning down half the numbers a reader can see, which is `#44`'s worse half.
-			located = _locate(
+			located = _locate(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				kinds=ANY_ITEM,
 				verb="move",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 			kind = (
 				"document"
 				if isinstance(located.item, subroutine.views.Document)
@@ -3495,7 +4003,7 @@ def register (
 				# Resolved through the same locator, so an unknown number is refused by the
 				# same words rather than by the service, and a document named as a task's
 				# parent is turned down for what it is.
-				beneath = _locate(world, under, kinds=ANY_ITEM, verb="move")
+				beneath = _locate(program, world, under, kinds=ANY_ITEM, verb="move")
 
 				if isinstance(beneath.item, subroutine.views.Document) != (kind == "document"):
 					stop(
@@ -3706,13 +4214,13 @@ def register (
 				"--estimate, --type, --status or --repeat.",
 			)
 
-		with opened() as world:
-			located, task = _a_task(
+		with program.opened() as world:
+			located, task = _a_task(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				verb="update",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 			changed = client.update(ref=task.ref, workspace=located.workspace, **changes)
 			now = dataclasses.replace(located, item=changed)
 
@@ -3745,14 +4253,14 @@ def register (
 		  subroutine comment 42 "ran the suite, two failures in the date parser"
 		"""
 
-		with opened() as world:
-			located = _locate(
+		with program.opened() as world:
+			located = _locate(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				kinds=ANY_ITEM,
 				verb="comment",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 
 			client.remark(
 				ref=located.ref,
@@ -3787,14 +4295,14 @@ def register (
 		rewriting somebody's words under their name is not a thing to be able to do.
 		"""
 
-		with opened() as world:
-			located = _locate(
+		with program.opened() as world:
+			located = _locate(program,
 				world,
 				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 				kinds=ANY_ITEM,
 				verb="uncomment",
 			)
-			client = _require_connection(world, located.connection)
+			client = _require_connection(program, world, located.connection)
 			wanted = _asked(words, "Which comment? (some of its words)")
 
 			# **The matching is shared with the agent's tool** (`#415`). Both surfaces filtered
@@ -3842,49 +4350,6 @@ def register (
 				f"subroutine show "
 				f"{world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
 			)
-
-	def _in_an_editor (current: str) -> str:
-		"""Open text in the reader's editor and return what they saved.
-
-		**`$VISUAL` before `$EDITOR`**, which is the older convention and still the right one:
-		``VISUAL`` names the full-screen editor and ``EDITOR`` the line editor, so a terminal
-		that can run the first should get it.
-
-		Neither set is a refusal rather than a guess. Falling back to ``vi`` looks helpful
-		until it is not installed, and then the failure is about a program the reader never
-		chose — where "set EDITOR, or pass --body" is something they can act on (§13.5).
-
-		The scratch file goes wherever the platform puts temporary files, never beside the
-		checkout: this project's own working tree is on a share that does not honour
-		create-then-rename, which is the hazard that has eaten files here before.
-		"""
-
-		chosen = os.environ.get("VISUAL", "").strip() or os.environ.get("EDITOR", "").strip()
-
-		if not chosen:
-			fail(
-				subroutine.errors.ValidationError(
-					"Nothing says which editor to open.",
-					hint="Set $EDITOR, or pass --body, or pipe the text in.",
-				)
-			)
-
-		with tempfile.NamedTemporaryFile(
-			"w+", suffix=".md", delete=False, encoding="utf-8"
-		) as handle:
-			handle.write(current)
-			path = pathlib.Path(handle.name)
-
-		try:
-			# `shlex.split`, so `EDITOR="code --wait"` works — an editor setting carrying
-			# arguments is ordinary, and treating the whole string as a filename would look
-			# for a program with a space in its name.
-			subprocess.run([*shlex.split(chosen), str(path)], check=True)
-
-			return path.read_text(encoding="utf-8")
-
-		finally:
-			path.unlink(missing_ok=True)
 
 	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
 	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
@@ -3934,7 +4399,7 @@ def register (
 		# to give, which is the worst possible way for a first attempt to go.
 		written = body.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			created = where.client.create_document(
@@ -4009,8 +4474,8 @@ def register (
 		# **Read before any of the three sources are consulted**, because the editor needs the
 		# current text to open and the refusal for a bad ref should arrive before somebody has
 		# spent five minutes typing into vim.
-		with opened() as world:
-			located, document = _a_document(world, asked, verb="edit")
+		with program.opened() as world:
+			located, document = _a_document(program, world, asked, verb="edit")
 
 			# **Standard input is consulted only when nothing else was said at all** (`#299`).
 			# There is no way to tell an empty pipe from no pipe without blocking, so the
@@ -4032,7 +4497,7 @@ def register (
 				# Nothing was said, so the text comes from somewhere else: the editor when
 				# there is a person, and otherwise whatever was piped.
 				if sys.stdin.isatty():
-					revised = _in_an_editor(document.body or "")
+					revised = _in_an_editor(program, document.body or "")
 
 				else:
 					revised = sys.stdin.read()
@@ -4117,9 +4582,9 @@ def register (
 		# underscores; accepted either way rather than making somebody guess which.
 		wanted = _asked(relation, "How are they related?").strip().replace("-", "_")
 
-		with opened() as world:
-			near = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
-			far = _locate(world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="link")
+		with program.opened() as world:
+			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
+			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="link")
 			where = world.writing_to()
 
 			made = where.client.link(
@@ -4154,9 +4619,9 @@ def register (
 		one, because it narrows what looks startable and says nothing about doing so.
 		"""
 
-		with opened() as world:
-			near = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
-			far = _locate(world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="unlink")
+		with program.opened() as world:
+			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
+			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="unlink")
 			where = world.writing_to()
 
 			# **Found by the pair rather than asked for by id.** A link's id is a UUID that
@@ -4209,8 +4674,8 @@ def register (
 		twice.
 		"""
 
-		with opened() as world:
-			located = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="delete")
+		with program.opened() as world:
+			located = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="delete")
 			where = world.writing_to()
 
 			gone = where.client.discard(
@@ -4244,8 +4709,8 @@ def register (
 		  subroutine list --deleted
 		"""
 
-		with opened() as world:
-			located = _locate(world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="restore")
+		with program.opened() as world:
+			located = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="restore")
 			where = world.writing_to()
 
 			back = where.client.undiscard(
@@ -4296,7 +4761,7 @@ def register (
 		number, because a number belongs to the workspace rather than to the project.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			created = where.client.create_project(
@@ -4331,7 +4796,7 @@ def register (
 		  subroutine project list
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			found = where.client.projects(workspace=_writing_workspace(world))
 
@@ -4376,7 +4841,7 @@ def register (
 		does it.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			workspace = _writing_workspace(world)
 
@@ -4434,7 +4899,7 @@ def register (
 		sequence — and nothing in one is visible from the other unless you are in both.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			created = where.client.create_workspace(
 				slug=slug, title=title, timezone=timezone.strip() or None
@@ -4463,7 +4928,7 @@ def register (
 		it was joined to. What stops working is anything that wrote the old name down.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			# **Counted before anything changes**, exactly as `project rename` does: "this
@@ -4534,7 +4999,7 @@ def register (
 				"'--under KEY' puts it inside another project; '--root' makes it top-level.",
 			)
 
-		with opened() as world:
+		with program.opened() as world:
 			place = world.writing_to()
 			workspace = _writing_workspace(world)
 
@@ -4631,7 +5096,7 @@ def register (
 		next is one of those.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			# Read *before* creating, because the question is how many accounts there were —
@@ -4682,7 +5147,7 @@ def register (
 		'subroutine init'. With it, only that workspace's members, and what each may do there.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			if workspace.strip():
@@ -4743,7 +5208,7 @@ def register (
 				)
 			)
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			joined = where.client.add_member(
 				username=username,
@@ -4772,7 +5237,7 @@ def register (
 		administer cannot be repaired from inside, and it would stop every agent at once.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			stopping = subroutine.views.answering_to(where.client.users(), username)
 
@@ -4808,7 +5273,7 @@ def register (
 		rules would be two places for those rules to disagree.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			where.client.set_active(username=username, active=True)
@@ -4831,7 +5296,7 @@ def register (
 		somebody agrees to, and an agent cannot agree on anybody's behalf.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 
 			where.client.transfer_agent(username=username, to=to)
@@ -4854,7 +5319,7 @@ def register (
 		from it, because a workspace nobody can administer cannot be repaired from inside.
 		"""
 
-		with opened() as world:
+		with program.opened() as world:
 			where = world.writing_to()
 			chosen = workspace.strip() or _writing_workspace(world)
 
@@ -4906,7 +5371,7 @@ def register (
 		if reset:
 			removed = subroutine.context.clear()
 
-			with opened() as world:
+			with program.opened() as world:
 				say(
 					f"Now working in {world.current.describe(qualified=world.qualifies_connection)}."
 					if removed is not None
@@ -4915,9 +5380,9 @@ def register (
 
 			return
 
-		with opened() as world:
+		with program.opened() as world:
 			if here:
-				_use_here(world, where, project)
+				_use_here(program, world, where, project)
 
 				return
 
@@ -4941,152 +5406,13 @@ def register (
 
 				return
 
-			connection, workspace = _chosen(world, where)
+			connection, workspace = _chosen(program, world, where)
 			subroutine.context.store(connection, workspace)
 
 			shown = f"{connection}/{workspace}" if world.qualifies_connection else workspace
 			say(f"Now working in {shown}.")
 			say("")
 			_suggest(console, "subroutine today")
-
-	def _use_here (world: World, where: str, project: str) -> None:
-		"""Write a marker into the current directory, and say what it will do.
-
-		The connection and workspace come from the *current context* unless the caller named
-		them, so ``subroutine use --here --project SR`` records where they already are rather
-		than making them type it again — which is the whole difference between adopting a
-		repository in one command and adopting it in an interview.
-		"""
-
-		connection, workspace = (
-			_chosen(world, where)
-			if where.strip()
-			else (world.current.connection, world.current.workspace)
-		)
-		key = subroutine.domain.projects.normalize_key(project) or None
-		identifier = None if key is None else _project_id_of(world, key)
-
-		if key is not None and identifier is None:
-			stop(
-				f"There is no project {key!r} here.",
-				"Run 'subroutine project list' to see them, or "
-				f"'subroutine project create {key} \"A title\"' to make it.",
-			)
-
-		written = subroutine.directory.write(
-			pathlib.Path.cwd(),
-			# **Always, not only when there is more than one connection** (`#273`). Omitting
-			# it saved one line in a file and made the marker's completeness depend on how
-			# many connections existed the day it was written — so configuring a second one
-			# later left every existing marker naming a workspace that may not be on the
-			# current connection, silently, for exactly the caller §13.7a says cannot be
-			# asked. It happened to an agent working in this repository within an hour of a
-			# second connection being added.
-			connection=connection,
-			workspace=workspace,
-			# **The same pairing as the project, and it was missing** (`#317`). A workspace
-			# could not be renamed when this file was designed, so its slug was durable by
-			# construction; `#295` made renaming possible and the marker went on recording only
-			# the name.
-			workspace_id=_workspace_id_of(world, workspace),
-			project=key,
-			# **The id is what makes this survive a rename** (`#177`). The key is written
-			# beside it so the file stays readable, and is the half that goes stale.
-			project_id=identifier,
-		)
-
-		say(f"Wrote {written}.")
-
-		if key is None:
-			say("New work here goes to the Inbox. Add --project to file it somewhere.")
-
-			return
-
-		say(f"New work started in this directory goes to {key}, unless a line says otherwise.")
-		say("")
-		_suggest(console, "subroutine add \"something to do\"")
-
-	def _default_project (world: World, text: str) -> str | None:
-		"""Return the project a captured line should go to when it does not say (§13.7a).
-
-		``None`` whenever the answer is "wherever it went before" — no marker, no project in the
-		marker, or a ``+KEY`` in the line, which is somebody being explicit about this one item
-		and must beat a file they may not know is there.
-		"""
-
-		if world.marker is None:
-			return None
-
-		if world.marker.project_id is None and world.marker.project is None:
-			return None
-
-		if subroutine.domain.capture.names_a_project(text):
-			return None
-
-		# **The id decides, and the key is what gets reported** (`#177`). A key can be renamed
-		# as of `#176`, so a marker naming one is stale the moment somebody does — and every
-		# checkout on every machine would silently start filing work into the Inbox. The id
-		# cannot change, so it is asked first.
-		named = _project_named_by(world, world.marker)
-
-		if named is None:
-			# **Ignored rather than refused** (`#166`). A marker is advisory context written by
-			# a machine, so a checkout marked for one instance must not stop `add` working
-			# against another.
-			shown = world.marker.project or world.marker.project_id
-
-			# **Two reasons, and only one of them is "there is no such project"** (`#414`).
-			# Where the marker names another connection, its project was never looked for —
-			# saying it "is not on local" would assert something the program has not checked
-			# and is often false, since a key like SR is exactly the kind two instances share.
-			# The whole marker applies somewhere else, which is a different thing to be told
-			# and a different thing to do about it.
-			if world.marker.speaks_for(world.current.connection):
-				warn(
-					f"{FILE_NAME} here names project {shown!r}, which is not on "
-					f"{world.current.connection}. Ignoring it."
-				)
-
-			else:
-				warn(
-					f"{FILE_NAME} here names project {shown!r} on "
-					f"{world.marker.connection}, and this is going to "
-					f"{world.current.connection}. Ignoring it."
-				)
-
-			return None
-
-		# **The one moment this file can explain itself.** The id resolved and the key beside
-		# it does not match what is stored, which is what a rename leaves behind — so say it
-		# once, here, rather than letting the file go on quietly disagreeing with itself.
-		#
-		# **Compared exactly, against the stored key** (`#554`). It used to normalise both
-		# sides, so a marker saying `WEB` matched `web` and nothing was ever said — and `#508`
-		# then changed the stored form, leaving every marker written before it holding a
-		# spelling this program no longer stores, prints or writes anywhere. The file said
-		# something no other surface agreed with and the one mechanism built to notice could
-		# not see it. *Resolution* stays case-insensitive, in `directory.resolve`, so those
-		# markers go on working; only the question "does this file agree with us" is exact.
-		if world.marker.project and world.marker.project != named:
-			# **Two different things to be told.** A rename changed which project the key
-			# names; a respelling changed nothing but how it is written, and saying "that
-			# project is now reprobate" about a marker reading `REPROBATE` would read as a
-			# rename that half-failed — which is exactly how this was met on a real instance.
-			respelling = (
-				subroutine.domain.projects.normalize_key(world.marker.project) == named
-			)
-
-			warn(
-				f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
-				f"as {named!r}. It still resolves, so nothing is broken — 'subroutine use "
-				f"--here --project {named}' brings the file into line."
-				if respelling
-				else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
-				f"now {named}. Run 'subroutine use --here --project {named}' to bring it up "
-				f"to date."
-			)
-
-		return named
 
 	# **Visible on a one-connection install, unlike `use` and `connections`.** Those answer
 	# *where* work goes, which is a question nobody has until there are two answers. This
@@ -5116,7 +5442,7 @@ def register (
 
 		# One line per connection. Refusing this reported an ambiguous configuration through
 		# the one command somebody would run to find out about it (`#327`).
-		with opened(strict=strict) as world:
+		with program.opened(strict=strict) as world:
 			gathered = subroutine.fanout.gather(
 				world.clients, lambda client: client.me(), strict=strict
 			)
@@ -5167,7 +5493,7 @@ def register (
 				):
 					console.print(line)
 
-			_report(world, gathered.failures)
+			_report(program, world, gathered.failures)
 
 	# **A group whose bare invocation is still the listing**, the way the application's own is
 	# still the agenda (§12.2a). `subroutine connections` is in other people's notes and in
@@ -5232,7 +5558,7 @@ def register (
 					f"network readable by anything in between."
 				)
 
-		rows = [_connection_row(connection, roster, resolved, current) for connection in roster]
+		rows = [_connection_row(program, connection, roster, resolved, current) for connection in roster]
 		widths = [max(len(row[column]) for row in rows) for column in range(3)]
 
 		for row in rows:
@@ -5394,9 +5720,9 @@ def register (
 		asked = secret is None
 
 		if secret is None:
-			secret = _asked_for_a_token(wanted)
+			secret = _asked_for_a_token(program, wanted)
 
-		reached = _reaching(connection, roster, resolved, secret) if check else None
+		reached = _reaching(program, connection, roster, resolved, secret) if check else None
 
 		if reached is not None and reached.instance is not None:
 			twice = _already_reached(roster, resolved, reached.instance.id)
@@ -5479,252 +5805,6 @@ def register (
 
 		say("")
 		_suggest(console, "subroutine list", "everything this machine can now reach")
-
-	def _asked_for_a_token (name: str) -> str:
-		"""Ask for a connection's token, or take it from a pipe when there is one.
-
-		Never an option on the command line (§12.3a): an argument lands in shell history and in
-		the process list, where a token that has been logged is a token that has been shared.
-		A pipe is the scripted path, so that 'pass show work' can supply one without either.
-		"""
-
-		if not sys.stdin.isatty():
-			piped = sys.stdin.readline().strip()
-
-			if piped:
-				return piped
-
-			stop(
-				f"Nothing was piped in, so there is no token for {name!r}.",
-				"Pipe it in, or run this at a terminal and it will ask.",
-			)
-
-		typed = str(typer.prompt(f"Token for {name}", hide_input=True)).strip()
-
-		if not typed:
-			stop(
-				f"No token was given, so {name!r} was not added.",
-				"Issue one on that instance with 'subroutine token create', then try again.",
-			)
-
-		return typed
-
-	def _reaching (
-		connection: subroutine.connections.Connection,
-		roster: subroutine.connections.Roster,
-		resolved: subroutine.config.Settings,
-		secret: str,
-	) -> Welcomed:
-		"""Reach an instance with a credential, and report what answered.
-
-		**The same call the fan-out makes**, deliberately: ``identity()`` is what every listing
-		begins with, so a connection that passes here is one that works rather than one that
-		merely parses. It is also the call that refuses a proxy, a captive portal or a typo'd
-		address answering 200 with something that is not an instance.
-
-		``me()`` beside it because the address being right is only half of what somebody wants
-		confirmed. The other half is that the credential they pasted is the one they meant, and
-		the only thing that says so is the name the far end gives back.
-		"""
-
-		try:
-			with subroutine.clients.opening.for_connection(
-				connection, roster, resolved, token=secret
-			) as client:
-				identity = client.identity()
-				me = client.me()
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
-
-		return Welcomed(
-			instance=identity.instance,
-			username=me.user.username,
-			workspaces=tuple(workspace.slug for workspace in identity.workspaces),
-		)
-
-	def _connection_row (
-		connection: subroutine.connections.Connection,
-		roster: subroutine.connections.Roster,
-		resolved: subroutine.config.Settings,
-		current: subroutine.context.Current,
-	) -> tuple[str, str, str, str]:
-		"""Describe one connection: its name, where it is, its token, and what it is."""
-
-		try:
-			token = subroutine.credentials.resolve(
-				connection, default_connection=roster.default, describe_only=True
-			).source
-
-		except subroutine.errors.SubroutineError as error:
-			token = f"unusable — {error.detail}"
-
-		notes = []
-
-		# **"in use" first, because it is the one somebody is asking about** (`#278`). A
-		# reader scanning this column wants to know where their next command goes; "default"
-		# answers a narrower question — where it would go if nothing had chosen — and read as
-		# the first, which is how an agent came to tell Simon the wrong thing.
-		if connection.name == current.connection:
-			notes.append("in use")
-
-		if connection.name == roster.default:
-			notes.append("default")
-
-		if connection.read_only:
-			notes.append("read-only")
-
-		# The local connection's "address" is its database URL, masked — it is the one piece
-		# of configuration that routinely carries a password, and this output is exactly what
-		# ends up pasted into a bug report.
-		where = mask(resolved.database_url) if connection.is_local else str(connection.url)
-
-		return (connection.name, where, token, ", ".join(notes))
-
-	def _chosen (world: World, where: str) -> tuple[str, str]:
-		"""Read what ``use`` was given into a connection and a workspace."""
-
-		parts = [part.strip() for part in where.split(subroutine.domain.refs.SEPARATOR)]
-
-		if len(parts) > 2 or any(not part for part in parts):
-			stop(
-				f"{where!r} is not a place to work.",
-				"Give a workspace, or a connection and a workspace — 'subroutine use "
-				"work/acme'.",
-			)
-
-		name = parts[0] if len(parts) == 2 else world.current.connection
-		wanted = parts[-1]
-		item = world.connection(name)
-
-		if item is None:
-			stop(
-				f"There is no connection called {name!r} here, or it could not be reached.",
-				world.roster.alternatives(),
-			)
-
-		if item.identity.workspace(wanted) is None:
-			# **A bare connection name is the likely typo, and the program knows it is one**
-			# (`#270`). Told `use hpz2g4`, this looked for a *workspace* of that name on the
-			# current connection, did not find one, and reported about somewhere else
-			# entirely — while the roster listed `hpz2g4` on the line above.
-			named = world.connection(wanted)
-
-			if len(parts) == 1 and named is not None:
-				stop(
-					f"{wanted!r} is a connection, not a workspace.",
-					_completions(named),
-				)
-
-			stop(f"There is nothing called {wanted!r} on {item.name}.", _workspace_hint(item))
-
-		return item.name, wanted
-
-	def _require_connection (
-		world: World, name: str
-	) -> subroutine.clients.base.Client:
-		"""Return the open client for a connection a lookup already found something on."""
-
-		item = world.connection(name)
-
-		if item is None:
-			stop(f"{name} could not be reached.")
-
-		return item.client
-
-	def _report (world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
-		"""Name every connection that could not be reached, and carry on.
-
-		To standard error, and the command still exits 0: an agenda that refuses to print
-		because one of three servers is down is worse than an agenda with a line saying which
-		one. ``--strict`` is how a script says it would rather stop.
-		"""
-
-		for failure in (*world.unreachable, *failures):
-			warn(failure.describe())
-
-	def _say_changes (
-		world: World,
-		gathered: subroutine.fanout.Gathered[list[subroutine.views.Event]],
-		*,
-		console: rich.console.Console,
-		say: typing.Callable[[str], None],
-	) -> None:
-		"""Print what moved, grouped by connection and then by day.
-
-		**Grouped rather than merged**, unlike ``today``. §13.7 makes that call per command,
-		and the reason here is arithmetic rather than taste: a resume number belongs to one
-		instance, so a single interleaved list would carry two of them and no way to say which
-		row ended which.
-
-		The last number is printed at the end because it is the whole point — a feed you
-		cannot resume from is a feed you have to read twice.
-		"""
-
-		for answer in gathered.answers:
-			if world.qualifies_connection:
-				console.print(rich.text.Text(answer.connection.label, style=HEADING))
-
-			if not answer.value:
-				console.print(rich.text.Text("  Nothing new.", style=DETAIL))
-				say("")
-
-				continue
-
-			day = None
-
-			for event in answer.value:
-				when = event.created_at.astimezone()
-
-				if when.date() != day:
-					day = when.date()
-
-					console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
-
-				console.print(f"    {when:%H:%M}  {_change_line(event)}")
-
-			last = answer.value[-1].seq
-
-			say("")
-			_suggest(console, f"subroutine changes --since {last}", "carry on from here")
-			say("")
-
-		for failure in gathered.failures:
-			console.print(rich.text.Text(failure.describe(), style=LATE))
-
-	def _only_this_connection (world: World, name: str) -> World:
-		"""Return the world with only the named connection in it — `#272`.
-
-		**A filter, not a context, and the difference is the whole item.** `-c` before the
-		command moves where a *write* goes; §13.7 keeps reads spanning everything reachable so
-		that forgetting which context you are in can never cost you a missed item. That leaves
-		"show me only what is on the work instance" — asked for its own sake while checking one
-		server, or driving one instance during a migration — with no spelling at all, and the
-		only way to say it was to disable the others in `config.toml` and put them back.
-
-		So it narrows the rows and changes nothing durable, exactly as `--project` does one
-		level up, and it is spelled *after* the command for that reason: before the command is
-		context, after it is a filter.
-
-		**The roster is left whole on purpose.** `World.address_of` qualifies an address when
-		more than one connection is configured, so rows still print as `work/#42` — which is
-		what somebody types next, after the flag is gone.
-		"""
-
-		wanted = world.roster.require(name)
-		kept = tuple(item for item in world.reached if item.client.connection.name == wanted.name)
-
-		if not kept:
-			# **Configured but not reached is a different answer from "nothing there"**, and an
-			# empty listing would report the second while meaning the first. The failure is
-			# already collected — a connection that could not be built or could not be read —
-			# so this says so rather than showing an empty list somebody would believe.
-			stop(
-				f"Connection {wanted.name!r} was asked for and could not be read.",
-				"Run 'subroutine connections' to see what this machine can reach.",
-			)
-
-		return dataclasses.replace(world, reached=kept, narrowed_to=wanted.name)
 
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""

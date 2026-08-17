@@ -21,6 +21,7 @@ import typing
 import uuid
 
 import pytest
+import rich.console
 import rich.text
 import typer.testing
 
@@ -5145,11 +5146,11 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 3_950
+REGISTER_CEILING = 2_770
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 70
+MODULE_LEVEL_FLOOR = 92
 
 
 def _register_span () -> tuple[int, int]:
@@ -5222,6 +5223,43 @@ def test_the_helpers_that_left_the_closure_can_be_called_directly () -> None:
 	assert subroutine.cli.personal._in_this_persons_terms("nothing_it_knows") == (
 		"nothing_it_knows"
 	), "an unmapped kind keeps its own name rather than being made one up"
+
+
+def test_a_helper_speaks_through_the_program_it_was_handed () -> None:
+	"""`#943` stage two: the closure has a name, so a test can be the program.
+
+	**This is the thing the object buys and the only honest way to show it.** `_report` names
+	every connection that could not be reached and carries on, and it used to be reachable only
+	by configuring a broken connection and running a command against it. Here the warning
+	channel is a list.
+
+	The behaviour it holds is worth having a direct test for on its own: the command still
+	exits 0, because an agenda that refuses to print when one of three servers is down is
+	worse than an agenda with a line saying which one.
+	"""
+
+	said: list[str] = []
+
+	program = subroutine.cli.personal.Program(
+		say=said.append,
+		fail=lambda error: pytest.fail(f"nothing here should end the command: {error}"),
+		stop=lambda *arguments: pytest.fail("nor stop it"),
+		settings=subroutine.config.Settings,
+		console=rich.console.Console(),
+		warn=said.append,
+		mask=lambda text: text,
+		selected=subroutine.cli.personal.Selected(),
+	)
+
+	broken = subroutine.fanout.Failure(
+		connection=subroutine.connections.Connection(name="acme", url="http://nowhere"),
+		error=subroutine.errors.NotFound("nothing answered there"),
+	)
+
+	subroutine.cli.personal._report(program, _one_connection(), (broken,))
+
+	assert said and "acme" in said[0], said
+	assert "nothing answered there" in said[0]
 
 	stranger = subroutine.views.WorkspaceAccess(
 		id=uuid.uuid4(),
