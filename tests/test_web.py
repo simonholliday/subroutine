@@ -9015,3 +9015,48 @@ def test_a_reader_who_may_not_write_is_offered_no_control_that_would_refuse (
 	assert "Add" not in reading["said"], (
 		f"a reader who may not write was offered the capture box: {reading['said']!r}"
 	)
+
+
+def test_every_select_has_a_name_a_screen_reader_can_read () -> None:
+	"""`#927`'s L-7. A combo box announced as *"combo box"* and nothing else.
+
+	The workspace switcher was the one bare ``<select>`` in the app — no wrapping ``<label>``,
+	no ``aria-label`` — and it is the control that decides which backlog you are looking at.
+	Every other one is named, so this was a gap rather than a policy.
+
+	**A guard rather than the fix**, because the fix is one attribute and the next select is
+	the one nobody will check. Read out of the source with comments stripped, since a comment
+	explaining ``aria-label`` would otherwise satisfy a scan for it — which is `#427`'s recorded
+	trap, met three times in this repository.
+
+	**Wrapped in a ``<label>`` counts**, and is preferred: it names the control *and* enlarges
+	the target. The masthead has nowhere to put one, which is why the switcher takes the
+	attribute instead.
+	"""
+
+	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	nameless = []
+
+	for found in re.finditer(r"<select\b([^>]*)>", source):
+		attributes = found.group(1)
+
+		if "aria-label" in attributes or "aria-labelledby" in attributes:
+			continue
+
+		# A `<label>` opened and not yet closed before this point is one this select sits in.
+		before = source[: found.start()]
+
+		if before.count("<label") > before.count("</label>"):
+			continue
+
+		nameless.append(source[: found.start()].count("\n") + 1)
+
+	assert not nameless, (
+		f"a <select> at line(s) {nameless} has no accessible name — it is in no <label> and "
+		f"carries no aria-label, so a screen reader announces a combo box and nothing about "
+		f"what it changes"
+	)
+
+	assert source.count("<select") > 5, (
+		"the scan found almost no selects, so it is reading something other than the app"
+	)

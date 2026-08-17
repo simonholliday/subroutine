@@ -74,6 +74,10 @@ upgrade involves.
   A rare date is not an impossible one: 29 February, and the 31st of whichever months have one,
   are unaffected.
 
+- **The workspace switcher tells a screen reader what it is.** It was the one control in the app
+  with no accessible name — announced as a combo box and nothing else, while being the thing that
+  decides which backlog you are looking at.
+
 - **The web UI stops offering controls you are not allowed to use.** A read-only member — and
   every agent holding a narrowed credential — was shown Edit, Complete, the status and assignee
   controls, the comment box, the link box and Remove, and every one of them was refused when

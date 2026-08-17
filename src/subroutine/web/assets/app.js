@@ -6134,7 +6134,16 @@ export function App () {
 					${me && html`<strong>${me.user.username}</strong>`}
 					${me && me.workspaces.length > 1 && html`
 						${" · "}
-						<select onChange=${(event) => chooseWorkspace(event.target.value)}>
+						${/* **Named, because there is nowhere to put a visible label** (`#927`'s
+						     L-7). Every other select in this app sits inside a `<label>` carrying
+						     a `<span>`; this one is a chip in the masthead between a username and
+						     a sign-out link, and a word in front of it would cost more than it
+						     explains. `aria-label` is what the link-type select already does for
+						     the same reason. Without it a screen reader announces a combo box
+						     with no name at all — the control that decides which backlog you are
+						     looking at. */ null}
+						<select aria-label="Which workspace"
+							onChange=${(event) => chooseWorkspace(event.target.value)}>
 							${me.workspaces.map((space) => html`
 								<option value=${space.slug} selected=${space.slug === workspace}>
 									${space.slug}
