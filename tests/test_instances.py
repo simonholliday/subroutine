@@ -1483,6 +1483,24 @@ def test_the_database_and_its_backups_are_owner_only (
 
 	assert copy.stat().st_mode & 0o077 == 0, oct(copy.stat().st_mode)
 
+	# **And everything written beside it** (`#927`'s L-8). The row-count note was written at
+	# whatever umask was in force, so a directory of `-rw-------` copies carried a `-rw-rw-r--`
+	# file beside each one — and this test passed throughout, because it looked at the backup
+	# and not at the directory. Row counts are not the rows, which is why this was Low; a
+	# backup directory where one file in two is world-readable is the part worth not having.
+	beside = [
+		found
+		for found in copy.parent.iterdir()
+		if found.is_file() and found.name.startswith(copy.name) and found != copy
+	]
+
+	assert beside, "nothing was written beside the backup, so this checks nothing"
+
+	for found in beside:
+		assert found.stat().st_mode & 0o077 == 0, (
+			f"{found.name} is {oct(found.stat().st_mode)} beside a backup that is not"
+		)
+
 
 def test_a_backup_says_how_much_it_copied (
 	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch

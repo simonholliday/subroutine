@@ -26,6 +26,12 @@ upgrade involves.
 
 ### Security
 
+- **Everything a backup writes is owner-only, not just the backup.** The note recording how many
+  rows were copied was written at whatever umask was in force, so a directory of `-rw-------`
+  copies carried a world-readable file beside each one. It is row counts rather than rows, which
+  is why this is small — but a backup directory where one file in two is readable by every
+  account on the machine is not what the other half of it promises.
+
 - **A credential sent in a URL is caught however it was capitalised.** `?token=` was refused by
   name, kept out of the access log, and answered with *treat that token as compromised*.
   `?TOKEN=` was none of those: the value was written to the log verbatim and the caller was told
@@ -672,6 +678,14 @@ upgrade involves.
   answered at the time. `subroutine token revoke` and issue a new one.
 
 ## 0.7.1 — 2026-08-14
+
+**0.7.0 was tagged and never published.** Its release commit renamed the `Unreleased` heading, as
+every release commit does — and the guard added a day earlier read that as *nothing was written
+down* and failed, on all four Python versions and in the release workflow, so nothing was built
+and nothing reached PyPI. Everything 0.7.0 was going to contain is below and ships as 0.7.1.
+`v0.7.0` remains a tag with a red build because that is what happened; there is no 0.7.0 to
+install and no release page for one, and the same is true of `v0.6.2` further down.
+
 
 > **This release changes the database schema**, to `a3f9c21d7e40`.
 >

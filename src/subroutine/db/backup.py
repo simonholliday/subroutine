@@ -304,9 +304,16 @@ def _record (target: pathlib.Path, holdings: dict[str, int]) -> None:
 	"""
 
 	with contextlib.suppress(OSError, TypeError, ValueError):
-		_record_beside(target).write_text(
-			json.dumps({"holdings": holdings}, indent=1), encoding="utf-8"
-		)
+		beside = _record_beside(target)
+
+		beside.write_text(json.dumps({"holdings": holdings}, indent=1), encoding="utf-8")
+
+		# **The same mode as the backup it describes** (`#927`'s L-8). This was written at
+		# whatever umask was in force, so a directory of `-rw-------` copies carried one
+		# `-rw-rw-r--` note beside each — and the note says how many rows of each kind the
+		# instance holds. Row counts are not the tasks, which is why this is small; a backup
+		# directory where one file in two is world-readable is the part worth not having.
+		subroutine.config.keep_private(beside)
 
 
 def _recorded (path: pathlib.Path) -> dict[str, int] | None:

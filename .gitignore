@@ -40,6 +40,11 @@ config.local.toml
 *.swp
 .DS_Store
 
+# Hypothesis's example database, 6.4MB of it. Hypothesis writes a `.gitignore` inside the
+# directory holding `*`, which keeps git quiet — but a build backend walking the tree reads the
+# root rules, not a nested one, so a hand-cut sdist shipped the developer's cache (SR#927 L-11).
+.hypothesis/
+
 # Local documentation
 CLAUDE.md
 COMPETITIVE-ANALYSIS.md
