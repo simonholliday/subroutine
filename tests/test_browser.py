@@ -1683,3 +1683,18 @@ def test_the_agenda_names_a_workspace_even_where_they_all_agree (
 			f"a row on the agenda says {said!r} and not which workspace it is in — every row "
 			f"being in one is not the address having named it"
 		)
+
+	# **And the ref beside it** (`SR#968`). `SR#966` fixed the label and left this asking whether
+	# the rows *happened* to span workspaces — the same drop-if-uniform rule, one column along,
+	# raised as a neighbouring question on that item and not joined to it.
+	refs = page.eval_on_selector_all(
+		".listing.agenda .ref", "cells => cells.map((cell) => cell.textContent.trim())"
+	)
+
+	assert refs, "no row carries a ref"
+
+	for said in refs:
+		assert said.startswith("projects/"), (
+			f"a row is addressed {said!r} — with no workspace in the URL a bare number does "
+			f"not say which workspace the item is in"
+		)

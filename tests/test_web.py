@@ -5316,7 +5316,6 @@ def _agenda (
 
 		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
 			name === "agendaBuckets" ? app.agendaBuckets(argument.agenda, argument.workspaces)
-			: name === "spansWorkspaces" ? app.spansWorkspaces(argument)
 			: name === "counted" ? app.counted(argument)
 			: app.agendaRequest())));
 	"""))
@@ -5444,23 +5443,30 @@ def test_a_workspace_nobody_can_name_leaves_the_row_alone (tmp_path: pathlib.Pat
 	assert buckets[0]["items"][0]["workspace"] is None
 
 
-def test_the_workspace_is_shown_only_when_the_agenda_spans_more_than_one (
+def test_a_row_carries_its_workspace_wherever_the_agenda_shows_it (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""§12.2a: a mark that says the same thing on every row says nothing.
+	"""`SR#968`, Simon 2026-08-17: *the workspace should always be shown, if none is selected.*
 
-	On a single-workspace instance every row would carry the one name there is, which is noise
-	on every line for ever.
+	**This used to ask whether the rows happened to span workspaces** — §12.2a's *a mark that
+	says the same thing on every row says nothing*, which is the terminal's rule, where a
+	listing is computed once and read once. Here the page polls, so what a row says would
+	change because a stranger filed something elsewhere; decision `SR#957` §4 rules that out
+	for this surface, and `SR#966` had just been fixed for one column along.
+
+	**Asserted on what a row renders**, because the question the old rule answered no longer
+	exists to be asked. `agendaBuckets` resolving a workspace onto every row is what makes the
+	address possible at all, and that is what this now holds.
 	"""
 
-	one = [{"key": "today", "items": [{"ref": 1, "workspace": "projects"}]}]
-	two = [{"key": "today", "items": [
-		{"ref": 1, "workspace": "projects"}, {"ref": 2, "workspace": "sandbox"},
-	]}]
+	one = {"overdue": [{"ref": 1, "workspace_id": "w1"}], "today": []}
+	spaces = [{"id": "w1", "slug": "projects"}]
 
-	spread = _agenda(tmp_path, [("spansWorkspaces", one), ("spansWorkspaces", two)])
+	[buckets] = _agenda(tmp_path, [("agendaBuckets", {"agenda": one, "workspaces": spaces})])
 
-	assert spread == [False, True]
+	assert buckets[0]["items"][0]["workspace"] == "projects", (
+		"a row cannot say which workspace it is in, so nothing on the agenda can"
+	)
 
 
 def test_the_agenda_counts_what_is_on_screen (tmp_path: pathlib.Path) -> None:

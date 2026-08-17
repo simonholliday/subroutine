@@ -3264,28 +3264,6 @@ export function counted (buckets) {
 	return buckets.reduce((total, bucket) => total + bucket.items.length, 0);
 }
 
-export function spansWorkspaces (buckets) {
-	/*
-		Whether this agenda holds rows from more than one workspace.
-
-		**The same rule as the kind column** (§12.2a): a mark that says the same thing on every
-		row says nothing, and on a single-workspace instance every row would carry the one name
-		there is. The CLI answers this per row instead — `World.address_of` prints `sandbox/#1`
-		beside a bare `#589` — because it fans out across *connections* and a bare number beside
-		an item somewhere else is an invitation to act on the wrong one. Here there is one
-		instance, so the question is only ever about the page as a whole.
-	*/
-	const seen = new Set();
-
-	for (const bucket of buckets) {
-		for (const item of bucket.items) {
-			if (item.workspace) seen.add(item.workspace);
-		}
-	}
-
-	return seen.size > 1;
-}
-
 /* ---- following a link, or letting the browser do it (`#722`) ------------- */
 
 export function opens (event) {
@@ -3498,7 +3476,22 @@ export function Agenda ({
 		`agendaBuckets` drops the empty ones, so this only has to handle all of them being gone
 		— which is the good day, and should read like one.
 	*/
-	const showWhere = spansWorkspaces(buckets);
+	/*
+		**Every row says which workspace it is from, and that is not a question** — `#968`,
+		Simon's rule: *the workspace should always be shown, if no workspace is selected.*
+
+		This asked `spansWorkspaces`, which is §12.2a's *a mark that says the same thing on
+		every row says nothing* — the terminal's rule, where a listing is computed once and read
+		once. Here the page polls, so what a row says would change because a stranger filed
+		something in another workspace: exactly what decision `#957` §4 rules out for this
+		surface, and what `#966` had just been fixed for one column along. The neighbouring
+		question was raised on that item and not joined to this one.
+
+		**Unconditional, because the agenda is** — `agendaRequest` sends no `workspace_id` and
+		says so in its own first line, and `/` is the only address this view has. A row that
+		does not name its workspace is a row a reader cannot place.
+	*/
+	const showWhere = true;
 
 	/*
 		**The box has to be here, because `/` is now where a person lands.** Before `#652` the
@@ -3539,13 +3532,13 @@ export function Agenda ({
 							     it actually came from. */ null}
 							${/* **The agenda names no workspace, and that is a fact about the
 							     address rather than about the rows** (`#966`, decision `#957`
-							     §4). This asked `showWhere` — `spansWorkspaces` — so a label
-							     stopped naming the workspace whenever every row happened to be
-							     in one, which is the drop-if-uniform rule §4 rules out here and
+							     §4). This asked whether the rows *happened* to span
+							     workspaces — a drop-if-uniform rule, which §4 rules out here
 							     for the reason written into `projectLabel`: this page polls, so
 							     a label that shortens because a stranger filed something
 							     elsewhere is a clickable control changing under the cursor.
-							     Simon met it within the hour, on rows that had not changed. */ null}
+							     Simon met it within the hour, on rows that had not changed, and
+							     then met it again in the ref beside it (`#968`). */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
 								showKind=${false} showWhere=${showWhere} workspace=${where}
 								place=${{ workspace: null, project: null }}
