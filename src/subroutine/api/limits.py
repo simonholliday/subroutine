@@ -195,6 +195,14 @@ class Limits:
 		self.on = wanted(settings, host=host)
 		self.requests = Limiter(per_minute=settings.rate_limit_per_minute)
 		self.failures = Limiter(per_minute=settings.rate_limit_failures_per_minute)
+		# **A third bucket rather than a share of the first** (§20.5, `#916`). A calendar feed
+		# has no principal, so §7.7's limiter — which lives inside `PrincipalDep` — does not
+		# reach it at all; that is `#364`'s gap on the login endpoint, arriving on a second
+		# route. And it should not share: a poller and a person make requests at different
+		# rates for different reasons, and one runaway calendar client emptying the bucket
+		# that its owner's terminal draws from would be one misconfiguration taking out two
+		# unrelated things.
+		self.polls = Limiter(per_minute=settings.rate_limit_polls_per_minute)
 		self.trusted = frozenset(
 			address.strip() for address in settings.trusted_proxies if address.strip()
 		)
@@ -212,6 +220,29 @@ class Limits:
 
 		raise subroutine.errors.RateLimited(
 			"This credential is making requests faster than this instance serves them.",
+			hint=f"Wait {waiting} seconds and try again.",
+			extensions={"retry_after": waiting},
+		)
+
+	def count_a_poll (self, prefix: str) -> None:
+		"""Spend one poll against a feed that resolved, refusing when it is going too fast.
+
+		**Only a feed that resolved**, which is what keeps the key safe: the prefix is one
+		this program minted, so a caller cannot manufacture a fresh allowance by inventing
+		one. A URL that names no live feed never reaches here — it goes to
+		:meth:`count_a_failure`, keyed on the address, for the reason that method gives.
+		"""
+
+		if not self.on:
+			return
+
+		waiting = self.polls.take(prefix)
+
+		if waiting is None:
+			return
+
+		raise subroutine.errors.RateLimited(
+			"This calendar is being fetched faster than this instance serves it.",
 			hint=f"Wait {waiting} seconds and try again.",
 			extensions={"retry_after": waiting},
 		)

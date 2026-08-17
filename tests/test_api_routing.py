@@ -664,6 +664,11 @@ _SEGMENTS = {
 	"link_id": "00000000-0000-0000-0000-000000000000",
 	"username": "nobody",
 	"name": "app.js",
+	# A calendar feed's two halves (`SR#916`). Both are stand-ins that resolve to nothing, which
+	# is what this table wants — the route answers 404 for them, exactly as it does for the
+	# address of a feed somebody revoked.
+	"prefix": "0" * 8,
+	"secret": "nothing",
 }
 
 

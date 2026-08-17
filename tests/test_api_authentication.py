@@ -52,6 +52,17 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# told the method is wrong would mean a client had to authenticate before learning it had
 	# asked the wrong question — and a 405 discloses nothing that `/v1/openapi.json` does not.
 	"GET /mcp": "refuses the event stream this transport does not have, with Allow: POST",
+	# **The credential is the address** (`SR#916`, §20.2). A calendar client subscribes to a URL
+	# and sends no headers of its own, so requiring one would make the feature impossible
+	# rather than safer — which is why a feed is a *different kind* of credential with its own
+	# table, read-only, valid here and nowhere else, and refused by name everywhere else.
+	#
+	# It carries its own rate limit for the reason `/signin` does: §7.7's limiters live inside
+	# `PrincipalDep`, so a route without one is a route without them. `count_a_poll` keys on
+	# the feed and `count_a_failure` on the address, which is the split §7.7 already makes.
+	"GET /v1/calendars/{prefix}/{secret}.ics": (
+		"a calendar subscription, whose secret is the path and which sends no headers"
+	),
 	# **Added by the framework rather than by this project** (`#927` H-18), and invisible to
 	# the walk until it learned to read the built application as well as `ROUTERS`.
 	#

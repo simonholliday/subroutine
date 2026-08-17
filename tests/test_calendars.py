@@ -22,6 +22,8 @@ import uuid
 import pytest
 import sqlalchemy.orm
 
+import api_support
+import subroutine.api.calendars
 import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -35,6 +37,7 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import test_api_tasks
 
 NOW = datetime.datetime(2026, 8, 17, 9, 0, tzinfo=datetime.UTC)
 
@@ -439,3 +442,136 @@ def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:
 	# pair as one (decision `SR#972` §2).
 	assert "DTSTART:20260821T140000Z" in rendered
 	assert "DTEND:20260821T150000Z" in rendered
+
+
+def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The whole round trip over HTTP, driven rather than reasoned about — `SR#916`.
+
+	**The conditional half is the one worth having.** A validator that is present and never
+	matches is `SR#914` exactly: correct-looking, always a miss, and indistinguishable from one
+	that works — which is what a tag over the whole body would be here, because every event
+	carries the moment the document was built.
+	"""
+
+	world = test_api_tasks._world(session)
+	project = _project(session, world.workspace)
+	_task(session, project, world.user, title="Dentist", starts=NOW + datetime.timedelta(days=1))
+	feed, minted = subroutine.domain.calendars.create(
+		session, None, workspace_id=world.workspace.id, owner=world.user,
+		title="Mine", now=NOW,
+	)
+	session.flush()
+
+	prefix, secret = typing.cast(
+		tuple[str, str],
+		subroutine.auth.parse_token(
+			minted.value.get_secret_value(), kind=subroutine.auth.CALENDAR_KIND
+		),
+	)
+	address = f"/v1/calendars/{prefix}/{secret}.ics"
+
+	answered = api_support.call(world.application, "GET", address)
+
+	assert answered.status_code == 200, answered.text
+	assert answered.headers["content-type"].startswith("text/calendar")
+	assert answered.headers["cache-control"] == subroutine.api.calendars.CACHE_CONTROL
+	assert "Dentist" in answered.text
+	assert "BEGIN:VCALENDAR" in answered.text
+
+	tag = answered.headers["etag"]
+
+	# **The claim that the tag ignores `DTSTAMP` is asserted on `_etag` directly**, and that is
+	# not belt-and-braces — it is the only place it *can* be asserted. Two requests in one test
+	# land in the same second, so the round trip below succeeds whether or not the timestamp is
+	# excluded: the mutation putting `DTSTAMP` back into the hash **survived** the HTTP half
+	# and was caught by nothing until this went in. A test that passes because of when it ran
+	# is `SR#737`'s shape, arriving from the other side.
+	stamped = "BEGIN:VEVENT\r\nDTSTAMP:{}\r\nSUMMARY:x\r\nEND:VEVENT\r\n"
+
+	assert subroutine.api.calendars._etag(
+		stamped.format("20260817T090000Z")
+	) == subroutine.api.calendars._etag(stamped.format("20260818T113000Z")), (
+		"the validator moves when only the generation time did, so every poll is a miss and "
+		"the revalidation is correct, useless and indistinguishable from one that works"
+	)
+
+	# **Asked twice**, because the tag has to survive a second render — and a `DTSTAMP` inside
+	# it would not, which is the whole reason `_etag` is a function rather than a hash.
+	again = api_support.call(
+		world.application, "GET", address, headers={"if-none-match": tag}
+	)
+
+	assert again.status_code == 304, again.text
+	assert again.headers["etag"] == tag
+
+	# And a change moves it, or the tag is a constant and every poll is a false 304.
+	_task(session, project, world.user, title="Standup", starts=NOW + datetime.timedelta(days=2))
+	session.flush()
+
+	moved = api_support.call(
+		world.application, "GET", address, headers={"if-none-match": tag}
+	)
+
+	assert moved.status_code == 200, "a changed calendar answered as unchanged"
+	assert moved.headers["etag"] != tag
+
+	# The poll was recorded, which is what makes a stale feed noticeable (§20.3).
+	#
+	# **Refreshed first**, because the request ran in its own session: `api_support.factory_for`
+	# shares the test's *connection* rather than its identity map, so the object here holds
+	# what it was loaded with and would report `None` however many polls had landed.
+	session.refresh(feed)
+
+	assert feed.last_polled_at is not None
+
+
+def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§20.6's kill switch, and why it is a 404 rather than a refusal that explains itself.
+
+	An operator who has turned feeds off has said they do not want them served. A refusal
+	reading *calendars are disabled here* would confirm to whoever holds a leaked URL that it
+	named something real — so the switch and a wrong address are deliberately the same answer.
+	"""
+
+	world = test_api_tasks._world(session)
+	_feed_row, minted = subroutine.domain.calendars.create(
+		session, None, workspace_id=world.workspace.id, owner=world.user,
+		title="Mine", now=NOW,
+	)
+	session.flush()
+
+	prefix, secret = typing.cast(
+		tuple[str, str],
+		subroutine.auth.parse_token(
+			minted.value.get_secret_value(), kind=subroutine.auth.CALENDAR_KIND
+		),
+	)
+	address = f"/v1/calendars/{prefix}/{secret}.ics"
+
+	assert api_support.call(world.application, "GET", address).status_code == 200
+
+	off = test_api_tasks._world(session, instance={"calendars_enabled": False})
+	refused = api_support.call(off.application, "GET", address)
+	nowhere = api_support.call(
+		off.application, "GET", "/v1/calendars/00000000/nothing.ics"
+	)
+
+	assert refused.status_code == 404
+	assert nowhere.status_code == 404
+
+	# **Compared on what the refusal *says*, not on the whole document.** A problem document
+	# also carries `request_id` and the address that was asked for, which differ by
+	# construction — so comparing bodies would fail whatever the wording, and a test that
+	# cannot pass is no better than one that cannot fail.
+	told = ("type", "title", "status", "code", "detail")
+
+	assert {key: refused.json().get(key) for key in told} == {
+		key: nowhere.json().get(key) for key in told
+	}, (
+		"a disabled instance answers differently from one where the address names nothing, "
+		"which tells whoever holds a leaked URL that it was real"
+	)

@@ -576,6 +576,26 @@ class Settings(pydantic_settings.BaseSettings):
 	# attempt.
 	rate_limit_failures_per_minute: int = 30
 
+	# Per *feed*, on the calendar endpoint, and its own bucket because §20.5 says so: these
+	# addresses are hit by pollers rather than by people, so a misconfigured client should be
+	# throttled rather than treated as an attack on somebody's token. Keyed on the feed's
+	# prefix, which this program mints — the same property that makes `rate_limit_per_minute`
+	# safe to key on a token's.
+	#
+	# **Generous, because a calendar client's schedule is its own.** Google, Apple and Outlook
+	# poll on intervals nobody here controls and some of them retry; a limit that a normal
+	# client could reach would be a feed that stops working for reasons its owner cannot see.
+	# A URL that *does not* resolve is counted against the address by the failure limiter
+	# above instead, which is where a guess belongs.
+	rate_limit_polls_per_minute: int = 60
+
+	# **Whether this instance serves calendar feeds at all** (§20.6, `#916`). A feed URL is a
+	# bearer credential that ends up in a phone's calendar settings and quite possibly in a
+	# screenshot, and a leak is undetectable from the server side. An installation that
+	# considers that too much turns the feature off here, and the endpoint stops existing
+	# rather than refusing — nothing minted, nothing served.
+	calendars_enabled: bool = True
+
 	# The largest request body this instance will read, in bytes. `docs/errors.md` has
 	# described `payload_too_large` as *"a field **or the request body** exceeds the
 	# **configured** limit"* since the registry was written, and there was no such

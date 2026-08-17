@@ -18,6 +18,7 @@ import sqlalchemy.orm
 import subroutine
 import subroutine.api.admin
 import subroutine.api.agenda
+import subroutine.api.calendars
 import subroutine.api.changes
 import subroutine.api.comments
 import subroutine.api.documents
@@ -101,6 +102,11 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	# The feed reads the same rows as the histories below and shares a path with nothing:
 	# `/v1/changes` is a literal under no entity's prefix.
 	("", subroutine.api.changes.router),
+	# The one address a calendar application fetches (`#916`). `/v1/calendars/…` is a
+	# literal under `/v1` sharing a prefix with nothing, and both its parameters claim one
+	# segment — so unlike the projects router below it needs no particular place, and
+	# `routing.check` is what says so rather than this comment.
+	("", subroutine.api.calendars.router),
 	# The history sub-resources, likewise after the routers they extend.
 	("", subroutine.api.events.task_events),
 	("", subroutine.api.events.project_events),

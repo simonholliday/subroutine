@@ -181,6 +181,15 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"A liveness probe for whatever is in front of this. Not a capability anybody is "
 		"being denied, and §10.4's `subroutine doctor` is the question a person asks.",
 	),
+	("GET", "/v1/calendars/{prefix}/{secret}.ics"): (
+		"protocol",
+		"An address a *calendar application* fetches, not a call a client makes (`#916`, "
+		"§20.2). It answers `text/calendar` rather than a view model, it takes its whole "
+		"credential from the path, and what a person does with it is paste it into Apple "
+		"Calendar — so a client method returning parsed iCalendar would be a capability "
+		"nobody has asked for and a second reason for this route to exist. What a client "
+		"does need is the ability to *manage* feeds, and that is a separate surface.",
+	),
 	("GET", "/"): (
 		"protocol",
 		"The browser app's page (`#597`). A `Client` method returning HTML would be a method "
