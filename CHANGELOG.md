@@ -469,6 +469,18 @@ upgrade involves.
 
 ### Fixed
 
+- **A failure read back over HTTP is the one a local call would have raised.** The exception was
+  rebuilt from the status code, and four of ours share `409` and four share `422` — so a client
+  catching `SchemaMismatch` caught it against its own database and missed the identical failure
+  from a server. The `code` was right throughout, which is why every message read correctly.
+  Nothing you send or receive changes; what changes is which exception this project's own client
+  raises.
+
+- **A field-level error carries only codes this API publishes.** One route sent `required`, which
+  is in no registry — so it appeared on the wire under a contract that does not define it, and
+  this project's client dropped it on the way back in. It is `missing_field`, which is the
+  registered code that means that.
+
 - **Two connections that turn out to be one instance no longer stop the commands that cannot
   double-count.** `add`, `done`, `update`, `claim`, `comment`, `plan`, `defer`, `use` and every
   `project`, `user` and `workspace` command refused outright — including on a machine whose own

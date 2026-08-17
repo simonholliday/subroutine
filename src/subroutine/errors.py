@@ -231,12 +231,32 @@ def definition (code: str) -> ErrorDefinition:
 
 @dataclasses.dataclass(frozen=True)
 class FieldError:
-	"""One thing wrong with one field, and what to do about it."""
+	"""One thing wrong with one field, and what to do about it.
+
+	**``code`` has to be one the registry defines** (`#948`, cold review `#927`'s L-6). These
+	reach a caller inside the ``errors`` array of a problem document, ``docs/errors.md`` calls
+	them a public semver'd contract, and one site had invented ``"required"`` — which is in no
+	registry, so :func:`from_problem` dropped it and this project's own client disagreed with
+	its own wire about a code it publishes as stable.
+
+	Checked here rather than left to a guard over the tree, because the wrong code is a value
+	somebody passes and the check costs a dictionary lookup at the point of the mistake.
+	"""
 
 	field: str
 	code: str
 	message: str
 	hint: str | None = None
+
+	def __post_init__ (self) -> None:
+		"""Refuse a code no registry defines."""
+
+		if self.code not in REGISTRY:
+			raise ValueError(
+				f"{self.code!r} is not a registered error code, so a caller reading it would "
+				f"be reading something this API does not publish. Registered codes are: "
+				f"{', '.join(sorted(REGISTRY))}."
+			)
 
 	def as_dict (self) -> dict[str, typing.Any]:
 		"""Return this as it appears in the ``errors`` array of a problem document."""
@@ -440,8 +460,8 @@ def problem_document (
 	return document
 
 
-#: Which class reports each status. The inverse of the subclasses above, and the reason
-#: :func:`from_problem` can hand back the *same* exception a local call would have raised.
+#: Which class reports each status. The **fallback**, for a code no class names — four codes
+#: share 409 and four share 422, so a status alone cannot say which exception was raised.
 _BY_STATUS: dict[int, type[SubroutineError]] = {
 	400: BadRequest,
 	401: Unauthenticated,
@@ -455,6 +475,25 @@ _BY_STATUS: dict[int, type[SubroutineError]] = {
 	429: RateLimited,
 	500: InternalError,
 	503: ServiceUnavailable,
+}
+
+#: Which class reports each *code*, which is what :func:`from_problem` asks first.
+#:
+#: **Derived from the classes rather than written out** (`#948`, cold review `#927`'s L-4), so
+#: an exception added above cannot be left out of it. Written out, this is a second list that
+#: has to agree with the first, and the defect it fixes is exactly a disagreement of that kind.
+#:
+#: **Keying only on status was wrong and looked right.** `SchemaMismatch` raised locally came
+#: back over HTTP as `Conflict` — the code survived, so every message read correctly, and only
+#: `except SchemaMismatch` could tell. Latent for that one, since no route emits it; not latent
+#: for `unsupported_protocol_version`, which shares 400 with `malformed_request` and which
+#: `POST /mcp` emits.
+_BY_CODE: dict[str, type[SubroutineError]] = {
+	found.CODE: found
+	for found in globals().values()
+	if isinstance(found, type)
+	and issubclass(found, SubroutineError)
+	and found is not SubroutineError
 }
 
 #: The members :func:`problem_document` writes itself. Anything else in a document is an
@@ -491,7 +530,10 @@ def from_problem (
 		code = None
 		reported = _status(document.get("status"), status)
 
-	failure = _BY_STATUS.get(reported, InternalError)
+	# **The code decides, and the status is the fallback** (`#948`). Several codes share a
+	# status, so choosing by number alone rebuilt the wrong class for four of the nine that
+	# collide — and the *code* came through intact, so nothing in the message gave it away.
+	failure = _BY_CODE.get(code or "") or _BY_STATUS.get(reported, InternalError)
 	detail = document.get("detail")
 	hint = document.get("hint")
 

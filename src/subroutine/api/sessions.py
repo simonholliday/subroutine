@@ -267,7 +267,7 @@ async def _submitted_link (request: starlette.requests.Request) -> str:
 			errors=[
 				subroutine.errors.FieldError(
 					field=LINK_PARAMETER,
-					code="required",
+					code="missing_field",
 					message="A sign-in link is what says which session to open.",
 				)
 			],

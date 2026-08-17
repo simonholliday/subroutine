@@ -202,3 +202,77 @@ def test_an_authorization_failure_names_the_permission_it_needed () -> None:
 	document = subroutine.errors.problem_document(error)
 
 	assert document["hint"] == error.hint
+
+
+def test_a_failure_read_back_is_the_class_that_raised_it () -> None:
+	"""`#948`, cold review `#927`'s L-4 — the round trip a fanned-out client depends on.
+
+	``from_problem``'s docstring promises it hands back *the exception that would have raised
+	it*, so that a caller reading a local database and a remote server has one vocabulary of
+	failure. It chose the class from the **status**, and four codes share 409, four share 422 and
+	two share 400 — so ``SchemaMismatch`` came back as ``Conflict``.
+
+	**The code survived, which is what hid it.** Every message read correctly and every
+	``document["code"]`` was right; only ``except SchemaMismatch`` could tell, and nothing does
+	that today for the one code that collided at the time. It stopped being latent when
+	`#941` added ``unsupported_protocol_version`` beside ``malformed_request`` on 400.
+
+	Driven over every class rather than the one the review named, because the defect is in how
+	the class is *chosen* and any single case can be right by luck of its status being unshared.
+	"""
+
+	for kind in subroutine.errors._BY_CODE.values():
+		raised = kind("something went wrong")
+		document = subroutine.errors.problem_document(raised)
+
+		assert type(subroutine.errors.from_problem(document)) is kind, (
+			f"{kind.__name__} was raised, sent as {raised.CODE!r} and came back as "
+			f"{type(subroutine.errors.from_problem(document)).__name__} — a caller catching "
+			f"the class it raised locally would miss the one that arrived over HTTP"
+		)
+
+
+def test_every_exception_class_is_reachable_by_its_code () -> None:
+	"""The map is derived, so what makes an entry go away is deleting the class.
+
+	Written out, this would be a second list that has to agree with the first — and a
+	disagreement between two lists of failures is the defect above, one layer up.
+	"""
+
+	classes = {
+		found
+		for found in vars(subroutine.errors).values()
+		if isinstance(found, type)
+		and issubclass(found, subroutine.errors.SubroutineError)
+		and found is not subroutine.errors.SubroutineError
+	}
+
+	assert set(subroutine.errors._BY_CODE.values()) == classes, (
+		"an exception class is not reachable by its code, so from_problem would fall back to "
+		"choosing by status for it"
+	)
+
+	assert classes, "the scan found no exception classes, so it is reading nothing"
+
+
+def test_a_field_error_cannot_carry_a_code_nobody_publishes () -> None:
+	"""`#948`, cold review `#927`'s L-6 — the one unregistered code literal in `src/`.
+
+	``api/sessions.py`` sent ``code="required"`` inside a problem document's ``errors`` array,
+	and that string is in no registry — so the wire published a code ``docs/errors.md`` calls
+	semver'd and does not define, while ``from_problem`` dropped it on read-back and this
+	project's own client disagreed with its own server about it.
+
+	**Refused at construction rather than by a scan over the tree**, because the wrong code is a
+	value somebody passes: the check costs a dictionary lookup and fires at the mistake rather
+	than in a test naming a file.
+	"""
+
+	with pytest.raises(ValueError) as refused:
+		subroutine.errors.FieldError(field="link", code="required", message="needed")
+
+	assert "missing_field" in str(refused.value), (
+		"the refusal must list the registered codes, or somebody has to go and find them"
+	)
+
+	subroutine.errors.FieldError(field="link", code="missing_field", message="needed")
