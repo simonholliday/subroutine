@@ -3283,6 +3283,8 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			name === "parseAddress" ? app.parseAddress(argument)
 			: name === "mentionHref" ? app.mentionHref(argument)(42)
 			: name === "encodedPath" ? app.encodedPath(argument)
+			: name === "frame" ? app.frame(argument.showing, argument.open)
+			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
 			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
 			: name === "marks" ? app.marks(
 				argument.item, argument.showKind, argument.ordering, argument.projects,
@@ -9249,3 +9251,53 @@ def test_a_project_label_is_a_link_only_where_something_can_follow_it (
 	assert linked[0]["href"] == "/projects/subroutine/ui"
 	assert [mark["text"] for mark in plain] == ["subroutine/ui"]
 	assert plain[0]["href"] is None, "a surface that cannot navigate drew a link anyway"
+
+
+def test_a_page_is_only_wide_where_a_board_is_on_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#963`, Simon 2026-08-17, from the served instance.
+
+	**An open item is a document, whatever view the reader came from.** This asked
+	`showing.view === "board"` alone, and opening an item never clears the view — so a board, a
+	click, and the item page arrived at the board's uncapped width.
+
+	**Reported as stale CSS and it is not**, which was measured before anything was written:
+	`SR#914`'s assets answer `no-cache` with an ETag and a `304` on a match, so a stylesheet
+	cannot be stale on any load. That refreshing *fixed* it is evidence against caching — a
+	refresh hits the same cache — and for the view falling back to the list, because
+	`/projects/subroutine/871` carries no `?view=`.
+	"""
+
+	board, reading, listing, item = _addressing(tmp_path, [
+		("frame", {"showing": {"view": "board", "selection": {}}, "open": None}),
+		("frame", {"showing": {"view": "board", "selection": {}}, "open": {"item": {"ref": 1}}}),
+		("frame", {"showing": {"view": "list", "selection": {}}, "open": None}),
+		("frame", {"showing": {"view": "list", "selection": {}}, "open": {"item": {"ref": 1}}}),
+	])
+
+	assert board == "app wide", "the board no longer gets the screen, which is SR#846"
+	assert reading == "app", "an item opened from a board is read at the board's width"
+	assert listing == "app"
+	assert item == "app"
+
+
+def test_going_home_writes_an_address_with_no_arrangement (tmp_path: pathlib.Path) -> None:
+	"""`SR#962`'s second half: `/` arrived as `/?view=board&include_completed=true`.
+
+	`withShowing` carries the arrangement everywhere (`SR#651`) and is right everywhere but
+	here: **an agenda has no board and no completed filter**, so what it carried to `/` was a
+	selection that means nothing where it landed. `addressOf` already knows — it returns `"/"`
+	for the agenda — and this is the same fact asked of the writer rather than the reader.
+	"""
+
+	blank, carried = _addressing(tmp_path, [
+		("withShowing", {"path": "/", "showing": {"view": None, "selection": {}}}),
+		("withShowing", {"path": "/projects", "showing": {
+			"view": "board", "selection": {"include_completed": "true"},
+		}}),
+	])
+
+	assert blank == "/", f"going home carried an arrangement the agenda has none of: {blank}"
+	assert carried == "/projects?view=board&include_completed=true", (
+		"a listing stopped carrying its arrangement, which is what SR#651 is for"
+	)
+

@@ -523,7 +523,18 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			answer = (
 				META if wanted.startswith("v1/meta")
 				else IDENTITY if wanted.startswith("v1/me")
-				else listing[0] if wanted.startswith("v1/tasks")
+				# **One task, by its ref, before the collection it lives in** — narrower path
+				# first, which is the trap this block already warns about twice. `v1/tasks/42`
+				# starts with `v1/tasks`, so it was served the *collection* envelope: the app
+				# read an item where a page was, and every attempt to open one landed on the
+				# failure page. Nothing was asserting on an open item, so it looked like a
+				# harness that simply had no test for it.
+				else CARD if re.fullmatch(r"v1/tasks/\d+", wanted)
+				# **The collection, and only the collection.** `startswith` also matched every
+				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
+				# opening an item read links that were rows and fell to the failure page. An
+				# empty collection is what the fall-through gives them, which is true.
+				else listing[0] if wanted.split("?")[0] == "v1/tasks"
 				else EMPTY
 			)
 
@@ -1021,6 +1032,24 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	carries an address and never that following it arrives anywhere. A link nobody has clicked
 	is the inert control this project keeps shipping.
 
+	**Raised to nineteen for `#963`**, and the case is geometry a unit test cannot reach —
+	`#911`'s argument, one page along. Whether an item opened from a board is narrower than the
+	screen is a question about layout, and ``tests/dom.js`` has no cascade; the rule beside it
+	in ``tests/test_web.py`` says the frame is given the right class and says nothing about how
+	wide the page then is.
+
+	**And it is the first test here that opens an item at all**, which is why it cost fixture
+	work rather than a docstring: the route answered every path beginning ``v1/tasks`` with the
+	*collection*, so a single item read as a page and every attempt landed on the failure page.
+	Nothing had ever tried, so a harness that could not do it looked like one nobody needed.
+
+	**Raised to twenty for `#962`**, and the case is that this is the *third* defect of one
+	shape: `go` writes the address bar and nothing else, so a handler that stops there moves
+	the address and leaves the page as it was. The other two were the project label and
+	`widen`'s own missing half, and both were caught here — nothing in the fast suite can see
+	it, because every one of these callbacks lives in `App`, which `tests/dom.js` cannot call
+	(`#640`). A category with three instances and no cheaper reader is what this file is for.
+
 	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
@@ -1032,7 +1061,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 18, (
+	assert len(tests) <= 20, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
@@ -1403,4 +1432,89 @@ def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -
 
 	assert address.removeprefix("/projects/") not in after, (
 		f"the page is that project and its rows still name it: {after}"
+	)
+
+
+def test_an_item_opened_from_a_board_is_read_at_the_measure (running: typing.Any) -> None:
+	"""`SR#963`, Simon 2026-08-17, from the served instance.
+
+	**Only a browser can answer it**, for `SR#911`'s reason: the claim is geometry, and
+	`tests/dom.js` has no cascade and no layout. The unit test beside this one says the frame
+	is given the right class; this says the page is actually narrower than the screen, which is
+	the thing that was wrong.
+
+	**Driven by clicking through from a board**, not by opening the item's address. Refreshing
+	that address is what *hid* the defect — it carries no `?view=`, so the view falls back to
+	the list — so a test that navigated straight there would have passed against the fault.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/projects?view=board")
+	page.wait_for_selector(".board .rows li", timeout=10_000)
+
+	on_the_board = page.evaluate(
+		"() => Math.round(document.querySelector('div.app').getBoundingClientRect().width)"
+	)
+	screen = page.evaluate("() => document.documentElement.clientWidth")
+
+	assert on_the_board > screen * 0.9, (
+		f"the board is {on_the_board}px of a {screen}px screen, so this is measuring a page "
+		f"that never had the width — SR#846 is what the second assertion is against"
+	)
+
+	# **The row's own link, found by the address it carries.** `.first` of every anchor in a
+	# card is not it: since `SR#959` the project label is an anchor too, and clicking that
+	# narrows the page instead of opening anything — a test that pressed the wrong control
+	# would measure a listing and call it an item.
+	page.locator(f"{CARD_ROW} a[href$='/42']").first.click()
+	# **`div.detail`, not `.detail`.** The failure page carries a `<span class="detail">` — the
+	# problem document's own `detail` member — so a bare class selector was satisfied by the
+	# page that says the item could not be read, which is the opposite of what is being waited
+	# for. It matched, and the measurement after it then found no frame at all.
+	page.wait_for_selector("div.detail", timeout=10_000)
+
+	reading = page.evaluate(
+		"() => Math.round(document.querySelector('div.app').getBoundingClientRect().width)"
+	)
+
+	assert reading < on_the_board, (
+		f"the item is {reading}px, the same width the board had — it inherited the board's "
+		f"frame because the view is still 'board' and opening an item does not clear it"
+	)
+
+
+def test_the_masthead_takes_the_page_home_and_not_only_the_address (
+	running: typing.Any,
+) -> None:
+	"""`SR#962`, Simon 2026-08-17, from the served instance.
+
+	He clicked **Subroutine** on a narrowed board and the address said `/` while the page went
+	on showing the board, still narrowed. `go` writes the address bar and nothing else — no
+	``popstate`` fires for a ``pushState`` we made ourselves — so a handler that stops there
+	moves the address and leaves everything as it was.
+
+	**Only a browser can see it.** ``tests/dom.js`` calls components as plain functions and
+	cannot call ``App`` at all (`SR#640`), which is where every one of these callbacks lives;
+	the fast suite can say the address is right and never that the page followed it.
+
+	**It is the third of exactly this shape**, and the first two were caught here too: the
+	project label in `SR#959`, and `widen`'s own missing half before it.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/projects?view=board&include_completed=true")
+	page.wait_for_selector(".board .rows li", timeout=10_000)
+
+	page.locator("h1 a").click()
+
+	# The agenda has neither, so both halves of the defect are one assertion.
+	page.wait_for_url("http://app.test/", timeout=10_000)
+
+	# **Waited for, not read once.** The board was on the page a moment ago, so a selector that
+	# was satisfied then is satisfied again immediately and the assertion lands before the
+	# re-render — which is how a test of this passes against the defect it was written for.
+	page.wait_for_selector(".board", state="detached", timeout=10_000)
+
+	assert page.locator(".listing.agenda").count() > 0, (
+		"the address went home and the page did not follow it"
 	)

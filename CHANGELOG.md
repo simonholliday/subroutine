@@ -38,6 +38,17 @@ upgrade involves.
   goes on resolving. Existing markers are rewritten by `subroutine use --here --project …`,
   which the program suggests when it notices.
 
+### Fixed
+
+- **The masthead's home link takes the page home, not only the address.** Clicking
+  **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
+  page exactly as it was. It also carried the board and the completed filter to an agenda that
+  has neither; `/` is now `/`.
+- **An item opened from a board is read at the reading measure.** It inherited the board's
+  uncapped width, because the frame asked which view was selected rather than whether a board
+  was on screen — so the same item was full-width when opened from a board and correct when
+  the address was refreshed.
+
 ### Added
 
 - **A listing says where each item lives, by its whole address.** `substation/dist` rather

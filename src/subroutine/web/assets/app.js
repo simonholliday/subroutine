@@ -2287,6 +2287,39 @@ function segment (raw) {
 	}
 }
 
+export function frame (showing, open) {
+	/*
+		How wide the page is, which is a question about what is on it — `#963`.
+
+		**The board is the one view that wants the screen** (`#846`): 1100px is a reading
+		measure, right for a list, a document and a form, and wrong for a board, where the useful
+		thing is how many columns you can see at once.
+
+		**And an open item is a document, whatever view the reader came from.** This asked
+		`showing.view === "board"` alone until `#963`, and opening an item never clears the view
+		— so a board, a click, and the item page arrived at the board's uncapped width. Simon met
+		it as a page that came right when refreshed, because `/projects/subroutine/871` carries
+		no `?view=` and the view falls back to the list.
+
+		**`#863` is one step behind this, and its own comment names the gap.** That item moved
+		`wide` off the board and onto the frame, writing *"this is on the frame, so it widens
+		everything the frame holds — which the sentence above says is wrong for a form"*, and
+		`.adding` was given the measure back. Nobody asked what happens when the frame holds a
+		**document**, which is the thing in this app most obviously wanting one.
+
+		**Not stale CSS**, which is the reading this was reported under and was measured before
+		anything was written: `#914`'s assets answer `cache-control: no-cache` with an ETag and
+		a `304` on a match, so the browser revalidates on every load. That a refresh *fixes* it
+		is evidence against caching rather than for it — a refresh hits the same cache.
+
+		Lifted out rather than written inline, which is `#640`'s cheapest route and the reason
+		it is worth a function: every fault this app has shipped is a rule that was right with
+		nothing joining it to the display, and `App` is the component no render harness can call.
+	*/
+	return showing && showing.view === "board" && !open ? "app wide" : "app";
+}
+
+
 export function parseAddress (pathname) {
 	/*
 		Read an address into the place it names, or null for one that names nowhere.
@@ -6086,6 +6119,35 @@ export function App () {
 		}
 	}, [go, load, workspace]);
 
+	const home = useCallback(async () => {
+		/*
+			**The masthead goes home, and the page goes with it** — `#962`, Simon 2026-08-17.
+
+			`go` writes the address bar and nothing else, so this was `go("/")` alone: the
+			address said `/` and the reader went on looking at whatever board they were on,
+			narrowed to whatever project they were in. No `popstate` fires for a `pushState` we
+			made ourselves, which is the fact all three of these callbacks exist for — `widen`,
+			`narrow` and this — and the one an inline `go` keeps being written without.
+
+			**The same three steps `popstate` takes for `/`**, deliberately spelled the same way:
+			clear the project and read the agenda. One address must not mean two things depending
+			on whether the reader arrived by clicking or by stepping back, which is what `#652`
+			settled and `#645`'s split makes a real risk.
+
+			**And the arrangement is dropped rather than carried.** `go` carries it (`#651`) and
+			is right nearly everywhere; `/` is the exception, because an agenda has no board and
+			no completed filter — so `/?view=board&include_completed=true` is a selection that
+			means nothing where it lands. `addressOf` already knows this and returns `"/"` for
+			the agenda; `withShowing` does not, because `parseAddress("/")` is null.
+		*/
+		nowOpen(null);
+		setProject(null);
+		setNote(null);
+		go("/", { arranged: { view: null, selection: {} } });
+
+		await readAgenda(me ? me.workspaces : []);
+	}, [go, me, nowOpen, readAgenda]);
+
 	const narrow = useCallback(async (address) => {
 		/*
 			**Into a project, from a label on a row** — `#959`, decision `#957` §4.
@@ -6306,7 +6368,7 @@ export function App () {
 			the header, the capture box, the footer — is the same in both and duplicating it
 			is how two layouts come to disagree.
 		*/ null}
-		<div class=${showing.view === "board" ? "app wide" : "app"}>
+		<div class=${frame(showing, open)}>
 			<header class="top">
 				${/*
 					**The masthead goes home** (`#868`), which is the convention every reader
@@ -6321,7 +6383,7 @@ export function App () {
 					every other navigation here already obeys.
 				*/ null}
 				<h1>
-					<a href="/" onClick=${(event) => followed(event, () => go("/"))}>
+					<a href="/" onClick=${(event) => followed(event, home)}>
 						Subroutine
 					</a>
 				</h1>
