@@ -161,6 +161,12 @@ def signin (
 	  URL, and the document that ends up loaded is the landing page. The 303 is what makes that
 	  true, so ``test_a_link_is_exchanged_for_a_cookie_and_a_redirect`` is what holds it.
 	* **History: no**, closed by the same 303, which is why it is a 303.
+
+	**Both of those are about the path that redeems, and the confirmation page is not it**
+	(`#927`'s M-27). That page is a 200 carrying the link in its own URL, so it stays in the
+	address bar and in the history — which is `#803`'s deliberate trade, since it does not
+	spend the link. Its referrer is closed separately, by
+	:func:`_ask_before_switching` sending ``no-referrer``.
 	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
 	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
 
@@ -329,13 +335,26 @@ def _ask_before_switching (
 	can currently carry markup: this only renders for a link that *resolved*, so the value is a
 	token this instance minted, and a username is constrained where it is created. Escaping is
 	what keeps that true if either of those stops being true somewhere else.
+
+	**``no-referrer`` on this page alone** (`#927`'s M-27). The instance sends ``same-origin``
+	everywhere, which is right for the app — an item's address is in the URL and the footer
+	links off-site — and this is the one page whose *own* URL carries a live credential. Under
+	``same-origin`` the stylesheet request above would carry it in a ``Referer``; it goes to
+	this instance, so the exposure is to our own access log rather than to a stranger, and
+	``api/logs`` redacts that one. Narrowed anyway, because a header that need not carry a
+	secret should not.
+
+	**What stays is the address bar and the history entry**, and that is `#803`'s trade rather
+	than an oversight: the page deliberately does not spend the link, so *stay as you are*
+	leaves it usable. Nothing here can undo a URL somebody has already been sent.
 	"""
 
 	was = html.escape(standing.username)
 	now = html.escape(becoming.username)
 
 	return starlette.responses.HTMLResponse(
-		f"""<!doctype html>
+		headers={"Referrer-Policy": "no-referrer"},
+		content=f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">

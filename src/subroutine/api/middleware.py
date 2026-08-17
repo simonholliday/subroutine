@@ -84,8 +84,15 @@ def apply_headers (
 	response.headers[REQUEST_ID_HEADER] = request_id(request)
 	response.headers[API_VERSION_HEADER] = subroutine.API_VERSION
 
+	# **Defaults, so a response that set one of these deliberately keeps it.** They were
+	# assigned unconditionally, which meant the sign-in confirmation — the one page whose own
+	# URL carries a live credential — could not narrow its `Referrer-Policy` below the
+	# instance's `same-origin` (`#927`'s M-27). Narrowing is the only direction anything here
+	# goes: nothing in this application widens one, and `tests/test_api_policy.py` drives every
+	# page under the real headers.
 	for name, value in getattr(request.app.state, "policy_headers", {}).items():
-		response.headers[name] = value
+		if name.lower() not in response.headers:
+			response.headers[name] = value
 
 	# **Nothing here is cacheable, and only the assets said so** (`#927`'s M-9). RFC 9111 lets
 	# a shared cache store a response with no explicit directive, and its one built-in

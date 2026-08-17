@@ -784,6 +784,15 @@ def test_a_link_for_somebody_else_asks_instead_of_switching (
 
 	assert still.json()["user"]["username"] == setup.user.username
 
+	# **And nothing this page loads carries the link away with it** (`#927`'s M-27). The
+	# instance sends `same-origin`, which is right everywhere else and means the stylesheet
+	# request would arrive with a live credential in its `Referer`. That goes to this instance
+	# rather than to a stranger, and `api/logs` redacts it — a header that need not carry a
+	# secret should still not.
+	assert answer.headers["Referrer-Policy"] == "no-referrer", (
+		"the page whose own URL is a credential is the one page that must send no referrer"
+	)
+
 
 def test_signing_in_again_as_yourself_does_not_ask (
 	session: sqlalchemy.orm.Session, setup: Setup

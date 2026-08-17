@@ -85,6 +85,12 @@ upgrade involves.
   as many words; the client stored the token and sent it on every request without a murmur.
   Loopback is unaffected, because nothing leaves the machine.
 
+- **The sign-in confirmation page sends no referrer.** It is the one page whose own address
+  carries a live sign-in link, and the instance's ordinary `same-origin` policy meant the
+  stylesheet it loads arrived carrying it. That request goes to the instance itself and the
+  value is redacted from its log, so nothing leaked to a stranger — but a header that need not
+  carry a secret should not.
+
 - **A mistyped project key no longer lists projects you cannot see.** Filing with `+nosuchkey`
   answered "Projects here: …" with every project in the workspace, private ones included — so
   an ordinary member could learn the name and the existence of a project they are not in, by
