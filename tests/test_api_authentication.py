@@ -189,6 +189,46 @@ def test_the_public_list_names_only_routes_that_exist () -> None:
 	)
 
 
+def test_every_credential_kind_can_be_refused_by_name () -> None:
+	"""`SR#916`. A kind this program mints and cannot name is the one that fails silently.
+
+	**`auth.CREDENTIAL_KINDS` was read by nothing** until the calendar feed became the fourth
+	entry. It called itself *"every kind this program mints, for the refusals that have to
+	name them"* and no refusal read it: `api/security._ELSEWHERE` was a second hand-written
+	list, and the calendar's own refusal was a third branch written out above both. Three
+	statements of one fact, in the module where being wrong means a credential is accepted
+	somewhere it should not be.
+
+	**The direction that matters is minting-without-a-refusal**, not the reverse. A kind with
+	an entry it does not need is a paragraph nobody reads; a kind with no entry is refused as
+	*mistyped*, which sends its holder looking for a typo in a string they pasted correctly.
+
+	Driven through the real function rather than compared as sets, because a registry read by
+	a loop that no longer runs would satisfy any comparison of the two lists.
+	"""
+
+	assert subroutine.auth.CREDENTIAL_KINDS, "no kinds were found, so this checks nothing"
+
+	for kind in subroutine.auth.CREDENTIAL_KINDS:
+		minted = subroutine.auth.generate_token(kind=kind)
+
+		with pytest.raises(subroutine.errors.Unauthenticated) as refused:
+			subroutine.api.security._refuse_a_credential_of_another_kind(
+				minted.value.get_secret_value()
+			)
+
+		assert refused.value.hint, f"the refusal for {kind!r} says what it is and not what to do"
+
+	# **The other half, which is what stops the registry becoming a graveyard.** An entry for
+	# a kind nothing mints is a decision recorded about code that has gone, and it reads
+	# exactly like a considered one (`SR#405`).
+	stale = sorted(
+		set(subroutine.api.security._ELSEWHERE) - set(subroutine.auth.CREDENTIAL_KINDS)
+	)
+
+	assert not stale, f"_ELSEWHERE names {stale}, which this program does not mint."
+
+
 class Setup(typing.NamedTuple):
 	"""A user, their workspace and an application talking to the test's transaction."""
 

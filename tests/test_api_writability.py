@@ -543,6 +543,14 @@ NOT_VIEWED: dict[str, str] = {
 		"right to see. Somebody else's sessions are counted by `views.SignedOut` and never "
 		"listed — an inventory of a person's live browsers is a map of where they work."
 	),
+	"CalendarFeed": (
+		"A credential (`#916`, §20.2), so the same as the two above: what a caller reads is "
+		"`views.Calendar`, which describes a feed without its secret — and the secret is most "
+		"of this table. A view named after the row would have to excuse `token_hash` on a "
+		"column whose whole content is the thing nobody may read back, which is the excuse "
+		"this list exists to avoid writing. Delete this entry if a feed ever becomes "
+		"something a caller edits field by field rather than resets and revokes."
+	),
 }
 
 

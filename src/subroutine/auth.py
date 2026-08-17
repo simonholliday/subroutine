@@ -43,9 +43,23 @@ TOKEN_PREFIX_LENGTH = 8
 SESSION_KIND = "web"
 LOGIN_KIND = "lnk"
 
-#: Every kind this program mints, for the refusals that have to name them. A calendar
-#: credential (§20.2) is *not* here: it is refused by prefix and nothing issues one yet.
-CREDENTIAL_KINDS = (SESSION_KIND, LOGIN_KIND)
+#: A calendar feed's, which travels in a **path** rather than in a header (docs/design.md §20.2)
+#: — so unlike the two above it is never presented as a bearer token by anything working
+#: correctly, and its entry below exists entirely to name it for somebody who has tried.
+CALENDAR_KIND = "cal"
+
+#: Every kind this program mints, for the refusals that have to name them.
+#:
+#: **It was read by nothing until `#916`**, which is what the calendar kind arriving exposed:
+#: it said *"a calendar credential is not here — it is refused by prefix and nothing issues
+#: one yet"*, and that refusal was a third mechanism written out by hand beside this list and
+#: beside ``api/security._ELSEWHERE``. `#303`'s family, in the one place where being wrong is
+#: a credential accepted somewhere it should not be.
+#:
+#: It is load-bearing now: ``tests/test_api_authentication.py`` fails if a kind here has no
+#: entry in ``_ELSEWHERE``, so **a fifth kind cannot be minted without a refusal being written
+#: for it**. That is the direction that matters — a kind with no refusal is the silent case.
+CREDENTIAL_KINDS = (SESSION_KIND, LOGIN_KIND, CALENDAR_KIND)
 
 #: Bytes of entropy in the secret half. 256 bits is what makes a fast hash correct.
 TOKEN_SECRET_BYTES = 32

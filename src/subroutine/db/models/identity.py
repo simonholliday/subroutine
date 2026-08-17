@@ -390,3 +390,117 @@ class WebSession(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 		sqlalchemy.ForeignKey("login_link.id", ondelete="SET NULL"),
 		nullable=True,
 	)
+
+
+#: What a feed may cover, and the whole of it (docs/design.md §20.1). ``everything`` is every task
+#: in scope its owner may read; ``assigned_to_me`` narrows to the ones they hold. Both are
+#: wanted and neither is a good default for the other's use, which is why the choice is per
+#: feed rather than a setting.
+CALENDAR_AUDIENCES = ("everything", "assigned_to_me")
+
+
+class CalendarFeed(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
+	"""A read-only iCalendar subscription: one scope, one audience, one secret in a URL.
+
+	The fourth credential kind, and the only one whose secret travels in a path rather than
+	in a header (docs/design.md §20.2). §7.4 forbids that for API tokens and the rule stands — this
+	is a *different kind of credential*, and the four properties that make it a different
+	question are worth having in front of anybody changing this table:
+
+	* it is **read-only**, and valid on the calendar endpoint and nowhere else;
+	* it grants **one scope**, never its owner's whole authority;
+	* it exposes titles, dates and refs, and nothing else the API would return;
+	* and a leak is **undetectable from the server side**, which is why ``last_polled_at``
+	  exists and why resetting the secret is one of the four commands.
+
+	**Visibility is resolved when the feed is rendered, never when it was created.** The row
+	carries an owner and each poll narrows by what that owner may read *now* — a feed that
+	baked in a project list would go on serving a private project after its owner left it,
+	and there is no login to audit that would ever surface it.
+
+	**Not a row on ``api_token`` with a flag.** Every narrowing an API token can express is
+	absent here and every property above is absent there, so one table would make each read
+	ask a question the type should have answered — which is `#364`'s own argument for
+	:class:`WebSession` being its own table, arriving at the same answer for the same reason.
+	"""
+
+	__tablename__ = "calendar_feed"
+	__table_args__ = (subroutine.db.mixins.enum_check("audience", CALENDAR_AUDIENCES),)
+
+	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
+
+	# NOT NULL, unlike `ApiToken.workspace_id`, and the difference is what the field means: a
+	# token's null is *every workspace the owner belongs to*, where a feed is one calendar in
+	# one client and spanning workspaces would put a dentist appointment and a deployment
+	# window in a list with nothing saying which is which.
+	workspace_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("workspace.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+
+	# NULL means the whole workspace. A project covers **its visible sub-projects too**
+	# (§20.1), matching §7.3a — privacy inherits down the tree, so a feed on a parent that
+	# stopped at the parent would show less than that project's own page does.
+	project_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("project.id", ondelete="CASCADE"),
+		nullable=True,
+	)
+
+	# Whose sight this feed borrows. CASCADE rather than SET NULL: a feed with no owner has
+	# no visibility rule left to apply, so it must stop existing rather than fall back to
+	# something.
+	owner_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("user.id", ondelete="CASCADE"),
+		nullable=False,
+		index=True,
+	)
+	audience: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=False
+	)
+
+	# **Which item types the feed carries — ids, never keys** (decision `#972`). §5.5 makes the
+	# vocabulary per workspace and renameable, so a feed naming `event` would silently stop
+	# matching the day somebody renamed it, and silently is the whole problem: a feed has no
+	# reader who could complain. NULL means every type, which is what a caller who says
+	# nothing gets and what every feed made before this column would get.
+	item_type_ids: sqlalchemy.orm.Mapped[list[str] | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.json_column(), nullable=True
+	)
+
+	# What the calendar is called in the client. A person subscribes to several of these and
+	# a list of identical names is a list nobody can choose from.
+	title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(128), nullable=False
+	)
+
+	# The public half, found by index rather than by scanning hashes — `ApiToken`'s pattern,
+	# and `sha256(secret)` beside it for the reason §7.4 gives.
+	token_prefix: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=False, unique=True, index=True
+	)
+	token_hash: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(128), nullable=False
+	)
+
+	# **What makes a stale feed noticeable** (§20.3). A URL nobody has used for six months is
+	# one to revoke, and without this column there is no way to tell — which matters more here
+	# than for a token, because a leaked feed is used by somebody who never announces
+	# themselves.
+	last_polled_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+
+	# Nullable, unlike `LoginLink.expires_at`: a link is a credential in a URL that must not
+	# become permanent by omission, and a feed is a credential in a URL that a person means
+	# to keep. What makes the difference safe is that a feed reads one scope and a link buys
+	# a whole session.
+	expires_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)
+	revoked_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
+	)

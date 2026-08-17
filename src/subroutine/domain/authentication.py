@@ -97,17 +97,38 @@ class Principal:
 	#: "not narrowed" for a session, and says so rather than arriving there by omission.
 	session: subroutine.db.models.identity.WebSession | None = None
 
+	#: A calendar feed's credential, when the caller is a poller holding a URL (`#916`,
+	#: docs/design.md §20.2). **The third kind, and the first that is narrower than its owner rather
+	#: than equal to them** — it may read tasks, in one scope, and do nothing else.
+	#:
+	#: It exists as a field for the reason `#364` gave about the one above it: five behaviours
+	#: read "no token" as §12.1a's *maximum trust*, so a credential that arrived without
+	#: filling a slot here would be handed a person-at-the-terminal's authority by omission,
+	#: silently, at every one of them. :attr:`is_local` is a named question precisely so a
+	#: kind that did not exist when it was written can be answered correctly.
+	feed: subroutine.db.models.identity.CalendarFeed | None = None
+
 	def __post_init__ (self) -> None:
-		"""Refuse a principal that claims to hold two credentials at once.
+		"""Refuse a principal that claims to hold more than one credential at once.
 
 		Nothing constructs one, and that is the point: the properties below would have to
-		decide which of the two narrows, and any answer to that is a rule in a second place.
+		decide which of them narrows, and any answer to that is a rule in a second place.
 		"""
 
-		if self.token is not None and self.session is not None:
+		held = [
+			name
+			for name, value in (
+				("an API token", self.token),
+				("a browser session", self.session),
+				("a calendar feed", self.feed),
+			)
+			if value is not None
+		]
+
+		if len(held) > 1:
 			raise ValueError(
-				"A principal presents one credential. A token and a browser session "
-				"together would leave it ambiguous which one bounds the caller."
+				f"A principal presents one credential. {' and '.join(held)} together would "
+				f"leave it ambiguous which one bounds the caller."
 			)
 
 	@property
@@ -125,7 +146,7 @@ class Principal:
 		for a kind of credential that did not exist when it was written; a sentinel cannot.
 		"""
 
-		return self.token is None and self.session is None
+		return self.token is None and self.session is None and self.feed is None
 
 	@property
 	def expires_at (self) -> datetime.datetime | None:
@@ -139,6 +160,9 @@ class Principal:
 
 		if self.token is not None:
 			return self.token.expires_at
+
+		if self.feed is not None:
+			return self.feed.expires_at
 
 		return self.session.expires_at if self.session is not None else None
 
@@ -154,11 +178,28 @@ class Principal:
 		if self.token is not None:
 			return self.token.token_prefix
 
+		if self.feed is not None:
+			return self.feed.token_prefix
+
 		return self.session.token_prefix if self.session is not None else None
 
 	@property
 	def scopes (self) -> list[str]:
-		"""Return the permissions this credential narrows to, empty meaning no narrowing."""
+		"""Return the permissions this credential narrows to, empty meaning no narrowing.
+
+		**A calendar feed narrows to reading, and says so in this vocabulary rather than in a
+		special case** (`#916`). §20.2 makes it read-only and valid on one endpoint, and the
+		honest way to express that is the list every other check already reads — so a feed's
+		principal reaching a write would be refused by :func:`~subroutine.domain.authorization.authorize`
+		on the ordinary path, rather than by nothing having pointed it there.
+
+		It also makes :attr:`narrows` derive correctly instead of being told: a feed *is*
+		bounded, and `#829`'s lesson is that a credential which cannot say so is one that gets
+		traded for something wider on the route nobody checked.
+		"""
+
+		if self.feed is not None:
+			return [subroutine.permissions.TASK_READ]
 
 		return list(self.token.scopes) if self.token is not None else []
 

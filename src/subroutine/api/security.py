@@ -118,16 +118,9 @@ def from_bearer_token (
 		)
 
 	# A calendar feed's credential is deliberately not a token: separate table, separate
-	# `sr_cal_` prefix, read-only, and refused here (docs/design.md §7.4, §20). It fails the token
-	# grammar as it stands, so this costs nothing but says why rather than reporting a
-	# mistyped token.
-	if credential.strip().startswith(f"{subroutine.auth.TOKEN_SCHEME}_cal_"):
-		raise subroutine.errors.Unauthenticated(
-			"That is a calendar feed credential, which cannot be used to call the API.",
-			hint="Calendar credentials are read-only and work only in their own feed URL. "
-			"Create an API token with 'subroutine token create'.",
-		)
-
+	# `sr_cal_` prefix, read-only, and refused by name (docs/design.md §7.4, §20). That refusal used
+	# to be written out here and is one of `_ELSEWHERE`'s entries since `#916` — three lists
+	# of the same fact became one, which is what `auth.CREDENTIAL_KINDS` is now guarding.
 	_refuse_a_credential_of_another_kind(credential)
 
 	return subroutine.domain.authentication.authenticate(
@@ -482,6 +475,16 @@ _ELSEWHERE: dict[str, tuple[str, str]] = {
 		"a sign-in link",
 		"Open it in a browser instead: it is spent once, in exchange for a session, and "
 		"it is not a credential this API accepts.",
+	),
+	# **Moved here from a check written out by hand above** (`#916`). It was the first of
+	# these to exist — live and correct since before anything could issue one — and it stayed
+	# a separate branch when this registry was built, so one rule had two implementations and
+	# `auth.CREDENTIAL_KINDS` had a third list nothing read. The wording is the only thing
+	# that changed, and only to the sentence this dictionary supplies for every kind.
+	subroutine.auth.CALENDAR_KIND: (
+		"a calendar feed credential",
+		"Calendar credentials are read-only and work only in their own feed URL. "
+		"Create an API token with 'subroutine token create' to call the API.",
 	),
 }
 

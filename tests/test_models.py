@@ -26,6 +26,7 @@ import subroutine.db.types
 
 EXPECTED_TABLES = {
 	"api_token",
+	"calendar_feed",
 	"comment",
 	"document",
 	"document_tag",

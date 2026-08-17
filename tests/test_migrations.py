@@ -724,6 +724,23 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 			},
 		),
 		(
+			"calendar_feed",
+			{
+				"id": subroutine.db.types.new_uuid(),
+				"workspace_id": workspace,
+				# **Filed under a project rather than at the workspace**, so the nullable
+				# foreign key is exercised rather than skipped: `project` is one of the tables
+				# a SQLite rebuild recreates, and a row that left this null would reference
+				# only `workspace` and cover half of what it is here for.
+				"project_id": project,
+				"owner_id": user,
+				"audience": "everything",
+				"title": "A calendar",
+				"token_prefix": "cal0probe",
+				"token_hash": "0" * 64,
+			},
+		),
+		(
 			"comment",
 			{
 				"workspace_id": workspace,
@@ -805,6 +822,7 @@ SEEDED = frozenset(
 		"document_tag",
 		"workspace_member",
 		"api_token",
+		"calendar_feed",
 		"comment",
 		"event",
 		"link_type",
