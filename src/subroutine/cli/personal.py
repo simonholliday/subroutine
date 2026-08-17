@@ -933,6 +933,859 @@ def _field_in_words (name: str) -> str:
 	return name.replace("_", " ")
 
 
+# --- Helpers that need nothing from the command closure -------------------------------
+#
+# **These were nested inside `register` and closed over nothing at all** (`#943`, cold
+# review `#927`'s L-1). Measured by walking the tree for references to the seven arguments
+# and the two objects built from them: twenty-four functions, 821 lines, none of which
+# touched any of them. Nested, they were reachable only by running a Typer command; here a
+# test can call one directly, which is the whole of what this move buys.
+
+
+def _marker_taken_elsewhere (
+	current: subroutine.context.Current,
+	reached: typing.Sequence[Reached],
+	marker: subroutine.directory.Marker | None,
+) -> subroutine.context.Current:
+	"""Find a dropped marker's workspace on whichever connection actually holds it — `#556`.
+
+	**A connection name is each machine's private alias, and a shared checkout makes it
+	shared** (`#330`). Two machines mounting one filesystem read one `.subroutine`, so the
+	nickname has to agree — and when it does not, the *whole* marker stopped directing, not
+	just the connection: `context.resolve` drops the workspace with it, because a workspace
+	*slug* means nothing on an instance that has never heard of it.
+
+	The id does. `workspace_id` has been in every marker since `#317` and is a uuid, so
+	asking which reached connection holds it is a question with one answer or none.
+
+	**By id, never by name, and `#414` is why.** That finding is a marker whose connection
+	was dropped matching its project by *key* on whichever instance answered, and filing
+	work into a same-named project somewhere else. A key is a claim that can be true twice;
+	a uuid is not. So this widens `Marker.speaks_for` in exactly one direction and leaves
+	the name test alone.
+
+	**Nothing reachable, nothing changes** (`#166`): this runs after the fan-out that had to
+	happen anyway, so it adds no request, and with nothing to ask it returns what it was
+	given. Several matches — which `#327` made a state somebody can be in — also return
+	unchanged, because refusing to guess is the whole point of using an id.
+	"""
+
+	if current.unusable_marker_connection is None or marker is None:
+		return current
+
+	if marker.workspace_id is None:
+		return current
+
+	holding = [
+		item
+		for item in reached
+		if any(str(row.id) == marker.workspace_id for row in item.identity.workspaces)
+	]
+
+	if len(holding) != 1:
+		return current
+
+	found = holding[0].name
+
+	return dataclasses.replace(
+		current,
+		connection=found,
+		connection_source=subroutine.context.FROM_DIRECTORY,
+		marker_found_on=found,
+		workspace=marker.workspace,
+		workspace_source=subroutine.context.FROM_DIRECTORY,
+	)
+
+
+def _writing_workspace (world: World) -> str:
+	"""Return the workspace a write lands in, refusing when nothing has said which."""
+
+	if world.current.workspace is not None:
+		return world.current.workspace
+
+	here = world.writing_to()
+
+	subroutine.context.refuse(
+		world.roster,
+		world.current,
+		[workspace.slug for workspace in here.identity.workspaces],
+	)
+
+
+def _kept (held: int) -> str:
+	"""Say how many items survive a rename, with the verb and the possessive agreeing.
+
+	**One sentence, one place, because both rename commands print it** (`#296`). They had a
+	copy each and the copies disagreed twice over: `project rename` pluralised the *noun*
+	and left the verb behind — "1 item keep their numbers" — while `workspace rename` got
+	the grammar right and hedged the count with "at least" because it was reading a page.
+
+	It is only ever read at the moment somebody is deciding whether to do something
+	irreversible, which is the worst possible place for either fault.
+	"""
+
+	if held == 1:
+		return "1 item keeps its number"
+
+	return f"{held:,} items keep their numbers"
+
+
+def _in_place (world: World, workspace: str) -> str:
+	"""Return " in <workspace>", or nothing when there is only one place it could be.
+
+	§1.4 again, in the place it is easiest to miss: a refusal is written when something has
+	already gone wrong, so it is the *last* output anybody re-reads for stray vocabulary.
+	Somebody with one workspace who typed a number that does not exist was being told
+	"there is no #9 in si" — a workspace they never named, introduced by an error message,
+	about a to-do list. The guard on the four §13.5b commands cannot see this, because a
+	refusal is not in the transcript.
+	"""
+
+	if not world.qualifies_workspace and not world.qualifies_connection:
+		return ""
+
+	return f" in {workspace}"
+
+
+def _found_at (
+	item: Reached, workspace: str, ref: int, kinds: tuple[str, ...]
+) -> Item | None:
+	"""Ask one connection what this ref names there, trying each kind in turn.
+
+	Tasks first wherever both are wanted, because that is overwhelmingly what a number on
+	a command line means — and because a ref belongs to exactly one item, so the order
+	decides only which question is asked twice, never which answer is returned.
+	"""
+
+	for kind in kinds:
+		found: Item | None = (
+			item.client.task(ref=ref, workspace=workspace)
+			if kind == "task"
+			else item.client.document(ref=ref, workspace=workspace)
+		)
+
+		if found is not None:
+			return found
+
+	return None
+
+
+def _everywhere (world: World, ref: int, kinds: tuple[str, ...]) -> list[Located]:
+	"""Find this ref in every workspace that is reachable.
+
+	A point lookup per workspace. That is what §13.7 means by there being no bulk "all
+	item ids" endpoint: an index of what exists would go stale exactly when it mattered,
+	while disambiguating one ref needs a point lookup and nothing more.
+	"""
+
+	found: list[Located] = []
+
+	for item in world.reached:
+		for workspace in item.identity.workspaces:
+			# A connection that fails mid-search must not turn a refusal about one ref
+			# into a refusal about the network. The listing already said which
+			# connections answered.
+			with contextlib.suppress(subroutine.errors.SubroutineError):
+				here = _found_at(item, workspace.slug, ref, kinds)
+
+				if here is not None:
+					found.append(
+						Located(
+							connection=item.name, workspace=workspace.slug, item=here
+						)
+					)
+
+	return found
+
+
+def _absolute (world: World, located: Located) -> str:
+	"""Return a candidate's address, qualified as far as this world needs."""
+
+	return subroutine.domain.refs.format_address(
+		located.ref,
+		workspace=located.workspace,
+		connection=located.connection if world.qualifies_connection else None,
+	)
+
+
+def _place_of (world: World, located: Located) -> str:
+	"""Return what ``use`` would be given to make this candidate's home current."""
+
+	if world.qualifies_connection:
+		return f"{located.connection}{subroutine.domain.refs.SEPARATOR}{located.workspace}"
+
+	return located.workspace
+
+
+def _subtree (
+	tree: list[subroutine.views.Project], key: str
+) -> list[subroutine.views.Project]:
+	"""Return the project with this key and everything under it.
+
+	**Walked through ``parent_id``, not read off ``path``.** The materialised path is
+	exactly what makes this a single containment test in the database, and it is
+	deliberately *not* on the view — §6.9 calls it an implementation of the hierarchy
+	rather than a field of it, and the writability guard records that. So a client
+	assembles the tree from the one relation it is given, which is the right side of that
+	trade: `path` is ours to change and `parent_id` is a fact.
+
+	``projects()`` returns parents before children (§8.4), so one forward pass is enough
+	and nothing has to recurse.
+	"""
+
+	wanted = subroutine.domain.projects.normalize_key(key)
+	root = next((item for item in tree if item.key == wanted), None)
+
+	if root is None:
+		return []
+
+	inside = {root.id}
+
+	for item in tree:
+		if item.parent_id in inside:
+			inside.add(item.id)
+
+	return [item for item in tree if item.id in inside]
+
+
+def _keep_the_operators_own_list (
+	world: World, before: typing.Sequence[subroutine.views.User]
+) -> str | None:
+	"""Pin local commands to the existing account, and return who that was.
+
+	**Adding a colleague must not cost you your own to-do list.** Local mode picks an
+	account by there being exactly one (§12.1a); the moment a second exists it refuses,
+	correctly, with "there is more than one account, so there is no way to tell whose
+	to-do list to show". So on an instance somebody actually uses, `user create` broke
+	`subroutine add` for them — the same shape as service accounts counting towards that
+	total until 2026-07-30, and the same answer: setting somebody up must not take
+	something away.
+
+	Only when there was exactly **one** account and nothing has already chosen. Two
+	accounts already means the operator has settled this, and overwriting their choice
+	would be a worse version of the problem being fixed.
+
+	Returns ``None`` when nothing needed doing, which is every case after the first.
+	"""
+
+	people = [account for account in before if not account.is_service_account]
+
+	if len(people) != 1 or world.settings.local_user:
+		return None
+
+	subroutine.config.store_setting("local_user", people[0].username)
+
+	return people[0].username
+
+
+def _workspace_id_of (world: World, slug: str | None) -> str | None:
+	"""Return the permanent id of the workspace this slug names, or ``None``.
+
+	``None`` rather than a refusal when it does not resolve: the slug written beside it is
+	the fallback :func:`subroutine.directory.resolve_workspace` already uses for every
+	marker predating `#317`, so a marker with a name and no id is the state the program has
+	always handled rather than a broken one.
+	"""
+
+	if slug is None:
+		return None
+
+	for item in world.reached:
+		if item.name != world.current.connection:
+			continue
+
+		for space in item.identity.workspaces:
+			if space.slug == slug:
+				return str(space.id)
+
+	return None
+
+
+def _project_id_of (world: World, key: str) -> str | None:
+	"""Return the permanent id of the project this key names, or ``None`` if there is none.
+
+	Checked before the file is written, because a marker naming a project that does not
+	exist fails on the *next* capture rather than here — and the person who would have to
+	work out why is not the one who typed this.
+
+	Returns the **id** rather than a yes-or-no, because that is what the marker records
+	(`#177`) and asking twice would be two chances for the answers to differ.
+	"""
+
+	where = world.writing_to()
+
+	for row in where.client.projects(workspace=_writing_workspace(world)):
+		if subroutine.domain.projects.normalize_key(row.key) == key:
+			return str(row.id)
+
+	return None
+
+
+def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
+	"""Return the current key of the project a marker names, or ``None`` if there is none.
+
+	The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
+	server — this half is only the fetching, because that is the part that needs a world
+	to fetch through. It was one function here until `#232` found the other surface had no
+	equivalent at all.
+
+	**Nothing is fetched at all unless the marker speaks for the connection being written
+	to** (`#414`). `context.resolve` has always applied that test to the marker's workspace;
+	without it here, a marker whose connection was dropped (`#409`) or overridden by `-c`
+	still matched its project **by key** on whichever instance answered instead — filing
+	work into a same-named project somewhere else entirely, one line under a warning saying
+	the connection had been ignored.
+	"""
+
+	where = world.writing_to()
+
+	# **Or found there by id** (`#556`). `speaks_for` compares the name the marker wrote,
+	# which is exactly the test `#414` added and it stays; `marker_found_on` is set only
+	# when a `workspace_id` matched, which is a claim a key could never make.
+	if not (
+		marker.speaks_for(where.name) or world.current.marker_found_on == where.name
+	):
+		return None
+
+	found = where.client.projects(workspace=_writing_workspace(world))
+
+	return subroutine.directory.resolve(marker, found)
+
+
+def _whoami_lines (me: subroutine.views.Me) -> list[str]:
+	"""Describe one connection's answer to "who am I": the account, the credential, the room.
+
+	**What the credential withholds is stated; what it grants is not enumerated.** An
+	unnarrowed owner would otherwise get twenty permission keys they already have, and the
+	one reader who needs the list — an agent working under a deliberately small credential —
+	is exactly the one whose list is short. Same rule as every other column here: what is
+	true of every row says nothing, and it is the exception that has to be visible.
+	"""
+
+	kind = "agent" if me.user.is_service_account else "person"
+	credential = me.credential
+	how = (
+		"the local database"
+		if credential is None
+		else f"token {credential.title!r} ({credential.prefix}…)"
+	)
+	lines = [f"{me.user.username} ({kind}), via {how}."]
+
+	if credential is not None and credential.narrows:
+		lines.append(
+			f"Narrowed to "
+			f"{subroutine.views.narrowing(credential, me.workspaces)}."
+		)
+
+	if me.instance_permissions:
+		lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")
+
+	if not me.workspaces:
+		# **The failure this command exists to make legible.** A credential pinned to a
+		# workspace it has no membership of reaches nothing, and every *other* command
+		# reports that as an empty list — which reads as an empty instance rather than as
+		# a credential that cannot see it.
+		lines.append("No workspace here can be read with this credential.")
+
+		return lines
+
+	# **Not `_tabulated`, and that is the one place this output departs from every other
+	# listing here.** Its rule is that a column saying the same thing on every row says
+	# nothing — true of a backlog, false of this: two workspaces both answering "Owner" is
+	# not a column with nothing to say, it is the answer to the question that was asked.
+	# Dropped silently, the command printed two slugs and no statement of authority at all.
+	names = max(len(workspace.slug) for workspace in me.workspaces)
+	roles = max(len(_role(workspace)) for workspace in me.workspaces)
+	rows = []
+
+	for workspace in me.workspaces:
+		cells = [workspace.slug.ljust(names), _role(workspace).ljust(roles)]
+
+		# **Per row rather than per column.** One credential can be narrowed in one
+		# workspace and not in another, and the row where it is narrowed is the row whose
+		# permissions somebody has to read.
+		#
+		# **The test is whether the role holds everything, not whether the credential was
+		# narrowed** (`#717`). The old condition meant an agent learned *more* about what
+		# it could do by being restricted — a plain contributor got the word `Contributor`
+		# and nothing else, while the same account with a pinned token got the list.
+		if subroutine.permissions.worth_listing(workspace.permissions):
+			# **Described rather than listed** (`#703`). A verb whose subject is wider than
+			# its own name is a list that reads as complete and is not — `task:write` is
+			# the only thing granting document writes, and nothing said so.
+			cells.append(
+				f"may: {', '.join(subroutine.permissions.described(workspace.permissions))}"
+			)
+
+		rows.append(f"  {'  '.join(cells)}".rstrip())
+
+	return [*lines, "", *rows]
+
+
+def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
+	"""Return the role held in one workspace, or say that none is.
+
+	A superuser reaches every workspace whether or not they are a member of one (§7.1), so
+	"no role" is a real answer here rather than a missing value — and it is the answer that
+	explains why somebody with every permission is not on the members list.
+	"""
+
+	return workspace.role or "no role"
+
+
+def _connection_settings (
+	connection: subroutine.connections.Connection,
+) -> dict[str, str | bool]:
+	"""Return what to write under a connection's table, leaving out what was not asked for.
+
+	A default written down is a decision recorded, and this command takes none: a table
+	saying ``read_only = false`` reads as somebody having considered it, and it would
+	outlive a change to what the default means.
+	"""
+
+	values: dict[str, str | bool] = {"url": str(connection.url)}
+
+	if connection.read_only:
+		values["read_only"] = True
+
+	if connection.token_env is not None:
+		values["token_env"] = connection.token_env
+
+	if connection.token_command is not None:
+		values["token_command"] = connection.token_command
+
+	return values
+
+
+def _describing (reached: Welcomed) -> str:
+	"""Say what a new connection turned out to be, in one line."""
+
+	instance = "it" if reached.instance is None else reached.instance.name
+
+	if not reached.workspaces:
+		# Reachable and useless, which every other command would report as an instance with
+		# nothing in it. Said here because this is the one moment somebody still has the
+		# person who issued the token in mind.
+		return f"Reached {instance} as {reached.username}, who is in no workspace there."
+
+	return f"Reached {instance} as {reached.username}, in {', '.join(reached.workspaces)}."
+
+
+def _already_reached (
+	roster: subroutine.connections.Roster,
+	resolved: subroutine.config.Settings,
+	instance: uuid.UUID,
+) -> str | None:
+	"""Return the connection already naming this instance, or ``None`` if none does.
+
+	A connection that cannot be reached is passed over in silence rather than reported. It
+	is the ordinary state of the local one on the machine this command is written for, and
+	a warning about a work server being down would arrive while somebody is in the middle
+	of doing the one thing that does not need it.
+	"""
+
+	for existing in roster:
+		try:
+			with subroutine.clients.opening.for_connection(
+				existing, roster, resolved
+			) as client:
+				answered = client.identity()
+
+		except subroutine.errors.SubroutineError:
+			continue
+
+		if answered.instance is not None and answered.instance.id == instance:
+			return existing.name
+
+	return None
+
+
+def _completions (item: Reached) -> str:
+	"""Return the ``use`` a person meant, given the connection they named.
+
+	Its workspaces are already loaded — ``identity()`` is asked of every connection when
+	the world opens — so the completion can be exact rather than a shape to fill in.
+	"""
+
+	slugs = [workspace.slug for workspace in item.identity.workspaces]
+
+	if len(slugs) == 1:
+		return f"Say which workspace on it — 'subroutine use {item.name}/{slugs[0]}'."
+
+	if not slugs:
+		return (
+			"It has no workspace this credential can see, so there is nothing to "
+			"work in yet."
+		)
+
+	listed = ", ".join(sorted(slugs))
+
+	return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
+
+
+def _day (world: World, written: str) -> datetime.date:
+	"""Read a day the user named, in their timezone.
+
+	**A weekday name is resolved here rather than by the expression grammar** (`#167`).
+	``plan 1 friday`` is promised by ``explain dates``, by ``plan --help`` twice, by
+	``defer --help`` twice and by this function's own refusal — and it did not work, while
+	``add "Something by friday"`` did. Weekdays are what a person types; §9.3's expressions
+	serve programs, which have a calendar and should send a date. The two vocabularies meet
+	in ``dates.day_named``, so there is one answer to what "friday" means.
+	"""
+
+	resolved = subroutine.domain.schedule.interpret_written_day(
+		written,
+		timezone=world.settings.default_timezone,
+		now=subroutine.db.types.utcnow(),
+		field="when",
+	)
+
+	if resolved is None:
+		raise subroutine.errors.ValidationError(
+			f"{written!r} is not a day this understands.",
+			hint=subroutine.domain.schedule.WRITTEN_DAY_HINT,
+		)
+
+	return resolved
+
+
+def _change_line (event: subroutine.views.Event) -> str:
+	"""Render one event as a line somebody can read.
+
+	Names the item rather than its id — ``item_ref``/``item_title`` are on the view for
+	exactly this, so that a CLI, an agent and a browser say the same thing about one row.
+
+	**The changed field *names*, not their values.** A status moving from one word to
+	another is worth a glance; a description rewritten is not worth four lines of the
+	terminal, and anybody who wants the values has ``subroutine show``.
+	"""
+
+	named = (
+		f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
+		if event.item_ref is not None and event.item_title is not None
+		else event.item_title or _in_this_persons_terms(event.entity_type)
+	)
+	verb = event.action.replace("_", " ")
+
+	# A comment is the one action whose entity is not what it is about, and "commented on"
+	# reads as what happened where "created" would name the comment row nobody can see.
+	if event.entity_type == "comment":
+		verb = f"{verb} a comment on"
+
+	fields = sorted({_field_in_words(name) for name in (event.changes or {})})
+	listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
+
+	return f"{verb:<12}  {named}{listed}"
+
+
+def _in_this_persons_terms (entity_type: str) -> str:
+	"""Name the thing an event is about, for an event that is not about an item.
+
+	The rows ``init`` writes have no item to name, so this printed the entity type — which
+	is ``workspace`` and ``workspace_member``, two of the seven words §13.5b says a person
+	setting up a to-do list must never meet. Every other row already reads well, because
+	every other row has a title.
+
+	Anything unmapped keeps its own name rather than being made up: a word a reader has not
+	met is better than a wrong one, and the guard beside this is what stops a new kind
+	arriving unnoticed.
+	"""
+
+	return _AN_EVENT_ABOUT.get(entity_type, entity_type)
+
+
+def _listing (
+	world: World,
+	*,
+	limit: int,
+	strict: bool,
+	order: str | None = None,
+	project: str | None = None,
+	deferred: bool = False,
+	q: str | None = None,
+	ready: bool = False,
+	trash: bool = False,
+	assignee: str | None = None,
+	status: str | None = None,
+	type: str | None = None,
+	filters: dict[str, str] | None = None,
+) -> subroutine.fanout.Gathered[Listing]:
+	"""List every reachable workspace's items, one request per workspace per kind.
+
+	Per workspace rather than per connection because ``GET /v1/tasks`` refuses an
+	ambiguous one (§8.2) — and a local client that quietly spanned them would return
+	different rows depending on where the tasks were, which is the divergence this whole
+	arrangement exists to prevent.
+
+	**Tasks and documents in one list.** Refs come from one counter per workspace and are
+	shared between them (§6.2), and ``show`` already takes either — so a listing that held
+	only tasks was telling a reader who had learned that a number names an item that half
+	the numbers did not exist. Simon asked why ``#5``-``#8`` were missing from his list;
+	they are decision documents, and nothing in the output said so.
+
+	Each kind is fetched at the full limit and the merged result is cut to it, so the cut
+	is made across both rather than allocated between them — twenty documents must not be
+	able to push every task off a page.
+
+	**``order`` is parsed once, here, against the task vocabulary**, which is the richer of
+	the two: a person ranking a backlog wants ``-priority_score``, and a document has no
+	priority to be ranked by. A name outside it is refused before a single request goes
+	out, so an unknown sort field costs one message rather than one per workspace.
+	"""
+
+	shared, merging = _ordering(order)
+
+	def ask (client: subroutine.clients.base.Client) -> Listing:
+		"""Ask one connection for each of its workspaces in turn."""
+
+		item = world.connection(client.connection.name)
+		rows: list[Row] = []
+
+		# One past the limit, of each kind, so that "was anything cut?" is answered by
+		# what came back rather than by a second counting query.
+		asked = limit + 1
+
+		parked = 0
+
+		# **A project belongs to one workspace, and this asks them all** (`#332`). Until
+		# 2026-08-03 every instance had exactly one, so the loop ran once and could not
+		# disagree with itself; `#288` created a second and `--project` stopped working
+		# the same afternoon — the workspace that does not hold the key raised, the
+		# fan-out read that as the connection failing, and the rows the *right* workspace
+		# returned were discarded with it.
+		#
+		# So a key that resolves nowhere on this connection is still refused by name, and
+		# a key that resolves somewhere is simply absent from the workspaces it is not in.
+		# Suppressing unconditionally would turn a typo into "nothing on your list", which
+		# is the same answer as a project that exists and is empty.
+		missing: subroutine.errors.SubroutineError | None = None
+		reached = False
+
+		for workspace in () if item is None else item.identity.workspaces:
+			try:
+				found_here = client.tasks(
+					workspace=workspace.slug,
+					limit=asked,
+					order=order,
+					project=project,
+					deferred="include" if deferred else "exclude",
+					q=q,
+					ready=ready,
+					deleted=trash,
+					assignee=assignee,
+					status=status,
+					type=type,
+					filters=filters,
+				)
+
+			except subroutine.errors.NotFound as absent:
+				# Only a named project can legitimately be absent from a workspace the
+				# caller can otherwise read. Anything else is this connection failing.
+				#
+				# **An assignee is deliberately not in this list.** An account belongs to
+				# the instance rather than to a workspace, so a name that resolves nowhere
+				# is a typo wherever it was asked — and tolerating it here would turn one
+				# into "nothing on your list" across every workspace at once.
+				if project is None:
+					raise
+
+				missing = absent
+
+				continue
+
+			except subroutine.errors.ValidationError as unknown:
+				# **A status and a type are per-entity, per-workspace vocabulary** (§5.5),
+				# so `blocked` existing in one workspace and not the next is ordinary
+				# rather than an error — the same shape as `--project`, and the same
+				# tolerance. What is not ordinary is a key that is nowhere, which is a typo
+				# and is raised below by the `reached` check.
+				#
+				# **It falls through to documents rather than skipping the workspace**, and
+				# that is the whole subtlety: a task status and a document status are
+				# different vocabularies, so `--status active` misses every task and is
+				# exactly the question somebody asking for documents in force is putting.
+				# `continue` here answered it with the refusal instead.
+				#
+				# `#332` is why this is here at all: every instance had one workspace until
+				# 2026-08-03, so this loop ran once and could not disagree with itself, and
+				# `--project` broke the same afternoon a second one existed.
+				#
+				# **Identified by the field it names rather than by its code**, because the
+				# two lookups disagree about the code: `status_for` raises `invalid_status`
+				# and `item_type_for` takes the default. The field is what actually says
+				# "a vocabulary key this workspace has not got", and matching on it means
+				# a genuine refusal about something else is still raised.
+				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+					raise
+
+				missing = unknown
+				found_here = []
+				answered = False
+
+			else:
+				reached = True
+				answered = True
+
+			rows.extend((client.connection.name, found) for found in found_here)
+
+			# **`--ready` is about work you could start, so a document is not an answer to
+			# it** (`#136`). §6.14 says a document is not scheduled and nothing blocks one,
+			# so including them would mean every specification and decision in the instance
+			# reported as ready — which is true and useless, and would bury the tasks.
+			# The trash is a different list, not a wider one: nothing parked is reported
+			# beside it, and a deferral count would be about the live list.
+			if ready or trash:
+				continue
+
+			# **Counted before the assignee check below, not after.** A list narrowed to
+			# one person still hides that person's deferred work, and hiding without
+			# saying how much is the silence `#33` was about — the narrowing does not
+			# change which half of the rule applies.
+			#
+			# Skipped when the task call did not answer, because the count would ask the
+			# same question with the same key and be refused the same way.
+			if not deferred and answered:
+				# **A second request, and it buys the difference between narrowing a
+				# list and truncating one in silence** — the failure `#33` was about.
+				# Counted rather than flagged, unlike `…and more`: that declines a count
+				# because it would mean a second full scan of the *whole* result, where
+				# this set is the parked work alone and is small by construction. Asked
+				# at `asked` so a pathological backlog cannot make the count the
+				# expensive part; the report says `N+` if it fills.
+				parked += len(
+					client.tasks(
+						workspace=workspace.slug,
+						limit=asked,
+						project=project,
+						deferred="only",
+						q=q,
+						assignee=assignee,
+						status=status,
+						type=type,
+						filters=filters,
+					)
+				)
+			# **A document has no assignee, so a list narrowed to one is a list of tasks**
+			# (§6.14 — a document has an owner rather than a worker). The same argument
+			# `ready` makes above: including them would answer a question nobody asked,
+			# and "everything Simon is working on" ending in every specification in the
+			# workspace is worse than useless.
+			if assignee is not None:
+				continue
+
+			# **A date field a document has not got means *no* documents, never all of
+			# them** (`#815`). `completed_at`, `due_at`, `snoozed_until` and `starts_at` are
+			# task fields — §6.14 says a document is not scheduled — so asking *what was
+			# completed yesterday* is a question about tasks, and a document half that
+			# ignored the filter would answer it by adding every decision in the workspace.
+			# That is precisely the `--type bug` defect described below, and the reason it
+			# is worth naming twice is that this one widens a list the user asked to narrow.
+			if any(
+				name.partition(subroutine.domain.filtering.SEPARATOR)[0]
+				not in subroutine.domain.filtering.DOCUMENT_FILTERS
+				for name in (filters or {})
+			):
+				continue
+
+			# **Asked of documents as well, and a kind without that key contributes
+			# nothing.** `--type bug` must not return every decision in the workspace,
+			# which is what it did until this was driven against the real instance: the
+			# filter reached tasks and the documents call below ignored it, so narrowing
+			# the list *widened* the part of it nobody had filtered. A status and a type
+			# are separate vocabularies per entity (§5.5), so `bug` being absent from the
+			# document types is the ordinary answer — no documents — rather than an error.
+			try:
+				found_documents = client.documents(
+					workspace=workspace.slug,
+					limit=asked,
+					order=order if shared else None,
+					project=project,
+					q=q,
+					deleted=trash,
+					status=status,
+					type=type,
+					filters=filters,
+				)
+
+			except subroutine.errors.ValidationError as unknown:
+				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+					raise
+
+				# **The first refusal wins.** Both vocabularies rejecting the key is what
+				# makes it a typo, and somebody typing `--status` means a task's status far
+				# more often than a document's — so reporting the document one, purely
+				# because it was asked second, names the less likely of two right answers.
+				missing = missing or unknown
+				found_documents = []
+
+			else:
+				# **Documents answering is reaching this workspace too.** Without this,
+				# `--status active` — which no *task* status matches — would collect every
+				# document in force and then throw them away, because the task half had
+				# refused in every workspace and `missing` would be raised below.
+				#
+				# *Answering*, not *matching*: a key both vocabularies reject is a typo and
+				# must still be refused by name, which is the difference between this and
+				# "a filter was asked for".
+				reached = True
+
+			rows.extend((client.connection.name, found) for found in found_documents)
+
+		# **Refused by name when the key is nowhere on this connection.** A project that
+		# exists and holds nothing answers "nothing on your list"; a project that does not
+		# exist has to say so, or a mistyped `--project` is indistinguishable from an
+		# empty one. Raised rather than returned so `fanout` reports it per connection —
+		# a key on one instance and not another is a fact about that instance, and the
+		# other one's rows still arrive.
+		if missing is not None and not reached:
+			raise missing
+
+		# Re-sorted after the merge, because a merged result is a merge of pages and not
+		# one ordered page — the limit is per workspace and has to be applied again here.
+		# The domain owns the comparison so that the merged order matches the order each
+		# page arrived in, NULLS LAST included (§10.3): a document sorts last in a list
+		# ranked by priority, which is the same answer §6.3a gives an unranked task.
+		rows = subroutine.domain.ordering.merged(
+			rows, key=lambda row: row[1], order=merging
+		)
+
+		# **What was cut is carried, not discarded.** `rows[:limit]` used to be the end of
+		# it, so a backlog longer than the limit simply stopped — no count, no marker —
+		# and "it is not in the list" quietly stopped meaning "it does not exist", which
+		# is the one inference ref addressing is built to support. The agenda had always
+		# reported its own remainder; this is the same fact, carried the same way.
+		return Listing(rows=rows[:limit], more=len(rows) > limit, parked=parked)
+
+	return subroutine.fanout.gather(world.clients, ask, strict=strict)
+
+
+def _acted (world: World, located: Located, verb: str) -> str:
+	"""Return what to say after acting on a task, naming it absolutely when that matters.
+
+	A command that acts on a *relative* address should say what it actually acted on —
+	the moment of consequence is where a confirmation belongs, the same reason
+	``git commit`` prints the branch and the sha. But only where the address could have
+	been relative: with one workspace on one connection there is nothing to disambiguate,
+	and adding ``#1`` to "Done: Buy wine" is noise for the person §1.4 exists to protect.
+
+	``add`` uses this too (`#279`), and the guard is exactly right for it: the misfile
+	it exists to prevent is only *possible* where there is more than one place to file
+	to, which is the same condition.
+	"""
+
+	if not world.qualifies_workspace and not world.qualifies_connection:
+		return f"{verb}: {located.title}"
+
+	absolute = subroutine.domain.refs.format_address(
+		located.ref,
+		workspace=located.workspace,
+		connection=located.connection if world.qualifies_connection else None,
+	)
+
+	return f"{verb}: {absolute}  {located.title}"
+
+
 def register (
 	app: typer.Typer,
 	*,
@@ -1082,60 +1935,6 @@ def register (
 			except subroutine.errors.SubroutineError as error:
 				fail(error)
 
-	def _marker_taken_elsewhere (
-		current: subroutine.context.Current,
-		reached: typing.Sequence[Reached],
-		marker: subroutine.directory.Marker | None,
-	) -> subroutine.context.Current:
-		"""Find a dropped marker's workspace on whichever connection actually holds it — `#556`.
-
-		**A connection name is each machine's private alias, and a shared checkout makes it
-		shared** (`#330`). Two machines mounting one filesystem read one `.subroutine`, so the
-		nickname has to agree — and when it does not, the *whole* marker stopped directing, not
-		just the connection: `context.resolve` drops the workspace with it, because a workspace
-		*slug* means nothing on an instance that has never heard of it.
-
-		The id does. `workspace_id` has been in every marker since `#317` and is a uuid, so
-		asking which reached connection holds it is a question with one answer or none.
-
-		**By id, never by name, and `#414` is why.** That finding is a marker whose connection
-		was dropped matching its project by *key* on whichever instance answered, and filing
-		work into a same-named project somewhere else. A key is a claim that can be true twice;
-		a uuid is not. So this widens `Marker.speaks_for` in exactly one direction and leaves
-		the name test alone.
-
-		**Nothing reachable, nothing changes** (`#166`): this runs after the fan-out that had to
-		happen anyway, so it adds no request, and with nothing to ask it returns what it was
-		given. Several matches — which `#327` made a state somebody can be in — also return
-		unchanged, because refusing to guess is the whole point of using an id.
-		"""
-
-		if current.unusable_marker_connection is None or marker is None:
-			return current
-
-		if marker.workspace_id is None:
-			return current
-
-		holding = [
-			item
-			for item in reached
-			if any(str(row.id) == marker.workspace_id for row in item.identity.workspaces)
-		]
-
-		if len(holding) != 1:
-			return current
-
-		found = holding[0].name
-
-		return dataclasses.replace(
-			current,
-			connection=found,
-			connection_source=subroutine.context.FROM_DIRECTORY,
-			marker_found_on=found,
-			workspace=marker.workspace,
-			workspace_source=subroutine.context.FROM_DIRECTORY,
-		)
-
 	def _settled (
 		roster: subroutine.connections.Roster,
 		current: subroutine.context.Current,
@@ -1252,37 +2051,6 @@ def register (
 		# The refusal belongs to the write, and `_writing_workspace` makes it.
 		return current
 
-	def _writing_workspace (world: World) -> str:
-		"""Return the workspace a write lands in, refusing when nothing has said which."""
-
-		if world.current.workspace is not None:
-			return world.current.workspace
-
-		here = world.writing_to()
-
-		subroutine.context.refuse(
-			world.roster,
-			world.current,
-			[workspace.slug for workspace in here.identity.workspaces],
-		)
-
-	def _kept (held: int) -> str:
-		"""Say how many items survive a rename, with the verb and the possessive agreeing.
-
-		**One sentence, one place, because both rename commands print it** (`#296`). They had a
-		copy each and the copies disagreed twice over: `project rename` pluralised the *noun*
-		and left the verb behind — "1 item keep their numbers" — while `workspace rename` got
-		the grammar right and hedged the count with "at least" because it was reading a page.
-
-		It is only ever read at the moment somebody is deciding whether to do something
-		irreversible, which is the worst possible place for either fault.
-		"""
-
-		if held == 1:
-			return "1 item keeps its number"
-
-		return f"{held:,} items keep their numbers"
-
 	def _locate (
 		world: World,
 		given: str,
@@ -1370,22 +2138,6 @@ def register (
 			f"Say which — 'subroutine {verb} "
 			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
 		)
-
-	def _in_place (world: World, workspace: str) -> str:
-		"""Return " in <workspace>", or nothing when there is only one place it could be.
-
-		§1.4 again, in the place it is easiest to miss: a refusal is written when something has
-		already gone wrong, so it is the *last* output anybody re-reads for stray vocabulary.
-		Somebody with one workspace who typed a number that does not exist was being told
-		"there is no #9 in si" — a workspace they never named, introduced by an error message,
-		about a to-do list. The guard on the four §13.5b commands cannot see this, because a
-		refusal is not in the transcript.
-		"""
-
-		if not world.qualifies_workspace and not world.qualifies_connection:
-			return ""
-
-		return f" in {workspace}"
 
 	def _a_task (world: World, given: str, *, verb: str) -> tuple[Located, subroutine.views.Task]:
 		"""Resolve an address into a task, turning down a document by saying what it is.
@@ -1498,72 +2250,6 @@ def register (
 			f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}', or "
 			f"'subroutine use {_place_of(world, candidates[0])}' to keep working there.",
 		)
-
-	def _found_at (
-		item: Reached, workspace: str, ref: int, kinds: tuple[str, ...]
-	) -> Item | None:
-		"""Ask one connection what this ref names there, trying each kind in turn.
-
-		Tasks first wherever both are wanted, because that is overwhelmingly what a number on
-		a command line means — and because a ref belongs to exactly one item, so the order
-		decides only which question is asked twice, never which answer is returned.
-		"""
-
-		for kind in kinds:
-			found: Item | None = (
-				item.client.task(ref=ref, workspace=workspace)
-				if kind == "task"
-				else item.client.document(ref=ref, workspace=workspace)
-			)
-
-			if found is not None:
-				return found
-
-		return None
-
-	def _everywhere (world: World, ref: int, kinds: tuple[str, ...]) -> list[Located]:
-		"""Find this ref in every workspace that is reachable.
-
-		A point lookup per workspace. That is what §13.7 means by there being no bulk "all
-		item ids" endpoint: an index of what exists would go stale exactly when it mattered,
-		while disambiguating one ref needs a point lookup and nothing more.
-		"""
-
-		found: list[Located] = []
-
-		for item in world.reached:
-			for workspace in item.identity.workspaces:
-				# A connection that fails mid-search must not turn a refusal about one ref
-				# into a refusal about the network. The listing already said which
-				# connections answered.
-				with contextlib.suppress(subroutine.errors.SubroutineError):
-					here = _found_at(item, workspace.slug, ref, kinds)
-
-					if here is not None:
-						found.append(
-							Located(
-								connection=item.name, workspace=workspace.slug, item=here
-							)
-						)
-
-		return found
-
-	def _absolute (world: World, located: Located) -> str:
-		"""Return a candidate's address, qualified as far as this world needs."""
-
-		return subroutine.domain.refs.format_address(
-			located.ref,
-			workspace=located.workspace,
-			connection=located.connection if world.qualifies_connection else None,
-		)
-
-	def _place_of (world: World, located: Located) -> str:
-		"""Return what ``use`` would be given to make this candidate's home current."""
-
-		if world.qualifies_connection:
-			return f"{located.connection}{subroutine.domain.refs.SEPARATOR}{located.workspace}"
-
-		return located.workspace
 
 	# --- The commands --------------------------------------------------------------------
 
@@ -3898,36 +4584,6 @@ def register (
 
 			say(f"Moved {moved.key} — {moved.title}")
 
-	def _subtree (
-		tree: list[subroutine.views.Project], key: str
-	) -> list[subroutine.views.Project]:
-		"""Return the project with this key and everything under it.
-
-		**Walked through ``parent_id``, not read off ``path``.** The materialised path is
-		exactly what makes this a single containment test in the database, and it is
-		deliberately *not* on the view — §6.9 calls it an implementation of the hierarchy
-		rather than a field of it, and the writability guard records that. So a client
-		assembles the tree from the one relation it is given, which is the right side of that
-		trade: `path` is ours to change and `parent_id` is a fact.
-
-		``projects()`` returns parents before children (§8.4), so one forward pass is enough
-		and nothing has to recurse.
-		"""
-
-		wanted = subroutine.domain.projects.normalize_key(key)
-		root = next((item for item in tree if item.key == wanted), None)
-
-		if root is None:
-			return []
-
-		inside = {root.id}
-
-		for item in tree:
-			if item.parent_id in inside:
-				inside.add(item.id)
-
-		return [item for item in tree if item.id in inside]
-
 	# **Membership lives under `user`, and there is deliberately no `workspace` group**
 	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
 	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a
@@ -4006,35 +4662,6 @@ def register (
 			# no membership can see nothing at all, so stopping at "Created" would leave
 			# somebody with a person who appears to be broken.
 			_suggest(console, f"subroutine user add {created.username} --role member")
-
-	def _keep_the_operators_own_list (
-		world: World, before: typing.Sequence[subroutine.views.User]
-	) -> str | None:
-		"""Pin local commands to the existing account, and return who that was.
-
-		**Adding a colleague must not cost you your own to-do list.** Local mode picks an
-		account by there being exactly one (§12.1a); the moment a second exists it refuses,
-		correctly, with "there is more than one account, so there is no way to tell whose
-		to-do list to show". So on an instance somebody actually uses, `user create` broke
-		`subroutine add` for them — the same shape as service accounts counting towards that
-		total until 2026-07-30, and the same answer: setting somebody up must not take
-		something away.
-
-		Only when there was exactly **one** account and nothing has already chosen. Two
-		accounts already means the operator has settled this, and overwriting their choice
-		would be a worse version of the problem being fixed.
-
-		Returns ``None`` when nothing needed doing, which is every case after the first.
-		"""
-
-		people = [account for account in before if not account.is_service_account]
-
-		if len(people) != 1 or world.settings.local_user:
-			return None
-
-		subroutine.config.store_setting("local_user", people[0].username)
-
-		return people[0].username
 
 	@user_app.command("list")
 	def user_list (
@@ -4379,48 +5006,6 @@ def register (
 		say("")
 		_suggest(console, "subroutine add \"something to do\"")
 
-	def _workspace_id_of (world: World, slug: str | None) -> str | None:
-		"""Return the permanent id of the workspace this slug names, or ``None``.
-
-		``None`` rather than a refusal when it does not resolve: the slug written beside it is
-		the fallback :func:`subroutine.directory.resolve_workspace` already uses for every
-		marker predating `#317`, so a marker with a name and no id is the state the program has
-		always handled rather than a broken one.
-		"""
-
-		if slug is None:
-			return None
-
-		for item in world.reached:
-			if item.name != world.current.connection:
-				continue
-
-			for space in item.identity.workspaces:
-				if space.slug == slug:
-					return str(space.id)
-
-		return None
-
-	def _project_id_of (world: World, key: str) -> str | None:
-		"""Return the permanent id of the project this key names, or ``None`` if there is none.
-
-		Checked before the file is written, because a marker naming a project that does not
-		exist fails on the *next* capture rather than here — and the person who would have to
-		work out why is not the one who typed this.
-
-		Returns the **id** rather than a yes-or-no, because that is what the marker records
-		(`#177`) and asking twice would be two chances for the answers to differ.
-		"""
-
-		where = world.writing_to()
-
-		for row in where.client.projects(workspace=_writing_workspace(world)):
-			if subroutine.domain.projects.normalize_key(row.key) == key:
-				return str(row.id)
-
-		return None
-
-
 	def _default_project (world: World, text: str) -> str | None:
 		"""Return the project a captured line should go to when it does not say (§13.7a).
 
@@ -4503,36 +5088,6 @@ def register (
 
 		return named
 
-	def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
-		"""Return the current key of the project a marker names, or ``None`` if there is none.
-
-		The matching itself is `subroutine.directory.resolve`, which is shared with the MCP
-		server — this half is only the fetching, because that is the part that needs a world
-		to fetch through. It was one function here until `#232` found the other surface had no
-		equivalent at all.
-
-		**Nothing is fetched at all unless the marker speaks for the connection being written
-		to** (`#414`). `context.resolve` has always applied that test to the marker's workspace;
-		without it here, a marker whose connection was dropped (`#409`) or overridden by `-c`
-		still matched its project **by key** on whichever instance answered instead — filing
-		work into a same-named project somewhere else entirely, one line under a warning saying
-		the connection had been ignored.
-		"""
-
-		where = world.writing_to()
-
-		# **Or found there by id** (`#556`). `speaks_for` compares the name the marker wrote,
-		# which is exactly the test `#414` added and it stays; `marker_found_on` is set only
-		# when a `workspace_id` matched, which is a claim a key could never make.
-		if not (
-			marker.speaks_for(where.name) or world.current.marker_found_on == where.name
-		):
-			return None
-
-		found = where.client.projects(workspace=_writing_workspace(world))
-
-		return subroutine.directory.resolve(marker, found)
-
 	# **Visible on a one-connection install, unlike `use` and `connections`.** Those answer
 	# *where* work goes, which is a question nobody has until there are two answers. This
 	# answers *who is asking* — and the case that most needs it is precisely the one
@@ -4613,85 +5168,6 @@ def register (
 					console.print(line)
 
 			_report(world, gathered.failures)
-
-	def _whoami_lines (me: subroutine.views.Me) -> list[str]:
-		"""Describe one connection's answer to "who am I": the account, the credential, the room.
-
-		**What the credential withholds is stated; what it grants is not enumerated.** An
-		unnarrowed owner would otherwise get twenty permission keys they already have, and the
-		one reader who needs the list — an agent working under a deliberately small credential —
-		is exactly the one whose list is short. Same rule as every other column here: what is
-		true of every row says nothing, and it is the exception that has to be visible.
-		"""
-
-		kind = "agent" if me.user.is_service_account else "person"
-		credential = me.credential
-		how = (
-			"the local database"
-			if credential is None
-			else f"token {credential.title!r} ({credential.prefix}…)"
-		)
-		lines = [f"{me.user.username} ({kind}), via {how}."]
-
-		if credential is not None and credential.narrows:
-			lines.append(
-				f"Narrowed to "
-				f"{subroutine.views.narrowing(credential, me.workspaces)}."
-			)
-
-		if me.instance_permissions:
-			lines.append(f"Over the installation itself: {', '.join(me.instance_permissions)}.")
-
-		if not me.workspaces:
-			# **The failure this command exists to make legible.** A credential pinned to a
-			# workspace it has no membership of reaches nothing, and every *other* command
-			# reports that as an empty list — which reads as an empty instance rather than as
-			# a credential that cannot see it.
-			lines.append("No workspace here can be read with this credential.")
-
-			return lines
-
-		# **Not `_tabulated`, and that is the one place this output departs from every other
-		# listing here.** Its rule is that a column saying the same thing on every row says
-		# nothing — true of a backlog, false of this: two workspaces both answering "Owner" is
-		# not a column with nothing to say, it is the answer to the question that was asked.
-		# Dropped silently, the command printed two slugs and no statement of authority at all.
-		names = max(len(workspace.slug) for workspace in me.workspaces)
-		roles = max(len(_role(workspace)) for workspace in me.workspaces)
-		rows = []
-
-		for workspace in me.workspaces:
-			cells = [workspace.slug.ljust(names), _role(workspace).ljust(roles)]
-
-			# **Per row rather than per column.** One credential can be narrowed in one
-			# workspace and not in another, and the row where it is narrowed is the row whose
-			# permissions somebody has to read.
-			#
-			# **The test is whether the role holds everything, not whether the credential was
-			# narrowed** (`#717`). The old condition meant an agent learned *more* about what
-			# it could do by being restricted — a plain contributor got the word `Contributor`
-			# and nothing else, while the same account with a pinned token got the list.
-			if subroutine.permissions.worth_listing(workspace.permissions):
-				# **Described rather than listed** (`#703`). A verb whose subject is wider than
-				# its own name is a list that reads as complete and is not — `task:write` is
-				# the only thing granting document writes, and nothing said so.
-				cells.append(
-					f"may: {', '.join(subroutine.permissions.described(workspace.permissions))}"
-				)
-
-			rows.append(f"  {'  '.join(cells)}".rstrip())
-
-		return [*lines, "", *rows]
-
-	def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
-		"""Return the role held in one workspace, or say that none is.
-
-		A superuser reaches every workspace whether or not they are a member of one (§7.1), so
-		"no role" is a real answer here rather than a missing value — and it is the answer that
-		explains why somebody with every permission is not on the members list.
-		"""
-
-		return workspace.role or "no role"
 
 	# **A group whose bare invocation is still the listing**, the way the application's own is
 	# still the agenda (§12.2a). `subroutine connections` is in other people's notes and in
@@ -5004,29 +5480,6 @@ def register (
 		say("")
 		_suggest(console, "subroutine list", "everything this machine can now reach")
 
-	def _connection_settings (
-		connection: subroutine.connections.Connection,
-	) -> dict[str, str | bool]:
-		"""Return what to write under a connection's table, leaving out what was not asked for.
-
-		A default written down is a decision recorded, and this command takes none: a table
-		saying ``read_only = false`` reads as somebody having considered it, and it would
-		outlive a change to what the default means.
-		"""
-
-		values: dict[str, str | bool] = {"url": str(connection.url)}
-
-		if connection.read_only:
-			values["read_only"] = True
-
-		if connection.token_env is not None:
-			values["token_env"] = connection.token_env
-
-		if connection.token_command is not None:
-			values["token_command"] = connection.token_command
-
-		return values
-
 	def _asked_for_a_token (name: str) -> str:
 		"""Ask for a connection's token, or take it from a pipe when there is one.
 
@@ -5089,47 +5542,6 @@ def register (
 			username=me.user.username,
 			workspaces=tuple(workspace.slug for workspace in identity.workspaces),
 		)
-
-	def _describing (reached: Welcomed) -> str:
-		"""Say what a new connection turned out to be, in one line."""
-
-		instance = "it" if reached.instance is None else reached.instance.name
-
-		if not reached.workspaces:
-			# Reachable and useless, which every other command would report as an instance with
-			# nothing in it. Said here because this is the one moment somebody still has the
-			# person who issued the token in mind.
-			return f"Reached {instance} as {reached.username}, who is in no workspace there."
-
-		return f"Reached {instance} as {reached.username}, in {', '.join(reached.workspaces)}."
-
-	def _already_reached (
-		roster: subroutine.connections.Roster,
-		resolved: subroutine.config.Settings,
-		instance: uuid.UUID,
-	) -> str | None:
-		"""Return the connection already naming this instance, or ``None`` if none does.
-
-		A connection that cannot be reached is passed over in silence rather than reported. It
-		is the ordinary state of the local one on the machine this command is written for, and
-		a warning about a work server being down would arrive while somebody is in the middle
-		of doing the one thing that does not need it.
-		"""
-
-		for existing in roster:
-			try:
-				with subroutine.clients.opening.for_connection(
-					existing, roster, resolved
-				) as client:
-					answered = client.identity()
-
-			except subroutine.errors.SubroutineError:
-				continue
-
-			if answered.instance is not None and answered.instance.id == instance:
-				return existing.name
-
-		return None
 
 	def _connection_row (
 		connection: subroutine.connections.Connection,
@@ -5208,28 +5620,6 @@ def register (
 
 		return item.name, wanted
 
-	def _completions (item: Reached) -> str:
-		"""Return the ``use`` a person meant, given the connection they named.
-
-		Its workspaces are already loaded — ``identity()`` is asked of every connection when
-		the world opens — so the completion can be exact rather than a shape to fill in.
-		"""
-
-		slugs = [workspace.slug for workspace in item.identity.workspaces]
-
-		if len(slugs) == 1:
-			return f"Say which workspace on it — 'subroutine use {item.name}/{slugs[0]}'."
-
-		if not slugs:
-			return (
-				"It has no workspace this credential can see, so there is nothing to "
-				"work in yet."
-			)
-
-		listed = ", ".join(sorted(slugs))
-
-		return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
-
 	def _require_connection (
 		world: World, name: str
 	) -> subroutine.clients.base.Client:
@@ -5241,32 +5631,6 @@ def register (
 			stop(f"{name} could not be reached.")
 
 		return item.client
-
-	def _day (world: World, written: str) -> datetime.date:
-		"""Read a day the user named, in their timezone.
-
-		**A weekday name is resolved here rather than by the expression grammar** (`#167`).
-		``plan 1 friday`` is promised by ``explain dates``, by ``plan --help`` twice, by
-		``defer --help`` twice and by this function's own refusal — and it did not work, while
-		``add "Something by friday"`` did. Weekdays are what a person types; §9.3's expressions
-		serve programs, which have a calendar and should send a date. The two vocabularies meet
-		in ``dates.day_named``, so there is one answer to what "friday" means.
-		"""
-
-		resolved = subroutine.domain.schedule.interpret_written_day(
-			written,
-			timezone=world.settings.default_timezone,
-			now=subroutine.db.types.utcnow(),
-			field="when",
-		)
-
-		if resolved is None:
-			raise subroutine.errors.ValidationError(
-				f"{written!r} is not a day this understands.",
-				hint=subroutine.domain.schedule.WRITTEN_DAY_HINT,
-			)
-
-		return resolved
 
 	def _report (world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
 		"""Name every connection that could not be reached, and carry on.
@@ -5328,49 +5692,6 @@ def register (
 		for failure in gathered.failures:
 			console.print(rich.text.Text(failure.describe(), style=LATE))
 
-	def _change_line (event: subroutine.views.Event) -> str:
-		"""Render one event as a line somebody can read.
-
-		Names the item rather than its id — ``item_ref``/``item_title`` are on the view for
-		exactly this, so that a CLI, an agent and a browser say the same thing about one row.
-
-		**The changed field *names*, not their values.** A status moving from one word to
-		another is worth a glance; a description rewritten is not worth four lines of the
-		terminal, and anybody who wants the values has ``subroutine show``.
-		"""
-
-		named = (
-			f"{subroutine.domain.refs.format_ref(event.item_ref)} {event.item_title}"
-			if event.item_ref is not None and event.item_title is not None
-			else event.item_title or _in_this_persons_terms(event.entity_type)
-		)
-		verb = event.action.replace("_", " ")
-
-		# A comment is the one action whose entity is not what it is about, and "commented on"
-		# reads as what happened where "created" would name the comment row nobody can see.
-		if event.entity_type == "comment":
-			verb = f"{verb} a comment on"
-
-		fields = sorted({_field_in_words(name) for name in (event.changes or {})})
-		listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
-
-		return f"{verb:<12}  {named}{listed}"
-
-	def _in_this_persons_terms (entity_type: str) -> str:
-		"""Name the thing an event is about, for an event that is not about an item.
-
-		The rows ``init`` writes have no item to name, so this printed the entity type — which
-		is ``workspace`` and ``workspace_member``, two of the seven words §13.5b says a person
-		setting up a to-do list must never meet. Every other row already reads well, because
-		every other row has a title.
-
-		Anything unmapped keeps its own name rather than being made up: a word a reader has not
-		met is better than a wrong one, and the guard beside this is what stops a new kind
-		arriving unnoticed.
-		"""
-
-		return _AN_EVENT_ABOUT.get(entity_type, entity_type)
-
 	def _only_this_connection (world: World, name: str) -> World:
 		"""Return the world with only the named connection in it — `#272`.
 
@@ -5404,295 +5725,6 @@ def register (
 			)
 
 		return dataclasses.replace(world, reached=kept, narrowed_to=wanted.name)
-
-	def _listing (
-		world: World,
-		*,
-		limit: int,
-		strict: bool,
-		order: str | None = None,
-		project: str | None = None,
-		deferred: bool = False,
-		q: str | None = None,
-		ready: bool = False,
-		trash: bool = False,
-		assignee: str | None = None,
-		status: str | None = None,
-		type: str | None = None,
-		filters: dict[str, str] | None = None,
-	) -> subroutine.fanout.Gathered[Listing]:
-		"""List every reachable workspace's items, one request per workspace per kind.
-
-		Per workspace rather than per connection because ``GET /v1/tasks`` refuses an
-		ambiguous one (§8.2) — and a local client that quietly spanned them would return
-		different rows depending on where the tasks were, which is the divergence this whole
-		arrangement exists to prevent.
-
-		**Tasks and documents in one list.** Refs come from one counter per workspace and are
-		shared between them (§6.2), and ``show`` already takes either — so a listing that held
-		only tasks was telling a reader who had learned that a number names an item that half
-		the numbers did not exist. Simon asked why ``#5``-``#8`` were missing from his list;
-		they are decision documents, and nothing in the output said so.
-
-		Each kind is fetched at the full limit and the merged result is cut to it, so the cut
-		is made across both rather than allocated between them — twenty documents must not be
-		able to push every task off a page.
-
-		**``order`` is parsed once, here, against the task vocabulary**, which is the richer of
-		the two: a person ranking a backlog wants ``-priority_score``, and a document has no
-		priority to be ranked by. A name outside it is refused before a single request goes
-		out, so an unknown sort field costs one message rather than one per workspace.
-		"""
-
-		shared, merging = _ordering(order)
-
-		def ask (client: subroutine.clients.base.Client) -> Listing:
-			"""Ask one connection for each of its workspaces in turn."""
-
-			item = world.connection(client.connection.name)
-			rows: list[Row] = []
-
-			# One past the limit, of each kind, so that "was anything cut?" is answered by
-			# what came back rather than by a second counting query.
-			asked = limit + 1
-
-			parked = 0
-
-			# **A project belongs to one workspace, and this asks them all** (`#332`). Until
-			# 2026-08-03 every instance had exactly one, so the loop ran once and could not
-			# disagree with itself; `#288` created a second and `--project` stopped working
-			# the same afternoon — the workspace that does not hold the key raised, the
-			# fan-out read that as the connection failing, and the rows the *right* workspace
-			# returned were discarded with it.
-			#
-			# So a key that resolves nowhere on this connection is still refused by name, and
-			# a key that resolves somewhere is simply absent from the workspaces it is not in.
-			# Suppressing unconditionally would turn a typo into "nothing on your list", which
-			# is the same answer as a project that exists and is empty.
-			missing: subroutine.errors.SubroutineError | None = None
-			reached = False
-
-			for workspace in () if item is None else item.identity.workspaces:
-				try:
-					found_here = client.tasks(
-						workspace=workspace.slug,
-						limit=asked,
-						order=order,
-						project=project,
-						deferred="include" if deferred else "exclude",
-						q=q,
-						ready=ready,
-						deleted=trash,
-						assignee=assignee,
-						status=status,
-						type=type,
-						filters=filters,
-					)
-
-				except subroutine.errors.NotFound as absent:
-					# Only a named project can legitimately be absent from a workspace the
-					# caller can otherwise read. Anything else is this connection failing.
-					#
-					# **An assignee is deliberately not in this list.** An account belongs to
-					# the instance rather than to a workspace, so a name that resolves nowhere
-					# is a typo wherever it was asked — and tolerating it here would turn one
-					# into "nothing on your list" across every workspace at once.
-					if project is None:
-						raise
-
-					missing = absent
-
-					continue
-
-				except subroutine.errors.ValidationError as unknown:
-					# **A status and a type are per-entity, per-workspace vocabulary** (§5.5),
-					# so `blocked` existing in one workspace and not the next is ordinary
-					# rather than an error — the same shape as `--project`, and the same
-					# tolerance. What is not ordinary is a key that is nowhere, which is a typo
-					# and is raised below by the `reached` check.
-					#
-					# **It falls through to documents rather than skipping the workspace**, and
-					# that is the whole subtlety: a task status and a document status are
-					# different vocabularies, so `--status active` misses every task and is
-					# exactly the question somebody asking for documents in force is putting.
-					# `continue` here answered it with the refusal instead.
-					#
-					# `#332` is why this is here at all: every instance had one workspace until
-					# 2026-08-03, so this loop ran once and could not disagree with itself, and
-					# `--project` broke the same afternoon a second one existed.
-					#
-					# **Identified by the field it names rather than by its code**, because the
-					# two lookups disagree about the code: `status_for` raises `invalid_status`
-					# and `item_type_for` takes the default. The field is what actually says
-					# "a vocabulary key this workspace has not got", and matching on it means
-					# a genuine refusal about something else is still raised.
-					if not {problem.field for problem in unknown.errors} & {"status", "type"}:
-						raise
-
-					missing = unknown
-					found_here = []
-					answered = False
-
-				else:
-					reached = True
-					answered = True
-
-				rows.extend((client.connection.name, found) for found in found_here)
-
-				# **`--ready` is about work you could start, so a document is not an answer to
-				# it** (`#136`). §6.14 says a document is not scheduled and nothing blocks one,
-				# so including them would mean every specification and decision in the instance
-				# reported as ready — which is true and useless, and would bury the tasks.
-				# The trash is a different list, not a wider one: nothing parked is reported
-				# beside it, and a deferral count would be about the live list.
-				if ready or trash:
-					continue
-
-				# **Counted before the assignee check below, not after.** A list narrowed to
-				# one person still hides that person's deferred work, and hiding without
-				# saying how much is the silence `#33` was about — the narrowing does not
-				# change which half of the rule applies.
-				#
-				# Skipped when the task call did not answer, because the count would ask the
-				# same question with the same key and be refused the same way.
-				if not deferred and answered:
-					# **A second request, and it buys the difference between narrowing a
-					# list and truncating one in silence** — the failure `#33` was about.
-					# Counted rather than flagged, unlike `…and more`: that declines a count
-					# because it would mean a second full scan of the *whole* result, where
-					# this set is the parked work alone and is small by construction. Asked
-					# at `asked` so a pathological backlog cannot make the count the
-					# expensive part; the report says `N+` if it fills.
-					parked += len(
-						client.tasks(
-							workspace=workspace.slug,
-							limit=asked,
-							project=project,
-							deferred="only",
-							q=q,
-							assignee=assignee,
-							status=status,
-							type=type,
-							filters=filters,
-						)
-					)
-				# **A document has no assignee, so a list narrowed to one is a list of tasks**
-				# (§6.14 — a document has an owner rather than a worker). The same argument
-				# `ready` makes above: including them would answer a question nobody asked,
-				# and "everything Simon is working on" ending in every specification in the
-				# workspace is worse than useless.
-				if assignee is not None:
-					continue
-
-				# **A date field a document has not got means *no* documents, never all of
-				# them** (`#815`). `completed_at`, `due_at`, `snoozed_until` and `starts_at` are
-				# task fields — §6.14 says a document is not scheduled — so asking *what was
-				# completed yesterday* is a question about tasks, and a document half that
-				# ignored the filter would answer it by adding every decision in the workspace.
-				# That is precisely the `--type bug` defect described below, and the reason it
-				# is worth naming twice is that this one widens a list the user asked to narrow.
-				if any(
-					name.partition(subroutine.domain.filtering.SEPARATOR)[0]
-					not in subroutine.domain.filtering.DOCUMENT_FILTERS
-					for name in (filters or {})
-				):
-					continue
-
-				# **Asked of documents as well, and a kind without that key contributes
-				# nothing.** `--type bug` must not return every decision in the workspace,
-				# which is what it did until this was driven against the real instance: the
-				# filter reached tasks and the documents call below ignored it, so narrowing
-				# the list *widened* the part of it nobody had filtered. A status and a type
-				# are separate vocabularies per entity (§5.5), so `bug` being absent from the
-				# document types is the ordinary answer — no documents — rather than an error.
-				try:
-					found_documents = client.documents(
-						workspace=workspace.slug,
-						limit=asked,
-						order=order if shared else None,
-						project=project,
-						q=q,
-						deleted=trash,
-						status=status,
-						type=type,
-						filters=filters,
-					)
-
-				except subroutine.errors.ValidationError as unknown:
-					if not {problem.field for problem in unknown.errors} & {"status", "type"}:
-						raise
-
-					# **The first refusal wins.** Both vocabularies rejecting the key is what
-					# makes it a typo, and somebody typing `--status` means a task's status far
-					# more often than a document's — so reporting the document one, purely
-					# because it was asked second, names the less likely of two right answers.
-					missing = missing or unknown
-					found_documents = []
-
-				else:
-					# **Documents answering is reaching this workspace too.** Without this,
-					# `--status active` — which no *task* status matches — would collect every
-					# document in force and then throw them away, because the task half had
-					# refused in every workspace and `missing` would be raised below.
-					#
-					# *Answering*, not *matching*: a key both vocabularies reject is a typo and
-					# must still be refused by name, which is the difference between this and
-					# "a filter was asked for".
-					reached = True
-
-				rows.extend((client.connection.name, found) for found in found_documents)
-
-			# **Refused by name when the key is nowhere on this connection.** A project that
-			# exists and holds nothing answers "nothing on your list"; a project that does not
-			# exist has to say so, or a mistyped `--project` is indistinguishable from an
-			# empty one. Raised rather than returned so `fanout` reports it per connection —
-			# a key on one instance and not another is a fact about that instance, and the
-			# other one's rows still arrive.
-			if missing is not None and not reached:
-				raise missing
-
-			# Re-sorted after the merge, because a merged result is a merge of pages and not
-			# one ordered page — the limit is per workspace and has to be applied again here.
-			# The domain owns the comparison so that the merged order matches the order each
-			# page arrived in, NULLS LAST included (§10.3): a document sorts last in a list
-			# ranked by priority, which is the same answer §6.3a gives an unranked task.
-			rows = subroutine.domain.ordering.merged(
-				rows, key=lambda row: row[1], order=merging
-			)
-
-			# **What was cut is carried, not discarded.** `rows[:limit]` used to be the end of
-			# it, so a backlog longer than the limit simply stopped — no count, no marker —
-			# and "it is not in the list" quietly stopped meaning "it does not exist", which
-			# is the one inference ref addressing is built to support. The agenda had always
-			# reported its own remainder; this is the same fact, carried the same way.
-			return Listing(rows=rows[:limit], more=len(rows) > limit, parked=parked)
-
-		return subroutine.fanout.gather(world.clients, ask, strict=strict)
-
-	def _acted (world: World, located: Located, verb: str) -> str:
-		"""Return what to say after acting on a task, naming it absolutely when that matters.
-
-		A command that acts on a *relative* address should say what it actually acted on —
-		the moment of consequence is where a confirmation belongs, the same reason
-		``git commit`` prints the branch and the sha. But only where the address could have
-		been relative: with one workspace on one connection there is nothing to disambiguate,
-		and adding ``#1`` to "Done: Buy wine" is noise for the person §1.4 exists to protect.
-
-		``add`` uses this too (`#279`), and the guard is exactly right for it: the misfile
-		it exists to prevent is only *possible* where there is more than one place to file
-		to, which is the same condition.
-		"""
-
-		if not world.qualifies_workspace and not world.qualifies_connection:
-			return f"{verb}: {located.title}"
-
-		absolute = subroutine.domain.refs.format_address(
-			located.ref,
-			workspace=located.workspace,
-			connection=located.connection if world.qualifies_connection else None,
-		)
-
-		return f"{verb}: {absolute}  {located.title}"
 
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""

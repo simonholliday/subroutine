@@ -18,6 +18,7 @@ import pathlib
 import re
 import sys
 import typing
+import uuid
 
 import pytest
 import rich.text
@@ -38,6 +39,7 @@ import subroutine.domain.dates
 import subroutine.domain.events
 import subroutine.errors
 import subroutine.fanout
+import subroutine.views
 
 #: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
 #: these, and meeting one means the personal path has started leaking the full model.
@@ -5131,6 +5133,109 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 # flag, and the only honest way to ask is to run them against two connections naming one
 # instance. That is `test_cli_connections.py`, which already starts servers:
 # `test_a_duplicate_stops_only_the_reads_that_combine_connections`.
+
+
+#: How many lines ``cli/personal.register`` may still hold. **A ratchet: it only goes down.**
+#:
+#: Cold review `#927`'s L-1 measured it at **4,769 lines of a 6,971-line file — 68% — holding
+#: ninety nested definitions sharing one closure**, none of them reachable except by running a
+#: Typer command. `#943` is taking it apart in stages; this is what stops the next one being
+#: undone by the one after.
+#:
+#: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
+#: that ``register`` calls, which is the shape this is pushing towards — so needing more room
+#: here is the signal, not the exception.
+REGISTER_CEILING = 3_950
+
+#: The floor that stops the ceiling above being met by a scanner that read nothing. Both
+#: numbers move together as stages land: lines out of ``register`` become functions here.
+MODULE_LEVEL_FLOOR = 70
+
+
+def _register_span () -> tuple[int, int]:
+	"""Return how many lines ``register`` holds and how many functions the module has."""
+
+	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
+	tree = ast.parse(source)
+
+	found = next(
+		node
+		for node in tree.body
+		if isinstance(node, ast.FunctionDef) and node.name == "register"
+	)
+
+	return (
+		found.end_lineno - found.lineno + 1 if found.end_lineno else 0,
+		sum(1 for node in tree.body if isinstance(node, ast.FunctionDef)),
+	)
+
+
+def test_the_personal_command_closure_only_ever_shrinks () -> None:
+	"""`#943`, cold review `#927`'s L-1 — the ratchet, not the fix.
+
+	**Two numbers, because either alone is satisfiable the wrong way.** A ceiling on
+	``register`` is met by moving code into a second enormous function; a floor on module-level
+	functions is met by splitting one in half. Together they say *lines left the closure and
+	became things a test can call*.
+
+	The first stage moved the twenty-four definitions that referenced nothing in the closure —
+	measured by walking the tree, not by reading — which is 821 lines and no signature change
+	anywhere.
+	"""
+
+	held, functions = _register_span()
+
+	assert held <= REGISTER_CEILING, (
+		f"`register` holds {held} lines against a ceiling of {REGISTER_CEILING}. This ratchet "
+		"only goes down: a new command belongs in a function `register` calls, not in the "
+		"closure. If a stage of `#943` genuinely made it shorter, lower the ceiling."
+	)
+
+	assert functions >= MODULE_LEVEL_FLOOR, (
+		f"`cli/personal.py` has {functions} module-level functions against a floor of "
+		f"{MODULE_LEVEL_FLOOR}. Something moved back into the closure, or this scan has "
+		"stopped reading the tree."
+	)
+
+
+def test_the_helpers_that_left_the_closure_can_be_called_directly () -> None:
+	"""The point of the move, driven rather than asserted about.
+
+	**Nested, none of these could be reached without running a Typer command**, which is L-1's
+	whole complaint: a helper deciding how a date is worded was testable only through the
+	command that printed it. This calls three of them with nothing else set up.
+	"""
+
+	assert subroutine.cli.personal._kept(1) != subroutine.cli.personal._kept(2), (
+		"`#296`'s one sentence: the verb and the possessive agree with the count"
+	)
+
+	assert "1" in subroutine.cli.personal._kept(1)
+	assert "2" in subroutine.cli.personal._kept(2)
+
+	# §13.5b's shape: a row `init` wrote names no item, so the entity type reached the page as
+	# `workspace` — one of the seven words a person setting up a to-do list must never meet.
+	# Putting that into a reader's words is a pure function of one string, and it was reachable
+	# only through the command that printed it.
+	assert subroutine.cli.personal._in_this_persons_terms("workspace") == "this list"
+
+	assert subroutine.cli.personal._in_this_persons_terms("nothing_it_knows") == (
+		"nothing_it_knows"
+	), "an unmapped kind keeps its own name rather than being made one up"
+
+	stranger = subroutine.views.WorkspaceAccess(
+		id=uuid.uuid4(),
+		slug="acme",
+		title="Acme",
+		timezone=None,
+		role=None,
+		permissions=[],
+		narrowed_by_credential=False,
+	)
+
+	assert subroutine.cli.personal._role(stranger) == "no role", (
+		"a superuser reaches a workspace they hold no role in, and that is a real answer"
+	)
 
 
 def test_a_listing_is_narrowed_by_a_date (
