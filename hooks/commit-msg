@@ -54,6 +54,27 @@ fi
 
 refs=$(printf '%s' "$body" | grep -oE 'SR#[1-9][0-9]*' | sed 's/^SR#//' | sort -u || true)
 
+# **A release commit is generated and cites nothing, and that is not forgetting** — SR#955.
+# `scripts/release.py` writes `Release <version>` and commits four files that are entirely
+# version bumps, so there is no author to remind and no change anybody designed: it is the
+# mechanical consequence of work already recorded, and its record is the changelog.
+#
+# **This blocked releases outright for two days and nothing noticed**, which is the part worth
+# reading. The hooks were installed on 2026-08-15 and `v0.7.1` shipped on the 14th, so the
+# first release after this hook existed was the first time it ever saw a release commit — SR#893's
+# shape one guard along, where SR#859's changelog guard refused the *state* a release creates and
+# this refused the *message* it creates.
+#
+# **Matched on the whole subject, not a prefix.** `Release 0.7.5` is the generated form and
+# `Release the lock when the worker dies` is ordinary work that must still be refused; anchoring
+# both ends against a version number is what tells them apart. The body is not examined, because
+# what makes this safe is that the subject is a shape a person does not type by accident.
+subject=$(printf '%s' "$body" | sed '/^[[:space:]]*$/d' | head -n 1)
+
+if [ -z "$refs" ] && printf '%s' "$subject" | grep -qE '^Release [0-9]+\.[0-9]+\.[0-9]+$'; then
+	exit 0
+fi
+
 if [ -z "$refs" ]; then
 	# **The exemption is prose no program reads** (SR#47). Checked conservatively: every
 	# changed line has to be a comment or blank. A docstring-only change is genuinely exempt

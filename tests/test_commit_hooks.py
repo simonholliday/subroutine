@@ -169,6 +169,57 @@ def test_a_commit_that_cites_nothing_is_refused (repo: Repo) -> None:
 	assert "--no-verify" in refused.stderr, "and how to take the exemption deliberately"
 
 
+def test_a_release_commit_cites_nothing_and_is_allowed (repo: Repo) -> None:
+	"""`#955`. This hook refused every release for two days and nothing here noticed.
+
+	`scripts/release.py` writes ``Release <version>`` and commits four files that are entirely
+	version bumps. There is no author to remind and no change anybody designed — it is the
+	mechanical consequence of work already recorded, and the changelog is its record.
+
+	**A guard written between two rare events has never run at one.** The hooks went in on
+	2026-08-15 and ``v0.7.1`` shipped on the 14th, so the first release after this hook existed
+	was the first time it ever saw a release commit — `#893`'s shape one guard along, where
+	`#859`'s changelog guard refused the *state* a release creates and this refused the
+	*message* it creates. Both were found by a release failing rather than by a test.
+	"""
+
+	# A substantive change rather than a comment, so it is the *subject* being exempted here
+	# and not the comment-only rule two tests down answering by accident.
+	repo.write("plugin.json", '{"version": "9.9.9"}\n')
+	released = repo.commit("Release 9.9.9\n\nSee CHANGELOG.md for what 9.9.9 contains.")
+
+	assert released.returncode == 0, released.stderr
+
+
+@pytest.mark.parametrize(
+	"subject",
+	[
+		"Release the lock when the worker dies",
+		"Release 0.7",
+		"Released 0.7.5",
+		"Prepare Release 0.7.5",
+	],
+)
+def test_only_the_generated_release_subject_is_exempt (repo: Repo, subject: str) -> None:
+	"""`#955`. The exemption is a shape a person does not type by accident, and only that.
+
+	**Anchored at both ends against a version number**, because ``Release`` is an ordinary
+	English verb: *Release the lock when the worker dies* is work and must still be refused. A
+	prefix match would have exempted it, which is how an exemption written for one generated
+	message becomes a way round the rule for anybody who starts a subject with the right word.
+
+	Parametrised over the near misses rather than asserting once, because they fail the pattern
+	at four different points — the version, its shape, the verb's tense and the anchor — and one
+	case would prove nothing about the others.
+	"""
+
+	repo.write("thing.py", "value = 1\n")
+	refused = repo.commit(subject)
+
+	assert refused.returncode != 0, refused.stdout
+	assert "cites no item" in refused.stderr
+
+
 def test_a_bare_reference_is_refused_because_github_would_resolve_it (repo: Repo) -> None:
 	"""§6.15. The one collision the resolve-or-prose rule cannot catch.
 
