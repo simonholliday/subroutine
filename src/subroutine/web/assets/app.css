@@ -299,6 +299,22 @@ fieldset {
 
 .who strong { font-weight: 600; color: var(--ink); }
 
+/*
+	Signing out is a button because it *does* something — `#927`'s M-26 — and it looks like the
+	text around it because it belongs to that line rather than to the page's actions. `#763`'s
+	three control sizes are for controls that act on work; this is one word beside a username.
+*/
+.who .link {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--accent);
+	font: inherit;
+	cursor: pointer;
+}
+
+.who .link:hover { text-decoration: underline; }
+
 /* ---- adding, and what just happened ------------------------------------ */
 
 /*

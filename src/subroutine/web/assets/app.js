@@ -564,6 +564,13 @@ export function identityRequest () {
 	return { path: "/me", method: "GET" };
 }
 
+export function signOutRequest () {
+	/* End this browser's session. `#927`'s M-26: the endpoint has existed since `#248` and the
+	   page offered no way to reach it, so the only way to stop being signed in on a machine
+	   was to wait for the session to lapse or to clear a cookie by hand. */
+	return { path: "/session", method: "DELETE" };
+}
+
 export function headRequest () {
 	/* The newest event there is, so the first poll asks what happens *next* rather than
 	   replaying everything that ever has. */
@@ -5282,15 +5289,42 @@ export function App () {
 				if (touching(fresh, held.current && held.current.item, seen.page)) await refresh();
 
 				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
-			} catch (_) {
+			} catch (failure) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
-				   timed out is worse than being ten seconds stale. */
+				   timed out is worse than being ten seconds stale.
+
+				   **Except when the answer is that this reader is no longer signed in**
+				   (`#927`'s M-26). A session lapses after a fixed span and can be ended from
+				   another window, and swallowing the 401 left the page re-rendering the same
+				   stale rows every ten seconds for ever — every control on it refusing, with
+				   nothing saying why. That is the one failure the *next* poll cannot fix, so
+				   it is the one that has to reach the reader. */
+				if (failure.status === 401) setError(failure);
 			}
 		}, POLL_MS);
 
 		return () => clearInterval(tick);
 	}, [error, workspace, project, agenda, me, load, readAgenda, refresh]);
+
+	const signOut = useCallback(async () => {
+		/* **The answer is asked for and then acted on**, rather than the page being blanked
+		   optimistically: a refusal here means the reader is still signed in, and a page that
+		   said otherwise would be lying about the one thing they just asked about.
+
+		   The 401 that follows is not a failure — it is the state they asked for — so it goes
+		   through the same `Failed` panel that says how to get a new link. */
+		try {
+			await sent(signOutRequest());
+
+		} catch (failure) {
+			setNote({ text: `That did not sign you out. ${failure.message}`, tone: "bad" });
+
+			return;
+		}
+
+		setError({ status: 401, message: "You are not signed in." });
+	}, []);
 
 	const start = useCallback(async () => {
 		setError(null);
@@ -6080,6 +6114,10 @@ export function App () {
 						</select>
 					`}
 					${me && me.workspaces.length === 1 && html` · ${workspace}`}
+					${me && html`
+						${" · "}
+						<button class="link" onClick=${signOut}>Sign out</button>
+					`}
 				</div>
 
 				${/*

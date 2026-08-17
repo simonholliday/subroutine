@@ -3613,10 +3613,17 @@ def test_a_mention_of_something_that_is_not_there_is_a_note (tmp_path: pathlib.P
 	app = _without_comments(_served_modules()["app.js"])
 
 	assert "failure.status === 404" in app, "a missing ref stopped being told apart"
-	assert app.count("setError(failure)") == 3, (
+	assert app.count("setError(failure)") == 4, (
 		"the number of places that replace the whole page changed — each one should be a case "
 		"where nothing on screen is worth keeping"
 	)
+
+	# **The fourth is the poll, and only for a 401** (`SR#927`'s M-26). Every other failure
+	# there is left alone, deliberately — the next poll may work, and replacing a readable page
+	# because a background request timed out is worse than being ten seconds stale. A session
+	# that has lapsed is the one failure the next poll cannot fix: the page re-rendered the same
+	# rows every ten seconds for ever, every control on it refusing, with nothing saying why.
+	assert "failure.status === 401" in app, "a lapsed session stopped being told apart"
 
 
 #: A hook call and the dependency array it ends with, e.g. ``useCallback(…, [load, workspace])``.
@@ -4480,6 +4487,11 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 	] + [
 		("identityRequest", []),
 		("headRequest", []),
+		# **Driven last of the reads, because it ends the session it is driven with.** The
+		# endpoint has existed since `SR#248` and nothing on the page reached it, so the only
+		# way to stop being signed in on a machine was to wait or to clear a cookie by hand
+		# (`SR#927`'s M-26).
+		("signOutRequest", []),
 		("pollRequest", [place.slug, place.since]),
 		# **The instance nobody has used yet**, which has no events and so no seq to resume
 		# from. `SR#656` was exactly this shape, and the poll's own habit of swallowing
@@ -4605,6 +4617,12 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 	]
 
 
+#: Builders whose request is correct and cannot succeed against a token. One entry, and it
+#: names why rather than merely excusing itself: a browser session is the thing being ended, and
+#: this harness has none.
+_NEEDS_A_BROWSER_SESSION = frozenset({"signOutRequest"})
+
+
 def test_every_request_the_browser_makes_is_one_the_instance_accepts (
 	tmp_path: pathlib.Path, instance: Instance
 ) -> None:
@@ -4616,6 +4634,13 @@ def test_every_request_the_browser_makes_is_one_the_instance_accepts (
 	those can be checked by reading the source, and all of them shipped.
 
 	A refusal here is not a failing test about HTTP. It is the page a reader would have got.
+
+	**One request cannot succeed here and says so by name.** ``signOutRequest`` ends a *browser
+	session*, and this harness authenticates with a bearer token — so the instance answers "this
+	request is not signed in with a browser session, so there is nothing to sign out of", which
+	is the correct refusal rather than a fault in the request. What this test is for is the
+	shape of the request; that it works with a cookie is
+	``tests/test_api_sessions.py``'s question and is asked there.
 	"""
 
 	for request in _built(tmp_path, _calls(instance)):
@@ -4623,6 +4648,14 @@ def test_every_request_the_browser_makes_is_one_the_instance_accepts (
 			request["method"], f"/v1{request['path']}",
 			**({"json": request["body"]} if request.get("body") is not None else {}),
 		)
+
+		if request["from"] in _NEEDS_A_BROWSER_SESSION:
+			assert answer.status_code == 404, (
+				f"{request['from']} was refused for a reason other than the credential this "
+				f"harness carries: {answer.status_code} {answer.text[:200]}"
+			)
+
+			continue
 
 		assert answer.status_code < 400, (
 			f"{request['from']} builds {request['method']} {request['path']}, and the instance "
