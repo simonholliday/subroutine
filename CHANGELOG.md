@@ -26,6 +26,13 @@ upgrade involves.
 
 ### Security
 
+- **A credential that may write in one project can now only comment there.** `comment:write` has
+  always been one of the five verbs a credential's write set narrows, and it was the one the
+  check never reached — so a token issued `--write acme` could add to the record of every project
+  it could *read*. Adding to somebody's record is changing it. This affects only credentials
+  issued with `--write`; one issued without a write set reaches wherever it can read, exactly as
+  before.
+
 - **A database password is no longer written onto a command line.** `pg_dump` and `psql` were
   handed the whole URL, so for the length of a backup every process on the machine could read
   the password out of `/proc`. It travels in the child's environment now. Nothing changes where

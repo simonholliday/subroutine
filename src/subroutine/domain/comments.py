@@ -144,6 +144,40 @@ def _entity (
 	return found
 
 
+def _project_of (
+	session: sqlalchemy.orm.Session,
+	subject: typing.Any,
+	*,
+	entity_type: str,
+) -> subroutine.db.models.project.Project:
+	"""Return the project a comment on this thing lands in.
+
+	``comment:write`` is one of :data:`subroutine.permissions.WRITES_INSIDE_A_PROJECT`, so a
+	credential's write set has to be asked about somewhere — and
+	``authorization._refusal`` puts both scope checks behind *having* a project, which is why
+	passing the workspace alone left the narrowing inert (`#940`).
+
+	A task and a document each carry a project; a comment on a project lands in that project.
+	Nothing else takes one.
+	"""
+
+	if entity_type == "project":
+		return typing.cast(subroutine.db.models.project.Project, subject)
+
+	found = session.get(subroutine.db.models.project.Project, subject.project_id)
+
+	if found is None:
+		# ``project_id`` is NOT NULL with a foreign key on both backends, so reaching here
+		# means the schema is broken. The one thing not to do about it is fall through to
+		# ``project=None``, which is precisely the permissive answer this function exists to
+		# stop — an inert control, wearing the fix for one.
+		raise subroutine.errors.NotFound(
+			f"The project that {entity_type} belongs to could not be read."
+		)
+
+	return found
+
+
 def _clean (body: str) -> str:
 	"""Return a usable comment body, or refuse with a reason."""
 
@@ -188,6 +222,11 @@ def create (
 			actor,
 			subroutine.permissions.COMMENT_WRITE,
 			workspace_id=subject.workspace_id,
+			# **The project, not the workspace alone** (`#940`). A credential issued
+			# ``--write acme`` may read a related tree and change only its own project, and
+			# adding to somebody else's record is changing it — which is why `#370` put
+			# ``comment:write`` in the write set in the first place.
+			project=_project_of(session, subject, entity_type=entity_type),
 		)
 
 	comment = subroutine.db.models.activity.Comment(

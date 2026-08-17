@@ -21,6 +21,8 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
+import subroutine.domain.comments
+import subroutine.domain.documents
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -717,6 +719,66 @@ def test_a_write_set_narrows_only_the_verbs_that_land_in_a_project (
 	assert subroutine.permissions.TAG_WRITE not in (
 		subroutine.permissions.WRITES_INSIDE_A_PROJECT
 	), "curating a workspace's vocabulary is not a write inside a project"
+
+
+def test_a_comment_lands_in_a_project_and_is_narrowed_like_every_other_write (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`#940`, cold review `#927` M-11 — the verb was in the set and was never asked.
+
+	Both scope checks in ``authorization._refusal`` sit behind ``project is not None``, and
+	``comments.create`` called :func:`subroutine.domain.authorization.authorize` with a
+	workspace and no project — so a credential issued ``--write ordinary`` could add to the
+	record of every project it could *read*. ``COMMENT_WRITE`` has been in
+	:data:`subroutine.permissions.WRITES_INSIDE_A_PROJECT` throughout, which is what makes
+	this wiring rather than a decision.
+
+	**All three kinds are driven, because each reaches its project by a different route**: a
+	task and a document each carry a ``project_id``, and a comment on a project lands in that
+	project itself. Testing the task alone would leave the other two to a reading.
+	"""
+
+	bounded = _reaching_writing(
+		session, world, reach=[world.public, world.private], writes=[world.public]
+	)
+
+	permitted = subroutine.domain.tasks.create(
+		session, project=world.public, title="Inside the write set"
+	)
+	refused = subroutine.domain.tasks.create(
+		session, project=world.private, title="Readable, and not ours to change"
+	)
+	paper = subroutine.domain.documents.create(
+		session, project=world.private, title="What we concluded"
+	)
+	session.flush()
+
+	# The half that must keep working: a comment inside the write set is written normally.
+	subroutine.domain.comments.create(
+		session,
+		entity_type="task",
+		entity_id=permitted.id,
+		body="Ours to add to.",
+		actor=bounded,
+	)
+
+	for kind, entity in (
+		("task", refused),
+		("document", paper),
+		("project", world.private),
+	):
+		with pytest.raises(subroutine.errors.Forbidden) as stopped:
+			subroutine.domain.comments.create(
+				session,
+				entity_type=kind,
+				entity_id=entity.id,
+				body="Somebody else's record.",
+				actor=bounded,
+			)
+
+		assert "may only write in another" in str(stopped.value), (
+			f"a comment on a {kind} outside the write set is refused by name"
+		)
 
 
 def test_a_write_set_reaches_the_subtree_under_it (
