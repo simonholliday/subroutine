@@ -6,10 +6,22 @@ dangling pointer for anybody who clones this, and ten of them reached a *publish
 ``docs/errors.md`` is generated, describes a public semver'd contract, and told its reader to
 consult a file that will never be there.
 
-**The existing references are dead and stay dead** (Simon, 2026-08-04): rewriting 464 comments
-buys nothing, because the specification they cite now lives in the instance under refs a comment
-would have to be rewritten again to name. What is worth stopping is the *next* one, so this is a
-ratchet rather than a repair. Each ceiling may fall and may never rise.
+**The ``SPEC.md`` half of that is over** (`#945`, Simon's decision of 2026-08-17). The
+specification is at ``docs/design.md`` and ships with the code it describes, so the 438 mentions
+were rewritten to name it and the 1,959 bare ``§n.m`` citations resolve for the first time. The
+three left are that document's own account of its former name.
+
+**Which reverses the reasoning this file was written on**, and the reversal is worth reading
+rather than deleting. It said (Simon, 2026-08-04) that *rewriting 464 comments buys nothing,
+because the specification they cite now lives in the instance under refs a comment would have to
+be rewritten again to name*. That was true of every fix available then. It stopped being true
+when a third became available — publish the referent, and every citation resolves without a
+comment being touched. **A ratchet is the right answer while the thing pointed at is out of
+reach, and the wrong one once it can be brought into reach.**
+
+``CLAUDE.md`` stays out and stays ratcheted: it is loaded from a known path at session start,
+which is the whole of what makes it work, and an instance document or a published file would not
+be. Each ceiling may fall and may never rise.
 
 The rule this failed for a year was the ordinary one: nothing checked. ``#446``.
 
@@ -52,6 +64,22 @@ class Absent (typing.NamedTuple):
 	#: reason beside it, and checked by :func:`test_no_generic_mention_is_excused_wrongly`.
 	generic_in: tuple[tuple[str, str], ...] = ()
 
+	#: Files whose text is a frozen historical record, so their mentions are a closed set that
+	#: cannot grow (`#945`). Separate from :attr:`generic_in`, which means something else — a
+	#: filename naming *the reader's* file — and putting these under that name would have been
+	#: an excuse filed against a reason that is not the reason.
+	#:
+	#: **This exists because a ceiling may never rise and one had to.** Publishing
+	#: ``docs/design.md`` took ``CLAUDE.md`` from 16 mentions to 25 without anybody writing a
+	#: reference: a file *joined* the repository already containing nine, in text that is
+	#: frozen and therefore cannot gain a tenth. The ratchet cannot tell that from somebody
+	#: adding one, and the difference is the whole of what it is for.
+	#:
+	#: Held to the same checks as ``generic_in`` by
+	#: :func:`test_no_generic_mention_is_excused_wrongly`: the file must be tracked, must still
+	#: name the path, and must carry a reason.
+	frozen_in: tuple[tuple[str, str], ...] = ()
+
 
 #: Every path named in tracked files that is deliberately not in the repository.
 #:
@@ -60,10 +88,18 @@ class Absent (typing.NamedTuple):
 #: :func:`test_every_absent_path_is_still_absent` fails on, so it cannot be left behind.
 ABSENT: dict[str, Absent] = {
 	"SPEC.md": Absent(
-		ceiling=439,
+		ceiling=0,
 		why=(
-			"Moved into the instance on 2026-08-04 as 25 documents under the SPEC project, "
-			"index #472, and deleted from disk. Was never in the repository."
+			"The content is here — docs/design.md — and only this filename is not. It was "
+			"SPEC.md until 2026-08-04, then 25 documents in the instance, then one published "
+			"file (#945). Nothing outside that document names it any more."
+		),
+		frozen_in=(
+			(
+				"docs/design.md",
+				"The published design document, describing the repository as it was planned. "
+				"Its text is frozen (#945), so these mentions are a closed set.",
+			),
 		),
 	),
 	"CLAUDE.md": Absent(
@@ -83,6 +119,13 @@ ABSENT: dict[str, Absent] = {
 				"plugins/subroutine-remote/skills/subroutine/SKILL.md",
 				"The same skill. A plugin is self-contained, so the practice ships twice and "
 				"test_the_two_plugins_carry_the_same_skill requires the copies to be identical.",
+			),
+		),
+		frozen_in=(
+			(
+				"docs/design.md",
+				"The published design document, describing the repository as it was planned. "
+				"Its text is frozen (#945), so these mentions are a closed set.",
 			),
 		),
 	),
@@ -160,7 +203,8 @@ def counted_against (name: str, root: pathlib.Path = ROOT) -> dict[str, int]:
 	``CLAUDE.md`` and ``AGENTS.md`` are files the reader has; ``SPEC.md`` is ours alone.
 	"""
 
-	excused = {path for path, _ in ABSENT[name].generic_in}
+	entry = ABSENT[name]
+	excused = {path for path, _ in (*entry.generic_in, *entry.frozen_in)}
 
 	return {
 		path: found for path, found in mentions(name, root).items() if path not in excused
@@ -183,9 +227,9 @@ def test_no_new_reference_to_an_absent_path () -> None:
 		if total > absent.ceiling:
 			raise AssertionError(
 				f"{name} is named {total} times and {absent.ceiling} were allowed. It is not in "
-				f"this repository and will not be: {absent.why} A reader who clones this cannot "
-				f"follow the reference. Cite the instance instead — the specification is under "
-				f"the SPEC project, index #472 — or say the thing rather than pointing at it."
+				f"this repository under that name: {absent.why} A reader who clones this cannot "
+				f"follow the reference. The specification is published at docs/design.md — cite "
+				f"that, or say the thing rather than pointing at it."
 			)
 
 		assert total == absent.ceiling, (
@@ -209,7 +253,7 @@ def test_no_generic_mention_is_excused_wrongly () -> None:
 	for name, absent in ABSENT.items():
 		found = mentions(name)
 
-		for path, why in absent.generic_in:
+		for path, why in (*absent.generic_in, *absent.frozen_in):
 			assert path in present, (
 				f"ABSENT[{name!r}] excuses {path}, which git does not track. Delete the entry."
 			)

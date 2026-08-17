@@ -1,4 +1,4 @@
-"""What changed while the caller was away, across everything they can see (SPEC.md §5.11a).
+"""What changed while the caller was away, across everything they can see (docs/design.md §5.11a).
 
 The second reader of the ``event`` table, and the one that answers a *resumption* question:
 an agent whose context ended on Tuesday asks what has moved since, in one call, without

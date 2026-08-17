@@ -2,7 +2,7 @@
 
 Every failure the API reports is one of the exceptions here, and every one of them carries
 a ``code`` from the registry below. The codes are **part of the public contract** and
-covered by semantic versioning (SPEC.md §8.8): a client may branch on them, so renaming
+covered by semantic versioning (docs/design.md §8.8): a client may branch on them, so renaming
 one is a breaking change and removing one is a major version.
 
 Three things make an error useful to an agent rather than merely accurate:
@@ -104,7 +104,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Not found",
 			"There is no such thing, or it is not visible to this caller. The two are "
 			"deliberately not distinguished: saying 'forbidden' about a private project "
-			"would confirm it exists (SPEC.md §7.3a).",
+			"would confirm it exists (docs/design.md §7.3a).",
 		),
 		_define(
 			"method_not_allowed",
@@ -140,7 +140,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			409,
 			"Schema mismatch",
 			"A database schema does not match the one this build expects — either a backup "
-			"being put back (SPEC.md §12.6) or the live database itself (§12.4a). An older "
+			"being put back (docs/design.md §12.6) or the live database itself (§12.4a). An older "
 			"schema can be migrated forward, and the refusal says so; a *newer* one cannot, "
 			"because this version cannot interpret data it does not know the shape of and a "
 			"partial read is worse than a clear failure.",
@@ -150,7 +150,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			410,
 			"Cursor expired",
 			"A change-feed cursor names a point older than the events this instance still "
-			"holds, so the gap between there and now cannot be reported (SPEC.md §5.11). "
+			"holds, so the gap between there and now cannot be reported (docs/design.md §5.11). "
 			"The client resyncs from the beginning rather than being handed a page that "
 			"silently omits everything pruned in between.",
 		),
@@ -159,7 +159,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			413,
 			"Too large",
 			"A field or the request body exceeds the configured limit. The limit is "
-			"reported rather than the value being silently truncated (SPEC.md §6.10).",
+			"reported rather than the value being silently truncated (docs/design.md §6.10).",
 		),
 		_define(
 			"invalid_field_value",
@@ -180,7 +180,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Unknown field",
 			"The request body carried a field this endpoint does not accept. Rejected "
 			"rather than ignored, because silently dropping a typo is how a caller comes "
-			"to believe it set something it did not (SPEC.md §8.1).",
+			"to believe it set something it did not (docs/design.md §8.1).",
 		),
 		_define(
 			"invalid_status",
@@ -471,7 +471,7 @@ def from_problem (
 
 	The inverse of :func:`problem_document`, and it lives beside it so the two cannot drift.
 	This is what lets a connection over HTTP refuse in exactly the words a local one does
-	(SPEC.md §13.7): a client fanning out across a local database and a remote server must
+	(docs/design.md §13.7): a client fanning out across a local database and a remote server must
 	not have two vocabularies of failure, or every message it prints has to say which kind of
 	failure it was before it says what went wrong.
 

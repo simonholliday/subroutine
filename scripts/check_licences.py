@@ -1,6 +1,6 @@
 """Fail if anything Subroutine depends on is under a copyleft licence.
 
-Subroutine is FSL-1.1-ALv2 and is also offered commercially by agreement (SPEC.md §2.2a).
+Subroutine is FSL-1.1-ALv2 and is also offered commercially by agreement (docs/design.md §2.2a).
 Both of those rest on being able to grant rights in the whole of the code, and a copyleft
 *dependency* takes that away no matter who owns the rest.
 
@@ -136,7 +136,7 @@ def _report (*, denied: list[str], flagged: list[str], unknown: list[str]) -> in
 			"\nThese bind the library, not the application importing it, so a proprietary\n"
 			"build may ship alongside them — provided each stays a separately installed\n"
 			"package the user could replace. Freezing them into a single-file executable\n"
-			"is what would change that. See SPEC.md §2.2a."
+			"is what would change that. See docs/design.md §2.2a."
 		)
 
 	if unknown:
@@ -156,7 +156,7 @@ def _report (*, denied: list[str], flagged: list[str], unknown: list[str]) -> in
 		for entry in denied:
 			print(f"  {entry}")
 
-		print("\nSee SPEC.md §2.2a. Replace the dependency: the FSL is not GPL-compatible, so\n"
+		print("\nSee docs/design.md §2.2a. Replace the dependency: the FSL is not GPL-compatible, so\n"
 			"this is not a licence Subroutine can ship under at all.")
 
 		return 1

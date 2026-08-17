@@ -15,7 +15,7 @@ sub-resource is exactly as visible as the thing it hangs off.
 
 That property is what makes a per-entity history cheap and the change feed expensive: a
 history has a subject to resolve, and the feed has to compose the same predicates itself
-(SPEC.md §5.11a).
+(docs/design.md §5.11a).
 """
 
 import typing

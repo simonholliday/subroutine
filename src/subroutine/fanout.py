@@ -1,6 +1,6 @@
 """Asking every connection at once, and surviving one of them being unreachable.
 
-SPEC.md §13.7. **Reads fan out; writes never do.** A read is issued to every connection
+docs/design.md §13.7. **Reads fan out; writes never do.** A read is issued to every connection
 concurrently and merged here. A write names exactly one connection, explicitly or by default,
 because there is no transaction that could span two instances and no sensible way to report a
 half-failure.

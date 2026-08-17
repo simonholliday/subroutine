@@ -1,6 +1,6 @@
 """What a caller is told when its request cannot be used.
 
-The point of these is agent legibility (SPEC.md §8.1). A 422 that says only "unprocessable
+The point of these is agent legibility (docs/design.md §8.1). A 422 that says only "unprocessable
 entity" leaves a client with no better next move than the guess that just failed, so every
 failure here has to name the field it is about and, where the valid answers are a known
 set, list them.

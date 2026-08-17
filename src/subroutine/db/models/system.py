@@ -16,7 +16,7 @@ import subroutine.db.mixins
 class Instance(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 	"""One row describing this installation, written once by ``subroutine init``.
 
-	``id`` is the ``instance_id`` of SPEC.md §13.7 and must never change: an agent
+	``id`` is the ``instance_id`` of docs/design.md §13.7 and must never change: an agent
 	connected to a personal instance and a work one keys its caches on this, uses it to
 	notice the same instance configured twice under two names, and labels merged results
 	with it. A value that changed would silently corrupt all three.

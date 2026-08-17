@@ -1,7 +1,7 @@
 """What an endpoint is handed: configuration, and a session for one unit of work.
 
 Kept small on purpose. An endpoint that needs anything else should be asking a service for
-it, not assembling it out of dependencies (SPEC.md §8.1).
+it, not assembling it out of dependencies (docs/design.md §8.1).
 """
 
 import typing

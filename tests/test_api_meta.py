@@ -148,7 +148,7 @@ def test_every_filter_it_publishes_is_one_the_endpoint_accepts (
 def test_it_does_not_publish_a_filter_grammar_it_cannot_parse (
 	world: test_api_tasks.World,
 ) -> None:
-	"""SPEC.md §6.13's rule, applied to §9: a smaller published grammar beats a false one.
+	"""docs/design.md §6.13's rule, applied to §9: a smaller published grammar beats a false one.
 
 	The filter operators (``gte``, ``between``, ``is_null``) are specified and not built.
 	Publishing them would have a client compose a query this installation cannot answer.
@@ -206,7 +206,7 @@ def test_the_error_codes_are_the_registry (world: test_api_tasks.World) -> None:
 
 
 def test_the_source_url_is_published (world: test_api_tasks.World) -> None:
-	"""SPEC.md §2.2: a commitment this product keeps although nothing compels it.
+	"""docs/design.md §2.2: a commitment this product keeps although nothing compels it.
 
 	The AGPL's network clause used to require it. FSL-1.1-ALv2 does not require anything of a
 	served instance at all — so this test is now the only thing holding the promise, which is
@@ -273,7 +273,7 @@ def test_the_agent_guide_is_markdown_generated_from_the_parsers (
 		assert keyword in guide
 
 
-#: SPEC.md §13.3's budget, raised from 8 KB on 2026-07-30. The guide had reached 8,148 bytes
+#: docs/design.md §13.3's budget, raised from 8 KB on 2026-07-30. The guide had reached 8,148 bytes
 #: of 8,192, so the build was one sentence from red — and the obvious repair, editing this
 #: number to get green, would have been a decision nobody took. Raised deliberately instead,
 #: because there is more worth saying and the old figure was set when the guide said less.
@@ -284,7 +284,7 @@ GUIDE_BUDGET = 15 * 1024
 
 
 def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
-	"""SPEC.md §13.3 targets under 15 KB. Response size is a first-order cost for an agent."""
+	"""docs/design.md §13.3 targets under 15 KB. Response size is a first-order cost for an agent."""
 
 	guide = world.call("GET", "/v1/docs/agent").text
 

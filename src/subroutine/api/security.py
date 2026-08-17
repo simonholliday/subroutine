@@ -2,7 +2,7 @@
 
 One dependency, several ways of proving identity. Today there is exactly one — a bearer
 token — but the shape is what matters: a *resolver* is asked to find a credential of its
-own kind and turn it into a principal, and adding cookie sessions later (SPEC.md §7.5) is
+own kind and turn it into a principal, and adding cookie sessions later (docs/design.md §7.5) is
 a new resolver in :data:`RESOLVERS` rather than an edit to every endpoint.
 
 A resolver returns ``None`` when it finds no credential of its kind, and raises when it
@@ -95,7 +95,7 @@ def from_bearer_token (
 		)
 
 	# A calendar feed's credential is deliberately not a token: separate table, separate
-	# `sr_cal_` prefix, read-only, and refused here (SPEC.md §7.4, §20). It fails the token
+	# `sr_cal_` prefix, read-only, and refused here (docs/design.md §7.4, §20). It fails the token
 	# grammar as it stands, so this costs nothing but says why rather than reporting a
 	# mistyped token.
 	if credential.strip().startswith(f"{subroutine.auth.TOKEN_SCHEME}_cal_"):

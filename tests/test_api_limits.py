@@ -1,4 +1,4 @@
-"""Rate limiting — SPEC.md §7.7, item ``#247``.
+"""Rate limiting — docs/design.md §7.7, item ``#247``.
 
 Specified since slice 1 and implemented by nothing: the ``rate_limited`` code was in the
 registry, the ``429`` was in the problem map, and no code path raised either. Invisible on a

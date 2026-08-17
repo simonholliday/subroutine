@@ -1,4 +1,4 @@
-"""Comments over HTTP (SPEC.md §5.10, §8.6).
+"""Comments over HTTP (docs/design.md §5.10, §8.6).
 
 Hung off the three things that take them, so the address says what is being discussed:
 ``/v1/tasks/{ref}/comments``, and the same for projects and documents. Editing and deleting go
@@ -75,7 +75,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	body: str | None = None
 
-	#: The version this change is based on (SPEC.md §8.9).
+	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
 
 
@@ -246,7 +246,7 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.Comment:
-	"""Edit a comment's text. Only its author may (SPEC.md §5.10)."""
+	"""Edit a comment's text. Only its author may (docs/design.md §5.10)."""
 
 	found = subroutine.domain.comments.get(session, comment_id, actor=actor)
 	supplied = body.model_fields_set

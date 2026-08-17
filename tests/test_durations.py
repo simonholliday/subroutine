@@ -2,7 +2,7 @@
 
 Property-based where the property is worth stating — every duration must survive being
 rendered for a person and read back — and table-driven where the point is the exact
-published spelling (SPEC.md §6.4).
+published spelling (docs/design.md §6.4).
 """
 
 import hypothesis
@@ -32,7 +32,7 @@ import subroutine.errors
 	],
 )
 def test_the_published_spellings_all_parse (written: int | str, minutes: int) -> None:
-	"""Every example in SPEC.md §6.4 means what the specification says it means."""
+	"""Every example in docs/design.md §6.4 means what the specification says it means."""
 
 	assert subroutine.domain.durations.parse(written) == minutes
 
@@ -50,7 +50,7 @@ def test_the_published_spellings_all_parse (written: int | str, minutes: int) ->
 	],
 )
 def test_durations_render_the_way_a_person_would_say_them (minutes: int, rendered: str) -> None:
-	"""``estimate_human`` exists so nobody has to divide by sixty (SPEC.md §6.4)."""
+	"""``estimate_human`` exists so nobody has to divide by sixty (docs/design.md §6.4)."""
 
 	assert subroutine.domain.durations.humanize(minutes) == rendered
 
@@ -163,7 +163,7 @@ def test_a_negative_duration_is_refused () -> None:
 def test_a_duration_too_large_for_the_column_is_refused_here () -> None:
 	"""PostgreSQL would refuse the overflow and SQLite would store it — so we refuse first.
 
-	Exactly the divergence `domain.text` exists for, in a different field (SPEC.md §10.3).
+	Exactly the divergence `domain.text` exists for, in a different field (docs/design.md §10.3).
 	"""
 
 	with pytest.raises(subroutine.errors.ValidationError) as raised:

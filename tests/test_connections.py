@@ -1,6 +1,6 @@
 """Tests for the connection roster and for where a token comes from.
 
-SPEC.md §13.7 and §12.3a. Nothing here opens a database or a socket: a roster is read from
+docs/design.md §13.7 and §12.3a. Nothing here opens a database or a socket: a roster is read from
 two files and an environment, and every refusal in it is a refusal about text.
 """
 
@@ -60,7 +60,7 @@ def test_local_exists_without_being_declared (config_home: pathlib.Path) -> None
 	assert found.default_connection().is_local
 	assert found.default_connection().label == "Local"
 
-	# The whole of the personal path (SPEC.md §13.5b) is this case, and it is what keeps
+	# The whole of the personal path (docs/design.md §13.5b) is this case, and it is what keeps
 	# labels out of that output entirely.
 	assert not found.qualifies
 

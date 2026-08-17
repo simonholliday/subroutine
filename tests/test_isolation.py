@@ -1,6 +1,6 @@
 """Tests that one workspace cannot see or touch another.
 
-SPEC.md §11.4 asks for "a test asserting no query reaches task/project without workspace
+docs/design.md §11.4 asks for "a test asserting no query reaches task/project without workspace
 scoping". This is the behavioural reading of that mandate: build two workspaces whose data
 collides in every way it possibly can — same project keys, therefore the same refs, same
 statuses, same usernames — and assert that every service still answers about the right one.

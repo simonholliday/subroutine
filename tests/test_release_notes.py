@@ -1,4 +1,4 @@
-"""The release check that a migration is advertised — SPEC.md §12.4a, item ``#100``.
+"""The release check that a migration is advertised — docs/design.md §12.4a, item ``#100``.
 
 ``scripts/check_release_notes.py`` is a gate, and an untested gate is the exact shape of defect
 this project keeps finding: a rule written down, believed, and enforced by nothing. Worse than

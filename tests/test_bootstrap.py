@@ -127,7 +127,7 @@ def test_initialising_twice_changes_nothing (session: sqlalchemy.orm.Session) ->
 
 
 def test_the_instance_identity_is_minted_once (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §13.7: generated at init and never changed."""
+	"""docs/design.md §13.7: generated at init and never changed."""
 
 	instance, created = subroutine.domain.instances.establish(session, name="Laptop")
 
@@ -153,7 +153,7 @@ def test_an_uninitialised_database_says_what_to_do (
 
 
 def test_the_inbox_is_findable_by_flag (session: sqlalchemy.orm.Session) -> None:
-	"""A task created with no project is filed here (SPEC.md §6.8)."""
+	"""A task created with no project is filed here (docs/design.md §6.8)."""
 
 	result = subroutine.domain.bootstrap.initialise(
 		session, username="simon", instance_name="Laptop"
@@ -213,7 +213,7 @@ def test_init_is_safe_to_run_again (isolated_home: dict[str, str]) -> None:
 def test_init_announces_nothing_a_person_did_not_ask_about (
 	isolated_home: dict[str, str],
 ) -> None:
-	"""SPEC.md §12.1: the workspace and the Inbox are created and not mentioned."""
+	"""docs/design.md §12.1: the workspace and the Inbox are created and not mentioned."""
 
 	output = _run(isolated_home, "init").stdout
 

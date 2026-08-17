@@ -1,4 +1,4 @@
-"""The history of one item — what happened to it, newest first (SPEC.md §5.11a).
+"""The history of one item — what happened to it, newest first (docs/design.md §5.11a).
 
 The first of the two readers of the ``event`` table, which five domain modules have been
 writing to since M1 with nothing reading them. The other, ``GET /v1/changes``, is the feed:

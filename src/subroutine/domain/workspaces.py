@@ -1,7 +1,7 @@
 """Creating the tenancy root, and the one member it cannot exist without.
 
 A workspace is invisible to a person using Subroutine alone — ``subroutine init`` makes
-one and never mentions it again (SPEC.md §1.4). It matters here because everything else
+one and never mentions it again (docs/design.md §1.4). It matters here because everything else
 hangs off it: the vocabulary, the roles, and the rule that every query is scoped by it.
 """
 
@@ -25,12 +25,12 @@ import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
-#: The role the creating user is given. SPEC.md §10.7 invariant 7 requires at least one
+#: The role the creating user is given. docs/design.md §10.7 invariant 7 requires at least one
 #: owner per workspace, and creating one without its owner would break that between two
 #: statements of the same transaction.
 FOUNDING_ROLE = "owner"
 
-#: Column widths from SPEC.md §10.6. See `subroutine.domain.text` for why these are checked
+#: Column widths from docs/design.md §10.6. See `subroutine.domain.text` for why these are checked
 #: in Python rather than left to the backend.
 MAX_SLUG_LENGTH = 64
 MAX_TITLE_LENGTH = 255
@@ -64,7 +64,7 @@ def create (
 	able to reach.
 	"""
 
-	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
+	# The instance tier (docs/design.md §7.1). This act happens outside every workspace, so it is
 	# checked against the installation rather than against one — and `authorize_instance`
 	# honours a token's scopes even for a superuser, which is what makes it safe to hand an
 	# agent a token that may do this and nothing else.
@@ -249,7 +249,7 @@ def record_seeding (
 
 	One event carrying the version and the counts, rather than ~35 events for individual
 	role and status rows — a change feed whose first page is entirely vocabulary is exactly
-	the noise the feed exists to cut through (SPEC.md §10.7 invariant 9).
+	the noise the feed exists to cut through (docs/design.md §10.7 invariant 9).
 
 	It matters most on the path that has no creation event to stand in for it: a later
 	release seeding new rows into a workspace that already exists. Without this, those rows
@@ -483,7 +483,7 @@ def readable (
 	Membership is what grants reach, so this is the member rows joined to their workspaces.
 	A token pinned to one workspace narrows the result to that one — which is the whole
 	point of pinning, and doing it here means every caller inherits it rather than each
-	remembering to (SPEC.md §7.3).
+	remembering to (docs/design.md §7.3).
 	"""
 
 	member = subroutine.db.models.identity.WorkspaceMember

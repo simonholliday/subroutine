@@ -1,6 +1,6 @@
 """A connection to another instance, over HTTP.
 
-The other half of SPEC.md §13.7. Everything it does, :mod:`subroutine.clients.local` does
+The other half of docs/design.md §13.7. Everything it does, :mod:`subroutine.clients.local` does
 against this installation's own database, and the two return the same objects — which is the
 requirement, not a coincidence, and is what ``tests/test_transport_equivalence.py`` asserts.
 

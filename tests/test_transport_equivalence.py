@@ -1,6 +1,6 @@
 """The same scenarios through both transports, asserting the output matches.
 
-SPEC.md §13.7 makes the local database a connection like any other so that ``subroutine
+docs/design.md §13.7 makes the local database a connection like any other so that ``subroutine
 today`` fans out across it and every configured remote through **one** code path — one that
 does not know which of its answers arrived over a socket. That claim is only true while the
 two clients return the same objects, and it is the kind of claim that stops being true
@@ -1606,7 +1606,7 @@ def test_both_refuse_a_ref_that_names_nothing_the_same_way (pair: Pair) -> None:
 
 
 def test_neither_transport_reads_an_item_a_token_may_not_see (pair: Pair) -> None:
-	"""The new read surface, narrowed the same way everything else is (SPEC.md §7.3).
+	"""The new read surface, narrowed the same way everything else is (docs/design.md §7.3).
 
 	``show`` gave the clients three new ways into the database — a document by ref, an item's
 	links and its record of what happened — and each is a point lookup by ref, which is the

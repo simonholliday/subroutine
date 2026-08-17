@@ -1,7 +1,7 @@
 """What am I doing today — the one question a personal to-do list has to answer well.
 
 Four named buckets rather than a flat list, because a person's day has structure and
-because a flat list loses the most common kind of personal task (SPEC.md §8.6). The
+because a flat list loses the most common kind of personal task (docs/design.md §8.6). The
 buckets in priority order:
 
 ``overdue``      a deadline that has already passed
@@ -44,7 +44,7 @@ import subroutine.domain.scoping
 #: reminder that the pile exists, which is what :attr:`Agenda.unscheduled_total` is for.
 DEFAULT_UNSCHEDULED_LIMIT = 20
 
-#: The CLI's default look-ahead. Not the API's — it has none (SPEC.md §8.6).
+#: The CLI's default look-ahead. Not the API's — it has none (docs/design.md §8.6).
 DEFAULT_HORIZON_DAYS = 7
 
 
@@ -166,7 +166,7 @@ def build (
 		),
 		# NULLs last explicitly. SQLite sorts them first by default and PostgreSQL last, so
 		# the undated-but-planned tasks would appear at opposite ends of this list depending
-		# on which backend answered (SPEC.md §10.3).
+		# on which backend answered (docs/design.md §10.3).
 		sqlalchemy.asc(model.due_at).nullslast(),
 		sqlalchemy.asc(model.position),
 	)

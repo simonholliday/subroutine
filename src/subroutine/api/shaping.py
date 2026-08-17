@@ -1,4 +1,4 @@
-"""Making a response small enough to put in a context window (SPEC.md §14.10).
+"""Making a response small enough to put in a context window (docs/design.md §14.10).
 
 Response size is a first-order constraint for an agent and almost none for a person. A
 verbose task is 400-600 tokens; fifty of them is a substantial fraction of a working

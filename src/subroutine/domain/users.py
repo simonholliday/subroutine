@@ -1,7 +1,7 @@
 """Creating people and machine identities, and giving people passwords.
 
 A service account has no password and exists so that an agent's work is attributable to
-something other than the human who happens to own its token (SPEC.md §5.2). An agent that
+something other than the human who happens to own its token (docs/design.md §5.2). An agent that
 cannot be named cannot be audited, which is why they are users here rather than a flag on
 a token.
 """
@@ -20,7 +20,7 @@ import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
 
-#: Column widths from SPEC.md §10.6, enforced here so the refusal names the field rather
+#: Column widths from docs/design.md §10.6, enforced here so the refusal names the field rather
 #: than arriving as a driver error on PostgreSQL and not at all on SQLite.
 MAX_USERNAME_LENGTH = 64
 MAX_EMAIL_LENGTH = 320
@@ -49,7 +49,7 @@ def create (
 	:mod:`subroutine.domain.accountability` for why an agent may never do it.
 	"""
 
-	# The instance tier (SPEC.md §7.1). This act happens outside every workspace, so it is
+	# The instance tier (docs/design.md §7.1). This act happens outside every workspace, so it is
 	# checked against the installation rather than against one — and `authorize_instance`
 	# honours a token's scopes even for a superuser, which is what makes it safe to hand an
 	# agent a token that may do this and nothing else.
@@ -490,7 +490,7 @@ def verify_password (
 
 	The rehash happens here because this is the only moment the plaintext exists. Skip it
 	and an installation's oldest accounts keep their weakest hashes for as long as they
-	live (SPEC.md §7.6).
+	live (docs/design.md §7.6).
 	"""
 
 	if user.password_hash is None:

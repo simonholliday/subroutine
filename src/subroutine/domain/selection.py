@@ -1,4 +1,4 @@
-"""Which workspace — and which project — a request is about (SPEC.md §8.2, §5.2).
+"""Which workspace — and which project — a request is about (docs/design.md §8.2, §5.2).
 
 Resolution order: what the caller asked for, then the workspace their token is pinned to,
 then their only one. **Ambiguity is a refusal, never a guess** — with two workspaces and

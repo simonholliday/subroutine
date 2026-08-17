@@ -4,7 +4,7 @@ Starlette matches routes in registration order and takes the first whose pattern
 ``GET /v1/tasks/next`` never runs if ``GET /v1/tasks/{id_or_ref}`` was registered first:
 the parameterised route matches ``next`` perfectly well and answers with a 404 for a task
 nobody asked for. Declaring literal sub-paths before parameterised ones is the fix
-(SPEC.md §8.1). Measured against the installed FastAPI rather than assumed — it does not
+(docs/design.md §8.1). Measured against the installed FastAPI rather than assumed — it does not
 reorder by specificity, and a route added in the wrong place really is unreachable.
 
 A convention is a poor way to hold that. The two routes live in different modules, the

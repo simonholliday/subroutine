@@ -338,6 +338,13 @@ upgrade involves.
 
 ### Added
 
+- **The specification is published, at `docs/design.md`.** It is the design this was built from
+  — data model, API, permissions, agent design — and the code cites it about two thousand times
+  as `§7.3a` and the like. Until now those citations named a file nobody outside the project
+  had, which is a poor showing for source you are meant to be able to read. It is frozen and
+  wrong in places; the code is the truth, and design taken since is recorded as decisions rather
+  than as edits to it.
+
 - **A task can repeat, and finishing one occurrence brings the next.** Send a repeat when you
   file it — `every 14 days`, `every month on the 30th`, `every month on the last thursday`,
   `every year on 19 august`, or an RFC 5545 `RRULE` directly — and the rule is kept on a

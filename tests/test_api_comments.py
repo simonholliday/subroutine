@@ -1,4 +1,4 @@
-"""Comments over HTTP — SPEC.md §5.10.
+"""Comments over HTTP — docs/design.md §5.10.
 
 The `comment` table has been in the schema since M1 with nothing writing to it. This is what
 closes that: an agent working a task now has somewhere to record *what happened*, instead of

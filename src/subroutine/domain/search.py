@@ -1,4 +1,4 @@
-"""Free-text search, in the one form both transports have to agree on (SPEC.md §9.4).
+"""Free-text search, in the one form both transports have to agree on (docs/design.md §9.4).
 
 §9.4 says ``q`` searches **title and description**, and until 2026-07-31 it searched the title
 alone — on both entities, on both transports, with the endpoint's own OpenAPI description

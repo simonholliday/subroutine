@@ -100,7 +100,7 @@ def test_a_code_from_another_status_is_refused_at_construction () -> None:
 
 
 def test_a_problem_document_has_the_rfc_9457_shape () -> None:
-	"""SPEC.md §8.8."""
+	"""docs/design.md §8.8."""
 
 	error = subroutine.errors.ValidationError(
 		"Unknown status key 'in-progress' for entity type 'task'.",

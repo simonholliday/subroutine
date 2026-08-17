@@ -63,7 +63,7 @@ MAX_KEY_LENGTH = 32
 #: confusion the hyphen was added to remove.
 KEY_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
-#: What a template writes into ``project.settings``, and nothing else (SPEC.md §6.12).
+#: What a template writes into ``project.settings``, and nothing else (docs/design.md §6.12).
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
 #: project stays reconfigurable and no template is a cage.
 #:
@@ -238,7 +238,7 @@ def move (
 
 	project.parent_id = None if parent is None else parent.id
 
-	# `version` is the ETag (SPEC.md §8.9), so anything a client can read has to move it.
+	# `version` is the ETag (docs/design.md §8.9), so anything a client can read has to move it.
 	# `reparent` rewrote `path` and `depth` on this row and every descendant with one Core
 	# UPDATE, which sets no version — so the descendants are bumped here too, or a client
 	# holding an ETag for a child cannot tell that the child's path changed.
@@ -419,7 +419,7 @@ def delete (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
-	"""Move a project to the trash, where it stays recoverable (SPEC.md §6.9).
+	"""Move a project to the trash, where it stays recoverable (docs/design.md §6.9).
 
 	Soft, and idempotent: when something was thrown away is a fact worth not overwriting.
 	Its tasks are not touched, and do not need to be — every listing joins the project and
@@ -534,7 +534,7 @@ def restore (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
-	"""Take a project back out of the trash, and its contents with it (SPEC.md §6.9).
+	"""Take a project back out of the trash, and its contents with it (docs/design.md §6.9).
 
 	**:func:`delete` has always promised this and nothing provided it** (`#308`). Its docstring
 	says a project's tasks "leave the visible world with it and come back with it", which is a

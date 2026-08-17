@@ -1,4 +1,4 @@
-"""Operational endpoints for whoever runs the instance (SPEC.md §12.6).
+"""Operational endpoints for whoever runs the instance (docs/design.md §12.6).
 
 **Backup is here and restore deliberately is not.** An agent about to attempt something bulk
 should be able to snapshot first, which is why taking a backup is reachable over HTTP. Putting
@@ -40,7 +40,7 @@ class Backup(pydantic.BaseModel):
 	schema_head: str
 	size_bytes: int
 
-	#: Null for the default instance, which has no profile name (SPEC.md §12.5).
+	#: Null for the default instance, which has no profile name (docs/design.md §12.5).
 	profile: str | None
 
 

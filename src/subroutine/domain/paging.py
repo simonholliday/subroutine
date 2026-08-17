@@ -4,7 +4,7 @@ A page size is **input**, and this codebase has a rule about that: a CHECK const
 input validation, and neither is a database's own idea of what ``LIMIT -1`` means. The two
 backends disagree — SQLite reads a negative limit as *no limit* and PostgreSQL raises
 ``InvalidRowCountInLimitClause`` — so an unvalidated size is both a wrong answer and a crash,
-depending on where it runs (SPEC.md §10.3).
+depending on where it runs (docs/design.md §10.3).
 
 It lives in the domain rather than in the API because **both clients need the same answer**.
 ``GET /v1/tasks`` declared ``ge=1`` and capped at ``max_page_size``; the local client did

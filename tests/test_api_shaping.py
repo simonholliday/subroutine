@@ -1,4 +1,4 @@
-"""Response shaping — ``?fields=`` and ``?format=`` (SPEC.md §14.10).
+"""Response shaping — ``?fields=`` and ``?format=`` (docs/design.md §14.10).
 
 Not cosmetic, and the tests are written to hold that line: a verbose task is 400-600 tokens
 and fifty of them is a substantial fraction of an agent's working context. So there is a

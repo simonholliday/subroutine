@@ -293,7 +293,7 @@ def test_a_bug_becomes_a_500_that_can_be_looked_up (application: fastapi.FastAPI
 def test_the_openapi_document_is_served_under_the_version_prefix (
 	application: fastapi.FastAPI,
 ) -> None:
-	"""``/v1/openapi.json`` is where SPEC.md §8.6 says it is."""
+	"""``/v1/openapi.json`` is where docs/design.md §8.6 says it is."""
 
 	response = api_support.call(application, "GET", "/v1/openapi.json")
 

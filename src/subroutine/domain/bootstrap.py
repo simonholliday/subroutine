@@ -5,7 +5,7 @@ wanted, so it has one job: leave behind a database they can immediately add a ta
 That means an instance identity, a user — a superuser, since they are the one installing
 it — a workspace with its vocabulary, an Inbox to file things in, and an owner membership:
 five things, none of which the person asked for and none of which they should have to
-think about (SPEC.md §12.1).
+think about (docs/design.md §12.1).
 
 Kept apart from the CLI so it can be tested, called from a container's entrypoint, and
 later reused by whatever sets up a second workspace. The CLI's share of this is printing
@@ -28,7 +28,7 @@ import subroutine.errors
 
 #: The project a task with no project of its own is filed in. One per workspace, not one
 #: per user: ``project.key`` is unique per workspace, so per-user inboxes collide on the
-#: second user, and nothing in the schema records whose inbox a project is (SPEC.md §6.8).
+#: second user, and nothing in the schema records whose inbox a project is (docs/design.md §6.8).
 #: Re-exported, because `#301` moved the Inbox's creation into `domain.workspaces` and the
 #: names belong beside it. Kept resolving here so a caller that learned them from this module
 #: is not broken by where they moved to.
@@ -37,7 +37,7 @@ INBOX_TITLE = subroutine.domain.workspaces.INBOX_TITLE
 
 #: The Inbox is the clearest case for the personal template — two statuses, no evidence
 #: gate. Someone setting up a to-do list should never meet an acceptance criterion unless
-#: they go looking for one (SPEC.md §6.12).
+#: they go looking for one (docs/design.md §6.12).
 INBOX_TEMPLATE = subroutine.domain.workspaces.INBOX_TEMPLATE
 
 
@@ -75,7 +75,7 @@ def initialise (
 	"""
 
 	# The machine's own zone, which for a personal installation is also the person's.
-	# Everything below inherits it unless it says otherwise (SPEC.md §6.5).
+	# Everything below inherits it unless it says otherwise (docs/design.md §6.5).
 	instance, created = subroutine.domain.instances.establish(
 		session, name=instance_name, timezone=timezone
 	)
@@ -86,7 +86,7 @@ def initialise (
 	# A superuser, because this is the person who installed it. Without the flag they would
 	# own the workspace ``init`` just made and be unable to create a second one or add
 	# anybody, since neither act is a workspace permission any role can carry
-	# (SPEC.md §7.1). Nobody else gets it by default.
+	# (docs/design.md §7.1). Nobody else gets it by default.
 	user = subroutine.domain.users.create(
 		session,
 		username=username,

@@ -1,4 +1,4 @@
-"""Which connection and workspace a bare number means — SPEC.md §13.7's resolution order.
+"""Which connection and workspace a bare number means — docs/design.md §13.7's resolution order.
 
 Steps 1 to 3 live in :mod:`subroutine.context` and are tested here; 4 and 5 need a connection
 to have been asked what it reaches and are tested through the CLI in

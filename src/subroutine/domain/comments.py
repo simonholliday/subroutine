@@ -1,4 +1,4 @@
-"""What happened, as opposed to what you concluded (SPEC.md §5.10).
+"""What happened, as opposed to what you concluded (docs/design.md §5.10).
 
 **The distinction is the whole point of this module.** A comment is a running record — "ran the
 suite, two failures, both in the date parser" — and a document is a conclusion — "the date

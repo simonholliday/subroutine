@@ -54,7 +54,7 @@ def test_a_project_is_readable_by_key_in_any_case (world: test_api_tasks.World) 
 def test_a_reserved_key_is_refused_before_it_becomes_unreachable (
 	world: test_api_tasks.World,
 ) -> None:
-	"""A project keyed 'search' would share an address with an endpoint (SPEC.md §8.1)."""
+	"""A project keyed 'search' would share an address with an endpoint (docs/design.md §8.1)."""
 
 	response = world.call("POST", "/v1/projects", json={"key": "search", "title": "Nope"})
 
@@ -136,7 +136,7 @@ def test_a_rename_is_refused_when_the_new_key_could_not_have_been_chosen (
 def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (
 	world: test_api_tasks.World,
 ) -> None:
-	"""SPEC.md §8.3 applies here exactly as it does to tasks."""
+	"""docs/design.md §8.3 applies here exactly as it does to tasks."""
 
 	world.call(
 		"POST", "/v1/projects", json={"key": "web", "title": "Website", "description": "Notes"}
@@ -313,7 +313,7 @@ def test_the_inbox_cannot_be_deleted (world: test_api_tasks.World) -> None:
 
 
 def test_privacy_inherits_down_the_tree (session: sqlalchemy.orm.Session) -> None:
-	"""A sub-project of a private project is private too (SPEC.md §7.3a).
+	"""A sub-project of a private project is private too (docs/design.md §7.3a).
 
 	Without this, marking a project private and creating a sub-project inside it publishes
 	the sub-project's titles to the whole workspace.
@@ -358,7 +358,7 @@ def test_the_owner_of_a_private_project_can_still_reach_it (
 def test_a_project_scoped_token_sees_only_its_own_subtree (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §7.3: the scope restricts which rows, and a listing is what decides those."""
+	"""docs/design.md §7.3: the scope restricts which rows, and a listing is what decides those."""
 
 	world = test_api_tasks._world(session)
 

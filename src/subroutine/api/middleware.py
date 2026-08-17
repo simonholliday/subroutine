@@ -2,7 +2,7 @@
 
 ``X-Request-Id`` is the only thread between a 500 a caller saw and the traceback that
 explains it: the response says nothing about what went wrong, deliberately, so the id is
-what makes the failure diagnosable at all (SPEC.md §8.1). ``X-Subroutine-Api-Version``
+what makes the failure diagnosable at all (docs/design.md §8.1). ``X-Subroutine-Api-Version``
 tells a client which wire contract it is talking to without a round trip to ``/v1/meta``.
 """
 

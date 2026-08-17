@@ -1,7 +1,7 @@
 """The vocabulary every workspace starts with, and the rule for adding to it later.
 
 Seeds are data, not schema, so they are applied by this module rather than by a migration
-(SPEC.md §10.8). Two properties follow, and both are deliberate:
+(docs/design.md §10.8). Two properties follow, and both are deliberate:
 
 * **Seeding is idempotent.** Running it again on a workspace that already has a vocabulary
   changes nothing at all, so ``subroutine init`` and workspace creation can both call it
@@ -126,7 +126,7 @@ _SYSTEM_ROLES = (
 		title="Owner",
 		description="Full control, including deleting the workspace. Every workspace has at least one.",
 		# The top of one workspace, not of the installation: creating a second workspace or
-		# a new account needs an instance permission, which no role carries (SPEC.md §7.2).
+		# a new account needs an instance permission, which no role carries (docs/design.md §7.2).
 		permissions=tuple(
 			subroutine.permissions.sorted_permissions(subroutine.permissions.WORKSPACE_LEVEL)
 		),
@@ -176,7 +176,7 @@ _SYSTEM_ROLES = (
 )
 
 #: Task and project statuses map onto the four task categories; documents map onto their
-#: own four, because a superseded specification is not "done" (SPEC.md §5.5). Colours are
+#: own four, because a superseded specification is not "done" (docs/design.md §5.5). Colours are
 #: seeded so that every client agrees on what "blocked" looks like without each inventing
 #: its own palette; they are ordinary data and an installation may change them.
 _STATUSES = (
@@ -212,7 +212,7 @@ _ITEM_TYPES = (
 
 #: ``derives_from`` is the one that earns its place twice over: it is how the tasks
 #: implementing a specification point back at it, and how a bug points back at the failing
-#: check that found it (SPEC.md §5.7).
+#: check that found it (docs/design.md §5.7).
 _LINK_TYPES = (
 	LinkTypeSeed("blocks", "Blocks", "Blocked by"),
 	LinkTypeSeed("relates_to", "Relates to", "Relates to", is_symmetric=True),

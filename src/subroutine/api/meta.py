@@ -4,7 +4,7 @@ The endpoint that makes custom vocabulary safe. Statuses, item types and link ty
 workspace data (§5.5): an installation renames ``done`` to "Shipped" and adds "Needs
 review" freely, so a client that assumes a global vocabulary is a client that breaks on
 somebody's second workspace. This publishes the local one instead, and an agent reads it
-once rather than discovering it by being refused (SPEC.md §13.1).
+once rather than discovering it by being refused (docs/design.md §13.1).
 
 **Two rules shape what is in here, and both are about not lying.**
 
@@ -278,7 +278,7 @@ def guide_text () -> str:
 	units from ``durations.UNITS``. A guide listing a keyword the parser rejects is worse
 	than no guide, and one written twice becomes that within a release.
 
-	SPEC.md §13.3 also asks for worked request/response examples executed by a CI job so they
+	docs/design.md §13.3 also asks for worked request/response examples executed by a CI job so they
 	cannot drift. Those are at ``/v1/docs/examples`` and ``tests/test_api_examples.py`` runs
 	every one of them against a real instance, so an example that stops working fails the
 	build. **This paragraph said they were still owed until `#315`** — five lines above the

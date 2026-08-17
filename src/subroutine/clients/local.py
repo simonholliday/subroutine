@@ -2,7 +2,7 @@
 
 Opened directly and driven through the service layer — the same services, the same
 ``authorize()`` and the same views the HTTP routers use, minus the HTTP. That is what
-SPEC.md §13.7 means by the local database being a connection like any other: there is one
+docs/design.md §13.7 means by the local database being a connection like any other: there is one
 code path for ``subroutine today`` and it does not know which of its answers came over a
 socket.
 
@@ -578,7 +578,7 @@ class Client:
 					# rather than approximated here: two spellings of "newest first" is the
 					# pair that comes to disagree, and this one used to be the *only* one,
 					# which is why a client could not rank at all. NULLS LAST and the
-					# tiebreaker are `ordering.clauses`' job now (SPEC.md §10.3).
+					# tiebreaker are `ordering.clauses`' job now (docs/design.md §10.3).
 					statement.options(
 						# The ordering's computed values have to arrive on the row rather than
 						# being worked out again here — there is no second copy to work them
@@ -2162,7 +2162,7 @@ class Client:
 			session.commit()
 
 	def _require_a_schema_this_build_understands (self, session: sqlalchemy.orm.Session) -> None:
-		"""Refuse to read a database whose shape this build does not match (SPEC.md §12.4a).
+		"""Refuse to read a database whose shape this build does not match (docs/design.md §12.4a).
 
 		**The gap decision `#97` names.** ``/readyz`` has always made this comparison and
 		refuses to serve on a mismatch, naming the remedy; the CLI made it nowhere. Running any

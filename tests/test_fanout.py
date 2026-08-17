@@ -1,4 +1,4 @@
-"""Asking every connection at once — SPEC.md §13.7.
+"""Asking every connection at once — docs/design.md §13.7.
 
 The end-to-end behaviour is covered in ``tests/test_cli_connections.py``, against two real
 instances. What is here is the part that is hard to arrange from outside: that a *bug* is not

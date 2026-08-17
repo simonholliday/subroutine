@@ -1,4 +1,4 @@
-"""The Claude Code plugin's manifests — SPEC.md §21, item ``#131``.
+"""The Claude Code plugin's manifests — docs/design.md §21, item ``#131``.
 
 The plugin exists to launch ``subroutine mcp``, so **the MCP server it configures is this
 package**. Anything that lets the two disagree about which version either of them is produces
@@ -547,7 +547,7 @@ def test_the_skill_declares_a_name_and_a_trigger () -> None:
 
 
 def test_the_skill_says_what_to_do_when_the_tools_are_missing () -> None:
-	"""SPEC.md §21.4, and it has to be here because it cannot be anywhere else.
+	"""docs/design.md §21.4, and it has to be here because it cannot be anywhere else.
 
 	Measured rather than assumed: a failing MCP server reports ``✘ Failed to connect`` and
 	nothing more — a launcher script written to explain itself is not surfaced either. A skill

@@ -1,7 +1,7 @@
 """How a task and a project look on the wire, and the envelope a collection travels in.
 
 **This is deliberately not in the ``api`` package**, and moving it out was a requirement
-rather than tidying. SPEC.md §13.7 makes the local database a connection like any other, so
+rather than tidying. docs/design.md §13.7 makes the local database a connection like any other, so
 ``subroutine today`` fans out across it and every remote through one code path that does not
 know which of its answers arrived over a socket — and that is only true if the local client
 and the HTTP client return *the same objects*. Two definitions of "a task" that happen to
@@ -21,7 +21,7 @@ Two decisions shape everything else here.
 appear as ids only, and that is right for an assignee or a parent; it is wrong for the
 status, because a caller cannot act on ``status_id`` without fetching the vocabulary, and
 an agent that has to do that on every listing pays for it in context on every listing
-(SPEC.md §13.1). The keys are batch-loaded per page, never per row.
+(docs/design.md §13.1). The keys are batch-loaded per page, never per row.
 
 **A collection is enveloped and a single entity is not** (§8.4). ``total`` is null unless
 asked for, because an exact count is a second full scan for a number most callers ignore.
@@ -103,7 +103,7 @@ class LinkEnd(pydantic.BaseModel):
 
 
 class Edge(pydantic.BaseModel):
-	"""A link among a page's items, named by both its ends (SPEC.md §5.7, §8.4).
+	"""A link among a page's items, named by both its ends (docs/design.md §5.7, §8.4).
 
 	The counterpart to :class:`Link`, which is the same row seen from one item. There is no
 	``direction`` here and no inverted label, because a listing has no single vantage point
@@ -145,7 +145,7 @@ class Collection(pydantic.BaseModel, typing.Generic[Item]):
 class Instance(pydantic.BaseModel):
 	"""Which installation this is, and where it thinks it is.
 
-	``id`` is the one value in this program that must never change (SPEC.md §13.7). A client
+	``id`` is the one value in this program that must never change (docs/design.md §13.7). A client
 	keys its caches on it, notices the same instance configured twice under two names by it,
 	and labels merged results with it — so an id that moved would silently corrupt all three
 	at once. ``name`` is the server's own label and may be changed freely; neither is the
@@ -315,7 +315,7 @@ class Task(pydantic.BaseModel):
 	parent_title: str | None = None
 
 	#: The vocabulary, resolved. ``status`` is the key an installation may have renamed;
-	#: ``status_category`` is the fixed set a client can branch on (SPEC.md §5.5).
+	#: ``status_category`` is the fixed set a client can branch on (docs/design.md §5.5).
 	status: str
 	status_category: str
 	status_id: uuid.UUID
@@ -474,16 +474,16 @@ class Task(pydantic.BaseModel):
 	updated_by: uuid.UUID | None
 
 
-	#: The concurrency token (SPEC.md §8.9), reported so a caller can send it back.
+	#: The concurrency token (docs/design.md §8.9), reported so a caller can send it back.
 	version: int
 
 	def address (self) -> int:
-		"""Return what a caller addresses this by — its ref (SPEC.md §6.2)."""
+		"""Return what a caller addresses this by — its ref (docs/design.md §6.2)."""
 
 		return self.ref
 
 	def columns (self) -> tuple[str, ...]:
-		"""Return this task as the cells of one compact line (SPEC.md §14.10).
+		"""Return this task as the cells of one compact line (docs/design.md §14.10).
 
 		Each view renders its own columns because each knows which of its fields are worth a
 		line, and the alignment across a page is ``shaping.aligned``'s job. The order is the
@@ -521,7 +521,7 @@ class Task(pydantic.BaseModel):
 
 
 class Comment(pydantic.BaseModel):
-	"""One entry in an item's record of what happened (SPEC.md §5.10).
+	"""One entry in an item's record of what happened (docs/design.md §5.10).
 
 	No ``parent_comment_id``: comments are flat and chronological by decision, and the column
 	stays in the schema as the escape hatch rather than as a field anybody can set.
@@ -635,7 +635,7 @@ class Event(pydantic.BaseModel):
 
 
 class Link(pydantic.BaseModel):
-	"""One link, seen from the item that was asked about (SPEC.md §5.7).
+	"""One link, seen from the item that was asked about (docs/design.md §5.7).
 
 	A link is one stored row displayed from both ends, so ``label`` arrives already the right
 	way round: "Blocks" from one end and "Blocked by" from the other, off the same row. A
@@ -693,7 +693,7 @@ class Workspace(pydantic.BaseModel):
 	version: int
 
 	def address (self) -> str:
-		"""Return what a caller addresses this by — its short name (SPEC.md §13.7)."""
+		"""Return what a caller addresses this by — its short name (docs/design.md §13.7)."""
 
 		return self.slug
 
@@ -817,7 +817,7 @@ class Credential(pydantic.BaseModel):
 	title: str
 	prefix: str
 
-	#: Empty means **no narrowing**, not "no permissions" (SPEC.md §7.3).
+	#: Empty means **no narrowing**, not "no permissions" (docs/design.md §7.3).
 	scopes: list[str]
 
 	#: Null means every project, for the same reason.
@@ -918,7 +918,7 @@ class Me(pydantic.BaseModel):
 	credential: Credential | None
 
 	#: Permissions over the installation itself — creating workspaces and accounts. Held only
-	#: by a superuser, and narrowed by the credential even then (SPEC.md §7.1).
+	#: by a superuser, and narrowed by the credential even then (docs/design.md §7.1).
 	instance_permissions: list[str]
 
 	workspaces: list[WorkspaceAccess]
@@ -978,7 +978,7 @@ class Token(pydantic.BaseModel):
 	user_id: uuid.UUID
 	username: str
 
-	#: Empty means **no narrowing**, not "no permissions" (SPEC.md §7.3).
+	#: Empty means **no narrowing**, not "no permissions" (docs/design.md §7.3).
 	scopes: list[str]
 
 	#: Null means every project, for the same reason.
@@ -1120,7 +1120,7 @@ class Project(pydantic.BaseModel):
 	version: int
 
 	def address (self) -> str:
-		"""Return what a caller addresses this by — its key, never a ref (SPEC.md §5.2)."""
+		"""Return what a caller addresses this by — its key, never a ref (docs/design.md §5.2)."""
 
 		return self.key
 
@@ -1139,7 +1139,7 @@ class Document(pydantic.BaseModel):
 	"""A document as the API reports it.
 
 	No ``due_at``, ``starts_at``, ``estimate_minutes`` or ``assignee_id``, and their
-	absence is the point (SPEC.md §6.14): a specification is never "done" and nobody is
+	absence is the point (docs/design.md §6.14): a specification is never "done" and nobody is
 	working on it. A deadline about a document belongs on a task that ``documents`` it.
 	"""
 
@@ -1245,7 +1245,7 @@ class Agenda(pydantic.BaseModel):
 	"""The sections of a day, and what they were computed against.
 
 	``date`` and ``timezone`` are both reported because "today" is not a fact about the
-	server (SPEC.md §6.5) — and a client merging several instances resolves the date *once*,
+	server (docs/design.md §6.5) — and a client merging several instances resolves the date *once*,
 	in its own zone, then asks every connection for that explicit day. Without that, a person
 	whose work profile says ``America/New_York`` and whose personal one says
 	``Europe/London`` would get two different days merged into one list.
@@ -2652,7 +2652,7 @@ class Listing(pydantic.BaseModel):
 	filters: list[str]
 	sortable: list[str]
 
-	#: What ``?fields=`` may name, and what ``?format=`` accepts (SPEC.md §14.10). Published
+	#: What ``?fields=`` may name, and what ``?format=`` accepts (docs/design.md §14.10). Published
 	#: for the reason ``sortable`` is: an agent that has to discover a field name by being
 	#: refused has paid for the discovery in context, which is the cost shaping exists to
 	#: avoid in the first place.
@@ -2723,11 +2723,11 @@ class Meta(pydantic.BaseModel):
 
 	#: Where this instance's source can be obtained. Published as a commitment rather than
 	#: because anything compels it: the AGPL's network clause did, FSL-1.1-ALv2 does not, and
-	#: it is published anyway (SPEC.md §2.2) because somebody using an instance ought to be
+	#: it is published anyway (docs/design.md §2.2) because somebody using an instance ought to be
 	#: able to find the source of what they are using.
 	source_url: str
 
-	#: The address this instance is served on, when a deployment has said (SPEC.md §12.4).
+	#: The address this instance is served on, when a deployment has said (docs/design.md §12.4).
 	#: Null on a laptop listening on loopback, which is the ordinary case and is not a gap: a
 	#: client that reached this response already knows one address that works. It is here for
 	#: the client that must hand out a *durable* one — a webhook target, a shared link, or the

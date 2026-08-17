@@ -1,4 +1,4 @@
-"""Separate instances on one machine, and backing them up — SPEC.md §12.5, §12.6 and §12.6a.
+"""Separate instances on one machine, and backing them up — docs/design.md §12.5, §12.6 and §12.6a.
 
 These exist because the project is about to keep its own plan in a database it can no longer
 reset. Two properties matter more than the rest and each has a test named for it: **a profile

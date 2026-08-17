@@ -37,7 +37,7 @@ SOURCE = pathlib.Path(subroutine.__file__).parent
 #: Modules that query the task or project tables without going through
 #: :mod:`subroutine.domain.scoping`, each with the reason it is allowed to. Anything not
 #: listed here must narrow through the helper — that is the whole instrument, and the
-#: reasons are what make adding an entry a decision rather than a reflex (SPEC.md §7.3).
+#: reasons are what make adding an entry a decision rather than a reflex (docs/design.md §7.3).
 #:
 #: The rule of thumb: fetching **one** row by id or ref and then authorising it is safe,
 #: because the permission check is what decides whether the caller may have it. Returning
@@ -136,7 +136,7 @@ def _modules_touching_work (root: pathlib.Path = SOURCE) -> dict[str, str]:
 
 
 def test_no_query_reaches_tasks_or_projects_without_a_written_reason () -> None:
-	"""SPEC.md §7.3's instrument: the narrowing is one function, and this is what says so.
+	"""docs/design.md §7.3's instrument: the narrowing is one function, and this is what says so.
 
 	A listing that forgets to narrow does not fail — it returns more rows, to somebody who
 	should not have them, and looks exactly like a listing that works. This makes adding
@@ -247,7 +247,7 @@ def test_the_owner_of_a_private_project_still_sees_it (
 def test_a_superuser_is_narrowed_by_privacy_too (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""Roles are bypassed for a superuser; visibility is not (SPEC.md §7.3).
+	"""Roles are bypassed for a superuser; visibility is not (docs/design.md §7.3).
 
 	A privacy control a role can override is not a privacy control.
 	"""
@@ -265,7 +265,7 @@ def test_a_project_scoped_token_narrows_the_listing (
 ) -> None:
 	"""The second defect: the scope refused writes elsewhere and then listed everything.
 
-	SPEC.md §7.3 calls ``project_scope`` a restriction on *which rows*, and a listing is
+	docs/design.md §7.3 calls ``project_scope`` a restriction on *which rows*, and a listing is
 	exactly the thing that decides which rows.
 	"""
 
@@ -307,7 +307,7 @@ def test_a_project_scope_carries_the_subtree_into_the_listing (
 def test_a_null_project_scope_narrows_nothing (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:
-	"""The sentinel, in the direction that fails open if read backwards (SPEC.md §7.3)."""
+	"""The sentinel, in the direction that fails open if read backwards (docs/design.md §7.3)."""
 
 	token, _issued = subroutine.domain.authentication.issue_token(
 		session, user=world.owner, title="unscoped"

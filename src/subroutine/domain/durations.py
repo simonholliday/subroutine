@@ -2,7 +2,7 @@
 
 ``90``, ``"90m"``, ``"1h30m"``, ``"2d"``, ``"1w"`` all mean a number of minutes, and
 :func:`parse` turns any of them into one. :func:`humanize` goes back the other way, because
-every response carries both ``estimate_minutes`` and ``estimate_human`` (SPEC.md §6.4) —
+every response carries both ``estimate_minutes`` and ``estimate_human`` (docs/design.md §6.4) —
 an agent should not have to divide by sixty to tell a person what it found.
 
 **Conversions here are calendar-free and fixed**: ``1h = 60m``, ``1d = 1440m``,

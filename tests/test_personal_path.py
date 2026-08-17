@@ -1,4 +1,4 @@
-"""The personal path end to end — SPEC.md §13.5b, run as a test rather than asserted.
+"""The personal path end to end — docs/design.md §13.5b, run as a test rather than asserted.
 
 The gating criterion is four commands on a fresh installation, and **none of their output
 mentioning a workspace, a status, a project, a criterion, a verification, a session or a
@@ -42,7 +42,7 @@ import subroutine.errors
 import subroutine.fanout
 import subroutine.views
 
-#: SPEC.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
+#: docs/design.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
 #: these, and meeting one means the personal path has started leaking the full model.
 FORBIDDEN = (
 	"workspace",
@@ -165,7 +165,7 @@ def test_the_four_command_personal_test (
 def test_no_command_in_the_personal_path_mentions_the_full_model (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""The guard on SPEC.md §1.4, and the one meant to fail when somebody forgets it.
+	"""The guard on docs/design.md §1.4, and the one meant to fail when somebody forgets it.
 
 	Every word here names something a person setting up a to-do list has not asked about.
 	The moment one appears, the personal path has stopped being a personal path.
@@ -187,7 +187,7 @@ def test_no_command_in_the_personal_path_mentions_the_full_model (
 def test_a_bare_invocation_shows_the_agenda_rather_than_a_help_wall (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""SPEC.md §12.2a: the first thing this tool does unprompted should be useful."""
+	"""docs/design.md §12.2a: the first thing this tool does unprompted should be useful."""
 
 	run("init")
 	run("add", "Buy milk")
@@ -266,7 +266,7 @@ def test_a_bare_number_addresses_a_task_by_its_ref_number (
 
 	assert set(shown) == {"#1", "#2"}, "listings print the ref with its sigil"
 
-	# Typed without the sigil, because a shell would eat it (SPEC.md §12.2a).
+	# Typed without the sigil, because a shell would eat it (docs/design.md §12.2a).
 	run("done", "2")
 
 	remaining = run("today").output
@@ -335,7 +335,7 @@ def _second_workspace (home: pathlib.Path, slug: str = "work") -> None:
 
 	Reaching past the CLI because there is no ``subroutine workspace create`` yet — but this
 	is a supported state, not a contrived one: ``init`` makes the first user a superuser
-	precisely so they can create more (SPEC.md §7.1).
+	precisely so they can create more (docs/design.md §7.1).
 	"""
 
 	import sqlalchemy.orm
@@ -1158,7 +1158,7 @@ def test_show_reads_one_item_without_naming_the_full_model (
 def test_show_prints_the_record_of_what_happened (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""The half of SPEC.md §5.10 that had a service and an API and no way to read it."""
+	"""The half of docs/design.md §5.10 that had a service and an API and no way to read it."""
 
 	run("init")
 	run("add", "Fix the parser")
@@ -1219,7 +1219,7 @@ def test_show_reads_a_document_as_readily_as_a_task (
 	run: typing.Callable[..., typer.testing.Result],
 	home: pathlib.Path,
 ) -> None:
-	"""One ref counter serves both (SPEC.md §6.2), so a reader that only knew tasks was wrong.
+	"""One ref counter serves both (docs/design.md §6.2), so a reader that only knew tasks was wrong.
 
 	This is the case that made ``show`` search documents at all: before it did,
 	``subroutine show 2`` reported that ``#2`` did not exist while it sat in the same
@@ -1605,7 +1605,7 @@ def test_the_list_holds_documents_as_well_as_tasks (
 	run: typing.Callable[..., typer.testing.Result],
 	home: pathlib.Path,
 ) -> None:
-	"""Simon asked why #5-#8 were not in his list. They were documents (SPEC.md §12.2).
+	"""Simon asked why #5-#8 were not in his list. They were documents (docs/design.md §12.2).
 
 	Refs come from one counter per workspace and are shared between tasks and documents, and
 	``show`` already takes either — so a list holding only tasks told a reader who had learned
@@ -1683,7 +1683,7 @@ def test_a_scripted_row_says_which_kind_of_item_it_is (
 def test_a_personal_list_gets_no_columns_at_all (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""SPEC.md §1.4 falling out of a layout rule rather than being enforced by one.
+	"""docs/design.md §1.4 falling out of a layout rule rather than being enforced by one.
 
 	The item type, the priority and the estimate are all worth a column on a mixed backlog
 	and all say nothing on a to-do list — every row is an ordinary undated task with no
@@ -1835,7 +1835,7 @@ def test_show_says_who_the_work_is_with (
 def test_a_bare_invocation_says_there_is_more (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""SPEC.md §12.2a's habit, applied to the most likely first thing anybody types.
+	"""docs/design.md §12.2a's habit, applied to the most likely first thing anybody types.
 
 	Every command here prints the next one to try, and the bare invocation — the one a new
 	user reaches for before they know any commands exist — printed no such line at all. It

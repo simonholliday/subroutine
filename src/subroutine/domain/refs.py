@@ -5,7 +5,7 @@ short, stable and unambiguous. Three properties follow, and each costs something
 
 * **A plain integer, unique per workspace, across tasks *and* documents.** Both draw from
   one counter on the workspace, so a ref names exactly one thing whichever table it lives
-  in (SPEC.md §6.2). There is no prefix, because a prefix has to name something and
+  in (docs/design.md §6.2). There is no prefix, because a prefix has to name something and
   whatever it names is something the item can then be moved out of — leaving an
   identifier that either changes (and is not an identifier) or lies about where the item
   is.
@@ -28,10 +28,10 @@ import sqlalchemy.orm.util
 import subroutine.db.models.identity
 
 #: The sigil a ref is written with in prose and printed with in listings. Bare on input,
-#: because ``#`` opens a comment in every POSIX shell (SPEC.md §12.2a).
+#: because ``#`` opens a comment in every POSIX shell (docs/design.md §12.2a).
 SIGIL = "#"
 
-#: What divides the parts of an address (SPEC.md §13.7). A slash, so the grammar reads as
+#: What divides the parts of an address (docs/design.md §13.7). A slash, so the grammar reads as
 #: the relative path it is and matches the ``subroutine:work/acme/42`` markdown target
 #: rather than inventing a second spelling beside it.
 SEPARATOR = "/"
@@ -130,7 +130,7 @@ def parse_ref (text: str) -> int | None:
 class Address:
 	"""A ref as somebody wrote it, with however much context they chose to give.
 
-	SPEC.md §13.7's grammar, read **relatively, nearest scope first** — the same way a
+	docs/design.md §13.7's grammar, read **relatively, nearest scope first** — the same way a
 	filesystem path is:
 
 	* ``42`` — the current context's 42.

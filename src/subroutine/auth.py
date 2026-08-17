@@ -5,7 +5,7 @@ rule can be tested directly and ``subroutine init`` can hash a password before e
 exists. The lifecycle around these — issuing, revoking, checking a token against a live
 row — is ``subroutine.domain.authentication``.
 
-Two different hashes, for two different reasons (SPEC.md §7.4, §7.6):
+Two different hashes, for two different reasons (docs/design.md §7.4, §7.6):
 
 * **Passwords** are hashed with Argon2id, slowly and with a per-user salt, because people
   choose passwords from a space small enough to search.
@@ -50,7 +50,7 @@ CREDENTIAL_KINDS = (SESSION_KIND, LOGIN_KIND)
 #: Bytes of entropy in the secret half. 256 bits is what makes a fast hash correct.
 TOKEN_SECRET_BYTES = 32
 
-#: SPEC.md §7.6. Long enough to matter, with no composition rules — those demonstrably
+#: docs/design.md §7.6. Long enough to matter, with no composition rules — those demonstrably
 #: reduce entropy by pushing everyone towards the same handful of substitutions.
 MINIMUM_PASSWORD_LENGTH = 12
 
@@ -158,7 +158,7 @@ def hash_token_secret (secret: str) -> str:
 	Unpeppered, deliberately. A pepper defends a hash whose input can be guessed; this
 	input is 256 random bits, so it adds nothing — while tying every issued token to the
 	lifetime of a configuration value, so that rotating the signing key would lock out
-	every agent in the installation at once (SPEC.md §7.4).
+	every agent in the installation at once (docs/design.md §7.4).
 	"""
 
 	return hashlib.sha256(secret.encode("utf-8")).hexdigest()

@@ -179,7 +179,7 @@ def handle_validation_error (
 
 	Each complaint names its field and, where the valid answers are a known set, lists
 	them — an agent that is told only "422" has no better next move than the guess that
-	just failed (SPEC.md §8.1).
+	just failed (docs/design.md §8.1).
 	"""
 
 	assert isinstance(exception, fastapi.exceptions.RequestValidationError)

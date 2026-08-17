@@ -1,7 +1,7 @@
 """Turning a line of typing into a task, without ever losing what was typed.
 
 ``"Call the dentist before Sunday !3 ~15m #health"`` becomes a title, a deadline, an
-importance, an estimate and a tag (SPEC.md §6.13). The feature is a convenience, and the
+importance, an estimate and a tag (docs/design.md §6.13). The feature is a convenience, and the
 two rules that keep a convenience from becoming a liability are both structural:
 
 1. **Parsing never loses data.** Anything that does not parse stays in the title exactly as
@@ -31,7 +31,7 @@ import subroutine.domain.recurrence
 import subroutine.domain.schedule
 import subroutine.errors
 
-#: Which field a leading word assigns to (SPEC.md §6.13's table).
+#: Which field a leading word assigns to (docs/design.md §6.13's table).
 DEADLINE_WORDS = ("before", "by", "due")
 PLANNED_WORDS = ("on",)
 DEFER_WORDS = ("from", "defer")
@@ -48,7 +48,7 @@ DEFER_WORDS = ("from", "defer")
 #: of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
-#: The largest and smallest an importance may be (SPEC.md §6.3).
+#: The largest and smallest an importance may be (docs/design.md §6.3).
 IMPORTANCE_RANGE = (1, 5)
 
 #: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
@@ -197,7 +197,7 @@ _TIME_LOOKS_LIKE = re.compile(
 _TRAILING = r"(?<![,.;:!?)\]])"
 
 #: A tag is anything after a ``#`` that is not *entirely* digits, because an all-digit one
-#: is a reference to an item (SPEC.md §6.15) and the two share the sigil. So ``Fix issue
+#: is a reference to an item (docs/design.md §6.15) and the two share the sigil. So ``Fix issue
 #: #12`` keeps its number and gains no tag named "12", while ``#3d-printing`` and ``#2fa``
 #: are ordinary tags.
 #:
@@ -637,7 +637,7 @@ def _collect_sigils (
 
 			# An all-digit name is a reference, not a label. Left in the text rather than
 			# claimed, so `Fix #12` keeps its number in the title and the mention index
-			# picks it up from there (SPEC.md §6.15).
+			# picks it up from there (docs/design.md §6.15).
 			if name.isdigit():
 				continue
 

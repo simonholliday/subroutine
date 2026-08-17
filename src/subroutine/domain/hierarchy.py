@@ -1,12 +1,12 @@
 """Keeping ``path`` and ``depth`` honest about ``parent_id``.
 
 ``parent_id`` is the truth; ``path`` is a maintained denormalisation of it, in the form
-``/uuid/uuid/`` including the node's own id (SPEC.md §10.6). It exists so that "this and
+``/uuid/uuid/`` including the node's own id (docs/design.md §10.6). It exists so that "this and
 everything under it" is one indexed prefix scan rather than a recursive query — the shape
 of nearly every question anyone asks of a tree.
 
 The cost is that a move rewrites every descendant, and that the two representations can
-disagree if anything writes ``parent_id`` without coming through here. SPEC.md §10.7
+disagree if anything writes ``parent_id`` without coming through here. docs/design.md §10.7
 invariant 1 is the rule; this module is the only thing that should be maintaining it.
 """
 
@@ -22,7 +22,7 @@ PATH_SEPARATOR = "/"
 
 #: Bounds the length of a materialised path, and with it the cost of a move. Ten is deep
 #: enough that no real structure has hit it and shallow enough that a path stays inside
-#: the 1024-character column with room to spare (SPEC.md §5.4).
+#: the 1024-character column with room to spare (docs/design.md §5.4).
 DEFAULT_MAX_DEPTH = 10
 
 

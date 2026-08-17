@@ -1,7 +1,7 @@
 """The ``subroutine`` command.
 
 ``init`` is the only thing a new user runs before the one they actually wanted, so it
-prints **one line** (SPEC.md §12.1). The workspace, the Inbox, the role assignment and the
+prints **one line** (docs/design.md §12.1). The workspace, the Inbox, the role assignment and the
 instance identity are all created and none of them are announced: someone setting up a
 to-do list has not asked about workspaces. ``--verbose`` prints the full transcript for
 whoever does want it.
@@ -62,7 +62,7 @@ app = typer.Typer(
 	# **No `help=` here, deliberately.** An explicit help string overrides the callback's
 	# docstring, and Typer then shows only its first line — which silently dropped the
 	# worked examples from the one page a new user reads first, while every subcommand had
-	# them (SPEC.md §12.2a). The docstring on `_default` is the help text.
+	# them (docs/design.md §12.2a). The docstring on `_default` is the help text.
 	#
 	# **Not** `no_args_is_help` either: the first thing this tool does unprompted should be
 	# useful, so a bare `subroutine` prints today's agenda rather than a help wall.
@@ -110,7 +110,7 @@ login_app = typer.Typer(
 app.add_typer(login_app, name="login")
 
 # **No `create` here, deliberately.** Every writer makes its own parent directories, so
-# `subroutine --profile scratch init` already brings a new instance into being (SPEC.md §12.5).
+# `subroutine --profile scratch init` already brings a new instance into being (docs/design.md §12.5).
 # A `profile create` would be a second way to do the same thing, and the two would drift.
 profile_app = typer.Typer(
 	help="Keep separate installations on one machine.", no_args_is_help=True
@@ -324,7 +324,7 @@ def _warn (message: str) -> None:
 	"""Report something that went wrong without stopping.
 
 	To standard error, so that ``--json`` and a pipe stay clean, and the command still exits
-	0. A connection being unreachable is the case this exists for (SPEC.md §13.7): an agenda
+	0. A connection being unreachable is the case this exists for (docs/design.md §13.7): an agenda
 	that refuses to print because one of three servers is down is worse than an agenda with a
 	line saying which one.
 	"""
@@ -443,7 +443,7 @@ def _database (settings: subroutine.config.Settings) -> typing.Iterator[sqlalche
 		engine.dispose()
 
 
-# Registered before `init` and `help` so that they head the command list. SPEC.md §12.2
+# Registered before `init` and `help` so that they head the command list. docs/design.md §12.2
 # puts `add`, `today`, `ls`, `done`, `plan` first and says the ordering is deliberate: they
 # are the whole surface a personal user needs, and Typer lists commands in registration
 # order.
@@ -747,7 +747,7 @@ def _refuse_public_bind (
 ) -> None:
 	"""Refuse a non-loopback bind unless somebody has said out loud that it is intended.
 
-	SPEC.md §12.4. Binding beyond this machine is the moment bearer tokens start crossing a
+	docs/design.md §12.4. Binding beyond this machine is the moment bearer tokens start crossing a
 	network, and the previous posture — a note about TLS in the documentation — put the
 	warning where it would not be read. One-time friction, imposed at exactly the moment the
 	risk appears.
@@ -1243,7 +1243,7 @@ def upgrade (
 def _instance_label () -> str:
 	"""Name the instance a command is about to act on, for output that must be unambiguous.
 
-	Every destructive command says this before doing anything (SPEC.md §12.5). The isolation
+	Every destructive command says this before doing anything (docs/design.md §12.5). The isolation
 	between instances is invisible, which is what makes it safe to use and what makes it
 	dangerous to trust silently.
 	"""
@@ -1606,7 +1606,7 @@ def _profile_is_protected (name: str) -> bool:
 #: The role a new service account is given in the workspace it is made for. ``contributor``
 #: reads everything and writes tasks and comments, and cannot restructure projects — which is
 #: the right starting authority for an agent, and is narrowable further by the token's own
-#: scopes (SPEC.md §7.3).
+#: scopes (docs/design.md §7.3).
 
 
 def _shaped_by_profile (
@@ -2394,7 +2394,7 @@ def _pinned_workspace (
 ) -> subroutine.db.models.identity.Workspace | None:
 	"""Return the workspace a token is pinned to, or ``None`` for all of them.
 
-	**Never pinned by default** (SPEC.md §7.4, §13.7). A presented token should give the
+	**Never pinned by default** (docs/design.md §7.4, §13.7). A presented token should give the
 	access it gives locally; narrowing a credential to shorten an address, or because one
 	workspace is the common case, is letting a convenience dictate the access model.
 	"""
@@ -2548,7 +2548,7 @@ def _database_is_absent (settings: subroutine.config.Settings) -> bool:
 def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:
 	"""Make every directory ``init`` writes into, and stop with a sentence if one cannot be.
 
-	SPEC.md §10.4 for the second half — SQLite's locking failure otherwise arrives as
+	docs/design.md §10.4 for the second half — SQLite's locking failure otherwise arrives as
 	``database is locked`` on the first write, which reads as a concurrency bug rather than as
 	"this directory is on a network share", and by then there is a half-built database to clean
 	up.
@@ -2846,7 +2846,7 @@ def _report_version (asked: bool) -> None:
 	"""Print what is installed, and stop before anything else runs.
 
 	Two numbers, because two different conversations need them. The **release** is what a bug
-	report is asked for first. The **schema** is what an upgrade is about (SPEC.md §12.4a): the
+	report is asked for first. The **schema** is what an upgrade is about (docs/design.md §12.4a): the
 	package manager moves the code and this command says which shape of database that code now
 	expects, so a migration can be planned rather than discovered.
 
@@ -2857,7 +2857,7 @@ def _report_version (asked: bool) -> None:
 
 	**Handled as a parameter callback, which is what lets it answer through a broken profile.**
 	A bad ``--profile`` — or a stale ``SUBROUTINE_PROFILE`` in the environment — refuses every
-	command by design (SPEC.md §12.5), and "what am I running?" is the question somebody asks
+	command by design (docs/design.md §12.5), and "what am I running?" is the question somebody asks
 	*while* working that out. Parameters are processed before the callback body, so this runs
 	and exits before :func:`subroutine.config.use_profile` is ever reached; printing from the
 	body instead makes ``subroutine --profile ../evil --version`` exit 2 with a message about
@@ -2918,7 +2918,7 @@ def _default (
 	"""
 
 	# **First, before anything reads a path.** A profile decides where the configuration file,
-	# the database, the credentials and the current context all live (SPEC.md §12.5), so it has
+	# the database, the credentials and the current context all live (docs/design.md §12.5), so it has
 	# to be settled before any of them is looked up. It goes here rather than on each command
 	# because it applies to all of them — which does mean it precedes the subcommand:
 	# `subroutine --profile scratch db backup`, not `subroutine db backup --profile scratch`.
@@ -2930,14 +2930,14 @@ def _default (
 
 	# Before the subcommand, because that is where Typer puts an application-wide option and
 	# because these two change what every command means rather than what one of them does.
-	# `subroutine use` makes the same choice durably (SPEC.md §13.7).
+	# `subroutine use` makes the same choice durably (docs/design.md §13.7).
 	_selected.workspace = workspace.strip() or None
 	_selected.connection = connection.strip() or None
 
 	if context.invoked_subcommand is not None:
 		return
 
-	# The bare invocation (SPEC.md §12.2a). `today` answers the question somebody opening
+	# The bare invocation (docs/design.md §12.2a). `today` answers the question somebody opening
 	# this tool is actually asking; a help wall answers one nobody asked.
 	_show_today()
 

@@ -1,4 +1,4 @@
-"""What a *checkout* belongs to — SPEC.md §13.7a, item ``#159``.
+"""What a *checkout* belongs to — docs/design.md §13.7a, item ``#159``.
 
 **The question an agent could not answer.** §21.5's adoption procedure creates a project for a
 repository, and then every later session has to work out which of an instance's projects this

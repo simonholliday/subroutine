@@ -1,6 +1,6 @@
 """The absence of a value, as distinct from ``None``.
 
-SPEC.md §8.3: on an update, a field that is *absent* is left alone and a field set to
+docs/design.md §8.3: on an update, a field that is *absent* is left alone and a field set to
 ``null`` is *cleared*. Collapsing those two into one makes it impossible to ever clear a
 due date, which is why the distinction is pinned in the spec rather than left to taste.
 

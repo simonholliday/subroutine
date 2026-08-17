@@ -34,7 +34,7 @@ def _parse (text: str) -> subroutine.domain.capture.Capture:
 
 
 def test_the_specifications_own_example_yields_its_five_fields () -> None:
-	"""SPEC.md §6.13's worked example, and half of S2-03's done-criterion."""
+	"""docs/design.md §6.13's worked example, and half of S2-03's done-criterion."""
 
 	captured = _parse("Call the dentist before Sunday !3 ~15m #health")
 
@@ -86,7 +86,7 @@ def test_a_sentence_with_no_grammar_in_it_is_left_entirely_alone () -> None:
 def test_every_token_in_the_published_grammar (
 	text: str, title: str, expected: dict[str, object]
 ) -> None:
-	"""SPEC.md §6.13's table, one row at a time."""
+	"""docs/design.md §6.13's table, one row at a time."""
 
 	captured = _parse(text)
 
@@ -697,7 +697,7 @@ def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> Non
 
 
 def test_a_captured_line_can_set_both_priority_axes () -> None:
-	"""SPEC.md §6.3 has two axes and this grammar reached one until 2026-07-30.
+	"""docs/design.md §6.3 has two axes and this grammar reached one until 2026-07-30.
 
 	``!4`` alone is not a smaller version of ``!4/2`` — it is a *worse* one. ``priority_score``
 	is null unless both axes are set and every ordering is NULLS LAST, so a task captured

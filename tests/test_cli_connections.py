@@ -1,4 +1,4 @@
-"""Connections through the CLI, end to end — SPEC.md §13.7, §12.3a and §12.4.
+"""Connections through the CLI, end to end — docs/design.md §13.7, §12.3a and §12.4.
 
 Two installations in two temporary XDG homes, one of them served over a real socket and
 reached by the other as a remote connection. That is more machinery than a unit test wants,
@@ -1072,7 +1072,7 @@ def test_a_port_taken_before_the_server_binds_it_is_tried_again (
 def test_serve_refuses_a_non_loopback_bind_without_tls (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""SPEC.md §12.4. Binding beyond this machine is where bearer tokens start crossing a
+	"""docs/design.md §12.4. Binding beyond this machine is where bearer tokens start crossing a
 	network, and a note in the documentation puts the warning where it will not be read."""
 
 	run("init")

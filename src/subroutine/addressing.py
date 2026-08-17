@@ -4,7 +4,7 @@ A project key becomes a path segment — ``/v1/projects/SR`` — and so does a t
 segments are already spoken for by an endpoint: ``/v1/tasks/search`` is the search
 endpoint, not a task called ``search``. Anything that would land on one of those is
 refused when it is created, because the alternative is a project that exists, is listed,
-and cannot be opened (SPEC.md §8.1).
+and cannot be opened (docs/design.md §8.1).
 
 Deliberately free of any HTTP framework. The rule is enforced in the service layer, which
 runs for the CLI as well, and a domain module reaching into the API package to find out
@@ -74,7 +74,7 @@ def is_reserved_word (value: str) -> bool:
 	"""Report whether a value would be swallowed by a literal route.
 
 	Compared case-insensitively. Identifiers in a path resolve case-insensitively
-	(SPEC.md §8.1), so a project keyed ``SEARCH`` is reachable at the same address as the
+	(docs/design.md §8.1), so a project keyed ``SEARCH`` is reachable at the same address as the
 	search endpoint whether or not the letters match.
 	"""
 

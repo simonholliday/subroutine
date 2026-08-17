@@ -1,4 +1,4 @@
-"""Adding a second person to an instance — SPEC.md §7.1 and §7.3a, item ``#174``.
+"""Adding a second person to an instance — docs/design.md §7.1 and §7.3a, item ``#174``.
 
 **`README.md` sent a reader to a page headed "Running it for a team", and there was no way to
 create the second member of one.** ``init`` made exactly one account; the only other identity

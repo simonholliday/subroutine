@@ -3,7 +3,7 @@
 Answers exactly one question — *who is this* — and deliberately not the next one, *may
 they*. Keeping them apart means an endpoint cannot accidentally treat "authenticated" as
 "allowed", which is the single most common way permission systems fail open. Authorisation
-is SPEC.md §7.3.
+is docs/design.md §7.3.
 
 Every refusal here is the same refusal as far as the caller is concerned. The reason is
 recorded for the log and for metrics, never returned: telling an unauthenticated stranger
@@ -31,7 +31,7 @@ import subroutine.permissions
 #: How often a token's ``last_used_at`` is allowed to be written. Every authenticated
 #: request would otherwise turn a read into a write, which on SQLite means taking the
 #: write lock on the hottest path in the application to record something nobody reads to
-#: the second (SPEC.md §7.4).
+#: the second (docs/design.md §7.4).
 LAST_USED_INTERVAL = datetime.timedelta(minutes=1)
 
 #: How many times to re-roll a token prefix that is already taken. A collision needs tens

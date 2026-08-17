@@ -1,4 +1,4 @@
-"""Where the tokens are — SPEC.md §12.3a.
+"""Where the tokens are — docs/design.md §12.3a.
 
 Two files, on the SSH model, because they have different lifetimes and different audiences:
 

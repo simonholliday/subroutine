@@ -101,7 +101,7 @@ def test_a_task_with_no_dates_at_all_appears_in_unscheduled (
 
 	Most personal tasks are captured with no date. Without this bucket they would never
 	appear in the agenda at any point, ever, and `subroutine add` would be a write-only
-	feature — the single easiest way to build a to-do list nobody can use (SPEC.md §8.6).
+	feature — the single easiest way to build a to-do list nobody can use (docs/design.md §8.6).
 	"""
 
 	world = World(session)
@@ -155,7 +155,7 @@ def test_the_two_criteria_hold_at_the_same_time (session: sqlalchemy.orm.Session
 def test_each_bucket_holds_what_the_specification_says (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §8.6's table, in one pass."""
+	"""docs/design.md §8.6's table, in one pass."""
 
 	world = World(session)
 	world.task("Late", due=datetime.date(2026, 7, 28))
@@ -213,7 +213,7 @@ def test_an_all_day_deadline_today_lands_in_today (session: sqlalchemy.orm.Sessi
 def test_a_deferred_task_is_hidden_from_every_bucket (
 	session: sqlalchemy.orm.Session, label: str, kwargs: dict[str, typing.Any]
 ) -> None:
-	""""Don't show me the renewal form until March" has to actually hide it (SPEC.md §6.5)."""
+	""""Don't show me the renewal form until March" has to actually hide it (docs/design.md §6.5)."""
 
 	world = World(session)
 	world.task(label, **kwargs)
@@ -307,7 +307,7 @@ def test_a_finished_task_is_gone_from_the_agenda (session: sqlalchemy.orm.Sessio
 
 
 def test_a_recurrence_template_never_appears (session: sqlalchemy.orm.Session) -> None:
-	"""Templates are excluded from every list, search, agenda and rollup (SPEC.md §6.7)."""
+	"""Templates are excluded from every list, search, agenda and rollup (docs/design.md §6.7)."""
 
 	world = World(session)
 	task = world.task("Template", starts=TODAY)
@@ -341,7 +341,7 @@ def test_a_task_in_someone_elses_private_project_is_not_shown (
 
 
 def test_a_private_project_is_shown_to_its_members (session: sqlalchemy.orm.Session) -> None:
-	"""The membership row is what makes a private project reachable (SPEC.md §7.3a)."""
+	"""The membership row is what makes a private project reachable (docs/design.md §7.3a)."""
 
 	world = World(session)
 	private = subroutine.domain.projects.create(
@@ -412,7 +412,7 @@ def test_today_orders_deadlines_before_undated_plans (
 
 	SQLite sorts NULLs first and PostgreSQL sorts them last, so without saying which we
 	want, a planned-but-undated task appears at opposite ends of this list depending on
-	which backend answered (SPEC.md §10.3). This test runs on both, which is the only
+	which backend answered (docs/design.md §10.3). This test runs on both, which is the only
 	reason it means anything.
 	"""
 
@@ -439,7 +439,7 @@ def test_the_horizon_is_a_boundary_not_a_suggestion (
 
 
 def test_the_day_is_computed_where_the_caller_is (session: sqlalchemy.orm.Session) -> None:
-	""""Today" is the asker's today (SPEC.md §8.6, §9.3).
+	""""Today" is the asker's today (docs/design.md §8.6, §9.3).
 
 	At 15:00 UTC on the 30th it is still the 30th in London and already the 31st in Sydney,
 	so a task planned for the 31st is on their agenda and not on London's.

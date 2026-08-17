@@ -1,4 +1,4 @@
-"""What one surface can do and another cannot — SPEC.md §13.7, items ``#139`` and ``#148``.
+"""What one surface can do and another cannot — docs/design.md §13.7, items ``#139`` and ``#148``.
 
 **Three walls in one afternoon, all the same shape, all found by hand.** ``#134``: a project
 could not be created outside HTTP, so on a default install — where nothing runs ``serve`` — the

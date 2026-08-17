@@ -1,6 +1,6 @@
 """Fail if a release changes the database schema without saying so in the changelog.
 
-SPEC.md §12.4a and decision ``#97``. **The user should plan a database upgrade, not discover
+docs/design.md §12.4a and decision ``#97``. **The user should plan a database upgrade, not discover
 one halfway through.** An upgrade that needs a migration means taking a backup, accepting a
 short outage and running a command — all fine when it is on the page in front of somebody, and
 all unwelcome at the point they have already stopped the service.

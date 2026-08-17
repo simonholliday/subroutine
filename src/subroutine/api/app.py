@@ -275,7 +275,7 @@ def create_app (
 	subroutine.api.web.install(application)
 
 	# Checked before anything is mounted, so a violation is a refusal to build rather than
-	# an application that starts with an endpoint nobody can reach (SPEC.md §8.1).
+	# an application that starts with an endpoint nobody can reach (docs/design.md §8.1).
 	subroutine.api.routing.check(ROUTERS)
 
 	# What this application accepts, per path, for the two answers that have to know: a 405

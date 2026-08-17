@@ -213,7 +213,7 @@ def test_a_deactivated_or_deleted_owner_takes_their_tokens_with_them (
 def test_last_used_is_recorded_but_not_on_every_request (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A read path must not become a write path once per request (SPEC.md §7.4)."""
+	"""A read path must not become a write path once per request (docs/design.md §7.4)."""
 
 	user = _make_user(session)
 	token, presented = _issue(session, user)
@@ -279,7 +279,7 @@ def test_a_scoped_token_reports_its_narrowing (session: sqlalchemy.orm.Session) 
 
 
 def test_an_unscoped_token_narrows_nothing (session: sqlalchemy.orm.Session) -> None:
-	"""The empty-scope sentinel: no narrowing, not no permission (SPEC.md §7.3)."""
+	"""The empty-scope sentinel: no narrowing, not no permission (docs/design.md §7.3)."""
 
 	user = _make_user(session)
 	_, presented = _issue(session, user)
@@ -294,7 +294,7 @@ def test_an_unscoped_token_narrows_nothing (session: sqlalchemy.orm.Session) -> 
 def test_superuser_status_comes_from_the_user_not_the_token (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Superusers bypass roles; their tokens still bypass nothing (SPEC.md §7.3)."""
+	"""Superusers bypass roles; their tokens still bypass nothing (docs/design.md §7.3)."""
 
 	user = _make_user(session, is_superuser=True)
 	_, presented = _issue(session, user, scopes=[subroutine.permissions.TASK_READ])

@@ -232,7 +232,7 @@ def test_the_role_ladder_narrows_at_every_step (session: sqlalchemy.orm.Session)
 	for role_permissions in granted.values():
 		assert not role_permissions & subroutine.permissions.INSTANCE_LEVEL
 
-	# The whole difference between an owner and an admin, per SPEC.md §7.2.
+	# The whole difference between an owner and an admin, per docs/design.md §7.2.
 	assert granted["owner"] - granted["admin"] == {subroutine.permissions.WORKSPACE_DELETE}
 
 	assert granted["viewer"] < granted["contributor"] < granted["member"] < granted["admin"]
@@ -403,7 +403,7 @@ def test_the_two_permission_tiers_do_not_overlap () -> None:
 	"""A verb belongs to exactly one tier, and ``ALL`` is the two of them.
 
 	Overlap would mean a permission both granted by a role and reserved to superusers,
-	which is two different answers to the same question (SPEC.md §7.1).
+	which is two different answers to the same question (docs/design.md §7.1).
 	"""
 
 	workspace_level = subroutine.permissions.WORKSPACE_LEVEL

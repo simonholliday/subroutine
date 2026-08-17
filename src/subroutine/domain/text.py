@@ -4,9 +4,9 @@ This exists because the two backends disagree about what happens when it does no
 PostgreSQL refuses an over-length value with ``StringDataRightTruncation``; SQLite does not
 enforce ``VARCHAR`` lengths at all and stores it in full. So the same input succeeds on a
 laptop and fails in production, which is precisely the class of divergence the dual-backend
-rule exists to catch (SPEC.md §10.3).
+rule exists to catch (docs/design.md §10.3).
 
-SPEC.md §6.10 already says what should happen instead: limits are "enforced with a clear
+docs/design.md §6.10 already says what should happen instead: limits are "enforced with a clear
 error code rather than a truncation". Truncating silently would be worse than either
 backend's behaviour — the user would not be told that the end of their sentence is gone.
 """

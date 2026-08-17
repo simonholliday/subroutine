@@ -31,7 +31,7 @@ import subroutine.cli.personal
 FORBIDDEN = {
 	"Markdown emphasis": re.compile(r"\*\*"),
 	"a backtick": re.compile(r"`"),
-	"a reference to SPEC.md, which is not published": re.compile(r"SPEC\.md"),
+	"a reference to docs/design.md, which is not published": re.compile(r"SPEC\.md"),
 	"a specification section sign": re.compile(r"§"),
 	"the hidden synonym 'ls' rather than 'list'": re.compile(r"'ls'"),
 }

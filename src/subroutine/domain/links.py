@@ -2,7 +2,7 @@
 
 One stored edge, displayed from both ends. ``blocks``/``blocked by`` is a single row and
 the link type carries the inverse label, so nothing has to keep two rows agreeing with each
-other (SPEC.md §5.7).
+other (docs/design.md §5.7).
 
 The ends are polymorphic — task or document, in any combination — which is what lets a task
 derive from the specification that called for it without a table per pairing. That is the

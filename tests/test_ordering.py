@@ -137,7 +137,7 @@ def test_a_document_has_no_priority_and_says_so_rather_than_raising () -> None:
 
 @pytest.mark.parametrize("descending", [True, False])
 def test_nulls_sort_last_in_both_directions (descending: bool) -> None:
-	"""SPEC.md §10.3's rule, which the merge has to keep as much as the query does.
+	"""docs/design.md §10.3's rule, which the merge has to keep as much as the query does.
 
 	Nulls last *in both directions* is what makes "a document sorts last in a list ranked by
 	priority" true whichever way the list runs — the same answer §6.3a gives an unranked

@@ -1,6 +1,6 @@
 """The identity of this installation.
 
-One row, written once, never replaced (SPEC.md §13.7). An agent connected to a personal
+One row, written once, never replaced (docs/design.md §13.7). An agent connected to a personal
 instance and a work one keys its caches on this value, uses it to notice the same instance
 configured twice under two names, and labels merged results with it — so a value that
 changed would silently corrupt all three at once.

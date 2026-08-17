@@ -26,7 +26,7 @@ def test_a_minted_token_parses_back_to_its_own_halves () -> None:
 
 
 def test_a_minted_token_has_the_documented_shape () -> None:
-	"""SPEC.md §7.4: ``sr_<8 hex>_<secret>``."""
+	"""docs/design.md §7.4: ``sr_<8 hex>_<secret>``."""
 
 	value = subroutine.auth.generate_token().value.get_secret_value()
 	scheme, prefix, secret = value.split("_", 2)
@@ -79,7 +79,7 @@ def test_malformed_tokens_are_refused_without_a_database (presented: str) -> Non
 
 
 def test_a_token_secret_never_reaches_a_string_a_program_might_log () -> None:
-	"""SPEC.md §7.4: shown once, never recoverable, redacted in output and tracebacks."""
+	"""docs/design.md §7.4: shown once, never recoverable, redacted in output and tracebacks."""
 
 	issued = subroutine.auth.generate_token()
 	secret = issued.value.get_secret_value().split("_", 2)[2]
@@ -103,7 +103,7 @@ def test_a_wrong_secret_does_not_match () -> None:
 
 
 def test_passwords_hash_with_argon2id_and_a_fresh_salt () -> None:
-	"""SPEC.md §7.6 names the variant; naming no algorithm is how MD5 happens."""
+	"""docs/design.md §7.6 names the variant; naming no algorithm is how MD5 happens."""
 
 	first = subroutine.auth.hash_password("correct horse battery")
 	second = subroutine.auth.hash_password("correct horse battery")
@@ -155,6 +155,6 @@ def test_short_and_common_passwords_are_refused_with_a_usable_reason () -> None:
 
 
 def test_password_rules_do_not_impose_composition () -> None:
-	"""SPEC.md §7.6: no character-class rules, because they reduce entropy in practice."""
+	"""docs/design.md §7.6: no character-class rules, because they reduce entropy in practice."""
 
 	assert subroutine.auth.password_problem("all lower case letters only") is None

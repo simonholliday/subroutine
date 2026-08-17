@@ -2,7 +2,7 @@
 
 The same shape as tasks and for the same reasons: the service layer decides, this
 translates. Addressed by ``{id_or_key}`` — a project key is what people have in front of
-them, and requiring an id to open ``SR`` would be a needless round trip (SPEC.md §8.1).
+them, and requiring an id to open ``SR`` would be a needless round trip (docs/design.md §8.1).
 """
 
 import typing
@@ -47,7 +47,7 @@ router = fastapi.APIRouter(
 SORTABLE = subroutine.domain.ordering.PROJECT_FIELDS
 DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_PROJECT_ORDER
 
-#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read from the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Project)
 
 
@@ -86,7 +86,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	visibility: str | None = None
 	owner_id: uuid.UUID | None = None
 
-	#: The version this change is based on (SPEC.md §8.9).
+	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
 
 
@@ -137,7 +137,7 @@ def create (
 		template=body.template,
 		visibility=body.visibility,
 		# The creator owns what they create unless they say otherwise, which is also what
-		# makes a private project visible to them (SPEC.md §7.3a).
+		# makes a private project visible to them (docs/design.md §7.3a).
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
 		actor=actor,
 	)
@@ -202,7 +202,7 @@ def listing (
 	keys = subroutine.api.pagination.parse_order(
 		order, allowed=SORTABLE, default=DEFAULT_ORDER, tiebreak=model.id
 	)
-	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)
 	total = None
@@ -278,7 +278,7 @@ def change (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
-	"""Change a project. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
+	"""Change a project. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
@@ -362,7 +362,7 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
-	"""Restore a soft-deleted project, and everything filed in it (SPEC.md §6.9).
+	"""Restore a soft-deleted project, and everything filed in it (docs/design.md §6.9).
 
 	**`DELETE` has always said its tasks "come back with it" and nothing brought them back**
 	(`#308`). `#140` gave tasks and documents a restore and did not give one to the container

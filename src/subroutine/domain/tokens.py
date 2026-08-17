@@ -1,4 +1,4 @@
-"""Looking after credentials after they are issued — SPEC.md §7.4, item ``#156``.
+"""Looking after credentials after they are issued — docs/design.md §7.4, item ``#156``.
 
 **A sibling of `authentication` rather than part of it**, and the import graph is what
 decides that: `authorization` already imports `authentication` for its `Principal`, so

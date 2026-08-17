@@ -1,6 +1,6 @@
 """Optimistic concurrency: the check that stops one writer silently overwriting another.
 
-SPEC.md §8.9. Every entity carries a ``version`` that moves on every change a client can
+docs/design.md §8.9. Every entity carries a ``version`` that moves on every change a client can
 see. A caller that read version 7, thought about it, and now wants to write may say so —
 and if the entity is at 9 by then, the change is refused rather than applied over whatever
 happened in between.

@@ -1,4 +1,4 @@
-"""Accounts over HTTP — SPEC.md §7.1, item ``#174``.
+"""Accounts over HTTP — docs/design.md §7.1, item ``#174``.
 
 **The gap this closes was a page called "Running it for a team" that could not add the second
 member of one.** ``init`` made exactly one account; the only other identity anybody could
@@ -39,7 +39,7 @@ router = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
-#: What ``?fields=`` may name, read off the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read off the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.User)
 
 

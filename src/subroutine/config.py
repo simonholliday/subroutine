@@ -1,6 +1,6 @@
 """Where Subroutine keeps its files, and how its settings are resolved.
 
-Two precedence chains exist and are deliberately kept apart (SPEC.md §12.3):
+Two precedence chains exist and are deliberately kept apart (docs/design.md §12.3):
 
 * **Process configuration** — where the database is, what port to listen on, which key
   signs things. Resolved here, in the order: command-line flag, then environment
@@ -39,7 +39,7 @@ NETWORK_FILESYSTEMS = frozenset(
 )
 
 
-#: What a claim's lease lasts when nobody says (SPEC.md §14.11). Long enough that an agent
+#: What a claim's lease lasts when nobody says (docs/design.md §14.11). Long enough that an agent
 #: doing real work is not renewing constantly, short enough that a dead one frees its task
 #: within a coffee break.
 DEFAULT_LEASE_MINUTES = 30
@@ -55,7 +55,7 @@ DEFAULT_LEASE_MINUTES = 30
 #: where the one that read as authoritative was the one that never applied.
 MAX_LEASE_MINUTES = 60 * 24
 
-#: The environment variable naming the active instance (SPEC.md §12.5). Read on every path
+#: The environment variable naming the active instance (docs/design.md §12.5). Read on every path
 #: lookup rather than captured once, so a test or a subprocess can change instance without
 #: reloading the module.
 PROFILE_VARIABLE = "SUBROUTINE_PROFILE"
@@ -65,7 +65,7 @@ PROFILE_VARIABLE = "SUBROUTINE_PROFILE"
 PROFILES_DIRECTORY = "profiles"
 
 #: A profile name must be a safe single path segment: a letter first, then letters, digits,
-#: hyphens and underscores. Same shape as a workspace short name (SPEC.md §13.7) and for the
+#: hyphens and underscores. Same shape as a workspace short name (docs/design.md §13.7) and for the
 #: same reason — a name that is all digits, or that carries a separator, stops being a name
 #: and becomes a path.
 _PROFILE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
@@ -106,7 +106,7 @@ def profile () -> str | None:
 
 	``None`` is not a fallback for a broken value — a name that cannot be used raises, because
 	continuing would silently act on the *default* instance, which is the one holding real
-	work (SPEC.md §12.5).
+	work (docs/design.md §12.5).
 	"""
 
 	name = os.environ.get(PROFILE_VARIABLE, "").strip()
@@ -191,7 +191,7 @@ def is_loopback (host: str) -> bool:
 
 	A wildcard — ``0.0.0.0`` or ``::`` — is *not* loopback even though it includes it: it
 	accepts a connection from anywhere the machine has an address, which is the whole of what
-	SPEC.md §12.4 is about. An unparseable name is treated as non-loopback, because guessing
+	docs/design.md §12.4 is about. An unparseable name is treated as non-loopback, because guessing
 	the safe answer wrong in that direction only costs one flag.
 
 	**Here rather than in ``cli/main.py``, where it was written**, because two callers now ask
@@ -253,7 +253,7 @@ def state_home () -> pathlib.Path:
 	"""Return the directory holding state that is useful to keep but safe to lose.
 
 	The current context lives here — which connection and which workspace a bare number
-	means (SPEC.md §13.7). It is deliberately not in the data directory, because XDG's own
+	means (docs/design.md §13.7). It is deliberately not in the data directory, because XDG's own
 	description of ``STATE_HOME`` fits it exactly: state that should persist between
 	restarts but is not important enough for the data directory.
 
@@ -531,7 +531,7 @@ class Settings(pydantic_settings.BaseSettings):
 	database_url: str = pydantic.Field(default_factory=default_database_url)
 
 	# Where this instance's source can be obtained. **A product commitment, and it used to be
-	# a legal obligation** (SPEC.md §2.2): under AGPL a served instance owed its source to the
+	# a legal obligation** (docs/design.md §2.2): under AGPL a served instance owed its source to the
 	# people using it, and under FSL-1.1-ALv2 it owes them nothing. The field stays, because
 	# somebody using an instance ought to be able to find the source of the thing they are
 	# using, and because a promise kept when nothing compels it is the whole of why anybody
@@ -544,14 +544,14 @@ class Settings(pydantic_settings.BaseSettings):
 	host: str = "127.0.0.1"
 	port: int = 8471
 
-	# Marks this instance as one whose data matters (SPEC.md §12.5). A protected instance
+	# Marks this instance as one whose data matters (docs/design.md §12.5). A protected instance
 	# refuses `db restore`, `db upgrade` and its own deletion unless the operator confirms or
 	# passes `--yes`. It is a property of the *instance* rather than of the command on
 	# purpose: the thing worth protecting is a particular database, and a flag on the command
 	# only protects whoever remembers to type it.
 	protected: bool = False
 
-	# **Rate limiting, SPEC.md §7.7.** Unset is not "off": it means on unless nothing outside
+	# **Rate limiting, docs/design.md §7.7.** Unset is not "off": it means on unless nothing outside
 	# this machine can reach the instance, because a limiter is about callers arriving over a
 	# network and on a laptop the only caller is the person who owns the machine. Set it
 	# either way to say so out loud.
@@ -600,7 +600,7 @@ class Settings(pydantic_settings.BaseSettings):
 	# proxy is what makes the claim worth anything.
 	trusted_proxies: list[str] = pydantic.Field(default_factory=list)
 
-	# Where `db backup` writes (SPEC.md §12.6b). Unset means the instance's own data directory,
+	# Where `db backup` writes (docs/design.md §12.6b). Unset means the instance's own data directory,
 	# which is right for one laptop and wrong as soon as the point of a backup is surviving the
 	# disk it is on. A network volume is a good destination and a **bad** place for the database
 	# itself — so this is a separate setting rather than a directory beside `database_url`.
@@ -608,10 +608,10 @@ class Settings(pydantic_settings.BaseSettings):
 
 	# The https:// address a TLS-terminating proxy serves this instance on. Unset is the
 	# ordinary case — one person on a laptop, listening on loopback. Setting it is what makes
-	# a non-loopback bind something `serve` will agree to (SPEC.md §12.4).
+	# a non-loopback bind something `serve` will agree to (docs/design.md §12.4).
 	public_url: str | None = None
 
-	# Which connection a write goes to when the command did not say (SPEC.md §13.7). The
+	# Which connection a write goes to when the command did not say (docs/design.md §13.7). The
 	# connections themselves are tables rather than settings, and live in
 	# `subroutine.connections`; this is the one scalar among them.
 	default_connection: str = "local"
@@ -642,7 +642,7 @@ class Settings(pydantic_settings.BaseSettings):
 
 	default_timezone: str = pydantic.Field(default_factory=system_timezone)
 
-	# Which account local mode acts as, when the database holds more than one (SPEC.md
+	# Which account local mode acts as, when the database holds more than one (docs/design.md
 	# §12.1a). Unset is the ordinary case: with a single user there is nothing to choose,
 	# and with several, guessing whose to-do list is on screen is not an error that
 	# announces itself.
@@ -681,7 +681,7 @@ class Settings(pydantic_settings.BaseSettings):
 	# it back when there is a gate.
 
 	# Bounds how deep a project or subtask tree may nest, and with it the length of a
-	# materialised path and the cost of a move (SPEC.md §5.4).
+	# materialised path and the cost of a move (docs/design.md §5.4).
 	max_hierarchy_depth: int = 10
 
 	# Which implementation answers `q` (§9.4, item `#823`).
@@ -751,7 +751,7 @@ class Settings(pydantic_settings.BaseSettings):
 		"""Return the signing key, refusing to run without one outside development.
 
 		The key signs pagination cursors. It deliberately does *not* pepper stored token
-		hashes (SPEC.md §7.4), so rotating it costs an in-flight page of results rather
+		hashes (docs/design.md §7.4), so rotating it costs an in-flight page of results rather
 		than every credential in the installation. Starting with a generated-per-process
 		key would still break cursors on every restart, so this fails loudly instead.
 		"""

@@ -7,7 +7,7 @@ no date at all falls to unscheduled.
 
 Unlike ``GET /v1/tasks`` this spans every workspace the caller can read, because "what am I
 doing today" is a question about a person's day rather than about a workspace — the dentist
-appointment and the deployment are both in it (SPEC.md §13.7).
+appointment and the deployment are both in it (docs/design.md §13.7).
 """
 
 import datetime

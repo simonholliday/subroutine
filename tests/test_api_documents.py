@@ -47,7 +47,7 @@ def test_a_document_is_written_and_read_back (world: test_api_tasks.World) -> No
 def test_a_document_has_no_deadline_and_cannot_be_given_one (
 	world: test_api_tasks.World,
 ) -> None:
-	"""SPEC.md §6.14: a specification is never "done" and nobody is working on it.
+	"""docs/design.md §6.14: a specification is never "done" and nobody is working on it.
 
 	"The spec must be signed off by Friday" is a *task* that documents the spec. Keeping
 	dates off the document is what stops every scheduling query needing an entity filter.
@@ -65,7 +65,7 @@ def test_a_document_has_no_deadline_and_cannot_be_given_one (
 
 
 def test_documents_and_tasks_share_one_ref_space (world: test_api_tasks.World) -> None:
-	"""So ``#42`` is unambiguous whichever it names (SPEC.md §5.6)."""
+	"""So ``#42`` is unambiguous whichever it names (docs/design.md §5.6)."""
 
 	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
 	document = world.call("POST", "/v1/documents", json={"title": "A document"}).json()
@@ -133,7 +133,7 @@ def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (
 
 
 def test_a_document_is_soft_deleted (world: test_api_tasks.World) -> None:
-	"""Recoverable, like everything else (SPEC.md §6.9)."""
+	"""Recoverable, like everything else (docs/design.md §6.9)."""
 
 	created = world.call("POST", "/v1/documents", json={"title": "Throw away"}).json()
 	deleted = world.call("DELETE", f"/v1/documents/{created['ref']}")
@@ -176,7 +176,7 @@ def test_documents_in_a_private_project_are_hidden_like_its_tasks (
 def test_a_link_reads_the_right_way_round_from_each_end (
 	world: test_api_tasks.World,
 ) -> None:
-	"""One stored row, two readings. The link type carries the inverse label (SPEC.md §5.7)."""
+	"""One stored row, two readings. The link type carries the inverse label (docs/design.md §5.7)."""
 
 	blocker = world.call("POST", "/v1/tasks", json={"title": "Do this first"}).json()
 	blocked = world.call("POST", "/v1/tasks", json={"title": "Then this"}).json()

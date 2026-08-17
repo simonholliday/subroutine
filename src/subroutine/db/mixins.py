@@ -1,7 +1,7 @@
 """Column groups shared by most tables, and the vocabularies they constrain.
 
 Declared as mixins rather than repeated per model so that "every mutable entity carries
-these" (SPEC.md §6.1) is enforced by construction instead of by memory.
+these" (docs/design.md §6.1) is enforced by construction instead of by memory.
 """
 
 import datetime
@@ -26,7 +26,7 @@ ITEM_ENTITY_TYPES = ("task", "document")
 COMMENT_ENTITY_TYPES = ("task", "project", "document")
 LINK_ENTITY_TYPES = ("task", "document", "verification")
 
-#: What text can hold a reference to a work item (SPEC.md §6.15). A comment can mention a
+#: What text can hold a reference to a work item (docs/design.md §6.15). A comment can mention a
 #: task; nothing mentions a comment, so the target set is just the work items.
 MENTION_SOURCE_TYPES = ("task", "document", "comment")
 

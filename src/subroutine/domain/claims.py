@@ -1,4 +1,4 @@
-"""Taking a task, and giving it back — SPEC.md §14.11, item ``#350``.
+"""Taking a task, and giving it back — docs/design.md §14.11, item ``#350``.
 
 **A lease, not a lock.** Agents die mid-task routinely — a context ends, a process is killed,
 a machine reboots — and a hard lock would strand the work permanently, with no way back except

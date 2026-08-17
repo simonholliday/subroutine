@@ -274,7 +274,7 @@ def test_an_unnarrowed_token_reports_the_whole_role (
 ) -> None:
 	"""``scopes: []`` means no narrowing, and the permissions prove it.
 
-	This is the sentinel that reads backwards (SPEC.md §7.3). An agent taking the empty
+	This is the sentinel that reads backwards (docs/design.md §7.3). An agent taking the empty
 	list as "no permissions" would conclude it could do nothing; the ``narrows`` flag and
 	the permission list are both there so it does not have to interpret anything.
 	"""
@@ -310,7 +310,7 @@ def test_a_scoped_token_reports_only_what_it_can_actually_do (
 def test_instance_permissions_belong_to_superusers_only (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""A workspace owner is not an administrator of the installation (SPEC.md §7.1)."""
+	"""A workspace owner is not an administrator of the installation (docs/design.md §7.1)."""
 
 	_, secret = _token(session, setup.user)
 
@@ -384,7 +384,7 @@ def test_a_token_in_the_query_string_is_refused_and_called_out (
 ) -> None:
 	"""Tokens are never read from a URL, and the refusal says why rather than puzzling.
 
-	SPEC.md §7.4: a query string reaches access logs, browser history and referrer headers.
+	docs/design.md §7.4: a query string reaches access logs, browser history and referrer headers.
 	Ignoring the parameter silently would leave the caller staring at a 401 while looking
 	straight at a credential it can see in the URL.
 	"""
@@ -486,7 +486,7 @@ def test_a_calendar_credential_cannot_be_used_as_a_bearer_token (setup: Setup) -
 	["", "nonsense", "sr_short_x", "sr_XYZNOTHEX_secret", "sr_deadbeef_wrongsecret"],
 )
 def test_an_unusable_token_is_refused (setup: Setup, presented: str) -> None:
-	"""Every reason reads identically from outside, on purpose (SPEC.md §7.4)."""
+	"""Every reason reads identically from outside, on purpose (docs/design.md §7.4)."""
 
 	response = api_support.call(
 		setup.application, "GET", "/v1/me", headers={"authorization": f"Bearer {presented}"}

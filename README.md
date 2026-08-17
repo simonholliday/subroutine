@@ -580,12 +580,18 @@ repository.
   the schema without saying so, so you can plan the upgrade instead of discovering it.
 - **[docs/errors.md](https://github.com/simonholliday/subroutine/blob/main/docs/errors.md)** — every error code the API can return. Generated from
   the registry, so it cannot drift from the code.
+- **[docs/design.md](https://github.com/simonholliday/subroutine/blob/main/docs/design.md)** — the design this was built from: data model, API,
+  permissions, agent design, and the reasoning behind each. Frozen, and wrong in places — the
+  code is the truth. It is here because the code cites it about two thousand times and a
+  citation nobody can follow is worse than none.
 - **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
 - **[SECURITY.md](https://github.com/simonholliday/subroutine/blob/main/SECURITY.md)** — how to report a vulnerability privately, and what is in
   scope. Not through an issue: an issue is public from the moment it is filed.
 
-The full specification — data model, API, permissions and agent design — is written but
-not yet published. It lands here once the API has settled enough to be worth reading.
+The specification is published, at [docs/design.md](https://github.com/simonholliday/subroutine/blob/main/docs/design.md). It is the design as it
+stood before most of this was built, not a description of the running software, and the sections
+the code cites as `§7.3a` are its sections. Design taken since is recorded as decisions rather
+than as edits to it.
 
 ## Contributing
 

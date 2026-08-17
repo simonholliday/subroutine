@@ -1,6 +1,6 @@
 """Reading the version a caller expects, from wherever it chose to put it.
 
-SPEC.md §8.9 offers two places on purpose: ``If-Match``, which is what HTTP says and what a
+docs/design.md §8.9 offers two places on purpose: ``If-Match``, which is what HTTP says and what a
 cache or a proxy understands, and ``expected_version`` in the body, "for clients that find
 headers awkward" — which, in practice, means anything driving the API from a shell script or
 a notebook. Neither is required, and sending both is fine as long as they agree.

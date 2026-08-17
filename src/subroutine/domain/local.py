@@ -1,4 +1,4 @@
-"""Who you are when there is no server — SPEC.md §12.1a.
+"""Who you are when there is no server — docs/design.md §12.1a.
 
 The light commands open the database directly through the service layer, and the service
 layer takes a :class:`Principal` and calls ``authorize()``. So local mode has to produce

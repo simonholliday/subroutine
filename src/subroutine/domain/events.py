@@ -1,6 +1,6 @@
 """Recording what happened, in the same transaction as the thing that happened.
 
-SPEC.md §10.7 invariant 9: every entity mutation emits at least one ``event`` row, written
+docs/design.md §10.7 invariant 9: every entity mutation emits at least one ``event`` row, written
 inside the caller's transaction. That "inside" is the whole point — an event dispatched
 afterwards can be lost when the mutation is rolled back, or recorded for a change that
 never landed, and either way the audit trail becomes something you have to corroborate
@@ -134,7 +134,7 @@ def selected (
 	visible: sqlalchemy.ColumnElement[bool] | None = None,
 	actor_token_id: uuid.UUID | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
-	"""Return the statement both readers of this table are built on (SPEC.md §5.11a).
+	"""Return the statement both readers of this table are built on (docs/design.md §5.11a).
 
 	**One builder, and the upper bound is a parameter** — that is the whole design, and it is
 	the thing that stops a per-entity history being written as "the feed with a filter".

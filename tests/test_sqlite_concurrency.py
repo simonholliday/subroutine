@@ -5,7 +5,7 @@ backend rule exists because SQLite cannot express the failures PostgreSQL can; t
 about the failure only SQLite has. PostgreSQL takes concurrent writers without comment.
 
 The case is `subroutine serve` running for an agent while its owner types `subroutine done
-3` in another terminal: two processes, two connection pools, one file (SPEC.md §10.4).
+3` in another terminal: two processes, two connection pools, one file (docs/design.md §10.4).
 WAL and `busy_timeout` are what make it work and both are applied per connection — but
 "it happens to work" and "we promise it works" are different claims, and only the second
 one gets a test.

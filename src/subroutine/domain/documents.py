@@ -1,6 +1,6 @@
 """Specifications, designs, notes, decisions, findings and dead ends.
 
-The sibling of a task, and the reason there are two entities rather than one (SPEC.md
+The sibling of a task, and the reason there are two entities rather than one (docs/design.md
 §5.6): a bug is done or not done and carries an assignee, a deadline and an estimate; a
 specification is never "done" — it is draft, then active, then superseded — and has an
 owner rather than a worker. Half the columns differ, and splitting on that keeps both
@@ -41,7 +41,7 @@ import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
-#: SPEC.md §6.10, matching tasks.
+#: docs/design.md §6.10, matching tasks.
 MAX_TITLE_LENGTH = 512
 
 #: The status a document moves to when something supersedes it. A category rather than a
@@ -589,7 +589,7 @@ def delete (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
-	"""Move a document to the trash, where it stays recoverable (SPEC.md §6.9)."""
+	"""Move a document to the trash, where it stays recoverable (docs/design.md §6.9)."""
 
 	_permitted(
 		session,
@@ -633,7 +633,7 @@ def restore (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
-	"""Take a document back out of the trash — ``tasks.restore``'s counterpart (SPEC.md §6.9).
+	"""Take a document back out of the trash — ``tasks.restore``'s counterpart (docs/design.md §6.9).
 
 	Both, because one ref counter serves both kinds (§6.2) and ``show`` takes either, so a
 	restore that worked on half the numbers would be a surprise nobody could predict from the
@@ -753,7 +753,7 @@ def _vocabulary (
 
 	One function for both tables because the two lookups differ only in which table they
 	read: both are workspace-scoped, both carry an ``entity_type`` discriminator, and both
-	have to name the valid alternatives when they fail (SPEC.md §5.5).
+	have to name the valid alternatives when they fail (docs/design.md §5.5).
 	"""
 
 	statement = sqlalchemy.select(model).where(
@@ -836,7 +836,7 @@ def _retire (
 	*,
 	actor: subroutine.domain.authentication.Principal | None,
 ) -> None:
-	"""Move a superseded document to the status that says so (SPEC.md §6.14).
+	"""Move a superseded document to the status that says so (docs/design.md §6.14).
 
 	Done here rather than left to the caller because the two facts are one fact: a document
 	that has been superseded and still reads as ``active`` is a document somebody will act

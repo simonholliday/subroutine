@@ -1,4 +1,4 @@
-"""What a checkout belongs to — SPEC.md §13.7a, item ``#159``.
+"""What a checkout belongs to — docs/design.md §13.7a, item ``#159``.
 
 The question an agent could not answer, and the reason "it just works" was not yet true: on an
 instance with one project it is free, and §21.5's adoption procedure *produces* instances with

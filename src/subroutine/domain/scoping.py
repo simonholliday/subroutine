@@ -1,6 +1,6 @@
 """The one place a listing is narrowed to what its caller may see.
 
-SPEC.md §7.3 has asked for this since slice 1 — "every repository query is scoped by
+docs/design.md §7.3 has asked for this since slice 1 — "every repository query is scoped by
 workspace through a single injected helper" — and until now nothing built it, so every
 listing narrowed itself by hand. Two of them got it wrong, and both were found by running
 the code rather than reading it:
@@ -102,7 +102,7 @@ def within_project_scope (
 
 	allowed = principal.project_scope
 
-	# The sentinel: no list means no restriction, never "no projects" (SPEC.md §7.3).
+	# The sentinel: no list means no restriction, never "no projects" (docs/design.md §7.3).
 	if allowed is None:
 		return sqlalchemy.true()
 
@@ -206,7 +206,7 @@ def readable_documents (
 	"""Return a select over the documents this principal may see, and no others.
 
 	The same narrowing as :func:`readable_tasks`, because a document is a work item under
-	the same permissions as the task beside it (SPEC.md §5.6, §7.3a) — a specification in a
+	the same permissions as the task beside it (docs/design.md §5.6, §7.3a) — a specification in a
 	private project is exactly as hidden as the work derived from it, and it would be an odd
 	kind of privacy if it were not.
 
@@ -369,7 +369,7 @@ def visible_events (
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return a predicate selecting the events this principal may see, and no others.
 
-	**An event is exactly as visible as the entity it describes** (SPEC.md §5.11a). A
+	**An event is exactly as visible as the entity it describes** (docs/design.md §5.11a). A
 	per-entity history gets that free by resolving its subject through the entity's own
 	narrowed statement; the change feed has no subject to resolve and must compose the same
 	predicates itself. §5.11a predicted that this would be the genuinely shared work, and it

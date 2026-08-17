@@ -10,7 +10,7 @@ documents said it ran on every service call, and nothing anywhere called it. A t
 to ``task:read`` created a task. That failure was invisible because it was an *absence*, and
 absences are what a static check is for.
 
-SPEC.md §7.3 already prescribes this shape for workspace scoping — "a test asserts that no
+docs/design.md §7.3 already prescribes this shape for workspace scoping — "a test asserts that no
 query in the codebase reaches the task or project tables without passing through it". This
 is the same instrument pointed at permissions.
 """

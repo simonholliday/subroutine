@@ -1,6 +1,6 @@
 """Tests for local-mode identity, tag auto-creation, and capture reaching the database.
 
-SPEC.md §12.1a's resolution order is the interesting part, and the clause worth having is
+docs/design.md §12.1a's resolution order is the interesting part, and the clause worth having is
 the third: **a token narrows local mode**. Without it an agent invoking the CLI against the
 database directly holds unrestricted authority over everything in it, which is precisely
 the posture §14.12 warns about — and it would be an easy thing to leave until the API,
@@ -43,7 +43,7 @@ def _installed (
 
 
 def test_the_only_account_is_who_you_are (session: sqlalchemy.orm.Session) -> None:
-	"""The ordinary personal case asks nothing of anybody (SPEC.md §12.1a, rule 2)."""
+	"""The ordinary personal case asks nothing of anybody (docs/design.md §12.1a, rule 2)."""
 
 	installed = _installed(session)
 	principal = subroutine.domain.local.principal(session)
@@ -99,7 +99,7 @@ def test_a_token_narrows_local_mode (session: sqlalchemy.orm.Session) -> None:
 
 	Hand an agent a scoped token and the CLI constrains it with no server involved. The
 	alternative — unrestricted authority whenever an agent invokes the CLI — is the posture
-	this rule exists to prevent (SPEC.md §12.1a, §14.12).
+	this rule exists to prevent (docs/design.md §12.1a, §14.12).
 	"""
 
 	installed = _installed(session)
@@ -187,7 +187,7 @@ def test_the_workspace_is_the_oldest_one_you_belong_to (
 def test_a_tag_is_created_the_first_time_it_is_used (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Typing ``#health`` should not require a tag-management step (SPEC.md §5.8)."""
+	"""Typing ``#health`` should not require a tag-management step (docs/design.md §5.8)."""
 
 	installed = _installed(session)
 
@@ -268,7 +268,7 @@ def test_a_captured_line_becomes_a_task_with_its_tags (
 	assert [tag.name for tag in subroutine.domain.tags.on(session, task)] == ["work"]
 
 	# No project named, so it lands in the Inbox — the one project the personal path never
-	# mentions (SPEC.md §6.8).
+	# mentions (docs/design.md §6.8).
 	assert task.project_id == installed.inbox.id
 
 
@@ -314,7 +314,7 @@ def test_an_unknown_assignee_names_the_members (session: sqlalchemy.orm.Session)
 
 
 def test_structured_fields_win_over_parsed_ones (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §6.13: a client that wants no magic simply does not send text worth parsing.
+	"""docs/design.md §6.13: a client that wants no magic simply does not send text worth parsing.
 
 	The capture still runs, so the title still loses the token — otherwise supplying
 	``importance`` explicitly would leave a stray ``!3`` behind in it.
@@ -438,7 +438,7 @@ def test_a_stranger_to_the_workspace_cannot_create_a_task (
 def test_creating_a_workspace_needs_the_instance_permission (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The instance tier had no call site until now (SPEC.md §7.1, Appendix A)."""
+	"""The instance tier had no call site until now (docs/design.md §7.1, Appendix A)."""
 
 	installed = _installed(session)
 	ordinary = subroutine.domain.users.create(
@@ -469,7 +469,7 @@ def test_creating_a_workspace_needs_the_instance_permission (
 def test_privacy_reaches_a_private_projects_children (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Settled 2026-07-29: private inherits down the tree (SPEC.md §7.3a).
+	"""Settled 2026-07-29: private inherits down the tree (docs/design.md §7.3a).
 
 	Before this, marking a project private and creating a sub-project inside it published
 	the sub-project's titles to the whole workspace — while the token-scope rule beside it

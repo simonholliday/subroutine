@@ -72,7 +72,7 @@ SORTABLE = subroutine.domain.ordering.TASK_FIELDS
 #: Newest first, which is what "what have I got" means for a to-do list.
 DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_TASK_ORDER
 
-#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read from the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Task)
 
 
@@ -180,7 +180,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	recurrence_trigger: str | None = None
 	timezone: str | None = None
 
-	#: The version this change is based on (SPEC.md §8.9). Optional; ``If-Match`` does the
+	#: The version this change is based on (docs/design.md §8.9). Optional; ``If-Match`` does the
 	#: same job for a client that prefers the header.
 	expected_version: int | None = None
 
@@ -637,7 +637,7 @@ def change (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Change a task. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
+	"""Change a task. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
@@ -869,7 +869,7 @@ def take (
 ) -> subroutine.views.Task:
 	"""Take a lease on a task, or renew one you already hold.
 
-	A **lease, not a lock** (SPEC.md §14.11): it expires, and an expired one is ignored rather
+	A **lease, not a lock** (docs/design.md §14.11): it expires, and an expired one is ignored rather
 	than needing anybody to clear it. Workers die mid-task, and a claim that outlived its
 	holder would strand the work permanently.
 
@@ -1007,7 +1007,7 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Restore a soft-deleted task (SPEC.md §6.9).
+	"""Restore a soft-deleted task (docs/design.md §6.9).
 
 	**The half that made soft delete soft**, and it did not exist until `#140` — §6.9 promised
 	a deleted item was restorable, a `trash_retention_days` setting was declared, and
@@ -1044,7 +1044,7 @@ def remove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Soft-delete a task. It stays recoverable (SPEC.md §6.9).
+	"""Soft-delete a task. It stays recoverable (docs/design.md §6.9).
 
 	The deleted task is returned rather than an empty 204, so a caller can see when it
 	happened without asking again — and so an agent can tell a repeat call apart from a
@@ -1075,7 +1075,7 @@ def _resolve (
 
 	Searched **through the scoping helper**, so a task the caller may not see is reported
 	as absent rather than forbidden — saying "forbidden" about a task in a private project
-	would confirm that it exists (SPEC.md §7.3a).
+	would confirm that it exists (docs/design.md §7.3a).
 
 	Deleted tasks resolve. A reference to something in the trash is more useful than a
 	dangling one, and ``deleted_at`` is in the response for the caller to see.
@@ -1091,7 +1091,7 @@ def _resolve (
 		include_templates=True,
 	)
 
-	# A ref is all digits and a project key must start with a letter (SPEC.md §6.2), so
+	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
 	# the two path spaces cannot overlap and the order of these branches is not a guess.
 	ref = subroutine.domain.refs.parse_ref(wanted)
 
@@ -1190,7 +1190,7 @@ def _page (
 	statement = statement.options(
 		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
-	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)
 	total = None

@@ -1,7 +1,7 @@
 """Labels, created the first time somebody uses one.
 
 ``#health`` in a captured line should not require a separate tag-management step, from a
-person or from an agent (SPEC.md §5.8). So there is no "create tag" command in the personal
+person or from an agent (docs/design.md §5.8). So there is no "create tag" command in the personal
 path at all: applying a tag that does not exist creates it, and that is the only way tags
 come into being until a UI offers to rename one.
 
@@ -23,7 +23,7 @@ import subroutine.db.types
 import subroutine.domain.text
 import subroutine.errors
 
-#: SPEC.md §10.6's column width. Enforced here so an over-long tag names itself rather than
+#: docs/design.md §10.6's column width. Enforced here so an over-long tag names itself rather than
 #: arriving as a driver error on PostgreSQL and as silent success on SQLite (§10.3).
 MAX_NAME_LENGTH = 128
 
@@ -270,7 +270,7 @@ def names_for (
 	# before `apple` there and after `zebra` on SQLite — measured. `tags` is a published API
 	# field and a compact-line column, so the same task rendered `#ähnlich #apple` on one
 	# deployment and `#apple #ähnlich` on the other, and the transport-equivalence test could
-	# not see it because both of its sides run on one backend (SPEC.md §10.3).
+	# not see it because both of its sides run on one backend (docs/design.md §10.3).
 	return {
 		owner_id: [name for _key, name in sorted(pairs)] for owner_id, pairs in found.items()
 	}

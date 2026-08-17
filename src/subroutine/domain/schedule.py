@@ -1,6 +1,6 @@
 """The three date fields, and the all-day rule that makes them behave.
 
-SPEC.md §6.5 keeps a **deadline** (``due_at``), a **start** (``starts_at``) and a **defer
+docs/design.md §6.5 keeps a **deadline** (``due_at``), a **start** (``starts_at``) and a **defer
 instant** (``snoozed_until``) apart, because conflating them is what makes an overdue list
 meaningless within a month. This module is where user input becomes those columns and where
 the rules between them are enforced.
@@ -37,7 +37,7 @@ import subroutine.db.models.work
 import subroutine.domain.dates
 import subroutine.errors
 
-#: The fallback when neither the person nor their workspace has said (SPEC.md §6.5).
+#: The fallback when neither the person nor their workspace has said (docs/design.md §6.5).
 DEFAULT_TIMEZONE = "UTC"
 
 #: A date with no time — ``2026-08-01``. Matched before the datetime parser, which would
@@ -93,7 +93,7 @@ def zone_for (
 ) -> str:
 	"""Return the timezone dates should be read in: explicit → user → workspace → instance.
 
-	SPEC.md §6.5's chain, in the one place that owns it. Before this existed every caller
+	docs/design.md §6.5's chain, in the one place that owns it. Before this existed every caller
 	picked a timezone by hand, which is the sort of thing that agrees everywhere until it
 	does not.
 
@@ -280,7 +280,7 @@ def check_order (
 ) -> None:
 	"""Enforce invariant 8 — this field must not be later than ``due_at`` — or refuse.
 
-	**Evaluated on the rendered dates when both are all-day** (SPEC.md §6.5). Comparing the
+	**Evaluated on the rendered dates when both are all-day** (docs/design.md §6.5). Comparing the
 	stored instants would be comparing midnight against the last microsecond of the day,
 	which is right by accident here and would stop being right the moment either boundary
 	moved. Comparing what the user sees is right on purpose.
@@ -321,7 +321,7 @@ def check_order (
 def is_overdue (task: subroutine.db.models.work.Task, *, now: datetime.datetime) -> bool:
 	"""Report whether a task's deadline has passed.
 
-	The test SPEC.md §6.5 exists for: a task due all-day Friday is **not** overdue at nine
+	The test docs/design.md §6.5 exists for: a task due all-day Friday is **not** overdue at nine
 	in the morning on Friday. It falls out of storing the deadline at the end of the day
 	rather than the start, and it is asserted directly because the implementation that gets
 	it wrong looks identical from the outside until somebody complains.

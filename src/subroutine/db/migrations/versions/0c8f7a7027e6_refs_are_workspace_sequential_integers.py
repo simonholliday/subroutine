@@ -9,7 +9,7 @@ work: it altered ``ref`` straight from text to integer, and PostgreSQL will not 
 ``'INBOX-1'`` to a number. Existing rows are therefore renumbered *while the column is
 still text*, and only then does the type change.
 
-SPEC.md §6.2. A ref used to be ``PROJECT-42``, minted from a counter on the project that
+docs/design.md §6.2. A ref used to be ``PROJECT-42``, minted from a counter on the project that
 created the item. The prefix named something the item could be moved out of, so a task
 moved elsewhere went on calling itself ``INBOX-2`` for the rest of its life. It is now a
 plain integer drawn from a counter on the *workspace*, which an item cannot leave.
@@ -33,7 +33,7 @@ branch_labels: str | typing.Sequence[str] | None = None
 depends_on: str | typing.Sequence[str] | None = None
 
 #: The two tables that draw from the ref counter, in the order a ref resolves in
-#: (SPEC.md §6.2). Interpolated into SQL below, which is safe because these are literals
+#: (docs/design.md §6.2). Interpolated into SQL below, which is safe because these are literals
 #: here and never reach this module from anywhere else.
 WORK_TABLES = ('task', 'document')
 

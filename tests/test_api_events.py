@@ -1,4 +1,4 @@
-"""Per-entity histories over HTTP — SPEC.md §5.11a.
+"""Per-entity histories over HTTP — docs/design.md §5.11a.
 
 The first reader of the ``event`` table, which five domain modules had been writing to since
 M1 with nothing reading them back. Building it found a real hole in the writes on its first
@@ -90,7 +90,7 @@ def test_a_history_is_newest_first (world: test_api_tasks.World) -> None:
 
 
 def test_a_history_pages_with_the_ordinary_cursor (world: test_api_tasks.World) -> None:
-	"""SPEC.md §5.11a: the standard keyset cursor, deliberately not ``?since=``.
+	"""docs/design.md §5.11a: the standard keyset cursor, deliberately not ``?since=``.
 
 	A `?since=` here would invite treating a history as resumable, which is how the watermark
 	problem would arrive per entity having been solved once globally.
@@ -177,7 +177,7 @@ def test_a_history_holds_only_that_item (world: test_api_tasks.World) -> None:
 def test_a_history_is_not_readable_inside_a_private_project (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The leak this endpoint makes newly possible (SPEC.md §7.3a).
+	"""The leak this endpoint makes newly possible (docs/design.md §7.3a).
 
 	Resolving the subject **is** the permission check — the route goes through the task's own
 	narrowed statement — so this is the test that proves the resolution happens rather than

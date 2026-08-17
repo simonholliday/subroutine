@@ -16,7 +16,7 @@ name: Release
 # the other's job by accident.
 #
 # No stored credential anywhere. Both uploads authenticate by OIDC against a trusted publisher
-# (SPEC.md §2.2), which is why each publishing job asks for `id-token: write` and nothing else
+# (docs/design.md §2.2), which is why each publishing job asks for `id-token: write` and nothing else
 # does.
 
 on:
@@ -158,7 +158,7 @@ jobs:
 
           echo "tag, package and plugin all agree on $tagged"
 
-      # A release that moves the schema has to say so in the changelog (SPEC.md §12.4a). CI
+      # A release that moves the schema has to say so in the changelog (docs/design.md §12.4a). CI
       # checks this on every commit; it is checked again here because this is the run where
       # being wrong reaches somebody else's database.
       - name: Release notes

@@ -1,4 +1,4 @@
-"""Taking a task and giving it back — SPEC.md §14.11, items ``#350`` and ``#354``.
+"""Taking a task and giving it back — docs/design.md §14.11, items ``#350`` and ``#354``.
 
 **Its own module because `#350` shipped without one.** Claims were exercised only through
 `tests/test_transport_equivalence.py`, which asks whether the two transports agree — a real

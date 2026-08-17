@@ -1,4 +1,4 @@
-"""The upgrade path — SPEC.md §12.4a, decision ``#97``, item ``#89``.
+"""The upgrade path — docs/design.md §12.4a, decision ``#97``, item ``#89``.
 
 Two halves that have to hold together. **A command run against a database this build does not
 match is refused with the remedy**, rather than failing somewhere inside SQLAlchemy with a
@@ -168,7 +168,7 @@ def test_a_database_ahead_of_this_build_says_to_update_the_software (
 def test_the_administrative_commands_still_work_while_the_check_is_firing (
 	run: typing.Callable[..., typer.testing.Result], database: pathlib.Path
 ) -> None:
-	"""**The property that makes the check safe to have at all** (SPEC.md §12.4).
+	"""**The property that makes the check safe to have at all** (docs/design.md §12.4).
 
 	These are what somebody reaches for once the refusal appears, so a check that covered them
 	too would leave an instance nobody could get out of. ``db backup`` in particular: taking a

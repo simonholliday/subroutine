@@ -1,4 +1,4 @@
-"""Optimistic concurrency (SPEC.md §8.9).
+"""Optimistic concurrency (docs/design.md §8.9).
 
 The scenario the whole system is built around: a person and an agent editing the same
 items. Without this, the second writer silently wins and the first one's work is gone with

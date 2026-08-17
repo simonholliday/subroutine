@@ -53,12 +53,12 @@ class Workspace(
 	#: ``user.timezone`` and ``instance.timezone`` use. A workspace that never chose one
 	#: follows the installation, so moving the instance moves it too; a workspace that did
 	#: choose is pinned. Defaulting the column to UTC would have shadowed the instance for
-	#: every workspace created without an explicit zone (SPEC.md §6.5).
+	#: every workspace created without an explicit zone (docs/design.md §6.5).
 	timezone: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(64), nullable=True
 	)
 	#: The counter every ref in this workspace is drawn from, shared by tasks and documents
-	#: so that a ref names exactly one thing (SPEC.md §6.2). It lives here rather than on
+	#: so that a ref names exactly one thing (docs/design.md §6.2). It lives here rather than on
 	#: the project because a ref must not name anything the item can be moved out of: a
 	#: number minted per project either follows the item and lies about where it is, or
 	#: changes when it moves and stops being an identifier.

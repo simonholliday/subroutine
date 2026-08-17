@@ -1,6 +1,6 @@
 """Every worked example in ``/v1/docs/examples`` is executed against a real application.
 
-SPEC.md §13.3 asks for worked request/response examples "executed by a CI job so they cannot
+docs/design.md §13.3 asks for worked request/response examples "executed by a CI job so they cannot
 drift". This is that job. The examples are data in :data:`subroutine.api.meta.EXAMPLES` rather
 than prose precisely so this test can run them — a shape written into a docstring is a shape
 nothing checks.

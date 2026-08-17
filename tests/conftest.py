@@ -126,7 +126,7 @@ def _no_inherited_profile () -> typing.Iterator[None]:
 	"""Make every test start on the default instance, whatever ran before it.
 
 	``--profile`` works by *exporting* ``SUBROUTINE_PROFILE`` so that anything the process
-	starts inherits the same instance (SPEC.md §12.5). In one pytest process that means a
+	starts inherits the same instance (docs/design.md §12.5). In one pytest process that means a
 	command-line test can leave the variable set, and the next test would then read and write a
 	different database than the one it built — with a symptom (an empty listing, a missing row)
 	that says nothing at all about the cause.

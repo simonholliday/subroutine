@@ -1,4 +1,4 @@
-"""Moving an instance's data from one database to another — SPEC.md §12.6c, item ``#155``.
+"""Moving an instance's data from one database to another — docs/design.md §12.6c, item ``#155``.
 
 **Why this exists at all.** ``docs/hosting.md`` told somebody when to move to PostgreSQL and
 how to point ``database_url`` at it, and never how the data got there — so following the

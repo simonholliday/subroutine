@@ -183,7 +183,7 @@ def test_all_day_can_be_stated_rather_than_inferred (
 def test_a_start_given_as_a_day_begins_at_the_start_of_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A whole day is stored as its first instant, *where the caller is* (SPEC.md §6.5).
+	"""A whole day is stored as its first instant, *where the caller is* (docs/design.md §6.5).
 
 	**This used to assert the opposite** — that the field was a bare date carrying no time and
 	no zone. `#854` made it an instant so an appointment can say two o'clock, and the all-day
@@ -233,7 +233,7 @@ def test_a_defer_after_the_deadline_is_refused (session: sqlalchemy.orm.Session)
 def test_a_defer_and_a_deadline_on_the_same_day_are_allowed (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Evaluated on the rendered dates when both are all-day (SPEC.md §6.5).
+	"""Evaluated on the rendered dates when both are all-day (docs/design.md §6.5).
 
 	Both stored instants differ — midnight against the last microsecond — so this passes
 	either way today. It is asserted because the comparison must stay meaningful in the
@@ -272,7 +272,7 @@ def test_invariant_eight_is_checked_against_the_task_not_the_request (
 def test_a_date_can_be_cleared_but_omitting_it_leaves_it_alone (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §8.3's distinction, on the fields it was written for."""
+	"""docs/design.md §8.3's distinction, on the fields it was written for."""
 
 	task = _task(session, due=datetime.date(2026, 8, 10), starts=datetime.date(2026, 8, 9))
 
@@ -315,7 +315,7 @@ def test_a_task_records_the_zone_its_dates_were_written_in (
 
 
 def test_the_timezone_falls_back_from_the_user_to_the_workspace_to_utc () -> None:
-	"""SPEC.md §6.5's chain, asserted directly rather than through a task."""
+	"""docs/design.md §6.5's chain, asserted directly rather than through a task."""
 
 	zone_for = subroutine.domain.schedule.zone_for
 
@@ -351,7 +351,7 @@ def test_an_all_day_deadline_ends_the_day_where_the_user_is (
 ) -> None:
 	""""Due Friday" in London is not the same instant as "due Friday" in Los Angeles.
 
-	SPEC.md §6.5's opening claim about all-day flags, asserted: without the local snap, a
+	docs/design.md §6.5's opening claim about all-day flags, asserted: without the local snap, a
 	task due Friday in London would be due Thursday on the American west coast.
 	"""
 
@@ -382,7 +382,7 @@ def test_a_date_that_is_not_in_any_accepted_form_is_refused (
 def test_the_timezone_chain_runs_user_workspace_instance (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §6.5's chain in full, each level shadowing the one below it.
+	"""docs/design.md §6.5's chain in full, each level shadowing the one below it.
 
 	Null means *not stated* at every level, which is why the workspace column is nullable:
 	a default of UTC there would have shadowed the instance for every workspace created

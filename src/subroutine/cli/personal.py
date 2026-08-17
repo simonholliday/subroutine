@@ -5883,7 +5883,7 @@ def _typeable (world: World, connection: str, item: Item) -> str:
 	"""Return what to type to reach one item — the printed form without its sigil.
 
 	A suggested command has to be one that works, and ``#`` starts a comment in every POSIX
-	shell (SPEC.md §12.2a), so a suggestion carries the bare number or the qualified path.
+	shell (docs/design.md §12.2a), so a suggestion carries the bare number or the qualified path.
 
 	**"Works" means when it is typed, not when it is printed** (`#280`). A ``-c``/``-w`` flag
 	settles this invocation alone, so a bare number justified by it names something else by
@@ -5899,7 +5899,7 @@ def _typeable (world: World, connection: str, item: Item) -> str:
 def _asked (given: str, question: str) -> str:
 	"""Return an argument, asking for it if it was left out.
 
-	SPEC.md §12.2a: bare commands prompt rather than error. A required-argument error is a
+	docs/design.md §12.2a: bare commands prompt rather than error. A required-argument error is a
 	dead end where a question would do — and in a pipe, where there is nobody to ask, the
 	prompt fails with the usage anyway, which is the right answer there.
 	"""
@@ -6065,7 +6065,7 @@ def _width (world: World, rows: typing.Sequence[Row]) -> int:
 def _suggest (
 	console: rich.console.Console, command: str, about: str | None = None
 ) -> None:
-	"""Print the command to try next (SPEC.md §12.2a).
+	"""Print the command to try next (docs/design.md §12.2a).
 
 	The single most valuable habit here: the user is never left wondering what exists.
 
@@ -7071,7 +7071,7 @@ def _in_order (
 
 
 def suggest (command: str, about: str | None = None) -> None:
-	"""Print the command to try next, on the shared console (SPEC.md §12.2a).
+	"""Print the command to try next, on the shared console (docs/design.md §12.2a).
 
 	The public face of :func:`_suggest`, for callers outside this module that have no console
 	of their own — the bare invocation and ``--version`` in ``cli/main``. Kept as one function

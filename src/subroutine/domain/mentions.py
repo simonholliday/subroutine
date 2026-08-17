@@ -1,6 +1,6 @@
 """Finding the references people write in prose, and keeping an index of them.
 
-SPEC.md §6.15. A task refers to a specification, a comment cites a decision. That is not
+docs/design.md §6.15. A task refers to a specification, a comment cites a decision. That is not
 §5.7's link — nobody asserted a typed relationship, they wrote a sentence — but "what
 refers to this?" is still the most valuable question a knowledge system answers, and it
 cannot be answered by scanning descriptions at query time.
@@ -20,7 +20,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.work
 
-#: A reference in running text: ``#42`` (SPEC.md §6.15). It is only ever a *candidate* —
+#: A reference in running text: ``#42`` (docs/design.md §6.15). It is only ever a *candidate* —
 #: a ref becomes a mention when it resolves — but the pattern still has to be tight,
 #: because ``#`` is a busy character:
 #:

@@ -187,7 +187,7 @@ def test_a_stranger_to_the_workspace_may_do_nothing (
 
 
 def test_an_empty_scope_list_narrows_nothing (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §7.3's sentinel, stated as its own test because it is the failure mode."""
+	"""docs/design.md §7.3's sentinel, stated as its own test because it is the failure mode."""
 
 	workspace = _seeded_workspace(session)
 	principal = _with_token(session, _member(session, workspace, "member"))
@@ -248,7 +248,7 @@ def test_a_token_cannot_widen_its_owner (session: sqlalchemy.orm.Session) -> Non
 def test_a_superuser_bypasses_roles_but_not_token_scopes (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Otherwise a leaked admin-owned agent token would be unbounded (SPEC.md §7.3)."""
+	"""Otherwise a leaked admin-owned agent token would be unbounded (docs/design.md §7.3)."""
 
 	workspace = _seeded_workspace(session)
 	root = subroutine.domain.authentication.Principal(user=_user(session, is_superuser=True))
@@ -385,7 +385,7 @@ def test_a_project_scope_carries_the_whole_subtree (
 
 
 def test_a_private_project_conceals_its_existence (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §7.3a: a direct fetch answers 404, not 403."""
+	"""docs/design.md §7.3a: a direct fetch answers 404, not 403."""
 
 	workspace = _seeded_workspace(session)
 	principal = _member(session, workspace, "owner")
@@ -643,7 +643,7 @@ def test_a_pinned_or_project_scoped_token_reports_itself_as_narrowing (
 def test_a_workspace_owner_holds_nothing_at_instance_level (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""Owning a workspace is not owning the installation (SPEC.md §7.2)."""
+	"""Owning a workspace is not owning the installation (docs/design.md §7.2)."""
 
 	workspace = _seeded_workspace(session)
 	owner = _member(session, workspace, "owner")
@@ -686,7 +686,7 @@ def test_a_superuser_holds_every_instance_permission (
 def test_a_superuser_token_still_narrows_instance_permissions (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""An agent gets what its token says, not what its owner is (SPEC.md §7.3).
+	"""An agent gets what its token says, not what its owner is (docs/design.md §7.3).
 
 	This is what makes it safe to answer "yes, my agent may create workspaces": it may,
 	if and only if the token says so.

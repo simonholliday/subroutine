@@ -69,7 +69,7 @@ class Derived:
 #: ``#46`` past the type checker.
 Sortable = sqlalchemy.orm.InstrumentedAttribute[typing.Any] | Derived
 
-#: What the three ranking states are worth to an ordering (SPEC.md §6.3a). **This decides how
+#: What the three ranking states are worth to an ordering (docs/design.md §6.3a). **This decides how
 #: ``?order=priority_score`` arranges items and deliberately does not change what
 #: ``priority_score`` *is*** — the field a caller reads is still ``importance * urgency``,
 #: null unless both are set. Two different things, and conflating them would put an ordering
@@ -526,7 +526,7 @@ def merged (
 ) -> list[typing.Any]:
 	"""Sort rows that arrived as several pages into the one order the caller asked for.
 
-	**NULLS LAST in both directions**, matching what every query here does (SPEC.md §10.3) —
+	**NULLS LAST in both directions**, matching what every query here does (docs/design.md §10.3) —
 	so a document, which has no deadline and no priority, sorts last in a list ranked by
 	either rather than first. That is the same answer the database gives and the same answer
 	§6.3a gives an unranked task, which is why it needs no separate rule.
@@ -676,7 +676,7 @@ def clauses (
 
 	``NULLS LAST`` in both directions, stated rather than left to the backend: SQLite and
 	PostgreSQL disagree about the default, so an unqualified ``ORDER BY`` sorts differently
-	depending on where it runs (SPEC.md §10.3).
+	depending on where it runs (docs/design.md §10.3).
 
 	**The tiebreaker is appended always and is always ascending, which is oldest first**,
 	because the primary key is a time-ordered UUID. It used to follow the last key's

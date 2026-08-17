@@ -70,7 +70,7 @@ SORTABLE: dict[str, subroutine.api.pagination.Sortable] = (
 
 DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_DOCUMENT_ORDER
 
-#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read from the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Document)
 
 
@@ -121,7 +121,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	supersedes: subroutine.api.schemas.Reference | None = None
 
-	#: The version this change is based on (SPEC.md §8.9).
+	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
 
 
@@ -323,7 +323,7 @@ def listing (
 	statement = statement.options(
 		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
-	# One definition of a page size, shared with the local client (SPEC.md §13.7): the two
+	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)
 	total = None
@@ -417,7 +417,7 @@ def change (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Change a document. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
+	"""Change a document. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
@@ -538,7 +538,7 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Restore a soft-deleted document — the task endpoint's counterpart (SPEC.md §6.9).
+	"""Restore a soft-deleted document — the task endpoint's counterpart (docs/design.md §6.9).
 
 	Both, because one ref counter serves both kinds (§6.2): a restore that worked on half the
 	numbers would surprise anybody holding a ref.
@@ -566,7 +566,7 @@ def remove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Soft-delete a document. It stays recoverable (SPEC.md §6.9)."""
+	"""Soft-delete a document. It stays recoverable (docs/design.md §6.9)."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
@@ -782,7 +782,7 @@ def _resolve (
 		actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
 	)
 
-	# A ref is all digits and a project key must start with a letter (SPEC.md §6.2), so
+	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
 	# the two path spaces cannot overlap and the order of these branches is not a guess.
 	ref = subroutine.domain.refs.parse_ref(wanted)
 

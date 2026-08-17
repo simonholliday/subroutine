@@ -123,7 +123,7 @@ def test_creating_a_task_allocates_a_ref_an_event_and_a_path (
 def test_refs_are_sequential_and_shared_with_documents (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""One counter per workspace, so a ref names exactly one thing (SPEC.md §6.2)."""
+	"""One counter per workspace, so a ref names exactly one thing (docs/design.md §6.2)."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -227,7 +227,7 @@ def test_a_ref_too_large_for_the_column_is_not_a_ref () -> None:
 
 
 def test_an_address_is_read_relatively_nearest_scope_first () -> None:
-	"""SPEC.md §13.7's grammar: ``42``, ``acme/42``, ``work/acme/42``.
+	"""docs/design.md §13.7's grammar: ``42``, ``acme/42``, ``work/acme/42``.
 
 	Two components mean *workspace*, never *connection*, and that has to be a stated rule
 	rather than a guess — with two names in the text there is nothing to tell them apart.
@@ -294,7 +294,7 @@ def test_a_ref_resolves_to_the_thing_it_names (session: sqlalchemy.orm.Session) 
 
 
 def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> None:
-	"""Vocabulary, an owner and an event, or none of it (SPEC.md §10.7 invariant 7)."""
+	"""Vocabulary, an owner and an event, or none of it (docs/design.md §10.7 invariant 7)."""
 
 	owner = _founder(session)
 	workspace = subroutine.domain.workspaces.create(
@@ -318,7 +318,7 @@ def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> N
 	assert role.key == "owner"
 
 	# Creation, then the vocabulary that was written for it — one event for ~35 rows, so
-	# the feed's first page is not entirely statuses and roles (SPEC.md §10.7 invariant 9).
+	# the feed's first page is not entirely statuses and roles (docs/design.md §10.7 invariant 9).
 	events = _events(session, workspace.id, "workspace", workspace.id)
 
 	assert [event.action for event in events] == ["created", "seeded"]
@@ -401,7 +401,7 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 ) -> None:
 	"""Otherwise a private project is invisible to the person who created it.
 
-	SPEC.md §7.3a grants sight of a private project to holders of a ``project_member`` row
+	docs/design.md §7.3a grants sight of a private project to holders of a ``project_member`` row
 	and to nobody else. Nothing in the application ever wrote one until this was added —
 	every row in existence had been inserted by a test — so private visibility was a
 	feature that could not be reached through any supported entry point. The row is written
@@ -435,7 +435,7 @@ DESCRIBES = frozenset({"visible_status_keys"})
 def test_a_project_template_writes_settings_and_nothing_else (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §6.12: templates are seed-time only and create no statuses."""
+	"""docs/design.md §6.12: templates are seed-time only and create no statuses."""
 
 	workspace = _workspace(session)
 
@@ -490,7 +490,7 @@ def test_an_unknown_template_lists_the_real_ones (session: sqlalchemy.orm.Sessio
 
 
 def test_a_project_tree_maintains_its_paths (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §10.7 invariant 1: path and depth always agree with parent_id."""
+	"""docs/design.md §10.7 invariant 1: path and depth always agree with parent_id."""
 
 	workspace = _workspace(session)
 	root = _project(session, workspace)
@@ -593,7 +593,7 @@ def test_subtasks_get_paths_too (session: sqlalchemy.orm.Session) -> None:
 def test_a_mention_appears_and_disappears_with_the_sentence (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The other half of the S1-10 done-criterion (SPEC.md §6.15)."""
+	"""The other half of the S1-10 done-criterion (docs/design.md §6.15)."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -788,7 +788,7 @@ def test_an_update_records_only_what_moved (session: sqlalchemy.orm.Session) -> 
 
 
 def test_absent_and_null_mean_different_things (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §8.3: leaving a field out keeps it; passing null clears it."""
+	"""docs/design.md §8.3: leaving a field out keeps it; passing null clears it."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -806,7 +806,7 @@ def test_absent_and_null_mean_different_things (session: sqlalchemy.orm.Session)
 
 
 def test_an_unknown_status_lists_the_real_ones (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §8.8's worked example, as an actual error."""
+	"""docs/design.md §8.8's worked example, as an actual error."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -1033,7 +1033,7 @@ def test_over_length_text_is_refused_the_same_way_on_both_backends (
 
 
 def test_completing_a_task_records_when (session: sqlalchemy.orm.Session) -> None:
-	"""SPEC.md §10.7 invariant 5: completed_at is set exactly when the category is final."""
+	"""docs/design.md §10.7 invariant 5: completed_at is set exactly when the category is final."""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace, key="SR")
@@ -1137,7 +1137,7 @@ def test_finishing_something_twice_does_not_move_when_it_finished (
 def test_moving_a_project_moves_every_etag_it_changed (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`version` is the ETag (SPEC.md §8.9), and a move rewrites descendants' paths."""
+	"""`version` is the ETag (docs/design.md §8.9), and a move rewrites descendants' paths."""
 
 	workspace = _workspace(session)
 	root = _project(session, workspace)
@@ -1209,7 +1209,7 @@ def test_a_subtask_carried_into_another_project_says_so_in_its_own_history (
 def test_a_project_key_can_never_look_like_a_ref (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A key starts with a letter, so a numeric path segment is always a ref (SPEC.md §6.2).
+	"""A key starts with a letter, so a numeric path segment is always a ref (docs/design.md §6.2).
 
 	This mattered less when a ref was ``SR-42``: the two were told apart by shape. Now that
 	a ref is a bare integer, ``/v1/projects/123`` and ``/v1/tasks/123`` would be ambiguous
@@ -1340,7 +1340,7 @@ CHANGEABLE: tuple[tuple[str, typing.Any], ...] = (
 def test_every_field_an_update_can_change_is_recorded_as_an_event (
 	session: sqlalchemy.orm.Session, field: str, value: typing.Any
 ) -> None:
-	"""SPEC.md §10.7 invariant 9: every entity mutation emits at least one event row.
+	"""docs/design.md §10.7 invariant 9: every entity mutation emits at least one event row.
 
 	**`urgency` did not, for a day, and nothing noticed.** It was given a column, a CHECK
 	constraint, a sort key and a cell on the compact line, and was left out of the one

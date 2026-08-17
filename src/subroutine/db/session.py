@@ -53,7 +53,7 @@ def _apply_sqlite_pragmas (connection: typing.Any, _record: typing.Any) -> None:
 		raise
 
 
-#: The two backends this is built and tested on (SPEC.md §10.3). Every test runs against both,
+#: The two backends this is built and tested on (docs/design.md §10.3). Every test runs against both,
 #: and the disagreements between them — NULL ordering, ``LIKE`` case sensitivity, ref
 #: allocation under concurrency — are the reason the list is short and closed.
 SUPPORTED_BACKENDS = ("sqlite", "postgresql")

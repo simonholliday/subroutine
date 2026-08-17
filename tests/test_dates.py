@@ -2,7 +2,7 @@
 
 A table over every keyword published in ``/v1/meta``, then the arithmetic rules that are
 easy to state and easy to get wrong: elapsed units measured in UTC, calendar units measured
-on the wall clock, and month arithmetic that clamps rather than overflows (SPEC.md §9.3).
+on the wall clock, and month arithmetic that clamps rather than overflows (docs/design.md §9.3).
 
 Timezone is `Europe/London` throughout, because it is the one this was built in and because
 its transitions are the ones a bug here would be noticed on.
@@ -73,7 +73,7 @@ def _elapsed (earlier: datetime.datetime, later: datetime.datetime) -> datetime.
 def test_every_published_expression_resolves_as_documented (
 	expression: str, expected: str
 ) -> None:
-	"""The table SPEC.md §9.3 publishes, asserted one row at a time."""
+	"""The table docs/design.md §9.3 publishes, asserted one row at a time."""
 
 	assert _london(expression).strftime("%Y-%m-%d %H:%M:%S.%f") == expected
 
@@ -93,7 +93,7 @@ def test_every_keyword_in_the_published_list_is_resolvable () -> None:
 
 
 def test_the_result_is_always_utc_whatever_the_caller_uses () -> None:
-	"""Storage is UTC and timezone-aware, never naive (SPEC.md §6.5)."""
+	"""Storage is UTC and timezone-aware, never naive (docs/design.md §6.5)."""
 
 	for timezone in ("Europe/London", "America/Los_Angeles", "Australia/Sydney", "UTC"):
 		resolved = subroutine.domain.dates.resolve("today", now=WEDNESDAY, timezone=timezone)
@@ -102,7 +102,7 @@ def test_the_result_is_always_utc_whatever_the_caller_uses () -> None:
 
 
 def test_today_means_today_where_the_caller_is () -> None:
-	"""The reason the timezone travels with the task at all (SPEC.md §6.5).
+	"""The reason the timezone travels with the task at all (docs/design.md §6.5).
 
 	At 00:30 UTC the calendar date is not the same in London as it is in Los Angeles, and
 	"what is due today" has to mean the asker's today or the answer is nonsense.
@@ -259,7 +259,7 @@ def test_a_bare_weekday_at_a_weekend_agrees_with_next () -> None:
 
 
 def test_end_of_day_matches_what_an_all_day_deadline_stores () -> None:
-	"""``end_of_day`` and "due Friday" must be the same instant, not nearly (SPEC.md §6.5)."""
+	"""``end_of_day`` and "due Friday" must be the same instant, not nearly (docs/design.md §6.5)."""
 
 	resolved = _london("end_of_day")
 

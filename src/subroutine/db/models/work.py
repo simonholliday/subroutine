@@ -96,7 +96,7 @@ class Task(
 
 	# Human-readable and immutable: the number a person types and writes down. UUIDs are
 	# unusable in a commit message, and a prefix would name something the task can be
-	# moved out of (SPEC.md §6.2).
+	# moved out of (docs/design.md §6.2).
 	ref: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False
 	)
@@ -539,7 +539,7 @@ class Link(
 class Mention(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 	"""A reference to a work item found in someone's prose.
 
-	Derived from text and never written directly (SPEC.md §6.15): a mention that did not
+	Derived from text and never written directly (docs/design.md §6.15): a mention that did not
 	come from a sentence would be a lie about what that sentence says. Every row for one
 	source is replaced whenever its text changes, which is why there is no soft delete and
 	no version here — there is nothing to restore and no edit to lose a race with.

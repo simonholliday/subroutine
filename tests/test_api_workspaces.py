@@ -1,4 +1,4 @@
-"""``/v1/workspaces`` over HTTP — SPEC.md §8.6.
+"""``/v1/workspaces`` over HTTP — docs/design.md §8.6.
 
 These endpoints exist because using the product on its own plan showed the gap: a personal
 to-do list and a project's backlog shared one instance, ``GET /v1/agenda?workspace_id=`` was

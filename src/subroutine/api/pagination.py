@@ -14,7 +14,7 @@ the "after this row" predicate is written knowing that. A row with a NULL sort v
 therefore last in its group, ascending or descending, and paging through it works because
 the final tiebreaker is the id, which is never null.
 
-Cursors are signed with ``secret_key`` — the one thing SPEC.md §7.4 says that key is for.
+Cursors are signed with ``secret_key`` — the one thing docs/design.md §7.4 says that key is for.
 They are opaque by intent: a client that parses one has coupled itself to the sort
 implementation, and a client that *edits* one is choosing its own comparison values.
 """

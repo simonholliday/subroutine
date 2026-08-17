@@ -1,4 +1,4 @@
-"""Workspaces over HTTP (SPEC.md §8.6).
+"""Workspaces over HTTP (docs/design.md §8.6).
 
 A workspace is invisible to somebody using Subroutine alone — ``init`` makes one and never
 mentions it again (§1.4) — so these endpoints are for the case where there is a *second* one:
@@ -52,7 +52,7 @@ SORTABLE: dict[str, subroutine.api.pagination.Sortable] = {
 #: By short name, because a workspace list is a menu of addresses rather than a feed.
 DEFAULT_ORDER = ("slug",)
 
-#: What ``?fields=`` may name, read from the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read from the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Workspace)
 
 #: The same, for the membership sub-resource below.
@@ -92,7 +92,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	description: str | None = None
 	timezone: str | None = None
 
-	#: The version this change is based on (SPEC.md §8.9).
+	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
 
 
@@ -264,7 +264,7 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.Workspace:
-	"""Change a workspace. Omitted fields are untouched; nulls clear (SPEC.md §8.3)."""
+	"""Change a workspace. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
 
 	found = resolve(session, actor, id_or_slug)
 	supplied = body.model_fields_set
@@ -291,7 +291,7 @@ def change (
 
 
 # --------------------------------------------------------------------------------------
-# Membership — SPEC.md §7.3a, item `#174`
+# Membership — docs/design.md §7.3a, item `#174`
 # --------------------------------------------------------------------------------------
 
 

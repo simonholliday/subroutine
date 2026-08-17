@@ -52,7 +52,7 @@ jobs:
 
       # A release that moves the schema has to say so in CHANGELOG.md, so that somebody can
       # *plan* the database upgrade rather than meet one halfway through installing
-      # something (SPEC.md §12.4a). Derived from the migration directory rather than from
+      # something (docs/design.md §12.4a). Derived from the migration directory rather than from
       # anybody remembering at release time, which is when nobody does.
       - name: Release notes
         run: python scripts/check_release_notes.py
@@ -90,7 +90,7 @@ jobs:
       - name: Check
         run: python scripts/check_licences.py
 
-  # Checked by the tool that will read them (SPEC.md §21). `tests/test_plugin.py` covers what
+  # Checked by the tool that will read them (docs/design.md §21). `tests/test_plugin.py` covers what
   # the manifests must *say* — that the version matches the package, that every declared option
   # is substituted somewhere, that the token is held as a secret. Only Claude Code itself can
   # say whether they conform to its schema, and a manifest that does not is one nobody can
@@ -280,7 +280,7 @@ jobs:
           subroutine db current | grep -q '^Schema is at '
           subroutine init | grep -q 'Already set up'
 
-      # SPEC.md §13.5b, the gating criterion for M2: a fresh installation to a working
+      # docs/design.md §13.5b, the gating criterion for M2: a fresh installation to a working
       # to-do list in three commands and a completed task in a fourth, with none of the
       # output mentioning a workspace, a status, a project, a criterion, a verification, a
       # session or a claim. The suite runs this too; it runs here as well because this job

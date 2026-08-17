@@ -1,6 +1,6 @@
 """What every connection can be asked, whichever side of a socket it is on.
 
-SPEC.md §13.7 makes the local database a connection like any other, so that
+docs/design.md §13.7 makes the local database a connection like any other, so that
 ``subroutine today`` fans out across it and every configured remote through one code path
 that does not know which of its answers arrived over a network. That is only true if both
 transports answer the *same questions* with the *same objects*, which is what this module

@@ -104,7 +104,7 @@ def test_a_task_can_be_created_from_a_line_of_text (world: World) -> None:
 
 
 def test_a_task_with_no_project_goes_to_the_inbox (world: World) -> None:
-	"""SPEC.md §1.4 over HTTP: creating a task must not require knowing about projects."""
+	"""docs/design.md §1.4 over HTTP: creating a task must not require knowing about projects."""
 
 	response = world.call("POST", "/v1/tasks", json={"title": "Something to do"})
 
@@ -128,7 +128,7 @@ def test_a_task_needs_a_title_or_a_line_to_parse_one_from (world: World) -> None
 def test_a_task_is_readable_by_ref_with_or_without_the_sigil (world: World) -> None:
 	"""``GET /v1/tasks/42`` is the address; ``/v1/tasks/%2342`` is the same task.
 
-	The sigil is how a ref is *written* (SPEC.md §6.15), so a client that pastes what it
+	The sigil is how a ref is *written* (docs/design.md §6.15), so a client that pastes what it
 	read should not get a 404 for it — even though nothing this project prints will put a
 	``#`` in a URL, since it has to be escaped to survive one.
 	"""
@@ -190,7 +190,7 @@ def test_a_body_field_naming_an_impossible_item_is_refused_not_resolved (
 def test_a_ref_and_a_project_key_cannot_be_confused_in_a_path (world: World) -> None:
 	"""Two address spaces in one path segment, told apart by the first character.
 
-	A key must start with a letter (SPEC.md §5.2) and a ref is all digits, which is what
+	A key must start with a letter (docs/design.md §5.2) and a ref is all digits, which is what
 	makes ``/v1/tasks/{id_or_ref}`` unambiguous now that a ref carries no prefix.
 	"""
 
@@ -217,7 +217,7 @@ def test_an_unknown_ref_is_a_404_that_says_what_to_try (world: World) -> None:
 
 
 def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (world: World) -> None:
-	"""SPEC.md §8.3, which is the whole reason ``UNSET`` exists.
+	"""docs/design.md §8.3, which is the whole reason ``UNSET`` exists.
 
 	Collapsing the two would make clearing a due date impossible to express, and a client
 	that sent only a title would silently wipe everything else.
@@ -349,7 +349,7 @@ def test_deleting_a_task_is_soft_and_repeatable (world: World) -> None:
 
 
 def test_a_listing_is_enveloped_and_counts_only_when_asked (world: World) -> None:
-	"""SPEC.md §8.4: ``total`` is null unless requested, because it costs a second scan."""
+	"""docs/design.md §8.4: ``total`` is null unless requested, because it costs a second scan."""
 
 	for index in range(3):
 		world.call("POST", "/v1/tasks", json={"title": f"Task {index}"})
@@ -398,7 +398,7 @@ def test_a_page_continues_exactly_where_the_last_one_stopped (world: World) -> N
 
 
 def test_pagination_survives_a_sort_field_full_of_nulls (world: World) -> None:
-	"""The case the two backends disagree about (SPEC.md §10.3).
+	"""The case the two backends disagree about (docs/design.md §10.3).
 
 	SQLite sorts NULLs first and PostgreSQL last, so an ordering that does not say which it
 	wants paginates differently depending on where it runs. Most of these tasks have no due
@@ -458,7 +458,7 @@ def test_an_unknown_sort_field_is_refused_with_the_ones_that_work (world: World)
 
 
 def test_a_tampered_cursor_is_refused (world: World) -> None:
-	"""Cursors are signed, which is the one thing ``secret_key`` is for (SPEC.md §7.4)."""
+	"""Cursors are signed, which is the one thing ``secret_key`` is for (docs/design.md §7.4)."""
 
 	for index in range(3):
 		world.call("POST", "/v1/tasks", json={"title": f"Task {index}"})
@@ -520,7 +520,7 @@ def test_finished_tasks_are_out_of_the_way_unless_asked_for (world: World) -> No
 def test_a_task_in_a_private_project_is_not_found_rather_than_forbidden (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §7.3a: "forbidden" would confirm that it exists."""
+	"""docs/design.md §7.3a: "forbidden" would confirm that it exists."""
 
 	world = _world(session)
 
@@ -581,7 +581,7 @@ def test_a_read_only_token_can_still_read (session: sqlalchemy.orm.Session) -> N
 def test_a_request_naming_no_workspace_is_refused_when_there_are_several (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §8.2: ambiguity is a refusal listing the options, never a guess.
+	"""docs/design.md §8.2: ambiguity is a refusal listing the options, never a guess.
 
 	Guessing means a task filed somewhere the caller did not look, discovered days later.
 	"""
@@ -699,7 +699,7 @@ def test_capture_still_uses_the_project_named_in_the_line (world: World) -> None
 
 
 def test_an_estimate_can_be_given_at_creation_and_revised_afterwards (world: World) -> None:
-	"""SPEC.md §6.4 through the API rather than only through a captured line.
+	"""docs/design.md §6.4 through the API rather than only through a captured line.
 
 	Until 2026-07-30 ``estimate_minutes`` was reported by the view, printed by ``show``,
 	drawn on the compact line and published in ``/v1/meta``, and could be set only by the
@@ -761,7 +761,7 @@ def test_an_unparseable_estimate_is_refused_before_the_task_is_touched (world: W
 
 
 def test_an_explicit_estimate_beats_the_one_in_the_captured_line (world: World) -> None:
-	"""SPEC.md §6.13: structured fields win over parsed ones, ``estimate`` included.
+	"""docs/design.md §6.13: structured fields win over parsed ones, ``estimate`` included.
 
 	It used to be enforced by a condition nothing could satisfy — ``create`` had no
 	``estimate`` parameter, so the override it checked for would have raised ``TypeError``
@@ -782,7 +782,7 @@ def test_an_explicit_estimate_beats_the_one_in_the_captured_line (world: World) 
 
 
 def test_a_response_says_the_estimate_in_both_spellings (world: World) -> None:
-	"""SPEC.md §6.4: a response carries ``estimate_minutes`` *and* ``estimate_human``.
+	"""docs/design.md §6.4: a response carries ``estimate_minutes`` *and* ``estimate_human``.
 
 	It said so from the beginning and only the first was ever rendered — §6.4 itself, the
 	module docstring of ``domain.durations`` and a test docstring in ``test_durations.py``
@@ -1144,7 +1144,7 @@ def test_an_unknown_include_is_refused_and_says_what_it_accepts (world: World) -
 def test_a_link_to_something_the_caller_cannot_see_is_not_reported (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""A link is only as visible as *both* the things it joins (SPEC.md §7.3a).
+	"""A link is only as visible as *both* the things it joins (docs/design.md §7.3a).
 
 	Sharper here than for the sub-resource. There, one end is the item that was asked about
 	and so is known-visible, and only the far end needs checking. In a listing **neither end
@@ -1250,7 +1250,7 @@ def test_including_links_costs_the_same_number_of_queries_whatever_the_page_hold
 
 
 def test_a_part_ranked_task_outranks_a_deliberately_trivial_one (world: World) -> None:
-	"""SPEC.md §6.3's three bands: ranked, then part-ranked, then unranked.
+	"""docs/design.md §6.3's three bands: ranked, then part-ranked, then unranked.
 
 	The defect this fixes, with the numbers that made it obvious. ``priority_score`` is null
 	unless *both* axes are set and every ordering is NULLS LAST, so:
@@ -1452,7 +1452,7 @@ def test_a_priority_ordering_still_pages_correctly_across_the_bands (world: Worl
 
 
 def test_a_task_says_who_made_it_and_who_last_changed_it (world: World) -> None:
-	"""SPEC.md §6.1's attribution, on the item rather than only in its history.
+	"""docs/design.md §6.1's attribution, on the item rather than only in its history.
 
 	The README's claim is that every action is attributed. That was true and expensive: the
 	event table recorded an actor and SR#12's histories exposed it, so learning who created
@@ -1593,7 +1593,7 @@ def test_subtree_without_a_parent_is_refused (world: World) -> None:
 def test_a_parent_the_caller_cannot_see_is_not_found_rather_than_empty (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""SPEC.md §7.3a, and the distinction matters especially here.
+	"""docs/design.md §7.3a, and the distinction matters especially here.
 
 	An empty listing says "that tree is empty", which is a different and false claim from
 	"there is no such task" — and it would confirm the item exists to somebody probing refs.
@@ -1680,7 +1680,7 @@ def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> No
 
 
 def test_ready_excludes_a_task_deferred_to_the_future (world: World) -> None:
-	"""SPEC.md §6.5's third reason to skip something, which is a clock rather than a graph.
+	"""docs/design.md §6.5's third reason to skip something, which is a clock rather than a graph.
 
 	"Don't show me the renewal form until March" and "this is blocked on the migration" are
 	different facts and the same answer to "can I start it?", which is why one filter covers

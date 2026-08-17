@@ -1,4 +1,4 @@
-"""Credentials over HTTP — SPEC.md §7.4, item ``#208``.
+"""Credentials over HTTP — docs/design.md §7.4, item ``#208``.
 
 **The gap this closes is the one `#196` was, one surface along.** ``POST /v1/users`` has been
 able to add Thomas since `#174`, and ``POST /v1/workspaces/{…}/members`` can say where they
@@ -43,7 +43,7 @@ router = fastapi.APIRouter(
 	route_class=subroutine.api.routing.Transactional,
 )
 
-#: What ``?fields=`` may name, read off the view so the two cannot drift (SPEC.md §14.10).
+#: What ``?fields=`` may name, read off the view so the two cannot drift (docs/design.md §14.10).
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Token)
 
 

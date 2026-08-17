@@ -1,4 +1,4 @@
-"""The change feed over HTTP — SPEC.md §5.11a, items ``#13`` and ``#158``.
+"""The change feed over HTTP — docs/design.md §5.11a, items ``#13`` and ``#158``.
 
 The second reader of the ``event`` table, and the one that answers a *resumption* question.
 Three of these tests are the done-criteria rather than coverage:
@@ -94,7 +94,7 @@ def test_the_feed_reports_what_happened (world: test_api_tasks.World) -> None:
 
 
 def test_an_event_written_this_instant_is_withheld (world: test_api_tasks.World) -> None:
-	"""**The watermark, and the reason a history may not inherit it** (SPEC.md §5.11).
+	"""**The watermark, and the reason a history may not inherit it** (docs/design.md §5.11).
 
 	``seq`` is allocated at insert and becomes visible at commit. A reader that advances its
 	cursor past a number still uncommitted never sees that event again, so the feed reports
@@ -177,7 +177,7 @@ def test_the_feed_refuses_an_actor_it_does_not_understand (
 
 
 def test_a_private_project_stays_out_of_the_feed (session: sqlalchemy.orm.Session) -> None:
-	"""**The leak this endpoint makes newly possible** (SPEC.md §7.3a).
+	"""**The leak this endpoint makes newly possible** (docs/design.md §7.3a).
 
 	A history resolves its subject and gets the permission check for free. The feed has no
 	subject, composes the predicates itself, and is therefore the one place where forgetting
@@ -242,7 +242,7 @@ def test_a_projects_deletion_reaches_the_feed (session: sqlalchemy.orm.Session) 
 def test_deleting_a_project_does_not_erase_its_contents_past (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""**A feed may not rewrite what it has already reported** (SPEC.md §5.11a, `#307`).
+	"""**A feed may not rewrite what it has already reported** (docs/design.md §5.11a, `#307`).
 
 	The worse half, and the one no permission test could see. A task is reached through a join
 	to its project, so deleting the project removed every event about everything inside it —
@@ -489,7 +489,7 @@ def own_database (tmp_path: typing.Any) -> typing.Iterator[str]:
 
 
 def test_an_event_committed_late_is_never_skipped (own_database: str) -> None:
-	"""**The done-criterion for `#13`, and it can only fail on PostgreSQL** (SPEC.md §5.11).
+	"""**The done-criterion for `#13`, and it can only fail on PostgreSQL** (docs/design.md §5.11).
 
 	Transaction A takes ``seq`` 100 and holds it; B takes 101 and commits first. A reader
 	polling at that instant sees 101, advances its cursor, and loses 100 for ever — because

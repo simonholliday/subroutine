@@ -1,12 +1,12 @@
 """Relative date expressions — ``now``, ``end_of_week``, ``today+1w`` — resolved to instants.
 
-The point of these is agent errors that never happen (SPEC.md §9.3). Without them, "what is
+The point of these is agent errors that never happen (docs/design.md §9.3). Without them, "what is
 due this week" requires a client to know today's date, work out which day the week ends on,
 format it correctly and get the timezone right; four chances to be wrong, and the failure is
 silent because a well-formed wrong date returns a well-formed wrong answer.
 
 Everything resolves **in the caller's timezone** and returns a timezone-aware UTC instant,
-because that is what the columns hold (SPEC.md §6.5). "Due today" means today where the
+because that is what the columns hold (docs/design.md §6.5). "Due today" means today where the
 person is, which is the whole reason the timezone travels with the task.
 
 **The units are not the units in :mod:`subroutine.domain.durations`, and the difference

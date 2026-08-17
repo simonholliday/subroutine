@@ -4,7 +4,7 @@ One entry point, because a permission system with several is a permission system
 several answers. Everything that needs to know goes through :func:`authorize` or
 :func:`may`, and both are built on the same private decision.
 
-SPEC.md §7.3 states the rule as set intersection::
+docs/design.md §7.3 states the rule as set intersection::
 
     effective = role_permissions(user, workspace)
               ∩ token_scopes           (if the token narrows them)
@@ -15,7 +15,7 @@ with one exception that has to be stated in the code as loudly as in the spec: *
 Read as literal set algebra, the formula gives every ordinary token nothing at all — which
 is the single easiest way to ship an API where everything is refused.
 
-The instance tier (SPEC.md §7.1) has its own entry point, :func:`authorize_instance`, for
+The instance tier (docs/design.md §7.1) has its own entry point, :func:`authorize_instance`, for
 the acts that have no workspace to be checked against — creating a workspace, creating an
 account. It is a separate function rather than the same one called with a placeholder
 workspace, because a sentinel id would be a value every future query has to remember to
@@ -57,7 +57,7 @@ class AuthorizationFailure(enum.StrEnum):
 	def conceals_existence (self) -> bool:
 		"""Report whether this refusal must be reported as "not found".
 
-		A private project answers ``404`` rather than ``403`` (SPEC.md §7.3a, §8.7):
+		A private project answers ``404`` rather than ``403`` (docs/design.md §7.3a, §8.7):
 		telling someone they are forbidden confirms the thing is there, which is precisely
 		what private means they should not learn.
 		"""
@@ -122,7 +122,7 @@ class AuthorizationError(subroutine.errors.Forbidden):
 		"""Record what was refused, and where, and say something useful about it.
 
 		``workspace_id`` is absent for an instance-level refusal, which is not about any one
-		workspace (SPEC.md §7.1).
+		workspace (docs/design.md §7.1).
 		"""
 
 		hint = _HINTS.get(failure)
@@ -170,7 +170,7 @@ class Grant:
 
 	Returned by :func:`explain` for ``/v1/meta`` and for diagnosing a refusal. An agent
 	that can read its own permissions in one call does not have to discover them by
-	being refused things (SPEC.md §13.1).
+	being refused things (docs/design.md §13.1).
 	"""
 
 	permissions: frozenset[str]
@@ -308,7 +308,7 @@ def instance_permissions (
 
 	Empty for everyone but a superuser, and narrowed by the token's scopes even then — so
 	an agent holding a scoped token is told the truth about what it can do rather than
-	discovering it by being refused (SPEC.md §7.1, §13.1).
+	discovering it by being refused (docs/design.md §7.1, §13.1).
 	"""
 
 	if not principal.is_superuser:
@@ -338,7 +338,7 @@ def authorize_instance (
 
 	Takes no workspace and no session, because neither has anything to say about it:
 	creating the second workspace happens outside every existing one, and creating an
-	account happens before that account belongs anywhere (SPEC.md §7.1).
+	account happens before that account belongs anywhere (docs/design.md §7.1).
 
 	Only :data:`subroutine.permissions.INSTANCE_LEVEL` verbs may be asked here. Passing a
 	workspace permission is a programming error rather than a refusal, and says so.
@@ -390,7 +390,7 @@ def _instance_refusal (
 		return AuthorizationFailure.NOT_A_SUPERUSER
 
 	# A superuser bypasses roles, never token scopes — otherwise a leaked agent token
-	# belonging to an administrator would be unbounded (SPEC.md §7.3).
+	# belonging to an administrator would be unbounded (docs/design.md §7.3).
 	if outside_token_scope(principal, permission):
 		return AuthorizationFailure.OUT_OF_TOKEN_SCOPE
 
@@ -439,7 +439,7 @@ def _refusal (
 
 	# Checked before anything else about the project, so that a private one refuses
 	# identically no matter what else is or is not true. Asks about ancestors as well:
-	# privacy inherits down the tree (SPEC.md §7.3a).
+	# privacy inherits down the tree (docs/design.md §7.3a).
 	if project is not None and not is_visible(session, principal, project):
 		return AuthorizationFailure.PROJECT_INVISIBLE
 
@@ -518,7 +518,7 @@ def _role_for (
 def visible_projects (
 	principal: subroutine.domain.authentication.Principal,
 ) -> sqlalchemy.ColumnElement[bool]:
-	"""Return a predicate selecting the projects this principal may see (SPEC.md §7.3a).
+	"""Return a predicate selecting the projects this principal may see (docs/design.md §7.3a).
 
 	**Privacy inherits down the tree.** A project is hidden when it is private, *or when any
 	ancestor of it is*, unless the principal holds a ``project_member`` row on the private

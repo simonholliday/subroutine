@@ -1,7 +1,7 @@
 """Liveness and readiness, the two questions a deployment asks before sending traffic.
 
 They are deliberately different questions, and answering them with the same check is a
-common way to turn a brief database hiccup into an outage (SPEC.md §8.6):
+common way to turn a brief database hiccup into an outage (docs/design.md §8.6):
 
 * **Liveness** — is this process still working? It touches nothing external, because a
   liveness probe that fails when the database does gets the container *killed* rather

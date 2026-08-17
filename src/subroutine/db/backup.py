@@ -1,4 +1,4 @@
-"""Taking a faithful copy of the database, and putting one back (SPEC.md §12.6).
+"""Taking a faithful copy of the database, and putting one back (docs/design.md §12.6).
 
 This is not ``db export`` and does not replace it. An export is *logical and portable* —
 readable, diffable, loadable into a different version. A backup is *exact and operational*:
@@ -42,7 +42,7 @@ import subroutine.db.types
 import subroutine.errors
 
 #: Where backups go, under the instance's own data directory — so a profile's backups belong
-#: to that profile and destroying it takes them with it (SPEC.md §12.5).
+#: to that profile and destroying it takes them with it (docs/design.md §12.5).
 DIRECTORY_NAME = "backups"
 
 #: ``.db`` for a SQLite copy, which really is a database; ``.sql`` for a PostgreSQL dump,
@@ -203,7 +203,7 @@ def _staging_directory () -> pathlib.Path:
 
 	**Always local, and that is the point.** ``VACUUM INTO`` creates a database and takes a lock
 	on it, so it cannot be aimed at a filesystem where SQLite cannot lock — which is exactly the
-	kind of volume somebody sensibly wants their backups on (SPEC.md §12.6b). The data directory
+	kind of volume somebody sensibly wants their backups on (docs/design.md §12.6b). The data directory
 	is guaranteed usable, because the database itself lives there and ``probe_sqlite_locking``
 	refuses an installation where it would not work.
 	"""
@@ -1277,7 +1277,7 @@ def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
 def check_restorable (path: pathlib.Path) -> str:
 	"""Return a backup's schema head, refusing one this installation cannot interpret.
 
-	The asymmetry is the safety property (SPEC.md §12.6). An *older* schema can be migrated
+	The asymmetry is the safety property (docs/design.md §12.6). An *older* schema can be migrated
 	forward, which is what Alembic is for. A *newer* one is refused: the running code does not
 	know the columns, so "try anyway" means a silent misread rather than a visible failure.
 	"""
@@ -1488,7 +1488,7 @@ def _reidentify (database_url: str) -> None:
 	"""Give the restored database a new ``instance_id``, and forget the stored context.
 
 	The context goes because it names a connection and a workspace that belonged to the
-	original (SPEC.md §13.7), and a clone pointing at the original's context is the confusion
+	original (docs/design.md §13.7), and a clone pointing at the original's context is the confusion
 	this whole distinction exists to prevent. Credentials are deliberately *left alone*: a token
 	is scoped to a user and a workspace, both of which survive the copy, and revoking them would
 	make a test clone useless for testing.

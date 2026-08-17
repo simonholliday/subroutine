@@ -3,7 +3,7 @@
 Two halves, and both are needed. The static check catches an unreachable route when the
 application is built; the request-driven tests below prove the static check agrees with
 what the framework actually does, because a matcher we wrote ourselves is only useful for
-as long as that remains true (SPEC.md §8.1).
+as long as that remains true (docs/design.md §8.1).
 """
 
 import asyncio

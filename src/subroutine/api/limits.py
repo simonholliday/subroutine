@@ -1,4 +1,4 @@
-"""Slowing down a caller going too fast, and one guessing credentials — SPEC.md §7.7.
+"""Slowing down a caller going too fast, and one guessing credentials — docs/design.md §7.7.
 
 Specified since slice 1, and implemented by nothing until `#247`: the ``rate_limited`` code
 was in the registry, the ``429`` was in the problem map, and no code path raised either. On a

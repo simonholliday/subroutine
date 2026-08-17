@@ -1,4 +1,4 @@
-"""The set of instances a client can reach — SPEC.md §13.7.
+"""The set of instances a client can reach — docs/design.md §13.7.
 
 A person keeps their own life in one place and their employer's work in another, on
 different servers under different ownership, and they must stay that way. But the questions

@@ -1,4 +1,4 @@
-"""Which connection and which workspace a bare number means — SPEC.md §13.7.
+"""Which connection and which workspace a bare number means — docs/design.md §13.7.
 
 Refs are per-workspace integers (§6.2), so the full namespace is ``connection/workspace/ref``
 and *every* low number exists in most workspaces. That makes ambiguity the normal case rather

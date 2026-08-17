@@ -42,11 +42,11 @@ import subroutine.errors
 import subroutine.permissions
 
 #: Status categories that mean a task is finished, and so must carry a ``completed_at``
-#: (SPEC.md §10.7 invariant 5). Read from the status row's category rather than its key,
+#: (docs/design.md §10.7 invariant 5). Read from the status row's category rather than its key,
 #: because an installation renames and adds statuses freely.
 FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
 
-#: SPEC.md §6.10. Enforced here so the message names the field and the limit, rather than
+#: docs/design.md §6.10. Enforced here so the message names the field and the limit, rather than
 #: arriving as a driver error from PostgreSQL — and arriving not at all on SQLite, which
 #: does not enforce VARCHAR lengths.
 MAX_TITLE_LENGTH = 512
@@ -676,7 +676,7 @@ def create_from_text (
 	Returns the task **and** what was parsed, so a caller can tell the user what it did
 	with their sentence rather than making them infer it from the result.
 
-	**Structured fields win over parsed ones** (SPEC.md §6.13): anything in ``overrides``
+	**Structured fields win over parsed ones** (docs/design.md §6.13): anything in ``overrides``
 	replaces what the text said, so a client that wants no magic simply does not send text
 	worth parsing. The capture still runs, so the title is still cleaned of tokens the
 	caller did supply values for — otherwise passing ``importance`` explicitly would leave
@@ -902,7 +902,7 @@ def update (
 	# Permission first, before anything is even read: a caller who may not touch this task
 	# should not be able to learn from the error message whether their new title was valid.
 	# The version check follows it, for the same reason — a stranger should not learn what
-	# version a task is at (SPEC.md §8.9).
+	# version a task is at (docs/design.md §8.9).
 	_permitted(
 		session,
 		actor,
@@ -1009,7 +1009,7 @@ def update (
 	# **The move is validated here and applied below, like every other field**, even though
 	# it writes more than one row. From a caller's side "this is in the wrong project" is a
 	# field being wrong; the subtree following is an *invariant being maintained*, exactly as
-	# `completed_at` follows the status two blocks down. SPEC.md reserves
+	# `completed_at` follows the status two blocks down. docs/design.md reserves
 	# `POST /v1/tasks/{id}/move` for re-parenting (#44), which genuinely needs a cycle check
 	# and a body of its own.
 	moving = project is not subroutine.domain.patch.UNSET and project.id != task.project_id
@@ -1095,7 +1095,7 @@ def update (
 		task.status_id = status.id
 		touches_content = True
 
-		# SPEC.md §10.7 invariant 5: `completed_at` is non-null exactly when the status
+		# docs/design.md §10.7 invariant 5: `completed_at` is non-null exactly when the status
 		# category is `done` or `cancelled`. Set here rather than by a database trigger,
 		# because the category lives on the status row and an installation may rename or
 		# add statuses freely.
@@ -1249,7 +1249,7 @@ def update (
 
 	# `updated_at` moves on any write; `content_updated_at` moves only when the *meaning*
 	# changed. That distinction is what lets a verification know whether it is stale, and
-	# stops a repositioning from invalidating evidence (SPEC.md §6.1).
+	# stops a repositioning from invalidating evidence (docs/design.md §6.1).
 	if touches_content:
 		task.content_updated_at = subroutine.db.types.utcnow()
 
@@ -1764,7 +1764,7 @@ def delete (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
-	"""Move a task to the trash, where it stays recoverable (SPEC.md §6.9).
+	"""Move a task to the trash, where it stays recoverable (docs/design.md §6.9).
 
 	Soft, always: ``deleted_at`` is set and the row remains. Deleting twice is not an error
 	and does not move the timestamp — when something was thrown away is a fact worth not
@@ -1817,7 +1817,7 @@ def restore (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
-	"""Take a task back out of the trash (SPEC.md §6.9).
+	"""Take a task back out of the trash (docs/design.md §6.9).
 
 	**The half of soft delete that made it soft**, and it did not exist until `#140`. §6.9 says
 	a deleted item is "restorable for a configurable retention period", a
@@ -1977,7 +1977,7 @@ def _timezone (
 	actor: subroutine.domain.authentication.Principal | None,
 	explicit: str | None,
 ) -> str:
-	"""Return the timezone this task's dates are read in, per SPEC.md §6.5's chain.
+	"""Return the timezone this task's dates are read in, per docs/design.md §6.5's chain.
 
 	The workspace and the instance are fetched only when the answer is not already settled,
 	so the common path — a person with a timezone, editing their own tasks — costs no query.

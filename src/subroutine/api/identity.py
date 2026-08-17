@@ -1,7 +1,7 @@
 """``GET /v1/me`` — who the caller is, and exactly what they may do.
 
 The point of this endpoint is that an agent should not have to discover its own authority by
-being refused things (SPEC.md §13.1). What it reports, and why the empty-scope sentinel is
+being refused things (docs/design.md §13.1). What it reports, and why the empty-scope sentinel is
 spelled out rather than left to be interpreted, is documented on
 :func:`subroutine.views.me` — which is where the answer is assembled, so that a client asking
 over a socket and a client asking its own database get the same one (§13.7).
