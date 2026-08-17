@@ -340,6 +340,15 @@ IDENTITY = {
 			"id": "w1",
 			"role": "owner",
 			"permissions": ["task:write", "comment:write", "task:delete"],
+		},
+		# **A second one, because the agenda at `/` spans them and that is what makes a row say
+		# which** (`#965`). With one workspace `spansWorkspaces` is false, every address is a
+		# bare `#42`, and the page this file could build was the short case that always fitted.
+		{
+			"slug": "personal",
+			"id": "w2",
+			"role": "owner",
+			"permissions": ["task:write", "comment:write", "task:delete"],
 		}
 	],
 	"instance_permissions": [],
@@ -347,6 +356,7 @@ IDENTITY = {
 }
 
 EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
+
 
 #: A workspace's own vocabulary, which is what a column has to be resolved through. Renamed and
 #: with the default second, because a board choosing by key would be right only here.
@@ -384,6 +394,22 @@ CARD_ROW = ".rows li:has(a[href$='/42'])"
 #: Five more cards in the same column, so the board has a tall column and an empty one — the
 #: shape `#796` failed on, and the one a person meets on their first board.
 CROWD = [dict(CARD, ref=100 + n, title=f"Task number {n}") for n in range(5)]
+
+#: What `/v1/agenda` answers — one row in each of two workspaces, so the page spans them.
+#:
+#: **The refs are deliberately different lengths.** `#965` was an address overflowing the column
+#: it sits in, and a fixture where every address is the same width can say the gap is there and
+#: never that it survives the long one.
+AGENDA: dict[str, typing.Any] = {
+	"date": "2026-08-17",
+	"timezone": "Europe/London",
+	"overdue": [],
+	"today": [dict(CARD, ref=2, title="Dentist appointment", workspace_id="w2")],
+	"in_progress": [dict(CARD, ref=94, title="Recurring tasks", workspace_id="w1")],
+	"upcoming": [],
+	"unscheduled": [dict(CARD, ref=95, title="Release 0.8.0", workspace_id="w1")],
+	"unscheduled_total": 1,
+}
 
 #: One page of rows, in the envelope every listing here uses. Enough for a link to click.
 ROWS = {
@@ -529,6 +555,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# read an item where a page was, and every attempt to open one landed on the
 				# failure page. Nothing was asserting on an open item, so it looked like a
 				# harness that simply had no test for it.
+				else AGENDA if wanted.split("?")[0] == "v1/agenda"
 				else CARD if re.fullmatch(r"v1/tasks/\d+", wanted)
 				# **The collection, and only the collection.** `startswith` also matched every
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
@@ -1061,7 +1088,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 20, (
+	assert len(tests) <= 21, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
@@ -1518,3 +1545,60 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	assert page.locator(".listing.agenda").count() > 0, (
 		"the address went home and the page did not follow it"
 	)
+
+
+def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.Any) -> None:
+	"""`SR#965`, Simon 2026-08-17, from the agenda at `/`.
+
+	`projects/#94Recurring tasks` — the address ran into the title with nothing between them,
+	because the column it sits in was a fixed 4.5rem and twelve monospace characters do not fit
+	in nine. **A grid item does not wrap a track, it overflows it**, so there was no width at
+	which this got better rather than worse.
+
+	**Measured rather than looked at**, which is `SR#911`'s rule: the claim is that two boxes do
+	not touch, and `tests/dom.js` has no layout at all. Driven at `/`, because that is the one
+	page whose rows carry a workspace — `spansWorkspaces` is what puts it there, and every
+	listing inside a workspace has short refs that sit on the floor.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda .row", timeout=10_000)
+
+	measured = page.eval_on_selector_all(
+		".listing.agenda .row",
+		"""rows => rows.map((row) => {
+			const ref = row.querySelector(".ref");
+			const title = row.querySelector(".title");
+			if (!ref || !title) return null;
+
+			/* **The text's own extent, not the element's box.** `.ref` is a grid item, so its
+			   box is the track — 72px whatever it holds — and text that does not fit simply
+			   overflows it. Measuring the boxes says the gap is 12px on exactly the row a
+			   reader can see is broken, which is what the first version of this test did and
+			   why it survived being falsified against the fixed track. A `Range` reports where
+			   the glyphs actually end. */
+			const extent = document.createRange();
+
+			extent.selectNodeContents(ref);
+
+			return {
+				said: ref.textContent.trim(),
+				gap: Math.round(
+					title.getBoundingClientRect().left - extent.getBoundingClientRect().right
+				),
+			};
+		}).filter(Boolean)""",
+	)
+
+	assert measured, "no agenda row carries both an address and a title"
+	assert any("/" in row["said"] for row in measured), (
+		f"no row says which workspace it is from, so this is measuring the short case that "
+		f"always fitted: {measured}"
+	)
+
+	for row in measured:
+		assert row["gap"] > 0, (
+			f"the address {row['said']!r} touches the title beside it — its column is too "
+			f"narrow for it and a grid item overflows rather than wrapping: {measured}"
+		)

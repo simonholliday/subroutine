@@ -926,9 +926,23 @@ fieldset {
 	The `button` rules stay because one case still renders one — an agenda row whose workspace
 	nobody can name has no address, and a hollow anchor cannot be tabbed to.
 */
+/* **The address gets the room it needs, and 4.5rem is its floor rather than its width**
+   (`#965`). A fixed track was right while every ref was `#94`: nine monospace characters at
+   `--text-small` fit 72px with room to spare, and every row on a page then started its title at
+   the same x. The agenda at `/` spans workspaces, so a row says `projects/#94` — twelve
+   characters, which overflows the track and eats the gap, because **a grid item does not wrap a
+   track, it overflows it**. There is no width at which that degrades gracefully.
+
+   **The cost is stated rather than discovered**: where addresses on one page differ in length,
+   the titles differ by that much too. That is `/` alone — inside a workspace every ref is short
+   and sits on the floor, so every other page is unchanged to the pixel. `Columns.measured` at
+   the terminal takes the widest address across the whole output for exactly this reason and is
+   the upgrade if the raggedness reads worse than the overlap; it needs the page measured in the
+   component, because the row's own font is not the monospace the ref is set in and `ch` here
+   would be the wrong character. */
 .row {
 	display: grid;
-	grid-template-columns: 4.5rem 1fr;
+	grid-template-columns: minmax(4.5rem, max-content) 1fr;
 	gap: var(--space-2) var(--space-6);
 	align-items: baseline;
 	width: 100%;
