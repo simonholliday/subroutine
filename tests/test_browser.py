@@ -1108,6 +1108,12 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	workspace. `AGENDA` spans two on purpose, so the case Simon met was the one nothing could
 	build — the second harness gap of the day, and the same shape as the first.
 
+	**Twenty-three for `#969`**, and the case is a control's *current value*: a `<select>` fires
+	no `change` for the option already selected, so a page that names a workspace it is not
+	narrowed to also cannot reach it. Neither half is markup — `tests/dom.js` drops every
+	attribute but `href`, so it cannot read `selected`, and "choosing what is already chosen
+	does nothing" is a fact about a real control.
+
 	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
@@ -1119,7 +1125,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 22, (
+	assert len(tests) <= 23, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
@@ -1698,3 +1704,43 @@ def test_the_agenda_names_a_workspace_even_where_they_all_agree (
 			f"a row is addressed {said!r} — with no workspace in the URL a bare number does "
 			f"not say which workspace the item is in"
 		)
+
+
+def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
+	running: typing.Any,
+) -> None:
+	"""`SR#969`, Simon 2026-08-17, from the agenda at `/`.
+
+	It marked a workspace selected while the page showed **every** workspace — untrue, and a
+	dead end with it: a `<select>` fires no `change` for the option already selected, so the one
+	workspace the control claimed was the one it could not reach.
+
+	**Only a browser can answer either half.** `tests/dom.js` drops every attribute but `href`,
+	so it cannot read `selected`; and *choosing the value that is already chosen does nothing*
+	is a fact about a real control, not about markup.
+
+	**Driven as a round trip**, because a hint that cannot be chosen again would pass the first
+	half and leave the control one-way — which is the same inert shape one step along.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	control = page.locator("header .who select")
+
+	assert control.input_value() == "", (
+		"the agenda shows every workspace and the control names one of them"
+	)
+
+	control.select_option("projects")
+	page.wait_for_url("http://app.test/projects*", timeout=10_000)
+	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
+
+	assert control.input_value() == "projects", "narrowing left the control saying otherwise"
+
+	control.select_option("")
+	page.wait_for_url("http://app.test/", timeout=10_000)
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	assert control.input_value() == "", "there is no way back to everything from the control"

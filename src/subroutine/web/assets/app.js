@@ -6409,10 +6409,27 @@ export function App () {
 						     the same reason. Without it a screen reader announces a combo box
 						     with no name at all — the control that decides which backlog you are
 						     looking at. */ null}
+						${/* **It says what is showing, and every choice on it is reachable**
+						     (`#969`, Simon's). It marked a workspace selected while the agenda
+						     was showing *every* workspace — untrue, and a dead end with it: a
+						     `<select>` fires no `change` for the option already selected, so the
+						     one workspace the control claimed was the one it could not reach.
+
+						     **`All workspaces` is a real option rather than a hint**, and that
+						     is the part worth keeping. A disabled placeholder fixes the claim
+						     and leaves the control one-way — having narrowed, the way back to
+						     everything is a link elsewhere on the page — which is the same
+						     inert shape one step along. This is descriptive rather than an
+						     instruction: it says what you are looking at, which is what `/` is,
+						     and choosing it goes there. */ null}
 						<select aria-label="Which workspace"
-							onChange=${(event) => chooseWorkspace(event.target.value)}>
+							onChange=${(event) => (event.target.value
+								? chooseWorkspace(event.target.value)
+								: home())}>
+							<option value="" selected=${agenda !== null}>All workspaces</option>
 							${me.workspaces.map((space) => html`
-								<option value=${space.slug} selected=${space.slug === workspace}>
+								<option value=${space.slug}
+									selected=${agenda === null && space.slug === workspace}>
 									${space.slug}
 								</option>
 							`)}

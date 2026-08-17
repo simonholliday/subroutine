@@ -44,6 +44,11 @@ upgrade involves.
   **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
   page exactly as it was — and the agenda then arrived at the board's full width. It also
   carried the board and the completed filter to an agenda that has neither; `/` is now `/`.
+- **The workspace control says what is showing, and goes both ways.** On the agenda it marked
+  a workspace selected while the page held every workspace — and a `select` fires no change for
+  the option already chosen, so the one it named was the one it could not reach. It reads
+  **All workspaces** there now, which is a real choice rather than a hint: picking it from a
+  workspace goes back to the agenda.
 - **The agenda at `/` says which workspace every row is in**, whether or not they all happen
   to agree — in the item's number as well as in the project label beside it. It named none
   when they did, which is the one page whose address names no workspace.
