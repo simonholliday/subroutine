@@ -240,7 +240,7 @@ def test_projects_and_documents_are_guarded_the_same_way (
 
 #: The prefixes whose entities carry a version, and how to address one of them.
 _ENTITIES = (("/v1/tasks/", "{id_or_ref}"), ("/v1/documents/", "{id_or_ref}"),
-	("/v1/projects/", "{id_or_key}"))
+	("/v1/projects/", "{id_or_key:path}"))
 
 #: What to send where a route needs a body before it gets as far as the version check. A move
 #: has to name a destination, because an omitted parent and an explicit ``null`` mean different
@@ -249,10 +249,10 @@ _ENTITIES = (("/v1/tasks/", "{id_or_ref}"), ("/v1/documents/", "{id_or_ref}"),
 _BODIES: dict[str, dict[str, typing.Any]] = {
 	"POST /v1/tasks/{id_or_ref}/move": {"parent": None},
 	"POST /v1/documents/{id_or_ref}/move": {"parent": None},
-	"POST /v1/projects/{id_or_key}/move": {"parent": None},
+	"POST /v1/projects/{id_or_key:path}/move": {"parent": None},
 	"PATCH /v1/tasks/{id_or_ref}": {"title": "Renamed"},
 	"PATCH /v1/documents/{id_or_ref}": {"title": "Renamed"},
-	"PATCH /v1/projects/{id_or_key}": {"title": "Renamed"},
+	"PATCH /v1/projects/{id_or_key:path}": {"title": "Renamed"},
 }
 
 #: Routes at an entity's address that change something else, and so have no version of this
@@ -266,7 +266,7 @@ _BODIES: dict[str, dict[str, typing.Any]] = {
 NOT_A_CHANGE_TO_THE_ENTITY: dict[str, str] = {
 	"POST /v1/tasks/{id_or_ref}/comments": "writes a comment, which is its own entity",
 	"POST /v1/documents/{id_or_ref}/comments": "writes a comment, which is its own entity",
-	"POST /v1/projects/{id_or_key}/comments": "writes a comment, which is its own entity",
+	"POST /v1/projects/{id_or_key:path}/comments": "writes a comment, which is its own entity",
 	"POST /v1/tasks/{id_or_ref}/links": "writes a link, which is its own entity",
 	"POST /v1/documents/{id_or_ref}/links": "writes a link, which is its own entity",
 	"DELETE /v1/tasks/{id_or_ref}/links/{link_id}": "removes a link, addressed by its own id",

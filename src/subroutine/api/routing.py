@@ -172,6 +172,51 @@ def shadowed (routes: typing.Sequence[Declaration]) -> list[str]:
 	return problems
 
 
+def swallowed (routes: typing.Sequence[Declaration]) -> list[str]:
+	"""Return a description of every route an earlier **catch-all** would take first.
+
+	:func:`shadowed` above answers this for a route with a fixed path and deliberately says
+	nothing about a parameterised one, because one pattern matching another's source text
+	means nothing. That was the whole truth while every parameter claimed a single segment:
+	two such routes collide only when they are the same shape, which is a duplicate rather
+	than an ordering fault.
+
+	**A ``{name:path}`` parameter ends that** (decision `#957`, which gave a project an
+	address spanning segments). It matches the rest of the URL, so
+	``GET /v1/projects/{id_or_key:path}`` registered before
+	``GET /v1/projects/{id_or_key:path}/comments`` answers that request itself — with a 404
+	about a project called ``substation/comments``, which reads as the project having been
+	deleted rather than as a route nobody can reach. `#25`'s recorded shape, in the one
+	disguise the guard written for it could not see.
+
+	Asked by making the later route concrete — :func:`subroutine.addressing.sample` fills
+	each parameter in — and putting that path to the earlier pattern. A catch-all matching
+	one request the later route claims is a catch-all that swallows it.
+	"""
+
+	problems: list[str] = []
+
+	for index, (path, methods) in enumerate(routes):
+		concrete = subroutine.addressing.sample(path)
+
+		for earlier_path, earlier_methods in routes[:index]:
+			collisions = methods & earlier_methods
+
+			if not collisions or not subroutine.addressing.spans_segments(earlier_path):
+				continue
+
+			if not subroutine.addressing.matches(earlier_path, concrete):
+				continue
+
+			verbs = ", ".join(sorted(collisions))
+			problems.append(
+				f"{verbs} {path} is unreachable: {earlier_path} is registered before it and "
+				f"its path parameter matches across '/', so it answers that request too."
+			)
+
+	return problems
+
+
 def check (routers: typing.Sequence[Mounting]) -> None:
 	"""Refuse to build an application in which a route cannot be reached.
 
@@ -180,7 +225,8 @@ def check (routers: typing.Sequence[Mounting]) -> None:
 	who finds out is an agent that has concluded the task does not exist.
 	"""
 
-	problems = shadowed(declarations(routers))
+	declared = declarations(routers)
+	problems = shadowed(declared) + swallowed(declared)
 
 	if not problems:
 		return

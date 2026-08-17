@@ -116,6 +116,71 @@ def test_a_parameterised_route_does_not_shadow_a_deeper_literal () -> None:
 	subroutine.api.routing.check((("/v1/tasks", _router("/{id_or_ref}", "/{id_or_ref}/links")),))
 
 
+def test_a_catch_all_swallows_a_deeper_route_registered_after_it () -> None:
+	"""`#957`, and the one shape :func:`shadowed` was written unable to see.
+
+	A ``{name:path}`` matches across ``/``, so it answers its own sub-resources' requests.
+	``shadowed`` skips a parameterised path on purpose — one pattern matching another's source
+	text means nothing — which was the whole truth while every parameter claimed one segment.
+	"""
+
+	routers = (
+		("/v1/projects", _router("/{id_or_key:path}", "/{id_or_key:path}/comments")),
+	)
+
+	with pytest.raises(RuntimeError) as raised:
+		subroutine.api.routing.check(routers)
+
+	message = str(raised.value)
+
+	assert "/v1/projects/{id_or_key:path}/comments" in message
+	assert "matches across" in message, "the message says why, not only that"
+
+
+def test_a_catch_all_registered_last_is_accepted () -> None:
+	"""Which is the arrangement the application uses, and the reason it comes last."""
+
+	subroutine.api.routing.check(
+		(("/v1/projects", _router("/{id_or_key:path}/comments", "/{id_or_key:path}")),)
+	)
+
+
+def test_a_catch_all_does_not_swallow_a_shorter_route () -> None:
+	"""``/v1/projects/{p:path}/comments`` claims nothing that ``/v1/projects`` claims.
+
+	Falsifying the check the cheap way — by reporting every pair — would fail here, and this
+	is the arrangement the application actually has.
+	"""
+
+	subroutine.api.routing.check(
+		(("/v1/projects", _router("/{id_or_key:path}/comments", "")),)
+	)
+
+
+def test_the_catch_all_check_agrees_with_the_framework (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""What the check calls swallowed really is swallowed.
+
+	The sibling of :func:`test_the_static_check_agrees_with_the_framework`, and needed for the
+	same reason: the matcher is ours, so the claim that a catch-all takes a longer request has
+	to be put to the framework rather than reasoned about.
+	"""
+
+	routers = (("/v1/things", _router("/{id_or_key:path}", "/{id_or_key:path}/comments")),)
+
+	assert subroutine.api.routing.swallowed(subroutine.api.routing.declarations(routers))
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for prefix, router in routers:
+		application.include_router(router, prefix=prefix)
+
+	response = api_support.call(application, "GET", "/v1/things/substation/dist/comments")
+
+	assert response.json() == {"route": "/{id_or_key:path}"}, "the deeper route is swallowed"
+
+
 def test_shadowing_needs_an_overlapping_method () -> None:
 	"""GET on one path cannot swallow POST on another."""
 
@@ -247,6 +312,113 @@ def test_reserved_words_are_matched_case_insensitively () -> None:
 	assert subroutine.addressing.is_reserved_word("SEARCH")
 	assert subroutine.addressing.is_reserved_word(" Next ")
 	assert not subroutine.addressing.is_reserved_word("searches")
+
+
+def _literals_beside_a_project_address () -> set[str]:
+	"""Return every fixed segment a project's own routes put after its address."""
+
+	found: set[str] = set()
+
+	for path, _verbs, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		head, separator, tail = path.partition("/{id_or_key:path}/")
+
+		if separator and head == "/v1/projects" and "{" not in tail:
+			found.add(tail)
+
+	return found
+
+
+def test_every_literal_beside_a_project_address_is_reserved () -> None:
+	"""A sub-resource's word cannot also be a project key — `#957`.
+
+	**Safe to leave out until this change, by accident of arithmetic.** A project's address
+	was one segment, so a literal like ``comments`` was always the *second* and could never be
+	read as a key. Now the address spans segments, ``substation/comments`` reads equally as
+	that project's comments and as a project keyed ``comments`` inside ``substation`` — and the
+	route wins, so the project would exist, be listed, and be reachable by nothing.
+
+	Derived from the real routers rather than restated, which is the arrangement
+	:data:`ROUTED_WORKSPACE_WORDS` already has and for the same reason: a sub-resource added
+	later is precisely how a hand-written list falls behind.
+
+	**Containment rather than equality**, unlike that one. This list is explicitly a promise
+	about endpoints that do not exist yet — ``sync`` has no route — and reserving ahead costs
+	nothing where un-reserving would cost somebody their key.
+	"""
+
+	literals = _literals_beside_a_project_address()
+
+	assert literals, "no project sub-resource was found, so this checks nothing"
+	assert literals <= subroutine.addressing.RESERVED_PATH_WORDS, (
+		f"{sorted(literals - subroutine.addressing.RESERVED_PATH_WORDS)} follow a project's "
+		f"address and are not reserved, so a project keyed that way would be unreachable"
+	)
+
+
+def test_a_nested_project_reaches_the_route_its_address_names (
+	world: test_api_tasks.World,
+) -> None:
+	"""``POST /v1/projects/a/b/move`` moves ``a/b`` — `#957`'s own worked example.
+
+	**Driven rather than read, because the failure is silent.** `#513` deferred this arc
+	partly on the claim that a multi-segment key *"cannot be parsed"* beside ``/move``; it
+	parses, because a trailing literal anchors the greedy match. What is real is the
+	declaration order — with the catch-all first this answers **200 from the catch-all**, with
+	``key="a/b/move"``, and the move never happens. A structural check reads declarations and
+	cannot see which one wins, so this makes the request and asserts on the effect.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "substation", "title": "Substation"})
+	world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "dist", "title": "Packaging", "parent": "substation"},
+	)
+	world.call("POST", "/v1/projects", json={"key": "websites", "title": "Websites"})
+
+	moved = world.call(
+		"POST", "/v1/projects/substation/dist/move", json={"parent": "websites"}
+	)
+
+	assert moved.status_code == 200, moved.text
+
+	# The catch-all answering instead would be a 200 as well, with a body about a project
+	# keyed `substation/dist/move` — so the assertion is on what moved, not on the status.
+	assert moved.json()["key"] == "dist"
+	assert world.call("GET", "/v1/projects/websites/dist").status_code == 200
+	assert world.call("GET", "/v1/projects/substation/dist").status_code == 404
+
+
+def test_a_nested_project_reaches_its_own_sub_resources (
+	world: test_api_tasks.World,
+) -> None:
+	"""And its comments and history, which the catch-all would otherwise have taken.
+
+	These are the two routes ``routing.swallowed`` was written for: both are registered after
+	the catch-all's *router* in every earlier arrangement, and both are addressed by a path.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "substation", "title": "Substation"})
+	world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "dist", "title": "Packaging", "parent": "substation"},
+	)
+
+	remarked = world.call(
+		"POST", "/v1/projects/substation/dist/comments", json={"body": "Shipped."}
+	)
+
+	assert remarked.status_code == 201, remarked.text
+
+	comments = world.call("GET", "/v1/projects/substation/dist/comments")
+
+	# Ordered so the harm fires first: with the catch-all registered before these, the listing
+	# is a 404 about a project keyed `substation/dist/comments`, and reading `items` off that
+	# would fail with a `KeyError` that says nothing about what went wrong.
+	assert comments.status_code == 200, comments.text
+	assert [item["body"] for item in comments.json()["items"]] == ["Shipped."]
+	assert world.call("GET", "/v1/projects/substation/dist/events").status_code == 200
 
 
 def _root_segments () -> set[str]:
@@ -503,8 +675,10 @@ def _addressable () -> list[tuple[str, str, str]]:
 	for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
 		address = path
 
-		for segment, stand_in in _SEGMENTS.items():
-			address = address.replace("{" + segment + "}", stand_in)
+		# Through ``addressing.filled`` rather than a string replace, because a parameter is
+		# ``{name}`` or ``{name:path}`` and a replace matching the first spelling silently
+		# skips every catch-all — which is what happened to `/v1/projects/{id_or_key:path}`.
+		address = subroutine.addressing.filled(address, _SEGMENTS)
 
 		if "{" in address:
 			raise AssertionError(
@@ -581,10 +755,7 @@ def _by_path () -> dict[str, set[str]]:
 def _stood_in (path: str) -> str:
 	"""Return a path template with something requestable in place of each segment."""
 
-	address = path
-
-	for segment, stand_in in _SEGMENTS.items():
-		address = address.replace("{" + segment + "}", stand_in)
+	address = subroutine.addressing.filled(path, _SEGMENTS)
 
 	assert "{" not in address, f"{path} names a segment _SEGMENTS has no value for"
 

@@ -63,6 +63,24 @@ MAX_KEY_LENGTH = 32
 #: confusion the hyphen was added to remove.
 KEY_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
+#: What separates one key from the next in a project's address (decision `#957`).
+#:
+#: **The same character a URL and a folder use**, because that is what the address *is*:
+#: ``substation/dist`` is one project, reached through another, and the alternative
+#: considered — a different separator, so that a path could never be mistaken for a key —
+#: buys nothing once a key is forbidden to contain this one.
+PATH_SEPARATOR = "/"
+
+#: What a project's whole address may be: keys, separated. One segment is a key, which is
+#: why every address written before `#957` goes on resolving unchanged.
+#:
+#: Used to *recognise* a path, never to validate one — :func:`check_key` is what says why a
+#: segment was refused, and a pattern that merely fails to match says nothing anybody can
+#: act on.
+PATH_PATTERN = re.compile(
+	rf"{KEY_PATTERN.pattern}(?:{re.escape(PATH_SEPARATOR)}{KEY_PATTERN.pattern})*"
+)
+
 #: What a template writes into ``project.settings``, and nothing else (docs/design.md §6.12).
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
 #: project stays reconfigurable and no template is a cage.
@@ -161,7 +179,12 @@ def create (
 			],
 		)
 
-	_refuse_duplicate_key(session, workspace_id, normalized_key)
+	_refuse_duplicate_key(
+		session,
+		workspace_id,
+		normalized_key,
+		parent_id=None if parent is None else parent.id,
+	)
 
 	project = subroutine.db.models.project.Project(
 		id=subroutine.db.types.new_uuid(),
@@ -220,11 +243,28 @@ def move (
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
-	"""Move a project and everything under it, returning how many rows were rewritten."""
+	"""Move a project and everything under it, returning how many rows were rewritten.
+
+	**A move can now collide, where it never could before** (`#957`). A key was unique
+	across the workspace until this change, so a destination could not already be holding
+	one; among siblings it can, and two projects sharing a parent and a key would be two
+	rows at one address — the state the whole change exists to make impossible.
+	"""
 
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
 
 	subroutine.domain.versions.require(project, expected_version, noun="project")
+
+	destination = None if parent is None else parent.id
+
+	if destination != project.parent_id:
+		_refuse_duplicate_key(
+			session,
+			project.workspace_id,
+			project.key,
+			parent_id=destination,
+			moving=project.key,
+		)
 
 	previous_parent = project.parent_id
 	previous_path = project.path
@@ -329,7 +369,9 @@ def update (
 		check_key(cleaned_key, given=key)
 
 		if cleaned_key != project.key:
-			_refuse_duplicate_key(session, project.workspace_id, cleaned_key)
+			_refuse_duplicate_key(
+				session, project.workspace_id, cleaned_key, parent_id=project.parent_id
+			)
 
 	if title is not subroutine.domain.patch.UNSET:
 		cleaned_title = subroutine.domain.text.fit(
@@ -470,12 +512,19 @@ def keys_for (
 	principal: subroutine.domain.authentication.Principal,
 	identifiers: typing.Sequence[str],
 ) -> list[str]:
-	"""Return each identifier as the project key it names, or unchanged where it names nothing.
+	"""Return each identifier as the project address it names, or unchanged where it names none.
 
 	Built for ``token list`` (`#203`), which printed a credential's ``project_scope`` as raw
 	UUIDs on the line *below* one that resolves the workspace pin to its slug — same output,
 	same argument, applied once. A UUID in a listing is something to go and look up, which is
 	the opposite of what a listing is for.
+
+	**The whole address rather than the bare key, since `#957`.** A key stopped being unique
+	in its workspace, so ``dist`` printed here may name two projects and cannot be typed back
+	into ``token create --project`` — which is `#151`'s rule, that what a caller is shown is
+	what it can send. The field is still called ``project_scope_keys`` on the wire: a client
+	reading it is reading *what a person types*, and that is what changed underneath rather
+	than which question the field answers.
 
 	**Here rather than in the command**, because it narrows: a key discloses more than an id,
 	so resolving one for a reader who cannot see that project would turn a listing of their own
@@ -490,7 +539,7 @@ def keys_for (
 	spaces = list(
 		session.scalars(sqlalchemy.select(subroutine.db.models.identity.Workspace.id))
 	)
-	named: list[str] = []
+	named: list[str | subroutine.db.models.project.Project] = []
 
 	for identifier in identifiers:
 		try:
@@ -522,9 +571,12 @@ def keys_for (
 			).where(subroutine.db.models.project.Project.id == wanted)
 		).first()
 
-		named.append(identifier if found is None else found.key)
+		named.append(identifier if found is None else found)
 
-	return named
+	rows = [item for item in named if not isinstance(item, str)]
+	addresses = paths_for(session, rows)
+
+	return [item if isinstance(item, str) else addresses[item.id] for item in named]
 
 
 def restore (
@@ -568,21 +620,22 @@ def restore (
 			hint=f"Restore '{buried.key}' first, and this comes back with it.",
 		)
 
-	model = subroutine.db.models.project.Project
-
 	# **The key it had may not be free any more**, and the index that guarantees so is partial
 	# — it ignores deleted rows, which is what lets the key be reused in the first place. So a
 	# project deleted, replaced and then restored met the constraint at flush time and left as
 	# an unhandled `IntegrityError`: a 500 over HTTP and a bare traceback at the terminal, for
 	# an ordinary sequence of three commands.
-	taken = session.scalars(
-		sqlalchemy.select(model.key).where(
-			model.workspace_id == project.workspace_id,
-			model.key == project.key,
-			model.id != project.id,
-			model.deleted_at.is_(None),
-		)
-	).first()
+	#
+	# **Among its siblings since `#957`**, through the same question the other three ask. Asked
+	# workspace-wide it would refuse this restore because a *cousin* took the key — a name the
+	# constraint no longer minds sharing, and a refusal with no way out.
+	taken = sibling_using(
+		session,
+		project.workspace_id,
+		project.key,
+		parent_id=project.parent_id,
+		besides=project.id,
+	)
 
 	if taken is not None:
 		raise subroutine.errors.Conflict(
@@ -770,6 +823,26 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 			],
 		)
 
+	# **An address is not a key, and saying so is the whole of this branch.** A project is
+	# named `dist` and *addressed* `substation/dist` (decision `#957`), so somebody creating
+	# one and typing the address has said something coherent that this cannot act on — where
+	# the generic refusal below would tell them a letter must come first, which is true of
+	# what they wrote and no help at all.
+	if PATH_SEPARATOR in normalized_key:
+		raise subroutine.errors.ValidationError(
+			f"{wrote!r} cannot be used as a project key.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="key",
+					code="invalid_field_value",
+					message=f"{wrote!r} is an address rather than a key.",
+					hint=f"A project is keyed by its last part alone — "
+					f"{normalized_key.rsplit(PATH_SEPARATOR, 1)[-1]!r} — and put inside "
+					f"another by naming that one as its parent.",
+				)
+			],
+		)
+
 	if not KEY_PATTERN.fullmatch(normalized_key):
 		raise subroutine.errors.ValidationError(
 			f"{wrote!r} cannot be used as a project key.",
@@ -825,29 +898,182 @@ def normalize_key (key: str) -> str:
 	return key.strip().lower()
 
 
-def _refuse_duplicate_key (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str
-) -> None:
-	"""Raise if a live project in this workspace already uses this key."""
+def normalize_path (wanted: str) -> str:
+	"""Return the stored form of a whole project address: each segment, normalised.
+
+	**Empty segments are dropped**, so ``substation//dist`` and a stray leading or trailing
+	separator all mean what somebody typing them meant. That is the one liberty taken here,
+	and it is the same liberty :func:`normalize_key` takes with case: a correction nobody
+	would be surprised by. Everything else is refused with an explanation by
+	:func:`check_key`, which sees each segment separately and so can say *which* one.
+	"""
+
+	segments = [normalize_key(segment) for segment in wanted.split(PATH_SEPARATOR)]
+
+	return PATH_SEPARATOR.join(segment for segment in segments if segment)
+
+
+def path_segments (wanted: str) -> list[str]:
+	"""Return the keys along an address, outermost first."""
+
+	return [segment for segment in normalize_path(wanted).split(PATH_SEPARATOR) if segment]
+
+
+def paths_for (
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[subroutine.db.models.project.Project],
+) -> dict[uuid.UUID, str]:
+	"""Return the address of each project — its ancestors' keys and its own, separated.
+
+	**One query for the whole page, never one per row.** ``project.path`` already carries
+	every ancestor's id, so the ancestors need looking up rather than walking: this reads
+	each id once and joins in Python, where the per-row version is `#39`'s N+1 on a listing
+	that renders a project column on every line.
+
+	**Deliberately not narrowed by scoping, and that discloses nothing.** Visibility
+	inherits *down* a project tree — §7.3a hides a project when it or any ancestor is
+	private without a membership — so anybody who can see a row can already see every
+	ancestor whose key this composes. Narrowing here would answer a question nobody asked
+	and would render a partial address, which is worse than none: an address that resolves
+	somewhere else is the failure this whole change exists to remove.
+	"""
+
+	model = subroutine.db.models.project.Project
+	wanted = {
+		uuid.UUID(segment)
+		for row in rows
+		for segment in subroutine.domain.hierarchy.path_segments(row.path)
+	}
+
+	if not wanted:
+		return {}
+
+	# `.tuples().all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
+	# raises, because a `Result` has a `.keys()` method and `dict` therefore treats it as a
+	# mapping. That is a recorded trap here, met once as a ruff C416 suggestion applied to
+	# working code.
+	keys = dict(
+		session.execute(
+			sqlalchemy.select(model.id, model.key).where(model.id.in_(wanted))
+		)
+		.tuples()
+		.all()
+	)
+	composed: dict[uuid.UUID, str] = {}
+
+	for row in rows:
+		ancestry = [
+			keys.get(uuid.UUID(segment))
+			for segment in subroutine.domain.hierarchy.path_segments(row.path)
+		]
+
+		# **Its own key when an ancestor could not be read, rather than a gap.** The
+		# foreign key is ``RESTRICT`` and a delete is soft, so every ancestor row exists
+		# and this cannot happen through any supported path; it is here because the
+		# alternative is a ``KeyError`` inside a listing, and a bare key is at least true.
+		composed[row.id] = (
+			PATH_SEPARATOR.join(key for key in ancestry if key is not None)
+			if all(key is not None for key in ancestry)
+			else row.key
+		)
+
+	return composed
+
+
+def path_of (
+	session: sqlalchemy.orm.Session, row: subroutine.db.models.project.Project
+) -> str:
+	"""Return one project's address. :func:`paths_for` is the form a listing wants."""
+
+	return paths_for(session, [row])[row.id]
+
+
+def sibling_using (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	key: str,
+	*,
+	parent_id: uuid.UUID | None,
+	besides: uuid.UUID | None = None,
+) -> uuid.UUID | None:
+	"""Return the id of a live project already keyed this **under the same parent**, or none.
+
+	**One query, three sentences.** Creating, renaming, moving and restoring all ask this and
+	each has its own thing to say about the answer — a restore in particular has to name the
+	project that took the key and how to rename it. Sharing the *question* is what stops the
+	four coming apart; sharing the wording would make three of them worse.
+
+	``parent_id`` of ``None`` means the top level, and is compared with ``IS NULL`` rather
+	than ``=`` — the same rule that makes the database's guarantee two partial indexes rather
+	than one (`#957`). ``besides`` excludes a row from the comparison, for the caller asking
+	whether *somebody else* has the key.
+	"""
 
 	model = subroutine.db.models.project.Project
 
-	existing = session.scalars(
+	return session.scalars(
 		sqlalchemy.select(model.id).where(
-			model.workspace_id == workspace_id, model.key == key, model.deleted_at.is_(None)
+			model.workspace_id == workspace_id,
+			model.key == key,
+			model.parent_id == parent_id
+			if parent_id is not None
+			else model.parent_id.is_(None),
+			model.deleted_at.is_(None),
+			sqlalchemy.true() if besides is None else model.id != besides,
 		)
 	).first()
 
-	if existing is not None:
+
+def _refuse_duplicate_key (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	key: str,
+	*,
+	parent_id: uuid.UUID | None,
+	moving: str | None = None,
+) -> None:
+	"""Raise if a live sibling already uses this key — decision `#957`.
+
+	**Among its siblings, not across the workspace.** ``web-ui`` belongs under any number of
+	parents; what has to stay unique is the address, which is the path. The database says the
+	same thing in two partial indexes, and this says it in a sentence somebody can act on.
+
+	``moving`` names the project being reparented, for the one caller where the collision is
+	not about a key anybody just typed: :func:`move` refuses a destination that already holds
+	this key, and *"a project with the key 'dist' already exists here"* about a key the caller
+	never mentioned reads as the wrong project having been named.
+	"""
+
+	if sibling_using(session, workspace_id, key, parent_id=parent_id) is None:
+		return
+
+	where = "at the top level" if parent_id is None else "in that project"
+
+	if moving is not None:
 		raise subroutine.errors.Conflict(
-			f"A project with the key {key!r} already exists here.",
+			f"There is already a project keyed {key!r} {where}.",
 			code="duplicate_key",
 			errors=[
 				subroutine.errors.FieldError(
-					field="key",
+					field="parent",
 					code="duplicate_key",
-					message=f"The key {key!r} is already in use in this workspace.",
-					hint="A key is how this project is addressed here, so no two can share one.",
+					message=f"Moving {moving!r} there would give two projects the same "
+					f"address.",
+					hint="Rename one of them first, or move it somewhere else.",
 				)
 			],
 		)
+
+	raise subroutine.errors.Conflict(
+		f"A project with the key {key!r} already exists {where}.",
+		code="duplicate_key",
+		errors=[
+			subroutine.errors.FieldError(
+				field="key",
+				code="duplicate_key",
+				message=f"The key {key!r} is already in use {where}.",
+				hint="A key is how this project is addressed among its siblings, so no two "
+				"under one parent can share it. Somewhere else in this workspace is fine.",
+			)
+		],
+	)

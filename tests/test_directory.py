@@ -198,10 +198,16 @@ def test_a_marker_written_before_ids_existed_still_works (tmp_path: pathlib.Path
 
 
 class _Row(typing.NamedTuple):
-	"""The two fields `resolve` reads, standing in for a project as a client reports it."""
+	"""The fields `resolve` reads, standing in for a project as a client reports it.
+
+	``parent_id`` arrived with `#957`, which made a key unique among its siblings rather than
+	in its workspace — so what a marker resolves to is the whole address, and composing one
+	means walking up.
+	"""
 
 	id: uuid.UUID
 	key: str
+	parent_id: uuid.UUID | None = None
 
 
 def test_a_marker_follows_a_renamed_project_by_id (tmp_path: pathlib.Path) -> None:
@@ -340,3 +346,80 @@ def test_a_marker_naming_a_workspace_that_is_not_here_resolves_to_nothing (
 	)
 
 	assert subroutine.directory.resolve_workspace(marker, [_Space(uuid.uuid4(), "si")]) is None
+
+
+def test_a_marker_resolves_to_a_whole_address (tmp_path: pathlib.Path) -> None:
+	"""Decision `#957`: a key stopped being unique, so a key is no longer an answer.
+
+	The marker records an id, which is what survives a rename — and then hands back a *name*
+	for the caller to send. A bare key handed back may name a different project by the time it
+	is sent, silently, into a listing nobody is watching. That is `#414`'s failure and the fix
+	is the same one: say the thing that can only mean one project.
+	"""
+
+	parent = uuid.uuid4()
+	child = uuid.uuid4()
+	rows = [_Row(parent, "substation"), _Row(child, "dist", parent)]
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="dist", project_id=str(child)
+	)
+
+	assert subroutine.directory.resolve(marker, rows) == "substation/dist"
+
+
+def test_a_marker_written_before_addresses_still_resolves (tmp_path: pathlib.Path) -> None:
+	"""Every marker in every checkout holds a bare key, including this repository's.
+
+	It resolves by id, so what it holds in ``project`` matters only for the fallback and for
+	the sentence saying the file is out of date — which is a suggestion to run ``use --here``,
+	not a refusal.
+	"""
+
+	parent = uuid.uuid4()
+	child = uuid.uuid4()
+	rows = [_Row(parent, "substation"), _Row(child, "dist", parent)]
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="dist"
+	)
+
+	assert subroutine.directory.resolve(marker, rows) == "substation/dist"
+
+
+def test_a_marker_holding_an_address_resolves_by_it (tmp_path: pathlib.Path) -> None:
+	"""Which is what ``use --here --project`` writes now, and the half with no id to fall on.
+
+	Both spellings have to match, or a marker whose project was deleted and remade — a new id,
+	the same address — would stop resolving for a reason nobody could see.
+	"""
+
+	parent = uuid.uuid4()
+	child = uuid.uuid4()
+	rows = [_Row(parent, "substation"), _Row(child, "dist", parent)]
+	marker = subroutine.directory.Marker(
+		path=tmp_path / subroutine.directory.FILE_NAME, project="substation/dist"
+	)
+
+	assert subroutine.directory.resolve(marker, rows) == "substation/dist"
+
+
+def test_composing_an_address_terminates_when_a_parent_is_absent (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""**A partial address is a knowingly poor answer, and the alternative is worse.**
+
+	Composing from ``parent_id`` needs every ancestor in the rows it was handed, and what it
+	returns when one is missing is a *suffix* — which may resolve, and may resolve somewhere
+	else. That is stated rather than defended: no supported path produces it, because the
+	callers pass a whole workspace's projects and the same code already assumes that listing
+	is complete (`_subtree` walks it in one forward pass). The alternative here is raising
+	inside a routine that runs while somebody is capturing a task.
+
+	What removes it is `#512`, where the server publishes the address and no client composes
+	one. Asserted so that a walk which looped or raised on the same input would fail.
+	"""
+
+	missing = uuid.uuid4()
+	child = uuid.uuid4()
+	rows = [_Row(child, "dist", missing)]
+
+	assert subroutine.directory.address(rows[0], rows) == "dist"

@@ -3,6 +3,14 @@
 The same shape as tasks and for the same reasons: the service layer decides, this
 translates. Addressed by ``{id_or_key}`` — a project key is what people have in front of
 them, and requiring an id to open ``SR`` would be a needless round trip (docs/design.md §8.1).
+
+**That address spans segments since decision `#957`**, so ``/v1/projects/substation/dist``
+reads a project keyed ``dist`` inside ``substation``, and a bare ``dist`` goes on working
+while only one project is keyed that way. The converter is ``{id_or_key:path}``, which is
+greedy — a trailing literal still anchors it, so ``…/dist/move`` reaches the move route,
+**but only if the move route is declared first**. `#25`'s recorded shape, and a
+parameterised route cannot be seen to shadow another by reading either of them:
+``api/routing.shadowed`` is what holds the order, and it was widened for exactly this.
 """
 
 import typing
@@ -245,7 +253,7 @@ def listing (
 
 
 @router.get(
-	"/{id_or_key}",
+	"/{id_or_key:path}",
 	summary="Read one project",
 	response_model=subroutine.views.Project,
 )
@@ -269,7 +277,7 @@ def read (
 	)
 
 
-@router.patch("/{id_or_key}", summary="Change a project")
+@router.patch("/{id_or_key:path}", summary="Change a project")
 def change (
 	request: starlette.requests.Request,
 	id_or_key: str,
@@ -311,7 +319,7 @@ def change (
 	return _rendered(session, updated)
 
 
-@router.post("/{id_or_key}/move", summary="Move a project in the tree")
+@router.post("/{id_or_key:path}/move", summary="Move a project in the tree")
 def move (
 	request: starlette.requests.Request,
 	id_or_key: str,
@@ -354,7 +362,7 @@ def move (
 	return _rendered(session, project)
 
 
-@router.post("/{id_or_key}/restore", summary="Take a project out of the trash")
+@router.post("/{id_or_key:path}/restore", summary="Take a project out of the trash")
 def unremove (
 	request: starlette.requests.Request,
 	id_or_key: str,
@@ -386,7 +394,7 @@ def unremove (
 	return _rendered(session, back)
 
 
-@router.delete("/{id_or_key}", summary="Move a project to the trash")
+@router.delete("/{id_or_key:path}", summary="Move a project to the trash")
 def remove (
 	request: starlette.requests.Request,
 	id_or_key: str,
@@ -418,7 +426,13 @@ def resolve (
 	*,
 	include_deleted: bool = False,
 ) -> subroutine.db.models.project.Project:
-	"""Find one project by id or key, or report that there is no such thing.
+	"""Find one project by id, address or name, or report that there is no such thing.
+
+	**One line, because this used to be a second copy of the rule.** It resolved id-or-key
+	itself, beside ``domain.selection.addressed`` doing the same for every filter and both
+	clients — two implementations of *text → project*, free to disagree about the case that
+	matters, which is the one where a name is ambiguous. `#957` said there was one resolver
+	and there were two; this is what makes that sentence true.
 
 	Through the scoping helper, so a private project the caller is not a member of is
 	reported as absent rather than forbidden — saying "forbidden" would confirm it exists.
@@ -428,38 +442,14 @@ def resolve (
 	one is the single request that has to be able to name it.
 	"""
 
-	model = subroutine.db.models.project.Project
-	wanted = id_or_key.strip()
-	statement = subroutine.domain.scoping.readable_projects(
+	return subroutine.domain.selection.addressed(
+		session,
 		actor,
-		workspace_ids=[workspace.id],
+		workspace,
+		id_or_key,
+		field="id_or_key",
 		include_deleted=include_deleted,
-		include_archived=True,
 	)
-
-	try:
-		found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
-
-	except ValueError:
-		found = session.scalars(
-			statement.where(model.key == subroutine.domain.projects.normalize_key(wanted))
-		).first()
-
-	if found is None:
-		raise subroutine.errors.NotFound(
-			f"There is no project {id_or_key!r} here.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="id_or_key",
-					code="not_found",
-					message=f"No project in {workspace.slug} answers to {id_or_key!r}.",
-					hint="Use a project key like 'SR' or a project id. GET /v1/projects lists "
-					"what you can see.",
-				)
-			],
-		)
-
-	return found
 
 
 def _rendered (

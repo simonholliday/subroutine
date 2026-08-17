@@ -1872,7 +1872,11 @@ def test_a_mistyped_project_key_lists_only_the_projects_the_caller_can_see (
 	)
 	refused = stranger.call("POST", "/v1/tasks", json={"text": "Do a thing +nosuchkey"})
 
-	assert refused.status_code == 422
+	# **404 rather than the 422 this answered until `#958`**, and the change is the point.
+	# The captured line had its own resolver, which refused a missing project differently
+	# from `{"project": "nope"}` on the same endpoint — two answers to one mistake, told
+	# apart by which field it was written in. There is one resolver now and one answer.
+	assert refused.status_code == 404
 	assert "ordinary" in refused.text, "the projects they can see are still named"
 	assert "acquisition" not in refused.text, "and the one they cannot is not"
 

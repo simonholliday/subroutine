@@ -91,7 +91,6 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	# shadow or be shadowed — `/{id_or_ref}/links` is longer than anything in either — but
 	# `routing.check` is what says so rather than anybody's reading of it.
 	("", subroutine.api.documents.task_links),
-	("", subroutine.api.projects.router),
 	("", subroutine.api.documents.router),
 	("", subroutine.api.documents.document_links),
 	# The comment sub-resources come after the routers whose paths they extend, like links.
@@ -106,6 +105,18 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.events.task_events),
 	("", subroutine.api.events.project_events),
 	("", subroutine.api.events.document_events),
+	# **Projects come last, against the rule above, and the reason is the address.** Decision
+	# `#957` made a project's address span segments — `/v1/projects/substation/dist` — so its
+	# routes take a `path` converter, which matches the rest of the URL and would answer its
+	# own sub-resources' requests: `…/dist/comments` would be read as a project keyed
+	# `dist/comments`, and the 404 would say that project is gone rather than that a route is
+	# unreachable. A catch-all belongs after everything sharing its prefix, which is the
+	# opposite of the rule for a parameter claiming one segment.
+	#
+	# **Held by `routing.swallowed` rather than by this paragraph**, which is the arrangement
+	# every ordering rule here has: it fills each later route's parameters in and asks whether
+	# an earlier catch-all matches the result, so this cannot silently drift back.
+	("", subroutine.api.projects.router),
 	("", subroutine.api.admin.router),
 )
 

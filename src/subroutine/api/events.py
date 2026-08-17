@@ -176,7 +176,7 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 			session,
 			actor,
 			entity_type=entity_type,
-			address=request.path_params[address],
+			address=request.path_params[subroutine.api.subjects.named(address)],
 			workspace_id=workspace_id,
 		)
 

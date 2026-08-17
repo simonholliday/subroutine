@@ -12,6 +12,32 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+> **This release changes the database schema**, to `b6a0e7c14d92`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
+### Changed
+
+- **A project key is now unique among its siblings rather than across its workspace, and a
+  project is addressed by its whole path.** `substation/dist` rather than
+  `substation-substation-dist`: `web-ui` and `marketing` can exist under any number of
+  parents. A bare name still works wherever it names one project, and is refused with the
+  candidates listed when it names several — so nothing already written stops working, and
+  the refusal is what teaches the longer form. The path is accepted by `--project`,
+  `?project=`, `+key` in a captured line, `use --project`, `token create --project`, and as
+  the address in `/v1/projects/…`.
+- **`POST /v1/tasks` answers 404 rather than 422 when a captured line names a project that
+  is not there.** The two ways of naming a project on that request — `+key` inside `text`,
+  and the `project` field — were refused with different statuses for the same mistake. Both
+  are 404 now, which is what the field error has always said.
+- **A `.subroutine` marker records a project's whole address**, and one written before this
+  goes on resolving. Existing markers are rewritten by `subroutine use --here --project …`,
+  which the program suggests when it notices.
+
 ## 0.7.5 — 2026-08-17
 
 > **This release changes the database schema**, to `c7d419e6a2b8`.

@@ -18,6 +18,7 @@ import uuid
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.exc
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
@@ -28,6 +29,7 @@ import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
+import subroutine.directory
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
@@ -529,6 +531,203 @@ def test_moving_a_project_takes_its_subtree_with_it (
 	events = _events(session, workspace.id, "project", middle.id)
 
 	assert [event.action for event in events] == ["created", "moved"]
+
+
+def test_one_key_belongs_under_any_number_of_parents (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Decision `#957`: a key is unique among its siblings, so ``dist`` is not spent.
+
+	The whole point of the change. ``substation-dist`` was a real row on this instance and is
+	what keying for workspace-uniqueness cost — a name carrying its parent because the address
+	could not.
+	"""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+	websites = _project(session, workspace, key="websites")
+
+	under_substation = _project(session, workspace, key="dist", parent=substation)
+	under_websites = _project(session, workspace, key="dist", parent=websites)
+
+	session.flush()
+
+	assert under_substation.id != under_websites.id
+	assert (
+		subroutine.domain.projects.path_of(session, under_substation) == "substation/dist"
+	)
+	assert subroutine.domain.projects.path_of(session, under_websites) == "websites/dist"
+
+
+def test_two_siblings_cannot_share_a_key (session: sqlalchemy.orm.Session) -> None:
+	"""Which is where the address would stop being unique."""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+
+	_project(session, workspace, key="dist", parent=substation)
+
+	with pytest.raises(subroutine.errors.Conflict) as raised:
+		_project(session, workspace, key="dist", parent=substation)
+
+	assert raised.value.code == "duplicate_key"
+	assert "in that project" in str(raised.value), "it says where, not just that"
+
+
+def test_two_roots_cannot_share_a_key (session: sqlalchemy.orm.Session) -> None:
+	"""**The half a single three-column index would have let through.**
+
+	``parent_id`` is nullable, and NULLs compare as distinct in a unique index on both
+	backends — the same rule that makes the deleted-row half of this constraint partial. So
+	``(workspace_id, parent_id, key)`` alone guarantees nothing about the top level, which is
+	where most projects here live. It is two partial indexes for that reason.
+	"""
+
+	workspace = _workspace(session)
+
+	_project(session, workspace, key="dist")
+
+	with pytest.raises(subroutine.errors.Conflict) as raised:
+		_project(session, workspace, key="dist")
+
+	assert raised.value.code == "duplicate_key"
+	assert "at the top level" in str(raised.value)
+
+
+def test_the_database_refuses_two_roots_sharing_a_key_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The service check is the message; the index is the guarantee.
+
+	Written by inserting past the service, because that is the only way to ask whether the
+	constraint is really there — a test driving :func:`create` twice proves the ``if``
+	statement and nothing about the schema, and the ``if`` statement is not what a second
+	writer races.
+	"""
+
+	workspace = _workspace(session)
+	first = _project(session, workspace, key="dist")
+
+	session.flush()
+
+	model = subroutine.db.models.project.Project
+
+	with pytest.raises(sqlalchemy.exc.IntegrityError):
+		session.execute(
+			sqlalchemy.insert(model).values(
+				id=subroutine.db.types.new_uuid(),
+				workspace_id=workspace.id,
+				parent_id=None,
+				key="dist",
+				title="A second one",
+				status_id=first.status_id,
+				path="/",
+				depth=0,
+				position=0,
+				is_inbox=False,
+				template="blank",
+				settings={},
+				meta={},
+				version=1,
+				visibility="public",
+			)
+		)
+
+
+def test_a_move_onto_a_taken_key_is_refused (session: sqlalchemy.orm.Session) -> None:
+	"""A move could not collide before `#957`, and can now.
+
+	A key was unique across the workspace, so a destination could never already be holding
+	one. Among siblings it can, and two rows at one address is the state this whole change
+	exists to make impossible.
+	"""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+	websites = _project(session, workspace, key="websites")
+
+	_project(session, workspace, key="dist", parent=substation)
+	travelling = _project(session, workspace, key="dist", parent=websites)
+
+	with pytest.raises(subroutine.errors.Conflict) as raised:
+		subroutine.domain.projects.move(session, travelling, parent=substation)
+
+	assert raised.value.code == "duplicate_key"
+	assert raised.value.errors[0].field == "parent", (
+		"the caller named a destination, not a key, so that is the field to correct"
+	)
+
+
+def test_a_move_within_the_same_parent_is_not_a_collision (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Moving something where it already is must not refuse against itself."""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+	staying = _project(session, workspace, key="dist", parent=substation)
+
+	assert subroutine.domain.projects.move(session, staying, parent=substation) == 0
+
+
+def test_a_cousin_holding_the_key_does_not_block_a_restore (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#957` narrowed this check, and leaving it wide would have been a refusal with no way out.
+
+	Restoring already refuses when the key was reused, because the uniqueness index ignores
+	deleted rows. Asked workspace-wide it would now refuse against a project the constraint no
+	longer minds sharing with — and the advice it gives, rename that one, would be asking
+	somebody to give up a name for nothing.
+	"""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+	websites = _project(session, workspace, key="websites")
+	deleted = _project(session, workspace, key="dist", parent=substation)
+
+	subroutine.domain.projects.delete(session, deleted)
+	_project(session, workspace, key="dist", parent=websites)
+	session.flush()
+
+	restored = subroutine.domain.projects.restore(session, deleted)
+
+	assert restored.deleted_at is None
+
+
+def test_a_sibling_holding_the_key_still_blocks_a_restore (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other side of the narrowing, so it is not simply weaker."""
+
+	workspace = _workspace(session)
+	substation = _project(session, workspace, key="substation")
+	deleted = _project(session, workspace, key="dist", parent=substation)
+
+	subroutine.domain.projects.delete(session, deleted)
+	_project(session, workspace, key="dist", parent=substation)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.Conflict) as raised:
+		subroutine.domain.projects.restore(session, deleted)
+
+	assert raised.value.code == "duplicate_key"
+
+
+def test_an_address_is_not_a_key (session: sqlalchemy.orm.Session) -> None:
+	"""Typing the address when creating one is coherent and cannot be acted on.
+
+	The generic shape refusal would say a key must begin with a letter, which is true of what
+	they wrote and no help at all.
+	"""
+
+	workspace = _workspace(session)
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		_project(session, workspace, key="substation/dist")
+
+	assert "address rather than a key" in raised.value.errors[0].message
+	assert "'dist'" in str(raised.value.errors[0].hint), "and it names the key it would be"
 
 
 def test_a_project_cannot_be_moved_inside_itself (session: sqlalchemy.orm.Session) -> None:
@@ -1760,3 +1959,36 @@ def test_a_move_that_changes_nothing_writes_nothing (
 	assert [event.action for event in _events(session, workspace.id, "task", child.id)] == [
 		"created"
 	]
+
+
+def test_an_address_composed_from_ids_agrees_with_one_composed_from_parents (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Two implementations of one rule, held together rather than left to agree — `#957`.
+
+	The server composes an address from ``project.path``, which is a materialised list of
+	**ids** and is what makes a whole page one query. A client has no such field — §6.9 keeps
+	it off the view deliberately — so ``directory.address`` walks ``parent_id`` instead. Same
+	rule, two mechanisms, and this is the only thing stopping them drifting.
+
+	Driven over a real tree rather than one node, because a walk and a prefix scan agree
+	trivially at depth zero.
+	"""
+
+	workspace = _workspace(session)
+	root = _project(session, workspace, key="substation")
+	middle = _project(session, workspace, key="dist", parent=root)
+	leaf = _project(session, workspace, key="wheels", parent=middle)
+	alone = _project(session, workspace, key="websites")
+	rows = [root, middle, leaf, alone]
+
+	session.flush()
+
+	from_ids = subroutine.domain.projects.paths_for(session, rows)
+
+	assert from_ids[leaf.id] == "substation/dist/wheels", "the seed is the deep case"
+
+	for row in rows:
+		assert from_ids[row.id] == subroutine.directory.address(row, rows), (
+			f"the two composers disagree about {row.key!r}"
+		)

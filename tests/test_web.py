@@ -3510,12 +3510,25 @@ def test_the_app_claims_no_path_it_has_not_been_given () -> None:
 		f"addresses nothing else has claimed yet, which is what SR#648 is about"
 	)
 
+	# **A catch-all is allowed, and only under an address a workspace can never have.**
+	# `/v1/projects/{id_or_key:path}` arrived with `#957` and is fine: it can swallow only
+	# things beneath `/v1`, which no browser address reaches. What would recreate `#648` is a
+	# catch-all whose *first* segment is spendable, because then it claims a workspace's page.
+	#
+	# The other half of this — a catch-all swallowing a route registered after it — is
+	# `api.routing.swallowed`, which asks it properly rather than banning the converter.
 	for _prefix, router in subroutine.api.app.ROUTERS:
 		for route in router.routes:
 			path = getattr(route, "path", "")
 
-			assert ":path}" not in path, (
-				f"{path} is a catch-all and can shadow whatever is registered after it"
+			if ":path}" not in path:
+				continue
+
+			first = path.strip("/").split("/")[0]
+
+			assert first in subroutine.addressing.ROUTED_WORKSPACE_WORDS, (
+				f"{path} is a catch-all under {first!r}, which a workspace could be named, so "
+				f"it would claim that workspace's own page"
 			)
 
 

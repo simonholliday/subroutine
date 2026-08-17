@@ -28,16 +28,35 @@ class Project(
 
 	__tablename__ = "project"
 	__table_args__ = (
-		# Partial, because including `deleted_at` in a plain UNIQUE would achieve
-		# nothing: NULLs compare as distinct on both backends, so unlimited live
-		# duplicates would satisfy it.
+		# **A key is unique among its siblings, not in its workspace** (decision `#957`).
+		# `web-ui` and `marketing` belong under any number of parents, and what has to stay
+		# unique is the *path* — exactly as a folder or a URL. `substation/dist` rather than
+		# `substation/substation-dist`, which is what keying for workspace-uniqueness cost.
+		#
+		# Partial, because including `deleted_at` in a plain UNIQUE would achieve nothing:
+		# NULLs compare as distinct on both backends, so unlimited live duplicates would
+		# satisfy it.
+		#
+		# **And that is why this is two indexes rather than one.** `parent_id` is nullable
+		# and hits the same rule, so `(workspace_id, parent_id, key)` alone would let two
+		# *root* projects share a key — the commonest shape here, and a hole the constraint
+		# is the backstop for. The second index is that case, spelled out.
 		sqlalchemy.Index(
-			"uq_project_workspace_id_key",
+			"uq_project_workspace_id_parent_id_key",
+			"workspace_id",
+			"parent_id",
+			"key",
+			unique=True,
+			sqlite_where=sqlalchemy.text("deleted_at IS NULL AND parent_id IS NOT NULL"),
+			postgresql_where=sqlalchemy.text("deleted_at IS NULL AND parent_id IS NOT NULL"),
+		),
+		sqlalchemy.Index(
+			"uq_project_workspace_id_key_at_root",
 			"workspace_id",
 			"key",
 			unique=True,
-			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
-			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
+			sqlite_where=sqlalchemy.text("deleted_at IS NULL AND parent_id IS NULL"),
+			postgresql_where=sqlalchemy.text("deleted_at IS NULL AND parent_id IS NULL"),
 		),
 		sqlalchemy.Index("ix_project_workspace_id_parent_id", "workspace_id", "parent_id"),
 		sqlalchemy.Index("ix_project_workspace_id_path", "workspace_id", "path"),

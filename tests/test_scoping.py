@@ -66,6 +66,11 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"deleted or archived filter, because a deletion is the event most worth reporting and an "
 	"item in the trash still has to be nameable in the line that says it went there",
 	"domain/agenda.py": "builds on the helper and adds only what the agenda means",
+	"domain/selection.py": "resolves one project from what a caller typed, through "
+	"readable_projects on every path that has a principal. The direct select is the "
+	"unauthenticated internal caller — bootstrap and the tests — which holds no credential "
+	"and so is narrowed by none of this (§12.1a); it is the one case readable_projects "
+	"cannot express, having no principal to be handed",
 	"api/tasks.py": "every listing and lookup starts at readable_tasks; the direct select is "
 	"the include_total count, taken over that same narrowed statement as a subquery",
 	"api/projects.py": "likewise, over readable_projects",

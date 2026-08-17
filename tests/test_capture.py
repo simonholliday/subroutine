@@ -264,31 +264,45 @@ def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
 	| `+nosuchproject` — a key shape, no such project | **refused by name**, listing the real ones |
 	| `+subroutine/UI` — not a key shape at all | **silently left in the title**, filed at the default |
 
-	`_PROJECT` cannot read past the slash, so the token is ordinary prose and nothing notices
-	that a `+` went unclaimed. **Eight items were filed into the wrong project believing
-	otherwise**, and the titles carried the junk until somebody read a list.
+	`_PROJECT` could not read past the slash, so the token was ordinary prose and nothing
+	noticed that a `+` went unclaimed. **Eight items were filed into the wrong project
+	believing otherwise**, and the titles carried the junk until somebody read a list.
 
 	§6.13 rule 1 is *the words stay and the caller is told*; this was the half without the
 	telling.
+
+	**The original example is now read in full** (decision `#957` made a slash an address), so
+	the shape here is an underscore, which is in no key and will not become one — the point
+	being the rule rather than the character. That the worked example moved is what this test
+	is *for*: the next widening leaves a different unreadable name behind, and the report has
+	to keep finding it.
 	"""
 
-	captured = _parse("Fix the header +subroutine/UI")
+	captured = _parse("Fix the header +web_sales")
 
-	assert captured.title == "Fix the header +subroutine/UI", "rule 1: the words are untouched"
+	assert captured.title == "Fix the header +web_sales", "rule 1: the words are untouched"
 	assert captured.project_key is None, "an unreadable name must not be guessed at"
-	assert captured.unparsed == ("+subroutine/UI",)
+	assert captured.unparsed == ("+web_sales",)
 
 	explained = subroutine.domain.capture.explain(captured.unparsed)
 
-	assert explained is not None and "+subroutine/UI" in explained
+	assert explained is not None and "+web_sales" in explained
 	assert "project" in explained, "the sentence does not say what kind of thing was not read"
+
+	# **An address is read now, and reported by nothing.** The row above this one in the table
+	# is what changed; falsifying `_PROJECT` back to a single key fails here.
+	address = _parse("Fix the header +subroutine/ui")
+
+	assert address.project_key == "subroutine/ui"
+	assert address.unparsed == ()
+	assert address.title == "Fix the header"
 
 	# **A name the rules did read is not reported**, or every capture would carry a complaint.
 	assert _parse("Fix the header +web").unparsed == ()
 
 	# **Both kinds at once get both reasons**, which is why the sentence is built per kind
 	# rather than being one string with one ending.
-	both = subroutine.domain.capture.explain(_parse("Bins out every fortnight +a/b").unparsed)
+	both = subroutine.domain.capture.explain(_parse("Bins out every fortnight +a_b").unparsed)
 
 	assert both is not None
 	assert "repeat" in both and "project" in both
@@ -352,6 +366,9 @@ def test_what_can_be_reported_is_what_could_have_been_a_key () -> None:
 	Written as an agreement between the two rules rather than as a list of characters, so a
 	`KEY_PATTERN` that one day admitted something else fails here rather than making the report
 	quietly narrower than the thing it describes.
+
+	The broken tail is an underscore rather than the slash it was until `#957`, which made a
+	slash the separator between keys and so made `+ax/y` a perfectly good address.
 	"""
 
 	shape = subroutine.domain.projects.KEY_PATTERN
@@ -359,13 +376,13 @@ def test_what_can_be_reported_is_what_could_have_been_a_key () -> None:
 
 	for first in ("a", "z", "A", "Z"):
 		assert shape.match(folded(first)), f"{first!r} no longer begins a key"
-		assert _parse(f"Fix it +{first}x/y").unparsed == (f"+{first}x/y",), (
+		assert _parse(f"Fix it +{first}x_y").unparsed == (f"+{first}x_y",), (
 			f"a key could begin with {first!r} and a broken one starting with it is not reported"
 		)
 
 	for first in ("0", "9"):
 		assert not shape.match(folded(first)), f"{first!r} now begins a key"
-		assert _parse(f"Fix it +{first}x/y").unparsed == (), (
+		assert _parse(f"Fix it +{first}x_y").unparsed == (), (
 			f"no key can begin with {first!r}, so a +{first}… is not a project somebody mistyped"
 		)
 

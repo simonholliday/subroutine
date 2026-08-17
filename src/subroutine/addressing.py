@@ -12,13 +12,27 @@ what a valid key is would have the dependency exactly the wrong way round.
 """
 
 import re
+import typing
 
 #: Words a literal route already claims in the task and project path spaces. Listed here
 #: rather than derived from the routing table, because a key is refused at creation —
 #: possibly by a CLI with no application built — and because the list is a promise about
 #: future endpoints too: ``sync`` has no route yet, and reserving it now costs nothing
 #: while un-reserving it later would cost somebody their project key.
-RESERVED_PATH_WORDS = frozenset({"batch", "next", "parse", "search", "sync"})
+#:
+#: **``comments``, ``events``, ``move`` and ``restore`` joined it with decision `#957`**, and
+#: they were safe to leave out until then only by accident of arithmetic. A project's address
+#: was one segment, so a sub-resource literal was always the *second* and could never be
+#: mistaken for a key. Now the address spans segments, ``substation/events`` reads equally as
+#: a project keyed ``events`` inside ``substation`` and as ``substation``'s history — and the
+#: route wins, so the project would exist, be listed, and be reachable by nothing.
+#:
+#: ``tests/test_api_routing.py`` derives what these must contain from the real routers, so a
+#: sub-resource added later cannot leave this behind. It asserts containment rather than
+#: equality, which is what leaves room for ``sync``.
+RESERVED_PATH_WORDS = frozenset(
+	{"batch", "comments", "events", "move", "next", "parse", "restore", "search", "sync"}
+)
 
 
 #: Words that would confuse a *person* reading an address, rather than a program resolving
@@ -116,3 +130,50 @@ def matches (template: str, path: str) -> bool:
 	pattern.append(re.escape(template[position:]))
 
 	return re.fullmatch("".join(pattern), path) is not None
+
+
+#: What one parameter is filled in with when asking whether a route can be reached. Any
+#: segment does: the question is whether some *other* pattern also matches, and a ``{name}``
+#: matches every segment alike.
+_ANY_SEGMENT = "x"
+
+
+def filled (template: str, values: typing.Mapping[str, str]) -> str:
+	"""Return this template with each parameter replaced by the value named for it.
+
+	**A parameter with no value is left as it was written**, converter and all, so a caller
+	can see which it failed to supply. Substituting something plausible instead is how a route
+	quietly stops being exercised — and the placeholder is what a check has to notice, since a
+	path still holding a brace cannot be requested.
+
+	Here rather than in the one test that wants it, because the spelling of a placeholder is
+	this module's business: ``{name}`` and ``{name:path}`` are one parameter under two
+	spellings, and a caller matching on the first would miss every catch-all.
+	"""
+
+	return _PARAMETER.sub(
+		lambda found: values.get(found.group(1), found.group(0)), template
+	)
+
+
+def sample (template: str) -> str:
+	"""Return one fixed path this template would match.
+
+	So that two parameterised routes can be compared at all. :func:`matches` answers whether
+	a template matches a *path*, and asking whether one template matches another's source
+	text answers nothing — ``{ref}`` is not a path. Filling one in makes the question
+	concrete: *is there a request this route claims that an earlier one would take first?*
+	"""
+
+	return _PARAMETER.sub(_ANY_SEGMENT, template)
+
+
+def spans_segments (template: str) -> bool:
+	"""Report whether any parameter here matches across ``/`` — a greedy catch-all.
+
+	The distinction routing order turns on. A ``{name}`` claims one segment and can only
+	shadow a route of the same length; a ``{name:path}`` claims the rest of the URL and so
+	swallows every longer route registered after it, whatever its shape.
+	"""
+
+	return any(parameter.group(2) == "path" for parameter in _PARAMETER.finditer(template))

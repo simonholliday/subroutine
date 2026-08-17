@@ -275,7 +275,14 @@ def test_a_captured_line_becomes_a_task_with_its_tags (
 def test_a_named_project_is_used_and_a_wrong_one_is_refused (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""``+web`` naming nothing is a typo; filing it in the Inbox anyway would lose it."""
+	"""``+web`` naming nothing is a typo; filing it in the Inbox anyway would lose it.
+
+	**A ``NotFound`` since `#958`, where this was a ``ValidationError``.** The captured line
+	had a resolver of its own, so naming a missing project in ``text`` and naming one in
+	``project`` on the same request were refused with two different statuses — 422 and 404 —
+	told apart by which field it was written in. There is one resolver now, and its field
+	error always said ``not_found`` anyway.
+	"""
 
 	installed = _installed(session)
 	project = subroutine.domain.projects.create(
@@ -288,7 +295,7 @@ def test_a_named_project_is_used_and_a_wrong_one_is_refused (
 
 	assert task.project_id == project.id
 
-	with pytest.raises(subroutine.errors.ValidationError) as raised:
+	with pytest.raises(subroutine.errors.NotFound) as raised:
 		subroutine.domain.tasks.create_from_text(
 			session, workspace=installed.workspace, text="Fix the build +nope"
 		)

@@ -25,9 +25,27 @@ import sqlalchemy.orm
 import subroutine.domain.authentication
 import subroutine.domain.selection
 
-#: What each entity type calls its path parameter. A project is addressed by key and the
-#: other two by ref, which is why this is a lookup rather than one name.
-ADDRESS = {"task": "id_or_ref", "project": "id_or_key", "document": "id_or_ref"}
+#: What each entity type calls its path parameter, **as a route template writes it**. A
+#: project is addressed by key and the other two by ref, which is why this is a lookup
+#: rather than one name.
+#:
+#: **A project's address spans segments since decision `#957`** — ``substation/dist`` — so
+#: it carries the ``path`` converter and the other two must not. Without it a nested
+#: project's comments and history would be addressed by a route that matches one segment
+#: and so could never be reached: the sub-resource would answer *there is no project
+#: 'substation'* about a project called ``dist``, which reads as the parent having gone.
+ADDRESS = {"task": "id_or_ref", "project": "id_or_key:path", "document": "id_or_ref"}
+
+
+def named (address: str) -> str:
+	"""Return the parameter name inside a route template's placeholder.
+
+	``{id_or_key:path}`` is one placeholder and two things: the name a handler reads it back
+	by, and the converter deciding what it matches. Split here rather than kept as a second
+	map, so the two cannot name different parameters.
+	"""
+
+	return address.split(":", 1)[0]
 
 
 def resolve (

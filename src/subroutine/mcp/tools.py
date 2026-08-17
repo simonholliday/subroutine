@@ -222,7 +222,7 @@ ADDS = {"destructiveHint": False}
 DENIED: tuple[tuple[str, str, str], ...] = (
 	("POST", "/v1/workspaces", "subroutine workspace create"),
 	("PATCH", "/v1/workspaces/{id_or_slug}", "subroutine workspace rename"),
-	("POST", "/v1/projects/{id_or_key}/move", "subroutine project move"),
+	("POST", "/v1/projects/{id_or_key:path}/move", "subroutine project move"),
 	("POST", "/v1/tokens", "subroutine token create"),
 	("POST", "/v1/login-links", "subroutine login link"),
 )

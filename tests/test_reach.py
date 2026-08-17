@@ -109,9 +109,9 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/login-links"): "create_login_link",
 	("POST", "/v1/users/{username}/signout"): "sign_out_everywhere",
 	("DELETE", "/v1/tokens/{id_or_prefix}"): "revoke_token",
-	("PATCH", "/v1/projects/{id_or_key}"): "rename_project",
-	("POST", "/v1/projects/{id_or_key}/move"): "move_project",
-	("POST", "/v1/projects/{id_or_key}/comments"): "remark",
+	("PATCH", "/v1/projects/{id_or_key:path}"): "rename_project",
+	("POST", "/v1/projects/{id_or_key:path}/move"): "move_project",
+	("POST", "/v1/projects/{id_or_key:path}/comments"): "remark",
 	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
 	("POST", "/v1/tasks/{id_or_ref}/claim"): "claim",
@@ -139,7 +139,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/documents/{id_or_ref}/comments"): "comments",
 	("GET", "/v1/documents/{id_or_ref}/links"): "links",
 	("GET", "/v1/projects"): "projects",
-	("GET", "/v1/projects/{id_or_key}/comments"): "comments",
+	("GET", "/v1/projects/{id_or_key:path}/comments"): "comments",
 	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
 	("GET", "/v1/changes"): "changes",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
@@ -237,12 +237,12 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"talking to is up; `#89` is that question asked properly, by the CLI, before it "
 		"connects at all.",
 	),
-	("GET", "/v1/projects/{id_or_key}"): (
+	("GET", "/v1/projects/{id_or_key:path}"): (
 		"tracked",
 		"One project on its own. `project list` prints the tree and `show` reads items; "
 		"nothing yet asks for a single project's own record. `#141`.",
 	),
-	("GET", "/v1/projects/{id_or_key}/events"): (
+	("GET", "/v1/projects/{id_or_key:path}/events"): (
 		"tracked",
 		"A project's history. `#150` gave tasks and documents theirs, which is where `show` "
 		"reaches; a project has no `show` of its own to grow a section on — `#141`.",
@@ -262,13 +262,13 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"rewriting attributed prose — which `#400` built, so this half stays HTTP-only "
 		"deliberately rather than for want of asking. `#141` if somebody wants it.",
 	),
-	("DELETE", "/v1/projects/{id_or_key}"): (
+	("DELETE", "/v1/projects/{id_or_key:path}"): (
 		"disclosure",
 		"Deleting a project takes its tasks out of the visible world with it. That wants "
 		"confirmation and a considered message rather than the same one-liner as `#140`. "
 		"`#141`.",
 	),
-	("POST", "/v1/projects/{id_or_key}/restore"): (
+	("POST", "/v1/projects/{id_or_key:path}/restore"): (
 		"disclosure",
 		"The other half of the entry above, and it goes with it. `#308` built the endpoint "
 		"because `DELETE` promised a reversal nothing provided; a client verb for putting a "

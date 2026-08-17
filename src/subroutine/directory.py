@@ -111,8 +111,17 @@ class Marker(typing.NamedTuple):
 		return self.connection is None or self.connection.casefold() == connection.casefold()
 
 
+#: What separates one key from the next in a project's address (decision `#957`).
+#:
+#: **The same character as ``subroutine.domain.projects.PATH_SEPARATOR``, held equal by a
+#: test rather than imported.** This module deliberately depends on nothing but the standard
+#: library, so that a client which has not built a domain can still read a marker; paying a
+#: package import for one character would spend the property to save the guard.
+PATH_SEPARATOR = "/"
+
+
 class Named(typing.Protocol):
-	"""The two fields a marker is resolved against, on whatever a client hands back."""
+	"""The fields a marker is resolved against, on whatever a client hands back."""
 
 	@property
 	def id (self) -> typing.Any:
@@ -122,14 +131,48 @@ class Named(typing.Protocol):
 	def key (self) -> str:
 		"""The project's current key."""
 
+	@property
+	def parent_id (self) -> typing.Any:
+		"""The project this one sits inside, or ``None`` at the top level."""
+
+
+def address (row: Named, projects: typing.Iterable[Named]) -> str:
+	"""Compose a project's whole address by walking up ``parent_id`` — decision `#957`.
+
+	**Here rather than in each client**, for :func:`resolve`'s reason: the CLI and MCP both
+	need it, and two walks would be two chances to disagree about where a marker points.
+
+	**From the relation rather than from a field.** A project's materialised ``path`` is made
+	of ids and is deliberately not on the view (§6.9), so a client composes from ``parent_id``,
+	which is a fact rather than an implementation. The server has its own indexed version in
+	``domain.projects.paths_for``; a test drives a real tree through both and fails if they
+	ever answer differently.
+	"""
+
+	by_id = {str(item.id): item for item in projects}
+	segments: list[str] = []
+	walking: Named | None = row
+
+	while walking is not None:
+		segments.append(walking.key)
+		walking = None if walking.parent_id is None else by_id.get(str(walking.parent_id))
+
+	return PATH_SEPARATOR.join(reversed(segments))
+
 
 def resolve (marker: Marker, projects: typing.Iterable[Named]) -> str | None:
-	"""Return the current key of the project a marker names, or ``None`` if there is none.
+	"""Return the current address of the project a marker names, or ``None`` if there is none.
 
 	By id where the marker carries one, because that is the half that survives a rename
 	(`#177`); by key otherwise, which is every marker written before that change — including
 	the one in this repository. A marker that predates it must go on working, or the upgrade
 	is the outage.
+
+	**The whole address rather than the bare key, since decision `#957`.** A key stopped being
+	unique in its workspace, so handing one back is handing back something that may name a
+	different project when the caller sends it — silently, into a listing nobody is watching.
+	That is `#414`'s failure exactly, and the fix is the same: say the thing that can only mean
+	one project.
 
 	**Returning ``None`` is an answer, not a failure** (`#166`). A marker is advisory context
 	written by a machine, so a checkout marked for one instance must not stop work being filed
@@ -139,15 +182,25 @@ def resolve (marker: Marker, projects: typing.Iterable[Named]) -> str | None:
 	the server and refused whenever it did not exist there (`#228`'s neighbour, `#232`).
 	"""
 
+	# Read once, because both passes below walk it and :func:`address` walks it again — a
+	# caller may hand over a generator, and a second pass over a spent one finds nothing.
+	rows = list(projects)
+
 	if marker.project_id is not None:
-		for row in projects:
+		for row in rows:
 			if str(row.id) == marker.project_id:
-				return row.key
+				return address(row, rows)
 
 	if marker.project is not None:
-		for row in projects:
-			if row.key.upper() == marker.project.upper():
-				return row.key
+		# **Compared as a whole address**, so a marker written since `#957` matches what it
+		# says and one written before it — a bare key — still matches the project of that name.
+		# Case-insensitively, because `#508` changed the stored spelling and every marker
+		# predating that holds the old one.
+		wanted = marker.project.upper()
+
+		for row in rows:
+			if address(row, rows).upper() == wanted or row.key.upper() == wanted:
+				return address(row, rows)
 
 	return None
 

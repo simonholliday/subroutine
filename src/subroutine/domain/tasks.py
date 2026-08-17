@@ -32,7 +32,6 @@ import subroutine.domain.patch
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
-import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -711,7 +710,9 @@ def create_from_text (
 				else subroutine.domain.bootstrap.inbox_for(session, workspace)
 			)
 			if captured.project_key is None
-			else _project_by_key(session, workspace.id, captured.project_key, actor=actor)
+			else subroutine.domain.selection.addressed(
+				session, actor, workspace, captured.project_key, field="project"
+			)
 		)
 
 	if project is None:
@@ -775,67 +776,6 @@ def create_from_text (
 	)
 
 	return task, captured
-
-
-def _project_by_key (
-	session: sqlalchemy.orm.Session,
-	workspace_id: uuid.UUID,
-	key: str,
-	*,
-	actor: subroutine.domain.authentication.Principal | None = None,
-) -> subroutine.db.models.project.Project:
-	"""Return a project by its key, or say which keys the caller could have meant.
-
-	``+WEB`` naming nothing is a typo, and filing the task in the Inbox instead would be
-	the wrong kind of helpful — the person would not find it where they put it.
-
-	**The list is narrowed to what this caller can see, and it was not.** Every sibling path
-	here narrows for the same reason — ``projects.keys_for`` says so in its own docstring, *"a
-	key discloses more than an id, so resolving one for a reader who cannot see that project
-	would turn a listing of their own credentials into a way of learning a private project's
-	name"* — and this one was the outlier. A member who is not in the private project typed
-	``+nosuchkey``, and was answered with every private project's key in the workspace.
-	"""
-
-	model = subroutine.db.models.project.Project
-
-	found = session.scalars(
-		sqlalchemy.select(model).where(
-			model.workspace_id == workspace_id,
-			model.key == key,
-			model.deleted_at.is_(None),
-		)
-	).one_or_none()
-
-	if found is not None:
-		return found
-
-	# ``actor=None`` is the unauthenticated internal caller — bootstrap and the tests — which
-	# holds no credential and is not narrowed by any of this (§12.1a).
-	keys = (
-		sqlalchemy.select(model.key).where(
-			model.workspace_id == workspace_id, model.deleted_at.is_(None)
-		)
-		if actor is None
-		else sqlalchemy.select(
-			subroutine.domain.scoping.readable_projects(
-				actor, workspace_ids=[workspace_id]
-			).subquery().c.key
-		)
-	)
-	available = sorted(session.scalars(keys))
-
-	raise subroutine.errors.ValidationError(
-		f"There is no project called {key!r} here.",
-		errors=[
-			subroutine.errors.FieldError(
-				field="project",
-				code="not_found",
-				message=f"No project with key {key!r} exists in this workspace.",
-				hint=f"Projects here: {', '.join(available)}." if available else None,
-			)
-		],
-	)
 
 
 def assignee_for (

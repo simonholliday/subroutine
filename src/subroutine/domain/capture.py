@@ -234,12 +234,29 @@ _IMPORTANCE = re.compile(
 _ESTIMATE = re.compile(
 	rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z][a-zA-Z0-9]*)[,.;:!?)\]]*(?=\s|$)"
 )
+#: One project key as a capture line may spell it — ``projects.KEY_PATTERN``, written to accept
+#: either case because ``projects.normalize_key`` folds it. Named so the address form below is
+#: visibly the key form repeated, rather than a second copy of the same shape.
+_KEY = r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*"
+
 #: ``+key`` — which project it goes in. **Hyphens inside, never at an edge** (`#508`), so
 #: ``+web-sales`` reads as one key and ``+web.`` still drops the full stop. Without the
 #: alternation a hyphenated key parsed as ``+web`` and left ``-sales`` in the title, which is
 #: §6.13 rule 1's forbidden outcome: a word may only vanish if a field was set.
+#:
+#: **And separators between them since decision `#957`**, so ``+substation/dist`` is one
+#: address. The same argument as the hyphen, one character along: without it that reads as
+#: ``+substation`` with ``/dist`` left in the title — filed in the wrong project, with the
+#: evidence sitting in the title where nobody looks. It would at least be *reported*, because
+#: `#778` compares what was claimed against what a ``+`` was left holding.
+#:
+#: **The context is not consulted here and never will be** (`#957` §3, Simon's answer). ``+dist``
+#: means the same thing wherever it is typed; a `.subroutine` marker supplies the project when a
+#: line names none, and giving that one mechanism a second job would make a misfiled line silent
+#: — both readings succeed. Both letter cases are still accepted, because
+#: ``projects.normalize_key`` is the one place that decides the stored form.
 _PROJECT = re.compile(
-	rf"{_STARTS_A_WORD}\+(?P<value>[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}\+(?P<value>{_KEY}(?:/{_KEY})*)[,.;:!?)\]]*(?=\s|$)"
 )
 
 #: A ``+`` that begins a word and could have been a project key — whether or not any rule could
@@ -555,7 +572,12 @@ def parse (
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
-	# the grammar could not parse — `+subroutine/UI`, whose slash the pattern cannot reach past.
+	# the grammar could not parse — `+web_sales`, whose underscore is in no key, or `+dist/`,
+	# which names a place inside something and then does not say what.
+	#
+	# **The worked example here used to be `+subroutine/UI`**, which the pattern could not
+	# reach past. It is an address now (decision `#957`) and is read in full; what this
+	# reports is the shape the *next* widening will leave behind, which is what it is for.
 	#
 	# **Safe by construction rather than by an exclusion list.** `_STARTS_A_WORD` is
 	# `(?<![^\s])`, so the `+` has to begin a word: `C++`, `a+b` and `1+1` cannot match, and a

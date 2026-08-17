@@ -1276,6 +1276,53 @@ def _place_of (world: World, located: Located) -> str:
 	return located.workspace
 
 
+def _capture_name (world: World, project: subroutine.views.Project) -> str:
+	"""Return what to write after ``+`` to file something in this project.
+
+	**Its whole address where it has a parent, since `#957`.** A key stopped being unique in
+	its workspace, so suggesting ``+dist`` to somebody who has just made a second one would be
+	suggesting a line the program then refuses — and a suggestion exists precisely to be
+	copied.
+
+	A root project needs no listing fetched for it, which is the common case: its address is
+	its key, and one extra request on the sentence after ``Created`` is worth avoiding.
+	"""
+
+	if project.parent_id is None:
+		return project.key
+
+	where = world.writing_to()
+
+	return subroutine.directory.address(
+		project, where.client.projects(workspace=_writing_workspace(world))
+	)
+
+
+def _addressed_in (
+	tree: typing.Sequence[subroutine.views.Project], wanted: str
+) -> subroutine.views.Project | None:
+	"""Find the one project a listing holds under this name or address.
+
+	**The same order ``domain.selection.addressed`` resolves in** — the whole address first,
+	then a bare name — because they answer the same question, and a command whose confirmation
+	counted one project while the server moved another would be worse than either rule alone.
+	Ambiguity is ``None`` here rather than a refusal: this runs to *count* what is about to
+	move, and the server refuses in its own words a moment later.
+
+	The composing is :func:`subroutine.directory.address`, which both clients already share.
+	"""
+
+	address = subroutine.domain.projects.normalize_path(wanted)
+	exact = [item for item in tree if subroutine.directory.address(item, tree) == address]
+
+	if exact:
+		return exact[0]
+
+	named = [item for item in tree if item.key == address]
+
+	return named[0] if len(named) == 1 else None
+
+
 def _subtree (
 	tree: list[subroutine.views.Project], key: str
 ) -> list[subroutine.views.Project]:
@@ -1292,8 +1339,7 @@ def _subtree (
 	and nothing has to recurse.
 	"""
 
-	wanted = subroutine.domain.projects.normalize_key(key)
-	root = next((item for item in tree if item.key == wanted), None)
+	root = _addressed_in(tree, key)
 
 	if root is None:
 		return []
@@ -1360,24 +1406,28 @@ def _workspace_id_of (world: World, slug: str | None) -> str | None:
 	return None
 
 
-def _project_id_of (world: World, key: str) -> str | None:
-	"""Return the permanent id of the project this key names, or ``None`` if there is none.
+def _project_written_down (world: World, wanted: str) -> tuple[str, str] | None:
+	"""Return the address and permanent id of the project this names, or ``None``.
 
 	Checked before the file is written, because a marker naming a project that does not
 	exist fails on the *next* capture rather than here — and the person who would have to
 	work out why is not the one who typed this.
 
 	Returns the **id** rather than a yes-or-no, because that is what the marker records
-	(`#177`) and asking twice would be two chances for the answers to differ.
+	(`#177`) and asking twice would be two chances for the answers to differ. The address
+	comes back beside it so the readable half of the pair is the one that resolves: a bare
+	key stopped naming one project with `#957`, so writing down what somebody typed would
+	leave a file whose two halves can point at different projects.
 	"""
 
 	where = world.writing_to()
+	tree = where.client.projects(workspace=_writing_workspace(world))
+	found = _addressed_in(tree, wanted)
 
-	for row in where.client.projects(workspace=_writing_workspace(world)):
-		if subroutine.domain.projects.normalize_key(row.key) == key:
-			return str(row.id)
+	if found is None:
+		return None
 
-	return None
+	return subroutine.directory.address(found, tree), str(found.id)
 
 
 def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str | None:
@@ -2748,15 +2798,17 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 		if where.strip()
 		else (world.current.connection, world.current.workspace)
 	)
-	key = subroutine.domain.projects.normalize_key(project) or None
-	identifier = None if key is None else _project_id_of(world, key)
+	asked = subroutine.domain.projects.normalize_path(project) or None
+	found = None if asked is None else _project_written_down(world, asked)
 
-	if key is not None and identifier is None:
+	if asked is not None and found is None:
 		program.stop(
-			f"There is no project {key!r} here.",
+			f"There is no project {asked!r} here.",
 			"Run 'subroutine project list' to see them, or "
-			f"'subroutine project create {key} \"A title\"' to make it.",
+			f"'subroutine project create {asked.rsplit('/', 1)[-1]} \"A title\"' to make it.",
 		)
+
+	key, identifier = found if found is not None else (None, None)
 
 	written = subroutine.directory.write(
 		pathlib.Path.cwd(),
@@ -4821,7 +4873,8 @@ def register (
 			# **The next command is the one that uses it**, not another one about projects.
 			# A project nobody files anything into is an empty gesture, and `+KEY` is the part
 			# of the capture grammar somebody who has just made one has no reason to know.
-			_suggest(console, f'subroutine add "something to do +{created.key}"')
+			#
+			_suggest(console, f'subroutine add "something to do +{_capture_name(world, created)}"')
 
 	@project_app.command("list")
 	def project_list (

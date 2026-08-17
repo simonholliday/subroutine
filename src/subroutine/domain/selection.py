@@ -18,6 +18,7 @@ matters, which is the ambiguous one.
 import typing
 import uuid
 
+import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
@@ -241,36 +242,207 @@ def project (
 	if wanted is None:
 		return _files_where(session, actor, workspace)
 
+	return addressed(session, actor, workspace, wanted, field="project")
+
+
+def addressed (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	workspace: subroutine.db.models.identity.Workspace,
+	wanted: str,
+	*,
+	field: str,
+	include_deleted: bool = False,
+) -> subroutine.db.models.project.Project:
+	"""Find the one project this names — by id, by whole address, or by bare name.
+
+	**A name resolves by search; an address resolves exactly** (decision `#957`, Simon's
+	answer of 2026-08-17). ``dist`` works while only one project is keyed that way and is
+	**refused by name, with the candidates listed**, once two are; ``substation/dist`` always
+	works. So nothing anybody has already typed stops working, and the address is what you
+	reach for when the name stops being enough rather than a form you must learn first.
+
+	The accepted cost is that a command can begin failing because somebody *else* created a
+	second ``dist``. The refusal is what teaches the address form, at the moment it matters.
+
+	**An address is absolute within the workspace**, walked from a root. A relative one would
+	put the ambiguity back: ``substation/dist`` would then also match a ``dist`` under some
+	other ``substation`` further down, which is the thing being removed.
+
+	``field`` is the name the caller's own surface gives this, because this refusal is read on
+	both transports and they do not agree on one — ``project`` in a filter, ``id_or_key`` in a
+	path (`#547`, met where a refusal named a parameter no tool declares).
+
+	**One function, so no two surfaces can drift.** ``api/projects.resolve`` and
+	``domain.tasks._project_by_key`` were each a second copy of *text → project* — the same
+	shape S3-07 removed for tasks — and both are this now. `#957` said there was one resolver
+	and there were three; the capture path's was the one that mattered, because it read a key
+	with ``.one_or_none()`` and so raised a raw ``MultipleResultsFound`` at the reader the
+	first time two projects shared a name.
+
+	``actor`` is ``None`` for the unauthenticated internal caller — bootstrap and the tests —
+	which holds no credential and so is narrowed by none of this (§12.1a). It is the one case
+	``readable_projects`` cannot express, since it has no principal to be handed.
+	"""
+
 	model = subroutine.db.models.project.Project
-	statement = subroutine.domain.scoping.readable_projects(
-		actor, workspace_ids=[workspace.id], include_archived=True
+	statement = (
+		sqlalchemy.select(model).where(
+			model.workspace_id == workspace.id,
+			sqlalchemy.true() if include_deleted else model.deleted_at.is_(None),
+		)
+		if actor is None
+		else subroutine.domain.scoping.readable_projects(
+			actor,
+			workspace_ids=[workspace.id],
+			include_deleted=include_deleted,
+			include_archived=True,
+		)
 	)
 
 	# A key and an id are told apart by whether the text parses as one, rather than by a
 	# flag: §5.2 makes a key start with a letter, so the two spaces cannot overlap.
 	try:
-		found = session.scalars(statement.where(model.id == uuid.UUID(wanted.strip()))).first()
+		identifier = uuid.UUID(wanted.strip())
 
 	except ValueError:
-		found = session.scalars(
-			statement.where(model.key == subroutine.domain.projects.normalize_key(wanted))
-		).first()
+		identifier = None
+
+	if identifier is not None:
+		found = session.scalars(statement.where(model.id == identifier)).first()
+
+	else:
+		# **The address is tried first, whatever its length, and then the name.** For a single
+		# segment that means *a root keyed this* before *anything keyed this*, and the order is
+		# forced rather than chosen: with a root ``dist`` beside a nested ``substation/dist``,
+		# the root's own address is the bare word — so searching first would refuse it as
+		# ambiguous with itself and leave that project reachable by no string at all.
+		#
+		# It is not a guess, which is what `#957` ruled out. An exact address resolving exactly
+		# is that decision's other half, and this is the one-segment case of it.
+		segments = subroutine.domain.projects.path_segments(wanted)
+		found = _walked(session, statement, segments)
+
+		# **Only a single segment falls back to a search.** A whole address that does not
+		# resolve is a whole address that does not resolve; searching for its first segment
+		# instead would answer ``substation/nope`` with ``substation``, which is a different
+		# project and a plausible, complete, wrong answer.
+		if found is None and len(segments) == 1:
+			found = _by_name(session, statement, segments[0], wanted, workspace, field=field)
 
 	if found is None:
 		raise subroutine.errors.NotFound(
 			f"There is no project {wanted!r} here.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="project",
+					field=field,
 					code="not_found",
 					message=f"No project in {workspace.slug} answers to {wanted!r}.",
-					hint="Use a project key like 'SR' or a project id. GET /v1/projects lists "
-					"what you can see.",
+					hint=_alternative_projects(session, statement),
 				)
 			],
 		)
 
 	return found
+
+
+def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.Any) -> str:
+	"""Say what the caller could have meant, in the form they would have to type.
+
+	**Addresses rather than bare keys**, because a key stopped being unique (`#957`): a list
+	holding ``dist`` twice tells somebody the spelling was right and nothing else, where
+	``substation/dist, websites/dist`` is the answer *and* teaches the form that resolves.
+
+	**Narrowed, because ``statement`` already is.** ``domain.tasks``' own version of this was
+	the outlier that was not, and answered ``+nosuchkey`` with every private project's key in
+	the workspace — the disclosure ``projects.keys_for`` describes, met one module along.
+
+	Only on the refusal path, so the extra read costs nothing anybody is waiting on.
+	"""
+
+	rows = list(session.scalars(statement))
+
+	if not rows:
+		return "There are no projects here you can see."
+
+	addresses = subroutine.domain.projects.paths_for(session, rows)
+	listed = ", ".join(sorted(addresses.values()))
+
+	return f"Projects here, by name or whole address: {listed}."
+
+
+def _walked (
+	session: sqlalchemy.orm.Session,
+	statement: typing.Any,
+	segments: typing.Sequence[str],
+) -> subroutine.db.models.project.Project | None:
+	"""Follow a whole address, a key at a time, from a root of the workspace.
+
+	One query per segment, which is at most :data:`hierarchy.DEFAULT_MAX_DEPTH` and in
+	practice two — this resolves a single entity, where the same walk on a listing would be
+	`#39`'s N+1. Reading ``project.path`` instead is not the shortcut it looks like: that
+	path is made of **ids**, so composing one from keys would need every ancestor fetched
+	anyway.
+	"""
+
+	model = subroutine.db.models.project.Project
+	found: subroutine.db.models.project.Project | None = None
+
+	for segment in segments:
+		found = session.scalars(
+			statement.where(
+				model.key == segment,
+				model.parent_id == found.id if found is not None else model.parent_id.is_(None),
+			)
+		).first()
+
+		if found is None:
+			return None
+
+	return found
+
+
+def _by_name (
+	session: sqlalchemy.orm.Session,
+	statement: typing.Any,
+	key: str,
+	wanted: str,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	field: str,
+) -> subroutine.db.models.project.Project | None:
+	"""Find the project a bare name refers to, refusing rather than guessing between two.
+
+	``None`` when nothing matches, so the caller raises the one *not found* both routes here
+	share. Ambiguity raises instead, because the two are different answers: *there is no such
+	project* is acted on by checking the spelling, and *there are two* by saying which.
+
+	**Every candidate here is below a root**, because :func:`addressed` tried the address
+	first and a root's address is its bare key. So the addresses this offers back are all
+	longer than what was typed, which is what makes the advice actionable rather than a
+	repetition of the question.
+	"""
+
+	model = subroutine.db.models.project.Project
+	candidates = list(session.scalars(statement.where(model.key == key)))
+
+	if len(candidates) < 2:
+		return candidates[0] if candidates else None
+
+	addresses = subroutine.domain.projects.paths_for(session, candidates)
+	listed = ", ".join(sorted(addresses[candidate.id] for candidate in candidates))
+
+	raise subroutine.errors.ValidationError(
+		f"More than one project in {workspace.slug} is called {wanted!r}: {listed}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"{wanted!r} names each of: {listed}.",
+				hint=f"Say which, by its whole address — '{sorted(addresses.values())[0]}'.",
+			)
+		],
+	)
 
 
 def _files_where (

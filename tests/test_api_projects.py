@@ -423,3 +423,143 @@ def test_an_explicit_null_parent_still_makes_a_project_a_root (
 	assert moved.status_code == 200
 	assert moved.json()["parent_id"] is None
 	assert moved.json()["depth"] == 0
+
+
+def _tree (world: test_api_tasks.World) -> None:
+	"""Two roots, each holding a project keyed ``dist``, and one holding a ``tools``."""
+
+	for key, title in (("substation", "Substation"), ("websites", "Websites")):
+		world.call("POST", "/v1/projects", json={"key": key, "title": title})
+
+	for parent in ("substation", "websites"):
+		world.call(
+			"POST",
+			"/v1/projects",
+			json={"key": "dist", "title": "Packaging", "parent": parent},
+		)
+
+	world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "tools", "title": "Tools", "parent": "substation"},
+	)
+
+
+def test_a_whole_address_resolves_exactly (world: test_api_tasks.World) -> None:
+	"""Decision `#957`. ``substation/dist`` is one project however many ``dist`` there are."""
+
+	_tree(world)
+
+	read = world.call("GET", "/v1/projects/substation/dist")
+
+	assert read.status_code == 200, read.text
+	assert read.json()["key"] == "dist"
+	assert read.json()["parent_id"] == world.call("GET", "/v1/projects/substation").json()["id"]
+
+
+def test_a_bare_name_still_resolves_where_it_names_one_project (
+	world: test_api_tasks.World,
+) -> None:
+	"""Which is what keeps every address anybody has already written working."""
+
+	_tree(world)
+
+	assert world.call("GET", "/v1/projects/tools").json()["key"] == "tools"
+
+
+def test_an_ambiguous_name_is_refused_with_the_addresses_listed (
+	world: test_api_tasks.World,
+) -> None:
+	"""Never guessed — Simon's answer of 2026-08-17, and the refusal is what teaches the form.
+
+	The accepted cost of resolving a name by search is that a command can begin failing
+	because somebody *else* created a second ``dist``. That is bearable exactly because the
+	refusal says which two and what to type instead.
+	"""
+
+	_tree(world)
+
+	refused = world.call("GET", "/v1/projects/dist")
+
+	assert refused.status_code == 422, refused.text
+	assert "substation/dist" in refused.text
+	assert "websites/dist" in refused.text
+
+
+def test_a_root_is_reached_by_its_own_bare_key (world: test_api_tasks.World) -> None:
+	"""**And this is why the address is tried before the name**, rather than a preference.
+
+	A root's whole address *is* its bare key. Searching first would refuse that word as
+	ambiguous with the nested ones — leaving the root project reachable by no string at all,
+	which is the opposite of what addressing it by path is for.
+	"""
+
+	_tree(world)
+	world.call("POST", "/v1/projects", json={"key": "dist", "title": "Top level"})
+
+	read = world.call("GET", "/v1/projects/dist")
+
+	assert read.status_code == 200, read.text
+	assert read.json()["title"] == "Top level"
+	assert read.json()["parent_id"] is None
+
+
+def test_an_address_that_misses_does_not_fall_back_to_its_first_segment (
+	world: test_api_tasks.World,
+) -> None:
+	"""``substation/nope`` is not ``substation``.
+
+	A plausible, complete, wrong answer is the failure this codebase keeps meeting, and a
+	resolver that searched for the first segment when the whole address missed would produce
+	one — filing work into the parent of the project somebody named.
+	"""
+
+	_tree(world)
+
+	assert world.call("GET", "/v1/projects/substation/nope").status_code == 404
+
+
+def test_a_refusal_offers_addresses_rather_than_bare_keys (
+	world: test_api_tasks.World,
+) -> None:
+	"""A list holding ``dist`` twice says the spelling was right and nothing else."""
+
+	_tree(world)
+
+	refused = world.call("GET", "/v1/projects/nope")
+
+	assert refused.status_code == 404
+	assert "substation/dist" in refused.text
+	assert "websites/dist" in refused.text
+
+
+def test_a_task_is_filed_by_a_whole_address (world: test_api_tasks.World) -> None:
+	"""On both ways of naming a project, which are one resolver since `#958`."""
+
+	_tree(world)
+
+	captured = world.call("POST", "/v1/tasks", json={"text": "Ship it +substation/dist"})
+	structured = world.call(
+		"POST", "/v1/tasks", json={"title": "Ship it", "project": "substation/dist"}
+	)
+
+	assert captured.status_code == 201, captured.text
+	assert captured.json()["title"] == "Ship it", "the address left the title"
+	assert captured.json()["project_id"] == structured.json()["project_id"]
+
+
+def test_both_ways_of_naming_a_missing_project_are_refused_alike (
+	world: test_api_tasks.World,
+) -> None:
+	"""They were 422 and 404 until `#958`, told apart by which field carried the name.
+
+	Two answers to one mistake, from two resolvers. There is one now.
+	"""
+
+	_tree(world)
+
+	captured = world.call("POST", "/v1/tasks", json={"text": "Ship it +nope"})
+	structured = world.call("POST", "/v1/tasks", json={"title": "Ship it", "project": "nope"})
+
+	assert captured.status_code == structured.status_code == 404
+	assert captured.json()["code"] == structured.json()["code"] == "not_found"
