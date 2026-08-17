@@ -564,6 +564,27 @@ export function identityRequest () {
 	return { path: "/me", method: "GET" };
 }
 
+export function allowedIn (me, slug) {
+	/*
+		What this reader may actually do in one workspace.
+
+		**`WorkspaceAccess.permissions` is the field to act on** — its own docstring says so, in
+		those words — and nothing read it (`#927`'s M-25). So a member with a read-only role, or
+		anybody holding a narrowed credential, was shown Edit, Complete, the status control, the
+		assignee control, the comment box, the link box and Remove, and every one of them 403'd
+		when pressed. `app.js` states the rule against that three times: a control that refuses
+		when pressed is worse than one that is not there.
+
+		An empty set where the workspace is unknown, which is the state before `/v1/me` has
+		answered — controls appear when the answer says they may, rather than appearing and
+		being taken away.
+	*/
+	const found = me && me.workspaces.find((space) => space.slug === slug);
+
+	return new Set((found && found.permissions) || []);
+}
+
+
 export function signOutRequest () {
 	/* End this browser's session. `#927`'s M-26: the endpoint has existed since `#248` and the
 	   page offered no way to reach it, so the only way to stop being signed in on a machine
@@ -4853,6 +4874,14 @@ export function App () {
 	const latestRepeat = useRef("");
 	const [vocabulary, setVocabulary] = useState(null);
 	const [filable, setFilable] = useState([]);
+
+	/* **What this reader may do here, so a control they cannot use is not drawn** (`#927`'s
+	   M-25). Every handler below is passed conditionally on this: the components already
+	   render nothing when a handler is absent, which is the mechanism `finishedOnly` has used
+	   for `onAdd` all along. */
+	const allowed = allowedIn(me, workspace);
+	const mayWrite = allowed.has("task:write");
+	const mayComment = allowed.has("comment:write");
 	/*
 		What is on screen — the arrangement and the selection — read from the address rather
 		than remembered (`#651`), so a reader can send somebody the thing they are looking at.
@@ -6177,18 +6206,21 @@ export function App () {
 
 			${open
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
-					editing=${editing} conflict=${conflict} onSave=${save}
+					editing=${editing} conflict=${conflict} onSave=${mayWrite ? save : null}
 					reading=${reading} onReading=${readRepeat}
-					onStatus=${status} statuses=${vocabulary && vocabulary.statuses}
-					onComment=${comment} onLink=${link} onUnlink=${unlink}
+					onStatus=${mayWrite ? status : null}
+					statuses=${vocabulary && vocabulary.statuses}
+					onComment=${mayComment ? comment : null}
+					onLink=${mayWrite ? link : null} onUnlink=${mayWrite ? unlink : null}
 					vocabulary=${vocabulary} projects=${filable}
-					onEdit=${(wanted) => { setEditing(wanted); setConflict(null); }}
+					onEdit=${mayWrite ? (wanted) => { setEditing(wanted); setConflict(null); } : null}
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					backTo=${withShowing(behind, showing)} workspace=${workspace}
-					onComplete=${complete} onAssign=${assign} />`
+					onComplete=${mayWrite ? complete : null}
+					onAssign=${mayWrite ? assign : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
-						onAdd=${add} busy=${busy} where=${workspace} adding=${adding}
+						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						projects=${filable}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
@@ -6197,10 +6229,12 @@ export function App () {
 						     right, the display right, and no wire between them — which is why
 						     `agendaBuckets` resolves the slug onto every row. */ null}
 						onOpen=${(row) => show(row, { slug: row.workspace || workspace })}
-						onComplete=${(row) => complete(row, row.workspace || workspace)} />`
+						onComplete=${mayWrite
+							? (row) => complete(row, row.workspace || workspace)
+							: null} />`
 					: showing.view === "board"
-						? html`<${Board} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
+						? html`<${Board} items=${items} onOpen=${show} onComplete=${mayWrite ? complete : null}
+							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} projects=${filable}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							selection=${showing.selection}
@@ -6223,8 +6257,10 @@ export function App () {
 							`onComplete` is passed and simply never applies; the add box has no
 							such guard and is withheld here.
 						*/
-						: html`<${Listing} items=${items} onOpen=${show} onComplete=${complete}
-							onAdd=${finishedOnly ? null : add} busy=${busy} more=${more} adding=${adding}
+						: html`<${Listing} items=${items} onOpen=${show}
+							onComplete=${mayWrite ? complete : null}
+							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy}
+							more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
 							projects=${filable}
 							ordering=${orderedAs(showing.selection)}

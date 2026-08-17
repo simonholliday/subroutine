@@ -329,7 +329,18 @@ def test_an_element_added_without_a_context_is_still_ours (looks: typing.Any) ->
 #: quietly decide the other's coverage.
 IDENTITY = {
 	"user": {"username": "si", "is_service_account": False},
-	"workspaces": [{"slug": "projects", "id": "w1", "role": "owner", "permissions": []}],
+	# **What an owner really has**, because the app reads this now (`#927`'s M-25): a control
+	# the reader may not use is no longer drawn, so an empty list is a page with no capture box
+	# and no Complete — a different page from the one these tests are about. It was empty for as
+	# long as nothing read it.
+	"workspaces": [
+		{
+			"slug": "projects",
+			"id": "w1",
+			"role": "owner",
+			"permissions": ["task:write", "comment:write", "task:delete"],
+		}
+	],
 	"instance_permissions": [],
 	"credential": None,
 }

@@ -54,6 +54,11 @@ upgrade involves.
   A rare date is not an impossible one: 29 February, and the 31st of whichever months have one,
   are unaffected.
 
+- **The web UI stops offering controls you are not allowed to use.** A read-only member — and
+  every agent holding a narrowed credential — was shown Edit, Complete, the status and assignee
+  controls, the comment box, the link box and Remove, and every one of them was refused when
+  pressed. `/v1/me` has always said what you may do; nothing read it.
+
 - **You can sign out of the browser**, and a session that lapses while you are reading now says
   so. The endpoint has existed since sessions did and the page offered no way to reach it; and
   the ten-second poll swallowed the refusal, so the page went on re-rendering the same rows for

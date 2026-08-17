@@ -6464,6 +6464,7 @@ def _driven (
 	search: str = "",
 	answers: typing.Mapping[str, typing.Any] | None = None,
 	ticks: int = 0,
+	permissions: typing.Sequence[str] = ("task:write", "comment:write", "task:delete"),
 ) -> dict[str, typing.Any]:
 	"""Mount the real app at one address and report what it asked the instance for.
 
@@ -6500,6 +6501,7 @@ def _driven (
 
 	module = _staged(tmp_path)
 	replies = dict(answers or {})
+	permitted = json.dumps(list(permissions))
 
 	return dict(_ran(tmp_path, f"""
 		import {{ install, text }} from "{(tmp_path / DOM.name).as_uri()}";
@@ -6537,7 +6539,14 @@ def _driven (
 			if (path.includes("/me")) {{
 				return {{
 					user: {{ username: "si", is_service_account: false }},
-					workspaces: [{{ slug: "projects", id: "w1", role: "owner", permissions: [] }}],
+					workspaces: [{{
+						slug: "projects", id: "w1", role: "owner",
+						/* **What an owner really has**, because the app reads this now
+						   (`SR#927`'s M-25) and an empty list means a reader who may do
+						   nothing — which is a different page and not the one most of these
+						   tests are about. It was empty when nothing read it. */
+						permissions: {permitted},
+					}}],
 					instance_permissions: [],
 					credential: null,
 				}};
@@ -8973,3 +8982,28 @@ def test_a_table_column_says_how_it_is_aligned_without_an_inline_style (
 
 	for how in ("left", "center", "right"):
 		assert f".align-{how}" in styles, f"the stylesheet does not define align-{how}"
+
+
+def test_a_reader_who_may_not_write_is_offered_no_control_that_would_refuse (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""``WorkspaceAccess.permissions`` says *"this is the field to act on"* and nothing read it.
+
+	So a member with a read-only role — or anybody holding a narrowed credential, which is
+	every agent this product is built for — was shown Edit, Complete, the status control, the
+	assignee control, the comment box, the link box and Remove, and every one of them answered
+	403 when pressed. `app.js` states the rule against that three times in its own comments: a
+	control that refuses when pressed is worse than one that is not there.
+
+	**Both directions, because the empty case is not the interesting one.** A page with no
+	controls is also what a broken read produces, so the reader who *may* write is asserted
+	first — otherwise this passes against an app that offers nothing to anybody.
+	"""
+
+	writing = _driven(tmp_path, pathname="/projects")
+	reading = _driven(tmp_path, pathname="/projects", permissions=())
+
+	assert "Add" in writing["said"], "the capture box is §1.4's primary path and must be there"
+	assert "Add" not in reading["said"], (
+		f"a reader who may not write was offered the capture box: {reading['said']!r}"
+	)
