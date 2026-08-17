@@ -1559,6 +1559,11 @@ def test_an_item_can_still_be_named_the_way_this_program_prints_it (
 	assert "whole number or text" in text, text
 
 
+#: A UUID as it renders: five hex groups separated by single hyphens. Written out because the
+#: check it serves used to look for four hyphens in a row, which is a run a UUID does not have
+#: (`#947`) — so the assertion could not fail on the thing its own message named.
+_UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
+
 #: What to send beside a ref so the call gets as far as *reading* it. A tool that needs a body
 #: stops on the missing body, and one asked to change nothing says so without ever looking the
 #: item up — neither of which says anything about the argument under test. Sent whenever the
@@ -2105,7 +2110,10 @@ def test_a_record_is_read_by_when_rather_than_by_a_raw_id (
 
 	assert not failed
 	assert "what happened here" in text
-	assert "-" * 4 not in text, "a UUID leaked into the record"
+	# **A UUID carries single hyphens, so this looked for something one never contains**
+	# (`#947`, cold review `#927`'s L-3). It read `"-" * 4 not in text` under a message about a
+	# leaked UUID, and would have passed with every id in the output. Matched by shape now.
+	assert not _UUID.search(text), f"a UUID leaked into the record: {text}"
 
 
 def test_add_tells_the_agent_what_the_grammar_read (
@@ -4001,7 +4009,15 @@ def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 
 	said = answered[0]["error"]["message"]
 
-	assert "no Subroutine instance" in said.lower() or "No Subroutine instance" in said
+	# **One check rather than two, and the first of the two had never run** (`#947`, cold review
+	# `#927`'s L-3). It read `"no Subroutine instance" in said.lower() or "No Subroutine
+	# instance" in said` — the needle in the first half carries a capital `S` and was searched
+	# in a lower-cased string, so only the second half was ever doing anything. `#366`'s
+	# recorded shape: an `or` in a diagnostic is a silent filter that looks like a fallback.
+	#
+	# Folded on both sides, because two places raise this and they disagree about the first
+	# letter — `mcp/relay` opens the sentence and `clients/local` continues one.
+	assert "no subroutine instance" in said.lower(), f"the refusal does not say why: {said}"
 	assert "subroutine init" in said, f"the remedy is not named: {said}"
 
 

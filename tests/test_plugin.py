@@ -867,8 +867,16 @@ def test_the_skill_does_not_promise_a_field_no_tool_can_write () -> None:
 
 	text = SKILL.read_text(encoding="utf-8")
 
-	if "one field away" not in text:
-		pytest.skip("the skill no longer makes that promise")
+	# **Asserted rather than skipped past** (`#947`, cold review `#927`'s L-3). This read
+	# `if "one field away" not in text: pytest.skip(...)`, so the check turned itself off the
+	# moment somebody reworded the sentence it is about — and a rewording is far likelier than
+	# a removal. The promise is the subject: if it genuinely goes, that is a decision, and
+	# deleting this test is part of taking it.
+	assert "one field away" in text, (
+		"the skill no longer says the reasoning is 'one field away', so this test is checking "
+		"a promise nobody makes. Delete it as part of that change rather than leaving it to "
+		"skip — a check that disables itself on a rewording is one nobody will notice going."
+	)
 
 	class Fake:
 		"""A client that opens nothing — only the schemas are being read."""

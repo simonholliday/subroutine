@@ -864,8 +864,20 @@ def test_a_lax_cookie_is_withheld_from_a_cross_site_post (looks: typing.Any) -> 
 	)
 
 
-def test_the_stale_half_of_the_excuse_list (looks: typing.Any) -> None:
-	"""What makes an entry go away. Every allow-list in this repository owes this."""
+def test_the_stale_half_of_the_excuse_list () -> None:
+	"""What makes an entry go away. Every allow-list in this repository owes this.
+
+	**It took the ``looks`` fixture and never used it** (`#947`, cold review `#927`'s L-3), so a
+	comparison between two module-level constants was paying for a Chromium launch — in the one
+	file whose own test bounds it at seventeen cases, because a browser is 400MB and a minute of
+	CI. It reads no page, so it takes no browser.
+
+	**The subset is vacuous while the register is empty, and that is correct rather than a
+	second defect.** :data:`LOOKS_LIKE_THE_BROWSER` is meant to stay `{}` — `#747`'s argument is
+	that a design which cannot produce the fault beats a check that catches it. A stale-entry
+	test over an empty register has nothing to say, and is what says so on the day somebody adds
+	the first entry.
+	"""
 
 	assert set(LOOKS_LIKE_THE_BROWSER) <= set(STYLED_BY_DEFAULT), (
 		f"{sorted(set(LOOKS_LIKE_THE_BROWSER) - set(STYLED_BY_DEFAULT))} is excused from "

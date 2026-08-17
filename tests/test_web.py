@@ -5801,22 +5801,30 @@ def test_an_address_can_ask_for_finished_work_on_either_arrangement (
 	fall out with nothing built for them.
 	"""
 
-	wide, narrow = _built(tmp_path, [
+	# **Both arrangements in one build**, because the claim is that neither needed anything
+	# built for it. This used to read `wide, narrow = _built(...), None` and end with
+	# `assert narrow is None` — a tautology under a name suggesting a second case had been
+	# checked (`#947`, cold review `#927`'s L-3). The second case is asserted rather than
+	# named now.
+	built = _built(tmp_path, [
 		("listingRequests", ["personal", None, None, {"include_completed": "true"}]),
 		("listingRequests", ["personal", None, None, {"status_category": "in_progress"}]),
-	]), None
+	])
 
-	tasks = [request for request in wide if "/tasks" in request["path"]]
+	tasks = [request for request in built if "/tasks" in request["path"]]
 
 	assert "include_completed=true" in tasks[0]["path"], (
 		"a list must be able to include finished work, which no view name could ask for"
 	)
 
-	assert [request for request in wide if "/documents" in request["path"]], (
+	assert [request for request in built if "/documents" in request["path"]], (
 		"including finished work says nothing about documents, so both collections stay"
 	)
 
-	assert narrow is None
+	assert any("status_category=in_progress" in request["path"] for request in tasks), (
+		"a board of one category must be expressible too — that is what makes the split real "
+		"rather than a rename, and it was the half this test named and never checked"
+	)
 
 
 def test_a_category_selection_reads_tasks_alone_whichever_category_it_is (
