@@ -1294,13 +1294,16 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	)
 
 
-def test_a_row_calls_a_project_by_its_name (tmp_path: pathlib.Path) -> None:
-	"""**`#912`, and the assertion that matters is the *wiring*, not the function.**
+def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
+	"""**`#959`, and the assertion that matters is the *wiring*, not the function.**
 
-	Every other chip on a row is something a person reads — `Task`, a status label, a username.
-	The project was the one address among them: lower case by `#508`'s rule and shaped to be
-	typed, which is a thing nobody does in a browser. Simon met it as `Document` beside
-	`subroutine`, two registers in one row of chips.
+	**This reverses `#912`, which put the project's *title* here.** That decision was taken
+	when the chip was one segment and the argument was register — `Document` beside
+	`subroutine`, two registers in one row. Decision `#957` §4 answers a different question:
+	`Subroutine` and `Web UI` are **not distinct from one another**, because Web UI is inside
+	Subroutine and the chip did not say so. A path made of titles has to invent a separator
+	that reads as hierarchy and stops being the thing you can type back (`#151`), so the label
+	is the address, in slug form.
 
 	**Driven through the three views rather than through `Row`**, because this project has
 	shipped four faults of exactly one shape — the rule right, the display right, and no wire
@@ -1316,35 +1319,45 @@ def test_a_row_calls_a_project_by_its_name (tmp_path: pathlib.Path) -> None:
 	known = [{"key": "sr", "title": "Subroutine"}, {"key": "ui", "title": "Web UI"}]
 
 	filed = {"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}
-	elsewhere = dict(filed, project_key="unfetched")
+	elsewhere = dict(filed, project_key="unfetched", project_path="unfetched")
 
 	shown = _rendered(tmp_path, {
-		"Listing": {"items": [dict(filed, project_key="sr")], "projects": known},
-		"Board": {
-			"items": [dict(filed, project_key="ui", status_category="todo")],
+		"Listing": {
+			"items": [dict(filed, project_key="sr", project_path="sr")],
 			"projects": known,
 		},
+		# Nested, and the board names no project — so the whole address is what it shows.
+		"Board": {
+			"items": [dict(
+				filed, project_key="ui", project_path="subroutine/ui", status_category="todo"
+			)],
+			"projects": known,
+		},
+		# The agenda spans workspaces, so its label leads with the row's own — `/` names none.
 		"Agenda": {
 			"buckets": [{
 				"key": "overdue", "label": "Overdue",
-				"items": [dict(filed, project_key="sr", workspace="projects")],
+				"items": [dict(
+					filed, project_key="sr", project_path="sr", workspace="projects"
+				)],
 			}],
 			"where": "projects",
 			"projects": known,
 		},
 	})
 
-	assert "Subroutine" in shown["Listing"], f"the listing still shows a key: {shown['Listing']}"
-	assert "Web UI" in shown["Board"], f"the board still shows a key: {shown['Board']}"
-	assert "Subroutine" in shown["Agenda"], f"the agenda still shows a key: {shown['Agenda']}"
+	assert "sr" in shown["Listing"], f"the listing shows no address: {shown['Listing']}"
+	assert "subroutine/ui" in shown["Board"], f"the board shows no address: {shown['Board']}"
+	assert "projects/sr" in shown["Agenda"], (
+		f"the agenda spans workspaces and named none: {shown['Agenda']}"
+	)
 
 	unknown = _rendered(tmp_path, {
 		"Listing": {"items": [elsewhere], "projects": known},
 	})["Listing"]
 
 	assert "unfetched" in unknown, (
-		f"a project past the two hundred fetched lost its chip rather than keeping its key: "
-		f"{unknown}"
+		f"a row whose project was not among the fetched ones lost its chip: {unknown}"
 	)
 
 
@@ -3269,6 +3282,11 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
 			name === "parseAddress" ? app.parseAddress(argument)
 			: name === "mentionHref" ? app.mentionHref(argument)(42)
+			: name === "encodedPath" ? app.encodedPath(argument)
+			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
+			: name === "marks" ? app.marks(
+				argument.item, argument.showKind, argument.ordering, argument.projects,
+				argument.place, argument.linkable)
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 
@@ -3310,11 +3328,12 @@ def test_a_stale_project_in_an_address_still_finds_the_item (tmp_path: pathlib.P
 	assert stale["ref"] == 42, "a retired project name broke the address"
 	assert deep["ref"] == 42, "extra segments were not ignored, so the path form cannot grow in"
 
-	# **The project is the last segment and the trail is all of them** (`SR#772`). A key is
-	# unique in its workspace, so what narrows a listing is the last one; the rest is the tree
-	# the reader walked, kept so that opening an item does not throw it away.
-	assert deep["project"] == "ui" and deep["trail"] == ["subroutine", "ui"]
-	assert current["trail"] == ["ui"]
+	# **The project is the whole path, and until `SR#958` it was the last segment** (`SR#772`).
+	# A key was unique in its workspace, so the last one named a project on its own; it is
+	# unique among its siblings now, and `substation/dist` and `websites/dist` are two projects
+	# sharing a last segment. `trail` is the same path as segments.
+	assert deep["project"] == "subroutine/ui" and deep["trail"] == ["subroutine", "ui"]
+	assert current["project"] == "ui" and current["trail"] == ["ui"]
 
 
 def test_opening_an_item_keeps_the_path_the_reader_is_on (tmp_path: pathlib.Path) -> None:
@@ -3325,41 +3344,49 @@ def test_opening_an_item_keeps_the_path_the_reader_is_on (tmp_path: pathlib.Path
 	resolved, because everything before the ref is decoration (`SR#638`), so nothing failed and
 	the tree the reader had navigated simply disappeared from where they were.
 
-	**Only when the path names this item's own project.** From the agenda, from a whole
-	workspace, or by following a mention into somewhere else there is no route to preserve, and
-	the item's own form is the honest answer rather than a borrowed one.
+	**And it is the item's own address now, not the reader's route** (`SR#512`). This used to
+	rebuild the path out of the one the reader had navigated, keeping it only where its last
+	segment matched the item's key — the best available while a row carried a key and nothing
+	else. A row states its whole address since `SR#512`, so the borrowed route is second-hand
+	information about a fact the row has: it survives every case the old rule covered, and it
+	is also right from the agenda, from a whole workspace, and after a mention followed
+	somewhere else — the three the old rule had to fall back on.
 
-	**Derived from the address, not from the project tree**, which is the deciding argument and
-	not merely the cheaper one: the tree arrives from a fetch, so a canonical ancestry would make
-	the same click produce a different address depending on whether that fetch had landed. Every
-	fault this app has shipped is that shape. `window.location` cannot be half there.
+	**Derived from the row rather than from the project tree**, which is the deciding argument
+	and not merely the cheaper one: the tree arrives from a fetch, so a canonical ancestry
+	assembled here would make the same click produce a different address depending on whether
+	that fetch had landed. Every fault this app has shipped is that shape.
 	"""
 
-	nested = {"workspace": "projects", "project": "simonholliday-com",
+	nested = {"workspace": "projects", "project": "websites/simonholliday-com",
 		"trail": ["websites", "simonholliday-com"], "ref": None}
-	item = {"ref": 768, "project_key": "simonholliday-com"}
+	item = {"ref": 768, "project_key": "simonholliday-com",
+		"project_path": "websites/simonholliday-com"}
 
 	kept, elsewhere, wider, agenda, other = _addressing(tmp_path, [
 		("addressOf", {"item": item, "workspace": "projects", "place": nested}),
 		# A mention followed into a different project: the path names somewhere this item is not.
-		("addressOf", {"item": {"ref": 5, "project_key": "ui"}, "workspace": "projects",
-			"place": nested}),
-		# The whole workspace — nothing to preserve, so the item's own form.
+		("addressOf", {"item": {"ref": 5, "project_key": "ui", "project_path": "subroutine/ui"},
+			"workspace": "projects", "place": nested}),
+		# The whole workspace, and then no place at all — the row answers both.
 		("addressOf", {"item": item, "workspace": "projects",
 			"place": {"workspace": "projects", "project": None, "trail": [], "ref": None}}),
 		("addressOf", {"item": item, "workspace": "projects", "place": None}),
-		# **The workspace has to match too.** An agenda row from another workspace would
-		# otherwise borrow this one's path and address the wrong tenant's project.
+		# An agenda row from another workspace addresses its own, and its path travels with it.
 		("addressOf", {"item": item, "workspace": "personal", "place": nested}),
 	])
 
 	assert kept == "/projects/websites/simonholliday-com/768", (
-		"opening an item flattened the tree the reader had navigated"
+		"opening an item flattened the tree it is filed in"
 	)
-	assert elsewhere == "/projects/ui/5", "an item borrowed a path naming a project it is not in"
-	assert wider == "/projects/simonholliday-com/768"
-	assert agenda == "/projects/simonholliday-com/768"
-	assert other == "/personal/simonholliday-com/768"
+	assert elsewhere == "/projects/subroutine/ui/5", (
+		"an item borrowed a path naming a project it is not in"
+	)
+	assert wider == "/projects/websites/simonholliday-com/768", (
+		"the whole address is the item's own, so a wider page does not shorten it"
+	)
+	assert agenda == "/projects/websites/simonholliday-com/768"
+	assert other == "/personal/websites/simonholliday-com/768"
 
 
 def test_an_address_that_names_no_item_is_not_read_as_one (tmp_path: pathlib.Path) -> None:
@@ -9148,3 +9175,77 @@ def test_the_poll_re_renders_so_those_marks_are_recomputed () -> None:
 		"the poll no longer bumps state, so a page left open stops recomputing `overdue` and "
 		"`deferred` — which is what `deferred`'s own comment says computing them is for"
 	)
+
+
+def test_a_label_says_only_what_the_address_did_not (tmp_path: pathlib.Path) -> None:
+	"""Decision `SR#957` §4's table, driven row by row.
+
+	> full path -> strip what the URL already said -> show it
+
+	**The workspace leads when the address named none**, which is the agenda at `/`: it spans
+	every workspace, so a bare `subroutine/ui` there would name a project in whichever one the
+	reader assumed.
+	"""
+
+	row = {"project_path": "subroutine/ui", "workspace": "projects"}
+	nowhere, workspace, project, exact, elsewhere, none = _addressing(tmp_path, [
+		("projectLabel", {"item": row, "place": None}),
+		("projectLabel", {"item": row, "place": {"workspace": "projects", "project": None}}),
+		("projectLabel", {"item": row,
+			"place": {"workspace": "projects", "project": "subroutine"}}),
+		("projectLabel", {"item": row,
+			"place": {"workspace": "projects", "project": "subroutine/ui"}}),
+		# A prefix that is not a whole segment: `ui` must not turn `ui-things/x` into `-things/x`.
+		("projectLabel", {"item": {"project_path": "ui-things/x", "workspace": "projects"},
+			"place": {"workspace": "projects", "project": "ui"}}),
+		("projectLabel", {"item": {"workspace": "projects"}, "place": None}),
+	])
+
+	assert nowhere == "projects/subroutine/ui", "the agenda at / named no workspace"
+	assert workspace == "subroutine/ui"
+	assert project == "ui"
+	assert exact == "", "the page is that project, so the label says nothing"
+	assert elsewhere == "ui-things/x", "a label was shortened at something that is not a segment"
+	assert none == "", "a row with no project claimed one"
+
+
+def test_a_project_label_is_escaped_a_segment_at_a_time (tmp_path: pathlib.Path) -> None:
+	"""`encodeURIComponent` over a whole address escapes its separators too.
+
+	`substation/dist` would become `substation%2Fdist` — one segment, naming a project keyed
+	with a slash in it, which is a project that cannot exist. The separators are structure and
+	the segments are values; only the second kind is escaped.
+	"""
+
+	plain, spaced = _addressing(tmp_path, [
+		("encodedPath", "substation/dist"),
+		("encodedPath", "a b/c d"),
+	])
+
+	assert plain == "substation/dist"
+	assert spaced == "a%20b/c%20d"
+
+
+def test_a_project_label_is_a_link_only_where_something_can_follow_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#251`'s rule: a control whose only outcome is nothing happening should not be drawn.
+
+	The label is rendered either way — where a row lives is worth saying on any surface — and
+	the anchor is what depends on somebody listening.
+	"""
+
+	item = {"ref": 1, "kind": "task", "title": "A task", "status_is_default": True,
+		"project_key": "ui", "project_path": "subroutine/ui", "workspace": "projects"}
+
+	linked, plain = _addressing(tmp_path, [
+		("marks", {"item": item, "showKind": False, "ordering": None, "projects": None,
+			"place": {"workspace": "projects", "project": None}, "linkable": True}),
+		("marks", {"item": item, "showKind": False, "ordering": None, "projects": None,
+			"place": {"workspace": "projects", "project": None}, "linkable": False}),
+	])
+
+	assert [mark["text"] for mark in linked] == ["subroutine/ui"]
+	assert linked[0]["href"] == "/projects/subroutine/ui"
+	assert [mark["text"] for mark in plain] == ["subroutine/ui"]
+	assert plain[0]["href"] is None, "a surface that cannot navigate drew a link anyway"

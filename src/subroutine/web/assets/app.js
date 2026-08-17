@@ -86,6 +86,7 @@ const TASK_FIELDS = [
 	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
 	"relevance",
 	"ref", "title", "due_at", "starts_at", "starts_is_all_day", "blocked", "project_key",
+	"project_path",
 	"assignee",
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
@@ -145,7 +146,7 @@ const DOCUMENT_FIELDS = [
 	/* The task list's counterpart — `#875`. A search spans both kinds, so a key only one
 	   of them carries is no key at all. */
 	"relevance",
-	"ref", "title", "project_key", "status", "status_is_default",
+	"ref", "title", "project_key", "project_path", "status", "status_is_default",
 	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
 	   `Task` or `Document`, which answers what shape it has and not what it is about, and
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
@@ -1827,13 +1828,13 @@ export function addressOf (item, workspace, place = null) {
 
 	if (!item.project_key) return durable;
 
-	const trail = place && place.workspace === workspace && place.trail
-		&& place.trail[place.trail.length - 1] === item.project_key
-		? place.trail
-		: [item.project_key];
+	/* **The item's own address, since `#512` publishes one.** This used to rebuild a path
+	   out of the one the reader navigated, keeping it only when its last segment matched the
+	   item's key — which was the best available while a row carried a key and nothing else,
+	   and is now second-hand information about a fact the row states. */
+	const path = item.project_path || item.project_key;
 
-	return `/${encodeURIComponent(workspace)}`
-		+ `/${trail.map(encodeURIComponent).join("/")}/${item.ref}`;
+	return `/${encodeURIComponent(workspace)}/${encodedPath(path)}/${item.ref}`;
 }
 
 /* ---- what is showing: an arrangement and a selection (`#651`, `#649`) ----- */
@@ -2181,7 +2182,81 @@ export function listingAddress (place) {
 
 	const base = `/${encodeURIComponent(place.workspace)}`;
 
-	return place.project ? `${base}/${encodeURIComponent(place.project)}` : base;
+	/* Encoded per segment, because `place.project` is a whole path since `#958` and
+	   `encodeURIComponent` would turn its separators into `%2F` — an address the router reads
+	   as one project keyed with slashes in it, which is a project that cannot exist. */
+	return place.project ? `${base}/${encodedPath(place.project)}` : base;
+}
+
+/* What separates one project key from the next in an address — decision `#957`, and the same
+   character `domain.projects.PATH_SEPARATOR` uses. Named rather than written as a literal in
+   five places, because it is the one thing this file and the server have to agree about. */
+export const PATH_SEPARATOR = "/";
+
+export function encodedPath (path) {
+	/*
+		A project's whole address, escaped for a URL a segment at a time.
+
+		**Not `encodeURIComponent` over the whole thing.** That escapes the separators too, so
+		`substation/dist` becomes `substation%2Fdist` — one segment, naming a project keyed with
+		a slash in it, which is a project that cannot exist. The separators are structure and the
+		segments are values; only the second kind is escaped.
+	*/
+	return String(path || "").split(PATH_SEPARATOR).map(encodeURIComponent).join(PATH_SEPARATOR);
+}
+
+export function projectLabel (item, place) {
+	/*
+		Where a row's item lives, as much of its address as the URL did not already say —
+		decision `#957` §4.
+
+		| the page | the label on a row in `projects/subroutine/ui` |
+		| --- | --- |
+		| `/` | `projects/subroutine/ui` |
+		| `/projects` | `subroutine/ui` |
+		| `/projects/subroutine` | `ui` |
+		| `/projects/subroutine/ui` | nothing |
+
+		**The workspace leads when the address named none**, which is the agenda at `/`: it
+		spans every workspace, so a bare `subroutine/ui` there would name a project in whichever
+		one the reader assumed.
+
+		**Slug form, lower case, one label** — not `Subroutine / Web UI`. A path made of titles
+		has to invent a separator that reads as hierarchy, and it stops being the thing you can
+		type back (`#151`). That supersedes `#912`, which chose the title for this chip when the
+		chip was one segment and the argument was register rather than identity: `Web UI` and
+		`Substation / Web UI` are not the same trade.
+
+		**Nothing is dropped when every row agrees, and the terminal does drop it.** The reason
+		is not taste and belongs here, where somebody will otherwise reach for consistency:
+
+		> **A terminal listing is a snapshot and this page is live.** It is computed once and
+		> read once, so a label derived from what is on it is stable by construction. This polls
+		> every ten seconds (`#657`, `#781`), so dropping-if-uniform means a label can appear or
+		> vanish while somebody is looking at it — because a stranger filed something in another
+		> project — and these are clickable, which makes that a control moving under the cursor.
+
+		`drop_if_uniform=False` is the same exception `#511` took for the assignee, one surface
+		along.
+	*/
+	const path = (item && item.project_path) || "";
+
+	if (!path) return "";
+
+	const asked = (place && place.project) || "";
+	const workspace = place && place.workspace ? "" : `${(item && item.workspace) || ""}`;
+
+	if (!asked) {
+		return workspace ? `${workspace}${PATH_SEPARATOR}${path}` : path;
+	}
+
+	/* Only on a segment boundary, for the reason `cli/personal._project_cell` gives: stripping
+	   `ui` off `ui-things/x` leaves `-things/x`, which is not an address of anything. */
+	if (path === asked) return "";
+
+	const inside = `${asked}${PATH_SEPARATOR}`;
+
+	return path.startsWith(inside) ? path.slice(inside.length) : path;
 }
 
 function segment (raw) {
@@ -2250,11 +2325,15 @@ export function parseAddress (pathname) {
 
 	return {
 		workspace: segment(parts[0]),
-		project: middle.length > 0 ? segment(middle[middle.length - 1]) : null,
-		/* **The whole project path, not only its last segment** (`#772`). `project` is what
-		   narrows a listing and is deliberately the last one — a project key is unique in its
-		   workspace, so the segments before it are decoration. `trail` is that decoration, kept
-		   so that opening an item does not throw away the tree the reader navigated. */
+		/* **The whole path, and until `#958` this was its last segment alone.** The sentence
+		   that used to be here said the earlier segments were decoration *"because a project
+		   key is unique in its workspace"* — which stopped being true when a key became unique
+		   among its siblings, and `substation/dist` and `websites/dist` became two projects
+		   with one last segment. `project` is what narrows a listing, so it has to be the thing
+		   that names one. */
+		project: middle.length > 0 ? middle.map(segment).join(PATH_SEPARATOR) : null,
+		/* The same path as segments, kept because `#772` reads it that way — opening an item
+		   must not throw away the tree the reader navigated. */
 		trail: middle.map(segment),
 		ref: names,
 	};
@@ -2758,7 +2837,9 @@ export function Icon ({ name, decorative = true }) {
 	`;
 }
 
-export function marks (item, showKind, ordering = null, projects = null) {
+export function marks (
+	item, showKind, ordering = null, projects = null, place = null, linkable = false
+) {
 	/*
 		The small labels under a title.
 
@@ -2887,7 +2968,25 @@ export function marks (item, showKind, ordering = null, projects = null) {
 			: { text: lease.who ? `${lease.who} left it` : "Claim expired", tone: "stale" });
 	}
 
-	if (item.project_key) found.push({ text: projectName(item.project_key, projects) });
+	/* **Where it lives, and clicking it narrows the view to that path** — decision `#957` §4.
+	   `href` rather than a handler because it *is* an address: `#649` puts the place on the
+	   path, so the thing this control does is go there, and a link is what a reader can open in
+	   a tab, copy or middle-click. */
+	const label = projectLabel(item, place);
+	const home = (item.workspace || (place && place.workspace)) || "";
+
+	if (label) {
+		found.push({
+			text: label,
+			/* **A link only where somebody is listening**, which is `#251`'s rule: a surface
+			   that cannot navigate renders the label and no anchor, rather than an anchor whose
+			   only outcome is a page that has not moved. */
+			href: linkable && home
+				? `/${encodeURIComponent(home)}/${encodedPath(item.project_path)}`
+				: null,
+		});
+	}
+
 	if (item.assignee) found.push({ text: item.assignee });
 	if (item.status && !item.status_is_default) found.push({ text: item.status });
 
@@ -3203,14 +3302,19 @@ export function followed (event, act) {
 
 export function Row ({
 	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
-	/* What the project chip is named from (`#912`). Optional, and its absence renders the key —
-	   which is what a row shows before the projects have landed, and on any surface that has no
-	   reason to fetch them. */
+	/* What the project chip was named from until `#959` (`#912`). Kept because `projectName`
+	   still answers "what is this project called" for anything that wants a title. */
 	projects = null,
+	/* **What the address already said**, so the project label can leave it out — decision
+	   `#957` §4. Absent means the address named nothing, which is the agenda at `/`. */
+	place = null,
+	/* Where to go when a label is clicked. Absent renders the label as a plain span rather
+	   than a link that does nothing, which is `#251`'s shape. */
+	onGo = null,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering, projects);
+	const badges = marks(item, showKind, ordering, projects, place, !!onGo);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -3305,11 +3409,21 @@ export function Row ({
 		<div class="meta">
 			${badges.length > 0 && html`
 				<span class="marks">
-					${badges.map((mark) => html`
-						<span class="mark ${mark.tone || ""}">
-							<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
-						</span>
-					`)}
+					${badges.map((mark) => (mark.href
+						/* A mark that is an address is an `<a>`, so it can be opened in a tab
+						   and read by a screen reader as the link it is. Everything else stays
+						   a `<span>`: a control that only looks like one is `#251`'s shape. */
+						? html`
+							<a class="mark ${mark.tone || ""}" href=${mark.href}
+								onClick=${(event) => followed(event, () => onGo(mark.href))}>
+								<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+							</a>
+						`
+						: html`
+							<span class="mark ${mark.tone || ""}">
+								<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+							</span>
+						`))}
 				</span>
 			`}
 			${date && html`<span class="when">${date}</span>`}
@@ -3336,6 +3450,8 @@ export function Row ({
 
 export function Agenda ({
 	buckets, more, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
+	/* Where to send a reader who clicks a project label — `#959`. */
+	onGo = null,
 }) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
@@ -3388,8 +3504,15 @@ export function Agenda ({
 							     fallback only — a row that knows its own uses that, which is
 							     what keeps an agenda row's address pointing at the workspace
 							     it actually came from. */ null}
+							${/* **The place is whether this agenda names a workspace at all.**
+							     `showWhere` already answers that — it is `spansWorkspaces`, and
+							     an agenda spanning them shows each row's workspace in its
+							     address. The project label follows the same answer rather than
+							     asking the question a second way. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
 								showKind=${false} showWhere=${showWhere} workspace=${where}
+								place=${{ workspace: showWhere ? null : where, project: null }}
+								onGo=${onGo}
 								onOpen=${onOpen} onComplete=${onComplete} projects=${projects} />
 						`)}
 					</ul>
@@ -3414,6 +3537,8 @@ export function Agenda ({
 
 export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
+	/* Where to send a reader who clicks a project label — `#959`. */
+	onGo = null,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
 	over = null, onOver = null, projects = null,
 }) {
@@ -3527,6 +3652,7 @@ export function Board ({
 									${column.items.map((item) => html`
 										<${Row} key=${item.kind + item.ref} item=${item}
 											showKind=${showKind} workspace=${workspace}
+											place=${{ workspace, project }} onGo=${onGo}
 											onOpen=${onOpen} onComplete=${onComplete}
 											onDrag=${onDrag} projects=${projects} />
 									`)}
@@ -4082,6 +4208,8 @@ export function Conflict ({ theirs }) {
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
+	/* Where to send a reader who clicks a project label — `#959`. */
+	onGo = null,
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
 	/* **Its own prop rather than `adding.projects`** (`#912`). That bundle is the capture
 	   form's, and its own comment says nothing else has any business knowing what a dropdown is
@@ -4169,6 +4297,7 @@ export function Listing ({
 						${items.map((item) => html`
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
+								place=${{ workspace, project }} onGo=${onGo}
 								onComplete=${onComplete} projects=${projects} />
 						`)}
 					</ul>
@@ -5957,6 +6086,42 @@ export function App () {
 		}
 	}, [go, load, workspace]);
 
+	const narrow = useCallback(async (address) => {
+		/*
+			**Into a project, from a label on a row** — `#959`, decision `#957` §4.
+
+			`widen` above is this in the other direction and was the whole of it: a narrowed
+			list could be left and never entered, so the only way into a project was to type its
+			address. A label that says where a row lives is the obvious control for going there,
+			and it is the same three steps.
+
+			**Three steps, and pushing the address is only one of them.** `go` writes the bar
+			and nothing else — no `popstate` fires for a `pushState` we made ourselves — so a
+			handler that stopped there would move the address and leave the page exactly as it
+			was. That is what this shipped as while it was being written, and it looks like a
+			link that does nothing.
+
+			**Read back through `parseAddress` rather than passed as a project**, because the
+			control is an anchor and its `href` is the fact. Deriving the project from it here
+			means the thing the reader can copy and the thing this loads are one string.
+		*/
+		const place = parseAddress(address);
+		const wanted = (place && place.project) || null;
+
+		setAgenda(null);
+		setProject(wanted);
+		go(address);
+
+		try {
+			await load(workspace, wanted);
+		} catch (failure) {
+			/* A note rather than the failure page, for `widen`'s reason: there is a readable
+			   list on screen and losing it because a re-fetch did not land costs the reader
+			   their place. */
+			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
+		}
+	}, [go, load, workspace]);
+
 	const chooseWorkspace = useCallback(async (slug) => {
 		/* A workspace is the whole of it: a project from the one you were in does not exist
 		   here, and carrying it over would narrow to nothing and look like an empty backlog. */
@@ -6260,7 +6425,7 @@ export function App () {
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
-						projects=${filable}
+						projects=${filable} onGo=${narrow}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -6274,7 +6439,7 @@ export function App () {
 					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${mayWrite ? complete : null}
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
-							onMore=${showMore} projects=${filable}
+							onMore=${showMore} projects=${filable} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							selection=${showing.selection}
 							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
@@ -6301,7 +6466,7 @@ export function App () {
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy}
 							more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
-							projects=${filable}
+							projects=${filable} onGo=${narrow}
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							${/* **No control on the finished view** (`#782`). Its order is part of what

@@ -49,6 +49,12 @@ upgrade involves.
 - **`project_path` on a task and on a document, and `path` on a project**, in every response
   and in `subroutine list --json`. It is what goes back into `--project`, `?project=` and
   `+key`. Composed once for a whole page rather than per row.
+- **In the browser, that label is a link**, and clicking it narrows the page to that project.
+  It leaves out whatever the address already said — from `/projects/subroutine` a row shows
+  `ui`, from `/projects` it shows `subroutine/ui`, and from the agenda at `/` it leads with
+  the workspace. Unlike the terminal it is never dropped when every row agrees: a page polls,
+  so a label that vanished because somebody else filed something would be a control moving
+  under the cursor.
 
 ## 0.7.5 — 2026-08-17
 

@@ -24,6 +24,7 @@ import pathlib
 import re
 import shutil
 import typing
+import urllib.parse
 
 import pytest
 
@@ -363,6 +364,10 @@ META = {
 #: one literal gave the row a type nothing could index.
 CARD: dict[str, typing.Any] = {
 	"ref": 42, "kind": "task", "title": "Fix the pagination cursor", "project_key": "ui",
+	# **Nested, since `SR#512` publishes an address and `SR#959` draws one.** A row filed at
+	# the top level would render a one-segment label, which is what a bare key looked like —
+	# so the whole point of the change would be invisible to every page built from this.
+	"project_path": "subroutine/ui",
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
@@ -1010,6 +1015,12 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	no element to read back — the same argument as `#94`'s above, aimed at the branch nobody had
 	built a fixture for.
 
+	**Raised to eighteen for `#959`**, and the case is *pressing* a control. Decision `#957` §4
+	makes a project label clickable and says it narrows the page to that path; `tests/dom.js`
+	drops every attribute but ``href`` and has no navigation at all, so it can say a mark
+	carries an address and never that following it arrives anywhere. A link nobody has clicked
+	is the inert control this project keeps shipping.
+
 	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
@@ -1021,7 +1032,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 17, (
+	assert len(tests) <= 18, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first."
@@ -1335,3 +1346,61 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	)
 
 	page.close()
+
+
+def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -> None:
+	"""`#959`, decision `#957` §4, and the claim is about what is on screen.
+
+	**Only a browser can answer it.** `tests/dom.js` drops every attribute but `href` and has
+	no navigation, so it can say a mark carries an address and not that pressing it goes there
+	— and *"clicking it filters the view to that project path"* is the whole requirement.
+
+	Driven from a page that names a workspace and no project, which is where the label carries
+	the most: the whole path, and clicking it leaves the page showing that project alone.
+	"""
+
+	opened, _written, _refusing = running
+	page = opened("/projects")
+	page.wait_for_selector(".rows li .mark", timeout=10_000)
+
+	label = page.locator(".rows li a.mark").first
+
+	assert label.count() > 0, "no project label is a link, so there is nothing to press"
+
+	address = label.get_attribute("href")
+	said = (label.inner_text() or "").strip()
+
+	assert address is not None and address.startswith("/projects/"), (
+		f"a project label points at {address!r}, which is not a place in this workspace"
+	)
+	assert said and said.lower() == said, (
+		f"the label is {said!r} — slug form, lower case, is what a reader can type back"
+	)
+
+	label.click()
+	page.wait_for_url(f"**{address}*", timeout=10_000)
+	page.wait_for_selector(".rows li", timeout=10_000)
+
+	# **The page moved and stayed the app**, which is what separates a link that narrows from
+	# one that reloads into a 404 — since `#648` an unclaimed address is served this page, so
+	# an address that named nothing would still render something.
+	# The path alone, because `go` carries the arrangement in the query — `?view=list` is the
+	# view the reader was already on travelling with them, which is decision `#649`'s rule that
+	# the path says which rows there are and the query says how they look.
+	assert urllib.parse.urlparse(page.url).path == address, (
+		f"pressing the label left the reader at {page.url}"
+	)
+
+	# **Waited for rather than read once.** The rows were already on the page before the click,
+	# so a selector that was satisfied a moment ago is satisfied again immediately and the
+	# assertion lands before the re-render — a test that passes for the wrong reason, and on a
+	# page that polls, one that would sometimes pass for the right one.
+	page.wait_for_selector(".rows li a.mark", state="detached", timeout=10_000)
+
+	after = page.eval_on_selector_all(
+		".rows li .mark", "marks => marks.map((mark) => mark.textContent.trim())"
+	)
+
+	assert address.removeprefix("/projects/") not in after, (
+		f"the page is that project and its rows still name it: {after}"
+	)
