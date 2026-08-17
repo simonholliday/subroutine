@@ -2386,13 +2386,17 @@ export function day (value, zone = null, allDay = true) {
 	return at ? `${shown}, ${at}` : shown;
 }
 
-export function overdue (item) {
+export function overdue (item, now = null) {
+	/* **`now` for the reason `holding`, `moment` and `when` already take one** (`#950`): a mark
+	   read off the clock is only as fresh as the last render, so a test that cannot move the
+	   clock can only assert what the mark says *at this instant* — which is the one thing that
+	   was never in doubt. Null is the real clock, so every caller is unchanged. */
 	if (!item.due_at || item.status_category === "done") return false;
 
-	return new Date(item.due_at) < new Date();
+	return new Date(item.due_at) < (now === null ? new Date() : new Date(now));
 }
 
-export function deferred (item) {
+export function deferred (item, now = null) {
 	/*
 		Whether this item has been put off until a moment that has not arrived — `#862`.
 
@@ -2417,7 +2421,7 @@ export function deferred (item) {
 	*/
 	if (!item.snoozed_until) return false;
 
-	return new Date(item.snoozed_until) > new Date();
+	return new Date(item.snoozed_until) > (now === null ? new Date() : new Date(now));
 }
 
 /*
@@ -4824,6 +4828,27 @@ export function App () {
 	const [members, setMembers] = useState([]);
 	const [note, setNote] = useState(null);
 	const [busy, setBusy] = useState(false);
+	/*
+		**A counter nobody reads, bumped so the clock-dependent marks are recomputed** (`#950`,
+		cold review `#927`'s L-7).
+
+		`overdue` and `deferred` are worked out from `new Date()` at render, and `deferred`'s own
+		comment says why they are computed rather than published: *a published boolean would be
+		stale — computed when the page was fetched, and going on saying "deferred" after the
+		moment passed, on a page a reader leaves open.* It was computed and stale anyway, because
+		the only thing that re-renders is the poll, and `#781` correctly made the poll do nothing
+		when the feed reports nothing new.
+
+		**The value is deliberately unread.** The marks read the clock directly, so all that is
+		needed is a render; carrying an instant down through every component to arrive at the
+		same answer would be more code for the same page. Setting state is the whole mechanism.
+
+		**On the existing tick rather than a timer of its own** (Simon's decision of 2026-08-17).
+		It costs no request — `#781`'s finding was a poll *fetching* when nothing had changed,
+		which this does not do — and a second interval is one more thing `_driven` has to hold,
+		in a harness whose whole design is holding the one.
+	*/
+	const [, retick] = useState(0);
 	const [more, setMore] = useState(null);
 	/* **Read once, from the same storage `index.html` read before the first paint** (`#908`).
 	   Held here only so the control shows the right option: the attribute is already on the
@@ -5292,6 +5317,11 @@ export function App () {
 		if (error || !workspace) return undefined;
 
 		const tick = setInterval(async () => {
+			/* **Before the request, not after it.** A poll that fails changes nothing on
+			   screen by design, and the clock has still moved — so a mark that should have
+			   gone must go whether or not the instance answered. */
+			retick((count) => count + 1);
+
 			try {
 				/* **The agenda spans workspaces, so its poll must too** (`#652`) — and it has
 				   to reload the thing on screen rather than the list underneath it. `agenda` is

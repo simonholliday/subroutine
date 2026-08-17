@@ -9060,3 +9060,78 @@ def test_every_select_has_a_name_a_screen_reader_can_read () -> None:
 	assert source.count("<select") > 5, (
 		"the scan found almost no selects, so it is reading something other than the app"
 	)
+
+
+def _at_the_clock (
+	tmp_path: pathlib.Path, cases: typing.Sequence[tuple[str, dict[str, typing.Any], int]]
+) -> list[typing.Any]:
+	"""Ask ``overdue`` or ``deferred`` about a row at the moment given with it."""
+
+	module = _staged(tmp_path)
+
+	return list(_ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		process.stdout.write(JSON.stringify(
+			{json.dumps([list(case) for case in cases])}.map(([mark, item, now]) =>
+				app[mark](item, now))
+		));
+	"""))
+
+
+def test_a_mark_read_from_the_clock_answers_the_clock_it_is_given (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#950`, cold review `#927`'s L-7. The half that can be exact.
+
+	``overdue`` and ``deferred`` read ``new Date()`` and took no argument, so the only thing a
+	test could ask was *what do you say right now* — which was never in doubt. They take a
+	``now`` like ``holding``, ``moment`` and ``when`` already did, and the interesting question
+	becomes answerable: **the same row, two instants, two answers.**
+
+    That is what the page depends on. ``deferred``'s own comment argues the value is computed
+	rather than published *because* a published one would go stale on a page left open — so a
+	mark that could not be asked about a different moment was a claim nothing could check.
+	"""
+
+	noon = int(datetime.datetime(2026, 8, 9, 12, 0, tzinfo=datetime.UTC).timestamp() * 1000)
+	evening = int(datetime.datetime(2026, 8, 9, 18, 0, tzinfo=datetime.UTC).timestamp() * 1000)
+
+	parked = {"ref": 1, "kind": "task", "title": "Later", "snoozed_until": "2026-08-09T15:00:00+00:00"}
+	due = {"ref": 2, "kind": "task", "title": "Soon", "due_at": "2026-08-09T15:00:00+00:00"}
+
+	assert _at_the_clock(tmp_path, [
+		("deferred", parked, noon),
+		("deferred", parked, evening),
+		("overdue", due, noon),
+		("overdue", due, evening),
+	]) == [True, False, False, True], (
+		"a mark read from the clock gave the same answer at two instants either side of the "
+		"moment it is about, so nothing about a page left open could be checked"
+	)
+
+
+def test_the_poll_re_renders_so_those_marks_are_recomputed () -> None:
+	"""`#950`. **Guarded at the wiring, and that is stated rather than left to be found.**
+
+	The behaviour — *a mark goes away while somebody watches* — needs a `snoozed_until` that
+	passes between two renders, and `_driven` waits a fixed 300ms before ticking. Any instant
+	close enough to cross in that window is close enough to have crossed already on a slow
+	run, which is a flaky test in the one file that is excluded from the parallel suite for
+	load sensitivity. `#767` is the precedent: guarded at the wiring because `_driven` cannot
+	press Back, said in the test rather than discovered later.
+
+	So this asserts the tick bumps state, and the test above asserts the marks answer a clock.
+	Together they are the claim; neither is on its own.
+
+	**Read with comments stripped**, because the paragraph explaining `retick` names it several
+	times and would satisfy a scan for it — `#427`'s trap, met three times in this repository.
+	"""
+
+	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	interval = source[source.index("setInterval(async") :]
+
+	assert "retick(" in interval[: interval.index("}, POLL_MS)")], (
+		"the poll no longer bumps state, so a page left open stops recomputing `overdue` and "
+		"`deferred` — which is what `deferred`'s own comment says computing them is for"
+	)

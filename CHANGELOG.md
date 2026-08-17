@@ -74,6 +74,12 @@ upgrade involves.
   A rare date is not an impossible one: 29 February, and the 31st of whichever months have one,
   are unaffected.
 
+- **A page left open stops saying an item is deferred once it is not.** *Overdue* and *deferred*
+  are worked out from the clock as the page draws, which is what keeps them right as time
+  passes — but nothing redrew the page unless something on the instance changed, so on a quiet
+  afternoon they were as stale as if they had been fixed when the page loaded. The poll redraws
+  now. It asks for nothing extra to do it.
+
 - **The workspace switcher tells a screen reader what it is.** It was the one control in the app
   with no accessible name — announced as a combo box and nothing else, while being the thing that
   decides which backlog you are looking at.
