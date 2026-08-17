@@ -78,6 +78,17 @@ def _entity (
 	Adding to the record of something in the trash is the thing to refuse, and refusing it by
 	name — rather than by claiming the item does not exist — is what tells somebody they want
 	``restore``.
+
+	**It happened again with recurrence templates, on this same lookup** (`#921`). ``show``
+	resolved the series and then failed here, so the reader was told *"There is no task here to
+	comment on"* about the item they had just addressed — the deleted-item symptom exactly, in
+	the words of a command nobody ran. The template is where a repeat's history lives: when it
+	was created, and every time somebody changed the rule. Reading that is the whole reason a
+	client follows ``recurrence_template_ref``, and being able to read a record you may not add
+	to would be the asymmetry pointing the wrong way.
+
+	**A template is an item you may read and annotate; it is not *work*.** That is what keeps it
+	out of a listing (§6.7), and it says nothing about its record.
 	"""
 
 	if entity_type not in ENTITY_TYPES:
@@ -115,6 +126,7 @@ def _entity (
 				workspace_ids=reachable,
 				include_completed=True,
 				include_deleted=True,
+				include_templates=True,
 			).where(subroutine.db.models.work.Task.id == entity_id)
 
 		elif entity_type == "project":

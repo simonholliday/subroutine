@@ -1696,6 +1696,20 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 				)
 			)
 
+		# **The series, and it matters more here than at the terminal** (`#921`). An agent
+		# following ``recurrence_template_ref`` lands on a row with the same title as the
+		# occurrence it came from, and nothing else distinguishes them — so without this it can
+		# read the rule and act on it as though it were the work. One wording, from
+		# `subroutine.views`, because `#674` compares this list against the terminal's.
+		#
+		# **Read as an attribute inside the task block**, for the reason written out beside its
+		# twin in `cli/personal._facts`: `#674`'s guard derives what a rendering shows by
+		# scanning ``item.<field>``, so spelling this ``getattr(item, "is_template", False)``
+		# put it where the guard could not see it — measured, by deleting this and watching 508
+		# tests stay green.
+		if item.is_template:
+			facts.append(subroutine.views.THE_SERIES)
+
 	# The project only when somebody filed it somewhere. The Inbox is where things go when
 	# nobody said, so naming it would be reporting the absence of a decision.
 	if item.project_key and item.project_key.lower() != "inbox":

@@ -468,12 +468,22 @@ class Client:
 				# list where this refused outright — so ``subroutine show`` on something
 				# deleted failed here after it had already been found. Being unreadable is
 				# what hides a parent; being deleted is not.
+				#
+				# **And templates, for the same reason again** (`#921`). This was `#700`'s
+				# fourth site and it is this one's fourth too: `show` resolves the series,
+				# reads its comments, and then asks here for its children — so the refusal
+				# arrives *after* the item has been found, in the words of a listing nobody
+				# ran. **A ref this product published resolves everywhere or nowhere**; a
+				# lookup that refuses one of the four is a defect wearing a different
+				# sentence each time, which is why `#700`'s own record says a changed
+				# refusal is not a fixed one.
 				above = session.scalars(
 					subroutine.domain.scoping.readable_tasks(
 						actor,
 						workspace_ids=[chosen.id],
 						include_completed=True,
 						include_deleted=True,
+						include_templates=True,
 					).where(model.ref == parent)
 				).first()
 
@@ -2330,12 +2340,24 @@ class Client:
 	) -> typing.Any:
 		"""Return the task or document this ref names, **including one already in the trash**.
 
-		`_row` deliberately excludes deleted tasks, which is right for every other caller and
-		exactly wrong for the two that exist to move an item in and out of it: the one row
-		`undiscard` is for is the one `_row` cannot see. The HTTP side has always resolved
-		through a statement that includes the trash — "a reference to something in the trash is
-		more useful than a dangling one" — so this is the two transports agreeing rather than a
-		local liberty.
+		**What separates this from `_row` is the kind and the workspace, not the trash.** This
+		takes either kind and resolves a workspace by name; `_row` is tasks only and takes an id
+		already resolved. The sentence here used to say `_row` "deliberately excludes deleted
+		tasks", which was true when it was written and stopped being true at `#140` — so the
+		stated reason for this function existing had been false for longer than the function had
+		been right. Found while fixing `#921` two screens down, by reading it.
+
+		The HTTP side has always resolved through a statement that includes the trash — "a
+		reference to something in the trash is more useful than a dangling one" — so that half
+		is the two transports agreeing rather than a local liberty.
+
+		**Recurrence templates deliberately stop here**, unlike in `_row` and `_subject`. Those
+		two answer *what does this ref name*, which is a read, and `#921` is that a ref we
+		publish must resolve. This one serves `restore`, `undiscard` and `move` — so widening it
+		would quietly make a series a legal parent to move work under, which is a decision about
+		the model rather than about reading, and nobody has taken it. A deleted template is
+		reachable only through the API in any case: stopping a series *completes* the template
+		rather than deleting it (§6.7).
 		"""
 
 		chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -2390,6 +2412,12 @@ class Client:
 		Worth seeing rather than fixing quietly: the divergence was not in what either client
 		*returns* — ``task()`` agrees on both, deleted or not — but in what one of them **asks
 		for** one layer down, on the lookup that fetches an item's comments.
+
+		**And it recurred with recurrence templates** (`#921`), which is why the exception is
+		worth reading as a shape rather than as the trash: ``_resolve`` widens on *three* axes
+		and this widened on two, so the third produced the identical symptom a release later.
+		The general rule is the one the paragraph above states — a lookup by a ref answers what
+		the ref names, and only *unreadable* is allowed to make it answer nothing.
 		"""
 
 		model: typing.Any = (
@@ -2404,6 +2432,7 @@ class Client:
 				include_completed=True,
 				include_archived=True,
 				include_deleted=True,
+				include_templates=True,
 			)
 			if entity_type == "task"
 			else subroutine.domain.scoping.readable_documents(
@@ -2442,6 +2471,19 @@ class Client:
 		looked one up after deleting it: there was no way to delete one.
 
 		Found by building ``restore`` and watching it fail to find the item it exists for.
+
+		**And recurrence templates, which was the same divergence one flag along** (`#921`).
+		Every occurrence publishes ``recurrence_template_ref``, and ``views._from_a_live_series``
+		says of it that it *"deliberately still resolves … and is how a client reaches the
+		history"* — a sentence nothing here implemented. So ``show 2 --json`` handed back
+		``recurrence_template_ref: 1`` and ``show 1`` answered *"There is no #1"*, while
+		``GET /v1/tasks/1`` answered 200 with the series.
+
+		**A listing still hides them and must** — a rule is not work (§6.7) — but a *lookup by a
+		ref we published* is the opposite question, and answering it is what ``include_templates``
+		is for. It narrows nothing: the workspace, project visibility and the credential's project
+		scope are all still applied by the helper, so this reaches exactly what the HTTP caller
+		already reaches.
 		"""
 
 		model = subroutine.db.models.work.Task
@@ -2452,6 +2494,7 @@ class Client:
 				workspace_ids=[workspace_id],
 				include_archived=True,
 				include_deleted=True,
+				include_templates=True,
 			).where(model.ref == ref)
 		).one_or_none()
 

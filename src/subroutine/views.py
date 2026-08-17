@@ -1298,6 +1298,24 @@ BLOCKED_MARK = "blocked"
 BLOCKING_MARK = "blocker"
 
 
+#: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
+#:
+#: **Here for `BLOCKED_MARK`'s reason**, and it earned that placement immediately: `#921` made a
+#: template's ref resolve on every surface, and a series and its occurrence carry the *same
+#: title* — so ``show 1`` and ``show 2`` rendered identically and nothing told them apart. Two
+#: surfaces inventing their own sentence for that is what `#674` and `#922` were built to catch.
+#:
+#: **``is_template``'s own comment already promised this** — "the only thing that explains why a
+#: row with a ref appears in no listing" — while no rendering read the field. A published field
+#: whose stated job is explaining something to a reader, and no reader ever saw it.
+#:
+#: **No new vocabulary, which is deliberate.** The product says *repeat* everywhere a person
+#: meets this — ``--repeat``, ``repeats``, the browser's **Repeats** disclosure — so *series*
+#: would be a word somebody has to learn to read one line. *itself* is what separates the rule
+#: from the thing it produces, and it needs no glossary.
+THE_SERIES = "the repeat itself"
+
+
 def status_is_news (item: "Task | Project | Document") -> bool:
 	"""Report whether an item's status is worth telling a reader about.
 

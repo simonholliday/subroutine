@@ -6455,6 +6455,22 @@ def _facts (located: Located) -> list[str]:
 		if item.assignee:
 			facts.append(f"@{item.assignee}")
 
+		# **The fact that is not a choice, and the one that changes what the others mean**
+		# (`#921`). A series and its occurrence carry the same title, so once `#921` made the
+		# template's ref resolve, `show 1` and `show 2` rendered identically and nothing said
+		# which was which. ``views.Task.is_template``'s own comment already named this as its
+		# job — "the only thing that explains why a row with a ref appears in no listing" — and
+		# until now no rendering read it, so the explanation existed and reached nobody.
+		#
+		# **Inside the task block, read as an attribute, and that is not a style choice.** It
+		# was ``getattr(item, "is_template", False)`` out below, which works and is *invisible
+		# to `#674`'s guard*: that scan reads ``item.<field>`` to derive what each rendering
+		# shows, so a read spelled as a lookup by string is one it cannot see. Deleting the
+		# agent's copy left 508 tests green. A task-only fact belongs in the task block anyway,
+		# which is what makes the plain attribute available.
+		if item.is_template:
+			facts.append(subroutine.views.THE_SERIES)
+
 	# **Outside the task block since `#819`**, because both kinds carry tags now and from one
 	# vocabulary. It sat inside for as long as only a task could have them — so a document
 	# tagged through the API rendered nothing here, which is the *stored and shown nowhere*

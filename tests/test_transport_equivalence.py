@@ -1299,6 +1299,80 @@ def test_both_expand_a_repeat_into_the_same_dates (pair: Pair) -> None:
 		assert "does not repeat" in str(refused.value)
 
 
+#: Every call ``subroutine show`` makes, by name. **Four rather than one, and that is the whole
+#: point of this guard**: `#700` and `#921` were both a ref that ``task()`` resolved on both
+#: transports and a *sub-resource* refused on one — so a check that asked only for the item
+#: would have passed through both defects. `#700`'s own record says it: "the divergence was not
+#: in what either client *returns* … but in what one of them **asks for** one layer down".
+_Asked = typing.Callable[
+	[subroutine.clients.local.Client | subroutine.clients.http.Client, int], typing.Any
+]
+
+_WHAT_SHOW_ASKS_FOR: tuple[_Asked, ...] = (
+	lambda client, ref: client.task(ref=ref),
+	lambda client, ref: client.links(ref=ref),
+	lambda client, ref: client.comments(ref=ref),
+	lambda client, ref: client.tasks(parent=ref),
+)
+
+
+def test_a_ref_this_product_publishes_resolves_on_both_transports (pair: Pair) -> None:
+	"""`#921`, and `#700` before it: a number we hand back must name something.
+
+	**Derived from the view rather than listed**, so a field added tomorrow that carries a ref
+	is covered without anybody remembering this test. Today that is ``parent_ref`` and
+	``recurrence_template_ref``; the rule is about the shape, not about those two.
+
+	`#921` was the second time a published ref resolved over HTTP and not locally, and it took
+	**five** lookups to close where the item named one — ``_row``, ``_subject``, the children
+	query, ``domain.comments`` and the template flag itself. Each refused in different words, so
+	fixing one moved the message rather than removing it and read like progress. That is why
+	this drives every call ``show`` makes instead of asserting on one.
+
+	The occurrence is what a client actually holds — nothing lists a template (§6.7) — so the
+	ref under test is reached the way a caller reaches it: off a row it was given.
+	"""
+
+	series = pair.local.capture(
+		text="Water the plants by 2026-12-01", recurrence="every 14 days"
+	).task
+
+	local, remote = pair.both()
+	occurrence = local.task(ref=series.ref)
+
+	assert occurrence is not None
+
+	published = {
+		name: getattr(occurrence, name)
+		for name in type(occurrence).model_fields
+		if name.endswith("_ref") and getattr(occurrence, name) is not None
+	}
+
+	# The fixture has to produce at least one, or this passes by having nothing to check —
+	# which is the shape that let `#921` ship in the first place.
+	assert "recurrence_template_ref" in published
+
+	for ref in published.values():
+		for asked in _WHAT_SHOW_ASKS_FOR:
+			asked(local, ref)
+			asked(remote, ref)
+
+	# **And it is legible once it resolves**, which is the other half: a series and its
+	# occurrence carry the same title, so a ref that resolves to something indistinguishable
+	# from the row you started on has answered without informing.
+	template = local.task(ref=published["recurrence_template_ref"])
+
+	assert template is not None
+	assert template.is_template is True
+	assert remote.task(ref=published["recurrence_template_ref"]) == template
+
+	# **A listing still hides it**, and that is not in tension with the above — a rule is not
+	# work (§6.7). Reading what a ref names and listing it as something to do are different
+	# questions, and this guard would otherwise be satisfied by simply publishing templates.
+	for client in (local, remote):
+		assert all(row.ref != template.ref for row in client.tasks())
+
+
 def test_both_change_how_a_repeat_is_measured_without_re_sending_the_rule (
 	pair: Pair,
 ) -> None:

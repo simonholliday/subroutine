@@ -485,6 +485,20 @@ upgrade involves.
 
 ### Fixed
 
+- **The number a repeating task gives you for its series now opens the series.** Every occurrence
+  of a repeat reports `recurrence_template_ref`, and asking for that number answered *"There is
+  no #1"* — while the same request over HTTP returned it perfectly well. So an address this
+  program handed out was denied by the program that handed it out, and the advice attached sent
+  you looking in the trash for something nobody had deleted.
+
+  The series is where a repeat's history lives: when it was set up, and every time somebody
+  changed the rule. `subroutine show`, its links, its comments and its sub-tasks all reach it
+  now, on every surface. **A listing still leaves it out**, which is deliberate — a rule is not a
+  piece of work, and putting it in your list would show you the same title twice.
+
+  A series and one of its occurrences share a title, so both now say **the repeat itself** on the
+  one that is the rule.
+
 - **A failure read back over HTTP is the one a local call would have raised.** The exception was
   rebuilt from the status code, and four of ours share `409` and four share `422` — so a client
   catching `SchemaMismatch` caught it against its own database and missed the identical failure
