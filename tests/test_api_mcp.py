@@ -288,6 +288,99 @@ def test_a_malformed_message_is_answered_the_way_stdio_answers_it (
 	assert answered.json() == expected
 
 
+def test_a_revision_this_server_does_not_speak_is_refused (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#941`, cold review `#927` M-31 — the transport makes this refusal mandatory.
+
+	Until this landed the header was read by nothing, so ``banana`` and ``2099-01-01`` were
+	both answered ``200`` — measured on a served instance rather than inferred.
+
+	**The refusal names the revision this server speaks**, which is the half that makes a 400
+	useful: it is how an old server and a new client find each other, and a body saying only
+	*no* leaves the caller to guess whether to retry lower.
+	"""
+
+	for announced in ("banana", "2099-01-01", "2026-07-28", ""):
+		answered = _message(
+			world,
+			{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+			headers={subroutine.api.mcp.VERSION_HEADER: announced},
+		)
+
+		assert answered.status_code == 400, f"{announced!r} was answered"
+
+		body = answered.json()
+
+		assert body["code"] == "unsupported_protocol_version"
+		assert subroutine.mcp.protocol.PROTOCOL_VERSION in body["detail"]
+
+
+def test_the_revisions_this_server_does_speak_are_answered (
+	world: test_api_tasks.World,
+) -> None:
+	"""Both halves, because a check that refused everything would pass the test above.
+
+	**Absent is allowed and read as the revision the transport says to assume**, and that
+	value is allowed in its written form too — refusing what is served implicitly would be two
+	answers to one question. Driven rather than asserted against the constant: what matters is
+	that a real request gets through, not that a set contains a string.
+	"""
+
+	for headers in (
+		{},
+		{subroutine.api.mcp.VERSION_HEADER: subroutine.mcp.protocol.PROTOCOL_VERSION},
+		{subroutine.api.mcp.VERSION_HEADER: subroutine.api.mcp.ASSUMED_WHEN_ABSENT},
+	):
+		answered = _message(
+			world,
+			{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+			headers=headers,
+		)
+
+		assert answered.status_code == 200, f"{headers} was refused: {answered.text}"
+		assert answered.json()["result"]["tools"], "the answer is a real one"
+
+
+def test_the_handshake_itself_carries_no_version_and_must_not_need_one (
+	world: test_api_tasks.World,
+) -> None:
+	"""The measurement this refusal was built on, held as a test.
+
+	``claude-code/2.1.226`` sends no ``MCP-Protocol-Version`` on ``initialize`` — correct,
+	since there is nothing negotiated yet — and the negotiated value on everything after. A
+	check that demanded the header would refuse the one request that establishes it, which is
+	the way this could have locked every remote client out of a working instance.
+	"""
+
+	answered = _message(
+		world,
+		{
+			"jsonrpc": "2.0",
+			"id": 0,
+			"method": "initialize",
+			"params": {"protocolVersion": "2025-11-25"},
+		},
+	)
+
+	assert answered.status_code == 200, answered.text
+
+	agreed = answered.json()["result"]["protocolVersion"]
+
+	assert agreed == subroutine.mcp.protocol.PROTOCOL_VERSION
+
+	# And the version it was just handed is one it may then announce, which is what makes the
+	# handshake and the refusal one arrangement rather than two.
+	assert (
+		_message(
+			world,
+			{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+			headers={subroutine.api.mcp.VERSION_HEADER: agreed},
+		).status_code
+		== 200
+	)
+
+
 def test_the_event_stream_is_not_offered (world: test_api_tasks.World) -> None:
 	"""``GET`` is refused, and a client that tries carries on regardless.
 

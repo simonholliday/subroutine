@@ -66,6 +66,23 @@ import subroutine.mcp.session
 #: URI an OAuth deployment would use simply ``https://host/mcp`` (RFC 8707 §2).
 PATH = "/mcp"
 
+#: The header a client announces its revision in, once the handshake has settled one.
+VERSION_HEADER = "MCP-Protocol-Version"
+
+#: What the transport says to assume when :data:`VERSION_HEADER` is absent. Named rather than
+#: inlined because it is the reason :data:`SPOKEN` carries a revision this server does not
+#: implement: refusing the value in its written form while serving it in its implied one would
+#: be two answers to one question.
+ASSUMED_WHEN_ABSENT = "2025-03-26"
+
+#: The revisions this endpoint will answer to. ``_initialize`` agrees to
+#: :data:`subroutine.mcp.protocol.PROTOCOL_VERSION` and answers with it for anything else, so a
+#: session that completes the handshake is always on that one — which is what makes this a
+#: short list rather than a policy.
+SPOKEN: frozenset[str] = frozenset(
+	{subroutine.mcp.protocol.PROTOCOL_VERSION, ASSUMED_WHEN_ABSENT}
+)
+
 router = fastapi.APIRouter(
 	tags=["mcp"],
 	route_class=subroutine.api.routing.Transactional,
@@ -154,6 +171,7 @@ def call (
 	"""
 
 	_refuse_a_foreign_origin(request, settings)
+	_refuse_a_revision_this_server_does_not_speak(request)
 	_refuse_a_credential_this_transport_does_not_take(actor)
 
 	# **`actor` is declared and deliberately not passed on.** Declaring it is what authenticates
@@ -328,6 +346,48 @@ def _instance_name (session: sqlalchemy.orm.Session) -> str:
 	"""
 
 	return subroutine.domain.instances.require(session).name
+
+
+def _refuse_a_revision_this_server_does_not_speak (
+	request: starlette.requests.Request,
+) -> None:
+	"""Refuse a client announcing an MCP revision this server cannot answer — `#941`.
+
+	**The transport makes this mandatory**, and until `#927`'s M-31 the header was read by
+	nothing: `banana`, `2099-01-01` and no header at all were all answered ``200``. Absent is
+	allowed and read as :data:`ASSUMED_WHEN_ABSENT`, which is what the transport says to
+	assume; present-and-unknown is refused.
+
+	**The refusal names the revision this server speaks**, because a 400 whose body says only
+	*no* leaves the caller to guess whether to retry lower, and because the whole point of the
+	status here is to let an old server and a new client find each other.
+
+	**Driven before it was written, because the risk was locking a working plugin out of a
+	working instance.** A header-logging probe against ``claude-code/2.1.226`` shows the shape
+	that makes this safe: its *first* request is a new-era ``server/discover`` carrying
+	``2026-07-28`` — which this refuses — and every request after the handshake carries the
+	revision it negotiated, which is ours. Re-run against a probe that refuses exactly as this
+	does, it took the 400, fell back to ``initialize``, agreed ``2025-06-18`` and proceeded,
+	with a trace identical to the permissive run. A 400 there is what the status is *for*.
+
+	**The ``GET`` is deliberately not checked.** It answers ``405`` whatever it carries, so a
+	version check in front of it could only change which refusal a caller reads.
+	"""
+
+	announced = request.headers.get(VERSION_HEADER)
+
+	if announced is None or announced in SPOKEN:
+		return
+
+	raise subroutine.errors.UnsupportedProtocolVersion(
+		f"This server speaks MCP revision {subroutine.mcp.protocol.PROTOCOL_VERSION}, "
+		f"and the request announced {announced!r}.",
+		hint=(
+			f"Negotiate with 'initialize', which answers "
+			f"{subroutine.mcp.protocol.PROTOCOL_VERSION}, and send that in "
+			f"'{VERSION_HEADER}' afterwards."
+		),
+	)
 
 
 def _refuse_a_foreign_origin (

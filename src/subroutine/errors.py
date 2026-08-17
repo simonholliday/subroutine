@@ -74,6 +74,16 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"parameter that is not of the shape the endpoint accepts.",
 		),
 		_define(
+			"unsupported_protocol_version",
+			400,
+			"Unsupported protocol version",
+			"A client announced an MCP revision this server does not speak, which the "
+			"Streamable HTTP transport requires be refused rather than answered as though "
+			"it were understood. The revision this server does speak is named, so a client "
+			"can decide whether to continue. Distinct from 'malformed_request' because the "
+			"request was read perfectly well.",
+		),
+		_define(
 			"unauthenticated",
 			401,
 			"Not authenticated",
@@ -306,6 +316,12 @@ class BadRequest(SubroutineError):
 	"""The request could not be read."""
 
 	CODE = "malformed_request"
+
+
+class UnsupportedProtocolVersion(SubroutineError):
+	"""A client announced an MCP revision this server does not speak."""
+
+	CODE = "unsupported_protocol_version"
 
 
 class Unauthenticated(SubroutineError):

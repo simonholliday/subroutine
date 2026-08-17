@@ -28,6 +28,7 @@ following one lands on the section describing it.
 | `service_unavailable` | 503 | Not ready | The instance is running but cannot serve requests yet — most often its database is unreachable, or its schema has not been brought up to date. Reported by the readiness check so that a deployment holds traffic back rather than serving errors. |
 | `unauthenticated` | 401 | Not authenticated | No credential was presented, or the one presented is not valid. Every reason reports identically: an unknown token, a revoked one and an expired one are indistinguishable from outside on purpose. |
 | `unknown_field` | 422 | Unknown field | The request body carried a field this endpoint does not accept. Rejected rather than ignored, because silently dropping a typo is how a caller comes to believe it set something it did not (SPEC.md §8.1). |
+| `unsupported_protocol_version` | 400 | Unsupported protocol version | A client announced an MCP revision this server does not speak, which the Streamable HTTP transport requires be refused rather than answered as though it were understood. The revision this server does speak is named, so a client can decide whether to continue. Distinct from 'malformed_request' because the request was read perfectly well. |
 | `version_conflict` | 409 | Version conflict | The entity changed since the version the caller sent. The response carries both versions and the current entity, so the caller can merge rather than refetch and start again. |
 
 ## cursor_expired
@@ -131,6 +132,12 @@ No credential was presented, or the one presented is not valid. Every reason rep
 **Unknown field** — HTTP 422.
 
 The request body carried a field this endpoint does not accept. Rejected rather than ignored, because silently dropping a typo is how a caller comes to believe it set something it did not (SPEC.md §8.1).
+
+## unsupported_protocol_version
+
+**Unsupported protocol version** — HTTP 400.
+
+A client announced an MCP revision this server does not speak, which the Streamable HTTP transport requires be refused rather than answered as though it were understood. The revision this server does speak is named, so a client can decide whether to continue. Distinct from 'malformed_request' because the request was read perfectly well.
 
 ## version_conflict
 

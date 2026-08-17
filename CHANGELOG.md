@@ -224,6 +224,14 @@ upgrade involves.
 
 ### Changed
 
+- **`POST /mcp` refuses a protocol revision it cannot speak**, with `400` and a new error code,
+  `unsupported_protocol_version`. The Streamable HTTP transport requires it and the header was
+  read by nothing, so any value at all was answered as though it were understood. A missing
+  header still means `2025-03-26`, as the transport says. Measured against Claude Code before
+  building it: everything it sends after the handshake is the revision it agreed with us, and
+  the one request this refuses — its new-era discovery probe — it already knows how to fall
+  back from.
+
 - **An appointment and a deferred task are different things, and are named differently.**
   `start_at` meant two opposite things — *this begins at* and *do not show me this until* —
   and everything that read it took the second. So `Dentist on Monday at 2pm` was filed as a
