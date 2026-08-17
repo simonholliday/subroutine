@@ -66,6 +66,15 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"deleted or archived filter, because a deletion is the event most worth reporting and an "
 	"item in the trash still has to be nameable in the line that says it went there",
 	"domain/agenda.py": "builds on the helper and adds only what the agenda means",
+	"domain/calendars.py": "**the rows come from `readable_tasks` and only the scope does not** "
+	"(`#916`). One direct read: a feed's own `project_id` is fetched so its subtree predicate "
+	"can be built, and that is a single row by an id the feed itself stores — never a listing, "
+	"and never a project the caller named. It is narrowed by nothing on purpose, for "
+	"`authentication.py`'s reason one line up: the question is the shape of the tree rather "
+	"than who may look at it. What decides which tasks a poll returns is `readable_tasks` "
+	"narrowed by the feed's **owner**, resolved on every request rather than at creation — so "
+	"a feed stops showing a private project the moment its owner leaves it, and the subtree "
+	"predicate is `scoping.within_project`, the same one every listing uses",
 	"domain/selection.py": "resolves one project from what a caller typed, through "
 	"readable_projects on every path that has a principal. The direct select is the "
 	"unauthenticated internal caller — bootstrap and the tests — which holds no credential "
