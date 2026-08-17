@@ -29,11 +29,11 @@ jobs:
       # Full history and tags, because the release check compares this commit's migration
       # head against the one at the most recent tag. A shallow clone has neither, and the
       # check would find no previous tag and cheerfully pass every time.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -69,14 +69,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -104,9 +104,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: "22"
 
@@ -146,14 +146,14 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -165,7 +165,7 @@ jobs:
       # checks that actually exercise the UI would run nowhere at all: not here, and not on
       # a development machine that has no node either. Pinned rather than relying on
       # whatever the runner image happens to ship.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: "22"
 
@@ -204,13 +204,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Tags, because the version is derived from them and an editable install without
           # them claims to be a release nobody cut.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -218,7 +218,7 @@ jobs:
 
       # The fixtures render the app's components in Node before a browser ever sees them, so
       # this job needs both runtimes for the same reason `tests/test_web.py` needs one.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: "22"
 
@@ -247,14 +247,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
           cache: pip

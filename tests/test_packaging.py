@@ -660,3 +660,90 @@ def test_every_package_this_program_imports_is_one_it_declares () -> None:
 		f"These are imported under src/ and declared by nothing: {undeclared}. Add them to "
 		f"[project] dependencies with a floor — arriving transitively is not a promise."
 	)
+
+
+#: A commit, as an action reference names one. Forty lowercase hex characters and nothing else —
+#: a tag, a branch or a short SHA is a name somebody else can repoint.
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _action_uses () -> list[tuple[str, str, str]]:
+	"""Return every ``uses:`` in the workflows, as ``(file, action, reference)``.
+
+	Read from the workflows rather than a list beside them, for `#405`'s reason: a list of what
+	CI runs is a second copy of what CI runs, and the copy goes stale. Steps are walked out of
+	the parsed YAML so a `uses:` inside a comment cannot satisfy this, and one this scan cannot
+	see cannot hide either.
+	"""
+
+	found = []
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+		for job in (loaded.get("jobs") or {}).values():
+			for step in job.get("steps") or []:
+				if "uses" in step:
+					action, _, reference = str(step["uses"]).partition("@")
+					found.append((path.name, action, reference))
+
+	return found
+
+
+def test_every_action_is_pinned_to_a_commit () -> None:
+	"""`#952`, cold review `#927`'s L-12. A mutable ref is somebody else's decision.
+
+	**Two jobs carry ``id-token: write``**, the ``pypi`` environment has no required reviewer,
+	and pushing a tag publishes unattended minutes later — so whatever those jobs run holds the
+	credential at the moment it is exchanged. ``@v7`` and ``@release/v1`` are names their owners
+	can repoint at any commit, and both are perfectly ordinary things to publish; the pin is
+	defence in depth against those accounts, not distrust of them.
+
+	**The review named one action and there were two in that job.** ``pypa/gh-action-pypi-publish``
+	is the one it saw; ``actions/download-artifact`` runs beside it with the same token. So this
+	holds *every* action rather than a list of the sensitive ones — a privilege boundary is a
+	poor thing to maintain by hand, and every workflow here can reach a release eventually.
+
+	``.github/dependabot.yml`` is the other half. A commit nothing watches ages past a security
+	fix, which is the failure pinning exists to prevent.
+	"""
+
+	loose = [
+		f"{where}: {action}@{reference}"
+		for where, action, reference in _action_uses()
+		if not _COMMIT.match(reference)
+	]
+
+	assert not loose, (
+		"an action is referenced by a name its owner can repoint, in a repository where "
+		"pushing a tag publishes to PyPI unattended:\n  " + "\n  ".join(loose)
+		+ "\nPin it to the 40-character commit, with the version beside it in a comment."
+	)
+
+	assert len(_action_uses()) > 5, (
+		"the scan found almost no steps, so it is reading something other than the workflows"
+	)
+
+
+def test_every_pinned_action_says_which_version_it_is () -> None:
+	"""A bare digest in a diff says nothing a reviewer can weigh.
+
+	Dependabot updates the comment along with the commit, so this costs nothing to keep true —
+	and without it, reviewing its pull requests means resolving forty hex characters by hand to
+	find out whether a major version just moved.
+	"""
+
+	nameless = []
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+			stripped = line.strip()
+
+			names_one = stripped.startswith(("- uses:", "uses:"))
+
+			if names_one and "#" not in stripped:
+				nameless.append(f"{path.name}:{number}: {stripped}")
+
+	assert not nameless, (
+		"a pinned action does not say which version its commit is:\n  " + "\n  ".join(nameless)
+	)

@@ -51,14 +51,14 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           # Tags, because the version is derived from them (`SR#234`). A shallow clone makes
           # the build warn and produce `0.1.dev1+g…` rather than fail, so this job would
           # install a package quietly claiming to be a version nobody released.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -67,7 +67,7 @@ jobs:
       # **Node and a browser, because without them this job was not the gate it claims to be**
       # (`SR#927`'s H-17). CI splits these across two jobs to avoid downloading Chromium once
       # per Python version; there is one version here, so one job runs the lot.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: "22"
 
@@ -110,11 +110,11 @@ jobs:
     steps:
       # Full history and tags: `check_release_notes.py` compares this commit's migration head
       # against the head at the previous tag, and a shallow clone has neither.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         with:
           python-version: "3.12"
 
@@ -164,7 +164,7 @@ jobs:
       - name: Release notes
         run: python scripts/check_release_notes.py
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
           name: dist
           path: dist/
@@ -186,12 +186,12 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: dist
           path: dist/
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -225,12 +225,12 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: dist
           path: dist/
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
   # **After PyPI, never beside it** (`SR#241`). A GitHub release is an announcement, and one
   # announcing a version the index does not have sends people to an install that fails. So this
@@ -252,9 +252,9 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
           name: dist
           path: dist/

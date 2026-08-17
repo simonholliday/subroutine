@@ -1,0 +1,32 @@
+# Keeping the pinned actions current — item `#952`, cold review `#927`'s L-12.
+#
+# **Every `uses:` in this repository names a 40-character commit**, with the version beside it in
+# a comment. That closes the thing the review raised: two jobs carry `id-token: write`, the `pypi`
+# environment has no required reviewer, and pushing a tag publishes unattended minutes later — so
+# whatever those jobs run has the credential, and a mutable ref is somebody else's decision about
+# what that is.
+#
+# **This file is the other half, and without it the pin is worse than the tag it replaced.** A
+# commit nothing watches is a version that quietly ages past a security fix, which is the failure
+# pinning exists to prevent. Dependabot raises a pull request when an action moves, so the pin
+# stays a decision somebody takes rather than neglect that looks like rigour.
+#
+# **It updates the comment as well as the digest**, which is why the version is written there: a
+# bare SHA in a diff says nothing a reviewer can weigh, and `# v7` beside it is the difference
+# between reading a pull request and trusting one.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      # Weekly rather than daily. These move every few weeks at most, and a bot that opens
+      # nothing for a month is one whose pull requests still get read.
+      interval: weekly
+    commit-message:
+      # The commit hook here refuses a message citing no item (`#48`), and a bot cannot know
+      # which one — so its messages are prefixed to say plainly that they are not ours. They
+      # arrive as pull requests rather than as commits on `main`, so the hook never sees them.
+      prefix: "chore(actions):"
+    labels:
+      - dependencies
