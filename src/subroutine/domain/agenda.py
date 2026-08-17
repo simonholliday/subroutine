@@ -112,6 +112,24 @@ def build (
 
 	base = _visible(session, principal, workspace_ids, until=day_end)
 
+	# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927` M-18,
+	# Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and said in
+	# passing that *"`overdue` and `today` are unlimited too and are naturally bounded by
+	# dates"*. Dates do not bound this: a deadline that has passed goes on having passed, so
+	# this bucket grows with however much you are late on and has no ceiling at all —
+	# `in_progress`'s bound, workers times leases, does not apply here.
+	#
+	# **It stays uncapped anyway, on `#888`'s other argument**, which is the one that carries:
+	# hiding work misleads the reader into starting something else, and that is worse for late
+	# work than for anything on the page. Measured before deciding: 2 overdue, 1 today, on the
+	# instance this project runs on.
+	#
+	# **What would change it, and what the change must look like.** A backlog large enough that
+	# a day's agenda is unreadable — every row here renders through `views.task`, and this is
+	# also MCP's `subroutine_list(today=true)`, where §13's context economy is a first-order
+	# cost. If it ever comes to that, `#888` already fixed the shape: a cap must *say* it is
+	# one, count what is hidden and offer a way to see it all, which is exactly what
+	# `unscheduled_total` is below. Do not add a bare `.limit()`.
 	overdue = _run(
 		session,
 		base.where(model.due_at.is_not(None), model.due_at < day_start),
@@ -130,6 +148,18 @@ def build (
 				# comparison is an instant against midnight in whichever zone the driver
 				# guessed. Everything that has begun by tonight belongs to today, which is
 				# what `<=` said before and still says.
+				#
+				# **So a start date in the past stays in today's bucket, and that is
+				# deliberate** (`#927` M-18, Simon's decision of 2026-08-17). It is the
+				# `starts_at` analogue of `overdue` above: work you meant to begin and did
+				# not is work for today, every day, until you do it or move it.
+				#
+				# **Narrowing this to starts falling *within* today would lose the task
+				# entirely**, which is why the obvious fix is the wrong one — `undated`
+				# below is `starts_at IS NULL AND due_at IS NULL`, so a task with a start
+				# and no deadline is in no other bucket at all. The agenda would stop
+				# mentioning it, in silence, and `list` would become the only place it
+				# appears — which is a worse answer than showing it every day.
 				model.starts_at <= day_end,
 				sqlalchemy.and_(model.due_at >= day_start, model.due_at <= day_end),
 			)
