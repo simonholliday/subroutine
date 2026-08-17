@@ -381,6 +381,30 @@ CARD: dict[str, typing.Any] = {
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
+#: What an item's links answer — `#970`. Three ends, because the claim is that a reader can tell
+#: them apart without opening any of them: an unfinished blocker, a finished one, and a link that
+#: is not a blocker at all and so counts towards nothing.
+#:
+#: **A closed end and an open one of the same kind**, because the strikethrough is a rule about
+#: one of them and a fixture where every end is closed cannot tell *this line is struck through*
+#: from *this stylesheet strikes everything*.
+LINKED: dict[str, typing.Any] = {
+	"items": [
+		{"id": "l-1", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "task", "ref": 9, "title": "Still going",
+				"type": "bug", "status": "doing", "status_is_default": False,
+				"project_path": "subroutine/api", "blocked": True, "is_complete": False}},
+		{"id": "l-2", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "task", "ref": 10, "title": "Already finished",
+				"type": "chore", "status": "cancelled", "status_is_default": False,
+				"project_path": "subroutine/ui", "is_complete": True}},
+		{"id": "l-3", "link_type": "relates_to", "label": "Relates to", "direction": "outgoing",
+			"other": {"entity_type": "document", "ref": 4, "title": "The decision",
+				"type": "decision", "project_path": "subroutine/ui", "is_complete": False}},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": 3},
+}
+
 #: What the instance answers when it will not do something — a problem document, which is what
 #: every refusal here really is. The detail is what the page shows beside the form.
 REFUSED: dict[str, typing.Any] = {
@@ -571,6 +595,15 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# failure page. Nothing was asserting on an open item, so it looked like a
 				# harness that simply had no test for it.
 				else daily[0] if wanted.split("?")[0] == "v1/agenda"
+				# **An item's links, which fell through to `EMPTY` until `#970`** — so every
+				# item this harness could open had none, and a links list that said nothing
+				# was indistinguishable from one nobody had written a test for.
+				#
+				# **Order does not matter for this one, unlike every branch above it.**
+				# `fullmatch` is why: `v1/tasks/42/links` is not a full match for
+				# `v1/tasks/\d+`, where it *is* a `startswith` match — which is the whole
+				# difference between the two traps this block records and this line.
+				else LINKED if re.fullmatch(r"v1/tasks/\d+/links", wanted)
 				else CARD if re.fullmatch(r"v1/tasks/\d+", wanted)
 				# **The collection, and only the collection.** `startswith` also matched every
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
@@ -1114,6 +1147,30 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	attribute but `href`, so it cannot read `selected`, and "choosing what is already chosen
 	does nothing" is a fact about a real control.
 
+	**Twenty-four for `#970`**, and the number has now moved 17 → 24 in two days. That is the
+	first thing to say about this raise, because six of them in a row is the shape a cap stops
+	meaning anything in — it is on `#970` for Simon, and the next person wanting one should read
+	all seven of these paragraphs as a set rather than only the one above.
+
+	The case: two claims about the *cascade*, which is what this file exists for and what
+	`tests/dom.js` structurally cannot answer — it drops every attribute but ``href``, so it
+	cannot see a class, let alone what the class resolves to.
+
+	- **A closed item is struck through.** One CSS declaration with no JavaScript to unit-test,
+	  which is `#965`'s argument: there is no cheaper reader at all.
+	- **A mark in a link line is drawn like a mark on a row**, which is the whole of Simon's
+	  request — *the same type of indicators should be present on all, so a user may familiarize
+	  themselves*. A consistency claim about appearance is a cascade question by definition, and
+	  it caught a real collision: ``.linked a`` is one class more specific than ``.mark``, so
+	  every chip on the page took the link colour and lost its outline. A shared component makes
+	  two surfaces *say* the same thing and does nothing about how they are drawn.
+
+	**Read for fat**: one page for the reference and one for the subject, because a selector that
+	could fall back to the link's own chip would compare the thing with itself. Three properties
+	rather than one, because ``.linked a`` set colour, border and padding, and a mark that took
+	only two of them would still read as styled. The strikethrough half asserts *exactly one* of
+	three lines, which is what tells the rule from a stylesheet that strikes everything.
+
 	**Read for fat**: two gestures and three assertions, and the fixture gains one holder. The
 	success half is not padding — it is one line away from the refusal half in the code, and a
 	form that never cleared would put the last capture into the next one, which is the failure
@@ -1125,10 +1182,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 23, (
+	assert len(tests) <= 24, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
-		f"that stops being run. Raising it is a decision — read the addition for fat first."
+		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
+		f"read every raise in this docstring as a set: it has moved 17 to 24 in two days."
 	)
 
 
@@ -1744,3 +1802,104 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
 	assert control.input_value() == "", "there is no way back to everything from the control"
+
+
+def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
+	running: typing.Any,
+) -> None:
+	"""`SR#970`, Simon 2026-08-17, reading `SR#94`'s own links.
+
+	Two claims, and both are about the cascade rather than about markup — which is what makes
+	them this file's rather than `tests/dom.js`'s. That harness drops every attribute (`SR#784`),
+	so it can say the *words* are on the page and nothing at all about how they are drawn.
+
+	**A closed item is struck through**, which he asked for and which no computed style would
+	have had a reason to be checked without. Its own status chip is what keeps `SR#102`
+	satisfied, and the words are asserted next door; this is the half that needs a cascade.
+
+	**And a mark looks the same here as on a row**, which is the whole request: *the same type
+	of indicators should be present on all, so a user may familiarize themselves*. It is not
+	free — `.linked li > a` is one class more specific than `.mark`, so before it was narrowed
+	to direct children every chip on this page took the link colour and lost its border, and
+	`.mark.late` and `.mark.blocked` stopped saying anything. That is a rule the shared
+	component cannot enforce by itself, and the reason this test measures a *colour* rather
+	than a class name.
+	"""
+
+	opened, _written, _refusing = running
+
+	# **The row's own chip, read first and off a listing page.** It is the reference the claim
+	# is about, so it has to come from the surface being matched — a literal colour written
+	# down here would pass on a theme this app does not serve, and a selector that could fall
+	# back to a link's own mark would compare the thing with itself and pass whatever happened.
+	#
+	# **`a.mark`, which is the project label and the only mark that is an anchor.** Measured
+	# rather than assumed: a plain chip is `--ink-soft` and a `.mark.quiet` is `--ink-faint`,
+	# so *any two marks* is not a comparison — it is two different kinds of chip and it fails
+	# whatever the cascade does. The anchor is also the one the specificity actually reaches,
+	# since `.linked li > a` can only ever have hit an `<a>`.
+	listing = opened("/projects")
+	listing.wait_for_selector(".rows a.mark", timeout=10_000)
+	reference = listing.eval_on_selector(
+		".rows a.mark",
+		"""one => ({ tone: getComputedStyle(one).color,
+			edge: getComputedStyle(one).borderTopStyle,
+			pad: getComputedStyle(one).paddingLeft })""",
+	)
+
+	page = opened("/projects/subroutine/ui/42")
+	page.wait_for_selector(".linked li", timeout=10_000)
+
+	drawn = page.eval_on_selector_all(
+		".linked li",
+		"""rows => rows.map((row) => {
+			const anchor = row.querySelector(":scope > a, :scope > button");
+			const chip = row.querySelector("a.mark");
+
+			return {
+				said: anchor ? anchor.textContent.trim() : "",
+				struck: anchor
+					? getComputedStyle(anchor).textDecorationLine.includes("line-through")
+					: false,
+				marks: [...row.querySelectorAll(".marks .mark")].map((one) =>
+					one.textContent.trim()),
+				/* **The chip's own colour, border and padding, read off the page.** All three,
+				   because `.linked a` set every one of them — a mark that took those would be
+				   accent-coloured, borderless and flush, and would still read as *styled* to
+				   anything checking class names. */
+				tone: chip ? getComputedStyle(chip).color : null,
+				edge: chip ? getComputedStyle(chip).borderTopStyle : null,
+				pad: chip ? getComputedStyle(chip).paddingLeft : null,
+			};
+		})""",
+	)
+
+	assert len(drawn) == 3, f"the links did not render: {drawn}"
+
+	struck = [row["said"] for row in drawn if row["struck"]]
+
+	assert len(struck) == 1, (
+		f"exactly one end here is closed, so exactly one line may be struck through — a "
+		f"stylesheet that strikes all of them or none says nothing: {drawn}"
+	)
+	assert "Already finished" in struck[0], f"the wrong line is struck through: {drawn}"
+
+	assert all(row["marks"] for row in drawn), (
+		f"a link line carries no marks, so a reader still has to open it to judge it: {drawn}"
+	)
+
+	chips = [row for row in drawn if row["tone"] is not None]
+
+	assert chips, (
+		f"no link line drew a project chip, so the comparison below has nothing to make — "
+		f"the fixture needs an end whose project differs from the page's: {drawn}"
+	)
+
+	for row in chips:
+		assert (row["tone"], row["edge"], row["pad"]) == (
+			reference["tone"], reference["edge"], reference["pad"]
+		), (
+			f"a mark inside a link line is drawn differently from the same mark on a row — "
+			f"`.linked li > a` is one class more specific than `.mark`, so without the `>` it "
+			f"takes the link colour and loses its outline: {row} against {reference}"
+		)

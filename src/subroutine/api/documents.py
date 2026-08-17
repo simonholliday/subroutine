@@ -352,16 +352,16 @@ def listing (
 	# Same three queries as the task listing, and the same reason: an include that fanned out
 	# per row would move the caller's N+1 inside the server rather than remove it.
 	links = (
-		[
-			subroutine.views.edge(found)
-			for found in subroutine.domain.links.edges(
+		subroutine.views.edges(
+			session,
+			subroutine.domain.links.edges(
 				session,
 				actor,
 				workspace_id=workspace.id,
 				entity_type="document",
 				identifiers=[row.id for row in rows],
-			)
-		]
+			),
+		)
 		if subroutine.api.query.includes(include, "links", entity="document")
 		else None
 	)
@@ -608,16 +608,16 @@ def _links_for (entity_type: str) -> typing.Any:
 		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 
-		found = [
-			subroutine.views.link(related)
-			for related in subroutine.domain.links.around(
+		found = subroutine.views.links(
+			session,
+			subroutine.domain.links.around(
 				session,
 				actor,
 				workspace_id=workspace.id,
 				entity_type=entity_type,
 				identifier=near.id,
-			)
-		]
+			),
+		)
 
 		return subroutine.views.Collection(
 			items=found,
@@ -650,7 +650,7 @@ def _links_for (entity_type: str) -> typing.Any:
 			session, actor, workspace_id=workspace.id, entity_type=entity_type, identifier=near.id
 		):
 			if related.id == created.id:
-				return subroutine.views.link(related)
+				return subroutine.views.links(session, [related])[0]
 
 		raise subroutine.errors.InternalError("The link was created but cannot be read back.")
 

@@ -868,16 +868,16 @@ class Client:
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			subject = self._subject(session, actor, chosen.id, entity_type, ref)
 
-			return [
-				subroutine.views.link(related)
-				for related in subroutine.domain.links.around(
+			return subroutine.views.links(
+				session,
+				subroutine.domain.links.around(
 					session,
 					actor,
 					workspace_id=chosen.id,
 					entity_type=entity_type,
 					identifier=subject,
-				)
-			]
+				),
+			)
 
 	def link (
 		self,
@@ -915,7 +915,7 @@ class Client:
 				session, actor, workspace_id=chosen.id, entity_type=entity_type, identifier=near.id
 			):
 				if related.id == created.id:
-					return subroutine.views.link(related)
+					return subroutine.views.links(session, [related])[0]
 
 			raise subroutine.errors.InternalError(
 				"The link was created but cannot be read back."

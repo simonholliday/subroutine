@@ -617,16 +617,25 @@ fieldset {
 .linking button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .linking :disabled { opacity: 0.5; cursor: default; }
 
-/* **A word, never a colour alone** (`SR#102`) — `SR#658`: whether the other end of a link is
-   over, which the response has always carried and nothing read. */
-.linked .over {
-	margin-left: var(--space-3);
-	padding: var(--space-1) var(--space-3);
-	border: 1px solid var(--line-strong);
-	border-radius: 999px;
-	color: var(--ink-faint);
-	font-size: var(--text-fine);
-}
+/*
+	A closed item, struck through — Simon, 2026-08-17 (`SR#970`).
+
+	**This was a `done` chip beside the title** (`SR#658`), which was the whole answer while a
+	link line said nothing else. It is not any more: a closed item's status is not its default,
+	so `marks` draws a `Done` or a `Cancelled` chip on the same line — and that chip is what
+	keeps `SR#102` satisfied, because nothing here is said in styling alone. It also says which
+	of the two, where the chip said `done` about both.
+
+	**Both decorations on hover, not one instead of the other.** `.linked a:hover` underlines,
+	and a shorthand would replace the line-through — so an item would stop reading as closed for
+	exactly as long as the pointer was over it.
+*/
+.linked .over { color: var(--ink-faint); text-decoration: line-through; }
+.linked a.over:hover, .linked button.over:hover { text-decoration: underline line-through; }
+
+/* Which relationship this is, before the item it points at. Quiet, because it is the same word
+   down most of the column and the item is what a reader is scanning for. */
+.linked .label { color: var(--ink-soft); }
 
 .linked .unlink {
 	margin-left: var(--space-4);
@@ -1011,7 +1020,11 @@ fieldset {
 .row .title { font-weight: 500; }
 .meta .when { color: var(--ink-soft); font-size: var(--text-small); white-space: nowrap; }
 
-.meta .marks {
+/* **Unscoped from `.meta` because there are two callers now** (`SR#970`). The `Marks` component
+   draws the same chips on a listing row and on an item's links, and a rule that only reached one
+   of them would be the two surfaces looking different while sharing the code that decided what
+   they say — which is the half of the drift a shared component does not fix by itself. */
+.marks {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-3);
@@ -1259,7 +1272,17 @@ fieldset {
 	border-top: 1px solid var(--line);
 }
 
-.linked li { font-size: var(--text-small); }
+/* **One line that wraps rather than one that overflows** (`SR#970`). A link row is a label, an
+   item and now the same chips a listing row carries, and `SR#965` is what a fixed track does to
+   content that outgrows it: a grid item does not wrap a track, it overflows it. */
+.linked li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-2) var(--space-3);
+	font-size: var(--text-small);
+}
+
 .comments li { font-size: var(--text-body); }
 
 .comments .said { color: var(--ink-soft); font-size: var(--text-fine); margin-bottom: var(--space-1); }
@@ -1370,8 +1393,13 @@ fieldset {
 .prose del, .comments .body del { color: var(--ink-faint); }
 
 /* Anchors since `#722` — the other end of a link is the thing a reader on this page is most
-   likely to want in a tab. The `button` rules stay for the one case that has no address. */
-.linked a, .linked button {
+   likely to want in a tab. The `button` rules stay for the one case that has no address.
+
+   **Direct children only, since `SR#970`.** A project chip inside `.marks` is an anchor too, and
+   this rule is one class more specific than `.mark` — so without the `>` every mark on this
+   page would take the accent colour and lose its border, and `.mark.late` and `.mark.claimed`
+   would stop saying anything. A chip must look the same here as it does on a row. */
+.linked li > a, .linked li > button {
 	background: transparent;
 	border: 0;
 	padding: 0;
@@ -1382,7 +1410,7 @@ fieldset {
 	text-align: left;
 }
 
-.linked a:hover, .linked button:hover { text-decoration: underline; }
+.linked li > a:hover, .linked li > button:hover { text-decoration: underline; }
 
 /* ---- states ------------------------------------------------------------ */
 

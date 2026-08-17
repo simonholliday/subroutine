@@ -80,18 +80,75 @@ class Page(pydantic.BaseModel):
 # runs — not lazily. Defined below, this module imports fine under mypy and raises
 # ``NameError`` on import. Same trap as ``Item`` above ``World`` in ``cli/personal.py``.
 class LinkEnd(pydantic.BaseModel):
-	"""What is at the far end of a link, with enough of the row to render it.
+	"""What is at the far end of a link, with enough of the row to **judge** it.
 
 	Enough, and no more. A caller looking at an item's links wants to know what it is joined
 	to, not to receive every field of everything it touches — and an end the caller may not
 	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
 	than this model's.
+
+	**What changed with `#970` is what *enough* means, not the rule.** It was five fields,
+	which identify a thing; Simon, reading `#94`'s own links: *"I cannot look at a task and
+	see whether all of its blockers are complete, without looking at each blocker
+	individually."* Identifying an end is not judging one, and a list of blockers nobody can
+	judge is a list that has to be clicked through one item at a time.
+
+	**The set is derived rather than chosen.** These are the fields the browser's ``marks``
+	reads — the indicator vocabulary its list, board and agenda rows already share — so a link
+	line renders through the same function as a row and cannot drift from it.
+	``tests/test_web.py`` fails if ``marks`` grows a read this cannot answer.
+
+	**And it is a projection of the full rendering rather than a parallel one**, which is what
+	:func:`_end` is about: sixteen of :class:`Task`'s fifty-nine, resolved by the code that
+	resolves them for a row. The one field deliberately not taken is ``description`` — the
+	whole body of every item this one touches, which is what the paragraph above refuses and
+	what `#595` measured as a first-order cost.
 	"""
 
 	entity_type: str
 	id: uuid.UUID
 	ref: int
 	title: str
+
+	#: What it is and where it lives. A ref says which item; these say whether it is a bug in
+	#: another project or a decision document in this one, which is most of what a reader
+	#: scanning a blocker list is asking.
+	type: str = ""
+	project_path: str = ""
+
+	#: What state it is in. ``status_is_default`` is what stops every open item carrying a
+	#: mark that says nothing (§12.2a), and ``status_category`` is what tells *cancelled* from
+	#: *done* — a distinction ``is_complete`` deliberately does not make and which read as
+	#: `done` on the item page until this landed.
+	status: str = ""
+	status_category: str = ""
+	status_is_default: bool = False
+
+	#: Whether this end is itself waiting on something, or holding something up. A blocker
+	#: that is itself blocked is the answer to *why has this not moved*, and it was reachable
+	#: only by opening it.
+	blocked: bool = False
+	blocking: bool = False
+
+	#: Who has it and who is on it now. A lease expires, so ``claim_expires_at`` travels with
+	#: the holder for the reason :class:`Task` gives: a client answers *is this still held*
+	#: without a request per row.
+	assignee: str | None = None
+	claimed_by_id: uuid.UUID | None = None
+	claimed_by: str | None = None
+	claim_expires_at: datetime.datetime | None = None
+
+	#: When, with the zone that stored it. ``timezone`` is not decoration: a day-scale date
+	#: rendered in the reader's zone rather than the one it was written in is `#773`, which
+	#: shipped once and was correct in winter.
+	due_at: datetime.datetime | None = None
+	snoozed_until: datetime.datetime | None = None
+	snoozed_is_all_day: bool = False
+	timezone: str | None = None
+
+	#: That it comes back at all (`#925`). Generated on the server, like every other reading
+	#: of a rule, because a client would otherwise need a second copy of the grammar.
+	recurrence_description: str | None = None
 
 	#: Whether the thing at this end is finished (`#210`). A link is how `#84` models a
 	#: milestone — an item whose blockers are its contents — so a client rendering "N of M"
@@ -1643,6 +1700,49 @@ class Vocabulary:
 			project_ids={project.id for project in projects},
 		)
 
+	@classmethod
+	def for_link_ends (
+		cls,
+		session: sqlalchemy.orm.Session,
+		ends: typing.Sequence[subroutine.domain.links.End],
+	) -> "Vocabulary":
+		"""Load everything the far ends of a set of links need to be rendered — `#970`.
+
+		**One vocabulary across both kinds, rather than one per kind.** A ref names a task or
+		a document (§6.2) and an item's links routinely hold both — a decision document
+		blocking a task is ordinary here — so asking twice would be two rounds of the same
+		queries against a set that is bounded anyway (§5.7: an item's links are bounded by how
+		many somebody typed).
+
+		The ids are gathered exactly as :meth:`for_tasks` and :meth:`for_documents` gather
+		them, and the reasons for each are on those two rather than repeated here.
+		"""
+
+		rows = [end.row for end in ends if end.row is not None]
+		tasks = [row for row in rows if isinstance(row, subroutine.db.models.work.Task)]
+		documents = [
+			row for row in rows if isinstance(row, subroutine.db.models.work.Document)
+		]
+
+		return cls(
+			session,
+			status_ids={row.status_id for row in rows},
+			type_ids={row.type_id for row in rows},
+			project_ids={row.project_id for row in rows},
+			task_ids={row.id for row in tasks},
+			document_ids={row.id for row in documents},
+			parent_ids={row.parent_task_id for row in tasks if row.parent_task_id}
+			| {
+				row.recurrence_template_id
+				for row in tasks
+				if row.recurrence_template_id
+			},
+			user_ids=(
+				{row.assignee_id for row in tasks if row.assignee_id}
+				| {row.claimed_by_id for row in tasks if row.claimed_by_id}
+			),
+		)
+
 
 
 def _prose_bytes (text: str | None) -> int:
@@ -1863,31 +1963,66 @@ def event (
 
 
 
-def edge (found: subroutine.domain.links.Edge) -> Edge:
+def edge (found: subroutine.domain.links.Edge, vocabulary: Vocabulary) -> Edge:
 	"""Render one link as a stored fact rather than as somebody's view of it."""
 
 	return Edge(
 		id=found.id,
 		link_type=found.link_type,
 		label=found.label,
-		source=_end(found.source),
-		target=_end(found.target),
+		source=_end(found.source, vocabulary),
+		target=_end(found.target, vocabulary),
 	)
 
 
-def _end (end: subroutine.domain.links.End) -> LinkEnd:
-	"""Render one end of a link — enough of the row to identify and show it, no more."""
+#: The two fields a link's end knows that the item it points at does not — one because it says
+#: which table the ref is in, and one because "finished" is a link's own question (`#210`).
+#: Everything else on :class:`LinkEnd` is a field of the item, which is what lets the rest be
+#: projected rather than assembled.
+_ENDS_OWN_FIELDS = ("entity_type", "is_complete")
+
+
+def _end (end: subroutine.domain.links.End, vocabulary: Vocabulary) -> LinkEnd:
+	"""Render one end of a link, as a projection of that item's own rendering — `#970`.
+
+	**Projected rather than assembled, and that is the whole design.** Every field here except
+	the two above is a field of :class:`Task` or :class:`Document`, so taking them off the
+	rendering makes a link line's facts *the same facts as a row's* by construction — one
+	status lookup, one project address, one username resolution, one description of a repeat.
+	Assembling them here would have been a second reading of six things, which is this
+	codebase's signature defect and is exactly how the four renderings of a link line came to
+	disagree in the first place (`#583`, `#674`).
+
+	**Adding a field to :class:`LinkEnd` needs no change here**, which is the property worth
+	having: the guard in ``tests/test_web.py`` says which fields the browser's ``marks`` reads,
+	and declaring one is all it takes to carry it.
+
+	**A document takes the declared default for anything only a task has.** A deadline, a
+	deferral, a lease and a repeat are task-only, and a document is not silent about them
+	because nobody loaded them — it is silent because it cannot have them.
+	"""
+
+	if end.row is None:
+		return LinkEnd(entity_type=end.entity_type, id=end.id, ref=end.ref, title=end.title)
+
+	rendered: Task | Document = (
+		task(end.row, vocabulary)
+		if isinstance(end.row, subroutine.db.models.work.Task)
+		else document(end.row, vocabulary)
+	)
 
 	return LinkEnd(
 		entity_type=end.entity_type,
-		id=end.id,
-		ref=end.ref,
-		title=end.title,
 		is_complete=end.is_complete,
+		**{
+			name: getattr(rendered, name, field.default)
+			for name, field in LinkEnd.model_fields.items()
+			if name not in _ENDS_OWN_FIELDS
+		},
 	)
 
 
-def link (related: subroutine.domain.links.Related) -> Link:
+def link (related: subroutine.domain.links.Related, vocabulary: Vocabulary) -> Link:
 	"""Render one link, from the point of view of the item it was asked about.
 
 	Takes the domain's own :class:`~subroutine.domain.links.Related` rather than the stored
@@ -1900,8 +2035,43 @@ def link (related: subroutine.domain.links.Related) -> Link:
 		link_type=related.link_type,
 		label=related.label,
 		direction=related.direction,
-		other=_end(related.other),
+		other=_end(related.other, vocabulary),
 	)
+
+
+def links (
+	session: sqlalchemy.orm.Session,
+	related: typing.Sequence[subroutine.domain.links.Related],
+) -> list[Link]:
+	"""Render one item's links, with a single vocabulary across every end they reach.
+
+	**Plural because the vocabulary is**, which is the whole reason this exists rather than a
+	comprehension at each call site: a link's end now carries a status, a type, a project
+	address and two usernames, and resolving those per link would be `#39`'s N+1 arriving on
+	the one surface built to save a reader from opening five items.
+	"""
+
+	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in related])
+
+	return [link(one, vocabulary) for one in related]
+
+
+def edges (
+	session: sqlalchemy.orm.Session,
+	found: typing.Sequence[subroutine.domain.links.Edge],
+) -> list[Edge]:
+	"""Render a page's links, with a single vocabulary across every end they reach.
+
+	``?include=links`` exists to remove an N+1 from the caller (§8.4), so one here would be a
+	joke at their expense — which is the comment the two listings that call this already
+	carry about the query behind it.
+	"""
+
+	vocabulary = Vocabulary.for_link_ends(
+		session, [end for one in found for end in (one.source, one.target)]
+	)
+
+	return [edge(one, vocabulary) for one in found]
 
 
 def workspace (row: subroutine.db.models.identity.Workspace) -> Workspace:

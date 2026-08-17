@@ -88,6 +88,25 @@ TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
 #: which were read off a live instance rather than invented, because a component fed a shape
 #: nobody serves is a test of a shape nobody serves.
 SAMPLES: dict[str, dict[str, typing.Any]] = {
+	# **What `marks` decided, drawn** (`SR#970`) — its own component since a listing row and an
+	# item's links both draw it, and two copies of twenty lines of markup is how the two would
+	# come to look different while sharing the code that decided what they say.
+	#
+	# **Both branches in one sample.** A mark carrying an `href` is an anchor and everything else
+	# is a span, and a sample that renders only spans would have absorbed the anchor half
+	# silently — which is exactly the omission `Row`'s own workspace note below is about.
+	#
+	# **`onGo` is deliberately absent**, because `_rendered` supplies every `on…` prop the app
+	# uses as a real no-op function. Naming it here would override that with whatever was
+	# written, and a boolean renders the anchor branch perfectly while making it throw on the
+	# one gesture it exists for.
+	"Marks": {
+		"badges": [
+			{"text": "bug"},
+			{"text": "Blocked", "tone": "blocked"},
+			{"text": "subroutine/ui", "href": "/projects/subroutine/ui"},
+		],
+	},
 	"Row": {
 		"item": {
 			"ref": 42,
@@ -2485,19 +2504,50 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 		"comments": [], "workspace": "projects", "members": [],
 		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
 	links = [
-		{"id": "l-1", "label": "Blocks", "direction": "outgoing",
+		{"id": "l-1", "link_type": "blocks", "label": "Blocks", "direction": "outgoing",
 			"other": {"entity_type": "task", "ref": 9, "title": "Still going",
 				"is_complete": False}},
-		{"id": "l-2", "label": "Blocked by", "direction": "incoming",
-			"other": {"entity_type": "document", "ref": 4, "title": "The decision",
+		{"id": "l-2", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+			# **The title deliberately does not contain the type.** It read *The decision* and
+			# carried `type: decision`, so `"decision" in shown` was satisfied by the title
+			# and survived deleting the marks outright — a test that could not fail, found by
+			# falsifying rather than by reading.
+			"other": {"entity_type": "document", "ref": 4, "title": "What we settled",
+				"type": "decision", "status": "superseded", "project_path": "subroutine/spec",
 				"is_complete": True}},
+		{"id": "l-3", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "task", "ref": 7, "title": "Not started",
+				"type": "bug", "status": "open", "status_is_default": True,
+				"is_complete": False}},
 	]
 
 	shown = _rendered(tmp_path, {"Detail": {**shared, "links": links}})["Detail"]
 
-	assert shown.count("Remove") == 2, "a link cannot be taken apart from where it is shown"
-	assert "done" in shown, "a finished item at the other end of a link does not say so"
-	assert "Still going" in shown and "The decision" in shown
+	assert shown.count("Remove") == 3, "a link cannot be taken apart from where it is shown"
+	assert "Still going" in shown and "What we settled" in shown
+
+	# **The whole of `SR#970` in four assertions**, and each is one of Simon's four complaints
+	# about reading `SR#94`'s links: *I cannot see which are documents, what status they are in,
+	# which are bugs, or which project they are in.*
+	#
+	# **Asserted on the text rather than on the classes, because this harness drops every
+	# attribute** (`SR#784`). That is the right half to check here — `SR#102`'s rule is that
+	# nothing may be said in styling alone, so every one of these has to survive the attributes
+	# going away. The strikethrough is the half that cannot, and it is a browser test.
+	assert "decision" in shown, "a link does not say a bug from a decision"
+	assert "superseded" in shown, "a link does not say what state the other end is in"
+	assert "subroutine/spec" in shown, "a link does not say which project it points into"
+	assert "(1 of 2 blockers done)" in shown, (
+		"the page cannot say how much of a milestone is left, which is what `SR#84` models a "
+		"milestone as and what `subroutine show` has answered since `SR#210`"
+	)
+
+	# **The default status is not a mark** (§12.2a), which is why `SR#970` publishes
+	# `status_is_default` beside the key rather than the key alone: *open* on every open item
+	# is a word that says nothing, and a chip that appears on everything stops being read.
+	assert shown.count("open") == 1, (
+		"a status every item has is drawn as a mark, so no mark on this line means anything"
+	)
 
 	# **The section shows with nothing in it once there is a form**, for `SR#759`'s reason: an
 	# item with no links and no way to make one reads as a page that does not do links.
@@ -3909,6 +3959,100 @@ def _function_body (source: str, name: str) -> str:
 	raise AssertionError(f"{name} never closes")
 
 
+def _item_fields_read (
+	source: str, surface: typing.Sequence[str]
+) -> tuple[dict[str, str], set[str]]:
+	"""Return each named function's body, and every ``item.<field>`` it or a callee reads.
+
+	**One scanner because two guards ask the same question of the same source** — what does the
+	browser read off a row — and a second copy would be free to disagree with this one about
+	which functions it walked into. `#427`'s method: derive it, do not maintain it.
+
+	The callee walk is one level deep and deliberately so. It is what reaches `overdue`,
+	`holding` and `projectLabel`, which is where most of the reads live; anything deeper is a
+	helper taking values rather than an item, and following it would be scanning for a shape
+	that is not there.
+	"""
+
+	bodies = {name: _function_body(source, name) for name in surface}
+
+	for name in surface:
+		for called in re.findall(r"\b([a-z][A-Za-z0-9_]*)\s*\(", bodies[name]):
+			if called in bodies or f"export function {called} (" not in source:
+				continue
+
+			bodies[called] = _function_body(source, called)
+
+	read = set()
+
+	for body in bodies.values():
+		read |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
+
+	return bodies, read
+
+
+#: What `marks` reads that a link's far end deliberately does not carry, and why. A register
+#: rather than a silent exclusion, because leaving a field off is a decision about what a reader
+#: can judge without opening an item — and the test below refuses an entry naming a field `marks`
+#: has stopped reading, so this cannot become a place to park one.
+NOT_ON_A_LINK_END = {
+	"importance": "the sort value `orderingValue` draws, and an item's links have no ordering "
+	"for it to be the value of — `Detail` passes none, so this mark never renders here",
+	"urgency": "the other half of the same pair, read by the same function for the same mark",
+}
+
+
+def test_a_links_far_end_carries_every_field_the_marks_read () -> None:
+	"""**The list of fields on `views.LinkEnd` is a second copy of what a mark shows.**
+
+	`SR#970`, Simon: *"I cannot look at a task and see whether all of its blockers are complete,
+	without looking at each blocker individually."* The fix was to render a link's far end
+	through `marks` — the same function a list, a board and the agenda already use — which works
+	only while the end carries what that function reads.
+
+	**So the set is derived rather than listed.** A mark added to a row tomorrow fails here
+	until the far end can answer it, which is the only shape that keeps four renderings of one
+	line together: they had already drifted into four different answers when this was written,
+	and `SR#674`'s guard could not see it because it compares an item row against an item row.
+
+	**A name the view models do not have was computed by the app** — `kind` is what this client
+	calls `entity_type` and `workspace` is resolved at the merge — so those are excluded by
+	*derivation* rather than by being listed, exactly as `SR#860` made the listing guard do it.
+	A literal list there grew silently and this would too.
+	"""
+
+	source = _served_modules()["app.js"]
+	bodies, read = _item_fields_read(source, ["marks"])
+
+	assert read, "no fields were found, so this is checking nothing"
+	assert re.search(r"\bitem\.[a-z_]", bodies["marks"]), (
+		"marks contributed no field reads of its own, so this guard is scanning something else. "
+		"Check what _function_body returned."
+	)
+
+	published = set(subroutine.views.Task.model_fields) | set(
+		subroutine.views.Document.model_fields
+	)
+	carried = set(subroutine.views.LinkEnd.model_fields)
+	missing = sorted((read & published) - carried - set(NOT_ON_A_LINK_END))
+
+	assert not missing, (
+		f"a link's far end cannot answer {missing}, which `marks` reads — so a listing row and "
+		f"an item's links would say different things about the same item. Add the field to "
+		f"views.LinkEnd, or record in NOT_ON_A_LINK_END why a link line does without it."
+	)
+
+	# **The other direction, which is what stops the register above becoming a graveyard.**
+	# Every allow-list in this repository has this half (`SR#405`): an entry excusing a field
+	# nothing reads any more is a decision recorded about code that has gone, and it reads
+	# exactly like a considered one.
+	stale = sorted(set(NOT_ON_A_LINK_END) - read)
+
+	assert not stale, (
+		f"NOT_ON_A_LINK_END excuses {stale}, which `marks` no longer reads. Delete the entries."
+	)
+
+
 def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	"""**The `fields=` list is a second copy of what a row shows, so it is derived, not trusted.**
 
@@ -3946,19 +4090,7 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 
 	source = _served_modules()["app.js"]
 	surface = ["Row", "marks", "when", "overdue"]
-	bodies = {name: _function_body(source, name) for name in surface}
-
-	for name in surface:
-		for called in re.findall(r"\b([a-z][A-Za-z0-9_]*)\s*\(", bodies[name]):
-			if called in bodies or f"export function {called} (" not in source:
-				continue
-
-			bodies[called] = _function_body(source, called)
-
-	rendered = set()
-
-	for body in bodies.values():
-		rendered |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
+	bodies, rendered = _item_fields_read(source, surface)
 
 	assert rendered, "no fields were found, so this is checking nothing"
 

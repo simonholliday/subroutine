@@ -3311,6 +3311,76 @@ export function followed (event, act) {
 
 /* ---- views -------------------------------------------------------------- */
 
+export function blockersDone (links) {
+	/*
+		How much of a milestone is left, as `#84` specified and `#210` built at the terminal.
+
+		**Counted over incoming `blocks` alone**, which is `cli/personal`'s own rule and the
+		reason is on it: a *relates to* has nothing to be N of, and counting every link printed
+		`48 of 48` about an item with forty-eight outstanding blockers.
+
+		**Nothing at all when there are no blockers**, rather than `0 of 0` — a rollup on an
+		item that is not a milestone is a number a reader has to work out is meaningless.
+
+		Returns the string because that is what the heading wants; there is no second caller,
+		and inventing one would be `#303`'s shape.
+	*/
+	const held = (links || []).filter(
+		(link) => link.link_type === "blocks" && link.direction === "incoming"
+	);
+
+	if (held.length === 0) return "";
+
+	const done = held.filter((link) => link.other && link.other.is_complete).length;
+
+	return `  (${done} of ${held.length} blockers done)`;
+}
+
+export function Marks ({ badges, onGo = null }) {
+	/*
+		What `marks` decided, drawn — `#970`.
+
+		**Its own component because there are two callers now.** A row on a list, a board or the
+		agenda has said these things since `#906`; an item's *links* said none of them, so a
+		reader checking whether a milestone was ready had to open every blocker in turn. Simon:
+		*"I cannot look at a task and see whether all of its blockers are complete, without
+		looking at each blocker individually."*
+
+		**Lifting it out is what makes the two the same rather than two that agree.** Copying
+		twenty lines of markup into the links list would have been a second set of class names
+		to keep in step with one stylesheet, which is this codebase's signature defect and is
+		exactly how four renderings of a link line came to disagree (`#583`, `#674`). The rule
+		lives in `marks`, the drawing lives here, and both surfaces call both.
+
+		**Nothing is rendered for an item with nothing to say**, which is §12.2a's rule that an
+		empty column says nothing, applied to a line.
+	*/
+	if (!badges || badges.length === 0) return null;
+
+	return html`
+		<span class="marks">
+			${badges.map((mark) => (mark.href && onGo
+				/* A mark that is an address is an `<a>`, so it can be opened in a tab and read
+				   by a screen reader as the link it is. Everything else stays a `<span>`: a
+				   control that only looks like one is `#251`'s shape — and that now includes a
+				   caller with no `onGo`, since `marks` only offers an `href` when it was told
+				   somebody is listening. Both halves are checked because they are two
+				   decisions, taken in two places. */
+				? html`
+					<a class="mark ${mark.tone || ""}" href=${mark.href}
+						onClick=${(event) => followed(event, () => onGo(mark.href))}>
+						<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+					</a>
+				`
+				: html`
+					<span class="mark ${mark.tone || ""}">
+						<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+					</span>
+				`))}
+		</span>
+	`;
+}
+
 export function Row ({
 	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
 	/* What the project chip was named from until `#959` (`#912`). Kept because `projectName`
@@ -3418,25 +3488,7 @@ export function Row ({
 	   — §12.2a's rule that an empty column says nothing, applied to a line instead of a column. */
 	const meta = (badges.length > 0 || date || acting) && html`
 		<div class="meta">
-			${badges.length > 0 && html`
-				<span class="marks">
-					${badges.map((mark) => (mark.href
-						/* A mark that is an address is an `<a>`, so it can be opened in a tab
-						   and read by a screen reader as the link it is. Everything else stays
-						   a `<span>`: a control that only looks like one is `#251`'s shape. */
-						? html`
-							<a class="mark ${mark.tone || ""}" href=${mark.href}
-								onClick=${(event) => followed(event, () => onGo(mark.href))}>
-								<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
-							</a>
-						`
-						: html`
-							<span class="mark ${mark.tone || ""}">
-								<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
-							</span>
-						`))}
-				</span>
-			`}
+			<${Marks} badges=${badges} onGo=${onGo} />
 			${date && html`<span class="when">${date}</span>`}
 			${acting && html`
 				<button class="finish" onClick=${() => onComplete(item)}
@@ -4700,6 +4752,10 @@ export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
+	/* **What the address already said**, so a linked item's project chip strips it exactly as
+	   a row's does — decision `#957` §4, and `#970` is where the links list joined that rule.
+	   `onGo` is what makes the chip a control rather than an ornament (`#251`). */
+	project = null, onGo = null,
 }) {
 	const body = item.description || item.body;
 
@@ -4749,7 +4805,12 @@ export function Detail ({
 				`}
 
 			${(links.length > 0 || onLink) && html`
-				<h3>Links</h3>
+				${/* **The count `#84` specified, on the surface Simon reads** (`#970`). A
+				     milestone is an item whose blockers are its contents, and `subroutine show`
+				     has answered *how many are left* since `#210` while this page made a reader
+				     open each one. Its rule is copied deliberately: incoming `blocks` only,
+				     because a *relates to* has nothing to be N of. */ null}
+				<h3>Links${blockersDone(links)}</h3>
 				<ul class="linked">
 					${links.map((link) => {
 						const going = { ref: link.other.ref, kind: link.other.entity_type };
@@ -4757,23 +4818,59 @@ export function Detail ({
 						const follow = (event) =>
 							followed(event, () => onOpen && onOpen(going));
 
+						/*
+							**The far end, rendered as a row is** (`#970`). `kind` is what this
+							app calls `entity_type` everywhere else — `Listing` adds it to every
+							row it opens — and `marks` reads it, so an end arriving under the
+							wire's name would be silent about the one thing no other field says.
+
+							**No ordering, because a link list has none.** Nothing sorted these;
+							they are one item's links in the order the domain reports them, so
+							the sort-value mark has nothing true to say and is not asked for.
+
+							**`place` is what the address already said**, exactly as a row's is,
+							which is decision `#957` §4 — so a link inside the project you are
+							looking at carries no chip and one that crosses out of it does. That
+							is the reader's answer to *which project is this blocker in*: the
+							exception is what is drawn, which is `#102`'s argument applied to an
+							axis that is not colour.
+						*/
+						const end = { ...link.other, kind: link.other.entity_type };
+						/* **`null` where `Row` passes `projects`, because `marks` reads it
+						   nowhere.** Measured rather than assumed: the name appears once in
+						   that function, in its own parameter list. `#912` gave it the list so
+						   `projectName` could turn a key into a title; `#959` made the label
+						   the address instead, and the parameter outlived its last reader.
+						   Passing a live value into it from a *new* caller would be a second
+						   copy of `#251`'s inert control — `#971` is deleting it. */
+						const badges = marks(
+							end, true, null, null, { workspace, project }, !!onGo
+						);
+
 						return html`
 							<li key=${link.id}>
-								${link.label}${" "}
+								<span class="label">${link.label}</span>${" "}
+								${/* **Struck through when it is closed** — Simon, 2026-08-17.
+								     `#102`'s rule is that nothing may be said in styling alone,
+								     and nothing here is: a closed item's status is not its
+								     default, so `marks` draws a `Done` or a `Cancelled` chip
+								     beside this and the line reads correctly with every style
+								     switched off.
+
+								     **Which retires the bare `done` span, and a defect with
+								     it.** `is_complete` is `completed_at is not None`, which
+								     invariant 5 makes true for done *and* cancelled — so a
+								     cancelled blocker said `done` on this page, about an item
+								     nobody finished. The status chip is what tells them
+								     apart. */ null}
 								${to
-									? html`<a href=${to} onClick=${follow}>
+									? html`<a class=${link.other.is_complete ? "over" : null}
+										href=${to} onClick=${follow}>
 										#${link.other.ref} ${link.other.title}</a>`
-									: html`<button onClick=${follow}>
+									: html`<button class=${link.other.is_complete ? "over" : null}
+										onClick=${follow}>
 										#${link.other.ref} ${link.other.title}</button>`}
-								${/* **Whether the other end is over** (`#658`), which the link
-								     already carried and nothing read. A blocker is the case that
-								     matters: a reader looking at *Blocked by #442* has to click
-								     through to find out whether they are still blocked, and the
-								     answer was in the response all along. Said in a word rather
-								     than in styling alone (`#102`). */ null}
-								${link.other.is_complete && html`
-									<span class="over">done</span>
-								`}
+								<${Marks} badges=${badges} onGo=${onGo} />
 								${onUnlink && html`
 									<button class="unlink" disabled=${busy}
 										aria-label=${`Remove the link to #${link.other.ref}`}
@@ -6509,6 +6606,7 @@ export function App () {
 					onEdit=${mayWrite ? (wanted) => { setEditing(wanted); setConflict(null); } : null}
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					backTo=${withShowing(behind, showing)} workspace=${workspace}
+					project=${project} onGo=${narrow}
 					onComplete=${mayWrite ? complete : null}
 					onAssign=${mayWrite ? assign : null} />`
 				: agenda !== null

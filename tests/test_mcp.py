@@ -740,6 +740,63 @@ def test_an_agent_can_say_what_blocks_what (
 	assert "Write the client" in _called(bound, "subroutine_list", ready=True)[0]
 
 
+def test_an_agent_reading_an_item_is_told_how_many_blockers_are_left (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#970`, and it is `#84`'s rollup arriving on the surface that had least of it.
+
+	A milestone here is an item whose blockers are its contents, so *how many are left* is the
+	question somebody opens one to ask. ``subroutine show`` has answered it since `#210`; this
+	line said the label, the ref and the title and nothing else — so an agent deciding whether
+	it could start had to read every blocker in turn, which is the loop this surface exists to
+	remove.
+
+	**Counted over incoming ``blocks`` alone**, which is the terminal's own rule and is why a
+	*relates to* added below moves neither number.
+
+	**``over`` rather than ``done``**, because ``is_complete`` is ``completed_at is not None``
+	and invariant 5 makes that true for done *and* cancelled — so the obvious word asserts
+	something about half of them that nobody did.
+	"""
+
+	milestone = _added(bound, "Ship the release")
+	first = _added(bound, "Write the client")
+	second = _added(bound, "Build the endpoint")
+	aside = _added(bound, "Something else entirely")
+
+	for blocker in (first, second):
+		made, failed = _called(
+			bound, "subroutine_link", ref=blocker, type="blocks", other=milestone
+		)
+		assert not failed, made
+
+	noise, failed = _called(
+		bound, "subroutine_link", ref=milestone, type="relates_to", other=aside
+	)
+	assert not failed, noise
+
+	shown = _called(bound, "subroutine_show", ref=milestone)[0]
+
+	assert "0 of 2 blockers done" in shown, shown
+	assert "(over)" not in shown, "nothing is finished, so nothing may say it is"
+
+	done, failed = _called(bound, "subroutine_done", ref=first)
+
+	assert not failed, done
+
+	shown = _called(bound, "subroutine_show", ref=milestone)[0]
+
+	assert "1 of 2 blockers done" in shown, shown
+	assert shown.count("(over)") == 1, (
+		"exactly one end is finished, so exactly one line may say so"
+	)
+
+	# **The item nobody has to do first is not counted and is still listed.** A rollup over
+	# every link would read `1 of 3` about an item with two blockers, which is the arithmetic
+	# `#210` fixed at the terminal.
+	assert "Something else entirely" in shown
+
+
 def test_an_agent_can_defer_with_the_grammar_a_person_types (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

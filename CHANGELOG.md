@@ -60,9 +60,21 @@ upgrade involves.
   uncapped width, because the frame asked which view was selected rather than whether a board
   was on screen — so the same item was full-width when opened from a board and correct when
   the address was refreshed.
+- **A cancelled item at the end of a link no longer reads as done.** The browser marked any
+  end with a completion date as `done`, and an item is given one when it is cancelled as well
+  as when it is finished — so work somebody abandoned looked like work somebody had finished.
+  Each end now shows its own status.
 
 ### Added
 
+- **An item's links say enough about each end to judge it without opening it.** In the
+  browser they now carry the same marks a row on a list or a board does — the type, the
+  status, the project, whether that end is blocked or blocking, who has it, and whether it
+  repeats — so a reader can tell a bug from a decision, and a finished blocker from an
+  outstanding one, at a glance. A closed item is struck through, and the heading says
+  **N of M blockers done**, which the terminal has printed for a while and no other surface
+  did. An agent reading an item gets the same count and an `(over)` on each finished end.
+  The endpoints that report a link now carry those fields on `other`.
 - **A listing says where each item lives, by its whole address.** `substation/dist` rather
   than `dist`, which no longer names one project. The label leaves out whatever the request
   already said — `subroutine list --project substation` shows `dist` and `tools`, not

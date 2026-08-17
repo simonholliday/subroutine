@@ -57,6 +57,18 @@ class End:
 	title: str
 	project_id: uuid.UUID
 
+	#: The row itself, so that a view can render this end **through the renderer it already
+	#: has for that kind** rather than resolving a status, a type, a project address and two
+	#: usernames a second way (`#970`). What crosses the wire is still a curated subset — a
+	#: link's end is not a whole item and must not carry every item's prose — but the subset
+	#: is a *projection of one rendering* instead of a parallel one, which is the difference
+	#: between a shape that cannot disagree with a row and one that quietly does.
+	#:
+	#: **`#583`/`#674`'s lesson applied before the drift rather than after it.** Four
+	#: renderings of a link line had already diverged when this was written; the fix that
+	#: sticks is having one of them.
+	row: "subroutine.db.models.work.Task | subroutine.db.models.work.Document | None" = None
+
 	#: Whether the thing at this end is finished (`#210`). Carried because a link is how
 	#: `#84` models a milestone — "an item whose blockers are its contents" — and a list of
 	#: contents that cannot say which are done is a list nobody can read a milestone off. Every
@@ -592,6 +604,7 @@ def _ends (
 			ref=row.ref,
 			title=row.title,
 			project_id=row.project_id,
+			row=row,
 			# Read off `completed_at`, not off the status vocabulary: invariant 5 makes that
 			# column non-null exactly when the category is done or cancelled, so it answers
 			# the same question without joining a table an installation may rename rows in.

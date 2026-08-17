@@ -1220,16 +1220,16 @@ def _page (
 	# these links reach before looking any of them up. The point of the parameter is to
 	# remove an N+1 from the caller, so doing one here would be a joke at their expense.
 	links = (
-		[
-			subroutine.views.edge(found)
-			for found in subroutine.domain.links.edges(
+		subroutine.views.edges(
+			session,
+			subroutine.domain.links.edges(
 				session,
 				actor,
 				workspace_id=workspace_id,
 				entity_type="task",
 				identifiers=[row.id for row in rows],
-			)
-		]
+			),
+		)
 		if with_links
 		else None
 	)

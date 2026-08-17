@@ -1767,9 +1767,31 @@ def _shown (
 	links = client.links(ref=ref, entity_type=kind, workspace=workspace)
 
 	if links:
+		# **How much of a milestone is left, and which ends are over** (`#970`). This line said
+		# the label, the ref and the title, so an agent asking whether it could start work had
+		# to read every blocker in turn — and `subroutine show` has answered it since `#210`,
+		# which is the terminal being a version ahead of the surface with no alternative.
+		#
+		# **Counted over incoming `blocks` alone**, which is the terminal's own rule: a
+		# *relates to* has nothing to be N of.
+		#
+		# **`over` rather than `done`.** `is_complete` is `completed_at is not None`, which
+		# invariant 5 makes true for done *and* cancelled — so the obvious word asserts
+		# something about half of them that nobody did.
+		blockers = [
+			link for link in links if link.link_type == "blocks" and link.direction == "incoming"
+		]
+		finished = sum(1 for link in blockers if link.other.is_complete)
+
 		parts.append("")
+
+		if blockers:
+			parts.append(f"{finished} of {len(blockers)} blockers done")
+
 		parts.extend(
-			f"{link.label}  #{link.other.ref}  {link.other.title}" for link in links
+			f"{link.label}  #{link.other.ref}  {link.other.title}"
+			+ ("  (over)" if link.other.is_complete else "")
+			for link in links
 		)
 
 	if arguments.get("history"):
