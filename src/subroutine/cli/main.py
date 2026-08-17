@@ -2380,17 +2380,28 @@ def calendar_list (
 
 
 def _calendar_covers (feed: subroutine.views.Calendar) -> str:
-	"""Say what one feed shows, in the words somebody chose when they made it."""
+	"""Say what one feed shows, in the words somebody chose when they made it.
 
-	parts = [feed.project_key or "everything"]
+	**"everything" is said only when nothing narrows**, which reading the output is what
+	found: a feed of your own bugs across a whole workspace described itself as *everything,
+	assigned to you, bug*, and the first word reads as a contradiction of the two after it.
+	Where something else narrows, the whole workspace is what is left unsaid.
+	"""
 
-	if feed.audience == "assigned_to_me":
-		parts.append("assigned to you")
+	# Where it is, then what kind, then whose — which is the order the sentence reads in:
+	# *inbox, bug, assigned to you* rather than *assigned to you, inbox, bug*.
+	parts = []
 
 	if feed.item_types:
 		parts.append(", ".join(feed.item_types))
 
-	return ", ".join(parts)
+	if feed.audience == "assigned_to_me":
+		parts.append("assigned to you")
+
+	if feed.project_key:
+		return ", ".join([feed.project_key, *parts])
+
+	return ", ".join(parts) if parts else "everything"
 
 
 def _calendar_state (feed: subroutine.views.Calendar) -> str:
