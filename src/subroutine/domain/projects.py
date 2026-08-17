@@ -574,7 +574,7 @@ def keys_for (
 		named.append(identifier if found is None else found)
 
 	rows = [item for item in named if not isinstance(item, str)]
-	addresses = paths_for(session, rows)
+	addresses = paths_for(session, [row.id for row in rows])
 
 	return [item if isinstance(item, str) else addresses[item.id] for item in named]
 
@@ -920,15 +920,20 @@ def path_segments (wanted: str) -> list[str]:
 
 
 def paths_for (
-	session: sqlalchemy.orm.Session,
-	rows: typing.Sequence[subroutine.db.models.project.Project],
+	session: sqlalchemy.orm.Session, ids: typing.Collection[uuid.UUID]
 ) -> dict[uuid.UUID, str]:
-	"""Return the address of each project — its ancestors' keys and its own, separated.
+	"""Return the address of each of these projects — its ancestors' keys and its own.
 
-	**One query for the whole page, never one per row.** ``project.path`` already carries
-	every ancestor's id, so the ancestors need looking up rather than walking: this reads
-	each id once and joins in Python, where the per-row version is `#39`'s N+1 on a listing
-	that renders a project column on every line.
+	**Two queries for a whole page, never one per row.** ``project.path`` already carries
+	every ancestor's id, so the ancestors need looking up rather than walking: this reads the
+	paths, then every key those name, and joins in Python. The per-row version is `#39`'s N+1
+	on a listing that renders a project column on every line.
+
+	**By id rather than by loaded rows**, because the caller that matters is
+	``views.Vocabulary``, which knows a page's project ids and has no rows. The two queries
+	overlap slightly with the keys that class loads beside them; merging them would save one
+	round trip on a page and cost this being the only place an address is composed, which is
+	the trade `#508` is the worked example of getting wrong.
 
 	**Deliberately not narrowed by scoping, and that discloses nothing.** Visibility
 	inherits *down* a project tree — §7.3a hides a project when it or any ancestor is
@@ -938,44 +943,51 @@ def paths_for (
 	somewhere else is the failure this whole change exists to remove.
 	"""
 
-	model = subroutine.db.models.project.Project
-	wanted = {
-		uuid.UUID(segment)
-		for row in rows
-		for segment in subroutine.domain.hierarchy.path_segments(row.path)
-	}
-
-	if not wanted:
+	if not ids:
 		return {}
+
+	model = subroutine.db.models.project.Project
 
 	# `.tuples().all()` rather than the `Result` itself: a bare `dict(session.execute(...))`
 	# raises, because a `Result` has a `.keys()` method and `dict` therefore treats it as a
 	# mapping. That is a recorded trap here, met once as a ruff C416 suggestion applied to
 	# working code.
+	paths = dict(
+		session.execute(sqlalchemy.select(model.id, model.path).where(model.id.in_(set(ids))))
+		.tuples()
+		.all()
+	)
+	ancestry = {
+		uuid.UUID(segment)
+		for path in paths.values()
+		for segment in subroutine.domain.hierarchy.path_segments(path)
+	}
+
+	if not ancestry:
+		return {}
+
 	keys = dict(
-		session.execute(
-			sqlalchemy.select(model.id, model.key).where(model.id.in_(wanted))
-		)
+		session.execute(sqlalchemy.select(model.id, model.key).where(model.id.in_(ancestry)))
 		.tuples()
 		.all()
 	)
 	composed: dict[uuid.UUID, str] = {}
 
-	for row in rows:
-		ancestry = [
+	for identifier, path in paths.items():
+		segments = [
 			keys.get(uuid.UUID(segment))
-			for segment in subroutine.domain.hierarchy.path_segments(row.path)
+			for segment in subroutine.domain.hierarchy.path_segments(path)
 		]
 
-		# **Its own key when an ancestor could not be read, rather than a gap.** The
-		# foreign key is ``RESTRICT`` and a delete is soft, so every ancestor row exists
-		# and this cannot happen through any supported path; it is here because the
-		# alternative is a ``KeyError`` inside a listing, and a bare key is at least true.
-		composed[row.id] = (
-			PATH_SEPARATOR.join(key for key in ancestry if key is not None)
-			if all(key is not None for key in ancestry)
-			else row.key
-		)
+		# **Nothing at all when an ancestor could not be read, rather than a suffix.** The
+		# foreign key is ``RESTRICT`` and a delete is soft, so every ancestor row exists and
+		# this cannot happen through any supported path. It matters which way it fails
+		# anyway: a suffix is an address that resolves *somewhere else*, where an absence is
+		# a column that says nothing.
+		if all(segment is not None for segment in segments):
+			composed[identifier] = PATH_SEPARATOR.join(
+				segment for segment in segments if segment is not None
+			)
 
 	return composed
 
@@ -985,7 +997,7 @@ def path_of (
 ) -> str:
 	"""Return one project's address. :func:`paths_for` is the form a listing wants."""
 
-	return paths_for(session, [row])[row.id]
+	return paths_for(session, [row.id]).get(row.id, row.key)
 
 
 def sibling_using (

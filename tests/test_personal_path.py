@@ -6167,3 +6167,159 @@ def test_a_local_token_bounds_the_work_commands_and_says_what_it_does_not (
 
 	assert "db backup" in said, "so the page names the exception"
 	assert "same limits" not in said, "rather than the promise it could not keep"
+
+
+def test_a_listing_says_where_each_item_lives (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#512`, narrowed by decision `#957`: the label is the whole address.
+
+	A key stopped naming one project with `#958`, so a column reading `dist` would say
+	nothing about where an item is. What is on the row is what somebody can type back into
+	``--project``.
+	"""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("project", "create", "substation", "Substation")
+	run("project", "create", "websites", "Websites")
+	run("project", "create", "dist", "Packaging", "--parent", "substation")
+	run("project", "create", "dist", "Deploys", "--parent", "websites")
+	run("add", "Ship the wheel +substation/dist")
+	run("add", "Fix the site +websites/dist")
+
+	listed = run("list").output
+
+	assert "substation/dist" in listed
+	assert "websites/dist" in listed
+
+
+def test_a_listing_leaves_out_what_the_request_already_said (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The middle step of the rule: full address, **strip what was asked for**, then §12.2a.
+
+	Somebody who has just typed ``--project substation`` does not need telling that every row
+	is in ``substation``; what they want to know is which part of it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("project", "create", "substation", "Substation")
+	run("project", "create", "dist", "Packaging", "--parent", "substation")
+	run("project", "create", "tools", "Tools", "--parent", "substation")
+	run("add", "Ship the wheel +substation/dist")
+	run("add", "Sharpen it +substation/tools")
+
+	listed = run("list", "--project", "substation").output
+
+	assert "dist" in listed and "tools" in listed
+	assert "substation/" not in listed, "the segment the request named is still on every row"
+
+
+def test_a_shopping_list_says_nothing_about_projects (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a applied to the **remainder**, which is what keeps §1.4's reader untouched.
+
+	`#512`'s 2026-08-05 decision, unchanged: Simon chose consistency with the uniform-column
+	rule over showing a new reader where things go. Everything is in the Inbox, the remainder
+	is the same word on every line, and the column does not earn its place.
+
+	**Two rows, because a one-row page has no distinct values to compare** — `_column` drops
+	every column on it, so a single "buy milk" would pass this whichever way the rule went.
+	"""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("add", "Buy milk")
+	run("add", "Call the dentist")
+
+	listed = run("list").output
+
+	assert "Buy milk" in listed and "Call the dentist" in listed
+	assert "inbox" not in listed, "a to-do list is unchanged by this"
+
+
+class _Filed(typing.NamedTuple):
+	"""The one field a project label reads off a row."""
+
+	project_path: str
+
+
+def test_a_mixed_page_keeps_every_whole_address (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""With no filter there is nothing to strip, so every row says where it is in full."""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("project", "create", "substation", "Substation")
+	run("project", "create", "dist", "Packaging", "--parent", "substation")
+	run("add", "Ship the wheel +substation/dist")
+	run("add", "Ship the milk")
+
+	listed = run("list").output
+
+	assert "substation/dist" in listed
+	assert "inbox" in listed
+
+
+@pytest.mark.parametrize(
+	("path", "within", "expected"),
+	[
+		("substation/dist", "substation", "dist"),
+		("substation", "substation", ""),
+		("ui-things/x", "ui", "ui-things/x"),
+		("substation/dist", "", "substation/dist"),
+		("", "substation", ""),
+	],
+)
+def test_a_label_is_only_shortened_at_a_segment_boundary (
+	path: str, within: str, expected: str
+) -> None:
+	"""**Because ``removeprefix`` on an address is otherwise wrong in general.**
+
+	``--project ui`` against a row in ``ui-things/x`` would leave ``-things/x``, which is not
+	an address of anything. Nothing supported reaches that — a filtered listing is narrowed to
+	the subtree by the server, so every row really is inside — which is exactly why it is one
+	condition rather than a comment saying it cannot happen.
+
+	**This is a unit test and the four above are not**, deliberately: the case it covers is
+	unreachable through the command line, so driving one could only ever assert the cases that
+	are.
+	"""
+
+	# A stand-in rather than a whole `views.Task`, because the cell reads one field and
+	# constructing thirty to prove that would say the opposite of what this is testing.
+	row = typing.cast(subroutine.views.Task, _Filed(project_path=path))
+
+	assert subroutine.cli.personal._project_cell(row, within) == expected
+
+
+def test_an_item_says_where_it_lives_when_it_is_read (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A reader who learns an address from a listing looks for it on the item."""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("project", "create", "substation", "Substation")
+	run("project", "create", "dist", "Packaging", "--parent", "substation")
+	run("add", "Ship the wheel +substation/dist")
+
+	assert "substation/dist" in run("show", "1").output
+
+
+def test_a_scripted_row_carries_the_whole_address (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""And is never shortened, because a script has no page to be uniform across.
+
+	The terminal's column is a layout rule; ``--json`` is a contract, and the form it carries
+	is the one that goes straight back into ``--project``.
+	"""
+
+	run("init", "--username", "si", "--workspace", "projects")
+	run("project", "create", "substation", "Substation")
+	run("project", "create", "dist", "Packaging", "--parent", "substation")
+	run("add", "Ship the wheel +substation/dist")
+
+	rows = json.loads(run("list", "--json", "--project", "substation/dist").output)
+
+	assert [row["project_path"] for row in rows] == ["substation/dist"]

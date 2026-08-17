@@ -38,6 +38,18 @@ upgrade involves.
   goes on resolving. Existing markers are rewritten by `subroutine use --here --project …`,
   which the program suggests when it notices.
 
+### Added
+
+- **A listing says where each item lives, by its whole address.** `substation/dist` rather
+  than `dist`, which no longer names one project. The label leaves out whatever the request
+  already said — `subroutine list --project substation` shows `dist` and `tools`, not
+  `substation/dist` and `substation/tools` — and disappears entirely when what is left is the
+  same on every row, so an ordinary to-do list is unchanged. `subroutine show` and the agent's
+  reading of an item both say the whole address too.
+- **`project_path` on a task and on a document, and `path` on a project**, in every response
+  and in `subroutine list --json`. It is what goes back into `--project`, `?project=` and
+  `+key`. Composed once for a whole page rather than per row.
+
 ## 0.7.5 — 2026-08-17
 
 > **This release changes the database schema**, to `c7d419e6a2b8`.

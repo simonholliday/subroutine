@@ -727,7 +727,9 @@ def test_both_create_a_project_the_same_way (pair: Pair) -> None:
 	# Every field that is not the two they were told to differ in. A create is where a default
 	# most easily comes to be decided in two places — `visibility` is passed explicitly by the
 	# HTTP client for exactly that reason.
-	differs = {"id", "key", "title", "created_at", "updated_at"}
+	# `path` differs because `key` does — it is the address `key` is the last segment of
+	# (`#512`), so the two projects being compared could not share one.
+	differs = {"id", "key", "path", "title", "created_at", "updated_at"}
 	as_local = by_local.model_dump()
 	as_remote = by_remote.model_dump()
 

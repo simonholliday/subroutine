@@ -250,6 +250,27 @@ class Task(pydantic.BaseModel):
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
 	project_key: str
+
+	#: Where it lives, as a whole address inside its workspace — ``subroutine/ui`` (`#512`).
+	#:
+	#: **Beside ``project_key`` rather than instead of it.** The key is what a project is
+	#: *called* and is what a heading says; this is what it is *addressed* by, and since
+	#: `#957` those are two different strings whenever a key is shared. A caller wanting one
+	#: word still has one.
+	#:
+	#: **Workspace-relative, so it is what a caller can send back** — `#151`'s rule. It goes
+	#: straight into ``--project``, ``?project=`` and ``+key``. The workspace is reported
+	#: separately and a surface composing a label prefixes it when the request did not already
+	#: say which workspace (decision `#957` §4).
+	#:
+	#: **Composed on the server, once, rather than by every client.** A client would need the
+	#: whole ancestor chain to build this, which is a second query and a second implementation
+	#: — ``recurrence_description``'s argument (`#925`) applied to a tree: when a client would
+	#: need a copy of a rule to render a field, publish the rendering.
+	#:
+	#: Empty only where an ancestor could not be read, which no supported path produces.
+	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
+	project_path: str = ""
 	parent_task_id: uuid.UUID | None
 
 	#: Who holds a lease on this, and until when (§14.11, `#350`).
@@ -1096,6 +1117,16 @@ class Project(pydantic.BaseModel):
 	title: str
 	description: str | None
 
+	#: Its whole address inside its workspace — ``subroutine/ui`` (`#512`).
+	#:
+	#: **Not ``project.path``, which is ids and stays off this model.** §6.9 calls that an
+	#: implementation of the hierarchy rather than a field of it, and it is ours to change;
+	#: this is the *rendering*, which is a promise. A client assembling a tree still reads
+	#: ``parent_id``, which is a fact.
+	#:
+	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
+	path: str = ""
+
 	workspace_id: uuid.UUID
 	parent_id: uuid.UUID | None
 	depth: int
@@ -1120,15 +1151,20 @@ class Project(pydantic.BaseModel):
 	version: int
 
 	def address (self) -> str:
-		"""Return what a caller addresses this by — its key, never a ref (docs/design.md §5.2)."""
+		"""Return what a caller addresses this by — its path, never a ref (docs/design.md §5.2).
 
-		return self.key
+		**The whole address since `#957`**, because a key stopped being one: two projects may
+		be keyed ``dist``, and handing back a word that names either is handing back something
+		a caller cannot send. `#151`'s rule.
+		"""
+
+		return self.path or self.key
 
 	def columns (self) -> tuple[str, ...]:
 		"""Return this project as the cells of one compact line."""
 
 		return (
-			self.key,
+			self.path or self.key,
 			f"[{self.status}]",
 			"private" if self.visibility == "private" else "",
 			subroutine.domain.text.truncated(self.title),
@@ -1171,6 +1207,27 @@ class Document(pydantic.BaseModel):
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
 	project_key: str
+
+	#: Where it lives, as a whole address inside its workspace — ``subroutine/ui`` (`#512`).
+	#:
+	#: **Beside ``project_key`` rather than instead of it.** The key is what a project is
+	#: *called* and is what a heading says; this is what it is *addressed* by, and since
+	#: `#957` those are two different strings whenever a key is shared. A caller wanting one
+	#: word still has one.
+	#:
+	#: **Workspace-relative, so it is what a caller can send back** — `#151`'s rule. It goes
+	#: straight into ``--project``, ``?project=`` and ``+key``. The workspace is reported
+	#: separately and a surface composing a label prefixes it when the request did not already
+	#: say which workspace (decision `#957` §4).
+	#:
+	#: **Composed on the server, once, rather than by every client.** A client would need the
+	#: whole ancestor chain to build this, which is a second query and a second implementation
+	#: — ``recurrence_description``'s argument (`#925`) applied to a tree: when a client would
+	#: need a copy of a rule to render a field, publish the rendering.
+	#:
+	#: Empty only where an ancestor could not be read, which no supported path produces.
+	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
+	project_path: str = ""
 	parent_id: uuid.UUID | None
 
 	status: str
@@ -1454,6 +1511,12 @@ class Vocabulary:
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
 		)
+		# **The whole address, batch-loaded like everything else here** (`#512`). A key stopped
+		# naming one project with `#957`, so a row saying `dist` no longer says where its item
+		# lives — and composing an address per row is `#39`'s N+1 on the one column that would
+		# be on every line. This class is already the answer to "what does a page of rows need
+		# that a row cannot know on its own", and an ancestor's key is exactly that.
+		self.project_paths = subroutine.domain.projects.paths_for(session, set(project_ids))
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
 		# question of either. Two queries rather than one because the join tables are two —
@@ -1567,9 +1630,18 @@ class Vocabulary:
 		session: sqlalchemy.orm.Session,
 		projects: typing.Sequence[subroutine.db.models.project.Project],
 	) -> "Vocabulary":
-		"""Load everything a page of projects needs to be rendered."""
+		"""Load everything a page of projects needs to be rendered.
 
-		return cls(session, status_ids={project.status_id for project in projects})
+		``project_ids`` is the page itself, because a project's own address is composed from
+		its ancestors' keys exactly as a task's is (`#512`) — the ids differ, the question
+		does not.
+		"""
+
+		return cls(
+			session,
+			status_ids={project.status_id for project in projects},
+			project_ids={project.id for project in projects},
+		)
 
 
 
@@ -1601,6 +1673,7 @@ def task (
 		workspace_id=row.workspace_id,
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
+		project_path=vocabulary.project_paths.get(row.project_id, ""),
 		parent_task_id=row.parent_task_id,
 		parent_ref=_parent_field(vocabulary, row.parent_task_id, "ref"),
 		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
@@ -1711,6 +1784,7 @@ def document (
 		workspace_id=row.workspace_id,
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
+		project_path=vocabulary.project_paths.get(row.project_id, ""),
 		parent_id=row.parent_id,
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),
@@ -1861,6 +1935,7 @@ def project (
 	return Project(
 		id=row.id,
 		key=row.key,
+		path=vocabulary.project_paths.get(row.id, ""),
 		title=row.title,
 		description=row.description,
 		workspace_id=row.workspace_id,

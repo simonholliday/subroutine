@@ -633,19 +633,33 @@ class Columns:
 	parent: int = 0
 	assignee: int = 0
 	size: int = 0
+	project: int = 0
 
 	#: What was searched for, so a row can say where it was found. ``None`` on any listing
 	#: that was not a search, which is what drops the column entirely.
 	term: str | None = None
 
+	#: The address prefix every row on this page shares *because the request named it*, so a
+	#: project label can leave it out — decision `#957` §4. Empty on an unfiltered listing.
+	within: str = ""
+
 	@classmethod
 	def measured (
-		cls, world: World, rows: typing.Sequence[Row], *, term: str | None = None
+		cls,
+		world: World,
+		rows: typing.Sequence[Row],
+		*,
+		term: str | None = None,
+		project: str | None = None,
 	) -> "Columns":
 		"""Return the widths this page needs."""
 
+		within = _asked_within(project)
+
 		return cls(
 			term=term,
+			within=within,
+			project=_column(_project_cell(item, within) for _name, item in rows),
 			matched=_column(_match_cell(item, term) for _name, item in rows),
 			parent=_column(_parent_cell(item) for _name, item in rows),
 			address=max(
@@ -794,6 +808,63 @@ def _priority_cell (item: Item) -> str:
 #: a ref, `!` is priority, `~` an estimate, `+` a project and `@` an assignee, all claimed by
 #: §6.13's capture grammar. It reads as "up", which is the relationship.
 PARENT_SIGIL = "^"
+
+
+def _asked_within (project: str | None) -> str:
+	"""Return the address prefix a project label may leave out, because the request said it.
+
+	**The ``--project`` filter alone, and deliberately not the checkout's context.** Decision
+	`#957` §4 named both; building it showed the second is wrong here, because §13.7 makes the
+	context direct *writes* and never narrow a read. A `.subroutine` marker naming
+	``subroutine`` does not stop ``subroutine list`` showing personal items, so stripping by it
+	would drop a segment the reader needs from rows the request never scoped.
+
+	**Only what was typed, which is the whole of it.** ``--project subroutine`` filtering to
+	``subroutine/ui`` and ``subroutine/spec`` leaves ``ui`` and ``spec``; ``--project ui``,
+	which resolves by *search* to ``subroutine/ui``, matches no prefix and so strips nothing —
+	the row shows its whole address, which is longer than it needs to be and is visible. That
+	is the right way round: the alternative is stripping a prefix nobody named.
+	"""
+
+	return "" if not project else subroutine.domain.projects.normalize_path(project)
+
+
+def _project_cell (item: Item, within: str) -> str:
+	"""Return where an item lives, as much of its address as the request did not already say.
+
+	**The whole rule is: full address, strip what was asked for, then §12.2a** — and only the
+	first two steps are here, because dropping a uniform column is :func:`_column`'s job and
+	is measured across the page rather than per row.
+
+	So an ordinary to-do list shows nothing: every item is in the Inbox, the remainder is
+	``inbox`` on every line, and the column does not earn its place. That is `#512`'s
+	2026-08-05 decision working unchanged — Simon chose consistency with §12.2a over showing
+	a new reader where things go — narrowed by `#957` only in *what* the rule is applied to.
+
+	**The workspace is not in this cell**, though `#957`'s table puts it in the browser's
+	label. It is already in the address column: ``World.address_of`` prints ``acme/#42`` for a
+	row in another workspace and a bare number for one here, so naming the workspace again
+	would say it twice on every line that needed it and never on the lines that did not.
+	"""
+
+	path = item.project_path
+
+	if not path or not within:
+		return path
+
+	# **Only on a segment boundary**, because `removeprefix` on an address is otherwise wrong
+	# in general: `--project ui` against a row in `ui-things/x` would leave `-things/x`, which
+	# is not an address of anything. The server has already narrowed a filtered listing to the
+	# subtree, so no supported path reaches that — this is one condition rather than a comment
+	# saying it cannot happen, which is what `#303` is about.
+	separator = subroutine.domain.projects.PATH_SEPARATOR
+
+	if path == within:
+		return ""
+
+	inside = f"{within}{separator}"
+
+	return path.removeprefix(inside) if path.startswith(inside) else path
 
 
 def _parent_cell (item: Item) -> str:
@@ -2604,7 +2675,7 @@ def _listed (
 		if merged or not world.qualifies_connection:
 			shown = flat()
 
-			_flat(world, shown, console=program.console, term=q)
+			_flat(world, shown, console=program.console, term=q, project=project)
 
 		else:
 			shown = [
@@ -2613,7 +2684,14 @@ def _listed (
 				for row in answer.value.rows
 			]
 
-			_grouped(world, gathered, console=program.console, say=program.say, term=q)
+			_grouped(
+				world,
+				gathered,
+				console=program.console,
+				say=program.say,
+				term=q,
+				project=project,
+			)
 
 		if more:
 			# The agenda has always said this about its own remainder; the list said
@@ -6086,6 +6164,7 @@ def _flat (
 	console: rich.console.Console,
 	columns: Columns | None = None,
 	term: str | None = None,
+	project: str | None = None,
 ) -> None:
 	"""Print one list, every row addressed by the shortest form that resolves.
 
@@ -6094,7 +6173,11 @@ def _flat (
 	than stepping in and out as each heading changes what is below it.
 	"""
 
-	measured = Columns.measured(world, rows, term=term) if columns is None else columns
+	measured = (
+		Columns.measured(world, rows, term=term, project=project)
+		if columns is None
+		else columns
+	)
 
 	for connection, task in rows:
 		console.print(_item_line(world, connection, task, late=False, columns=measured))
@@ -6107,6 +6190,7 @@ def _grouped (
 	console: rich.console.Console,
 	say: typing.Callable[[str], None],
 	term: str | None = None,
+	project: str | None = None,
 ) -> None:
 	"""Print a group per connection, which is what a flat listing has instead of structure.
 
@@ -6117,7 +6201,10 @@ def _grouped (
 
 	printed = False
 	columns = Columns.measured(
-		world, [row for answer in gathered.answers for row in answer.value.rows], term=term
+		world,
+		[row for answer in gathered.answers for row in answer.value.rows],
+		term=term,
+		project=project,
 	)
 
 	for answer in gathered.answers:
@@ -6279,6 +6366,13 @@ def _item_line (
 
 	if columns.assignee:
 		line.append(f"{_assignee_cell(item):<{columns.assignee}}  ", style=DETAIL)
+
+	# **Last of the properties, next to the title** (`#512`). Where something lives is read
+	# together with what it is called — a reader scanning a mixed backlog asks "what is this,
+	# and whose tree is it in" as one question — and it is the widest of these cells, so
+	# putting it here keeps the narrow ones aligned against the address.
+	if columns.project:
+		line.append(f"{_project_cell(item, columns.within):<{columns.project}}  ", style=DETAIL)
 
 	# **Before the title, where a decision is made** (`#595`). A reader scanning for something
 	# to open passes the mark on the way to the words, rather than after them.
@@ -6572,8 +6666,12 @@ def _facts (located: Located) -> list[str]:
 
 	# The project only when it is one somebody filed this in. The Inbox is where things go
 	# when nobody said, so naming it would be reporting the absence of a decision.
-	if item.project_key and item.project_key.lower() != "inbox":
-		facts.append(item.project_key)
+	#
+	# **The whole address since `#512`**, because a key stopped naming one project: a reader
+	# who learns `substation/dist` from a listing looks for it on the item, and `dist` alone
+	# would be a different claim from the one the listing made.
+	if item.project_path and item.project_path.lower() != "inbox":
+		facts.append(item.project_path)
 
 	# **Last, and it is the one fact here that is not about a choice somebody made** (`#700`).
 	# Everything above earns its place by having been chosen; this earns it by changing what
@@ -6811,6 +6909,11 @@ def _as_json (
 		# terminal's own merge now reads. Null on any listing that was not ranked, which is how
 		# a caller tells "not searched" from "searched and scored zero".
 		"relevance": getattr(item, subroutine.domain.ordering.RELEVANCE, None),
+		# **Where it lives, whole** (`#512`). Shared rather than task-only, because a document
+		# is filed in a project exactly as a task is — and unlike the terminal's column this
+		# is never dropped or shortened: a script has no page to be uniform across, and the
+		# form it wants is the one it can send back to `--project`.
+		"project_path": item.project_path,
 	}
 
 	if not isinstance(item, subroutine.views.Task):

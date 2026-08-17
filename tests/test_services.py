@@ -18,6 +18,7 @@ import uuid
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.orm
 
@@ -42,6 +43,7 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.views
 
 
 def _founder (session: sqlalchemy.orm.Session) -> subroutine.db.models.identity.User:
@@ -1984,7 +1986,7 @@ def test_an_address_composed_from_ids_agrees_with_one_composed_from_parents (
 
 	session.flush()
 
-	from_ids = subroutine.domain.projects.paths_for(session, rows)
+	from_ids = subroutine.domain.projects.paths_for(session, [row.id for row in rows])
 
 	assert from_ids[leaf.id] == "substation/dist/wheels", "the seed is the deep case"
 
@@ -1992,3 +1994,72 @@ def test_an_address_composed_from_ids_agrees_with_one_composed_from_parents (
 		assert from_ids[row.id] == subroutine.directory.address(row, rows), (
 			f"the two composers disagree about {row.key!r}"
 		)
+
+
+def test_a_page_of_tasks_costs_the_same_number_of_queries_however_many_projects (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#512` asked for the address to be batch-loaded, and this is what says it was.
+
+	**Counted rather than timed.** A ratio catches a query that grew expensive; a *count*
+	catches the shape `#39` is about — one more statement per row, which on a fixture of four
+	rows is too fast to measure and on a real page is the whole cost. So the assertion is that
+	rendering ten tasks across five projects issues exactly what rendering one does.
+
+	The number itself is not asserted, deliberately: it is `Vocabulary`'s business how many
+	loads a page needs, and pinning it would fail on every unrelated addition. What must not
+	move is the *difference*.
+	"""
+
+	workspace = _workspace(session)
+	root = _project(session, workspace, key="substation")
+	deep = [root]
+
+	for depth in range(5):
+		deep.append(_project(session, workspace, key=f"level{depth}", parent=deep[-1]))
+
+	one = [
+		subroutine.domain.tasks.create(session, project=deep[-1], title="Only one")
+	]
+	many = [
+		subroutine.domain.tasks.create(
+			session, project=deep[index % len(deep)], title=f"Task {index}"
+		)
+		for index in range(10)
+	]
+	session.flush()
+
+	def rendered (rows: list[typing.Any]) -> int:
+		"""Render a page and return how many statements it took."""
+
+		counted = 0
+
+		def count (*_arguments: typing.Any, **_keywords: typing.Any) -> None:
+			"""Tally one statement."""
+
+			nonlocal counted
+			counted += 1
+
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", count)
+
+		try:
+			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+
+			for row in rows:
+				subroutine.views.task(row, vocabulary)
+
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", count)
+
+		return counted
+
+	assert rendered(many) == rendered(one), (
+		"a page costs more queries than a single row, so something is loaded per row"
+	)
+
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, many)
+	addresses = {subroutine.views.task(row, vocabulary).project_path for row in many}
+
+	assert "substation/level0/level1/level2/level3/level4" in addresses, (
+		"the seed is the deep case, or this measures a page of roots"
+	)

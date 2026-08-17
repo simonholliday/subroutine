@@ -365,7 +365,7 @@ def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.An
 	if not rows:
 		return "There are no projects here you can see."
 
-	addresses = subroutine.domain.projects.paths_for(session, rows)
+	addresses = subroutine.domain.projects.paths_for(session, [row.id for row in rows])
 	listed = ", ".join(sorted(addresses.values()))
 
 	return f"Projects here, by name or whole address: {listed}."
@@ -429,7 +429,9 @@ def _by_name (
 	if len(candidates) < 2:
 		return candidates[0] if candidates else None
 
-	addresses = subroutine.domain.projects.paths_for(session, candidates)
+	addresses = subroutine.domain.projects.paths_for(
+		session, [candidate.id for candidate in candidates]
+	)
 	listed = ", ".join(sorted(addresses[candidate.id] for candidate in candidates))
 
 	raise subroutine.errors.ValidationError(

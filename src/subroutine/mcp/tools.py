@@ -1713,8 +1713,12 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 
 	# The project only when somebody filed it somewhere. The Inbox is where things go when
 	# nobody said, so naming it would be reporting the absence of a decision.
-	if item.project_key and item.project_key.lower() != "inbox":
-		facts.append(f"+{item.project_key}")
+	#
+	# **The whole address since `#512`**, and `+` still leads it because a capture line reads
+	# one: `+substation/dist` is what `#958` widened the grammar to accept, so what this prints
+	# stays a thing the reader can send back.
+	if item.project_path and item.project_path.lower() != "inbox":
+		facts.append(f"+{item.project_path}")
 
 	# **Last, and it matters more here than at the terminal** (`#700`). A person reading an
 	# item in the trash is at least reading it; a model may act on what it read. This is the
