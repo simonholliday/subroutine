@@ -120,14 +120,14 @@ RawBodyDep = typing.Annotated[bytes, fastapi.Depends(_raw_body)]
 	include_in_schema=False,
 )
 def no_stream () -> fastapi.Response:
-	"""Refuse the standalone event stream, in writing rather than by absence — `#648`.
+	"""Refuse the standalone event stream, in writing rather than by absence.
 
 	The refusal itself is not new: a client opening this ``GET`` has always been answered
 	``405``, and that was *measured* against ``claude-code/2.1.222`` rather than assumed. What
 	is new is that it now comes from a route instead of from there being no route.
 
-	**The difference matters because an absence can be claimed by somebody else.** `#647` added
-	``GET /{workspace}`` for the browser app, which matches every single-segment path — so this
+	**The difference matters because an absence can be claimed by somebody else.** The browser
+	app later added ``GET /{workspace}``, which matches every single-segment path — so this
 	``GET`` began returning an HTML page, and a 405 that had only ever existed as a coincidence
 	stopped being true. ``api/routing.check`` could not see it: nothing became *unreachable*,
 	which is the question it asks.
@@ -167,7 +167,7 @@ def call (
 	put it.
 
 	Left unset on a multi-workspace instance, every read is refused as ambiguous — which is
-	`#496`, and the refusal there names the workspaces rather than merely complaining.
+	deliberate, and the refusal names the workspaces rather than merely complaining.
 	"""
 
 	_refuse_a_foreign_origin(request, settings)

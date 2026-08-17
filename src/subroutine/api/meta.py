@@ -129,8 +129,8 @@ def meta (
 ) -> subroutine.views.Meta:
 	"""Report this installation's vocabulary, limits and grammars.
 
-	**Refuses a query parameter it does not accept, which no other single-entity read does**
-	(`#615`). The rule `api/query.py` states is that a listing refuses because an ignored
+	**Refuses a query parameter it does not accept, which no other single-entity read does.**
+	The rule `api/query.py` states is that a listing refuses because an ignored
 	parameter costs *payload*, and a single-entity read is exempt because it wastes nothing.
 	This endpoint breaks that criterion: a discarded parameter here does not return too much,
 	it returns **a different answer that looks like a true one**.

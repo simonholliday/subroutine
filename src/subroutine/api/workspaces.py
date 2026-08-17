@@ -358,9 +358,9 @@ def join (
 
 	Needs ``workspace:admin`` rather than ``workspace:write``: deciding who belongs somewhere is
 	not the same act as doing work there, and a member who can add members can grant themselves
-	anything the roles allow. That check did not exist at all until `#188`, which was found on
-	the morning this endpoint was written — the service took an actor, attributed the event to
-	it, and never asked it anything.
+	anything the roles allow. That check did not exist at all at first — the service took an
+	actor, attributed the event to it, and never asked it anything — and it was found on the
+	morning this endpoint was written.
 	"""
 
 	found = resolve(session, actor, id_or_slug)
@@ -386,7 +386,7 @@ def leave (
 ) -> None:
 	"""Remove somebody's membership of this workspace.
 
-	**Here rather than later**, for the reason `#140` gives about anything that can be added:
+	**Here rather than later**, for the reason that holds of anything that can be added:
 	somebody joined by mistake can see private projects they should not, and a membership that
 	can only be granted is one whose mistakes are permanent.
 

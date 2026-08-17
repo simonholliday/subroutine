@@ -38,6 +38,7 @@ direction, relative *links* on the published pages, and the two do not overlap: 
 ``](target)`` on three pages, a mention is bare prose anywhere.
 """
 
+import ast
 import pathlib
 import re
 import subprocess
@@ -327,3 +328,174 @@ def test_the_scanner_finds_a_planted_reference (tmp_path: pathlib.Path) -> None:
 		"an untracked file was counted — the scan is walking the directory rather than what "
 		"git tracks, so anything in a build directory would be policed too"
 	)
+
+
+# --- Items in this instance are not addresses a reader of the source has ---------------------
+#
+# `#944`, Simon's decision of 2026-08-17, option C. The repository cites this project's own
+# backlog about 4,600 times, and every one of those is a number only somebody with an account on
+# a private instance can resolve. **Almost all of them are footnotes** — the sentence beside them
+# says the rule, so a stranger loses a pointer rather than the reasoning — and stripping 4,600
+# comments would cost more than it buys, remove the trail from code to decision, and risk the
+# thing below.
+#
+# **So the line is drawn where somebody actually reads it**: what the API publishes, and what a
+# person or an agent is handed. Those must cite nothing they cannot follow. Everything else keeps
+# its footnotes, and the convention that makes them harmless is stated rather than tested —
+# *state the rule, then cite it*.
+
+#: The pages a reader is handed. ``docs/design.md`` is deliberately absent: it is frozen
+#: (`#945`), so its citations are a closed set that cannot grow, and it is registered under
+#: :attr:`Absent.frozen_in` for the same reason.
+PUBLISHED_PAGES: tuple[str, ...] = (
+	"README.md",
+	"CHANGELOG.md",
+	"CONTRIBUTING.md",
+	"SECURITY.md",
+	"docs/errors.md",
+	"docs/hosting.md",
+	"docs/connecting.md",
+	"plugins/subroutine/skills/subroutine/SKILL.md",
+	"plugins/subroutine-remote/skills/subroutine/SKILL.md",
+)
+
+#: Refs a published page may name, because on these pages a number is the **product**
+#: demonstrating its own central concept rather than a pointer at our backlog.
+#:
+#: **This distinction is the whole difficulty and it cannot be drawn from the digits.** `#42` in
+#: *"`#42` is the same task tomorrow"* teaches what a ref is; `#245` in *"macOS and Windows are
+#: `#245`"* was a dead pointer on the page people read while upgrading. Both are backticked, both
+#: are integers, and only reading tells them apart — which is why this is a register with reasons
+#: rather than a pattern.
+#:
+#: A number here is a claim that it is an *example*. Adding one is a decision; the alternative is
+#: nearly always to say the thing rather than point at it.
+ILLUSTRATIVE: dict[int, str] = {
+	1: "the first item in every transcript on every page — 'Call the dentist', 'Pay the gas "
+	"bill' — and the example for numbering starting again in a new workspace",
+	2: "'start with #2', explaining where a workspace's ref sequence resumes",
+	3: "the skill's warning that a reader holding 'finding 3' and #3 cannot tell them apart",
+	7: "'move 42 --under 7', the worked example of making one item part of another",
+	38: "the skill's worked comment, and the sentence saying a #38 in a body becomes a link",
+	42: "the ref used to explain what a ref is, on every page that explains one",
+	46: "'what closed #46', CONTRIBUTING's example of the question the commit hook answers",
+	442: "'Blocks #442', the example of a link rendering that says whether it is finished",
+	862: "the search example — searching 862 finds #862 itself as well as text mentioning it",
+}
+
+
+def _published_docstrings () -> list[tuple[str, str, str]]:
+	"""Return every docstring FastAPI publishes, as ``(path, function, text)``.
+
+	Read from the decorators rather than from a list of files, because the property that
+	matters is *this is served to a caller* and that is what ``@router.get`` and its siblings
+	decide. A list would fall behind the first router somebody adds.
+	"""
+
+	found = []
+
+	for relative in tracked():
+		if not (relative.startswith("src/") and relative.endswith(".py")):
+			continue
+
+		tree = ast.parse(ROOT.joinpath(relative).read_text(encoding="utf-8"))
+
+		for node in ast.walk(tree):
+			if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				continue
+
+			decorated = " ".join(ast.unparse(one) for one in node.decorator_list)
+
+			if "router." in decorated and ast.get_docstring(node):
+				found.append((relative, node.name, ast.get_docstring(node) or ""))
+
+	return found
+
+
+#: A ref as it is written anywhere — ``#42``, but not ``##1``, not ``#42FF00``, not ``issue#1``.
+#: The same lookarounds ``mentions.REF_PATTERN`` uses, for the same reasons.
+_REF = re.compile(r"(?<![\w#])#(\d{1,4})(?!\w)")
+
+
+def test_nothing_the_api_publishes_cites_an_item () -> None:
+	"""An endpoint's docstring is its OpenAPI ``description``, and that document is public.
+
+	**Measured on the served instance rather than reasoned about** (`#944`):
+	``GET /v1/openapi.json`` answers with no credential at all and carried 51 citations, so
+	``PATCH /v1/tasks/{id_or_ref}`` told a stranger to consult ``SPEC.md`` and
+	``POST /v1/login-links`` cited ``#248``. A generated client, a documentation browser and
+	anybody reading the schema got a pointer into a tracker they have no account on.
+
+	**Zero, with no register**, unlike the pages below. Nothing an endpoint needs to say about
+	itself requires an example ref: the path parameter is called ``id_or_ref`` and the grammar
+	is explained where somebody is typing one, not in a schema.
+	"""
+
+	offenders = [
+		(path, name, line.strip())
+		for path, name, doc in _published_docstrings()
+		for line in doc.splitlines()
+		if _REF.search(line)
+	]
+
+	assert not offenders, (
+		"an endpoint docstring cites an item, and FastAPI publishes it as the route's "
+		"description in /v1/openapi.json — which answers without a credential. Say the thing "
+		"rather than pointing at it; the item stays in the commit message, which is where the "
+		"trail from code to decision lives.\n"
+		+ "\n".join(f"  {p} {n}: {line}" for p, n, line in offenders)
+	)
+
+
+def test_no_published_page_cites_an_item_it_is_not_demonstrating () -> None:
+	"""The pages a reader is handed name refs only as examples of what a ref is.
+
+	The one this caught on its first run was ``CHANGELOG.md``'s *"macOS and Windows are
+	`#245`"* — in a released section, on the document somebody reads while deciding whether to
+	upgrade, pointing at a private tracker.
+	"""
+
+	offenders = []
+
+	for relative in PUBLISHED_PAGES:
+		path = ROOT / relative
+
+		if not path.exists():
+			continue
+
+		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+			for found in _REF.finditer(line):
+				if int(found.group(1)) not in ILLUSTRATIVE:
+					offenders.append(f"  {relative}:{number}: {line.strip()[:96]}")
+
+	assert not offenders, (
+		"a published page cites an item a reader cannot look up. Say the thing rather than "
+		"pointing at it — or, if the number really is an example of what a ref looks like, add "
+		"it to ILLUSTRATIVE with the reason.\n" + "\n".join(offenders)
+	)
+
+
+def test_every_illustrative_ref_is_still_demonstrated () -> None:
+	"""An entry naming a ref no page uses is an excuse nobody can delete.
+
+	`#405`'s question of every register here: what makes an entry go away? This one goes when
+	the prose stops using the number — and without this, ``ILLUSTRATIVE`` would slowly become a
+	list of refs it is acceptable to cite anywhere, which is the opposite of what it says.
+	"""
+
+	used: set[int] = set()
+
+	for relative in PUBLISHED_PAGES:
+		path = ROOT / relative
+
+		if path.exists():
+			used.update(int(one) for one in _REF.findall(path.read_text(encoding="utf-8")))
+
+	stale = sorted(set(ILLUSTRATIVE) - used)
+
+	assert not stale, (
+		f"ILLUSTRATIVE excuses {stale}, which no published page names any more. Delete the "
+		f"entries, or the exemption is spendable on a real citation later."
+	)
+
+	assert used, "no published page names a ref at all, so this scan is reading nothing"

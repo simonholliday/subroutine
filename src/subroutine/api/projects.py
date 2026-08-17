@@ -364,10 +364,9 @@ def unremove (
 ) -> subroutine.views.Project:
 	"""Restore a soft-deleted project, and everything filed in it (docs/design.md §6.9).
 
-	**`DELETE` has always said its tasks "come back with it" and nothing brought them back**
-	(`#308`). `#140` gave tasks and documents a restore and did not give one to the container
-	they hang off, so deleting a project removed every item inside it by a route that read as
-	reversible and was not.
+	**`DELETE` has always said its tasks "come back with it" and nothing brought them back.**
+	Tasks and documents gained a restore before their container did, so deleting a project
+	removed every item inside it by a route that read as reversible and was not.
 
 	Registered before the parameterised routes below it for `routing.check`'s reason, and
 	`POST` rather than `DELETE ?restore=` because it is not a deletion of anything.

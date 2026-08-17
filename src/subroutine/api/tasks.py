@@ -796,7 +796,7 @@ def occurrences (
 ) -> subroutine.views.Occurrences:
 	"""Expand a repeating task's rule into the dates it produces.
 
-	§6.7 reserved this and decision `#915` is why it exists at all: **one occurrence is real
+	§6.7 reserved this, and the decision behind it is why it exists at all: **one occurrence is real
 	and the rest are computed**, so *show me every birthday* is a question about a view rather
 	than about the backlog. Nothing is stored and nothing is materialised — a `GET` that wrote
 	would break a read-only credential and race two concurrent readers.
@@ -956,7 +956,7 @@ def move (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Re-parent a task, taking its subtask tree with it (`#44`).
+	"""Re-parent a task, taking its subtask tree with it.
 
 	**The endpoint §8 reserved**, rather than a field on ``PATCH``. Changing a project is a
 	field being wrong and the subtree following is an invariant; changing a parent can be
@@ -1009,11 +1009,11 @@ def unremove (
 ) -> subroutine.views.Task:
 	"""Restore a soft-deleted task (docs/design.md §6.9).
 
-	**The half that made soft delete soft**, and it did not exist until `#140` — §6.9 promised
-	a deleted item was restorable, a `trash_retention_days` setting was declared, and
+	**The half that made soft delete soft**, and for a long time it did not exist — §6.9
+	promised a deleted item was restorable, a `trash_retention_days` setting was declared, and
 	`EventAction.RESTORED` has always been in the vocabulary, with nothing clearing
-	`deleted_at`. The setting is gone since `#187` — nothing ever purged the trash, so it was
-	one more place the promise was made.
+	`deleted_at`. That setting is gone — nothing ever purged the trash, so it was one more
+	place the promise was made.
 
 	Registered before the parameterised deletes below it for `routing.check`'s reason, and
 	`POST` rather than `DELETE ?restore=` because it is not a deletion of anything.

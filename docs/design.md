@@ -28,6 +28,13 @@ citation nobody can follow is worse than no citation.
 Section numbers — `§7.3a`, `§12.6b` — are how the code refers to this document. They are
 positional, which is a weakness the document itself records: see §20a and Appendix A.
 
+**One thing was removed rather than exported.** While the document lived in the instance each
+section carried a footer listing the other sections it referenced, by their item numbers there.
+Those numbers addressed a tracker you do not have, and they addressed documents that no longer
+exist — so the twenty-four footers are gone and nothing else is. They were added by the move and
+were never part of the design, which is why taking them out restores this rather than amending
+it.
+
 ## Contents
 
 - 1. Purpose and vision
@@ -199,11 +206,6 @@ than two, and for §13.7 — an agent that can see both.
 ---
 
 
----
-
-**Specification sections referenced** — §6 #453 · §8 #455 · §12 #459 · §13 #460 · §14 #461 · §15 #462
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 2. Naming, licence and repository strategy
 
@@ -398,11 +400,6 @@ skill and any generated stubs, `web/` for the eventual browser UI, `docs/` for p
 ---
 
 
----
-
-**Specification sections referenced** — §13 #460 · §14 #461 · §16 #463
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 3. Review of the initial brief
 
@@ -486,11 +483,6 @@ the body of the spec.
 ---
 
 
----
-
-**Specification sections referenced** — §5 #452 · §6 #453 · §7 #454 · §8 #455 · §9 #456 · §10 #457 · §11 #458 · §12 #459 · §13 #460
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 4. System architecture
 
@@ -960,11 +952,6 @@ agents working on related projects at once. Specified in **§15**.
 ---
 
 
----
-
-**Specification sections referenced** — §6 #453 · §7 #454 · §8 #455 · §10 #457 · §13 #460 · §14 #461 · §15 #462
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 6. Task semantics in detail
 
@@ -1820,11 +1807,6 @@ The endpoints will mirror the rest: `POST /v1/tasks/{id_or_ref}/attachments`, `G
 on the backend.
 
 
----
-
-**Specification sections referenced** — §1 #448 · §5 #452 · §7 #454 · §8 #455 · §9 #456 · §10 #457 · §12 #459 · §13 #460 · §14 #461 · §15 #462 · §18 #465
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 7. Identity, authentication and authorisation
 
@@ -2149,11 +2131,6 @@ same defeat as keying on the token prefix; empty therefore means "ignore it", no
 ---
 
 
----
-
-**Specification sections referenced** — §5 #452 · §6 #453 · §8 #455 · §11 #458 · §12 #459 · §13 #460 · §14 #461 · §15 #462 · §18 #465 · §20 #467 · §22 #469
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 8. API design
 
@@ -2637,11 +2614,6 @@ explanatory error rather than silently downgraded.
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §5 #452 · §6 #453 · §7 #454 · §9 #456 · §12 #459 · §13 #460 · §14 #461 · §18 #465 · §20 #467
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 9. Search and filtering
 
@@ -2876,11 +2848,6 @@ rare.
 ---
 
 
----
-
-**Specification sections referenced** — §6 #453 · §7 #454 · §10 #457 · §12 #459 · §13 #460
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 10. Database design
 
@@ -3462,11 +3429,6 @@ drift the day it is introduced rather than at the first PostgreSQL deployment.
 ---
 
 
----
-
-**Specification sections referenced** — §2 #449 · §5 #452 · §6 #453 · §7 #454 · §9 #456 · §13 #460 · §14 #461 · §15 #462 · §18 #465
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 11. Implementation notes
 
@@ -3535,11 +3497,6 @@ Slow-query logging above a configurable threshold. Prometheus metrics reserved.
 ---
 
 
----
-
-**Specification sections referenced** — §3 #450 · §6 #453 · §9 #456
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 12. Installation, configuration and operations
 
@@ -4450,11 +4407,6 @@ change would be a bad one to be stuck with.
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §4 #451 · §5 #452 · §6 #453 · §7 #454 · §8 #455 · §9 #456 · §10 #457 · §13 #460 · §14 #461
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 13. Agent-facing design
 
@@ -4940,11 +4892,6 @@ that cannot be parsed is treated as absent for that reason, rather than refusing
 
 
 
----
-
-**Specification sections referenced** — §1 #448 · §4 #451 · §5 #452 · §6 #453 · §7 #454 · §8 #455 · §10 #457 · §12 #459 · §14 #461 · §15 #462 · §17 #464 · §21 #468
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 14. Designing for the agent–human pair
 
@@ -5395,11 +5342,6 @@ Recorded so they are not re-proposed:
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §5 #452 · §6 #453 · §8 #455 · §9 #456 · §10 #457 · §13 #460 · §15 #462
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 15. Working alongside others
 
@@ -5727,11 +5669,6 @@ implemented as a global flag and then behaves oddly for everyone but the first u
 ---
 
 
----
-
-**Specification sections referenced** — §14 #461 · §18 #465
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 16. Repository layout
 
@@ -5784,11 +5721,6 @@ subroutine/
 ---
 
 
----
-
-**Specification sections referenced** — §12 #459 · §13 #460 · §22 #469
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 17. Delivery plan
 
@@ -5813,11 +5745,6 @@ requirements; the sooner real use starts, the sooner the wrong abstractions surf
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §5 #452 · §6 #453 · §8 #455 · §13 #460
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 18. Extension points
 
@@ -5852,11 +5779,6 @@ Named so the design does not close them; none implemented in v1.
 ---
 
 
----
-
-**Specification sections referenced** — §6 #453 · §7 #454 · §8 #455 · §9 #456 · §13 #460 · §14 #461 · §15 #462 · §20 #467
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 19. Open decisions
 
@@ -5938,11 +5860,6 @@ Arising from §1.4 and §13.7:
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §2 #449 · §5 #452 · §6 #453 · §11 #458 · §13 #460 · §14 #461 · §15 #462
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 20. Calendar feeds
 
@@ -6095,11 +6012,6 @@ sits alongside.
 ---
 
 
----
-
-**Specification sections referenced** — §7 #454 · §8 #455 · §18 #465
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 20a. Naming an item
 
@@ -6140,11 +6052,6 @@ tasks and documents alike (§8.3, and the item that closed it).
 ---
 
 
----
-
-**Specification sections referenced** — §8 #455 · §20 #467
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 21. The Claude Code plugin
 
@@ -6404,11 +6311,6 @@ and a document what you concluded (§5.10), mentions and backlinks, and the agen
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §5 #452 · §6 #453 · §7 #454 · §12 #459 · §13 #460 · §14 #461 · §20 #467
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## 22. The web UI
 
@@ -6659,11 +6561,6 @@ it out.
 ---
 
 
----
-
-**Specification sections referenced** — §1 #448 · §2 #449 · §5 #452 · §6 #453 · §7 #454 · §8 #455 · §12 #459 · §13 #460 · §14 #461 · §15 #462 · §20 #467 · §21 #468
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## Appendix A — Known spec debt
 
@@ -7257,11 +7154,6 @@ that the project is about to keep its own plan in a database it can no longer re
 ---
 
 
----
-
-**Specification sections referenced** — §2 #449 · §5 #452 · §6 #453 · §7 #454 · §8 #455 · §9 #456 · §10 #457 · §11 #458 · §12 #459 · §13 #460 · §14 #461 · §15 #462 · §19 #466 · §20 #467
-
-Index: #472. Subsections are not yet addressable (`#32`).
 
 ## Appendix B — Glossary
 
@@ -7306,8 +7198,3 @@ Index: #472. Subsections are not yet addressable (`#32`).
 | **Presence** | Which principals are active now and on what |
 
 
----
-
-**Specification sections referenced** — §14 #461
-
-Index: #472. Subsections are not yet addressable (`#32`).

@@ -109,7 +109,7 @@ def issue (
 ) -> subroutine.views.SignInLink:
 	"""Mint a single-use sign-in link and return it, once.
 
-	**This is the route `#248` names as what makes browser sign-in safe to ship at all.** A
+	**This is what makes browser sign-in safe to ship at all.** A
 	self-hoster whose mail relay is misconfigured would otherwise be locked out of their own
 	instance with no way back in, which is §12.4's recovery property applied to a login: the
 	console has to be a way in when the ordinary path is broken.
@@ -153,8 +153,8 @@ def signin (
 
 	**A secret in a query string is exactly what this application refuses elsewhere**, and
 	:data:`subroutine.api.security.TOKEN_PARAMETERS` names the three reasons: access logs,
-	browser history and referrer headers. All three were measured here rather than argued about
-	(`#806`), and the answers differ:
+	browser history and referrer headers. All three were measured here rather than argued about,
+	and the answers differ:
 
 	* **Referrer: never.** Every request the browser makes after signing in carries
 	  ``Referer: <root>/`` — a redirect keeps the *original* referrer rather than the redirecting
@@ -162,15 +162,14 @@ def signin (
 	  true, so ``test_a_link_is_exchanged_for_a_cookie_and_a_redirect`` is what holds it.
 	* **History: no**, closed by the same 303, which is why it is a 303.
 
-	**Both of those are about the path that redeems, and the confirmation page is not it**
-	(`#927`'s M-27). That page is a 200 carrying the link in its own URL, so it stays in the
-	address bar and in the history — which is `#803`'s deliberate trade, since it does not
-	spend the link. Its referrer is closed separately, by
+	**Both of those are about the path that redeems, and the confirmation page is not it.**
+	That page is a 200 carrying the link in its own URL, so it stays in the address bar and in
+	the history — a deliberate trade, since it does not spend the link. Its referrer is closed separately, by
 	:func:`_ask_before_switching` sending ``no-referrer``.
 	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
 	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
 
-	**And the confirmation below made a dead secret into a live one.** Until `#803` the logged
+	**And the confirmation below made a dead secret into a live one.** Before it, the logged
 	value was always spent by the time the line was written, because the line is written on
 	response. A confirmation deliberately does *not* spend the link — so this route can now log a
 	credential that still works, on exactly the path somebody meets when a link arrives that they
@@ -398,7 +397,7 @@ def switch (
 	settings: subroutine.api.dependencies.SettingsDep,
 	submitted: SubmittedDep,
 ) -> starlette.responses.Response:
-	"""Spend a link for a browser that is already signed in as somebody else — `#803`.
+	"""Spend a link for a browser that is already signed in as somebody else.
 
 	**This is the half of the confirmation that does the work, and it is where the defence
 	lives.** Everything protecting it is inherited rather than invented:
@@ -406,7 +405,7 @@ def switch (
 	* ``PrincipalDep`` means the *standing* session has to authenticate, so a request arriving
 	  without one is refused before this body runs. ``SameSite=lax`` withholds the cookie from a
 	  cross-site ``POST``, so a hostile page cannot supply it.
-	* That same dependency runs `#639`'s origin check, because this is a write authenticated by
+	* That same dependency runs the origin check, because this is a write authenticated by
 	  cookie — the one control the public ``GET`` could never have.
 	* And §7.7's limiters, for the same reason.
 

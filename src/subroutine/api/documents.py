@@ -491,9 +491,9 @@ def move (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Re-nest a document, taking its sections with it (`#44`).
+	"""Re-nest a document, taking its sections with it.
 
-	**The half of that item with no endpoint at all.** ``parent_id`` was reported by this
+	**The half of re-parenting that had no endpoint at all.** ``parent_id`` was reported by this
 	view and accepted nowhere — not here, not on create, not on update — so a document could
 	be a section of another only by being inserted into the database directly.
 	"""

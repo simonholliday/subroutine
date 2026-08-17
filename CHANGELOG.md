@@ -338,6 +338,12 @@ upgrade involves.
 
 ### Added
 
+- **Nothing this API publishes points at anything you cannot look up.** Route descriptions in
+  `/v1/openapi.json` — which answers without a credential — cited this project's own private
+  tracker 51 times, so `PATCH /v1/tasks/{id_or_ref}` told you to consult a file nobody outside
+  had and `POST /v1/login-links` cited an issue number. The reasoning those pointed at is now in
+  the sentence beside them. A test holds every published surface to it.
+
 - **The specification is published, at `docs/design.md`.** It is the design this was built from
   — data model, API, permissions, agent design — and the code cites it about two thousand times
   as `§7.3a` and the like. Until now those citations named a file nobody outside the project
@@ -2493,7 +2499,7 @@ because that is what happened; there is no 0.6.2 to install and no release page 
   ever been run anywhere else — every CI job on both workflows is Ubuntu — so the claim was a
   hint to an index rather than anything anybody had checked. It is not a statement that
   Subroutine fails elsewhere; it is a statement about what has been demonstrated. macOS and
-  Windows are `#245`.
+  Windows are tracked separately and neither has been tried.
 
 ### Removed
 

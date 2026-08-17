@@ -158,7 +158,7 @@ def shell (request: starlette.requests.Request) -> starlette.responses.Response:
 	``include_in_schema=False`` because the OpenAPI document describes an API for programs, and
 	an HTML page in it is a row every generated client has to be told to ignore.
 
-	**Revalidated like every other file, and it matters most here** (`#914`): this document is
+	**Revalidated like every other file, and it matters most here**: this document is
 	what names the assets, so a stale copy of it cannot be corrected by anything downstream.
 	Whatever busts a cache must not itself be cached.
 	"""
