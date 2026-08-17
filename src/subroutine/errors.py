@@ -70,8 +70,9 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"malformed_request",
 			400,
 			"Malformed request",
-			"The request could not be read at all — bad JSON, a broken header, or a "
-			"parameter that is not of the shape the endpoint accepts.",
+			"The request could not be read at all — bad JSON, or a header this API has to "
+			"parse and could not. A parameter of the wrong shape is a different answer: the "
+			"request was read, so it is 422 'invalid_field_value' naming the parameter.",
 		),
 		_define(
 			"unsupported_protocol_version",
@@ -95,8 +96,11 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"forbidden",
 			403,
 			"Not permitted",
-			"The credential is valid but does not carry the permission this action needs. "
-			"The permission is named, so a caller can ask for a token that has it.",
+			"The credential is valid but does not permit this. Where the refusal turns on "
+			"a permission the caller lacks, that permission is named so they can ask for a "
+			"token carrying it — but several do not: a token pinned to another workspace, a "
+			"caller who is not a member, and a project scope narrower than the project "
+			"reached are each about reach rather than about a verb.",
 		),
 		_define(
 			"not_found",
@@ -139,11 +143,13 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"schema_mismatch",
 			409,
 			"Schema mismatch",
-			"A database schema does not match the one this build expects — either a backup "
-			"being put back (docs/design.md §12.6) or the live database itself (§12.4a). An older "
-			"schema can be migrated forward, and the refusal says so; a *newer* one cannot, "
-			"because this version cannot interpret data it does not know the shape of and a "
-			"partial read is worse than a clear failure.",
+			"A database schema does not match the one this build expects, for a backup "
+			"being put back (docs/design.md §12.6). An older schema can be migrated forward and "
+			"the refusal says so; a *newer* one cannot, because this version cannot "
+			"interpret data it does not know the shape of and a partial read is worse than "
+			"a clear failure. The live database being out of step is a different answer "
+			"(§12.4a): /readyz reports it as 503 service_unavailable, because a load "
+			"balancer has to read this instance as not ready rather than as arguing.",
 		),
 		_define(
 			"cursor_expired",
@@ -178,17 +184,19 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"unknown_field",
 			422,
 			"Unknown field",
-			"The request body carried a field this endpoint does not accept. Rejected "
-			"rather than ignored, because silently dropping a typo is how a caller comes "
-			"to believe it set something it did not (docs/design.md §8.1).",
+			"The request carried a field or query parameter this endpoint does not "
+			"accept. Rejected rather than ignored, because silently dropping a typo is how "
+			"a caller comes to believe it set something it did not (docs/design.md §8.1).",
 		),
 		_define(
 			"invalid_status",
 			422,
 			"Invalid status",
-			"No status with that key exists for this entity type in this workspace. The "
-			"valid keys are listed; an installation may rename them freely, so they are "
-			"read from the workspace rather than assumed.",
+			"The status asked for cannot be used here. Usually no status with that key "
+			"exists for this entity type in this workspace, and then the valid keys are "
+			"listed — an installation may rename them freely, so they are read from the "
+			"workspace rather than assumed. It also reports a workspace with no default "
+			"status at all, where there are no keys to list and the answer is to seed it.",
 		),
 		_define(
 			"rate_limited",
