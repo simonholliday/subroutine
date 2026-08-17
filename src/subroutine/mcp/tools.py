@@ -1406,7 +1406,7 @@ def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
 	"""Read the ``filter`` argument, refusing values the declared schema does not allow.
 
 	**Only what the generic check cannot reach**, which was measured rather than assumed. `#549`
-	made ``protocol._wrongly_typed`` refuse an argument whose value does not match its declared
+	made ``protocol._mistyped`` refuse an argument whose value does not match its declared
 	``type``, so ``filter="created_at.gte=today"`` is already turned down by name before this
 	runs — and the first version of this function checked that again. Found by falsifying: the
 	mutation that removed the check *passed*, which is a finding about the code rather than
@@ -2280,7 +2280,7 @@ def _words (arguments: dict[str, typing.Any], name: str) -> list[str] | None:
 	"""Return one array-of-strings argument, refusing anything the schema does not allow.
 
 	**Both halves are this function's, and that is unlike every other argument here.**
-	``protocol._wrongly_typed`` refuses a value whose type does not match the schema — but its
+	``protocol._mistyped`` refuses a value whose type does not match the schema — but its
 	``_ACCEPTS`` deliberately knows nothing about ``array``, and its own comment says why: a
 	schema growing one should be a rule somebody adds rather than something that quietly starts
 	being rejected. So a bare string reaches here, and so does a list carrying a number.

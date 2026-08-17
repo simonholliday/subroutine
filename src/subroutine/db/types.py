@@ -88,9 +88,18 @@ class CalendarDate(sqlalchemy.types.TypeDecorator[datetime.date]):
 	"""A calendar date with no time and no timezone.
 
 	``datetime.datetime`` subclasses ``datetime.date``, so an accidental datetime would
-	otherwise be accepted here and silently truncated. Since the one column using this
-	type is ``task.starts_at`` — the field that decides what appears in a person's
-	day — a silent truncation would move work between days. It is refused instead.
+	otherwise be accepted here and silently truncated — and a truncation is invisible, which
+	is what makes it worth a type rather than a check.
+
+	**No production column uses this today** (`#927`'s L-15). It was written for
+	``task.planned_for``, which `#854` absorbed into ``starts_at`` — a column that carries a
+	time, because an appointment has one — so the type outlived its only caller. Its docstring
+	named ``task.starts_at`` for a while afterwards, which was the reverse of true: that column
+	uses this type precisely nowhere, and could not.
+
+	**Kept rather than deleted**, and `#858` is the reason: whether a defer is day-scale is an
+	open question, and ``snoozed_until`` is where the answer would land. The migrations still
+	reference it for the columns they created, so it cannot go while they can be replayed.
 	"""
 
 	impl = sqlalchemy.types.Date

@@ -4181,7 +4181,7 @@ def test_a_filter_that_is_not_an_object_is_refused_rather_than_guessed (
 ) -> None:
 	"""`#549`'s rule reaching a new argument, from **two** places — and that split was measured.
 
-	``protocol._wrongly_typed`` refuses an argument whose value does not match its declared
+	``protocol._mistyped`` refuses an argument whose value does not match its declared
 	``type``, so the string below never reaches the tool. It does not recurse, though: it reads
 	the property's own type and knows nothing about ``additionalProperties``, so a *value* of
 	the wrong kind is the tool's to refuse.
@@ -4355,7 +4355,7 @@ def test_a_tag_that_is_not_a_word_is_refused_by_the_tool (
 ) -> None:
 	"""`#549`'s split again: the protocol checks the declared type, the tool checks inside it.
 
-	``protocol._wrongly_typed`` refuses a bare string here, because ``tags`` declares ``array``.
+	``protocol._mistyped`` refuses a bare string here, because ``tags`` declares ``array``.
 	It does not recurse into ``items``, so an array carrying a number reaches the tool — and
 	this is the only place that can turn it down.
 	"""

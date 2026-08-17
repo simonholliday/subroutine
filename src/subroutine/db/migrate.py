@@ -329,7 +329,7 @@ def _include_object (
 
 	**What makes this exclusion go away** — the question every allow-list here has to answer —
 	is Alembic learning to compare expression indexes, or these ceasing to be expression-based.
-	Until then ``tests/test_migrations.py`` asserts that every excluded name is an index a
+	Until then ``tests/test_search_backend.py`` asserts that every excluded name is an index a
 	migrated database really has, so the exclusion cannot quietly cover an index nothing builds
 	— which is the failure it would otherwise hide, and the one that costs a scan per search.
 	"""

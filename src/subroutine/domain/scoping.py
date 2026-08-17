@@ -379,9 +379,16 @@ def visible_events (
 	archived and template rows are all included, **and so are rows whose *project* is deleted**,
 	because a *deletion* is the event most worth reporting and the defaults would hide precisely
 	it — a feed that goes quiet when something is removed cannot be resumed from. That this is
-	expressible at all rests on nothing in this system hard-deleting: the row is still joinable,
-	so the feed can report the deletion *and* still check who is entitled to know of it. §5.11a
-	names that property as load-bearing and this is the second place to lean on it.
+	expressible at all rests on the three kinds below never being hard-deleted: the row is still
+	joinable, so the feed can report the deletion *and* still check who is entitled to know of
+	it. §5.11a names that property as load-bearing and this is the second place to lean on it.
+
+	**This used to claim nothing in the system hard-deletes, which is not true** (`#927`'s
+	L-15): ``workspaces.remove_member`` calls ``session.delete`` on the membership row. The
+	conclusion survives because the claim was wider than it needed to be — a
+	``workspace_member`` event is narrowed by its *workspace*, never by joining the row it is
+	about, so removing that row takes nothing away from the feed. What the property is really
+	about is the kinds narrowed **through their own identity**, and those are the three below.
 
 	**The container clause is the one that was missing** (`#307`), and it failed in two
 	directions at once. A project's own deletion went unreported, and — because a task is
