@@ -485,6 +485,20 @@ upgrade involves.
 
 ### Fixed
 
+- **Deferring something until six in the morning now means six in the morning.** `subroutine
+  defer 42 "2026-08-18 06:00"` accepted the time, said *"Hidden until Tue 18 Aug"*, and stored
+  midnight — so the six hours were read, discarded, and not mentioned, and the confirmation was
+  the same sentence a working command would have printed. The field carries a clock everywhere
+  else: a captured line writes one, the API accepts one, and your list reads it to the minute.
+
+  It is honoured **when you write one**, and not otherwise. `friday`, `2026-08-18` and
+  `today+2w` all still mean the whole day — an expression is measured from now, so keeping its
+  clock would hide something until whatever time you happened to be typing.
+
+  `subroutine today` still shows a deferred item from the start of the day it comes back on,
+  where your list waits for the hour. That is deliberate: an agenda answers what today is about,
+  and something arriving at six is part of today from the moment it begins.
+
 - **The number a repeating task gives you for its series now opens the series.** Every occurrence
   of a repeat reports `recurrence_template_ref`, and asking for that number answered *"There is
   no #1"* — while the same request over HTTP returned it perfectly well. So an address this

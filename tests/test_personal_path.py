@@ -561,6 +561,74 @@ def test_plan_and_defer_move_a_task_between_days (
 	assert "Buy milk" not in run("today").output
 
 
+def test_a_defer_keeps_the_time_of_day_it_was_given (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#858`. Found by Simon deferring his own work until six in the morning.
+
+	The six hours were parsed, discarded and **not mentioned**: the echo said *"Hidden until
+	Fri 14 Aug"*, which is what a working command would also have said, so the confirmation
+	could not tell the two apart. §6.13 rule 1's shape — a value somebody typed, read, and
+	lost — on the command named after the field.
+
+	**The store and the echo are both asserted, because either alone passes for the wrong
+	reason.** Storing it and rendering a bare day leaves the user unable to confirm it worked,
+	which is `#925`'s finding; rendering a time off the *input* would say six o'clock whatever
+	the row held, which is the same finding pointed the other way.
+	"""
+
+	run("init")
+	run("add", "Call the plumber")
+
+	timed = run("defer", "1", "2026-12-01 06:00")
+
+	assert "Hidden until" in timed.output
+	assert "06:00" in timed.output
+
+	stored = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert stored["snoozed_until"].startswith("2026-12-01T06:00")
+	assert stored["snoozed_is_all_day"] is False
+
+
+@pytest.mark.parametrize("written", ["2026-12-01", "monday", "today+2w"])
+def test_a_defer_written_in_days_is_still_a_whole_day (
+	run: typing.Callable[..., typer.testing.Result], written: str
+) -> None:
+	"""`#858`'s other half, and ``today+2w`` is the one that would have broken quietly.
+
+	A §9.3 expression resolves against *now*, so honouring its clock would store whatever
+	o'clock it happened to be when somebody typed it — a defer written in days landing at
+	14:37 because that is when the command ran. **A time is honoured when it is written and
+	not otherwise**, which is `#797`'s rule about clocks arriving from the other direction.
+
+	Parametrised over the three vocabularies rather than asserted once, because they reach
+	the answer by three different routes — a weekday is resolved before the grammar, a bare
+	date inside it, and an expression by arithmetic — so one case proves nothing about the
+	others.
+
+	**Midnight is asserted in the task's own zone, not in UTC**, and the first version of this
+	got it wrong: this fixture's instance is not UTC, so a correct whole-day defer is stored
+	as ``23:00Z`` the day before and an ``endswith("T00:00:00Z")`` read that as a failure.
+	The recorded trap — a test comparing a boundary must not assume the zone it is computing
+	for — met while writing the test rather than by a summer.
+	"""
+
+	run("init")
+	run("add", "Call the plumber")
+	run("defer", "1", written)
+
+	stored = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert stored["snoozed_is_all_day"] is True
+
+	local = datetime.datetime.fromisoformat(stored["snoozed_until"]).astimezone(
+		subroutine.domain.dates.zone(stored["timezone"])
+	)
+
+	assert local.time() == datetime.time.min
+
+
 def test_a_priority_can_be_changed_from_the_cli (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

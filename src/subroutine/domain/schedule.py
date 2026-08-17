@@ -227,6 +227,45 @@ def interpret_written_day (
 	what keeps a person and an agent from being given two explanations of one refusal.
 	"""
 
+	moment = interpret_written_moment(value, timezone=timezone, now=now, field=field)
+
+	if isinstance(moment, datetime.datetime):
+		return moment.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
+
+	return moment
+
+
+def interpret_written_moment (
+	value: str,
+	*,
+	timezone: str,
+	now: datetime.datetime,
+	field: str = "starts_at",
+) -> datetime.datetime | datetime.date | None:
+	"""Read a day somebody typed, **keeping the time of day when they wrote one** (`#858`).
+
+	Same vocabulary as :func:`interpret_written_day`, which is now this function with the
+	clock thrown away — one grammar rather than two that agree until somebody edits one.
+
+	**A time has to be written to be honoured**, which is `#797`'s rule about clocks arriving
+	at the same answer from the other direction. A weekday, a bare date and a §9.3 expression
+	all name a *day*, so they come back as one:
+
+	- ``friday``, ``2026-08-18`` — a day. Whoever stores it decides what midnight means.
+	- ``2026-08-18T06:00:00+01:00``, ``2026-08-18 06:00`` — an instant, kept to the minute.
+	- ``tomorrow``, ``today+2w`` — a day. **Deliberately, and this is the trap**: an
+	  expression resolves against ``now``, so returning its instant would silently store
+	  *whatever o'clock it happens to be* — a defer written in days that lands at 14:37
+	  because that is when it was typed.
+
+	``subroutine defer`` is why this exists. It read every value through the day grammar, so
+	``defer 42 2026-08-14T06:00:00+01:00`` was accepted, echoed as *"Hidden until Fri 14
+	Aug"*, and stored as midnight: the six hours parsed, discarded and not mentioned. The
+	field carries a clock everywhere else — quick capture writes one, ``PATCH /v1/tasks``
+	accepts one, and ``readiness.undeferred`` reads it to the minute — so the command named
+	after the field was the one surface that could not.
+	"""
+
 	named = subroutine.domain.dates.day_named(
 		value, today=local_date(now, timezone)
 	)
@@ -235,7 +274,10 @@ def interpret_written_day (
 		return named
 
 	try:
-		return interpret_day(value, timezone=timezone, now=now, field=field)
+		if _is_expression(value.strip()):
+			return interpret_day(value, timezone=timezone, now=now, field=field)
+
+		resolved, whole_day = _to_instant(value, timezone=timezone, now=now, field=field)
 
 	except subroutine.errors.SubroutineError:
 		raise subroutine.errors.ValidationError(
@@ -250,6 +292,11 @@ def interpret_written_day (
 			],
 			hint=WRITTEN_DAY_HINT,
 		) from None
+
+	if whole_day:
+		return resolved.astimezone(subroutine.domain.dates.zone(timezone, field)).date()
+
+	return resolved
 
 
 #: What each field that must not outrun a deadline is called when it does — the sentence a

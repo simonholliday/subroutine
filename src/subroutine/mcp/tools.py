@@ -35,6 +35,7 @@ import subroutine.config
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
+import subroutine.domain.dates
 import subroutine.domain.filtering
 import subroutine.domain.recurrence
 import subroutine.domain.refs
@@ -784,7 +785,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
 					"defer": {
 						"type": "string",
-						"description": "Hide it until this day. '' to unhide.",
+						"description": "Hide it until this day, or a time on it. '' to unhide.",
 					},
 					# **The one half of repeating an agent could not reach at all** (`#94`).
 					# `subroutine_add`'s line grammar already *creates* one, so that tool needs
@@ -2156,16 +2157,40 @@ def _day (given: typing.Any, *, field: str) -> datetime.date | None:
 	string. Omitting the argument is what leaves the day alone.
 	"""
 
+	moment = _moment(given, field=field)
+
+	if isinstance(moment, datetime.datetime):
+		# Back to a day in the zone the moment was read in, which is the agent's own — the
+		# same conversion `schedule.interpret_written_day` does, and for its reason: reading
+		# it in UTC would make a Friday evening into Saturday for anybody east of Greenwich.
+		return moment.astimezone(
+			subroutine.domain.dates.zone(subroutine.config.system_timezone(), field)
+		).date()
+
+	return moment
+
+
+def _moment (given: typing.Any, *, field: str) -> datetime.datetime | datetime.date | None:
+	"""Read a day an agent named, **keeping a time of day when it wrote one** (`#858`).
+
+	`_day`'s sibling and its implementation — `_day` is this with the clock thrown away, so
+	the two vocabularies cannot drift apart. Which fields take which is decided at the one
+	call site, where the reason can be read beside both.
+
+	A weekday, a bare date and a §9.3 expression all name a day; only a written time is
+	honoured, which is the rule ``schedule.interpret_written_moment`` states in full.
+	"""
+
 	if not isinstance(given, str):
 		raise ValueError(f"{field!r} is a day, written like 'friday' or '2026-09-01'.")
 
 	if not given.strip():
 		return None
 
-	# **The refusal is the domain's, not one written here** — `interpret_written_day` names
+	# **The refusal is the domain's, not one written here** — `interpret_written_moment` names
 	# the whole typed vocabulary, weekdays first, so an agent and a person are told the same
 	# thing in the same words. A second message here would be a place for the two to drift.
-	return subroutine.domain.schedule.interpret_written_day(
+	return subroutine.domain.schedule.interpret_written_moment(
 		given,
 		# **The client's own zone, which for a stdio adapter is the machine the agent runs
 		# on.** An agent saying "friday" means the Friday it is looking at, and resolving that
@@ -2377,8 +2402,17 @@ def _updated (
 	if "repeat" in arguments:
 		changes["recurrence"] = arguments["repeat"] or None
 
-	days = {
-		field: _day(arguments[field], field=field)
+	# **``defer`` reads a clock and ``plan`` does not** (`#858`). ``snoozed_until`` carries a
+	# time everywhere it is stored, so a surface that truncates is throwing away something the
+	# writer said; ``starts_at`` is rendered by nothing at this scale yet, which is `#576`.
+	#
+	# Both are here rather than in one branch because the alternative is worse than the bug:
+	# `#858` fixed ``subroutine defer`` at the terminal, and stopping there would have left
+	# one field meaning two different things depending on which surface set it — the
+	# divergence this codebase spends most of its time removing, introduced by the fix for
+	# something else.
+	days: dict[str, datetime.datetime | datetime.date | None] = {
+		field: (_moment if field == "defer" else _day)(arguments[field], field=field)
 		for field in ("plan", "defer")
 		if field in arguments
 	}

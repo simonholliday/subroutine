@@ -1609,6 +1609,42 @@ def _day (world: World, written: str) -> datetime.date:
 	return resolved
 
 
+def _moment (world: World, written: str) -> datetime.datetime | datetime.date:
+	"""Read a day the user named, **keeping a time of day when they wrote one** (`#858`).
+
+	`_day`'s sibling, for the one command whose field carries a clock. Same vocabulary and
+	the same refusal — both go through ``schedule.interpret_written_moment``, and `_day` is
+	that function with the time thrown away, so there is no second grammar to drift.
+
+	**Two readers disagree about a deferred item and both are right** (`#771`, and `#858`
+	asked for this to be written down). ``readiness.undeferred`` compares to the minute, so
+	``subroutine list`` shows it at six in the morning; ``domain.agenda`` compares against the
+	*end of the day being shown*, so ``subroutine today`` has it from midnight. That is not a
+	defect to reconcile: an agenda answers *what is today about*, and an item arriving at six
+	is part of today from the moment the day starts.
+
+	**Only ``defer`` reads a moment**, deliberately. ``plan`` sets ``starts_at``, and the
+	terminal renders no times anywhere — `#576` is where an event's span is decided, and
+	giving one command a clock ahead of that decision would be `#251`'s inert control with the
+	inconsistency showing.
+	"""
+
+	resolved = subroutine.domain.schedule.interpret_written_moment(
+		written,
+		timezone=world.settings.default_timezone,
+		now=subroutine.db.types.utcnow(),
+		field="when",
+	)
+
+	if resolved is None:
+		raise subroutine.errors.ValidationError(
+			f"{written!r} is not a day this understands.",
+			hint=subroutine.domain.schedule.WRITTEN_DAY_HINT,
+		)
+
+	return resolved
+
+
 def _change_line (event: subroutine.views.Event) -> str:
 	"""Render one event as a line somebody can read.
 
@@ -3916,16 +3952,21 @@ def register (
 	@app.command()
 	def defer (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
-		when: str = typer.Argument("", help="A day to hide it until."),
+		when: str = typer.Argument("", help="A day to hide it until, or a day and a time."),
 		because: str = typer.Option(
 			"", "--because", help="What you are waiting for, recorded against it."
 		),
 	) -> None:
 		"""Hide something until later.
 
+		A day on its own hides it until that morning. Write a time as well and it comes back
+		at that time — your agenda still waits for the day to turn.
+
 		Examples:
 
 		  subroutine defer 1 monday
+
+		  subroutine defer 7 "2026-08-18 06:00"
 
 		  subroutine defer 42 2026-09-01 --because "waiting on the provider's reply"
 		"""
@@ -3941,13 +3982,10 @@ def register (
 			changed = client.schedule(
 				ref=task.ref,
 				workspace=located.workspace,
-				snooze=_day(world, _asked(when, "Hide it until when?")),
+				snooze=_moment(world, _asked(when, "Hide it until when?")),
 			)
 
-			# The *task's* zone, like every other instant this program renders. `snoozed_until` is
-			# midnight where the task lives, so re-reading it in a westward client zone named
-			# the day before the one that was asked for.
-			hidden = f"Hidden until {_render_date(changed.snoozed_until, changed.timezone)}"
+			hidden = f"Hidden until {_when_rendered(changed)}"
 
 			_because(client, located, because, what=hidden)
 
@@ -6636,6 +6674,44 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 	# Through the same function as a calendar date, so an instant and a day cannot come to
 	# disagree about when a year is worth printing — one rule, one place.
 	return _dated(local.date())
+
+
+def _when_rendered (task: subroutine.views.Task) -> str:
+	"""Render when a task is hidden until, **saying the o'clock when there is one** (`#858`).
+
+	**The terminal renders no times anywhere else, and that is deliberate rather than an
+	omission** — a to-do list is a day-scale thing and `#576` is where an event's span is
+	decided. This is the one exception, and it earns it: without it the confirmation for
+	``defer 42 2026-08-18T06:00`` is *"Hidden until Tue 18 Aug"*, which is what the command
+	said while storing midnight, so a working fix and the defect would print the same
+	sentence and nobody could tell which they had.
+
+	**Read from the stored flag rather than from what was typed.** `#925`'s finding: a
+	read-back computed from the input confirms only that the input was received, which is the
+	one thing never in doubt. ``snoozed_is_all_day`` is what the store decided, so this echo
+	is wrong exactly when the row is.
+
+	**In the task's zone**, like every other instant this program renders: ``snoozed_until``
+	is midnight where the task lives, so reading it in a westward client zone named the day
+	before the one that was asked for.
+
+	It lives out here rather than in ``defer``'s body because `#943`'s ratchet holds
+	``register`` and only goes down — which is the rule working, since the argument is about
+	rendering and belongs beside the rendering.
+	"""
+
+	day = _render_date(task.snoozed_until, task.timezone)
+
+	if task.snoozed_is_all_day or task.snoozed_until is None:
+		return day
+
+	local = task.snoozed_until.astimezone(
+		subroutine.domain.dates.zone(
+			task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+		)
+	)
+
+	return f"{day} at {local.strftime('%H:%M')}"
 
 
 def _as_json (
