@@ -38,6 +38,7 @@ import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.filtering
+import subroutine.domain.ordering
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -1408,10 +1409,18 @@ def _listed (
 		filters=filters,
 	)
 
-	# **`limit` bounds the answer, not each kind.** Asking for five and receiving five tasks
-	# followed by five documents is the caller's budget spent twice, which for an agent is
-	# the whole cost of the call. Tasks first because a ranking is what the limit is usually
-	# for, and documents fill whatever is left.
+	# **`limit` bounds the answer, not each kind**, which is what the caller's budget means —
+	# asking for five and receiving five tasks followed by five documents spends it twice.
+	#
+	# **Each kind is asked at the full limit and the merged answer is cut to it** (`#1010`).
+	# This used to ask for `limit - len(tasks)`, which is the same sentence read as an
+	# allocation rather than as a cut: tasks were fetched first and documents got what was
+	# left, so at a small limit a document ranking above every task was **absent** rather than
+	# late. `cli/personal._listing` states the rule and gets it right — *"twenty documents must
+	# not be able to push every task off a page"* — and an agent did that in reverse. Measured
+	# on the served instance before the fix, one query at `limit=4`: the terminal answered
+	# `989 906 1001 1010` and an agent `525 440 904 1001`, one row in four shared.
+	#
 	# **Never documents when `ready` was asked for.** §6.14 says a document is not scheduled
 	# and nothing blocks one, so every specification and decision in the instance would report
 	# as ready — true, useless, and enough of them to bury the tasks the caller asked about.
@@ -1423,17 +1432,38 @@ def _listed (
 		client.documents(
 			workspace=workspace,
 			project=project,
-			limit=limit - len(tasks),
+			limit=limit,
 			q=query,
 			filters=filters,
 		)
-		if len(tasks) < limit and not ready and _asks_only_of_documents(filters)
+		if not ready and _asks_only_of_documents(filters)
 		else []
 	)
+
+	# **The order the server put each of them in, read off the rows** — `ordering.merge_order`,
+	# which the terminal and the browser have both read since `#875`/`#878` and this surface
+	# could not reach. Concatenating two ranked pages is two sorted runs end to end, so a
+	# document that answered best appeared below every task that merely mentioned the words.
+	found = [*tasks, *documents]
+	ordered = subroutine.domain.ordering.merged(
+		found,
+		key=lambda row: row,
+		order=subroutine.domain.ordering.merge_order(
+			_text(arguments, "order"),
+			subroutine.domain.ordering.requested(
+				_text(arguments, "order"),
+				allowed=subroutine.domain.ordering.TASK_FIELDS,
+				default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+			),
+			ranked=any(
+				getattr(row, subroutine.domain.ordering.RELEVANCE, None) is not None
+				for row in found
+			),
+		),
+	)
+
 	moment = subroutine.db.types.utcnow()
-	rows = [_line(task, now=moment) for task in tasks] + [
-		_line(document, now=moment) for document in documents
-	]
+	rows = [_line(item, now=moment) for item in ordered[:limit]]
 
 	if not rows:
 		return "Nothing open."

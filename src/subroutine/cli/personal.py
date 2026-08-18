@@ -7999,23 +7999,15 @@ def _merge_order (
 	the very defect ``api/tasks.py`` records as fixed.
 	"""
 
-	named = _ordering(order)
-
-	if order:
-		return named[1]
-
-	ranked = any(
-		getattr(row[1], subroutine.domain.ordering.RELEVANCE, None) is not None
-		for answer in gathered.answers
-		for row in answer.value.rows
+	return subroutine.domain.ordering.merge_order(
+		order,
+		_ordering(order)[1],
+		ranked=any(
+			getattr(row[1], subroutine.domain.ordering.RELEVANCE, None) is not None
+			for answer in gathered.answers
+			for row in answer.value.rows
+		),
 	)
-
-	if not ranked:
-		return named[1]
-
-	# **Descending, and the tiebreak ascending beneath it**, exactly as `clauses` builds it for
-	# the query — the whole point of `#879` being that these two agree.
-	return ((subroutine.domain.ordering.RELEVANCE, True), ("ref", False))
 
 
 def _across (

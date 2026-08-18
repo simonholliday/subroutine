@@ -174,6 +174,15 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent searching now gets the same answer as the terminal and the browser.** Asking an
+  agent for a page of results returned tasks first and then documents, each ranked within its own
+  half — so on a short page a document that answered the question better than anything else was
+  not merely listed late, it was missing. Measured on one instance at one moment: a page of four
+  shared **one row** with the page a person got for the same words. Both kinds are now asked for
+  in full and the merged answer is cut to the page, which is what the terminal has always done
+  and what the browser does — so the best answers come first whichever kind they are.
+  Ordinary listings for an agent are merged the same way, for the same reason.
+
 - **Search says what it does rather than listing where it looks.** The browser's search box said
   *"Search titles and descriptions"* and now says *"Search anything"*; an agent was told search
   covered *"titles and bodies"*, and the terminal's help named the title and what you had written

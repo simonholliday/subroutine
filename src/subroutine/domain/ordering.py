@@ -666,6 +666,45 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 _ABSENT = 0
 
 
+def merge_order (
+	expression: str | None,
+	parsed: tuple[tuple[str, bool], ...],
+	*,
+	ranked: bool,
+) -> tuple[tuple[str, bool], ...]:
+	"""Return the comparison a merged page is actually in — `#878`, lifted here by `#1010`.
+
+	**Three answers, and the middle one is the whole of `#875`.** A reader's explicit choice
+	wins. Failing that, a *ranked search* is what the server chose for itself: it defaults a
+	search to ``-relevance`` wherever a backend can compute one, and it says so by populating
+	the field. Failing both, whatever was parsed.
+
+	**``ranked`` is passed in rather than worked out here**, because the two callers hold their
+	rows in different shapes — the terminal has them per connection inside a
+	:class:`subroutine.fanout.Gathered`, an agent has two flat lists. What they must not do is
+	*decide* differently, which is what this function is.
+
+	**Read off the data rather than re-derived**, which is the part worth keeping: asking
+	whether the backend can rank and inferring what the server would have done is a copy of a
+	decision made elsewhere, where a populated field is the decision itself, arriving.
+
+	**It lived in ``cli/personal`` and in ``app.js`` and nowhere an agent could reach it**, which
+	is how `#1010` happened: two surfaces merged a ranked search and the third concatenated one.
+	The first copy's own docstring said the browser's was *"the same three answers, reached the
+	same way"* — three statements of one rule, in a codebase whose signature defect is two.
+	"""
+
+	if expression:
+		return parsed
+
+	if not ranked:
+		return parsed
+
+	# **Descending, and the tiebreak ascending beneath it**, exactly as `clauses` builds it for
+	# the query — the whole point of `#879` being that these two agree.
+	return ((RELEVANCE, True), ("ref", False))
+
+
 def merged (
 	rows: typing.Sequence[typing.Any],
 	*,
