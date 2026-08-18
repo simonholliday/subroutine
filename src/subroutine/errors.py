@@ -424,6 +424,26 @@ class ServiceUnavailable(SubroutineError):
 	CODE = "service_unavailable"
 
 
+def no_instance_yet () -> "ServiceUnavailable":
+	"""Return the refusal for a machine where nobody has run ``init`` yet (`#165`, `#698`).
+
+	**One sentence because more than one surface says it.** The command line has answered this
+	since `#165` and the API raised instead — so the commonest first contact there, *install the
+	plugin, ask a question, no instance yet*, filled an editor's log with 190 lines of traceback
+	per message for a state with a known one-line answer. An operator reading that concludes the
+	database is broken, which is `#573`'s worst category: a thing that works and says something
+	false about itself.
+
+	**It opens in lower case deliberately.** The command line prints the connection's name in
+	front of it, and capitalising here would read *"hpz2g4: No Subroutine instance…"*.
+	"""
+
+	return ServiceUnavailable(
+		"no Subroutine instance has been set up here yet.",
+		hint="Run 'subroutine init' to create one. It takes no arguments.",
+	)
+
+
 def problem_document (
 	error: SubroutineError,
 	*,

@@ -11,6 +11,7 @@ import sqlalchemy.orm
 import starlette.requests
 
 import subroutine.config
+import subroutine.errors
 
 
 def settings (request: starlette.requests.Request) -> subroutine.config.Settings:
@@ -55,6 +56,21 @@ def session (
 	between the handler returning and the response being sent. This function keeps the
 	rollback and the close, because both are still right at teardown.
 	"""
+
+	# **Refused here, where the request first needs a database** (`#698`). This is not an
+	# unexpected failure and the API was treating it as one: the session opens, the
+	# endpoint touches it, SQLite reports a file it cannot open, and the unhandled-error
+	# handler writes a stack trace for a condition `Settings.has_no_instance_yet` names
+	# exactly. Asking costs one `stat` and only ever answers true for SQLite, so a served
+	# PostgreSQL instance is untouched — a database that cannot be reached might be
+	# absent, asleep or firewalled, and guessing is how confident bad advice gets given.
+	# **Only when this application built its own engine.** `create_app` leaves
+	# `state.engine` as `None` when a caller supplies a session factory, which is bound to
+	# a database of its own — so `sqlite_path` describes somewhere nothing is reading and
+	# the file being absent means nothing at all. Without this the refusal fired for every
+	# request in the suite: 1,242 failures, found by running rather than by reading.
+	if request.app.state.engine is not None and settings(request).has_no_instance_yet():
+		raise subroutine.errors.no_instance_yet()
 
 	factory = request.app.state.session_factory
 	opened: sqlalchemy.orm.Session = factory()

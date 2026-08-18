@@ -4078,6 +4078,53 @@ def test_a_machine_with_no_instance_is_told_which_command_makes_one (
 	assert "subroutine init" in said, f"the remedy is not named: {said}"
 
 
+def test_a_machine_with_no_instance_is_refused_rather_than_logged (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#698`, and the half `SR#697` deliberately left: the **API** raised where it should refuse.
+
+	`SR#697` fixed the protocol channel — the model gets a proper JSON-RPC error naming the
+	command. What it could not change is that to the API layer this was an *unexpected*
+	exception: the session opened, the endpoint touched it, SQLite reported a file it could not
+	open, and the unhandled-error handler wrote a stack trace. **Measured either side of the
+	fix, driving three messages through the relay on a machine with no instance: 600 lines of
+	stderr before, 0 after.**
+
+	It is not unexpected. ``Settings.has_no_instance_yet`` names the condition exactly and the
+	command line has answered it since `SR#165`, so the true statement was one predicate away —
+	which is `SR#573`'s worst category, a thing that works and says something false about
+	itself. An operator reading that log concludes the database is broken.
+
+	**Asserted at the API rather than by counting stderr**, because the line count is a symptom
+	of the handler that ran and the claim is about which one runs. A refusal carrying the code
+	and the remedy cannot be produced by the unexpected-error path at all.
+
+	**It fires before authentication, and an unauthenticated probe is therefore a sufficient
+	witness.** Without the check this request is a 401 — the credential is resolved before
+	anything touches a database — so 401 against 503 is what this asserts, and it is not a
+	test about authentication. Refusing first is the honest order: there is no instance to
+	hold a credential, and the predicate only ever answers true for SQLite, so a served
+	PostgreSQL instance cannot reach it and no stranger learns anything from it.
+
+	**Beside `SR#697`'s test rather than in an API file**, because the two are one story and
+	``_nowhere`` is the fixture both need — a machine where nobody has run ``init``, which is
+	the state no ordinary test fixture can be in.
+	"""
+
+	settings = _nowhere(tmp_path, monkeypatch)
+	application = subroutine.api.app.create_app(settings=settings)
+
+	answered = api_support.call(application, "GET", "/v1/tasks")
+
+	assert answered.status_code == 503, answered.text
+
+	body = answered.json()
+
+	assert body["code"] == "service_unavailable", body
+	assert "no subroutine instance" in body["detail"].lower(), body
+	assert "subroutine init" in body["hint"], body
+
+
 def test_a_machine_reached_only_through_uvx_is_told_a_command_it_can_actually_run (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

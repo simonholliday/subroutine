@@ -2425,10 +2425,7 @@ class Client:
 				# would read "Local: local has no…". The generic message below does exactly
 				# that and is left alone: it carries the driver's own words, which are worth
 				# more than the tidiness.
-				raise subroutine.errors.ServiceUnavailable(
-					"no Subroutine instance has been set up here yet.",
-					hint="Run 'subroutine init' to create one. It takes no arguments.",
-				) from None
+				raise subroutine.errors.no_instance_yet() from None
 
 			raise subroutine.errors.ServiceUnavailable(
 				f"{self.connection.name} could not be read: "

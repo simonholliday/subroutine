@@ -132,6 +132,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A machine where nobody has run `subroutine init` is told so, instead of filling the
+  log with a stack trace.** Asking an agent a question before setting anything up wrote
+  around 200 lines of traceback per message, ending in a database error — so the first
+  thing a new user saw suggested something was broken, when the answer is one command.
+  The API now answers the same sentence the terminal has always given.
 - **The add and edit form can tell two projects with the same key apart.** A key only has
   to be unique among its siblings, so a workspace holding `substation/dist` and
   `websites/dist` offered two identical choices and filing into either was refused. The
