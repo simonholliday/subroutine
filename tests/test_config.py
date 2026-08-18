@@ -392,3 +392,60 @@ def test_a_connection_table_is_not_reported_as_an_ignored_setting (
 	# And the real typo beside it is still caught, with its suggestion — otherwise this would
 	# pass just as well against a check that had stopped looking at anything.
 	assert reported["protectd"] == "protected"
+
+
+def test_a_loopback_instance_can_say_where_a_browser_reaches_it () -> None:
+	"""`#1007`. The bind is the whole truth when nothing off the machine can reach it.
+
+	This is the state the README sends every new self-hoster into — `subroutine serve`, then
+	`subroutine login link` — and it refused, because a check written for the proxy case was
+	applied to every case. The port was never a guess: it is the setting `serve` binds to and
+	prints back.
+	"""
+
+	settings = subroutine.config.Settings(host="127.0.0.1", port=8471)
+
+	assert subroutine.config.browsable_url(settings) == "http://127.0.0.1:8471"
+
+
+def test_the_operator_is_believed_over_the_socket () -> None:
+	"""`public_url` wins wherever it is set, because a proxy makes the bind the wrong answer.
+
+	Falsified by removing the first branch: the assertion then reads the loopback address,
+	which is what a link built behind a proxy would wrongly say.
+	"""
+
+	settings = subroutine.config.Settings(
+		host="127.0.0.1", port=8471, public_url="https://tasks.example.com/"
+	)
+
+	assert subroutine.config.browsable_url(settings) == "https://tasks.example.com"
+
+
+def test_a_wildcard_bind_is_not_an_address_anybody_browses_to () -> None:
+	"""`0.0.0.0` accepts connections and names no destination, so this refuses to answer.
+
+	This is `serve --insecure` on a trusted LAN, and it is the one case where the old refusal
+	was right: the reader is on another machine, and nothing here knows which of this
+	machine's addresses they will type. Left as `None` deliberately rather than guessing a
+	hostname.
+	"""
+
+	for host in ("0.0.0.0", "::", "192.168.0.14"):
+		settings = subroutine.config.Settings(host=host, port=8471)
+
+		assert subroutine.config.browsable_url(settings) is None, (
+			f"{host} was answered for, and it names no destination"
+		)
+
+
+def test_an_ipv6_loopback_is_bracketed_so_the_port_is_still_a_port () -> None:
+	"""`http://::1:8471` is a malformed address that looks plausible in a message.
+
+	Somebody may genuinely have bound to `::1`, and unbracketed it parses as a host of `:`
+	with a port of `:1` — so the link would be printed, look reasonable and resolve nowhere.
+	"""
+
+	settings = subroutine.config.Settings(host="::1", port=8471)
+
+	assert subroutine.config.browsable_url(settings) == "http://[::1]:8471"

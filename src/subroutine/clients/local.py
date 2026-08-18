@@ -1275,17 +1275,28 @@ class Client:
 	) -> subroutine.views.SignInLink:
 		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
 
-		# **Refused rather than guessed at.** A link is an address somebody opens, and this
-		# client is talking to a database rather than to a server — so unlike the HTTP path
-		# there is no request to take a host from. Inventing `localhost` and a port nobody
-		# said would produce a link that looks right and goes nowhere, which is worse than
-		# saying plainly that there is no address yet.
-		root = (self.settings.public_url or "").strip()
+		# **Told, worked out, or refused** — `#1007`, and the middle branch is new.
+		#
+		# This used to refuse whenever `public_url` was unset, on the reasoning that there is
+		# no request to take a host from and that inventing "localhost and a port nobody said"
+		# would produce a link that looks right and goes nowhere. That is exactly right behind
+		# a proxy and was applied to every case, including the one the README sends every new
+		# self-hoster down: `subroutine serve`, then `subroutine login link`. **The port was
+		# said.** It is `settings.port`, beside `settings.host` — the same two settings `serve`
+		# binds to and prints back as `Serving on http://127.0.0.1:8471`. Not a guess; the
+		# fact the neighbouring command already computed.
+		#
+		# `config.browsable_url` is where the three-way rule lives, so the refusal that
+		# survives is the one that has to: bound wide with nothing configured, where the host
+		# may be `0.0.0.0` and nobody can say which of this machine's addresses a reader will
+		# use.
+		told = (self.settings.public_url or "").strip()
+		root = subroutine.config.browsable_url(self.settings)
 
 		if not root:
 			raise subroutine.errors.ValidationError(
-				"This instance has no public_url, so there is no address to build a "
-				"sign-in link from.",
+				f"This instance listens on {self.settings.host!r}, which is not an address a "
+				"browser can be sent to, and no public_url says where it is reached instead.",
 				code="missing_field",
 				hint="Set public_url in config.toml to the address a browser reaches this "
 				"instance on. A link is only useful where the web UI is served.",
@@ -1302,9 +1313,10 @@ class Client:
 			)
 
 			return subroutine.views.SignInLink(
-				url=f"{root.rstrip('/')}/signin?link={urllib.parse.quote(secret, safe='')}",
+				url=f"{root}/signin?link={urllib.parse.quote(secret, safe='')}",
 				username=for_whom.username,
 				expires_at=link.expires_at,
+				address_assumed=not told,
 			)
 
 	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:

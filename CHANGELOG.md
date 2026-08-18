@@ -161,6 +161,17 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine login link` works on a fresh install, instead of asking you to configure
+  something first.** The README gives new self-hosters `subroutine serve` and then
+  `subroutine login link`, and the second command refused unless `public_url` was set — so the
+  quick start told you to do something that did not work, and the way out was a setting nobody
+  had been asked to think about yet. Where the instance listens only to this machine, the link
+  now uses the address `serve` prints, and says so: it works in a browser here, and if you
+  reach this instance some other way — through a proxy, or from another machine — set
+  `public_url` and make a fresh link. An instance listening beyond this machine with no
+  `public_url` still refuses, because `0.0.0.0` is not an address anybody opens and only you
+  can say which one they should. The same link over the API is unchanged.
+
 - **`subroutine today` is now `subroutine agenda`, and the old name is gone.** **This is a
   breaking change**: `subroutine today` no longer prints anything, it says where the command
   went and stops. Scripts and aliases naming it need one word changed. It is the one thing in

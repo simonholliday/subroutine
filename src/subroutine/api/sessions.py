@@ -125,10 +125,13 @@ def issue (
 		session, user=for_whom, actor=actor
 	)
 
+	url, assumed = _address(settings, request, secret)
+
 	return subroutine.views.SignInLink(
-		url=_address(settings, request, secret),
+		url=url,
 		username=for_whom.username,
 		expires_at=link.expires_at,
+		address_assumed=assumed,
 	)
 
 
@@ -518,19 +521,31 @@ def _address (
 	settings: subroutine.api.dependencies.SettingsDep,
 	request: starlette.requests.Request,
 	secret: str,
-) -> str:
-	"""Build the address somebody opens to sign in.
+) -> tuple[str, bool]:
+	"""Build the address somebody opens to sign in, and say whether it was worked out.
 
 	``public_url`` decides it wherever it is set, because behind a TLS-terminating proxy the
 	request's own URL is the *internal* one — a link built from it would name a host and a
 	scheme that only work from inside the machine, and would look entirely correct in the
 	response. Falling back to the request's base URL is the loopback case, where the two are
 	the same thing.
+
+	**The second half of the answer is new** (`#1007`). The fallback has always been here and
+	has always been silent, so a caller could not tell an address an operator stated from one
+	this function inferred — and those fail differently: the first is right by definition,
+	the second is right on a laptop and wrong behind a proxy. Saying which is what lets a
+	surface printing the link warn before somebody hands it over.
+
+	Local callers reach the same three-way rule through
+	:func:`subroutine.config.browsable_url`; the branch differs here only because a request
+	is a better source than the bind when there is one.
 	"""
 
-	root = (settings.public_url or "").strip() or str(request.base_url)
+	told = (settings.public_url or "").strip()
+	root = told or str(request.base_url)
 
 	return (
 		f"{root.rstrip('/')}/signin"
-		f"?{LINK_PARAMETER}={urllib.parse.quote(secret, safe='')}"
+		f"?{LINK_PARAMETER}={urllib.parse.quote(secret, safe='')}",
+		not told,
 	)

@@ -3844,3 +3844,40 @@ def test_a_task_can_be_filed_underneath_another_one_on_both_transports (pair: Pa
 	for client in (local, remote):
 		with pytest.raises(subroutine.errors.NotFound):
 			client.capture(text="Filed under nothing", parent=above.ref + 10_000)
+
+
+def test_both_transports_mint_a_sign_in_link_on_an_instance_with_no_public_url (
+	pair: Pair,
+) -> None:
+	"""`#1007`. The README's quick path, asked of each surface in turn.
+
+	**This is the whole item.** ``subroutine serve`` then ``subroutine login link`` is what the
+	README gives a new self-hoster, twice — in the opening transcript and again as its own
+	TL;DR — and the second command refused on every fresh local install while
+	``POST /v1/login-links`` answered the same request with a working address. Measured on one
+	instance at one moment before the fix: refused here, ``http://127.0.0.1:8199/signin?link=…``
+	there, and that link driven to a ``303`` and a session cookie.
+
+	``test_reach`` could not see it. It compares method *names*, and ``create_login_link``
+	is reached on both clients — the divergence was in what one of them does before building
+	a string, which is `#712` and `#921`'s shape a fourth time.
+
+	The fixture is the fresh-install state without arranging to be: ``Settings(dev_mode=True)``
+	leaves ``public_url`` unset and ``host`` at ``127.0.0.1``, which is precisely the machine
+	this was reported from.
+	"""
+
+	for client in pair.both():
+		minted = client.create_login_link()
+
+		assert "/signin?link=" in minted.url, (
+			f"{client!r} built something that is not a sign-in address: {minted.url!r}"
+		)
+		assert minted.username == pair.user.username
+
+		# **Said rather than left to be worked out.** Neither transport was told an address, so
+		# both inferred one — the local from the bind, the remote from the request — and a
+		# caller printing this needs to know that before handing it over.
+		assert minted.address_assumed, (
+			f"{client!r} reported a configured address for one it worked out"
+		)

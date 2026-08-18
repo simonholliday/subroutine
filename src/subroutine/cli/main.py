@@ -2167,6 +2167,19 @@ def login_link (
 	_say("")
 	_say("That is the only time it is shown, and it works once.")
 
+	# **Said, not asked** (`#1007`). The assumption is the bind this instance listens on, which
+	# is a fact the program holds and the reader does not — so a prompt would ask somebody to
+	# confirm a value they have less evidence about than the program does, break every script
+	# and agent that runs this, and grow the one path §1.4 wants shortest. A wrong address
+	# costs one re-run, because the host in a link is navigation rather than authority.
+	if minted.address_assumed:
+		_say("")
+		_say(
+			"Nobody has set public_url, so that address is where this instance listens. "
+			"It works in a browser on this machine; if you reach it another way — a proxy, "
+			"another machine — set public_url and make a fresh link."
+		)
+
 
 @login_app.command("revoke")
 def login_revoke (

@@ -661,6 +661,13 @@ also the way back in for you: if the browser is the only way you administer this
 something has gone wrong with it, a link minted at the console is a door that does not depend on
 anything else working.
 
+**The address in the link comes from `public_url`**, and where that is unset the link falls back
+to the address the instance listens on and says that it has. On the arrangement above that is
+`http://127.0.0.1:8471`, which is a working address on the server itself and the wrong one to
+hand to anybody else — so if you are proxying this, set `public_url` and mint a fresh link. An
+instance listening beyond this machine with `public_url` unset refuses to mint one at all,
+because `0.0.0.0` names no destination and only you can say which address people use.
+
 `--username` is for somebody who already has an account; `--service-account` is for a machine
 identity and creates one if there is none. They are separate flags because they are separate
 decisions — naming a person under `--service-account` is refused rather than quietly handing

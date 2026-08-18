@@ -214,6 +214,48 @@ def is_loopback (host: str) -> bool:
 	return address.is_loopback
 
 
+def browsable_url (settings: "Settings") -> str | None:
+	"""Report where a browser reaches this instance, or ``None`` if only the operator knows.
+
+	`#1007`. Three answers, and the middle one is the whole point:
+
+	* ``public_url`` wherever it is set — the operator has said, and behind a proxy their
+	  answer is the *only* right one, because the socket names an internal address.
+	* Otherwise the bind, **when the bind is loopback**. Nothing off this machine can reach a
+	  loopback socket, so the address it listens on is not a guess about where somebody
+	  browses — it is the entire set of places they can.
+	* Otherwise ``None``. That is ``serve --insecure`` on a LAN, where ``host`` may be
+	  ``0.0.0.0``: an address that accepts connections and that nobody types into a browser.
+
+	**The second branch is safe because :func:`subroutine.cli.main._refuse_public_bind` already
+	holds the invariant.** A non-loopback bind refuses to start unless ``public_url`` is an
+	``https://`` address — in which case the first branch answered — or unless ``--insecure``
+	said out loud that this is a trusted network, which is the third. So there is no reachable
+	state where this returns a loopback address for an instance somebody reaches another way.
+
+	**A wrong answer here cannot cost authority.** The host in a sign-in link is navigation,
+	not authorisation: the secret is minted and checked identically whatever string is wrapped
+	around it, so an address that is wrong yields a link that does not resolve rather than one
+	that grants too widely.
+	"""
+
+	told = (settings.public_url or "").strip()
+
+	if told:
+		return told.rstrip("/")
+
+	if not is_loopback(settings.host):
+		return None
+
+	# An IPv6 literal is bracketed in a URL, and ``::1`` is a loopback address somebody may
+	# genuinely have bound to. Unbracketed it reads as a host of ``:`` and a port of ``:1``,
+	# which is a malformed address that would look plausible in a message.
+	host = settings.host.strip().strip("[]")
+	shown = f"[{host}]" if ":" in host else host
+
+	return f"http://{shown}:{settings.port}"
+
+
 def reachable_by_strangers (settings: "Settings", *, host: str) -> bool:
 	"""Report whether somebody other than this machine's owner can reach this instance.
 

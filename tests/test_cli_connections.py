@@ -3101,3 +3101,71 @@ def test_a_whole_calendar_address_is_refused_rather_than_read_for_its_reference 
 	# **And the reference it named really works**, or this refuses correctly and advises
 	# something that does not — which reads to a reader exactly like the command being broken.
 	assert "Stopped" in run("calendar", "revoke", prefix).output
+
+
+def test_the_readme_quick_path_produces_a_link_and_says_what_it_assumed (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1007`. ``subroutine serve`` then ``subroutine login link``, on a fresh local install.
+
+	Reported by a colleague of Simon's who followed the README and was refused at the second
+	command. The README gives this pair twice — the opening transcript, and its own TL;DR —
+	so the published first-contact path was broken for every new self-hoster on SQLite.
+
+	**The note is said, not asked.** A prompt would ask somebody to confirm a value the
+	program holds better evidence about than they do — ``host`` and ``port`` are the settings
+	``serve`` binds to — and would break every script and agent that runs this.
+	"""
+
+	run("init")
+
+	result = run("login", "link")
+
+	assert "http://127.0.0.1:8471/signin?link=" in result.output, (
+		"the address is the one 'serve' listens on, which is the only one that can reach it"
+	)
+	assert "Nobody has set public_url" in result.output
+	assert "works in a browser on this machine" in result.output
+
+
+def test_a_configured_address_is_not_announced_as_an_assumption (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""An operator who has said where this is reached does not need telling what they said.
+
+	Falsified by printing the note unconditionally, which is the version that would nag every
+	properly configured instance on every link it mints.
+	"""
+
+	run("init")
+
+	monkeypatch.setenv("SUBROUTINE_PUBLIC_URL", "https://tasks.example.com")
+
+	result = run("login", "link")
+
+	assert "https://tasks.example.com/signin?link=" in result.output
+	assert "public_url" not in result.output, (
+		"an instance that was told its address was told about it again"
+	)
+
+
+def test_a_wildcard_bind_still_refuses_rather_than_naming_an_address_nobody_can_open (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`serve --insecure` on a LAN is the case the old refusal was right about.
+
+	``0.0.0.0`` accepts connections from anywhere and is not somewhere a browser goes, and the
+	reader is on another machine — so nothing here knows which of this machine's addresses
+	they will type. Refusing names the host, because *which* address was the unanswerable
+	question and the reader is the only one who can settle it.
+	"""
+
+	run("init")
+
+	monkeypatch.setenv("SUBROUTINE_HOST", "0.0.0.0")
+
+	result = run("login", "link", expect=1)
+
+	assert "0.0.0.0" in result.output, "the refusal did not say what it looked at"
+	assert "public_url" in result.output, "and did not say what would fix it"
+	assert "/signin?link=" not in result.output, "it minted a link nobody could open"

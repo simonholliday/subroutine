@@ -1055,6 +1055,17 @@ class SignInLink(pydantic.BaseModel):
 	username: str
 	expires_at: datetime.datetime
 
+	#: Whether the address in ``url`` was worked out rather than configured (`#1007`). True
+	#: when nobody has set ``public_url`` and the address came from where this instance
+	#: listens, or from the request that asked. Both are right on a laptop and both are wrong
+	#: behind a proxy, where the internal address is not where anybody browses — so a surface
+	#: that prints the link can say which it is, and the reader can tell a working link from
+	#: one that will not resolve before they hand it over.
+	#:
+	#: **Defaulted, because an older instance answers without it** and a client refusing the
+	#: body over a field it has just invented is `#345` for the third time.
+	address_assumed: bool = False
+
 
 class SignedOut(pydantic.BaseModel):
 	"""What signing somebody out of everything actually did — item `#248`.
