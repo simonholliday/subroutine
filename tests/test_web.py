@@ -3099,19 +3099,13 @@ def test_only_a_query_that_is_nothing_but_a_ref_opens_an_item (
 	}
 
 
-def test_a_workspace_is_offered_by_the_name_that_identifies_it (
-	tmp_path: pathlib.Path,
-) -> None:
-	"""`SR#979`, Simon 2026-08-18, and it corrects `SR#975` within the hour.
+def test_every_entry_is_named_the_way_a_person_reads_it (tmp_path: pathlib.Path) -> None:
+	"""`SR#980`, Simon 2026-08-18, reversing `SR#979` the same day.
 
-	**A title is free text and is not unique.** The served instance has two workspaces called
-	`Personal`, so a control labelled by title offered one word twice, went to different places
-	from each, and named neither. A slug is unique by construction (§5.4) and is what a person
-	types, so it is the only one of the two that can identify a destination.
-
-	**The fixture gives two workspaces one title on purpose**, because that is the case that
-	separates identifying from naming — and no fixture here built it, which is exactly why
-	`SR#975` shipped. Every workspace in the version this replaces had a distinct title.
+	`SR#979` labelled workspaces by slug because a title is not unique — and accepted titles for
+	the projects underneath, where the same is true of two siblings. What it produced was
+	`projects` above `Inbox` and `Web UI`: **two registers in one list**, which is `SR#912`
+	verbatim, reintroduced by the fix for something else.
 
 	**Alphabetically**, which the roster is not: `workspaces.readable` orders by `created_at`.
 	"""
@@ -3121,8 +3115,8 @@ def test_a_workspace_is_offered_by_the_name_that_identifies_it (
 	})])
 
 	assert [one["label"] for one in shown] == [
-		"All workspaces", "acme", "personal", "projects",
-	], "two workspaces are called Personal, so a title names neither of them"
+		"All workspaces", "Acme", "Personal", "Personal",
+	]
 
 	# **The value is an address**, so `goTo` reads it back through `parseAddress` and the thing
 	# chosen is the thing that ends up in the bar — `SR#959`'s argument for the row labels.
@@ -3132,12 +3126,30 @@ def test_a_workspace_is_offered_by_the_name_that_identifies_it (
 	# what is showing, and what is showing at `/` is every workspace.
 	assert [one["chosen"] for one in shown] == [True, False, False, False]
 
-	# **Every label is distinct**, which is the claim rather than the list above — a list can be
-	# edited to match whatever the code does, and this cannot be satisfied by a title.
-	labels = [one["label"] for one in shown]
 
-	assert len(set(labels)) == len(labels), (
-		f"two entries in a control that navigates are called the same thing: {labels}"
+def test_two_workspaces_with_one_name_are_still_two_destinations (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""What `SR#979` met, and what is accepted about it rather than designed around.
+
+	Two workspaces sharing a title read alike, which is a **data** fault — this instance had one,
+	and `SR#981` is that nothing can correct it after creation. What must stay true is that
+	neither becomes unreachable: the label is for reading and **the value is an address**, so
+	each entry still goes somewhere definite.
+
+	**Asserted on the values, because the labels agreeing is the premise.** A version that
+	deduplicated entries, or that let one shadow the other, would leave a workspace with no way
+	in — which is the failure worth guarding, where reading alike is a rename away from fixed.
+	"""
+
+	[shown] = _views(tmp_path, [("placesToGo", {
+		"workspaces": SPACES, "projects": [], "showing": {"agenda": True},
+	})])
+	alike = [one for one in shown if one["label"] == "Personal"]
+
+	assert len(alike) == 2, "the fixture no longer holds the collision this is about"
+	assert sorted(one["value"] for one in alike) == ["/personal", "/projects"], (
+		"two workspaces reading alike collapsed into one destination"
 	)
 
 
@@ -3161,14 +3173,18 @@ def test_only_the_workspace_you_are_in_offers_its_projects (tmp_path: pathlib.Pa
 
 	assert [(one["label"], one["depth"]) for one in inside] == [
 		("All workspaces", 0),
-		("acme", 0),
-		("personal", 0),
-		("projects", 0),
+		("Acme", 0),
+		("Personal", 0),
+		("Personal", 0),
 		("Alpha", 1),
 		("Inbox", 1),
 		("Substation", 1),
 		("Packaging", 2),
-	], "a workspace is its slug and a project is its title — `SR#979`"
+	], "one register throughout, workspaces and projects alike — `SR#980`"
+
+	# The tree hangs off the *second* `Personal`, which is the one slugged `projects` — a title
+	# may repeat, so which entry is which is settled by the slug and not by where it landed.
+	assert inside[3]["value"] == "/projects"
 
 	# **The Inbox sorts by its name here**, unlike in the add form: this control is not choosing
 	# a destination, so there is no default to keep in view.

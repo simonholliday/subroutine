@@ -1814,7 +1814,12 @@ export function placesToGo (workspaces, projects, showing) {
 	*/
 	const spaces = (workspaces || [])
 		.slice()
-		.sort((a, b) => `${a.slug}`.localeCompare(`${b.slug}`));
+		/* **The slug breaks a tie**, because a title may repeat and the order would otherwise
+		   fall to whatever `created_at` happened to be — arbitrary, and different on every
+		   instance. `#851`'s lesson one list along: a tie broken by nothing is a tie broken by
+		   insertion order, and nothing is guarding it. */
+		.sort((a, b) => `${a.title || a.slug}`.localeCompare(`${b.title || b.slug}`)
+			|| `${a.slug}`.localeCompare(`${b.slug}`));
 	const where = showing || {};
 	const here = where.workspace || null;
 	const inside = where.project || null;
@@ -1833,32 +1838,29 @@ export function placesToGo (workspaces, projects, showing) {
 		const mine = !where.agenda && space.slug === here;
 
 		/*
-			**A workspace by its slug, and a project by its title** — `#979`, Simon 2026-08-18,
-			within an hour of the version that used the title for both.
+			**Everything in this control is named the way a person reads it** — `#980`, Simon
+			2026-08-18, reversing `#979` the same day.
 
-			A title is free text and **is not unique**: this instance has two workspaces called
-			`Personal`, so the control offered the same word twice, took you to different places
-			from each, and named neither. A slug is unique by construction (§5.4) and is the
-			segment a person types, so it is the only one of the two that can identify a
-			destination — which is the whole job of this control.
+			`#979` labelled a workspace by its slug, on the grounds that a title is free text and
+			not unique, so it cannot identify a destination. **That argument applies to the
+			projects underneath at least as strongly** — two siblings may share a title exactly
+			as two workspaces may — and it accepted titles for those in the same breath. A rule
+			applied to one half of one control is not a rule, and what it produced was `projects`
+			above `Inbox` and `Web UI`: two registers in one list, which is `#912` verbatim.
 
-			**`#912` and `#968` had both settled that and `#975` reached past them.** A row's
-			project label is the slug address for this reason, and *each address stays
-			independently typeable* beat the reading-economy argument on the agenda. What `#975`
-			answered was `#912`'s other half — indentation says `Web UI` is inside `Subroutine`
-			where two names side by side do not — and containment is not identity.
+			**The failure it was written for was a data error and nothing else.** The workspace
+			slugged `projects` was *titled* `Personal`, which is the only reason two entries read
+			alike. `#981` is that nothing can correct such a thing after creation.
 
-			**A project keeps its title**, which is what was actually asked for, and its `key` is
-			no better: it stopped being unique in its workspace at `#958`, so it identifies
-			nothing a title does not. The tree supplies the rest.
-
-			**Not a disambiguator only where titles collide.** That is drop-if-uniform, which
-			decision `#957` §4 refuses on this surface by name: the page polls, so a label that
-			appears and vanishes under the cursor is the thing that rule exists to prevent.
+			**A collision is accepted rather than designed around.** Two workspaces genuinely
+			sharing a title read alike here, and each is still a distinct destination because the
+			**value is an address** — so both are reachable and nothing is lost but a glance.
+			`views.WorkspaceRef` carries the slug too, if that ever stops being enough with data
+			somebody meant.
 		*/
 		options.push({
 			value: `/${encodeURIComponent(space.slug)}`,
-			label: `${space.slug}`,
+			label: `${space.title || space.slug}`,
 			depth: 0,
 			chosen: !where.agenda && mine && !inside,
 		});
