@@ -1056,7 +1056,10 @@ SPELLED_DIFFERENTLY = {
 	# The body field is `from`, which is a Python keyword, so the model aliases it `from_`
 	# and the client — having no such constraint on a *parameter* name — calls it `start`.
 	"from_": {"start"},
-	"actor_filter": {"mine"},
+	#: `mine` is the client's argument and `actor` is what goes on the wire; the route
+	#: declares `actor_filter`. All three are one capability, and `#712` made the wire
+	#: name the one that has to be listed.
+	"actor_filter": {"mine", "actor"},
 
 	#: The body field is `parent_task_id` and both clients call the argument `parent`,
 	#: which is what `move` has always called the same thing. `#510` widened the field
@@ -1204,6 +1207,60 @@ def reached_routes (source: str) -> dict[tuple[str, str], set[str]]:
 			found.setdefault((verb.value, _shaped(literal)), set()).add(node.name)
 
 	return found
+
+
+def sent_by (source: str) -> dict[str, set[str]]:
+	"""Return client method -> the names it actually puts on a query, from its own calls.
+
+	**What `clients/http.py` does, rather than what `clients/base.py` declares, and that
+	distinction is the whole of `#712`.** :func:`_accepted_by` reads the abstract signature, so
+	a name present there satisfies it whatever either implementation does — and the base class
+	is the one place that cannot send anything at all.
+
+	Measured when it was found: removing **only** the line that puts ``status_category`` on the
+	wire, leaving every signature intact, left the filter accepted from callers, dropped before
+	the request, and both this file and the equivalence suite green. A caller asked for finished
+	work, got an unfiltered listing, and nothing anywhere reported it.
+
+	Every keyword of every call inside the method counts rather than only ``_given``'s. Query
+	names are spread across ``_given``, ``_dated`` and the request helpers, and a whitelist of
+	helper names is a second list to fall behind — where a stray non-filter keyword such as
+	``params`` simply never matches a declared filter and costs nothing.
+
+	**Used for filters and deliberately not for body fields.** A body is often a dict literal or
+	a ``**`` splat built somewhere else in the method, so this would report 28 fields as
+	unreachable that a client passes perfectly well — a guard that cries wolf gets an excuse
+	list rather than a fix. `#712` is the filter half; the body half needs a different scan and
+	is still reading signatures.
+
+	Takes the source as an argument for `#405`'s reason, like :func:`reached_routes` beside it.
+	"""
+
+	found: dict[str, set[str]] = {}
+
+	for node in ast.walk(ast.parse(source)):
+		if not isinstance(node, ast.FunctionDef):
+			continue
+
+		names = found.setdefault(node.name, set())
+
+		for inner in ast.walk(node):
+			if isinstance(inner, ast.Call):
+				names.update(
+					keyword.arg for keyword in inner.keywords if keyword.arg is not None
+				)
+
+	return found
+
+
+#: What each of the HTTP client's methods puts on a query, read once. `#712`.
+_SENT = sent_by(pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8"))
+
+
+def _sent_by (method: str) -> set[str]:
+	"""Return the query names one client method actually sends."""
+
+	return _SENT.get(method, set())
 
 
 def _accepted_by (method: str) -> set[str]:
@@ -1403,7 +1460,8 @@ def unreached_filters () -> dict[str, set[tuple[str, str]]]:
 		accepted: set[str] = set()
 
 		for method in methods:
-			accepted |= _accepted_by(method)
+			# **What it sends, not what it declares** (`#712`).
+			accepted |= _sent_by(method)
 
 		for name in names:
 			if name in accepted or SPELLED_DIFFERENTLY.get(name, set()) & accepted:
@@ -1446,6 +1504,34 @@ def test_the_filter_scan_actually_read_the_routes () -> None:
 	assert len(listings) > 5, (
 		f"only {len(listings)} routes were found to declare any filter, which means this scan is "
 		f"reading almost nothing and every entry in UNREACHED_FILTERS is vacuous"
+	)
+
+
+def test_the_wire_scan_reads_what_a_method_sends_not_what_it_declares () -> None:
+	"""`#712`, driven through :func:`sent_by`'s own entry point rather than against itself.
+
+	`#405`'s rule: a guard is tested by handing it the defect, not by re-implementing its rule
+	beside it. The subject below is a method that **declares** two filters and **sends** one —
+	which is exactly the shape that stayed green for the whole of this file before, because
+	`_accepted_by` read the abstract base class and a signature is where the declaration lives.
+
+	The floor matters as much as the exclusion: a scan that read nothing would satisfy
+	``"status_category" not in sent`` perfectly, and reading nothing is the failure this file
+	has met more than once.
+	"""
+
+	source = "\n".join((
+		"class Client:",
+		"\tdef tasks (self, *, status_category=None, q=None):",
+		'\t\treturn self._json("GET", "/v1/tasks", params=_given(q=q))',
+	))
+
+	sent = sent_by(source)
+
+	assert "tasks" in sent, "the scan did not find the method at all"
+	assert "q" in sent["tasks"], "the scan read nothing it was handed"
+	assert "status_category" not in sent["tasks"], (
+		"a filter the method declares and never sends is being counted as reached"
 	)
 
 
