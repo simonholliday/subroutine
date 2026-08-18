@@ -1745,6 +1745,17 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	# re-render — which is how a test of this passes against the defect it was written for.
 	page.wait_for_selector(".board", state="detached", timeout=10_000)
 
+	# **And waited for the thing that replaces it** (`#998`). Waiting for the board to go
+	# is right and is why the line above exists, but `count()` is a read rather than a
+	# wait — so between the board detaching and the agenda's fetch resolving there is a
+	# window, and under a loaded machine this landed inside it. It then failed saying the
+	# page had not followed the address, which is `#962` exactly, about a page that was
+	# one tick behind. A guard that accuses the product of the defect it was written for
+	# is worse than one that is merely slow.
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	# Kept, because a wait that times out and an assertion that fails say different
+	# things and the second is the one that names what was wrong.
 	assert page.locator(".listing.agenda").count() > 0, (
 		"the address went home and the page did not follow it"
 	)
@@ -1959,6 +1970,17 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
 
 	# The projects arrive with the workspace, so the tree is only offered once inside one.
+	#
+	# **And they arrive on their own request** (`#998`). Waiting for the listing says the
+	# workspace landed, not that its projects did — so reading the options here caught a
+	# control holding two of six and failed as though the tree had been flattened, which
+	# is a claim about the code rather than about the clock. Second instance of the shape
+	# in this file: wait for the thing being asserted on, not only for what preceded it.
+	page.wait_for_function(
+		"document.querySelectorAll('header .who select option').length > 2",
+		timeout=10_000,
+	)
+
 	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
 		"All workspaces", "Subroutine", "Acme", "Inbox", "Websites", "Handouts",
 	], "the tree is in creation order, or the nesting was flattened"
