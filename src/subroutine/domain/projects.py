@@ -961,6 +961,43 @@ def path_segments (wanted: str) -> list[str]:
 	return [segment for segment in normalize_path(wanted).split(PATH_SEPARATOR) if segment]
 
 
+def prioritised_addresses (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> dict[uuid.UUID, str]:
+	"""Return each workspace's prioritised project as an address a person reads — `#986`.
+
+	The label half of decision ``#982``. ``scoping.prioritised_paths`` is the other one, and the
+	two are separate because **they need different strings**: an ordering compares against
+	``project.path``, which is a materialised path of ids, while a surface has to say
+	``web/dist``. Reported as one string rather than as an id for `#957`'s reason — an address is
+	what ``PATCH /v1/workspaces`` accepts back, so what a reader is shown is also what they can
+	send.
+
+	**Here rather than in ``scoping``**, which cannot compose an address: this module imports
+	that one, and the reverse is the import cycle `#202` exists to catch. It is also where every
+	other project address is composed, through :func:`paths_for`, so there is one answer to
+	*what is this project called* rather than two that can disagree.
+	"""
+
+	chosen = subroutine.domain.scoping.prioritised_projects(
+		session, principal, workspace_ids=workspace_ids
+	)
+
+	if not chosen:
+		return {}
+
+	addresses = paths_for(session, {row.id for row in chosen.values()})
+
+	return {
+		workspace_id: addresses[row.id]
+		for workspace_id, row in chosen.items()
+		if row.id in addresses
+	}
+
+
 def paths_for (
 	session: sqlalchemy.orm.Session, ids: typing.Collection[uuid.UUID]
 ) -> dict[uuid.UUID, str]:

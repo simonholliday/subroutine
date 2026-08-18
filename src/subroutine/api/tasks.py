@@ -486,10 +486,25 @@ def listing (
 	# it three times could sink a row it had just decided was startable.
 	now = subroutine.db.types.utcnow()
 
+	# **What `-priority_score` means here depends on which project this workspace has
+	# prioritised** (`#986`, decision `#982`), so the vocabulary is adjusted before anything is
+	# layered on it. The paths are resolved in Python and arrive as literals: reaching the
+	# pointer from inside the expression is a correlated subquery in `ORDER BY`, which is
+	# `#856`'s defect. Nothing prioritised returns the module's own map unchanged.
+	#
+	# **Every caller that already sorted by priority gets this without asking**, which is the
+	# requirement — a focus nobody would think to opt into is a focus that does nothing.
+	focused = subroutine.domain.ordering.prioritising(
+		SORTABLE,
+		prefixes=subroutine.domain.scoping.prioritised_paths(
+			session, actor, workspace_ids=[workspace.id]
+		),
+	)
+
 	# **`deferred` is added here rather than declared in `SORTABLE`** (`#877`), because the band
 	# it sorts by is a fact about that instant rather than about a column. `searching` layers
 	# `relevance` on top of this below, so a ranked search can still sink deferred work.
-	sortable = subroutine.domain.ordering.sinking(SORTABLE, model=model, now=now)
+	sortable = subroutine.domain.ordering.sinking(focused, model=model, now=now)
 
 	# `None` unless a search ran and something can rank it, which is what keeps every listing
 	# that is not a search on exactly the vocabulary it has always had.

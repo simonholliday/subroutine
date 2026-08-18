@@ -30,6 +30,8 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.paging
+import subroutine.domain.projects
+import subroutine.domain.selection
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -92,8 +94,62 @@ class Update(subroutine.api.schemas.RequestModel):
 	description: str | None = None
 	timezone: str | None = None
 
+	#: The one project whose work rises in this workspace's ranked listings (decision ``#982``),
+	#: named the way a caller addresses one — its key or its whole path. Null clears it.
+	#:
+	#: **On the workspace rather than on the project, deliberately.** There is one such fact and
+	#: it belongs here, so choosing a second project unsets the first in the same write with no
+	#: clearing logic. A route on the project would read as a per-project flag, which is the
+	#: mental model that lets a boost accumulate on four projects until the ordering means
+	#: nothing — the failure decision ``#982`` is built to refuse.
+	prioritised_project: str | None = None
+
 	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
+
+
+def rendered (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	rows: typing.Sequence[subroutine.db.models.identity.Workspace],
+) -> list[subroutine.views.Workspace]:
+	"""Render workspaces, resolving what each has prioritised in one query (`#986`).
+
+	**A helper rather than four call sites**, because ``views.workspace`` requires the answer
+	rather than defaulting it: a renderer that quietly reported *nothing prioritised* when the
+	caller forgot to look is the inert-control shape this codebase keeps finding, and a required
+	argument is what makes forgetting impossible instead of unlikely.
+	"""
+
+	focused = subroutine.domain.projects.prioritised_addresses(
+		session, actor, workspace_ids=[row.id for row in rows]
+	)
+
+	return [
+		subroutine.views.workspace(row, prioritised=focused.get(row.id)) for row in rows
+	]
+
+
+def _focus (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.identity.Workspace,
+) -> str | None:
+	"""Return which project this one workspace has prioritised, or ``None``."""
+
+	return subroutine.domain.projects.prioritised_addresses(
+		session, actor, workspace_ids=[row.id]
+	).get(row.id)
+
+
+def one (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.identity.Workspace,
+) -> subroutine.views.Workspace:
+	"""Render one workspace, the same way a listing renders each of them."""
+
+	return rendered(session, actor, [row])[0]
 
 
 def resolve (
@@ -150,7 +206,7 @@ def create (
 		created.description = body.description
 		session.flush()
 
-	return subroutine.views.workspace(created)
+	return one(session, actor, created)
 
 
 @router.get(
@@ -218,7 +274,7 @@ def listing (
 	rows = rows[:size]
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.workspace(row) for row in rows],
+		rendered(session, actor, rows),
 		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
@@ -252,7 +308,7 @@ def read (
 	)
 
 	return subroutine.api.shaping.single(
-		subroutine.views.workspace(resolve(session, actor, id_or_slug)), shape
+		one(session, actor, resolve(session, actor, id_or_slug)), shape
 	)
 
 
@@ -274,8 +330,23 @@ def change (
 		if name in supplied
 	}
 
+	# **Resolved here rather than in the domain, so an unknown project is refused by name.**
+	# `selection.project` searches the projects this caller can *read* inside this workspace, so
+	# one in another workspace is "no such project" rather than forbidden (§7.3a) — and the
+	# cross-workspace check in `workspaces.update` is defence behind that rather than the only
+	# guard. Read from `model_fields_set` because null is a value here: it clears the priority,
+	# where an absent key means *leave it alone* (§8.3).
+	if "prioritised_project" in supplied:
+		changes["prioritised_project"] = (
+			None
+			if body.prioritised_project is None
+			else subroutine.domain.selection.project(
+				session, actor, found, body.prioritised_project
+			)
+		)
+
 	with subroutine.api.concurrency.reporting(
-		lambda: subroutine.views.workspace(found)
+		lambda: one(session, actor, found)
 	):
 		updated = subroutine.domain.workspaces.update(
 			session,
@@ -287,7 +358,7 @@ def change (
 			**changes,
 		)
 
-	return subroutine.views.workspace(updated)
+	return one(session, actor, updated)
 
 
 # --------------------------------------------------------------------------------------
@@ -334,10 +405,13 @@ def members (
 	)
 	found = resolve(session, actor, id_or_slug)
 	rows = subroutine.domain.workspaces.members(session, found, actor=actor)
+	focus = _focus(session, actor, found)
 
 	return subroutine.api.shaping.response(
 		[
-			subroutine.views.member(row, account=account, role=role, within=found)
+			subroutine.views.member(
+				row, account=account, role=role, within=found, prioritised=focus
+			)
 			for row, account, role in rows
 		],
 		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
@@ -370,7 +444,13 @@ def join (
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
 
-	return subroutine.views.member(membership, account=account, role=role, within=found)
+	return subroutine.views.member(
+		membership,
+		account=account,
+		role=role,
+		within=found,
+		prioritised=_focus(session, actor, found),
+	)
 
 
 @router.delete(

@@ -388,6 +388,17 @@ INTERNAL: dict[str, str] = {
 		"and its opposite in this."
 	),
 	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
+	"prioritised_project_id": (
+		"Decision `#982`'s single pointer, and **its content is reported — as an address rather "
+		"than an id**. `views.WorkspaceRef.prioritised_project` and "
+		"`views.Workspace.prioritised_project` both carry the project's `path`, which is what "
+		"`PATCH /v1/workspaces` accepts back (`#957`) and what a person reads; publishing the id "
+		"as well would be the same fact twice, in the form neither reader wants. `entity_type` "
+		"below is the same shape. **The claim that the content reaches a client is checked** "
+		"rather than asserted — `#820` is what happens when an excuse like this outlives its own "
+		"truth — by `tests/test_prioritised_project.py`, which sets the pointer and reads the "
+		"address back on every surface."
+	),
 	"depth": "Derived from `path`, and maintained with it.",
 	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",
 	# **Everything below arrived when `#443` widened the walk past `Task` and `Document`.**

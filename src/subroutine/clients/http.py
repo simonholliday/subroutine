@@ -862,13 +862,19 @@ class Client:
 		title: str = subroutine.clients.base.UNSET,
 		description: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		prioritised_project: str | None = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, over the wire."""
 
 		self._refuse_if_read_only()
 
-		given = {"title": title, "description": description, "timezone": timezone}
+		given = {
+			"title": title,
+			"description": description,
+			"timezone": timezone,
+			"prioritised_project": prioritised_project,
+		}
 		body = self._json(
 			"PATCH",
 			f"/v1/workspaces/{workspace}",

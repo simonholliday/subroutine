@@ -58,6 +58,13 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
+	"domain/workspaces.py": "**names `Project` and selects none of them** (`#986`). `update` "
+	"takes an already-resolved project so that it can refuse one belonging to another "
+	"workspace, which is a type annotation rather than a query; the selects in this module are "
+	"roles and memberships. It is here because the scan asks whether a module both selects and "
+	"names a scoped entity, which is deliberately conservative and worth keeping that way. "
+	"Every caller resolves the project through `domain.selection`, which narrows through "
+	"`readable_projects`, so a project the caller cannot see is refused before this sees it",
 	"domain/tags.py": "reads a task's own tag rows, having been handed the task",
 	"domain/events.py": "`descriptions()` reads titles and refs by id for events the caller "
 	"already holds — the feed narrowed them through visible_events, a history resolved its "

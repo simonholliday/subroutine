@@ -52,6 +52,7 @@ import subroutine.domain.filtering
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.ordering
+import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
@@ -198,6 +199,13 @@ def document (
 	)
 	instance = subroutine.domain.instances.get(session)
 
+	# **One lookup for all of them** (`#986`). This is where the browser learns which project
+	# each workspace has prioritised, so that the one project it marks in a dropdown and the one
+	# the ordering actually favours are the same project by construction.
+	focused = subroutine.domain.projects.prioritised_addresses(
+		session, actor, workspace_ids=[workspace.id for workspace in reachable]
+	)
+
 	return subroutine.views.Meta(
 		api_version=subroutine.API_VERSION,
 		instance_version=subroutine.installations.program(),
@@ -210,7 +218,12 @@ def document (
 		source_url=settings.source_url,
 		public_url=settings.public_url,
 		workspace=None if chosen is None else chosen.id,
-		workspaces=[subroutine.views.workspace_ref(workspace) for workspace in reachable],
+		workspaces=[
+			subroutine.views.workspace_ref(
+				workspace, prioritised=focused.get(workspace.id)
+			)
+			for workspace in reachable
+		],
 		statuses={} if chosen is None else _statuses(session, chosen.id),
 		item_types={} if chosen is None else _item_types(session, chosen.id),
 		link_types=[] if chosen is None else _link_types(session, chosen.id),

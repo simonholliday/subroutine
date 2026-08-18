@@ -1499,6 +1499,21 @@ fieldset {
 /* What the address narrowed the list to (`#647`). It says so in words rather than by looking
    different, because a filter a reader did not apply is one they cannot be expected to
    remember — and a short list with no explanation reads as an empty backlog. */
+/*
+	What is prioritised, said once above the rows it affects — `#986`, decision `#982`.
+
+	**Quieter than `.narrowed` and deliberately so.** That one describes a filter the reader
+	applied and offers a way out; this describes an ordering they set once, somewhere else, and
+	that acts on the whole page. It is context rather than an action, so it takes no border and
+	the softer ink — every token here exists, which `#923`'s guard is what keeps true.
+*/
+.focus {
+	margin-bottom: var(--space-6);
+	padding: var(--space-3) var(--space-7);
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+}
+
 .narrowed {
 	display: flex;
 	align-items: center;

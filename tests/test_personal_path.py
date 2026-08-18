@@ -5428,7 +5428,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 2_725
+REGISTER_CEILING = 2_692
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.

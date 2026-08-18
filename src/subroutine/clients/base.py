@@ -848,6 +848,7 @@ class Client(typing.Protocol):
 		title: str = UNSET,
 		description: str | None = UNSET,
 		timezone: str | None = UNSET,
+		prioritised_project: str | None = UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address — item ``#434``.
@@ -861,6 +862,16 @@ class Client(typing.Protocol):
 		which is what made ``#434`` a bug rather than a convenience. ``None`` clears it, and
 		clearing means *not stated*, so the instance's own zone shows through rather than UTC
 		being asserted (§12.3).
+
+		``prioritised_project`` names the one project whose work rises in this workspace's ranked
+		listings (decision ``#982``, item ``#986``), by key or by whole path; ``None`` clears it.
+		**Naming a second project unsets the first**, which is the design rather than a
+		convenience: one column holds one value, so the trade is made in the same write and there
+		is no way to accumulate four quiet boosts nobody remembers setting.
+
+		**It is a method on the workspace even though the command line says it of a project.**
+		The state is one fact about the workspace; a project-side call would read as a
+		per-project flag, which is the mental model decision ``#982`` refuses.
 		"""
 
 	def move_project (

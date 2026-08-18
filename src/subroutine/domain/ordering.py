@@ -352,8 +352,9 @@ def sinking (
 	}
 
 
-#: The SQL half of the same rule. A ``CASE`` cannot use a plain index, and neither could the
-#: bare ``importance * urgency`` it replaces, so this costs nothing that was not already paid.
+#: The SQL half of the same rule, with nothing prioritised. A ``CASE`` cannot use a plain index,
+#: and neither could the bare ``importance * urgency`` it replaces, so this costs nothing that
+#: was not already paid. :func:`ranking` is what adds decision ``#982``'s bonus to it.
 RANKING = sqlalchemy.case(
 	(
 		sqlalchemy.and_(
@@ -373,6 +374,153 @@ RANKING = sqlalchemy.case(
 	),
 	else_=None,
 )
+
+
+#: What being the workspace's prioritised project is worth to a task's rank (decision
+#: ``#982``, item ``#986``). **Fixed, unconfigurable, and additive** — the three properties are
+#: the design rather than defaults nobody got round to changing.
+#:
+#: **Additive rather than multiplicative, and that was measured.** A multiplier scales with the
+#: score, so it rewards most the items that already score highest: it stretches the favoured
+#: project's *top* past everybody else's top. An additive term shifts the whole project
+#: uniformly, so a genuinely top-scoring item elsewhere keeps its place — which is exactly what
+#: the requirement asked for. Simulated over 167 real tasks: at ``+3`` the ordinary
+#: other-project item moves from position 5 to 22 while a ``!5/5`` elsewhere **stays at 1**. No
+#: multiplier setting does both.
+#:
+#: **3 of a 1-25 scale is about half a step of one axis**, which separates the ties that
+#: prompted this without touching the head of the list. Taskwarrior — the only surveyed product
+#: that folds a project into a task's rank at all — spends about one priority step on it too,
+#: and deliberately less than a deadline.
+#:
+#: **Not published as a number, anywhere.** A visible magnitude invites *"can I set it to 2?"*,
+#: which is the dial this design exists to decline. Surfaces say *prioritised*.
+PRIORITISED_BONUS = 3
+
+
+def _bonus (
+	prefixes: typing.Sequence[str],
+) -> sqlalchemy.ColumnElement[int]:
+	"""Return what the prioritised project is worth to a row, as a term to add to its score.
+
+	**The prefixes are resolved in Python and arrive as literals, and it is the cheaper
+	spelling — measured, at about 2.5x an unordered page against 1x** (`#986`). Reaching
+	``workspace.prioritised_project_id`` from inside this expression makes it a correlated
+	subquery in ``ORDER BY``, which computes a sort key for every row rather than for the page.
+
+	**But it is not `#856`, and item `#986` said it was.** That item and decision ``#982`` both
+	claim the correlated form *"reproduces `#856` exactly"* — 972 ms against 3.35 ms at a
+	thousand tasks — and `tests/test_query_cost.py` refuses the claim: `#856`'s subquery
+	aggregated over the **link** table per candidate row, a join and a count, where this one is a
+	primary-key lookup of a single ``workspace`` row that both planners serve from an index. Two
+	things that are both a correlated subquery in ``ORDER BY``, one a catastrophe and one a
+	rounding error. The literal is still right and is still cheaper; what is not true is that the
+	alternative is ruinous, and a guard written on the stronger claim would have been asserting
+	something false.
+
+	``project.path`` is a column ``scoping.readable_tasks`` has already joined to express the
+	visibility rules, so this needs no join of its own.
+
+	**A set of prefixes rather than one**, because a merged agenda spans workspaces and each may
+	prioritise a project of its own (§13.7). An ``OR`` over a handful of ``LIKE``s.
+
+	**``LIKE 'prefix%'``, never a half-open range over ``path``.** This instance's collation is
+	``en_GB.UTF-8`` and does not sort byte-wise, so a range silently drops descendants while
+	looking correct on SQLite — recorded in ``hierarchy.subtree`` and measured once already.
+	"""
+
+	project = subroutine.db.models.project.Project
+
+	return sqlalchemy.case(
+		(
+			sqlalchemy.or_(*[project.path.like(f"{prefix}%") for prefix in prefixes]),
+			PRIORITISED_BONUS,
+		),
+		else_=0,
+	)
+
+
+def ranking (
+	prefixes: typing.Sequence[str] = (),
+) -> sqlalchemy.ColumnElement[int | None]:
+	"""Return §6.3a's banded ranking, with the prioritised project's bonus inside its band.
+
+	**Inside the band, never on the banded rank** — ``200 + (score + 3)``, never
+	``(200 + score) times a multiplier`` and never applied to the rank itself, which would put part-ranked
+	items above ranked ones instantly. §6.3a separates the bands by 100 against a maximum score
+	of 25 precisely so that a band can never be entered from below, and the bonus has to stay
+	small enough for that to keep being true.
+
+	**The bonus reaches the ranked band only, and that is a decision rather than an
+	oversight.** :data:`PRIORITISED_BONUS` was measured against the product scale, which runs 1
+	to 25, where 3 is about half a step of one axis. The part-ranked band runs 1 to 5, where the
+	same 3 is 60% of full scale — enough that a ``!1`` in the prioritised project would outrank
+	a ``!4`` everywhere else, which is in miniature the *favoured project's worst beats
+	everybody's best* failure that decision ``#982`` turned the primary-key option down for.
+	Two constants would fix it and would be the beginning of the dial this design declines.
+
+	So part-ranked work in the prioritised project does not rise, and **unranked work does not
+	either** — there is nothing to add to a null. Both are limits to state rather than defects:
+	they mean this does nothing at all for a list that is mostly unassessed, which is `#857`'s
+	trap recurring and the reason not to describe the feature as general.
+
+	**No prefixes is the ordinary case and costs nothing**: it returns the same expression this
+	module has always had, rather than one carrying ``+ 0``.
+	"""
+
+	task = subroutine.db.models.work.Task
+
+	if not prefixes:
+		return RANKING
+
+	bonus = _bonus(prefixes)
+
+	return sqlalchemy.case(
+		(
+			sqlalchemy.and_(task.importance.is_not(None), task.urgency.is_not(None)),
+			RANKED_BAND + (task.importance * task.urgency + bonus),
+		),
+		(task.importance.is_not(None), PART_RANKED_BAND + task.importance),
+		(task.urgency.is_not(None), PART_RANKED_BAND + task.urgency),
+		else_=None,
+	)
+
+
+def prioritising (
+	allowed: typing.Mapping[str, Sortable],
+	*,
+	prefixes: typing.Sequence[str],
+) -> dict[str, Sortable]:
+	"""Return this vocabulary with ``priority_score`` carrying the prioritised project's bonus.
+
+	**Per request rather than in the static maps**, which is :func:`searching` and
+	:func:`sinking`'s reason: which project is prioritised is a fact about the workspaces being
+	listed, so the same sort name means something different for every caller. A module-level
+	dict quietly gaining one caller's prefixes would rank the next caller's page by somebody
+	else's focus.
+
+	**It replaces an entry rather than adding one**, which is the difference from its two
+	siblings: this is not a new way to sort, it is what ``-priority_score`` already means,
+	answered with one more fact. So a caller that does nothing gains nothing, and every caller
+	that already sorted by priority gets the bonus without asking — which is the requirement,
+	since nobody would think to opt in.
+
+	Both halves of :class:`Derived` are rebuilt from the same expression, so the ``ORDER BY``
+	and the value a cursor reads back off the row cannot disagree about what the bonus was.
+	"""
+
+	if not prefixes:
+		return dict(allowed)
+
+	return {
+		**allowed,
+		"priority_score": Derived(
+			expression=ranking(prefixes),
+			read=carried,
+			carried_on=subroutine.db.models.work.Task.rank,
+		),
+	}
+
 
 #: What ``?order=`` accepts on a task listing, and the columns the names mean. Deliberately a
 #: short list: every entry is a promise about an index, and a sort the database cannot serve

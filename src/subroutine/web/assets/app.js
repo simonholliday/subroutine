@@ -1885,7 +1885,15 @@ export function placesToGo (workspaces, projects, showing) {
 
 			options.push({
 				value: `/${encodeURIComponent(space.slug)}/${address}`,
-				label: `${one.title || one.key}`,
+				/* **Marked here, and never on a task row** (`#986`, decision `#982`). 84% of
+				   this instance's open tasks are in the project most likely to be prioritised,
+				   so a mark per row would appear on 84% of them — which §12.2a drops as saying
+				   nothing. This is a control where the question is actually asked, and the
+				   answer is one entry out of a handful. Only the project itself: its subtree
+				   inherits the bonus, and marking children would read as four prioritised
+				   projects, which is the state that design makes impossible. */
+				label: `${one.title || one.key}`
+					+ (space.prioritised_project === ancestry.join("/") ? " (prioritised)" : ""),
 				depth: depth + 1,
 				chosen: !where.agenda && inside === ancestry.join("/"),
 			});
@@ -1914,7 +1922,7 @@ function _inboxFirst (ordered) {
 	return ordered.slice(at, after).concat(ordered.slice(0, at), ordered.slice(after));
 }
 
-export function filableFor (projects, project) {
+export function filableFor (projects, project, prioritised = null) {
 	/*
 		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
 
@@ -1980,14 +1988,84 @@ export function filableFor (projects, project) {
 
 	const known = promoted.map((one) => ({
 		key: one.address,
+		/* `(prioritised)` beside `(default)`, and both for the same reason: a control offering
+		   somewhere to file work should say which entry is not an ordinary one (`#986`). The
+		   address is passed in rather than read off a row, because a form knows which projects
+		   there are and never which workspace it is in. */
 		label: "  ".repeat(one.depth || 0)
-			+ `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
+			+ `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`
+			+ (prioritised && one.address === prioritised ? " (prioritised)" : ""),
 		chosen: project ? one.address === project : Boolean(one.is_inbox),
 	}));
 
 	if (!project || known.some((one) => one.chosen)) return known;
 
 	return [{ key: project, label: project, chosen: true }].concat(known);
+}
+
+export function prioritisedHere (workspaces, workspace = null) {
+	/*
+		Which projects are prioritised on this page, addressed the way a reader would type them —
+		`#986`, decision `#982`.
+
+		**One project per workspace, so a page spanning them can hold one each** (§13.7). A
+		listing is narrowed to one workspace and names that one; the agenda spans every workspace
+		and names them all, which is why `workspace` is optional rather than required.
+
+		**Qualified by the slug only when there is more than one workspace to confuse it with**,
+		which is the rule every address on this surface follows and the terminal's
+		`qualifies_workspace` said the same way. Saying *dist is prioritised* on an instance
+		holding two workspaces that each have a `dist` would name neither.
+
+		**Pure, so it can be driven in Node** (`#640`). The whole family of defects this codebase
+		keeps finding here is a correct rule with no wire to it, and the cheapest guard against
+		that is a decision lifted out of the component that renders it.
+	*/
+	const spaces = (workspaces || []).filter((one) => one && one.prioritised_project);
+	const wanted = workspace
+		? spaces.filter((one) => one.slug === workspace)
+		: spaces;
+	const qualifies = (workspaces || []).length > 1 && !workspace;
+
+	return wanted.map((one) => (qualifies
+		? `${one.slug}/${one.prioritised_project}`
+		: one.prioritised_project));
+}
+
+export function prioritisedSentence (found) {
+	/*
+		What is prioritised, with the verb, the possessive and the noun all agreeing about how
+		many — `#986`.
+
+		**The terminal's sentence, word for word**, because a person moving between the two
+		surfaces should not have to work out that they are being told the same thing;
+		`tests/test_web.py` compares them. Two workspaces may each prioritise a project, so a
+		line reading "personal/home, projects/subroutine is prioritised, so its work rises" is
+		the kind of detail that makes a reader distrust every number beside it.
+	*/
+	if (!found || found.length === 0) return null;
+
+	if (found.length === 1) {
+		return `${found[0]} is prioritised, so its work rises here.`;
+	}
+
+	const named = `${found.slice(0, -1).join(", ")} and ${found[found.length - 1]}`;
+
+	return `${named} are prioritised, so their work rises here.`;
+}
+
+export function rankedByPriority (order) {
+	/*
+		Whether this listing is sorted by §6.3a's rank, in either direction — `#986`.
+
+		The prioritised project raises work inside a *ranked* order and does nothing to a page
+		sorted newest-first, so the sentence is said only where it is true. The terminal answers
+		the same question with `_ranked_by_priority`, and a page that announced an effect it was
+		not showing would be worse than one that said nothing.
+	*/
+	return `${order || ""}`.split(",")
+		.map((part) => part.trim().replace(/^-/, ""))
+		.includes("priority_score");
 }
 
 /*
@@ -3800,6 +3878,8 @@ export function Agenda ({
 	buckets, more, later = 0, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
+	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
+	prioritised = [],
 }) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
@@ -3849,6 +3929,12 @@ export function Agenda ({
 		return html`
 			<div class="listing agenda">
 				${box}
+				${/* Said on the quiet day too: *nothing is due* is an answer about this workspace's
+				     focus as much as about a busy one, and a fact that disappears when the page
+				     empties is one a reader will think they imagined. */ null}
+				${prioritisedSentence(prioritised) && html`
+					<div class="focus">${prioritisedSentence(prioritised)}</div>
+				`}
 				<div class="empty">Nothing is due, and nothing is waiting. </div>
 			</div>
 		`;
@@ -3857,6 +3943,17 @@ export function Agenda ({
 	return html`
 		<div class="listing agenda">
 			${box}
+
+			${/*
+				**About the page rather than about a row** (`#986`, decision `#982`). `Next` is the
+				ranked bucket and the one a prioritised project changes; the dated ones are untouched
+				by design, because a deadline is answered by *when* rather than by whose project it
+				is. `#851` requires a computed rank to be able to explain itself, and 84% of rows
+				being in the favoured project is why the explanation cannot live on the rows.
+			*/ null}
+			${prioritisedSentence(prioritised) && html`
+				<div class="focus">${prioritisedSentence(prioritised)}</div>
+			`}
 
 			${buckets.map((bucket) => html`
 				<section class="bucket" key=${bucket.key}>
@@ -4124,6 +4221,8 @@ export const TIMED = DATE_FIELDS.filter(([, , , time]) => time).map(([name]) => 
 
 export function Fields ({
 	busy, vocabulary, projects, members, project, values, reading, onReading,
+	/* The prioritised project's address, so the dropdown can mark it (`#986`). */
+	prioritised = null,
 }) {
 	/*
 		Every field beyond the one that names the item — shared by adding and editing (`#757`).
@@ -4196,7 +4295,7 @@ export function Fields ({
 			     pure: *the project defaults from the address* is a closing condition of `#756`,
 			     and a claim nothing could check while it was an expression buried in markup. */ null}
 			${vocabularySelect("project", "Project",
-				filableFor(projects, held.project || project))}
+				filableFor(projects, held.project || project, prioritised))}
 
 			${vocabularySelect("type", "Type", offered(vocabulary && vocabulary.item_types, "task"))}
 			${vocabularySelect("status", "Status", offered(vocabulary && vocabulary.statuses, "task"))}
@@ -4383,7 +4482,9 @@ export const CAPTURE_HINT = "Add something — try: call the dentist tomorrow +w
 //: the grammar is deliberately not applied to it (`#761`).
 export const DOCUMENT_HINT = "What did you conclude?";
 
-export function DocumentFields ({ busy, vocabulary, projects, project, values }) {
+export function DocumentFields ({
+	busy, vocabulary, projects, project, values, prioritised = null,
+}) {
 	/*
 		A document's fields — `#761`. Deliberately not `Fields`.
 
@@ -4421,14 +4522,15 @@ export function DocumentFields ({ busy, vocabulary, projects, project, values })
 
 			${pick("type", "Type", offered(vocabulary && vocabulary.item_types, "document"))}
 			${pick("status", "Status", offered(vocabulary && vocabulary.statuses, "document"))}
-			${pick("project", "Project", filableFor(projects, held.project || project))}
+			${pick("project", "Project",
+				filableFor(projects, held.project || project, prioritised))}
 		</fieldset>
 	`;
 }
 
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
-	writing, onWriting, reading, onReading,
+	writing, onWriting, reading, onReading, prioritised = null,
 }) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
@@ -4504,9 +4606,10 @@ export function Adding ({
 
 			${expanded && (writing
 				? html`<${DocumentFields} busy=${busy} vocabulary=${vocabulary}
-					projects=${projects} project=${project} />`
+					projects=${projects} project=${project} prioritised=${prioritised} />`
 				: html`<${Fields} busy=${busy} vocabulary=${vocabulary}
 					projects=${projects} members=${members} project=${project}
+					prioritised=${prioritised}
 					reading=${reading} onReading=${onReading} />`)}
 
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
@@ -4519,6 +4622,7 @@ export function Adding ({
 
 export function Editing ({
 	item, busy, onSave, onCancel, vocabulary, projects, members, conflict, reading, onReading,
+	prioritised = null,
 }) {
 	/*
 		The same form, filled from an item — `#757`.
@@ -4554,7 +4658,7 @@ export function Editing ({
 			${conflict && html`<${Conflict} theirs=${conflict} />`}
 
 			<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
-				members=${members} values=${fromItem(item)}
+				members=${members} values=${fromItem(item)} prioritised=${prioritised}
 				reading=${reading} onReading=${onReading} />
 		</form>
 	`;
@@ -4587,6 +4691,8 @@ export function Listing ({
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
+	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
+	prioritised = [],
 	/* **Its own prop rather than `adding.projects`** (`#912`). That bundle is the capture
 	   form's, and its own comment says nothing else has any business knowing what a dropdown is
 	   made of — one source in `App`, two consumers, each asked for directly. */
@@ -4647,6 +4753,17 @@ export function Listing ({
 					     control cannot — that a ranked page holds no documents. */ null}
 					${onOrder && html`<span class="says">${ordering.sentence}</span>`}
 				</div>
+			`}
+
+			${/*
+				**Said only where it changes the answer** (`#986`). A prioritised project raises work
+				inside a ranked order and does nothing to a page sorted newest-first, so a sentence
+				over every listing would claim an effect the page is not showing — and a reader learns
+				to ignore a line that is only sometimes true.
+			*/ null}
+			${rankedByPriority(order) && items.length > 0
+				&& prioritisedSentence(prioritised) && html`
+				<div class="focus">${prioritisedSentence(prioritised)}</div>
 			`}
 
 			${project && html`
@@ -6810,6 +6927,10 @@ export function App () {
 	const adding = {
 		expanded, onExpand: setExpanded, vocabulary, projects: filable, members, project,
 		writing, onWriting: setWriting,
+		/* **In the bundle for the reason beside it** (`#912`): a form's project dropdown marks
+		   the prioritised project (`#986`) and neither `Agenda` nor `Listing` has any business
+		   knowing that. One address, from the workspace the page is in. */
+		prioritised: prioritisedHere(me ? me.workspaces : [], workspace)[0] || null,
 		/* **In the bundle rather than threaded** (`#912`'s argument, one item along): `Agenda`,
 		   `Board` and `Listing` each pass this through and none of them has any business
 		   knowing what a repeat preview is. */
@@ -6981,6 +7102,10 @@ export function App () {
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						projects=${filable} onGo=${narrow}
+						${/* **Every workspace's, because the agenda spans them** — `/` sends no
+						     `workspace_id` and each workspace may prioritise one project of its
+						     own (§13.7). The listing below asks the narrower question. */ null}
+						prioritised=${prioritisedHere(me ? me.workspaces : [])}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -7022,6 +7147,9 @@ export function App () {
 							more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
 							projects=${filable} onGo=${narrow}
+							${/* **This workspace's alone**, because a listing is narrowed to one —
+							     unlike the agenda above, which spans them and names each. */ null}
+							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							${/* **No control on the finished view** (`#782`). Its order is part of what

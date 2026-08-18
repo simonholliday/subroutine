@@ -13,6 +13,7 @@ import sqlalchemy.orm
 
 import subroutine.addressing
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.seed
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -140,6 +141,9 @@ def update (
 	title: str = subroutine.domain.patch.UNSET,
 	description: str | None = subroutine.domain.patch.UNSET,
 	timezone: str | None = subroutine.domain.patch.UNSET,
+	prioritised_project: subroutine.db.models.project.Project | None = (
+		subroutine.domain.patch.UNSET
+	),
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.Workspace:
@@ -169,6 +173,23 @@ def update (
 	"not stated", which lets the instance's own zone show through (§12.3). It was
 	``NOT NULL DEFAULT 'UTC'`` until migration ``233f898a2bee`` precisely because a default here
 	shadowed the instance and left a step in the chain nothing could reach.
+
+	``prioritised_project`` is where decision ``#982``'s single pointer is written, and ``None``
+	clears it. **Setting one project unsets whatever was prioritised before, atomically and with
+	no clearing logic**, because one column holds one value — that is the radio-button semantic
+	the design is built on rather than a convenience.
+
+	**It is set from the *workspace* rather than by a route on the project**, deliberately. A
+	project-side endpoint would read as a per-project flag, which is the mental model the design
+	exists to refuse: there is one fact here and it belongs to the workspace. The command line
+	says it the other way round — ``subroutine project prioritise`` — because that is what a
+	person says, and a command's shape is not a claim about where the state lives.
+
+	**A project from another workspace is refused rather than stored.** Every caller resolves
+	the project through :mod:`subroutine.domain.selection`, which is workspace-scoped, so this is
+	defence rather than the only guard — and it stays for `#916`'s reason: a pointer across a
+	tenancy boundary would put one workspace's focus inside another's ordering, which is a
+	scoping hole, and a check that cannot be reached is cheaper than one that was never written.
 	"""
 
 	if actor is not None:
@@ -207,6 +228,28 @@ def update (
 			subroutine.domain.dates.zone(timezone)
 
 		changed["timezone"] = timezone
+
+	if prioritised_project is not subroutine.domain.patch.UNSET:
+		if (
+			prioritised_project is not None
+			and prioritised_project.workspace_id != workspace.id
+		):
+			raise subroutine.errors.ValidationError(
+				f"{prioritised_project.key!r} is in another workspace, so it cannot be the "
+				f"priority here.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="prioritised_project",
+						code="invalid_field_value",
+						message="A workspace can only prioritise one of its own projects.",
+						hint="Name a project in this workspace, or clear the priority.",
+					)
+				],
+			)
+
+		changed["prioritised_project_id"] = (
+			None if prioritised_project is None else prioritised_project.id
+		)
 
 	before = {name: getattr(workspace, name) for name in changed}
 

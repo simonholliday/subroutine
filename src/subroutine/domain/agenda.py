@@ -167,7 +167,22 @@ def build (
 	day_start = _boundary(day, timezone, end=False)
 	day_end = _boundary(day, timezone, end=True)
 
-	base = _visible(session, principal, workspace_ids, until=day_end)
+	# **Resolved once, before anything is built** (`#986`, decision `#982`). One project per
+	# workspace may be prioritised, and its subtree's ranked work rises inside its band. The
+	# paths are looked up here and passed into the ordering as literals, which is the cheaper
+	# spelling — measured, and the reason it is *not* `#856` is written beside the term. A merged
+	# agenda spans workspaces, so this is a set.
+	#
+	# **Nothing prioritised is the ordinary case and returns the module's own vocabulary**, so
+	# an instance that has never used this pays not one extra clause.
+	sortable = subroutine.domain.ordering.prioritising(
+		subroutine.domain.ordering.TASK_FIELDS,
+		prefixes=subroutine.domain.scoping.prioritised_paths(
+			session, principal, workspace_ids=workspace_ids
+		),
+	)
+
+	base = _visible(session, principal, workspace_ids, until=day_end, sortable=sortable)
 
 	# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927` M-18,
 	# Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and said in
@@ -191,6 +206,7 @@ def build (
 		session,
 		base.where(model.due_at.is_not(None), model.due_at < day_start),
 		"overdue",
+		sortable,
 	)
 
 	seen = {task.id for task in overdue}
@@ -238,6 +254,7 @@ def build (
 		# defect. The column stays: `#28` records it as unwritten and `#787` is what would
 		# write it.
 		"today",
+		sortable,
 	)
 	today = tuple(task for task in today if task.id not in seen)
 	seen.update(task.id for task in today)
@@ -268,6 +285,7 @@ def build (
 			subroutine.db.models.vocabulary.Status.id == model.status_id,
 		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
 		"in_progress",
+		sortable,
 	)
 	started = tuple(task for task in started if task.id not in seen)
 	seen.update(task.id for task in started)
@@ -286,6 +304,7 @@ def build (
 				)
 			),
 			"upcoming",
+			sortable,
 		)
 		upcoming = tuple(task for task in upcoming if task.id not in seen)
 
@@ -320,6 +339,7 @@ def build (
 		session,
 		undated.limit(unscheduled_limit),
 		"unscheduled",
+		sortable,
 	)
 	total = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(undated.subquery())
@@ -371,6 +391,7 @@ def _visible (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	*,
 	until: datetime.datetime,
+	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
@@ -419,8 +440,17 @@ def _visible (
 		# sorts on nulls and silently keeps whichever connection answered first. The
 		# expression is a plain `CASE` over two columns, so this costs nothing a sort by it
 		# was not paying anyway.
+		#
+		# **Through `ordering.options` rather than a hand-rolled `with_expression`** (`#986`).
+		# The value carried and the value ordered by have to be the same expression, and since
+		# a prioritised project changes it per request there are now two ways for them to
+		# disagree. One function reading one vocabulary is what makes that impossible: the
+		# bucket named here is only there to select `priority_score`, which every ranked
+		# bucket uses.
 		.options(
-			sqlalchemy.orm.with_expression(model.rank, subroutine.domain.ordering.RANKING)
+			*subroutine.domain.ordering.options(
+				None, allowed=sortable, default=ORDERS["unscheduled"]
+			)
 		)
 	)
 
@@ -429,12 +459,18 @@ def _run (
 	session: sqlalchemy.orm.Session,
 	statement: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
 	bucket: str,
+	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 ) -> tuple[subroutine.db.models.work.Task, ...]:
 	"""Execute one bucket's query in the order :data:`ORDERS` declares for it.
 
 	:data:`TIEBREAK` is appended by :func:`subroutine.domain.ordering.clauses` so that two
 	tasks with identical sort keys do not swap places between calls — a list that reorders
 	itself while nothing changed is one nobody trusts.
+
+	``sortable`` is the request's own vocabulary rather than the module's, because a workspace's
+	prioritised project changes what ``-priority_score`` means for this call (`#986`). It is the
+	same map :func:`_visible` carried the value with, which is what stops the order and the
+	carried value disagreeing.
 	"""
 
 	return tuple(
@@ -442,7 +478,7 @@ def _run (
 			statement.order_by(
 				*subroutine.domain.ordering.clauses(
 					None,
-					allowed=subroutine.domain.ordering.TASK_FIELDS,
+					allowed=sortable,
 					default=ORDERS[bucket],
 					tiebreak=subroutine.db.models.work.Task.created_at,
 				)

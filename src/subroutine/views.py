@@ -229,6 +229,32 @@ class WorkspaceRef(pydantic.BaseModel):
 	slug: str
 	title: str
 
+	#: The address of the one project whose work rises in this workspace's ranked listings
+	#: (decision ``#982``), or null for none — which is most workspaces.
+	#:
+	#: **The whole disclosure lives on this one field, and that is the design rather than
+	#: economy.** `#851` requires a computed rank to be able to say why, and 84% of this
+	#: instance's open tasks are in the project most likely to be prioritised — so a mark on
+	#: each task row would appear on 84% of them, which §12.2a drops as saying nothing. The fact
+	#: is about the *list*, so it is said once in a header; and wherever projects are listed, the
+	#: one project whose address equals this is the one to mark. A path is unique inside a
+	#: workspace, so that comparison is exact and needs no second field.
+	#:
+	#: **A path rather than an id**, because every reader wants the same string: it is what a
+	#: person reads, and since `#957` it is what a caller can send back to ``PATCH
+	#: /v1/workspaces``.
+	#:
+	#: **Never a magnitude.** The bonus is a fixed number in the ordering and is deliberately
+	#: unpublished: a visible one invites *"can I set it to 2?"*, which is the dial decision
+	#: ``#982`` declines. Surfaces say *prioritised*.
+	#:
+	#: **Null where the caller cannot see the project**, not where none is set — the two are
+	#: indistinguishable here on purpose, since a focus somebody's credential cannot reach is
+	#: one they receive no bonus from either (``scoping.prioritised_projects``).
+	#:
+	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
+	prioritised_project: str | None = None
+
 
 class Reading(pydantic.BaseModel):
 	"""What a written repeat turned out to mean."""
@@ -762,6 +788,14 @@ class Workspace(pydantic.BaseModel):
 	#: Null means "not stated", which lets the instance's zone show through (§12.3). It is not
 	#: a missing value to be helpfully defaulted.
 	timezone: str | None
+
+	#: The project this workspace has prioritised, as its address — see
+	#: :class:`WorkspaceRef`, where the same field is documented and where most readers meet it.
+	#: Settable through ``PATCH /v1/workspaces``, which is the point: the state belongs to the
+	#: workspace, so this is the model that both reports and accepts it.
+	#:
+	#: **Defaulted** (`#345`, `#482`).
+	prioritised_project: str | None = None
 
 	settings: dict[str, typing.Any]
 
@@ -2190,7 +2224,9 @@ def edges (
 	return [edge(one, vocabulary) for one in found]
 
 
-def workspace (row: subroutine.db.models.identity.Workspace) -> Workspace:
+def workspace (
+	row: subroutine.db.models.identity.Workspace, *, prioritised: str | None
+) -> Workspace:
 	"""Render one workspace.
 
 	No vocabulary argument: a workspace has no status or item type to resolve, which is what
@@ -2203,6 +2239,7 @@ def workspace (row: subroutine.db.models.identity.Workspace) -> Workspace:
 		title=row.title,
 		description=row.description,
 		timezone=row.timezone,
+		prioritised_project=prioritised,
 		settings=dict(row.settings or {}),
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,
@@ -2313,6 +2350,15 @@ def me (
 	resolution for itself.
 	"""
 
+	reachable = list(subroutine.domain.workspaces.readable(session, principal))
+
+	# **One lookup for every workspace at once** (`#986`). This is the answer a client builds its
+	# whole picture from — the CLI's `World`, the browser's masthead — so asking per workspace
+	# would be `#39`'s N+1 on the first call of every session.
+	focused = subroutine.domain.projects.prioritised_addresses(
+		session, principal, workspace_ids=[workspace.id for workspace in reachable]
+	)
+
 	return Me(
 		api_version=subroutine.API_VERSION,
 		# **Read off the connection this answer was assembled over, not off configuration**
@@ -2328,8 +2374,10 @@ def me (
 			subroutine.domain.authorization.instance_permissions(principal)
 		),
 		workspaces=[
-			workspace_access(session, principal, workspace)
-			for workspace in subroutine.domain.workspaces.readable(session, principal)
+			workspace_access(
+				session, principal, workspace, prioritised=focused.get(workspace.id)
+			)
+			for workspace in reachable
 		],
 	)
 
@@ -2434,6 +2482,8 @@ def workspace_access (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
 	row: subroutine.db.models.identity.Workspace,
+	*,
+	prioritised: str | None,
 ) -> WorkspaceAccess:
 	"""Describe what one caller may do in one workspace."""
 
@@ -2444,6 +2494,7 @@ def workspace_access (
 		slug=row.slug,
 		title=row.title,
 		timezone=row.timezone,
+		prioritised_project=prioritised,
 		role=grant.from_role,
 		permissions=sorted(grant.permissions),
 		narrowed_by_credential=grant.narrowed_by_token,
@@ -2920,25 +2971,37 @@ def member (
 	account: subroutine.db.models.identity.User,
 	role: subroutine.db.models.identity.Role,
 	within: subroutine.db.models.identity.Workspace,
+	prioritised: str | None,
 ) -> Member:
-	"""Render one membership, with the three things it joins already resolved.
+	"""Render one membership, with the four things it joins already resolved.
 
 	Handed the rows rather than fetching them, so a listing loads them once and this does not
 	become §8.4's N+1 wearing a rendering hat.
+
+	``prioritised`` is asked for even though a membership has nothing to do with a workspace's
+	focus, and **the alternative was passing null here, which would have been a lie rather than
+	an omission** (`#986`): a client reading ``member.workspace.prioritised_project`` would be
+	told *nothing is prioritised* by a renderer that had simply not looked — a plausible,
+	complete, wrong answer, which is the shape this codebase keeps finding. One lookup per
+	listing is cheaper than a field that means two things depending on which response carried it.
 	"""
 
 	return Member(
 		user=user(account),
 		role=role.key,
-		workspace=workspace_ref(within),
+		workspace=workspace_ref(within, prioritised=prioritised),
 		created_at=row.created_at,
 	)
 
 
-def workspace_ref (row: subroutine.db.models.identity.Workspace) -> WorkspaceRef:
+def workspace_ref (
+	row: subroutine.db.models.identity.Workspace, *, prioritised: str | None
+) -> WorkspaceRef:
 	"""Render one workspace as a client addresses it."""
 
-	return WorkspaceRef(id=row.id, slug=row.slug, title=row.title)
+	return WorkspaceRef(
+		id=row.id, slug=row.slug, title=row.title, prioritised_project=prioritised
+	)
 
 
 def _parent_field (

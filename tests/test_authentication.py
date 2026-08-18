@@ -376,7 +376,9 @@ def test_one_renderer_says_what_a_credential_is_narrowed_to (
 	assert credential is not None
 
 	places = [
-		subroutine.views.workspace_access(session, principal, setup.workspace)
+		subroutine.views.workspace_access(
+			session, principal, setup.workspace, prioritised=None
+		)
 	]
 	said = subroutine.views.narrowing(credential, places)
 

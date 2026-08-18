@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `f159c8635e54`.
+> **This release changes the database schema**, to `3a3d6accc196`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -22,6 +22,17 @@ upgrade involves.
 
 ### Added
 
+- **One project in a workspace can be prioritised, and its work rises.** `subroutine project
+  prioritise web`, and `--none` to stop. Its tasks — and everything filed underneath it — sort
+  higher in ranked listings and on your agenda under *Next*, while anything genuinely urgent or
+  important in another project still comes first. That is the difference between this and
+  putting a project on hold: nothing is hidden, and nothing else has to be.
+  **One project per workspace, and choosing another moves it**, which is the whole design rather
+  than a limit: a dial per project would let four quiet boosts accumulate until the order means
+  nothing again, and nobody would remember setting them. Choosing web says so and says what
+  stopped being the priority, in the same line. It is worth about half a step of one priority
+  axis, deliberately not a number you can set. Work with no importance or urgency on it is
+  unaffected, since there is nothing to raise.
 - **You can say which timezone you are in.** `subroutine user timezone Europe/London`, and
   `subroutine user timezone` on its own reports what your account holds. It was settable when
   an account was made and by nothing afterwards, so somebody added by a colleague, or anybody

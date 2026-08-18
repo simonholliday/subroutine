@@ -30,6 +30,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
@@ -193,6 +194,111 @@ def readable_projects (
 		statement = statement.where(project.archived_at.is_(None))
 
 	return statement
+
+
+def prioritised_projects (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> dict[uuid.UUID, subroutine.db.models.project.Project]:
+	"""Return each workspace's prioritised project, for whoever is asking.
+
+	Decision ``#982``: one project per workspace may be prioritised, and its whole subtree's
+	ranked work rises inside its band. Two readers, deliberately one function:
+
+	* an **ordering** needs each project's ``path`` as a prefix to compare against, and
+	* every **surface** needs to say which project it is, because `#851` requires a computed
+	  rank to be able to explain itself.
+
+	One lookup for both, because the alternative is two — and the label naming a project the
+	ordering did not actually favour is precisely the kind of disagreement this codebase keeps
+	finding. Keyed by workspace because a merged listing spans them and each may have a focus of
+	its own (§13.7); at most one each, and usually none at all.
+
+	**The rows rather than a string, and that is a correction driving made.** This returned
+	``path`` for both readers on the argument that they wanted the same string — and they do not:
+	``project.path`` is a materialised path of **ids**, which is what the ordering must compare
+	against, while a surface needs the *address* composed from ancestors' keys. Published
+	unfixed, the CLI announced ``/01a015d3-b388-…/ is prioritised``.
+	:class:`subroutine.views.Project`'s own docstring warns that ``path`` is ids and stays off
+	that model; the warning was read and the mistake made anyway, which is why the two readers
+	now ask for what each needs — :func:`prioritised_paths` here and
+	:func:`subroutine.domain.projects.prioritised_addresses` there.
+
+	**Resolved here in Python rather than reached from inside the ordering expression, because
+	that is the cheaper spelling** — measured at about 2.5x an unordered page against 1x, in
+	``tests/test_query_cost.py``. Reaching ``workspace.prioritised_project_id`` from within
+	``ORDER BY`` makes it a correlated subquery, computing a sort key per row rather than per
+	page. **It is not `#856` and item `#986` claimed it was**; the correction and the reason the
+	two differ are written beside the ordering term, which is where somebody will be tempted.
+
+	**Narrowed through :func:`readable_projects`, which is what makes the disclosure question go
+	away rather than needing an argument.** The pointer is a workspace-level fact, so reading it
+	unnarrowed would tell a caller who is not a member of a private project which project a
+	workspace is focused on — and the surfaces say its name out loud. Narrowing costs nothing
+	real: privacy inherits down the tree, so no task a caller can see is inside a project they
+	cannot, and a bonus they never receive is one they need not be told about.
+
+	**Here rather than in ``ordering``, on this module's own seam**: what a caller may see is
+	this file's question and what an order *means* is that one's. ``ordering`` takes no session,
+	and this returns no expression.
+	"""
+
+	if not workspace_ids:
+		return {}
+
+	workspace = subroutine.db.models.identity.Workspace
+	project = subroutine.db.models.project.Project
+
+	pointed_at = sqlalchemy.select(
+		workspace.id, workspace.prioritised_project_id
+	).where(
+		workspace.id.in_(workspace_ids),
+		workspace.prioritised_project_id.is_not(None),
+		workspace.deleted_at.is_(None),
+	)
+
+	chosen = {
+		project_id: workspace_id
+		for workspace_id, project_id in session.execute(pointed_at).tuples().all()
+	}
+
+	if not chosen:
+		return {}
+
+	visible = readable_projects(principal, workspace_ids=workspace_ids).where(
+		project.id.in_(chosen)
+	)
+
+	return {chosen[row.id]: row for row in session.scalars(visible)}
+
+
+def prioritised_paths (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> tuple[str, ...]:
+	"""Return the materialised paths as prefixes for an ordering term, in a settled order.
+
+	**Ids, not addresses**, because that is what ``project.path`` holds and what the ordering's
+	``LIKE`` compares against. :func:`subroutine.domain.projects.prioritised_addresses` is the
+	other half, for saying which project it is.
+
+	**Sorted, so that two calls against the same state build the same statement.** A keyset
+	cursor's next page has to reproduce the first page's ``ORDER BY`` rather than merely resemble
+	it, and a dictionary's iteration order is a fact about insertion rather than about the data.
+	"""
+
+	return tuple(
+		sorted(
+			row.path
+			for row in prioritised_projects(
+				session, principal, workspace_ids=workspace_ids
+			).values()
+		)
+	)
 
 
 def readable_documents (

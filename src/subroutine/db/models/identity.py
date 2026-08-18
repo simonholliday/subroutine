@@ -65,6 +65,36 @@ class Workspace(
 	next_ref_number: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, default=1, nullable=False
 	)
+	#: The one project whose work rises in this workspace's ranked listings (decision
+	#: ``#982``), or null for none. Its whole subtree inherits, because there is only ever one.
+	#:
+	#: **A single nullable pointer is the anti-spiral mechanism, and it is why this is not a
+	#: boolean on ``project``.** One column holds one value, so choosing B unsets A atomically:
+	#: that *is* the radio-button semantic, with no clearing logic and no unique index to get
+	#: wrong. ``ON DELETE SET NULL`` means the state cannot outlive its subject.
+	#:
+	#: **``is_inbox`` is the existing one-per-workspace flag and is not the pattern to copy.**
+	#: It carries no uniqueness constraint at all and is safe only because nothing but
+	#: ``workspaces.create`` writes it, which is not true of anything a person toggles.
+	#:
+	#: The pointer may only name a project *in this workspace*; ``workspaces.update`` is what
+	#: enforces that, since a pointer across the boundary is a scoping hole rather than a
+	#: curiosity.
+	#:
+	#: **``use_alter`` because this column closes a foreign-key cycle**, and the cycle is not
+	#: obvious from either end: ``project`` references ``status``, ``status`` references
+	#: ``workspace``, and this closes the loop. Without it ``metadata.sorted_tables`` and
+	#: ``drop_all`` both warn that they cannot order the schema — and ``filterwarnings =
+	#: ["error"]`` turns that into a failure, so the suite would go red a long way from here.
+	#: The flag says *this cycle is known*: the constraint is created and dropped by its own
+	#: ``ALTER`` rather than inline, which is what lets the three tables be ordered at all.
+	prioritised_project_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = (
+		sqlalchemy.orm.mapped_column(
+			subroutine.db.types.uuid_column(),
+			sqlalchemy.ForeignKey("project.id", ondelete="SET NULL", use_alter=True),
+			nullable=True,
+		)
+	)
 	settings: sqlalchemy.orm.Mapped[dict[str, typing.Any]] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.json_column(), default=dict, nullable=False
 	)

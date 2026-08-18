@@ -61,6 +61,7 @@ import subroutine.api.tasks
 import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.session
@@ -279,6 +280,40 @@ def _quadratic () -> subroutine.domain.ordering.Derived:
 				other.ref <= subroutine.db.models.work.Task.ref,
 			)
 			.scalar_subquery()
+		),
+		# Never called: this ordering exists to be timed, and nothing pages with it.
+		read=lambda row: None,
+	)
+
+
+def _correlated_prioritised () -> subroutine.domain.ordering.Derived:
+	"""Return the prioritised-project bonus written the tempting way — `#986`.
+
+	**This is the version somebody will reach for**, because passing the paths in as literals
+	looks like a detour: it asks the workspace which project is prioritised from *inside* the
+	ordering expression, which makes it a correlated subquery in ``ORDER BY`` and therefore
+	computes a sort key per row rather than per page.
+
+	It exists to be measured against the literal, and measuring it is what corrected the item:
+	`#986` and decision ``#982`` both say this reproduces `#856` exactly, and it does not. See
+	:func:`test_reaching_the_pointer_from_inside_the_ordering_costs_more`.
+	"""
+
+	task = subroutine.db.models.work.Task
+	project = subroutine.db.models.project.Project
+	workspace = subroutine.db.models.identity.Workspace
+
+	pointed_at = (
+		sqlalchemy.select(project.path)
+		.join(workspace, workspace.prioritised_project_id == project.id)
+		.where(workspace.id == task.workspace_id)
+		.correlate(task)
+		.scalar_subquery()
+	)
+
+	return subroutine.domain.ordering.Derived(
+		expression=sqlalchemy.case(
+			(project.path.like(sqlalchemy.func.coalesce(pointed_at, "") + "%"), 3), else_=0
 		),
 		# Never called: this ordering exists to be timed, and nothing pages with it.
 		read=lambda row: None,
@@ -938,6 +973,117 @@ def test_the_measurement_is_against_the_workspace_it_claims (
 		f"On {backend} the fixture holds {edges} live blocking edges. ``--ready`` and "
 		f"``blocking`` are correlated EXISTS clauses over that table, so with none of them "
 		f"they are answered from an empty index and cost nothing to get wrong."
+	)
+
+
+def test_a_prioritised_project_costs_about_what_an_unordered_page_costs (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""Decision ``#982``'s bonus is a prefix test on a column already joined — `#986`.
+
+	`#856` is the reason this has a measurement at all rather than an argument: the objection
+	that killed graph inheritance was ``ORDER BY <correlated subquery>``, and the whole claim
+	here is that this term is not that shape. ``scoping.readable_tasks`` already joins
+	``project`` to express the visibility rules, so the ordering compares ``project.path``
+	against a literal resolved once in Python.
+
+	**Measured against the same ordering with nothing prioritised**, which is the honest
+	comparison: what is being asked is what the *feature* costs, not what sorting by priority
+	costs. The prefix is the fixture's own project, so the ``LIKE`` matches every row rather
+	than none — a term that matches nothing is the cheap case and would be the wrong one to
+	report.
+	"""
+
+	engine, backend = seeded
+	factory = subroutine.db.session.create_session_factory(engine)
+
+	with subroutine.db.session.session_scope(factory) as session:
+		prefix = session.scalars(
+			sqlalchemy.select(subroutine.db.models.project.Project.path)
+		).first()
+
+	assert prefix is not None, "the fixture did not create a project"
+
+	measured = _measured(
+		engine,
+		work={
+			"priority_score": _ordering("priority_score", subroutine.api.tasks.SORTABLE),
+			"prioritised": _ordering(
+				"priority_score",
+				subroutine.domain.ordering.prioritising(
+					subroutine.api.tasks.SORTABLE, prefixes=(prefix,)
+				),
+			),
+		},
+	)
+	ratio = measured.ratio("prioritised")
+
+	assert not _too_slow(measured), (
+		f"On {backend}, one page of {PAGE} at {TASKS} tasks crossed {CEILING_MS:.0f} ms with a "
+		f"project prioritised:\n{measured.report()}"
+	)
+
+	assert ratio <= RATIO_CEILING, (
+		f"On {backend}, a ranked page with a prioritised project cost {ratio:.1f}x an "
+		f"unordered page, over the {RATIO_CEILING:.0f}x ceiling. The term must stay a prefix "
+		f"test against a literal — reaching workspace.prioritised_project_id from inside the "
+		f"expression makes it correlated, which is `#856`.\n{measured.report()}"
+	)
+
+
+def test_reaching_the_pointer_from_inside_the_ordering_costs_more (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""The literal is the cheaper spelling, measured — and it is **not** `#856` (`#986`).
+
+	**This test was written to assert the correlated version crosses the ceiling, and
+	measuring refused it.** Item `#986` said to *"falsify by making the term correlated and
+	watching the ratio guard fire; if it does not, the guard is the thing to fix first"* — it
+	does not fire, at 2.5x against a 25x ceiling, and the guard is not the thing that is wrong.
+
+	**`#856`'s objection does not transfer, and the difference is what the subquery does.**
+	That one aggregated over the *link* table for every candidate row — a join and a count, 972
+	ms at a thousand tasks. This one is a primary-key lookup of one ``workspace`` row, which
+	both planners serve from an index at a cost the page barely notices. Two things that are
+	both "a correlated subquery in ``ORDER BY``" and one of them is a catastrophe while the
+	other is a rounding error, which is worth knowing before the next term is written.
+
+	**So what is asserted is the claim that survives**: the shape actually chosen is the
+	cheaper one. That is falsifiable, it is the reason the design passes paths in as literals,
+	and it does not require pretending a measurement said something it did not.
+	"""
+
+	engine, backend = seeded
+	factory = subroutine.db.session.create_session_factory(engine)
+
+	with subroutine.db.session.session_scope(factory) as session:
+		prefix = session.scalars(
+			sqlalchemy.select(subroutine.db.models.project.Project.path)
+		).first()
+
+	assert prefix is not None, "the fixture did not create a project"
+
+	measured = _measured(
+		engine,
+		work={
+			"literal": _ordering(
+				"priority_score",
+				subroutine.domain.ordering.prioritising(
+					subroutine.api.tasks.SORTABLE, prefixes=(prefix,)
+				),
+			),
+			"correlated": _ordering(
+				"correlated", {"correlated": _correlated_prioritised()}
+			),
+		},
+	)
+
+	assert measured.ratio("correlated") > measured.ratio("literal"), (
+		f"On {backend}, asking the workspace which project is prioritised from inside the "
+		f"ordering cost no more than resolving it in Python first. Either the measurement is "
+		f"not running what it thinks it is, or the argument for passing the paths in as "
+		f"literals has stopped being true and the code comments saying so want "
+		f"correcting.\n{measured.report()}"
 	)
 
 

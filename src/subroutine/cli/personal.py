@@ -218,6 +218,38 @@ class World:
 
 		return sum(len(item.identity.workspaces) for item in self.reached) > 1
 
+	@property
+	def prioritised (self) -> tuple[str, ...]:
+		"""Return each prioritised project, addressed the way a row here would be.
+
+		Decision ``#982``: one project per workspace may be prioritised, so a merged view can
+		hold one per place (§13.7) — usually none, and here at most two.
+
+		**Qualified by :attr:`qualifies_workspace` and :attr:`qualifies_connection`**, which is
+		the rule every other address on this surface follows: the shortest form that identifies
+		the thing, and no shorter. Saying *dist is prioritised* on a machine reaching two
+		workspaces that both hold a ``dist`` would name neither.
+		"""
+
+		found: list[str] = []
+
+		for item in self.reached:
+			for workspace in item.identity.workspaces:
+				if not workspace.prioritised_project:
+					continue
+
+				address = workspace.prioritised_project
+
+				if self.qualifies_workspace:
+					address = f"{workspace.slug}/{address}"
+
+				if self.qualifies_connection:
+					address = f"{item.name}/{address}"
+
+				found.append(address)
+
+		return tuple(found)
+
 	def connection (self, name: str) -> Reached | None:
 		"""Return one open connection by name."""
 
@@ -2771,6 +2803,14 @@ def _listed (
 		# `_across` (`#942`): nothing is combined into one ranked list, and two connections
 		# naming one instance are shown under two headings — visible, which is the whole
 		# reason that case is allowed here and refused in the flat one.
+		# **Said only where it changes the answer** (`#986`). A prioritised project raises work
+		# inside a *ranked* order and does nothing to a listing sorted newest-first, so
+		# announcing it over every list would be a sentence a reader has to learn to ignore —
+		# and one that claims an effect the page does not show. `project prioritise` with no
+		# argument is where the question is asked directly.
+		if _ranked_by_priority(order):
+			_say_prioritised(world, program.console)
+
 		if merged or not world.qualifies_connection:
 			shown = flat()
 
@@ -3537,6 +3577,227 @@ def _project_updated (
 			if changed.status_category != "in_progress":
 				program.say("  Its work is no longer offered as ready.")
 				program.say("  Anything dated stays on your agenda.")
+
+
+def _focus_of (where: Reached, workspace: str) -> str | None:
+	"""Return the project one workspace has prioritised, by address, or ``None``.
+
+	Read off the identity this connection already answered with rather than fetched, so asking
+	costs nothing — which is what lets every surface say it instead of only the one that thought
+	of it. Null also covers *a project this credential cannot see*, and the two are
+	indistinguishable on purpose: a focus somebody cannot reach gives them no bonus either
+	(``scoping.prioritised_projects``).
+	"""
+
+	for space in where.identity.workspaces:
+		if space.slug == workspace:
+			return space.prioritised_project
+
+	return None
+
+
+def _projects_listed (program: Program, *, json_output: bool) -> None:
+	"""Print the project tree, marking the one whose work is raised — `#986`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+		found = where.client.projects(workspace=workspace)
+
+		if json_output:
+			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
+
+			return
+
+		if not found:
+			program.say("No projects here yet.")
+			_suggest(program.console, 'subroutine project create WEB "Website redesign"')
+
+			return
+
+		# Indented by depth, which is why the listing is ordered by path rather than by
+		# name: a child follows its parent, so the shape can be printed in one pass.
+		width = max(len(one.key) + one.depth * 2 for one in found)
+		focus = _focus_of(where, workspace)
+
+		for one in found:
+			shown = f"{'  ' * one.depth}{one.key}".ljust(width)
+
+			# **Marked on the project rather than on its work** (decision `#982`). This is the
+			# listing where the question *which one is it* is actually asked, and the answer is
+			# one row out of a handful — where a mark on task rows would land on most of them
+			# and §12.2a would drop it for saying nothing. Only the project itself is marked:
+			# its subtree inherits the bonus, and labelling children would read as four
+			# prioritised projects, which is the state this design makes impossible.
+			marked = "  (prioritised)" if focus is not None and one.path == focus else ""
+
+			program.say(f"{shown}  {one.title}{marked}")
+
+
+def _ranked_by_priority (order: str | None) -> bool:
+	"""Report whether this listing is sorted by §6.3a's rank, in either direction.
+
+	Read from the order the reader asked for rather than from the merge's spelling, because the
+	question is *does what I am about to say apply to this page* — and `_sunk` prepends a
+	deferral band without changing whether priority decides anything.
+	"""
+
+	named = [part.strip().removeprefix("-") for part in (order or "").split(",")]
+
+	return "priority_score" in named
+
+
+def _say_prioritised (world: World, console: rich.console.Console) -> None:
+	"""Say which project is prioritised, once, above a list it affects — `#986`.
+
+	**About the list rather than about a row, and that is measured rather than tidy.** `#851`
+	requires a computed rank to be able to explain itself; 84% of this instance's open tasks are
+	in the project most likely to be prioritised, so a mark on each row would appear on 84% of
+	them — which §12.2a drops as a column that says the same thing on every line. The effect is
+	uniform across the page, so the explanation belongs to the page.
+
+	**Silent when nothing is prioritised**, because that is most workspaces and every day. And
+	never a magnitude: the bonus is a fixed number the ordering knows and no surface publishes,
+	since a visible one invites *"can I set it to 2?"* — the dial decision ``#982`` declines.
+	"""
+
+	found = world.prioritised
+
+	if not found:
+		return
+
+	console.print(rich.text.Text(_prioritised_sentence(found), style=DETAIL))
+	console.print("")
+
+
+def _prioritised_sentence (found: typing.Sequence[str]) -> str:
+	"""Say what is prioritised, with everything in the sentence agreeing about how many.
+
+	Two workspaces may each prioritise a project (§13.7), so this has to survive a plural in
+	three places at once — the verb, the possessive and the noun. A line reading
+	"personal/home, projects/subroutine is prioritised, so its work rises" is the kind of detail
+	that makes a reader distrust every number beside it.
+	"""
+
+	if len(found) == 1:
+		return f"{found[0]} is prioritised, so its work rises here."
+
+	named = f"{', '.join(found[:-1])} and {found[-1]}"
+
+	return f"{named} are prioritised, so their work rises here."
+
+
+def _claimed (program: Program, *, which: str, minutes: int) -> None:
+	"""Take a task so nobody else starts it too — a lease rather than a lock (§14.11)."""
+
+	with program.opened() as world:
+		located, task = _a_task(
+			program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="claim",
+		)
+		client = _require_connection(program, world, located.connection)
+
+		try:
+			held = client.claim(
+				ref=task.ref, minutes=minutes or None, workspace=located.workspace
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			program.fail(error)
+
+		program.say(_acted(world, dataclasses.replace(located, item=held), "Claimed"))
+		_suggest(program.console, "subroutine list --ready", "what is free to start")
+
+
+def _released (program: Program, *, which: str) -> None:
+	"""Put a task back, whether or not anybody had claimed it."""
+
+	with program.opened() as world:
+		located, task = _a_task(
+			program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="release",
+		)
+		client = _require_connection(program, world, located.connection)
+
+		try:
+			freed = client.release(ref=task.ref, workspace=located.workspace)
+
+		except subroutine.errors.SubroutineError as error:
+			program.fail(error)
+
+		program.say(_acted(world, dataclasses.replace(located, item=freed), "Released"))
+
+
+def _project_prioritised (program: Program, *, key: str, none: bool) -> None:
+	"""Raise one project's work in this workspace's ranked listings — `#986`, decision `#982`.
+
+	**The command is on the project because that is what a person says**, while the state is one
+	field on the *workspace*. The two are not in tension: ``prioritise web`` names the thing being
+	chosen, and there is only ever one choice, which is why an API route on the project would
+	have been wrong — it would read as a per-project flag and invite four of them.
+
+	**It says what it displaced, and that sentence is the whole anti-spiral mechanism.** Simon's
+	question was *"how would we stop this spiralling?"*: a per-project dial has an equilibrium
+	indistinguishable from having no feature at all, reached by locally rational moves, because
+	every boost is a silent demotion of everything untouched. One prioritised project makes the
+	trade **visible at the moment it is made** — choosing B is B rising *and* A stopping, in one
+	line, rather than a fact somebody has to go and reconstruct later.
+	"""
+
+	if key and none:
+		program.stop(
+			"Name a project or pass --none, not both.",
+			hint="--none leaves nothing prioritised here.",
+		)
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		# Read before writing, so the answer can name what stopped being the priority. Read
+		# from this connection rather than remembered, because a checkout is not the only thing
+		# that writes here.
+		before = _focus_of(where, workspace)
+
+		if not key and not none:
+			if before is None:
+				program.say("Nothing is prioritised here.")
+				program.say("  Name a project to raise its work: 'project prioritise web'.")
+
+				return
+
+			program.say(f"{before} is the priority here.")
+
+			return
+
+		changed = where.client.update_workspace(
+			workspace, prioritised_project=None if none else key
+		)
+
+		if changed.prioritised_project is None:
+			if before is None:
+				program.say("Nothing was prioritised here, and nothing is now.")
+
+				return
+
+			program.say(f"{before} is no longer the priority here.")
+			program.say("  Everything is ranked on its own importance and urgency again.")
+
+			return
+
+		program.say(f"{changed.prioritised_project} is the priority here.")
+
+		# **Named rather than implied**, because the displacement is the cost of the choice and
+		# a reader who is not shown it is the reader who sets a fifth one.
+		if before is not None and before != changed.prioritised_project:
+			program.say(f"  {before} is not, any more.")
+
+		program.say("  Its work rises in ranked listings, and on your agenda under Next.")
+		program.say("  Anything urgent or important elsewhere still comes first.")
 
 
 def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
@@ -4332,26 +4593,7 @@ def register (
 		claim runs out. Your own never disappears from your own.
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="claim",
-			)
-			client = _require_connection(program, world, located.connection)
-
-			try:
-				held = client.claim(
-					ref=task.ref,
-					minutes=minutes or None,
-					workspace=located.workspace,
-				)
-
-			except subroutine.errors.SubroutineError as error:
-				fail(error)
-
-			say(_acted(world, dataclasses.replace(located, item=held), "Claimed"))
-			_suggest(console, "subroutine list --ready", "what is free to start")
+		_claimed(program, which=which, minutes=minutes)
 
 	@app.command("release", hidden=not _worth_showing(settings))
 	def release_item (
@@ -4368,21 +4610,7 @@ def register (
 		agent that died mid-task somebody else's problem to solve rather than nobody's.
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="release",
-			)
-			client = _require_connection(program, world, located.connection)
-
-			try:
-				freed = client.release(ref=task.ref, workspace=located.workspace)
-
-			except subroutine.errors.SubroutineError as error:
-				fail(error)
-
-			say(_acted(world, dataclasses.replace(located, item=freed), "Released"))
+		_released(program, which=which)
 
 	@app.command("start")
 	def start_item (
@@ -5355,29 +5583,7 @@ def register (
 		  subroutine project list
 		"""
 
-		with program.opened() as world:
-			where = world.writing_to()
-			found = where.client.projects(workspace=_writing_workspace(world))
-
-			if json_output:
-				say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
-
-				return
-
-			if not found:
-				say("No projects here yet.")
-				_suggest(console, 'subroutine project create WEB "Website redesign"')
-
-				return
-
-			# Indented by depth, which is why the listing is ordered by path rather than by
-			# name: a child follows its parent, so the shape can be printed in one pass.
-			width = max(len(one.key) + one.depth * 2 for one in found)
-
-			for one in found:
-				shown = f"{'  ' * one.depth}{one.key}".ljust(width)
-
-				say(f"{shown}  {one.title}")
+		_projects_listed(program, json_output=json_output)
 
 	@project_app.command("rename")
 	def project_rename (
@@ -5532,6 +5738,28 @@ def register (
 		_workspace_updated(
 			program, slug=slug, title=title, description=description, timezone=timezone
 		)
+
+	@project_app.command("prioritise")
+	def project_prioritise (
+		key: str = typer.Argument("", help="The project to raise, by name or address."),
+		none: bool = typer.Option(False, "--none", help="Stop prioritising anything here."),
+	) -> None:
+		"""Raise one project's work above the rest, without hiding anybody else's.
+
+		Examples:
+
+		  subroutine project prioritise web
+
+		  subroutine project prioritise --none
+
+		One project per workspace, and choosing another moves it. Its work rises in ranked
+		listings and on your agenda under Next; anything urgent or important in another
+		project still comes first, which is the difference between this and hiding things.
+
+		With no argument it says what is prioritised here.
+		"""
+
+		_project_prioritised(program, key=key, none=none)
 
 	@project_app.command("move")
 	def project_move (
@@ -6635,6 +6863,11 @@ def _render (
 			rich.text.Text(_dated(asked_about.date), style=HEADING)
 		)
 		say("")
+
+	# **Above the buckets, because it is about the page** (`#986`). `Next` is the ranked bucket
+	# and the one this changes; the dated buckets are untouched by design, since a deadline is
+	# answered by *when* rather than by whose project it is (`#857`, decision `#982` answer 4).
+	_say_prioritised(world, console)
 
 	# One width across every bucket, so the addresses line up down the whole agenda rather
 	# than stepping in and out as the sections change. The type column is measured over the

@@ -131,6 +131,106 @@ def test_both_report_the_same_instance_and_workspaces (pair: Pair) -> None:
 	]
 
 
+def test_both_report_which_project_is_prioritised_and_report_it_as_an_address (
+	pair: Pair,
+) -> None:
+	"""Decision ``#982``'s pointer, on both transports and in the form a caller can send back.
+
+	**This is the guard ``test_api_writability``'s excuse promises.** The column is
+	``workspace.prioritised_project_id`` and it is deliberately unreported; what reaches a client
+	is ``prioritised_project``, the project's *address*. An excuse claiming that a stored field's
+	content reaches a client is exactly the shape `#820` found outliving its own truth, so the
+	claim is driven rather than asserted.
+
+	**And it must be the address, not ``project.path``.** That column is a materialised path of
+	ids; the first version of `#986` published it and the terminal announced
+	``/01a015d3-b388-… is prioritised``. ``views.Project``'s own docstring warns that ``path`` is
+	ids and stays off that model, which is what makes this worth a test rather than a comment.
+	"""
+
+	local, remote = pair.both()
+	nested = subroutine.domain.projects.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		key="dist",
+		title="Distribution",
+		parent=subroutine.domain.projects.create(
+			pair.session,
+			workspace_id=pair.workspace.id,
+			key="web",
+			title="Website",
+			actor=subroutine.domain.authentication.Principal(user=pair.user, token=None),
+		),
+		actor=subroutine.domain.authentication.Principal(user=pair.user, token=None),
+	)
+	pair.session.flush()
+
+	for client in (local, remote):
+		changed = client.update_workspace(
+			pair.workspace.slug, prioritised_project="web/dist"
+		)
+
+		assert changed.prioritised_project == "web/dist", (
+			f"{client.connection.name} reported {changed.prioritised_project!r}, which is not an "
+			f"address a caller could send back"
+		)
+
+	# Re-read rather than trusted: the two clients write through session scopes of their own,
+	# so the row this test holds is stale by construction rather than by accident.
+	pair.session.refresh(pair.workspace)
+
+	assert pair.workspace.prioritised_project_id == nested.id
+	assert local.identity() == remote.identity()
+
+	for space in local.identity().workspaces:
+		assert space.prioritised_project == "web/dist", (
+			"the workspaces a client builds its whole picture from must carry it too — that is "
+			"where the terminal's header line and the browser's masthead both read it"
+		)
+
+
+def test_both_refuse_a_project_this_workspace_does_not_hold (pair: Pair) -> None:
+	"""An unknown project is refused by name rather than stored, identically either way."""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.update_workspace(pair.workspace.slug, prioritised_project="nosuchproject")
+
+	pair.session.refresh(pair.workspace)
+
+	assert pair.workspace.prioritised_project_id is None
+
+
+def test_both_clear_it (pair: Pair) -> None:
+	"""``None`` clears the priority, and clearing is a value rather than an omission (§8.3)."""
+
+	local, remote = pair.both()
+
+	subroutine.domain.projects.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		key="ops",
+		title="Operations",
+		actor=subroutine.domain.authentication.Principal(user=pair.user, token=None),
+	)
+	pair.session.flush()
+
+	for client in (local, remote):
+		chosen = client.update_workspace(pair.workspace.slug, prioritised_project="ops")
+
+		assert chosen.prioritised_project == "ops"
+
+		cleared = client.update_workspace(pair.workspace.slug, prioritised_project=None)
+
+		assert cleared.prioritised_project is None
+
+		pair.session.refresh(pair.workspace)
+
+		assert pair.workspace.prioritised_project_id is None
+
+
 def test_both_answer_who_is_asking (pair: Pair) -> None:
 	"""``me`` is the other identity question, and the two must not be confused (`#336`).
 

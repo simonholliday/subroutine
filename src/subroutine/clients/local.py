@@ -218,12 +218,21 @@ class Client:
 
 		with self._opened() as (session, actor):
 			instance = subroutine.domain.instances.get(session)
+			reachable = list(subroutine.domain.workspaces.readable(session, actor))
+
+			# One lookup for all of them (`#986`) — this is what `World` is built from, so a
+			# query per workspace would be `#39`'s N+1 on the first call of every command.
+			focused = subroutine.domain.projects.prioritised_addresses(
+				session, actor, workspace_ids=[workspace.id for workspace in reachable]
+			)
 
 			return subroutine.clients.base.Identity(
 				instance=None if instance is None else subroutine.views.instance(instance),
 				workspaces=tuple(
-					subroutine.views.workspace_ref(workspace)
-					for workspace in subroutine.domain.workspaces.readable(session, actor)
+					subroutine.views.workspace_ref(
+						workspace, prioritised=focused.get(workspace.id)
+					)
+					for workspace in reachable
 				),
 			)
 
@@ -401,9 +410,22 @@ class Client:
 			# The ordering vocabulary this call will use. `deferred` is added here rather than
 			# declared in `TASK_FIELDS` because its band depends on that instant (`#877`), and
 			# it is replaced below when a search runs against a backend that can rank one.
+			#
+			# **What `-priority_score` means depends on this workspace's prioritised project**
+			# (`#986`), and it is adjusted here for the reason every ordering rule is decided in
+			# the domain: a bonus the endpoint applies and the terminal does not is exactly the
+			# divergence `ordering.py` exists to prevent. Nothing prioritised leaves the map
+			# alone.
 			sortable: dict[str, subroutine.domain.ordering.Sortable] = (
 				subroutine.domain.ordering.sinking(
-					subroutine.domain.ordering.TASK_FIELDS, model=model, now=now
+					subroutine.domain.ordering.prioritising(
+						subroutine.domain.ordering.TASK_FIELDS,
+						prefixes=subroutine.domain.scoping.prioritised_paths(
+							session, actor, workspace_ids=[chosen.id]
+						),
+					),
+					model=model,
+					now=now,
 				)
 			)
 			fallback: tuple[str, ...] = tuple(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
@@ -1437,8 +1459,14 @@ class Client:
 				session, actor, requested=workspace
 			)
 
+			focus = subroutine.domain.projects.prioritised_addresses(
+				session, actor, workspace_ids=[chosen.id]
+			).get(chosen.id)
+
 			return [
-				subroutine.views.member(row, account=account, role=role, within=chosen)
+				subroutine.views.member(
+					row, account=account, role=role, within=chosen, prioritised=focus
+				)
 				for row, account, role in subroutine.domain.workspaces.members(
 					session, chosen, actor=actor
 				)
@@ -1462,7 +1490,13 @@ class Client:
 			held = subroutine.domain.workspaces.find_role(session, chosen.id, role)
 
 			return subroutine.views.member(
-				membership, account=account, role=held, within=chosen
+				membership,
+				account=account,
+				role=held,
+				within=chosen,
+				prioritised=subroutine.domain.projects.prioritised_addresses(
+					session, actor, workspace_ids=[chosen.id]
+				).get(chosen.id),
 			)
 
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
@@ -1607,7 +1641,27 @@ class Client:
 				actor=actor,
 			)
 
-			return subroutine.views.workspace(created)
+			return self._rendered_workspace(session, actor, created)
+
+	def _rendered_workspace (
+		self,
+		session: sqlalchemy.orm.Session,
+		actor: subroutine.domain.authentication.Principal,
+		row: subroutine.db.models.identity.Workspace,
+	) -> subroutine.views.Workspace:
+		"""Render one workspace, resolving what it has prioritised (`#986`).
+
+		``views.workspace`` requires the answer rather than defaulting it, so that a caller
+		cannot quietly report *nothing prioritised* by forgetting to ask — and this transport
+		reporting a different answer from the other one is the divergence §13.7 exists to
+		prevent.
+		"""
+
+		focused = subroutine.domain.projects.prioritised_addresses(
+			session, actor, workspace_ids=[row.id]
+		)
+
+		return subroutine.views.workspace(row, prioritised=focused.get(row.id))
 
 	def rename_workspace (self, workspace: str, *, slug: str) -> subroutine.views.Workspace:
 		"""Give a workspace a different short name."""
@@ -1622,7 +1676,7 @@ class Client:
 				session, chosen, slug=slug, actor=actor
 			)
 
-			return subroutine.views.workspace(renamed)
+			return self._rendered_workspace(session, actor, renamed)
 
 	def update_workspace (
 		self,
@@ -1631,6 +1685,7 @@ class Client:
 		title: str = subroutine.clients.base.UNSET,
 		description: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		prioritised_project: str | None = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, in process."""
@@ -1645,6 +1700,20 @@ class Client:
 			chosen = subroutine.domain.selection.workspace(
 				session, actor, requested=workspace
 			)
+
+			# **Resolved to a project here, so an unknown one is refused by name** — the same
+			# way `PATCH /v1/workspaces` refuses it, which is what keeps the two transports
+			# saying one thing (`#986`). Null clears the priority and is a value rather than an
+			# absence, so it is tested against the sentinel rather than for truth.
+			if prioritised_project is not subroutine.clients.base.UNSET:
+				given["prioritised_project"] = (
+					None
+					if prioritised_project is None
+					else subroutine.domain.selection.project(
+						session, actor, chosen, prioritised_project
+					)
+				)
+
 			changed = subroutine.domain.workspaces.update(
 				session,
 				chosen,
@@ -1656,7 +1725,7 @@ class Client:
 				},
 			)
 
-			return subroutine.views.workspace(changed)
+			return self._rendered_workspace(session, actor, changed)
 
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
