@@ -132,6 +132,10 @@ upgrade involves.
 
 ### Fixed
 
+- **Relating two items from both ends no longer records it twice.** `Relates to` means the
+  same thing whichever item you start from, so linking back from the other one stored a
+  second identical row — and the item then showed the same line twice, with no way to tell
+  them apart. Links that already exist are left as they are.
 - **A machine where nobody has run `subroutine init` is told so, instead of filling the
   log with a stack trace.** Asking an agent a question before setting anything up wrote
   around 200 lines of traceback per message, ending in a database error — so the first

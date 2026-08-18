@@ -1212,6 +1212,57 @@ def test_linking_twice_is_not_an_error (pair: Pair) -> None:
 	)
 
 
+def test_a_symmetric_link_made_from_either_end_is_one_link (pair: Pair) -> None:
+	"""`#575`: found on `#17`, which was carrying two identical `Relates to #550` rows.
+
+	`relates_to` is the one seeded type with ``is_symmetric``, so its forward and inverse labels
+	are the same word and a row is the same fact from either end. The duplicate check compared
+	the **ordered** pair — right for `blocks`, where *A blocks B* and *B blocks A* are different
+	claims and a contradictory pair at that, and wrong here, where the pair is unordered by
+	definition.
+
+	**A reader cannot see it**, which is what makes it worth a test rather than a glance: a link
+	carries no ref, so the two rows render character for character alike. Nothing looks wrong;
+	there is simply one more line than there are facts.
+
+	**The asymmetric half is asserted beside it**, because the cheap fix is to compare unordered
+	pairs everywhere and that would silently discard a real second claim. `documents` from both
+	ends is *Documents* and *Documented by*, which is two rows and correct.
+
+	Symmetry was honoured on the reading side all along — `views.Link` arrives with its label
+	the right way round — and on one half of the pair only.
+	"""
+
+	first = make(pair, "One end")
+	second = make(pair, "The other")
+
+	local, remote = pair.both()
+
+	there = local.link(ref=first.ref, link_type="relates_to", target=second.ref)
+	back = remote.link(ref=second.ref, link_type="relates_to", target=first.ref)
+
+	assert there.id == back.id, "linking from the far end stored a second row"
+
+	for client in (local, remote):
+		for ref in (first.ref, second.ref):
+			related = [
+				one for one in client.links(ref=ref) if one.link_type == "relates_to"
+			]
+
+			assert len(related) == 1, f"{ref} shows {len(related)} lines for one fact"
+
+	# **Two rows here is the right answer**, so a fix that compares unordered pairs for every
+	# type fails on this and not on the assertions above it.
+	local.link(ref=first.ref, link_type="documents", target=second.ref)
+	local.link(ref=second.ref, link_type="documents", target=first.ref)
+
+	documenting = [
+		one for one in local.links(ref=first.ref) if one.link_type == "documents"
+	]
+
+	assert len(documenting) == 2, "an asymmetric type lost a direction"
+
+
 def test_both_complete_a_task_the_same_way (pair: Pair) -> None:
 	"""And both do it unconditionally, so "already done" stays the caller's decision."""
 

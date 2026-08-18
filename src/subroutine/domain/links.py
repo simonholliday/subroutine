@@ -133,8 +133,11 @@ def create (
 
 	Idempotent by (source, target, type): asking twice is not an error, because a client
 	retrying a request it is unsure landed should not have to find out by getting a
-	conflict. A symmetric type is stored once in the direction it was asked for; reading
-	handles both ends.
+	conflict.
+
+	**A symmetric type is idempotent by the *unordered* pair** (`#575`), so asking from
+	either end returns the one row that already says it. This sentence used to claim that
+	and the query compared the ordered pair, so the far end stored a duplicate.
 	"""
 
 	link_type = _link_type(session, workspace_id, link_type_key)
@@ -167,13 +170,42 @@ def create (
 
 	model = subroutine.db.models.work.Link
 
+	joins = sqlalchemy.and_(
+		model.source_type == source.entity_type,
+		model.source_id == source.id,
+		model.target_type == target.entity_type,
+		model.target_id == target.id,
+	)
+
+	if link_type.is_symmetric:
+		# **The pair is unordered by definition, so either direction is the same fact**
+		# (`#575`). Comparing the ordered pair is right for `blocks` — *A blocks B* and
+		# *B blocks A* are different claims, and a contradictory pair at that — and wrong
+		# here, where the forward and inverse labels are one word. Linking from the far
+		# end stored a second row and the item then rendered two identical lines, which a
+		# reader cannot tell apart because a link carries no ref.
+		#
+		# **Matched rather than refused.** Somebody linking from the other end has made a
+		# correct statement and should not be told it is a mistake; they get the row that
+		# already says it, which is what idempotence means everywhere else here.
+		#
+		# Symmetry was honoured on the *reading* side all along — `views.Link` arrives with
+		# the label already the right way round — and on one half of the pair only, which
+		# is this codebase's signature shape rather than a special case of it.
+		joins = sqlalchemy.or_(
+			joins,
+			sqlalchemy.and_(
+				model.source_type == target.entity_type,
+				model.source_id == target.id,
+				model.target_type == source.entity_type,
+				model.target_id == source.id,
+			),
+		)
+
 	existing = session.scalars(
 		sqlalchemy.select(model).where(
 			model.workspace_id == workspace_id,
-			model.source_type == source.entity_type,
-			model.source_id == source.id,
-			model.target_type == target.entity_type,
-			model.target_id == target.id,
+			joins,
 			model.link_type_id == link_type.id,
 			model.deleted_at.is_(None),
 		)
