@@ -70,12 +70,13 @@ def _dates_body () -> str:
 
 Most tasks use one of them. Many use none.
 
-Ways to write a date. **Everything below works at the command line and in a
-captured line; the ones marked (api) are also accepted in a `due`, `starts` or
-`snooze` field over HTTP.** A weekday name is shorthand this tool resolves
-for you, so `subroutine plan 1 friday` works while `{{"due": "friday"}}` is
-refused — send `2026-07-31` or `end_of_week` there instead. /v1/meta publishes
-the exact list the API takes, under grammars.relative_dates.
+Ways to write a date. **Everything below works at the command line; all but
+the last also work in a captured line, and the ones marked (api) are accepted
+in a `due`, `starts` or `snooze` field over HTTP.** A weekday name is
+shorthand this tool resolves for you, so `subroutine plan 1 friday` works
+while `{{"due": "friday"}}` is refused — send `2026-07-31` or `end_of_week`
+there instead. /v1/meta publishes the exact list the API takes, under
+grammars.relative_dates.
 
   a weekday      {weekdays}
                  — or mon, tue, wed, thu, fri, sat, sun
@@ -86,6 +87,9 @@ the exact list the API takes, under grammars.relative_dates.
   a time         2026-08-01T17:00:00Z                          (api)
   an expression  {keywords}                                    (api)
                  with offsets: now+7d, end_of_week-1d, today+1w
+  an offset      +7d, +2w — the same, counted from today
+                 — the command line only: '+' opens a project in a
+                   captured line, so '+7d' there is left as words
 
 Offset units are m minutes, h hours, d days, w weeks, M months, y years.
 Case matters: 'm' is minutes and 'M' is months.

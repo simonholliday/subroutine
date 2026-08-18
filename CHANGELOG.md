@@ -168,6 +168,16 @@ upgrade involves.
 
   This does not change how a date is *written*: a day-scale deadline still reads as the day it
   was set for, because re-rendering a day through another zone would make it a different day.
+- **`subroutine agenda` can be asked about another day, and how far ahead to look.**
+  `subroutine agenda tomorrow`, `agenda friday`, `agenda next tuesday`, `agenda 2026-09-01`,
+  `agenda +2w` — the same words `subroutine plan` and `subroutine defer` already take, so
+  there is nothing new to learn. `--days 2` moves the look-ahead, so `agenda saturday --days 2`
+  is the weekend and `agenda next monday --days 5` is next week without either needing a word
+  of its own. A day other than today is named at the top, because anything already late shows
+  under Overdue whether or not it was late on the day you asked about.
+- **An offset can be written on its own** — `+2w` means `today+2w` — wherever a day is typed
+  at the command line. `+` opens a project in a captured line, so it is the command line's
+  alone and `subroutine explain dates` says so.
 - **The agenda says how much dated work it is not showing.** A deadline further out than the
   next seven days was in no section at all — the undated pile takes only work with no dates,
   so anything dated left the view entirely and came back a week before it was due. The agenda

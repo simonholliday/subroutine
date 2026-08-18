@@ -32,6 +32,14 @@ browser has chips, an agent gets a flat line.
 * **A real clock makes the timezone assertion pass for part of the day**, which is `#737`'s
   shape — a fixture that passes because of *when* it ran. The instant is fixed.
 
+**What is compared is the *default* question, and that is a rule rather than an omission.**
+A surface may offer extra ways to ask — ``--json``, ``--strict``, ``-w`` and, since `#1005`,
+``subroutine agenda tomorrow`` — provided the question it asks when nobody says otherwise is
+identical everywhere. `#989` binds the surfaces to one *answer* to one question; it does not
+require every surface to be able to ask every question, which §21's tool budget already
+refuses on MCP's behalf. Read this before concluding that a terminal-only argument is a
+divergence, or before building one three times.
+
 **Five of these were ``xfail(strict=True)`` when this file was written, and every one has been
 taken off.** The guard is built *second* rather than last, deliberately (`#990`), so it was
 written against the divergence as it stood and each fix turned one assertion green — `#991`,

@@ -197,7 +197,7 @@ def interpret_day (
 #: thing named rather than absent.
 WRITTEN_DAY_HINT = (
 	"Try a weekday like 'friday' or 'next friday', 'today', 'tomorrow', a date like "
-	"2026-08-01, or an expression like 'today+2w'."
+	"2026-08-01, or an offset like '+2w' or 'today+2w'."
 )
 
 
@@ -273,9 +273,11 @@ def interpret_written_moment (
 	if named is not None:
 		return named
 
+	offset = _with_a_left_operand(value.strip())
+
 	try:
-		if _is_expression(value.strip()):
-			return interpret_day(value, timezone=timezone, now=now, field=field)
+		if _is_expression(offset):
+			return interpret_day(offset, timezone=timezone, now=now, field=field)
 
 		resolved, whole_day = _to_instant(value, timezone=timezone, now=now, field=field)
 
@@ -464,6 +466,29 @@ def _parse (
 		) from None
 
 	return (parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=zone)), False
+
+
+def _with_a_left_operand (written: str) -> str:
+	"""Return ``+1d`` as ``today+1d``, so an offset can be written on its own — `#1005`.
+
+	**A default rather than a grammar.** §9.3's expressions have always taken a keyword and an
+	offset; this fills in the keyword people mean when they leave it out, which is why it is
+	here and not in :func:`interpret_day` — that one serves *programs*, which have a calendar
+	and should say what they mean.
+
+	**Only ``+``, deliberately.** Typer reads a leading ``-`` as an option, so ``subroutine
+	agenda -1d`` is an unknown-option error before any parser sees it; a spelling that works in
+	one position and not another is worse than not having it. A past day is ``yesterday`` or a
+	date.
+
+	**And only here, which is the command line and not a captured line.** ``+`` is quick
+	capture's project sigil, so ``add "Something +1d"`` leaves it in the title as prose —
+	measured. Teaching it as a general date form would be a promise one surface silently
+	ignores, which is `#778`'s shape; ``subroutine explain dates`` marks it as the command
+	line's alone.
+	"""
+
+	return f"today{written}" if written.startswith("+") else written
 
 
 def _is_expression (written: str) -> bool:

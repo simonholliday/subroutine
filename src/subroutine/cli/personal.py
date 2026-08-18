@@ -340,28 +340,57 @@ _HEADINGS: dict[str, tuple[str, bool]] = {
 	# after what the day demands — a person who left something half-finished yesterday
 	# should not have to find it among two hundred captured tasks.
 	"in_progress": ("In progress", False),
-	"upcoming": (f"Next {subroutine.domain.agenda.DEFAULT_HORIZON_DAYS} days", False),
+	# The number is filled in per render by :func:`agenda_sections`, because `--days` moves
+	# the window and a heading saying seven over a two-day look-ahead would be a defect
+	# shipped with the flag that causes it (`#1005`).
+	"upcoming": ("Next {days} day{s}", False),
 	# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
 	# by capture order — the heading names what the section is *for*, and the old one
 	# named only what its rows lacked.
 	"unscheduled": ("Next", False),
 }
 
-#: The agenda's sections, in the order a day is read: heading, the field on
-#: :class:`subroutine.views.Agenda` that fills it, and whether it is late.
+def agenda_sections (days: int) -> tuple[tuple[str, str, bool], ...]:
+	"""Return the agenda's sections for a given look-ahead: heading, field, whether it is late.
+
+	**A function because ``--days`` moves the window** (`#1005`). The heading naming a number
+	the request did not use is the kind of defect that ships *with* the feature causing it, so
+	the number comes from the same place the request does.
+
+	The order and the membership are :data:`subroutine.views.AGENDA_BUCKETS`', so the terminal,
+	the browser and an agent cannot disagree about which sections there are (`#992`).
+	"""
+
+	return tuple(
+		(
+			_HEADINGS[field][0].format(days=days, s="" if days == 1 else "s"),
+			field,
+			_HEADINGS[field][1],
+		)
+		for field in subroutine.views.AGENDA_BUCKETS
+	)
+
+
+#: The agenda's sections at the default look-ahead, in the order a day is read: heading, the
+#: field on :class:`subroutine.views.Agenda` that fills it, and whether it is late.
 #:
 #: **A module constant because a second surface renders the same sections** (`#927` H-15).
 #: §12.2 decided what the agenda says and the browser is held to the same words, so this being
 #: a local in one function meant the browser's copy could — and did — drift: it was missing
 #: ``in_progress`` entirely and still called the last section *Unscheduled*, under a comment
-#: claiming to print "deliberately the same words". `tests/test_web.py` compares them now.
-AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = tuple(
-	(_HEADINGS[field][0], field, _HEADINGS[field][1])
-	for field in subroutine.views.AGENDA_BUCKETS
+#: claiming to print "deliberately the same words". `tests/test_web.py` compares them now, at
+#: the default the browser also uses.
+AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = agenda_sections(
+	subroutine.domain.agenda.DEFAULT_HORIZON_DAYS
 )
 
 
-def agenda_asked (*, workspace: str | None) -> dict[str, typing.Any]:
+def agenda_asked (
+	*,
+	workspace: str | None,
+	date: datetime.date | None = None,
+	horizon_days: int | None = None,
+) -> dict[str, typing.Any]:
 	"""Return what the agenda asks every connection for.
 
 	**Lifted out of the command so that something other than a person can ask it** (`#992`).
@@ -401,7 +430,15 @@ def agenda_asked (*, workspace: str | None) -> dict[str, typing.Any]:
 	"""
 
 	return {
-		"horizon_days": subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+		# **A day only when the caller named one** (`#1005`), which is exactly what `#995`
+		# leaves room for: *no surface sends `date` unless the caller asked*. Unset, §6.5's
+		# chain decides which day this is about, in the reader's own zone.
+		"date": date,
+		"horizon_days": (
+			subroutine.domain.agenda.DEFAULT_HORIZON_DAYS
+			if horizon_days is None
+			else horizon_days
+		),
 		# `-w` narrows the agenda the same way it narrows every other listing. Unset spans
 		# everything, which is what makes this one list rather than one per workspace
 		# (§13.7) — the dentist and the stand-up belong in the same place. Naming a
@@ -3792,18 +3829,34 @@ def register (
 
 	@app.command("agenda")
 	def agenda (
+		when: str = typer.Argument(
+			"", help="A day — 'tomorrow', 'friday', '+2w', '2026-08-01'. Default today."
+		),
+		days: int = typer.Option(
+			subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+			"--days",
+			min=1,
+			help="How far ahead the look-ahead section reaches.",
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
 		strict: bool = typer.Option(
 			False, "--strict", help="Stop if any connection cannot be reached."
 		),
 	) -> None:
-		"""Show what you are doing today.
+		"""Show what you are doing today, or what another day looks like.
 
 		Examples:
 
 		  subroutine agenda
 
+		  subroutine agenda tomorrow
+
+		  subroutine agenda saturday --days 2
+
 		  subroutine -w work agenda
+
+		A named day is shown as it stands now, so anything already late appears under
+		Overdue whether or not it was late on that day.
 		"""
 
 		# **`-w` precedes the command**, because it is an application-wide option: it changes
@@ -3812,7 +3865,14 @@ def register (
 		# order most people will try first — so the example above is written the working way
 		# round rather than the natural-reading way.
 
-		_agenda(program, json_output=json_output, strict=strict, workspace=selected.workspace)
+		_agenda(
+			program,
+			json_output=json_output,
+			strict=strict,
+			workspace=selected.workspace,
+			when=when,
+			days=days,
+		)
 
 	@app.command("today", hidden=True)
 	def today_moved () -> None:
@@ -4847,61 +4907,7 @@ def register (
 		rewriting somebody's words under their name is not a thing to be able to do.
 		"""
 
-		with program.opened() as world:
-			located = _locate(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				kinds=ANY_ITEM,
-				verb="uncomment",
-			)
-			client = _require_connection(program, world, located.connection)
-			wanted = _asked(words, "Which comment? (some of its words)")
-
-			# **The matching is shared with the agent's tool** (`#415`). Both surfaces filtered
-			# for themselves, and only this one — which prompts, so a person is asked — happened
-			# to be safe against words that name every comment rather than one.
-			try:
-				recorded = subroutine.views.comments_saying(
-					client.comments(
-						ref=located.ref,
-						entity_type=located.entity_type,
-						workspace=located.workspace,
-					),
-					wanted,
-				)
-
-			except subroutine.errors.SubroutineError as error:
-				fail(error)
-
-			if not recorded:
-				stop(
-					f"Nothing recorded on {world.address_of_located(located)} says that.",
-					f"Run 'subroutine show {located.ref}' to see what is there.",
-				)
-
-			# **Refused rather than resolved, and the several are not listed back.** Printing
-			# them would put the reader in the position of choosing by position, which is the
-			# one way of naming things this program does not have (§12.2a) — so the answer is
-			# to be more specific, and the count is what says how much more.
-			if len(recorded) > 1:
-				stop(
-					f"{len(recorded)} comments there say that.",
-					"Say more of the one you mean.",
-				)
-
-			client.uncomment(
-				ref=located.ref,
-				comment_id=str(recorded[0].id),
-				entity_type=located.entity_type,
-				workspace=located.workspace,
-			)
-
-			say(_acted(world, located, "Taken out of"))
-			_suggest(
-				console,
-				f"subroutine show "
-				f"{world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
-			)
+		_withdrawn(program, which=which, words=words)
 
 	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
 	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
@@ -6342,7 +6348,8 @@ def register (
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
 
-		agenda(json_output=False, strict=False)
+		agenda(when="", days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+			json_output=False, strict=False)
 
 	return show_today, selected
 
@@ -6469,8 +6476,84 @@ def agenda_rows (
 	}
 
 
+def _withdrawn (program: Program, *, which: str, words: str) -> None:
+	"""Take a comment back out of an item's record.
+
+	**Named by what it says**, because that is what a person is looking at. A comment has no
+	number of its own and its id is a UUID that appears in nothing anybody reads, so asking
+	for one would make this a command only a script could run.
+
+	**Out of `register`'s closure to pay for a command that grew** (`#943`'s ratchet, met by
+	`#1005`). The rule that ratchet enforces is that a command body belongs in a function
+	`register` calls, and this one needs nothing from the closure that :class:`Program` does
+	not carry.
+	"""
+
+	with program.opened() as world:
+		located = _locate(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			kinds=ANY_ITEM,
+			verb="uncomment",
+		)
+		client = _require_connection(program, world, located.connection)
+		wanted = _asked(words, "Which comment? (some of its words)")
+
+		# **The matching is shared with the agent's tool** (`#415`). Both surfaces filtered
+		# for themselves, and only this one — which prompts, so a person is asked — happened
+		# to be safe against words that name every comment rather than one.
+		try:
+			recorded = subroutine.views.comments_saying(
+				client.comments(
+					ref=located.ref,
+					entity_type=located.entity_type,
+					workspace=located.workspace,
+				),
+				wanted,
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			program.fail(error)
+
+		if not recorded:
+			program.stop(
+				f"Nothing recorded on {world.address_of_located(located)} says that.",
+				f"Run 'subroutine show {located.ref}' to see what is there.",
+			)
+
+		# **Refused rather than resolved, and the several are not listed back.** Printing
+		# them would put the reader in the position of choosing by position, which is the
+		# one way of naming things this program does not have (§12.2a) — so the answer is
+		# to be more specific, and the count is what says how much more.
+		if len(recorded) > 1:
+			program.stop(
+				f"{len(recorded)} comments there say that.",
+				"Say more of the one you mean.",
+			)
+
+		client.uncomment(
+			ref=located.ref,
+			comment_id=str(recorded[0].id),
+			entity_type=located.entity_type,
+			workspace=located.workspace,
+		)
+
+		program.say(_acted(world, located, "Taken out of"))
+		_suggest(
+			program.console,
+			f"subroutine show "
+			f"{world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, '')}",
+		)
+
+
 def _agenda (
-	program: Program, *, json_output: bool, strict: bool, workspace: str | None
+	program: Program,
+	*,
+	json_output: bool,
+	strict: bool,
+	workspace: str | None,
+	when: str = "",
+	days: int | None = None,
 ) -> None:
 	"""Show what somebody is doing today, merged across every connection they can reach.
 
@@ -6491,7 +6574,13 @@ def _agenda (
 	"""
 
 	with program.opened(strict=strict) as world:
-		asked = agenda_asked(workspace=workspace)
+		# **Read here, in this machine's zone, which is what `plan` and `defer` do** (`#1001`
+		# owns the seam). What comes back is an *absolute* date, so which zone the buckets are
+		# counted in is still §6.5's answer and still the reader's — the only question this
+		# settles is which day the word named.
+		day = None if not when else _day(world, when)
+
+		asked = agenda_asked(workspace=workspace, date=day, horizon_days=days)
 
 		gathered = subroutine.fanout.gather(
 			world.clients, lambda client: client.agenda(**asked), strict=strict
@@ -6505,7 +6594,14 @@ def _agenda (
 
 			return
 
-		_render(world, gathered, say=program.say, console=program.console)
+		_render(
+			world,
+			gathered,
+			say=program.say,
+			console=program.console,
+			horizon=asked["horizon_days"],
+			named=day is not None,
+		)
 
 
 def _render (
@@ -6514,6 +6610,8 @@ def _render (
 	*,
 	say: typing.Callable[[str], None],
 	console: rich.console.Console,
+	horizon: int = subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+	named: bool = False,
 ) -> None:
 	"""Print the agenda, merged across connections and addressed so it can be typed back.
 
@@ -6523,8 +6621,20 @@ def _render (
 	The labelling rule is satisfied per row instead, which is what ``address_of`` is for.
 	"""
 
-	buckets = AGENDA_SECTIONS
+	buckets = agenda_sections(horizon)
 	rows = agenda_rows(world, gathered)
+	asked_about = gathered.answers[0].value if gathered.answers else None
+
+	# **Which day this is about, when it is not today** (`#1005`). Asked for a future day the
+	# `Overdue` section becomes a *projection* — everything due before then, which is true and
+	# reads as a fault without a line saying what you are looking at. Silent on the ordinary
+	# call, because a date over every agenda is §12.2a's line that says the same thing every
+	# time.
+	if named and asked_about is not None:
+		console.print(
+			rich.text.Text(_dated(asked_about.date), style=HEADING)
+		)
+		say("")
 
 	# One width across every bucket, so the addresses line up down the whole agenda rather
 	# than stepping in and out as the sections change. The type column is measured over the
@@ -6544,7 +6654,13 @@ def _render (
 	first: Row | None = None
 
 	if not rows.get("overdue") and not rows.get("today"):
-		say("Nothing due today.")
+		# **Named rather than "today" when a day was asked for**, or the sentence contradicts
+		# the heading two lines above it.
+		say(
+			"Nothing due then."
+			if named
+			else "Nothing due today."
+		)
 
 	for heading, field, late in buckets:
 		group = rows.get(field) or []

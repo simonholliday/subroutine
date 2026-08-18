@@ -40,6 +40,7 @@ import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
 import subroutine.domain.events
+import subroutine.domain.schedule
 import subroutine.errors
 import subroutine.fanout
 import subroutine.views
@@ -255,6 +256,109 @@ def test_the_older_name_for_the_agenda_says_where_it_went (
 		"a command that only says where it went is not offered in the help"
 	)
 	assert "agenda" in set(root.list_commands(context)), "the command itself is in the help"
+
+
+def test_the_agenda_can_be_asked_about_another_day (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1005`, Simon 2026-08-18: cover later items *when requested*.
+
+	**No new grammar.** `schedule.interpret_written_day` is the human day vocabulary `plan`
+	and `defer` already take — split from §9.3's expression grammar by `SR#167` precisely so a
+	person and a program get different words — so this reuses it and invents nothing.
+
+	**And it names the day.** Asked about a future one, `Overdue` becomes a *projection*:
+	everything due before then, which is true and reads as a fault with nothing saying what
+	you are looking at.
+	"""
+
+	run("init")
+	run("add", "Dentist by tomorrow")
+
+	today = run("agenda").output
+
+	assert "Next 7 days" in today, "tomorrow's deadline is in the look-ahead from today"
+
+	ahead = run("agenda", "tomorrow").output
+
+	assert "Today" in ahead and "Next 7 days" not in ahead, (
+		"asked about tomorrow, tomorrow's deadline is today's work"
+	)
+	assert "Aug" in ahead.splitlines()[0], (
+		f"the day being shown is named first, or Overdue reads as a fault: {ahead}"
+	)
+
+
+def test_the_agenda_takes_every_word_its_siblings_take (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One grammar, which is `SR#167`'s whole point and the reason this cost almost nothing.
+
+	That item exists because `plan 1 friday` was promised by five surfaces and refused by the
+	parser. A day argument that took a *different* set of words from the command next to it
+	would be the same defect with the surfaces swapped.
+	"""
+
+	run("init")
+
+	for written in ("tomorrow", "friday", "next tuesday", "2026-08-01", "today+2w", "+2w"):
+		assert "is not a day" not in run("agenda", written).output, (
+			f"{written!r} is a day `subroutine plan` takes and this refused it"
+		)
+
+	# **The new spelling reaches the siblings too**, because it went into the grammar rather
+	# than into this command. `+2w` working here and refused by `plan` would be `SR#167`
+	# exactly, which is the item that made these one function in the first place.
+	run("add", "Buy milk")
+
+	assert "is not a day" not in run("plan", "1", "+2w").output
+	assert "is not a day" not in run("defer", "1", "+2w").output
+
+
+def test_a_day_nobody_understands_is_refused_in_the_same_words_everywhere (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The refusal is the shared one, so two commands cannot explain one mistake two ways."""
+
+	run("init")
+	run("add", "Buy milk")
+
+	refused = run("agenda", "someday", expect=1).output
+	elsewhere = run("plan", "1", "someday", expect=1).output
+
+	assert "is not a day this understands" in refused
+	assert subroutine.domain.schedule.WRITTEN_DAY_HINT in refused
+	assert subroutine.domain.schedule.WRITTEN_DAY_HINT in elsewhere
+
+
+def test_the_look_ahead_can_be_widened_and_the_heading_follows (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1005`: a window gets a number rather than a word.
+
+	`weekend` and `next week` name a *window*, which the agenda expresses as a date and a
+	horizon — so mapping either word to a pair would be the new vocabulary this deliberately
+	avoids. `agenda saturday --days 2` is the weekend and adds nothing to learn.
+
+	**The heading is asserted because it is the part that would have shipped broken.** It is
+	built from the default look-ahead at import, so a two-day window under a heading saying
+	seven is a defect the flag itself causes.
+	"""
+
+	run("init")
+	run("add", "Dentist by tomorrow")
+	run("add", "File the return by today+5d")
+
+	assert "Next 7 days" in run("agenda").output
+
+	narrowed = run("agenda", "--days", "2").output
+
+	assert "Next 2 days" in narrowed, "the heading names the window that was asked for"
+	assert "File the return" not in narrowed, "and the window is the one that was asked for"
+
+	assert "Next 1 day" in run("agenda", "--days", "1").output, (
+		"singular, because 'Next 1 days' is the sort of thing nobody proofreads"
+	)
 
 
 def test_the_agenda_says_how_much_dated_work_is_past_the_look_ahead (
@@ -5324,7 +5428,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 2_770
+REGISTER_CEILING = 2_725
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
