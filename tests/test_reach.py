@@ -561,6 +561,23 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"group whose mistakes are visible to other people — an agent granting membership "
 		"unprompted is the write worth making somebody ask for, which is `discard` above.",
 	),
+	"update_project": (
+		"disclosure",
+		"`#983` and `#434`. Carries `status`, and putting a project on hold takes its work out "
+		"of *everybody's* `--ready` and off the agenda's Next — a workspace-wide effect from "
+		"one tool call, with no step at which anybody is asked. §1.4's argument runs the way it "
+		"does for `rename_project` directly below: this should be harder to reach, not easier. "
+		"`subroutine_call_api` reaches it for the deliberate case, which is `#484`'s whole "
+		"shape — an opinion, plus an escape hatch.",
+	),
+	"update_workspace": (
+		"disclosure",
+		"`#434`. Carries `timezone`, which §6.5 makes the step every date in the workspace is "
+		"read through, so getting it wrong moves every deadline everybody can see. Same "
+		"argument as `rename_workspace` above and for the same reason: an agent should reach "
+		"this through `subroutine_call_api` having been asked, not through a tool it can call "
+		"on its own.",
+	),
 	"rename_project": (
 		"budget",
 		"Renaming a project (`#176`). It breaks every address anybody wrote down, which is why "
@@ -1080,31 +1097,6 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"because 'opt-in by design' explains why a *person* never meets it and not why a "
 		"*client* cannot offer it. **Deleting this entry is what closes `#494`.**",
 	),
-	"title": (
-		"tracked",
-		"`#434`, which now covers both: `rename_project` "
-		"takes only `key` and `rename_workspace` only `slug`, so the human-readable name of "
-		"both is set at creation and never afterwards.",
-	),
-	"description": (
-		"tracked",
-		"`#434`. Same shape as `title` above and filed with it — a project's and a workspace's "
-		"description are accepted by `PATCH` and reachable from nothing.",
-	),
-	"visibility": (
-		"tracked",
-		"`#434`. A project can be made private at creation and never afterwards, which is the "
-		"worse direction: somebody who realises a project should not have been public cannot "
-		"act on it without raw HTTP.",
-	),
-	"timezone": (
-		"tracked",
-		"`#434`, and **on `PATCH /v1/workspaces` alone** now — a task's zone reaches a client "
-		"since `#493`. A workspace's timezone is the third step of the chain "
-		"`schedule.zone_for` walks (explicit, user, workspace, instance), so an instance that "
-		"cannot change it has a step nothing can reach. Grouped with that item because it is "
-		"the same request model and the same command as the title and description beside it.",
-	),
 	"owner_id": (
 		"unbuilt",
 		"Reassigning what somebody owns is not a capability any surface offers, on purpose: "
@@ -1130,6 +1122,15 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"unbuilt",
 		"Project templates (§6.7's neighbourhood). Accepted by the route and implemented "
 		"nowhere below it.",
+	),
+	"description": (
+		"reachable another way",
+		"`POST /v1/workspaces` only, and this entry is narrower than the one it replaces. The "
+		"old one named `#434` and covered both halves; `#983` gave `update_workspace` a "
+		"`description`, so **changing** one is reached now and only **naming one at creation** "
+		"is not. `create_workspace` takes slug, title and timezone, and a caller who wants a "
+		"description writes it with the next call rather than being unable to — so nothing is "
+		"stuck here, which is what made the update half a bug and leaves this a rough edge.",
 	),
 	"settings": (
 		"disclosure",

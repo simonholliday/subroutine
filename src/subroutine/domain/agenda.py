@@ -233,7 +233,23 @@ def build (
 		)
 		upcoming = tuple(task for task in upcoming if task.id not in seen)
 
-	undated = base.where(model.starts_at.is_(None), model.due_at.is_(None))
+	# **A project that is not running keeps its dated work on the agenda and loses this
+	# bucket** (`#983`). Putting a project down says something about *what to work on*, and
+	# this is the bucket that answers that question — where Overdue, Today and Upcoming answer
+	# *what is due*, which `#857` settled is a different question that the priority rank is
+	# kept out of for the same reason.
+	#
+	# **The conservative half of the choice is deliberate.** OmniFocus and Things both drop
+	# dated items from a paused project too; the cost there is that a deadline can pass in
+	# silence because somebody put a project down months earlier, and a deadline is usually a
+	# commitment to somebody else that pausing your own work does not cancel. Nothing dated
+	# disappears here, so the failure mode is a row you have to ignore rather than one you
+	# never see.
+	undated = base.where(
+		model.starts_at.is_(None),
+		model.due_at.is_(None),
+		subroutine.domain.readiness.in_a_running_project(model),
+	)
 
 	if seen:
 		undated = undated.where(model.id.not_in(seen))

@@ -194,7 +194,7 @@ def create (
 		key=normalized_key,
 		title=title,
 		description=description,
-		status_id=default_status(session, workspace_id).id,
+		status_id=status_for(session, workspace_id).id,
 		owner_id=owner_id,
 		is_inbox=is_inbox,
 		template=template,
@@ -326,6 +326,7 @@ def update (
 	description: str | None = subroutine.domain.patch.UNSET,
 	visibility: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
+	status_key: str = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
@@ -406,6 +407,14 @@ def update (
 				],
 			)
 
+	# Resolved here rather than in the assignment pass, because a key that names no status
+	# must refuse before anything has been assigned — the rule this function's docstring
+	# states, and the reason the two passes are separate.
+	cleaned_status: typing.Any = subroutine.domain.patch.UNSET
+
+	if status_key is not subroutine.domain.patch.UNSET:
+		cleaned_status = status_for(session, project.workspace_id, status_key).id
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 
@@ -415,6 +424,7 @@ def update (
 		("description", description),
 		("visibility", visibility),
 		("owner_id", owner_id),
+		("status_id", cleaned_status),
 	):
 		if value is subroutine.domain.patch.UNSET:
 			continue
@@ -730,31 +740,63 @@ def _ensure_member (
 	session.flush()
 
 
-def default_status (
-	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
+def status_for (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None = None
 ) -> subroutine.db.models.vocabulary.Status:
-	"""Return the status a new project is given."""
+	"""Return a project status by key, or the one a new project is given when none is named.
+
+	**Widened from ``default_status`` by `#983`**, which found that three of the four seeded
+	project statuses could never be reached: ``PATCH /v1/projects`` did not accept a status and
+	no other route set one, so every project ever created was ``active`` for ever. Shaped after
+	:func:`subroutine.domain.tasks.status_for` rather than beside it, because the two differ
+	only in ``entity_type`` and a reader who knows one should recognise the other.
+
+	The refusal lists what would have worked. §5.5 makes a workspace's vocabulary its own, so
+	``on_hold`` is a seeded key rather than a promised one and naming it in a message would be
+	asserting something an installation is free to have renamed.
+	"""
 
 	model = subroutine.db.models.vocabulary.Status
 
-	status = session.scalars(
-		sqlalchemy.select(model)
-		.where(
-			model.workspace_id == workspace_id,
-			model.entity_type == "project",
-			model.is_default.is_(True),
-		)
-		.order_by(model.position)
-	).first()
+	statement = sqlalchemy.select(model).where(
+		model.workspace_id == workspace_id, model.entity_type == "project"
+	)
 
-	if status is None:
-		raise subroutine.errors.ValidationError(
-			"This workspace has no default project status.",
-			code="invalid_status",
-			hint="Seed the workspace, or mark one project status as the default.",
-		)
+	if key is None:
+		status = session.scalars(
+			statement.where(model.is_default.is_(True)).order_by(model.position)
+		).first()
 
-	return status
+	else:
+		status = session.scalars(statement.where(model.key == key)).one_or_none()
+
+	if status is not None:
+		return status
+
+	available = sorted(
+		session.scalars(
+			sqlalchemy.select(model.key).where(
+				model.workspace_id == workspace_id, model.entity_type == "project"
+			)
+		)
+	)
+
+	raise subroutine.errors.ValidationError(
+		"This workspace has no default project status."
+		if key is None
+		else f"There is no project status called {key!r} here.",
+		code="invalid_status",
+		errors=[
+			subroutine.errors.FieldError(
+				field="status",
+				code="not_found",
+				message=f"No project status with key {key!r} exists in this workspace."
+				if key is not None
+				else "No project status is marked as the default.",
+				hint=f"Statuses here: {', '.join(available)}." if available else None,
+			)
+		],
+	)
 
 
 def _permitted (

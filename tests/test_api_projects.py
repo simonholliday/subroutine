@@ -5,6 +5,7 @@ testing here is about the tree: that a listing reads as one, that a move takes t
 and that privacy inherits down it.
 """
 
+import typing
 import uuid
 
 import pytest
@@ -563,3 +564,131 @@ def test_both_ways_of_naming_a_missing_project_are_refused_alike (
 
 	assert captured.status_code == structured.status_code == 404
 	assert captured.json()["code"] == structured.json()["code"] == "not_found"
+
+
+def _held (world: test_api_tasks.World, key: str, status: str) -> typing.Any:
+	"""Put a project into one of its workspace's own statuses."""
+
+	return world.call("PATCH", f"/v1/projects/{key}", json={"status": status})
+
+
+def test_a_project_can_be_put_on_hold_and_brought_back (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#983`. Three of the four seeded project statuses could be reached by nothing at all.
+
+	``PATCH /v1/projects`` accepted a key, a title, a description, a visibility and an owner,
+	and no route anywhere set a status — so every project ever created was ``active`` for its
+	whole life and ``on_hold``, ``completed`` and ``archived`` were vocabulary nobody could
+	use. **Both directions are driven**, because a pause that cannot be undone is not a pause.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+
+	assert _held(world, "web", "on_hold").json()["status"] == "on_hold"
+	assert _held(world, "web", "on_hold").json()["status_category"] == "todo"
+	assert _held(world, "web", "active").json()["status"] == "active"
+
+
+def test_a_project_status_that_names_nothing_is_refused_with_the_ones_that_exist (
+	world: test_api_tasks.World,
+) -> None:
+	"""§5.5 makes the vocabulary a workspace's own, so the refusal has to read it rather than
+	assert the seeded four — an installation is free to have renamed every one of them."""
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+
+	response = _held(world, "web", "paused")
+
+	assert response.status_code == 422
+
+	body = response.json()
+
+	assert "paused" in body["detail"]
+	assert "on_hold" in str(body), "the refusal does not say what would have worked"
+
+
+def test_work_in_a_project_on_hold_is_not_offered_as_ready (
+	world: test_api_tasks.World,
+) -> None:
+	"""The point of the feature: putting a project down stops it answering "what next".
+
+	Its sibling below is what stops this being a delete — the work is still there, still
+	listed and still found. **Both are needed and neither is sufficient**: a version that
+	hid the rows entirely would pass this test and be a different, worse feature.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+	world.call("POST", "/v1/projects", json={"key": "ops", "title": "Ops"})
+
+	held = world.call(
+		"POST", "/v1/tasks", json={"title": "Redesign the header", "project": "web"}
+	).json()["ref"]
+	running = world.call(
+		"POST", "/v1/tasks", json={"title": "Rotate the certificates", "project": "ops"}
+	).json()["ref"]
+
+	_held(world, "web", "on_hold")
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert running in listed
+	assert held not in listed
+
+
+def test_work_in_a_project_on_hold_is_still_listed_and_still_found (
+	world: test_api_tasks.World,
+) -> None:
+	"""On hold is a pause, not a disappearance — OmniFocus's and Things's rule, and `#983`'s.
+
+	An ordinary listing still holds it and a search still finds it. This is the half that
+	makes the status reversible in practice rather than only in principle: work you cannot
+	see is work you cannot decide to resume.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+	held = world.call(
+		"POST", "/v1/tasks", json={"title": "Redesign the header", "project": "web"}
+	).json()["ref"]
+
+	_held(world, "web", "on_hold")
+
+	listed = [item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]]
+	narrowed = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?project=web&limit=50").json()["items"]
+	]
+	found = [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?q=header&limit=50").json()["items"]
+	]
+
+	assert held in listed, "an ordinary listing lost it"
+	assert held in narrowed, "asking for the project itself lost it"
+	assert held in found, "a search lost it"
+
+
+def test_bringing_a_project_back_offers_its_work_again (
+	world: test_api_tasks.World,
+) -> None:
+	"""Readiness has to *change*, not merely be computed once — `test_ready_excludes_…`'s rule.
+
+	A predicate that reads the status at query time passes this; one that stamped something
+	onto the task when the project was held would not, and that is the shape worth refusing.
+	"""
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Website"})
+	held = world.call(
+		"POST", "/v1/tasks", json={"title": "Redesign the header", "project": "web"}
+	).json()["ref"]
+
+	_held(world, "web", "on_hold")
+	_held(world, "web", "active")
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert held in listed

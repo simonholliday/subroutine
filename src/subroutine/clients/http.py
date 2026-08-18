@@ -784,6 +784,44 @@ class Client:
 
 		return subroutine.views.Project.model_validate(body)
 
+	def update_project (
+		self,
+		project: str,
+		*,
+		title: str = subroutine.clients.base.UNSET,
+		description: str | None = subroutine.clients.base.UNSET,
+		visibility: str = subroutine.clients.base.UNSET,
+		status: str = subroutine.clients.base.UNSET,
+		workspace: str | None = None,
+	) -> subroutine.views.Project:
+		"""Change the fields beside a project's address, over the wire.
+
+		The body is built by comparison against ``UNSET`` rather than by dropping empty values,
+		for the reason :meth:`update` gives: ``None`` *clears* a field under §8.3, so a filter
+		that removed it would turn "clear the description" into "change nothing" and answer 200.
+		"""
+
+		self._refuse_if_read_only()
+
+		given = {
+			"title": title,
+			"description": description,
+			"visibility": visibility,
+			"status": status,
+		}
+		body = self._json(
+			"PATCH",
+			f"/v1/projects/{project}",
+			params=_given(workspace_id=workspace),
+			json={
+				name: value
+				for name, value in given.items()
+				if value is not subroutine.clients.base.UNSET
+			},
+		)
+
+		return subroutine.views.Project.model_validate(body)
+
 	def create_workspace (
 		self, *, slug: str, title: str, timezone: str | None = None
 	) -> subroutine.views.Workspace:
@@ -805,6 +843,33 @@ class Client:
 		self._refuse_if_read_only()
 
 		body = self._json("PATCH", f"/v1/workspaces/{workspace}", json={"slug": slug})
+
+		return subroutine.views.Workspace.model_validate(body)
+
+	def update_workspace (
+		self,
+		workspace: str,
+		*,
+		title: str = subroutine.clients.base.UNSET,
+		description: str | None = subroutine.clients.base.UNSET,
+		timezone: str | None = subroutine.clients.base.UNSET,
+		workspace_id: str | None = None,
+	) -> subroutine.views.Workspace:
+		"""Change the fields beside a workspace's address, over the wire."""
+
+		self._refuse_if_read_only()
+
+		given = {"title": title, "description": description, "timezone": timezone}
+		body = self._json(
+			"PATCH",
+			f"/v1/workspaces/{workspace}",
+			params=_given(workspace_id=workspace_id),
+			json={
+				name: value
+				for name, value in given.items()
+				if value is not subroutine.clients.base.UNSET
+			},
+		)
 
 		return subroutine.views.Workspace.model_validate(body)
 

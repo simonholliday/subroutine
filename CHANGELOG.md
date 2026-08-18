@@ -20,51 +20,6 @@ upgrade involves.
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
-### Changed
-
-- **A project key is now unique among its siblings rather than across its workspace, and a
-  project is addressed by its whole path.** `substation/dist` rather than
-  `substation-substation-dist`: `web-ui` and `marketing` can exist under any number of
-  parents. A bare name still works wherever it names one project, and is refused with the
-  candidates listed when it names several — so nothing already written stops working, and
-  the refusal is what teaches the longer form. The path is accepted by `--project`,
-  `?project=`, `+key` in a captured line, `use --project`, `token create --project`, and as
-  the address in `/v1/projects/…`.
-- **`POST /v1/tasks` answers 404 rather than 422 when a captured line names a project that
-  is not there.** The two ways of naming a project on that request — `+key` inside `text`,
-  and the `project` field — were refused with different statuses for the same mistake. Both
-  are 404 now, which is what the field error has always said.
-- **A `.subroutine` marker records a project's whole address**, and one written before this
-  goes on resolving. Existing markers are rewritten by `subroutine use --here --project …`,
-  which the program suggests when it notices.
-
-### Fixed
-
-- **The masthead's home link takes the page home, not only the address.** Clicking
-  **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
-  page exactly as it was — and the agenda then arrived at the board's full width. It also
-  carried the board and the completed filter to an agenda that has neither; `/` is now `/`.
-- **The workspace control says what is showing, and goes both ways.** On the agenda it marked
-  a workspace selected while the page held every workspace — and a `select` fires no change for
-  the option already chosen, so the one it named was the one it could not reach. It reads
-  **All workspaces** there now, which is a real choice rather than a hint: picking it from a
-  workspace goes back to the agenda.
-- **The agenda at `/` says which workspace every row is in**, whether or not they all happen
-  to agree — in the item's number as well as in the project label beside it. It named none
-  when they did, which is the one page whose address names no workspace.
-- **A row's address no longer runs into the title beside it.** On the agenda at `/`, where a
-  row says which workspace it is from as well as the number, the address overflowed the fixed
-  column it sits in and overlapped the title by ten pixels. That column is a floor now rather
-  than a width, so an address of any length has room for itself.
-- **An item opened from a board is read at the reading measure.** It inherited the board's
-  uncapped width, because the frame asked which view was selected rather than whether a board
-  was on screen — so the same item was full-width when opened from a board and correct when
-  the address was refreshed.
-- **A cancelled item at the end of a link no longer reads as done.** The browser marked any
-  end with a completion date as `done`, and an item is given one when it is cancelled as well
-  as when it is finished — so work somebody abandoned looked like work somebody had finished.
-  Each end now shows its own status.
-
 ### Added
 
 - **The masthead takes you to any project, not just any workspace.** It lists every workspace
@@ -124,6 +79,77 @@ upgrade involves.
   the workspace. Unlike the terminal it is never dropped when every row agrees: a page polls,
   so a label that vanished because somebody else filed something would be a control moving
   under the cursor.
+
+
+- **A project can be put on hold, finished or archived** — `subroutine project update web
+  --status on_hold`, and `status` on `PATCH /v1/projects`. Work in a project that is not
+  running stops being offered as something to start: it leaves `list --ready` and the
+  agenda's *Next*. It stays everywhere else — an ordinary listing still holds it, asking for
+  the project itself still shows it, and a search still finds it — so putting a project down
+  is a pause rather than a disappearance, and bringing it back is one command.
+
+  Dated work is deliberately **not** hidden. Something overdue or due today stays on the
+  agenda even while its project is on hold, because a deadline is usually a commitment to
+  somebody else and pausing your own work does not cancel it.
+
+  Three of the four statuses every workspace is seeded with had never been reachable: a
+  project was given the default when it was created and no command, client or endpoint could
+  ever change it.
+- **A project's title, description and visibility, and a workspace's title, description and
+  timezone, can be changed after they are created** — `subroutine project update` and
+  `subroutine workspace update`. All six were accepted by the API and reachable from no
+  client, because the only methods that existed were named for renaming and took nothing but
+  the short name. The timezone is the one that mattered: every date in a workspace is read in
+  it, so one set up in the wrong zone showed every deadline at the wrong time with no way to
+  correct it.
+
+  Short names are still changed by `project rename` and `workspace rename`, which say what
+  stops working before they do it.
+
+### Changed
+
+- **A project key is now unique among its siblings rather than across its workspace, and a
+  project is addressed by its whole path.** `substation/dist` rather than
+  `substation-substation-dist`: `web-ui` and `marketing` can exist under any number of
+  parents. A bare name still works wherever it names one project, and is refused with the
+  candidates listed when it names several — so nothing already written stops working, and
+  the refusal is what teaches the longer form. The path is accepted by `--project`,
+  `?project=`, `+key` in a captured line, `use --project`, `token create --project`, and as
+  the address in `/v1/projects/…`.
+- **`POST /v1/tasks` answers 404 rather than 422 when a captured line names a project that
+  is not there.** The two ways of naming a project on that request — `+key` inside `text`,
+  and the `project` field — were refused with different statuses for the same mistake. Both
+  are 404 now, which is what the field error has always said.
+- **A `.subroutine` marker records a project's whole address**, and one written before this
+  goes on resolving. Existing markers are rewritten by `subroutine use --here --project …`,
+  which the program suggests when it notices.
+
+### Fixed
+
+- **The masthead's home link takes the page home, not only the address.** Clicking
+  **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
+  page exactly as it was — and the agenda then arrived at the board's full width. It also
+  carried the board and the completed filter to an agenda that has neither; `/` is now `/`.
+- **The workspace control says what is showing, and goes both ways.** On the agenda it marked
+  a workspace selected while the page held every workspace — and a `select` fires no change for
+  the option already chosen, so the one it named was the one it could not reach. It reads
+  **All workspaces** there now, which is a real choice rather than a hint: picking it from a
+  workspace goes back to the agenda.
+- **The agenda at `/` says which workspace every row is in**, whether or not they all happen
+  to agree — in the item's number as well as in the project label beside it. It named none
+  when they did, which is the one page whose address names no workspace.
+- **A row's address no longer runs into the title beside it.** On the agenda at `/`, where a
+  row says which workspace it is from as well as the number, the address overflowed the fixed
+  column it sits in and overlapped the title by ten pixels. That column is a floor now rather
+  than a width, so an address of any length has room for itself.
+- **An item opened from a board is read at the reading measure.** It inherited the board's
+  uncapped width, because the frame asked which view was selected rather than whether a board
+  was on screen — so the same item was full-width when opened from a board and correct when
+  the address was refreshed.
+- **A cancelled item at the end of a link no longer reads as done.** The browser marked any
+  end with a completion date as `done`, and an item is given one when it is cancelled as well
+  as when it is finished — so work somebody abandoned looked like work somebody had finished.
+  Each end now shows its own status.
 
 ## 0.7.5 — 2026-08-17
 

@@ -94,6 +94,12 @@ class Update(subroutine.api.schemas.RequestModel):
 	visibility: str | None = None
 	owner_id: uuid.UUID | None = None
 
+	#: A project status key from this workspace's own vocabulary — `active`, `on_hold`,
+	#: `completed` or `archived` as seeded, and renameable (§5.5). **Absent until `#983`**,
+	#: which is why three of the four seeded values could never be reached: a project was
+	#: given the default at creation and no route could ever change it.
+	status: str | None = None
+
 	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
 
@@ -300,6 +306,12 @@ def change (
 
 	if "visibility" in supplied and body.visibility is not None:
 		changes["visibility"] = body.visibility
+
+	# Named `status_key` in the domain because what crosses the wire is a key and what is
+	# stored is an id; a null is "leave it alone" for `visibility`'s reason — a project
+	# always has a status, so there is nothing for clearing one to mean.
+	if "status" in supplied and body.status is not None:
+		changes["status_key"] = body.status
 
 	# Grouped with `visibility` rather than with the nullable fields above: clearing a key is
 	# not a thing — a project with no short name has no address — so a null here is a caller

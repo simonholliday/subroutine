@@ -552,3 +552,56 @@ def test_every_started_item_is_on_the_agenda_however_many_there_are (
 		f"the agenda showed {len(agenda.in_progress)} of "
 		f"{subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5} started items"
 	)
+
+
+def _hold (world: World) -> None:
+	"""Put the world's project on hold, through the domain that a client would reach."""
+
+	subroutine.domain.projects.update(
+		world.session, world.project, status_key="on_hold", actor=world.principal
+	)
+
+
+def test_a_project_on_hold_loses_the_bucket_that_says_what_to_do_next (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#983`. Putting a project down is an answer to *what should I work on*, so this is the
+	bucket it changes — the one `#853` made the agenda's real content, and the one a person
+	reads when nothing is dated."""
+
+	world = World(session)
+	world.task("Redesign the header")
+
+	assert _titles(world.agenda().unscheduled) == ["Redesign the header"]
+
+	_hold(world)
+
+	assert _titles(world.agenda().unscheduled) == []
+
+
+def test_a_project_on_hold_keeps_its_dated_work_on_the_agenda (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**The half that is a decision rather than a consequence, so it is pinned here.**
+
+	OmniFocus and Things both drop dated items from a paused project. This does not, on
+	`#857`'s reasoning that dates are answered by *when* and are kept out of the machinery
+	that answers *what matters* — and on the plainer ground that a deadline is usually a
+	commitment to somebody else, which pausing your own work does not cancel. The cost of
+	the other choice is a deadline passing in silence months after somebody put a project
+	down; the cost of this one is a row you have to ignore.
+
+	If this is ever reversed, it is one clause moving from `agenda.build` into
+	`scoping.readable_tasks`, and this test is what should be made to fail first.
+	"""
+
+	world = World(session)
+	world.task("Renew the certificate", due=TODAY - datetime.timedelta(days=1))
+	world.task("File the return", due=TODAY)
+
+	_hold(world)
+
+	agenda = world.agenda()
+
+	assert _titles(agenda.overdue) == ["Renew the certificate"]
+	assert _titles(agenda.today) == ["File the return"]

@@ -765,6 +765,35 @@ class Client(typing.Protocol):
 		they never notice. Nothing joined to the project moves — ``project.id`` is a UUID.
 		"""
 
+	def update_project (
+		self,
+		project: str,
+		*,
+		title: str = UNSET,
+		description: str | None = UNSET,
+		visibility: str = UNSET,
+		status: str = UNSET,
+		workspace: str | None = None,
+	) -> subroutine.views.Project:
+		"""Change the fields beside a project's address — items ``#434`` and ``#983``.
+
+		**Deliberately separate from :meth:`rename_project`, and not a replacement for it.**
+		``#434`` proposed folding both into one ``update_project`` taking every field the route
+		accepts, including ``key``. Keeping the address in its own method is what stops a caller
+		changing one by accident: ``#176`` decided a rename retires a name loudly, with what
+		breaks named first, and a general edit that quietly accepted ``key`` alongside a title
+		would undo that decision rather than extend it. ``#434``'s own "watch the address rule"
+		paragraph is the argument for this shape.
+
+		``status`` is a key from this workspace's own project vocabulary (§5.5). Before ``#983``
+		nothing could set one, so three of the four seeded values — ``on_hold``, ``completed``
+		and ``archived`` — were unreachable for the life of every project ever created.
+
+		Omitted is unchanged; ``None`` clears (§8.3). ``visibility`` and ``status`` take no
+		null: a project is public or private and always has a status, so there is nothing for
+		clearing either to mean.
+		"""
+
 	def create_workspace (
 		self, *, slug: str, title: str, timezone: str | None = None
 	) -> subroutine.views.Workspace:
@@ -795,6 +824,28 @@ class Client(typing.Protocol):
 		Takes the workspace by its *current* short name rather than from the ambient context,
 		because renaming the place you are standing in is the ordinary case and naming it
 		explicitly is what makes the command re-readable in shell history.
+		"""
+
+	def update_workspace (
+		self,
+		workspace: str,
+		*,
+		title: str = UNSET,
+		description: str | None = UNSET,
+		timezone: str | None = UNSET,
+		workspace_id: str | None = None,
+	) -> subroutine.views.Workspace:
+		"""Change the fields beside a workspace's address — item ``#434``.
+
+		:meth:`update_project`'s sibling, and the same trade one segment earlier: this method
+		does not accept ``slug``, which :meth:`rename_workspace` owns for ``#295``'s reasons.
+
+		``timezone`` is the one that is not cosmetic. §6.5 makes it a step in the chain every
+		date in the workspace is read through, so a workspace created in the wrong zone
+		rendered every deadline in it wrongly and could not be corrected from any surface —
+		which is what made ``#434`` a bug rather than a convenience. ``None`` clears it, and
+		clearing means *not stated*, so the instance's own zone shows through rather than UTC
+		being asserted (§12.3).
 		"""
 
 	def move_project (

@@ -1,14 +1,15 @@
 """What "ready to start" means, in one place.
 
-An item can be un-startable for three unrelated reasons, and a caller choosing what to do
-next needs to skip all three without caring which applies:
+An item can be un-startable for several unrelated reasons, and a caller choosing what to do
+next needs to skip all of them without caring which applies:
 
 * it is **finished** — done or cancelled;
 * it is **blocked** — something unfinished must land first (§5.7's ``blocks``);
 * it is **deferred** — ``snoozed_until`` is in the future, and §6.5 says a task is not
   actionable before it. **Only this field hides a row**: a ``starts_at`` in the future is an
   appointment or an intended day, and hiding those was `#854`'s whole defect;
-* it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`).
+* it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`);
+* it is **in a project that is not running** — on hold, finished or abandoned (`#983`).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
 two are a graph and a clock — folding either into the number would make the number mean two
@@ -331,12 +332,49 @@ def unclaimed (
 	return sqlalchemy.or_(sqlalchemy.not_(live), model.claimed_by_id == by)
 
 
+def in_a_running_project (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items whose project is actually running — `#983`.
+
+	A project on hold, completed or abandoned still holds its work and still answers
+	``list --project X`` and a search. What it stops doing is offering that work as something
+	to start, which is the whole of what putting a project down means. OmniFocus and Things
+	both answer the same question the same way, and §5.5 seeded ``on_hold`` for it on day one.
+
+	**Read off the status *category*, never the key.** §5.5 makes a workspace's vocabulary its
+	own, so ``active`` is a label an installation may rename while ``in_progress`` is one of
+	the four fixed categories a client can rely on. This is :func:`unblocked`'s reasoning about
+	``completed_at`` arriving at the opposite answer: there a column let the join be avoided,
+	here there is none, so the join is made and the *stable* column is what it reads.
+
+	**A correlated ``EXISTS`` in ``WHERE`` is not `#856`'s shape**, which is worth saying
+	because that item is the reason to be careful. `#856` died on ``ORDER BY <subquery>``,
+	which computes a sort key for every row in the table so ``LIMIT`` cannot help. In a
+	``WHERE`` clause it short-circuits and both planners make it a semi-join — measured on
+	`#823` at roughly double an unordered page, against thousands of times.
+
+	**No existing instance changes behaviour when this lands**, which is what makes it safe to
+	add to a predicate this many listings go through: nothing could set a project's status
+	before `#983`, so every project in existence is the seeded default and this is true of all
+	of them.
+	"""
+
+	project = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+	status = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.Status)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(project.id)
+		.join(status, status.id == project.status_id)
+		.where(project.id == model.project_id, status.category == "in_progress")
+		.correlate(model)
+	)
+
+
 def ready (
 	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items that can actually be started.
 
-	The four clauses together. ``completed`` is left to the caller's own
+	Every clause together. ``completed`` is left to the caller's own
 	``include_completed``, which every listing already has — repeating it here would give two
 	parameters an argument about the same rows.
 
@@ -356,5 +394,8 @@ def ready (
 	"""
 
 	return sqlalchemy.and_(
-		unblocked(model), undeferred(model, now=now), unclaimed(model, now=now, by=by)
+		unblocked(model),
+		undeferred(model, now=now),
+		unclaimed(model, now=now, by=by),
+		in_a_running_project(model),
 	)

@@ -3596,3 +3596,68 @@ def test_both_re_parent_the_same_way (pair: Pair) -> None:
 			client.move(ref=child.ref, parent=99999)
 
 	assert parent_of(local.task(ref=child.ref)) is None, "and nothing moved"
+
+
+def test_both_change_a_projects_status_the_same_way (pair: Pair) -> None:
+	"""`#983`, and this file is hand-listed, which is how `#44`'s ``move`` went uncovered.
+
+	The failure that would hide is the one worth naming: a status that changed on one
+	transport and silently did not on the other leaves a person's work off their own agenda
+	on one surface and on it on the other, with both saying the write succeeded.
+	"""
+
+	local, remote = pair.both()
+
+	local.create_project(key="alpha", title="Alpha")
+	remote.create_project(key="beta", title="Beta")
+
+	by_local = local.update_project("alpha", status="on_hold")
+	by_remote = remote.update_project("beta", status="on_hold")
+
+	assert by_local.status == by_remote.status == "on_hold"
+	assert by_local.status_category == by_remote.status_category == "todo"
+
+	# **Refused identically**, which is the half an equivalence suite is really for.
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.update_project("alpha", status="paused")
+
+		assert "paused" in str(refused.value)
+
+
+def test_both_change_the_fields_beside_an_address_the_same_way (pair: Pair) -> None:
+	"""`#434`. A title, a description and a zone, on a project and on a workspace alike.
+
+	Both were set at creation and by nothing afterwards, on both transports — the guard that
+	found it compares *fields* rather than method names (`#427`), and the method being called
+	``rename_project`` is what made the gap read as a considered decision for months.
+	"""
+
+	local, remote = pair.both()
+
+	local.create_project(key="alpha", title="Alpha")
+	remote.create_project(key="beta", title="Beta")
+
+	by_local = local.update_project("alpha", title="Alpha Ltd", description="The first one")
+	by_remote = remote.update_project("beta", title="Beta Ltd", description="The second one")
+
+	assert by_local.title == "Alpha Ltd"
+	assert by_remote.title == "Beta Ltd"
+	assert by_local.description == "The first one"
+	assert by_remote.description == "The second one"
+
+	# **The zone is the one that is not cosmetic** — §6.5 makes it the step every date in the
+	# workspace is read through, so a workspace created in the wrong one showed every deadline
+	# at the wrong time and could not be corrected from any surface.
+	slug = pair.workspace.slug
+	renamed = local.update_workspace(slug, title="Renamed by the local client")
+
+	assert renamed.title == "Renamed by the local client"
+
+	zoned = remote.update_workspace(slug, timezone="Australia/Sydney")
+
+	assert zoned.timezone == "Australia/Sydney"
+
+	# Clearing means *not stated*, so the instance's own zone shows through rather than UTC
+	# being asserted on the workspace's behalf (§12.3).
+	assert local.update_workspace(slug, timezone=None).timezone is None

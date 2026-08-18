@@ -3212,6 +3212,232 @@ def _only_this_connection (program: Program, world: World, name: str) -> World:
 	return dataclasses.replace(world, reached=kept, narrowed_to=wanted.name)
 
 
+def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: bool) -> None:
+	"""Move a project and its subtree, counting what travels before it asks — `#320`."""
+
+	# **Neither, or both, is a refusal rather than a default** — this is the one project
+	# command with no undo, and `POST /v1/projects/{key}/move` refuses the same way for
+	# the same reason. Guessing either direction is how a subtree gets flattened.
+	if bool(under) == root:
+		program.stop(
+			"Say where to move it.",
+			"'--under KEY' puts it inside another project; '--root' makes it top-level.",
+		)
+
+	with program.opened() as world:
+		place = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		# Counted before anything changes, like `project rename` — "this moves a subtree"
+		# is abstract, and "this moves 3 projects and 137 items" is something somebody can
+		# weigh. Reading first is the whole reason this is not a one-liner.
+		tree = place.client.projects(workspace=workspace)
+		moving = _subtree(tree, key)
+
+		if not moving:
+			program.stop(
+				# Named as they typed it, never as we would have stored it: telling
+				# somebody 'WEB' is not here when they wrote 'web' reads as the program
+				# mangling their input and then blaming them for it.
+				f"There is no project called {key!r} here.",
+				"Run 'subroutine project list' to see what there is.",
+			)
+
+		# **One count over the subtree root** (`#320`). This used to ask per project and add
+		# the answers up, which was right when a project listing meant that project alone
+		# and became a double count the moment naming a parent included its children — the
+		# item in a sub-project was counted once for the sub-project and again for its
+		# parent. `tests/test_personal_path.py` caught it, which is what that test is for.
+		#
+		# It also fixes `#296`'s fault here in passing: `len(client.tasks(...))` capped at a
+		# page, so a subtree of more than fifty items understated itself in the sentence
+		# somebody says yes to.
+		held = place.client.count_tasks(workspace=workspace, project=key)
+
+		if not yes:
+			destination = (
+				"the top level" if root else subroutine.domain.projects.normalize_key(under)
+			)
+			projects = f"{len(moving)} project{'' if len(moving) == 1 else 's'}"
+			items = f"{held} item{'' if held == 1 else 's'}"
+
+			program.say(f"Moving {subroutine.domain.projects.normalize_key(key)} to {destination}.")
+			program.say(f"  {projects} move, and {items} {'goes' if held == 1 else 'go'} with them.")
+			program.say("  Every number stays the same, and nothing is refiled.")
+
+			if not typer.confirm("Go on?"):
+				program.stop("Nothing was moved.")
+
+		moved = place.client.move_project(
+			key, parent=None if root else under, workspace=workspace
+		)
+
+		program.say(f"Moved {moved.key} — {moved.title}")
+
+def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None:
+	"""Retire a project's short name, saying what stops working first — `#176`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		# **Counted before anything changes, so the question is answerable.** "This will
+		# break addresses" is abstract; "this project holds 137 items and three commands
+		# will stop finding it" is a thing somebody can weigh. The count is the reason
+		# this reads the project first rather than renaming and reporting.
+		held = where.client.count_tasks(workspace=workspace, project=key)
+
+		if not yes:
+			program.say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
+			program.say(f"  {_kept(held)}.")
+			program.say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
+			program.say("  .subroutine file that names it.")
+
+			if not typer.confirm("Go on?"):
+				program.stop("Nothing was renamed.")
+
+		renamed = where.client.rename_project(key, key=to, workspace=workspace)
+
+		program.say(f"Renamed to {renamed.key} — {renamed.title}")
+
+		# The marker in *this* directory is the one that can be repaired from here, and
+		# the one most likely to be stale a second from now (`#177`).
+		# A marker holds what somebody wrote, so this compares normalised forms rather
+		# than raw ones — a checkout marked `WEB` still matches the project `web`.
+		if world.marker is not None and world.marker.project is not None and (
+			subroutine.domain.projects.normalize_key(world.marker.project)
+			== subroutine.domain.projects.normalize_key(key)
+		):
+			_suggest(program.console, f"subroutine use --here --project {renamed.key}")
+
+
+def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> None:
+	"""Retire a workspace's short name, naming the members it changes the address for."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		# **Counted before anything changes**, exactly as `project rename` does: "this
+		# breaks addresses" is abstract where "this holds 249 items and two people" is
+		# something a person can weigh. A workspace is a tenancy boundary, so the member
+		# count belongs here and does not on the project version — a rename changes the
+		# address for everybody who can reach it, not only whoever typed it.
+		# **A count rather than a page, since `#296`.** This asked for a whole page's worth
+		# and hedged with "at least" when it came back full, which was honest and was still
+		# a workaround; `count_tasks` asks §8.4's `include_total` and the hedge is gone.
+		held = where.client.count_tasks(workspace=slug)
+		people = where.client.members(workspace=slug)
+
+		if not yes:
+			program.say(f"Renaming {slug} to {to.lower()}.")
+			program.say(f"  {_kept(held)}.")
+
+			if len(people) > 1:
+				program.say(
+					f"  {len(people)} people reach it, and the address changes for all of them."
+				)
+
+			program.say(f"  '{slug}' stops working: in an address like '{slug}/42', in")
+			program.say("  'subroutine use', and in any .subroutine file that names it.")
+
+			if not typer.confirm("Go on?"):
+				program.stop("Nothing was renamed.")
+
+		renamed = where.client.rename_workspace(slug, slug=to)
+
+		program.say(f"Renamed to {renamed.slug} — {renamed.title}")
+
+		# The stored context is the one caller we *can* repair, and the one that would
+		# otherwise fail on the very next command.
+		if world.current.workspace == slug:
+			_suggest(program.console, f"subroutine use {renamed.slug}")
+
+
+def _project_updated (
+	program: Program,
+	*,
+	key: str,
+	title: str,
+	description: str,
+	status: str,
+	private: bool | None,
+) -> None:
+	"""Change the fields beside a project's address, and say what it means — `#983`, `#434`."""
+
+	changes: dict[str, typing.Any] = {}
+
+	if title is not UNGIVEN:
+		changes["title"] = title
+
+	if description is not UNGIVEN:
+		changes["description"] = description or None
+
+	if status is not UNGIVEN:
+		changes["status"] = status
+
+	if private is not None:
+		changes["visibility"] = "private" if private else "public"
+
+	if not changes:
+		program.stop(
+			"Nothing to change.", hint="Pass --title, --description, --status or --private."
+		)
+
+	with program.opened() as world:
+		where = world.writing_to()
+		changed = where.client.update_project(
+			key, workspace=_writing_workspace(world), **changes
+		)
+
+		program.say(f"Changed {changed.key} — {changed.title}")
+
+		# **Said only when the status moved, and said as a consequence rather than as a
+		# label.** `on_hold` is a seeded key a workspace may rename (§5.5), so what is
+		# reported is what the *category* does — the part that stays true whatever the row is
+		# called locally.
+		if "status" in changes:
+			program.say(f"  Now {changed.status}.")
+
+			# **The second sentence is here because the first one was false without it.**
+			# Driving this said "no longer … on the agenda" and the next command showed a
+			# task in the held project under Today — dated work deliberately stays (`#983`),
+			# so a message that did not say so was contradicted by the screen underneath it.
+			if changed.status_category != "in_progress":
+				program.say("  Its work is no longer offered as ready.")
+				program.say("  Anything dated stays on your agenda.")
+
+
+def _workspace_updated (
+	program: Program, *, slug: str, title: str, description: str, timezone: str
+) -> None:
+	"""Change the fields beside a workspace's address — `#434`."""
+
+	changes: dict[str, typing.Any] = {}
+
+	if title is not UNGIVEN:
+		changes["title"] = title
+
+	if description is not UNGIVEN:
+		changes["description"] = description or None
+
+	if timezone is not UNGIVEN:
+		changes["timezone"] = timezone or None
+
+	if not changes:
+		program.stop("Nothing to change.", hint="Pass --title, --description or --timezone.")
+
+	with program.opened() as world:
+		where = world.writing_to()
+		changed = where.client.update_workspace(slug, **changes)
+
+		program.say(f"Changed {changed.slug} — {changed.title}")
+
+		# §6.5 makes this the step every date in the workspace is read through, so the
+		# confirmation names the zone in force rather than reporting that something changed.
+		if "timezone" in changes:
+			program.say(f"  Dates here are read in {changed.timezone or 'the instance zone'}.")
+
+
 def register (
 	app: typer.Typer,
 	*,
@@ -5010,38 +5236,48 @@ def register (
 		does it.
 		"""
 
-		with program.opened() as world:
-			where = world.writing_to()
-			workspace = _writing_workspace(world)
+		_project_renamed(program, key=key, to=to, yes=yes)
 
-			# **Counted before anything changes, so the question is answerable.** "This will
-			# break addresses" is abstract; "this project holds 137 items and three commands
-			# will stop finding it" is a thing somebody can weigh. The count is the reason
-			# this reads the project first rather than renaming and reporting.
-			held = where.client.count_tasks(workspace=workspace, project=key)
+	@project_app.command("update")
+	def project_update (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
+		description: str = typer.Option(
+			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
+		),
+		status: str = typer.Option(
+			UNGIVEN,
+			"--status",
+			show_default=False,
+			help="active, on_hold, completed or archived.",
+		),
+		private: bool | None = typer.Option(
+			None, "--private/--public", show_default=False, help="Who can see it."
+		),
+	) -> None:
+		"""Change a project's name, what it is for, who can see it, or where it stands.
 
-			if not yes:
-				say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
-				say(f"  {_kept(held)}.")
-				say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
-				say("  .subroutine file that names it.")
+		Examples:
 
-				if not typer.confirm("Go on?"):
-					stop("Nothing was renamed.")
+		  subroutine project update web --title "Website redesign"
 
-			renamed = where.client.rename_project(key, key=to, workspace=workspace)
+		  subroutine project update web --status on_hold
 
-			say(f"Renamed to {renamed.key} — {renamed.title}")
+		Putting a project on hold leaves everything in it exactly where it is and still
+		findable. What changes is that its work stops being offered as something to start.
 
-			# The marker in *this* directory is the one that can be repaired from here, and
-			# the one most likely to be stale a second from now (`#177`).
-			# A marker holds what somebody wrote, so this compares normalised forms rather
-			# than raw ones — a checkout marked `WEB` still matches the project `web`.
-			if world.marker is not None and world.marker.project is not None and (
-				subroutine.domain.projects.normalize_key(world.marker.project)
-				== subroutine.domain.projects.normalize_key(key)
-			):
-				_suggest(console, f"subroutine use --here --project {renamed.key}")
+		Its short name is not changed here — that breaks addresses, so it has a command of
+		its own with a warning attached: 'subroutine project rename'.
+		"""
+
+		_project_updated(
+			program,
+			key=key,
+			title=title,
+			description=description,
+			status=status,
+			private=private,
+		)
 
 	workspace_app = typer.Typer(
 		help="Look after the spaces work is kept in.", no_args_is_help=True
@@ -5097,41 +5333,41 @@ def register (
 		it was joined to. What stops working is anything that wrote the old name down.
 		"""
 
-		with program.opened() as world:
-			where = world.writing_to()
+		_workspace_renamed(program, slug=slug, to=to, yes=yes)
 
-			# **Counted before anything changes**, exactly as `project rename` does: "this
-			# breaks addresses" is abstract where "this holds 249 items and two people" is
-			# something a person can weigh. A workspace is a tenancy boundary, so the member
-			# count belongs here and does not on the project version — a rename changes the
-			# address for everybody who can reach it, not only whoever typed it.
-			# **A count rather than a page, since `#296`.** This asked for a whole page's worth
-			# and hedged with "at least" when it came back full, which was honest and was still
-			# a workaround; `count_tasks` asks §8.4's `include_total` and the hedge is gone.
-			held = where.client.count_tasks(workspace=slug)
-			people = where.client.members(workspace=slug)
+	@workspace_app.command("update")
+	def workspace_update (
+		slug: str = typer.Argument(..., help="The workspace, by its short name."),
+		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
+		description: str = typer.Option(
+			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
+		),
+		timezone: str = typer.Option(
+			UNGIVEN,
+			"--timezone",
+			show_default=False,
+			help="Its zone, e.g. 'Europe/London'. Pass '' to follow the instance.",
+		),
+	) -> None:
+		"""Change what a workspace is called, what it is for, or which zone its dates are in.
 
-			if not yes:
-				say(f"Renaming {slug} to {to.lower()}.")
-				say(f"  {_kept(held)}.")
+		Examples:
 
-				if len(people) > 1:
-					say(f"  {len(people)} people reach it, and the address changes for all of them.")
+		  subroutine workspace update projects --title Projects
 
-				say(f"  '{slug}' stops working: in an address like '{slug}/42', in")
-				say("  'subroutine use', and in any .subroutine file that names it.")
+		  subroutine workspace update acme --timezone Europe/London
 
-				if not typer.confirm("Go on?"):
-					stop("Nothing was renamed.")
+		The zone is the one that matters: every date in the workspace is read in it, so a
+		workspace set up in the wrong one shows every deadline at the wrong time. Clearing it
+		follows the instance instead.
 
-			renamed = where.client.rename_workspace(slug, slug=to)
+		Its short name is not changed here — that breaks addresses, so it has a command of
+		its own with a warning attached: 'subroutine workspace rename'.
+		"""
 
-			say(f"Renamed to {renamed.slug} — {renamed.title}")
-
-			# The stored context is the one caller we *can* repair, and the one that would
-			# otherwise fail on the very next command.
-			if world.current.workspace == slug:
-				_suggest(console, f"subroutine use {renamed.slug}")
+		_workspace_updated(
+			program, slug=slug, title=title, description=description, timezone=timezone
+		)
 
 	@project_app.command("move")
 	def project_move (
@@ -5159,64 +5395,7 @@ def register (
 		omitted destination once meant "move to root", which flattened subtrees by accident.
 		"""
 
-		# **Neither, or both, is a refusal rather than a default** — this is the one project
-		# command with no undo, and `POST /v1/projects/{key}/move` refuses the same way for
-		# the same reason. Guessing either direction is how a subtree gets flattened.
-		if bool(under) == root:
-			stop(
-				"Say where to move it.",
-				"'--under KEY' puts it inside another project; '--root' makes it top-level.",
-			)
-
-		with program.opened() as world:
-			place = world.writing_to()
-			workspace = _writing_workspace(world)
-
-			# Counted before anything changes, like `project rename` — "this moves a subtree"
-			# is abstract, and "this moves 3 projects and 137 items" is something somebody can
-			# weigh. Reading first is the whole reason this is not a one-liner.
-			tree = place.client.projects(workspace=workspace)
-			moving = _subtree(tree, key)
-
-			if not moving:
-				stop(
-					# Named as they typed it, never as we would have stored it: telling
-					# somebody 'WEB' is not here when they wrote 'web' reads as the program
-					# mangling their input and then blaming them for it.
-					f"There is no project called {key!r} here.",
-					"Run 'subroutine project list' to see what there is.",
-				)
-
-			# **One count over the subtree root** (`#320`). This used to ask per project and add
-			# the answers up, which was right when a project listing meant that project alone
-			# and became a double count the moment naming a parent included its children — the
-			# item in a sub-project was counted once for the sub-project and again for its
-			# parent. `tests/test_personal_path.py` caught it, which is what that test is for.
-			#
-			# It also fixes `#296`'s fault here in passing: `len(client.tasks(...))` capped at a
-			# page, so a subtree of more than fifty items understated itself in the sentence
-			# somebody says yes to.
-			held = place.client.count_tasks(workspace=workspace, project=key)
-
-			if not yes:
-				destination = (
-					"the top level" if root else subroutine.domain.projects.normalize_key(under)
-				)
-				projects = f"{len(moving)} project{'' if len(moving) == 1 else 's'}"
-				items = f"{held} item{'' if held == 1 else 's'}"
-
-				say(f"Moving {subroutine.domain.projects.normalize_key(key)} to {destination}.")
-				say(f"  {projects} move, and {items} {'goes' if held == 1 else 'go'} with them.")
-				say("  Every number stays the same, and nothing is refiled.")
-
-				if not typer.confirm("Go on?"):
-					stop("Nothing was moved.")
-
-			moved = place.client.move_project(
-				key, parent=None if root else under, workspace=workspace
-			)
-
-			say(f"Moved {moved.key} — {moved.title}")
+		_project_moved(program, key=key, under=under, root=root, yes=yes)
 
 	# **Membership lives under `user`, and there is deliberately no `workspace` group**
 	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
