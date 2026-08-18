@@ -23,6 +23,8 @@ import subroutine.db.models.project
 import subroutine.db.models.system
 import subroutine.db.models.work
 import subroutine.domain.bootstrap
+import subroutine.domain.capture
+import subroutine.domain.dates
 import subroutine.domain.projects
 import subroutine.domain.schedule
 import subroutine.domain.tasks
@@ -481,3 +483,87 @@ def test_a_workspace_with_no_timezone_follows_the_instance (
 	assert subroutine.domain.schedule.zone_for(
 		workspace=installed.workspace, instance=installed.instance
 	) == "Australia/Sydney"
+
+
+def test_a_word_that_names_a_day_is_stored_as_that_whole_day () -> None:
+	"""`#988`: a deadline of ``today`` was the first microsecond of it, and read as overdue.
+
+	§9.3's expressions are a grammar of **instants** — which is why ``start_of_day`` and
+	``end_of_day`` both exist — and ``today`` is defined as the former inside it. That
+	definition is right and is untouched. What was wrong is where it reached: somebody writing
+	``--due today`` means the day, and a deadline stored at midnight has already gone by the
+	time anybody reads it.
+
+	**The rule existed, in one of the readers.** ``domain.capture`` knew these words named
+	whole days and nothing else did, so ``add "… by today"`` was right while ``--due today``
+	and ``{"due": "today"}`` were not — `#149`'s shape rather than two copies disagreeing.
+
+	**The claim is that the word and the date are indistinguishable**, at both boundaries, for
+	every word in the shared set — and that the surface which already had the rule agrees with
+	the two that have just been given it. Written against the set rather than against literal
+	instants so a fourth whole-day word is covered the day somebody adds one, and so this
+	cannot drift from the boundary rule it rests on.
+	"""
+
+	assert subroutine.domain.dates.WHOLE_DAY_KEYWORDS, "the shared vocabulary could not be read"
+
+	for keyword in sorted(subroutine.domain.dates.WHOLE_DAY_KEYWORDS):
+		day = subroutine.domain.schedule.local_date(
+			subroutine.domain.dates.resolve(keyword, now=NOW, timezone=LONDON), LONDON
+		)
+
+		for boundary in subroutine.domain.schedule.Boundary:
+			by_word = subroutine.domain.schedule.interpret(
+				keyword, boundary=boundary, timezone=LONDON, now=NOW, field="due_at"
+			)
+			by_date = subroutine.domain.schedule.interpret(
+				day.isoformat(), boundary=boundary, timezone=LONDON, now=NOW, field="due_at"
+			)
+
+			assert by_word == by_date, f"'{keyword}' and {day} differ at {boundary.name}"
+			assert by_word.is_all_day, keyword
+
+		# The surface that already had the rule, held against the two that now share it.
+		captured = subroutine.domain.capture.parse(
+			f"Pay the rent by {keyword}", now=NOW, timezone=LONDON
+		)
+
+		assert captured.due == day, keyword
+		assert captured.due_is_all_day, keyword
+
+
+def test_a_word_that_names_a_moment_is_still_an_instant () -> None:
+	"""The other half of `#988`, and what stops the fix reaching further than the defect.
+
+	``start_of_day`` and ``end_of_day`` exist so that somebody can ask for an instant on a
+	given day, and ``now+7d`` is arithmetic. **An offset makes a whole-day word arithmetic
+	too** — ``today+2h`` is two in the morning — which is the same line ``domain.capture``
+	draws and the reason the inference matches the bare word only.
+
+	Derived from :data:`subroutine.domain.dates.KEYWORDS` rather than listed, so a keyword
+	added tomorrow has to declare which kind it is instead of quietly defaulting.
+	"""
+
+	for keyword in subroutine.domain.dates.KEYWORDS:
+		if keyword in subroutine.domain.dates.WHOLE_DAY_KEYWORDS:
+			continue
+
+		moment = subroutine.domain.schedule.interpret(
+			keyword,
+			boundary=subroutine.domain.schedule.Boundary.END,
+			timezone=LONDON,
+			now=NOW,
+			field="due_at",
+		)
+
+		assert not moment.is_all_day, keyword
+
+	offset = subroutine.domain.schedule.interpret(
+		"today+2h",
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=LONDON,
+		now=NOW,
+		field="due_at",
+	)
+
+	assert not offset.is_all_day, "an offset is arithmetic, not a day"

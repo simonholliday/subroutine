@@ -290,10 +290,6 @@ def names_a_project (text: str) -> bool:
 	return _PROJECT.search(text) is not None
 
 
-#: Whole-day phrases. Anything else names an instant, so it is not all-day.
-_WHOLE_DAY_KEYWORDS = frozenset({"today", "tomorrow", "yesterday"})
-
-
 @dataclasses.dataclass(frozen=True)
 class Capture:
 	"""What a line of text would become, without having become it yet.
@@ -915,7 +911,10 @@ def _read_phrase (
 	if named is not None:
 		return named, True
 
-	if lowered in _WHOLE_DAY_KEYWORDS:
+	# The shared vocabulary, not a copy of it (`#988`). This branch survives the move
+	# because it does two things the far end cannot: it matches case-insensitively,
+	# so `by Today` reads, and it hands on a `date` rather than a word.
+	if lowered in subroutine.domain.dates.WHOLE_DAY_KEYWORDS:
 		return subroutine.domain.schedule.local_date(
 			subroutine.domain.dates.resolve(lowered, now=now, timezone=timezone), timezone
 		), True

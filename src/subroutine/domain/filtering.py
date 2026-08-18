@@ -192,14 +192,17 @@ class Kind (typing.NamedTuple):
 #: omission.** A timestamp is stored to the microsecond, so equality against one is almost
 #: never what somebody means — and the two ways of being helpful about it are both worse.
 #: Comparing exactly makes `created_at.eq=yesterday` match nothing and read as an empty
-#: backlog rather than as a misunderstanding; widening it to the whole day makes `eq` mean
-#: two different things depending on how the value was written, because
-#: `schedule.interpret` infers "a whole day" from the input's *shape* — measured, the literal
-#: `2026-08-04` is a whole day and the keyword `yesterday` is not, and nothing in the answer
-#: would show which reading applied.
+#: backlog rather than as a misunderstanding.
 #:
-#: So it is refused by name, pointing at the pair that says what they meant. **The only option
-#: of the three with no invisible failure.**
+#: **One of the two arguments for that has since gone, and the decision stands on the other.**
+#: This used to add that widening `eq` to the whole day would make it mean two things
+#: depending on how the value was written, because `schedule.interpret` infers "a whole day"
+#: from the input's *shape* — measured at the time, the literal `2026-08-04` was a whole day
+#: and the keyword `yesterday` was not. `#988` ended that: a word that names a day is
+#: day-scale on every surface now, so the two spellings agree and nothing is hidden by which
+#: one was used. What is left is the microsecond, which is enough on its own.
+#:
+#: So it is refused by name, pointing at the pair that says what they meant.
 INSTANT = Kind(
 	predicate=_instant_predicate,
 	expects="a date or time, or an expression like `yesterday` or `now-7d`",

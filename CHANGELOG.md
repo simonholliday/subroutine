@@ -126,6 +126,15 @@ upgrade involves.
 
 ### Fixed
 
+- **`today`, `tomorrow` and `yesterday` mean the whole day, wherever you write them.** A
+  deadline of `--due today` was stored as the very first moment of today, so it was
+  already overdue by the time you read it back — while the same word typed into quick
+  capture was read correctly. Every surface agrees now, and a deferral of `today` still
+  means the start of it, because that is what the word means there.
+- **A filter bound naming a day takes in the whole of it, as `subroutine explain dates`
+  has always said.** `--filter created_at.lte=yesterday` stopped at the first moment of
+  yesterday and so included almost none of it; a literal date in the same place already
+  behaved correctly. The two spellings now agree.
 - **Giving a task a deadline no longer takes it off the agenda.** On the web, dating
   something removed it from the page until the day it fell due — so the one edit you make
   to be sure of a piece of work was the edit that hid it. The agenda now shows the same

@@ -443,7 +443,13 @@ def _parse (
 			written, now=now, timezone=timezone, field=field
 		)
 
-		return resolved, False
+		# **A word naming a day is day-scale; a word naming a moment is an instant**
+		# (`#988`). ``today`` is ``start_of_day`` within §9.3's grammar and that stays
+		# right, but a *deadline* of ``today`` meant the first microsecond of it — so it
+		# read as overdue the moment it was set. Quick capture had the rule and nothing
+		# else did. The boundary is applied by the caller, so a ``due`` of ``today``
+		# becomes the end of it and a ``snoozed_until`` the start.
+		return resolved, written in subroutine.domain.dates.WHOLE_DAY_KEYWORDS
 
 	try:
 		parsed = datetime.datetime.fromisoformat(written)

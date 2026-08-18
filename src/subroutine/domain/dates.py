@@ -83,6 +83,21 @@ WEEKDAYS: dict[str, int] = {
 
 _TERM = re.compile(r"([+-])(\d+)([a-zA-Z]+)")
 
+#: The keywords that name a **day** rather than a moment. Everything else in
+#: :data:`KEYWORDS` names an instant, which is what §9.3's grammar is for — it is why
+#: ``start_of_day`` and ``end_of_day`` both exist, and why ``today`` is defined as the
+#: former inside it.
+#:
+#: But somebody writing ``--due today`` means the day, not its first microsecond, and a
+#: deadline stored at midnight has already passed by the time anybody reads it. So the
+#: value carries its own scale and every reader gets the same answer: quick capture knew
+#: this and nothing else did, which made ``add "… by today"`` right and every other
+#: surface wrong (`#988`).
+#:
+#: **The bare word only.** An offset is arithmetic and lands where it lands, so
+#: ``today+2h`` is an instant.
+WHOLE_DAY_KEYWORDS = frozenset({"today", "tomorrow", "yesterday"})
+
 _VALID_KEYWORDS = ", ".join(f"`{keyword}`" for keyword in KEYWORDS)
 _VALID_UNITS = "`m` minutes, `h` hours, `d` days, `w` weeks, `M` months, `y` years"
 
