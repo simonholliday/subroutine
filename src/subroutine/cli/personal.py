@@ -3525,13 +3525,18 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 				(one for one in where.client.users() if one.username == username), None
 			)
 
-			if account is None or account.timezone is None:
-				program.say("You have not said which timezone you are in.")
-				program.say("  Your days are counted in this workspace's zone until you do.")
-
-			else:
+			if account is not None and account.timezone is not None:
 				program.say(f"You are in {account.timezone}")
 
+				return
+
+			program.say("You have not said which timezone you are in.")
+			program.say("  Your days are counted in this workspace's zone until you do.")
+
+			# **Suggested only when there is nothing to read back** (`#1002`). §12.2a's habit
+			# is that a command names the next one, and the next one is not the one that has
+			# just been answered — the example names a zone, so offering it to somebody who
+			# has already said where they are is an invitation to be wrong.
 			_suggest(program.console, "subroutine user timezone Europe/London")
 
 			return

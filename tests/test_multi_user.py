@@ -265,7 +265,12 @@ def test_a_person_can_say_which_timezone_they_are_in_and_read_it_back (
 	# measured the served instance, where the founder's is null, and read that as what a fresh
 	# install produces. So the account this reports on is already correct, and what the item
 	# describes is somebody made by `user create`, or somebody who has since moved.
-	assert "Europe/London" in run("user", "timezone").output
+	said = run("user", "timezone").output
+
+	assert "Europe/London" in said
+	assert "Tip:" not in said, (
+		"`#1002`: a reader who has already said where they are is not invited to say it again"
+	)
 
 	said = run("user", "timezone", "Australia/Sydney").output
 
@@ -280,9 +285,12 @@ def test_a_person_can_say_which_timezone_they_are_in_and_read_it_back (
 
 	# **Cleared is a state that reports itself**, and it is the only way to reach that branch
 	# here: local mode acts as the founder, whose zone `init` has already filled in.
-	assert "not said" in run("user", "timezone").output, (
+	unset = run("user", "timezone").output
+
+	assert "not said" in unset, (
 		"a person who has cleared it is told the workspace's zone is showing through"
 	)
+	assert "Tip:" in unset, "and told how to say it, which is the case the tip was written for"
 
 
 def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
