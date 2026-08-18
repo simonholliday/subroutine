@@ -126,6 +126,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A very large number written after a `#` no longer refuses what you wrote.** A comment
+  or a description that mentioned one — an order number, an identifier from another
+  system — was rejected in full, and the message sent you off to check that the database
+  was reachable. A number too big to be an item's own number is left as ordinary prose,
+  which is what it is.
 - **The masthead's home link takes the page home, not only the address.** Clicking
   **Subroutine** from a board narrowed to a project put `/` in the address bar and left the
   page exactly as it was — and the agenda then arrived at the board's full width. It also

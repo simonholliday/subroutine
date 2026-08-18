@@ -19,6 +19,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.work
+import subroutine.domain.refs
 
 #: A reference in running text: ``#42`` (docs/design.md §6.15). It is only ever a *candidate* —
 #: a ref becomes a mention when it resolves — but the pattern still has to be tight,
@@ -61,6 +62,9 @@ def candidates (*texts: str | None) -> list[int]:
 	``[label](subroutine:42)``. A cross-workspace link is deliberately skipped — it names
 	a workspace this index does not cover, and resolving it locally would silently point
 	at whatever happens to share the number here.
+
+	A number too large to be a ref is left as prose, for the reason
+	:data:`subroutine.domain.refs.MAX_REF` gives.
 	"""
 
 	found: list[int] = []
@@ -81,6 +85,15 @@ def candidates (*texts: str | None) -> list[int]:
 
 		for match in matches:
 			ref = int(match.group(1))
+
+			# **A number too large to be a ref is prose, not a reference** (`#978`). This
+			# pattern shares :func:`subroutine.domain.refs.parse_ref`'s grammar and did not
+			# share its bound, so a ten-digit number written after the sigil reached an
+			# ``INTEGER`` column: ``DataError`` on PostgreSQL, silently nothing on SQLite.
+			# :data:`subroutine.domain.refs.MAX_REF` carries the reasoning, and this is a
+			# second reader of that rule rather than a second copy of it.
+			if ref > subroutine.domain.refs.MAX_REF:
+				continue
 
 			if ref in seen:
 				continue

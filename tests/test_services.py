@@ -279,6 +279,48 @@ def test_a_ref_has_one_spelling_in_both_parsers () -> None:
 	assert subroutine.domain.mentions.candidates("see #007 and #0") == []
 
 
+def test_a_number_too_large_for_a_ref_stays_prose (session: sqlalchemy.orm.Session) -> None:
+	"""`#978`: it reached an ``INTEGER`` column, and the whole write was refused.
+
+	``mentions.candidates`` shared ``refs.parse_ref``'s grammar and not its bound, so a number
+	written after the sigil became a candidate and was compared against ``task.ref``. It
+	reached the writer as *"could not be read: integer out of range"*, sending them to check
+	``database_url`` for a number in their own prose.
+
+	**Both backends fail, neither the same way, and that is why the case carries two numbers.**
+	Just past :data:`~subroutine.domain.refs.MAX_REF`, PostgreSQL raises ``DataError`` and
+	SQLite quietly matches nothing; past 64 bits, SQLite raises ``OverflowError`` as well.
+	Measured while falsifying — `#978` recorded this as reachable only on PostgreSQL, and a
+	laptop meets it too, with a longer number.
+
+	**Driven through ``synchronize`` rather than asserted on the pattern**, because the pattern
+	was never the half that failed: the query was. The write runs *first* deliberately — a
+	``candidates`` assertion above it short-circuits, so the failure would read as a list
+	mismatch for a defect whose symptom is a refused write.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+
+	source = subroutine.domain.tasks.create(session, project=project, title="Writing about it")
+	target = subroutine.domain.tasks.create(session, project=project, title="Findable")
+
+	beyond = subroutine.domain.refs.MAX_REF + 1
+	body = f"Compare #{beyond} with #{target.ref}, and #99999999999999999999 as well."
+
+	written = subroutine.domain.mentions.synchronize(
+		session,
+		workspace_id=workspace.id,
+		source_type="task",
+		source_id=source.id,
+		texts=[body],
+	)
+
+	assert written == 1, "the one number that names something is the one that is indexed"
+
+	assert subroutine.domain.mentions.candidates(body) == [target.ref]
+
+
 def test_a_ref_resolves_to_the_thing_it_names (session: sqlalchemy.orm.Session) -> None:
 	"""What the mention index is built on.
 
