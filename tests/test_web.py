@@ -135,6 +135,9 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"ref": 2, "kind": "document", "title": "A document", "status_is_default": True},
 		]
 	},
+	# The bar the list and the board share — one component since `SR#986`, because they held it
+	# byte for byte and a second control in it would have been the moment they drifted.
+	"Narrowed": {"project": "web", "prioritised": ["web"]},
 	"Board": {
 		"items": [
 			{
@@ -5024,6 +5027,12 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
 		("assignRequest", [{"ref": place.task}, None, place.slug]),
+		# **Both directions, because clearing is a value rather than an omission** (`SR#986`,
+		# §8.3). A `null` that the route read as *leave it alone* would make *Stop prioritising*
+		# a button that reports success and changes nothing, which is this codebase's own
+		# recorded shape for a control nobody notices is inert.
+		("prioritiseRequest", [place.project, place.slug]),
+		("prioritiseRequest", [None, place.slug]),
 		# **Both shapes of the same write** (`SR#756`): the one-line box on its own, which is what
 		# §1.4 guarantees keeps working, and the box with every disclosed field filled in.
 		("addRequest", [{"text": "Something new"}, place.slug]),
@@ -6122,7 +6131,12 @@ def _views (
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: name === "filed" ? app.filed(argument.values, argument.slug)
 			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
-			: name === "filableFor" ? app.filableFor(argument.projects, argument.project)
+			: name === "filableFor"
+				? app.filableFor(argument.projects, argument.project, argument.prioritised)
+			: name === "prioritisedHere"
+				? app.prioritisedHere(argument.workspaces, argument.workspace)
+			: name === "prioritisedSentence" ? app.prioritisedSentence(argument)
+			: name === "rankedByPriority" ? app.rankedByPriority(argument)
 			: name === "treeOrdered" ? app.treeOrdered(argument.projects)
 			: name === "refAsked" ? app.refAsked(argument)
 			: name === "placesToGo"
@@ -9877,3 +9891,206 @@ def test_no_browser_test_waits_by_evaluating_a_string () -> None:
 		f"Say the condition in CSS — 'option:nth-child(3)' is 'more than two options' — or "
 		f"poll from Python with `_until`."
 	)
+
+
+#: Two workspaces, one with a focus and one without — the shape decision `SR#982` allows and the
+#: one a merged agenda actually meets. Deliberately not three prioritised projects: that is the
+#: state a single pointer per workspace makes unreachable, so a fixture holding it would be
+#: testing something the schema forbids.
+FOCUSED = [
+	{"id": "1", "slug": "projects", "title": "Subroutine", "prioritised_project": "subroutine"},
+	{"id": "2", "slug": "personal", "title": "Personal", "prioritised_project": None},
+]
+
+
+def test_a_page_spanning_workspaces_names_each_prioritised_project_by_its_workspace (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#986`. The agenda spans workspaces, so an unqualified name would identify nothing.
+
+	The terminal's `qualifies_workspace` says the same thing about the same question, and the
+	rule is `SR#512`'s: the shortest form that identifies the thing, and no shorter. A listing
+	is narrowed to one workspace and asks the narrower question, so it gets the bare address.
+	"""
+
+	spanning, narrowed, quiet = _views(tmp_path, [
+		("prioritisedHere", {"workspaces": FOCUSED, "workspace": None}),
+		("prioritisedHere", {"workspaces": FOCUSED, "workspace": "projects"}),
+		("prioritisedHere", {"workspaces": FOCUSED, "workspace": "personal"}),
+	])
+
+	assert spanning == ["projects/subroutine"], "a page spanning workspaces has to say which"
+	assert narrowed == ["subroutine"], "a page inside one workspace does not"
+	assert quiet == [], "and a workspace with no focus contributes nothing"
+
+
+def test_one_workspace_needs_no_qualifying (tmp_path: pathlib.Path) -> None:
+	"""§13.5b's instance is one workspace, and nothing about this may reach its output."""
+
+	[alone] = _views(tmp_path, [("prioritisedHere", {
+		"workspaces": [FOCUSED[0]], "workspace": None,
+	})])
+
+	assert alone == ["subroutine"]
+
+
+def test_the_sentence_agrees_with_itself_about_how_many (tmp_path: pathlib.Path) -> None:
+	"""Three plurals in one line — the verb, the possessive and the noun — and `SR#986`.
+
+	Two workspaces may each prioritise a project, and *"a, b is prioritised, so its work rises"*
+	is the kind of detail that makes a reader distrust every number beside it.
+	"""
+
+	nothing, one, two = _views(tmp_path, [
+		("prioritisedSentence", []),
+		("prioritisedSentence", ["subroutine"]),
+		("prioritisedSentence", ["projects/subroutine", "personal/home"]),
+	])
+
+	assert nothing is None, "nothing prioritised says nothing at all"
+	assert one == "subroutine is prioritised, so its work rises here."
+	assert two == (
+		"projects/subroutine and personal/home are prioritised, so their work rises here."
+	)
+
+
+def test_the_browser_says_what_is_prioritised_in_the_terminal_s_words (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""One sentence, generated twice, and the two are compared — `SR#986`.
+
+	`SR#925`'s rule is that when a client would need a copy of a grammar to render a field, the
+	*rendering* is what gets published. This is smaller than that and the same shape: a person
+	moving between the two surfaces should not have to work out that they are being told the
+	same thing, and two independently-worded copies drift a word at a time with nothing noticing.
+	"""
+
+	[said] = _views(tmp_path, [("prioritisedSentence", ["web/dist"])])
+
+	assert said == subroutine.cli.personal._prioritised_sentence(["web/dist"])
+
+	[several] = _views(tmp_path, [("prioritisedSentence", ["a/b", "c/d"])])
+
+	assert several == subroutine.cli.personal._prioritised_sentence(["a/b", "c/d"])
+
+
+def test_the_browser_and_the_terminal_agree_which_orders_the_bonus_applies_to (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A prioritised project changes a ranked page and no other, so both say so or neither does.
+
+	**The failure this prevents is a page announcing an effect it is not showing** — a line a
+	reader learns to ignore, which is worse than no line. `SR#986`.
+	"""
+
+	asked = ["-priority_score", "priority_score", "-created_at", "due_at,-priority_score", ""]
+	answered = _views(tmp_path, [("rankedByPriority", one) for one in asked])
+
+	assert answered == [True, True, False, True, False]
+	assert answered == [
+		subroutine.cli.personal._ranked_by_priority(one or None) for one in asked
+	]
+
+
+def test_a_project_dropdown_marks_the_one_that_is_prioritised (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#986`, and **only the project itself** — its subtree inherits the bonus, not the label.
+
+	Marking children would read as several prioritised projects, which is the state a single
+	pointer makes unreachable. `(default)` on the Inbox is the precedent for saying that an
+	entry is not an ordinary one.
+	"""
+
+	[marked] = _views(tmp_path, [("filableFor", {
+		"projects": FILABLE, "project": None, "prioritised": "substation",
+	})])
+	labels = [one["label"].strip() for one in marked]
+
+	child = next(one for one in labels if one.startswith("Packaging"))
+
+	assert "Substation (prioritised)" in labels
+	assert not child.endswith("(prioritised)"), (
+		"the child inherits the bonus and not the label"
+	)
+
+	[plain] = _views(tmp_path, [("filableFor", {
+		"projects": FILABLE, "project": None, "prioritised": None,
+	})])
+
+	assert not [one for one in plain if "(prioritised)" in one["label"]], (
+		"nothing prioritised marks nothing — which is most workspaces, every day"
+	)
+
+
+def test_the_masthead_marks_the_prioritised_project_too (tmp_path: pathlib.Path) -> None:
+	"""The other dropdown, from the workspace it is already looping over — `SR#986`.
+
+	Decision `SR#982` asks for both, and they are marked from different sources: this one reads
+	the workspace beside it, where a form knows its projects and never its workspace.
+	"""
+
+	[shown] = _views(tmp_path, [("placesToGo", {
+		"workspaces": [{
+			"id": "1", "slug": "projects", "title": "Subroutine",
+			"prioritised_project": "substation/dist",
+		}],
+		"projects": FILABLE,
+		"showing": {"workspace": "projects"},
+	})])
+	labels = [one["label"] for one in shown]
+
+	assert "Packaging (prioritised)" in labels, (
+		"the masthead marks the project a workspace has prioritised, by its whole address"
+	)
+	assert "Substation" in labels, "and marks no ancestor of it"
+
+
+def test_an_item_says_when_its_project_is_the_prioritised_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#986`, decision `SR#982` §4 — **and this is the one place an item may say it**.
+
+	A task *row* says nothing, because 84% of this instance's open tasks are in the project most
+	likely to be prioritised and §12.2a drops a mark that appears on nearly every row. A fact
+	sheet is not a column: it describes one item, the mark appears once, and it answers *why is
+	this ranked where it is* at the moment somebody is asking about that item.
+
+	**Compared on the path rather than the key**, since `SR#958` made a key unique only among its
+	siblings — two projects keyed `dist` would otherwise mark the wrong one.
+	"""
+
+	rendered = _rendered(tmp_path, {
+		"Facts": {
+			"item": {"ref": 1, "project_key": "dist", "project_path": "web/dist"},
+			"prioritised": ["web/dist"],
+		},
+		"Listing": {
+			"items": [{
+				"ref": 1, "kind": "task", "title": "A task", "project_key": "dist",
+				"project_path": "web/dist", "status_is_default": True,
+			}],
+			"prioritised": ["web/dist"],
+		},
+	})
+
+	assert "dist (prioritised)" in rendered["Facts"], (
+		f"the item does not say its project is the prioritised one: {rendered['Facts']}"
+	)
+	assert "(prioritised)" not in rendered["Listing"], (
+		f"a row said it, and §12.2a drops a mark that says the same thing on every row: "
+		f"{rendered['Listing']}"
+	)
+
+
+def test_an_item_in_another_project_says_nothing (tmp_path: pathlib.Path) -> None:
+	"""The mark is about *this* project, which a fixture holding one prioritised cannot show."""
+
+	[said] = _rendered(tmp_path, {
+		"Facts": {
+			"item": {"ref": 1, "project_key": "ops", "project_path": "ops"},
+			"prioritised": ["web/dist"],
+		},
+	}).values()
+
+	assert "(prioritised)" not in said, said

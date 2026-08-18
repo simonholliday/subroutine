@@ -33,6 +33,9 @@ upgrade involves.
   stopped being the priority, in the same line. It is worth about half a step of one priority
   axis, deliberately not a number you can set. Work with no importance or urgency on it is
   unaffected, since there is nothing to raise.
+  **In the browser** it is a button on any page narrowed to a project, and the project is marked
+  wherever one is named — the masthead, the add and edit form, and the item's own details. A
+  ranked list and the agenda say once, above the rows, which project is raising them.
 - **You can say which timezone you are in.** `subroutine user timezone Europe/London`, and
   `subroutine user timezone` on its own reports what your account holds. It was settable when
   an account was made and by nothing afterwards, so somebody added by a colleague, or anybody

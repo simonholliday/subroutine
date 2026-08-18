@@ -405,6 +405,26 @@ def _until (settled: typing.Callable[[], bool], seconds: float = 5.0) -> None:
 		time.sleep(0.05)
 
 
+def _prioritised (
+	roster: list[typing.Any], slug: str, body: str | None
+) -> None:
+	"""Record on the fake identity which project a workspace has just prioritised — `SR#986`.
+
+	The instance stores this on the workspace and every surface reads it back off ``/v1/me``, so
+	a stand-in that took the write and went on answering the old value would make a correct page
+	look wrong. Copied rather than mutated in place, because ``IDENTITY`` is a module constant
+	shared by every test in this file.
+	"""
+
+	chosen = json.loads(body or "{}").get("prioritised_project")
+	spaces = [
+		{**space, "prioritised_project": chosen} if space["slug"] == slug else space
+		for space in roster[0]["workspaces"]
+	]
+
+	roster[0] = {**roster[0], "workspaces": spaces}
+
+
 def _absent (wanted: str, refs: set[str]) -> bool:
 	"""Whether this path asks for an item the instance does not have.
 
@@ -636,6 +656,17 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 			if route.request.method != "GET":
 				written.append((route.request.method, wanted, route.request.post_data))
+
+				# **A write the identity has to reflect, because a reader reads it back**
+				# (`SR#986`). This harness answers every write with a card and remembers nothing,
+				# which was true enough while every write was about an item somebody then
+				# reloaded. A prioritised project is a fact about the *workspace*, and the whole
+				# claim being made is that the page refetches the identity and every label
+				# changes — against a stand-in that answered the old value, the product would
+				# have looked broken and the harness would have looked like it had no test.
+				# Fourth time a harness gap here has been indistinguishable from a missing test.
+				if wanted.startswith("v1/workspaces/") and route.request.method == "PATCH":
+					_prioritised(roster, wanted.split("/")[2], route.request.post_data)
 
 				# **A write can be made to fail**, because half of what a form does is decided
 				# by the refusal: a page that only ever succeeds cannot show whether typing
@@ -1283,6 +1314,19 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	**The number is more interesting than any single raise**, which `SR#964` is the item for: 17
 	to 26 in three days, and the shape most of them share is this one.
+
+	**26 to 27, for `SR#986`, and it is that same shape a fifth time.** A prioritised project is
+	set from a button in `App`'s own callback, which does three things — write, refetch the
+	identity, reload the listing — and each one alone leaves a page that looks entirely correct
+	and is wrong: writing without refetching moves the rows under labels still saying the old
+	thing, and refetching without reloading does the reverse. `tests/dom.js` cannot execute
+	`App` (`SR#640`) and will not dispatch an event by decision, so there is no cheaper reader.
+
+	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
+	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
+	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
+	three assertions here. What is left is the wiring, which is the only half that has ever
+	actually broken.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1290,7 +1334,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 26, (
+	assert len(tests) <= 27, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -2052,6 +2096,80 @@ def test_searching_for_a_ref_opens_that_item_and_a_dead_one_still_searches (
 	assert page.locator(".detail").count() == 0, (
 		"a ref nobody minted opened something anyway"
 	)
+
+
+def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
+	running: typing.Any,
+) -> None:
+	"""`SR#986`, decision `SR#982`, and the claim is that **three things happen, not one**.
+
+	The callback writes to the workspace, refetches the identity, and reloads the listing.
+	Writing alone reorders nothing a reader can see; reloading alone moves the rows under labels
+	still saying the old thing — the masthead's mark, the form's dropdown and the header
+	sentence all read `me.workspaces[].prioritised_project`, so a write that skipped the refetch
+	would change the order and leave three places disagreeing with it.
+
+	**Only a browser can answer it.** The callback lives in `App`, which `tests/dom.js` cannot
+	execute (`SR#640`), and that file will not dispatch an event by decision — so the button and
+	everything behind it are reachable from nowhere else. This is `SR#962`'s recorded shape a
+	fifth time: the rule right, the display right, and the wire between them checked by nothing.
+
+	**Asserted on the requests rather than on the markup**, which is this fixture's own rule and
+	`SR#962`'s lesson: a handler that stops halfway leaves the page looking exactly as it should.
+	"""
+
+	opened, written, _refusing, roster, _missing, reads = running
+	before = roster[0]
+	page = opened("/projects/subroutine")
+	page.wait_for_selector(".narrowed", timeout=10_000)
+
+	control = page.locator(".narrowed button.prioritise")
+
+	assert control.inner_text().strip() == "Prioritise", (
+		"the fixture's workspace has no focus, so the control offers to give it one"
+	)
+
+	reads.clear()
+	control.click()
+
+	# **Waited on the control's own label, which is the claim rather than a proxy for it.**
+	# *Stop prioritising* can only be drawn after the identity came back and every label
+	# recomputed from it, so this is the refetch observed rather than assumed.
+	#
+	# **Not `.narrowed`, which never left** — `SR#998`'s trap, where a wait already satisfied
+	# lets the assertion run a tick early and blame the product. And **not `_until`**, which
+	# cannot work here: Playwright's synchronous API dispatches route handlers only while the
+	# caller is inside one of its own calls, so a Python spin-loop waiting on what a handler
+	# records waits for something that cannot happen until it stops waiting. Measured — the
+	# three requests below all arrive, and none of them had while this waited five seconds.
+	page.wait_for_selector(".narrowed button.prioritise:text('Stop prioritising')",
+		timeout=10_000)
+
+	# **Selected rather than taken as the first**, because `running` is module-scoped: `written`
+	# holds every write this whole file has made, and reading position 0 is reading somebody
+	# else's test. Passed alone and failed in a full run, which is the one direction that
+	# ordering-dependent state fails in.
+	sent = [one for one in written if one[0] == "PATCH" and "workspaces" in one[1]]
+
+	assert sent, f"pressing Prioritise wrote no workspace change: {written}"
+	assert sent[-1][1].endswith("/workspaces/projects"), (
+		f"the write went to {sent[-1][1]}, and the state belongs to the workspace"
+	)
+	assert "subroutine" in (sent[-1][2] or ""), (
+		f"the body named no project: {sent[-1][2]!r}"
+	)
+
+	# **The identity is proved by the label above; this is the third step.** Reloading is what
+	# makes the reordering visible, and it is the half that fails silently — a page whose labels
+	# all agree, over rows in the order they were in before.
+	assert any("/tasks" in one for one in reads), (
+		f"nothing reloaded the listing, so the rows the change is *for* have not moved: {reads}"
+	)
+
+	# **Put back, unlike the rest of this file.** The fixture is module-scoped, so a prioritised
+	# project left on the roster would mark a project in every masthead drawn after this — a
+	# state no other test asked for and none would explain.
+	roster[0] = before
 
 
 def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (

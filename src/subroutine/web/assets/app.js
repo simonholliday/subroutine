@@ -1127,6 +1127,25 @@ export function assignRequest (row, who, slug) {
 	};
 }
 
+export function prioritiseRequest (project, slug) {
+	/*
+		Raise one project's work in this workspace, or clear it — `#986`, decision `#982`.
+
+		**A write on the *workspace*, even though the control names a project.** There is one such
+		fact and it belongs to the workspace, so choosing a second project unsets the first in the
+		same request with no clearing logic. A route on the project would read as a per-project
+		flag, which is the mental model that lets four quiet boosts accumulate until the order
+		means nothing — the failure that decision exists to refuse.
+
+		`null` is a value here rather than an omission (§8.3): it clears the priority.
+	*/
+	return {
+		path: `/workspaces/${encodeURIComponent(slug)}`,
+		method: "PATCH",
+		body: { prioritised_project: project },
+	};
+}
+
 export function addRequest (values, slug) {
 	/*
 		The workspace goes *in* the body because that is where this endpoint takes it — the only
@@ -4014,6 +4033,8 @@ export function Board ({
 	onGo = null,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
 	over = null, onOver = null, projects = null,
+	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
+	prioritised = [], onPrioritise = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -4062,15 +4083,8 @@ export function Board ({
 		<div class="listing board">
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
-			${project && html`
-				<div class="narrowed">
-					<span>Showing <strong>${project}</strong> and anything under it.</span>
-					${onWiden && (widenTo
-						? html`<a class="widen" href=${widenTo}
-							onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
-						: html`<button onClick=${onWiden}>Show everything</button>`)}
-				</div>
-			`}
+			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
+				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
 
 			<div class="columns">
 				${arranged.map((column) => html`
@@ -4686,13 +4700,60 @@ export function Conflict ({ theirs }) {
 	`;
 }
 
+export function Narrowed ({
+	project, onWiden, widenTo, prioritised = [], onPrioritise = null, busy = false,
+}) {
+	/*
+		What narrowed this page, how to undo it, and — since `#986` — whether this project is the
+		one whose work is raised here.
+
+		**One component because the list and the board had it twice, byte for byte.** Two copies
+		of one rule is this codebase's signature defect, and it was harmless only for as long as
+		the bar held one control; a second one would have been the moment they started to drift.
+
+		**This is the control decision `#982` asks the browser for**, and it is here rather than
+		beside every project name for the reason the mark is: the page is *about* this project,
+		so this is where the question "should its work be raised?" is actually asked. Elsewhere a
+		project is a destination or a place to file something, and a write control there would be
+		a decision offered to somebody who came to do something else.
+
+		**It says what it will displace before it does it**, which is the whole anti-spiral
+		argument made visible: choosing this project is also the other one stopping, and a reader
+		who is not shown the trade is the reader who sets a fifth one.
+	*/
+	if (!project) return null;
+
+	const raised = prioritised.includes(project);
+	const displaces = prioritised.find((one) => one !== project) || null;
+
+	return html`
+		<div class="narrowed">
+			<span>Showing <strong>${project}</strong> and anything under it.</span>
+			${onPrioritise && html`
+				<button type="button" class="prioritise" disabled=${busy}
+					onClick=${() => onPrioritise(raised ? null : project)}
+					title=${raised
+						? "Stop raising this project's work"
+						: displaces
+							? `Raise this project's work — ${displaces} stops being the priority`
+							: "Raise this project's work above the rest"}
+					>${raised ? "Stop prioritising" : "Prioritise"}</button>
+			`}
+			${onWiden && (widenTo
+				? html`<a class="widen" href=${widenTo}
+					onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
+				: html`<button onClick=${onWiden}>Show everything</button>`)}
+		</div>
+	`;
+}
+
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
-	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
-	prioritised = [],
+	/* Which projects are prioritised, and how to change it — `#986`. */
+	prioritised = [], onPrioritise = null,
 	/* **Its own prop rather than `adding.projects`** (`#912`). That bundle is the capture
 	   form's, and its own comment says nothing else has any business knowing what a dropdown is
 	   made of — one source in `App`, two consumers, each asked for directly. */
@@ -4766,15 +4827,8 @@ export function Listing ({
 				<div class="focus">${prioritisedSentence(prioritised)}</div>
 			`}
 
-			${project && html`
-				<div class="narrowed">
-					<span>Showing <strong>${project}</strong> and anything under it.</span>
-					${onWiden && (widenTo
-						? html`<a class="widen" href=${widenTo}
-							onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
-						: html`<button onClick=${onWiden}>Show everything</button>`)}
-				</div>
-			`}
+			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
+				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
 
 			${/*
 				**An empty page has to say which question it answered** (`#706`). *Nothing here
@@ -4941,7 +4995,7 @@ export function Foot ({ count, version, theme, onTheme }) {
 	`;
 }
 
-export function Facts ({ item }) {
+export function Facts ({ item, prioritised = [] }) {
 	/*
 		**A field nobody set is not printed** (§12.2c). That rule is what lets `subroutine show`
 		answer "buy milk" with a number, a title and nothing else, and it is the same rule here:
@@ -4950,8 +5004,21 @@ export function Facts ({ item }) {
 	const rows = [];
 	const add = (label, value) => value && rows.push([label, value]);
 
+	/*
+		**The one place an item says its project is marked, and a row is not** — `#986`, decision
+		`#982` §4. This is a fact sheet about one item rather than a column down a page, so the
+		rule that drops a mark appearing on 84% of rows does not reach it: here it appears once,
+		beside the project it is about, and answers *why is this ranked where it is*.
+
+		**Compared on the path, never on the key.** A key is unique only among its siblings since
+		`#958`, so two projects may be keyed `dist` and comparing keys would mark the wrong one.
+	*/
+	const raised = prioritised.includes(item.project_path || item.project_key);
+
 	add("Status", item.status);
-	add("Project", item.project_key);
+	add("Project", item.project_key && (
+		raised ? `${item.project_key} (prioritised)` : item.project_key
+	));
 	add("Type", item.type);
 	add("Assignee", item.assignee);
 	add(
@@ -5163,6 +5230,8 @@ export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
+	/* Which projects are prioritised, addressed — for the fact sheet's project row (`#986`). */
+	prioritised = [],
 	/* **What the address already said**, so a linked item's project chip strips it exactly as
 	   a row's does — decision `#957` §4, and `#970` is where the links list joined that rule.
 	   `onGo` is what makes the chip a control rather than an ornament (`#251`). */
@@ -5198,7 +5267,7 @@ export function Detail ({
 					reading=${reading} onReading=${onReading} />`
 				: html`
 					<h2>#${item.ref} ${item.title}</h2>
-					<${Facts} item=${item} />
+					<${Facts} item=${item} prioritised=${prioritised} />
 
 					${onEdit && html`
 						<button class="edit" disabled=${busy}
@@ -6639,6 +6708,45 @@ export function App () {
 		}
 	}, [go, load, workspace]);
 
+	const prioritise = useCallback(async (chosen) => {
+		/*
+			**Raise one project's work here, or stop** — `#986`, decision `#982`.
+
+			**Written on the workspace and read back from the identity**, which is why this
+			refetches it: `me.workspaces[].prioritised_project` is what every surface on this
+			page reads — the header sentence, the masthead's mark, the form's dropdown — so a
+			write that did not refresh it would change the ordering and leave three labels saying
+			the old thing. That is `#640`'s shape and it has shipped from here four times.
+
+			**And the listing is reloaded**, because the whole point is that the rows move.
+			Neither step is optional: doing the first alone reorders nothing a reader can see,
+			and doing the second alone reorders the rows under labels that disagree with them.
+
+			A refusal is a note beside the work rather than the failure page, which is `wrote`'s
+			argument — this is a preference, and losing a readable list over one is a poor trade.
+		*/
+		setBusy(true);
+
+		try {
+			await sent(prioritiseRequest(chosen, workspace));
+
+			const identity = await sent(identityRequest());
+
+			setMe(identity);
+			await load(workspace, project);
+			setNote({
+				text: chosen
+					? `${chosen} is prioritised here.`
+					: "Nothing is prioritised here now.",
+				tone: "good",
+			});
+		} catch (failure) {
+			setNote({ text: `That did not change. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [load, project, workspace]);
+
 	const home = useCallback(async () => {
 		/*
 			**The masthead goes home, and the page goes with it** — `#962`, Simon 2026-08-17.
@@ -7096,6 +7204,13 @@ export function App () {
 					where=${mentionHref(workspace)} onBack=${() => close()}
 					backTo=${withShowing(behind, showing)} workspace=${workspace}
 					project=${project} onGo=${narrow}
+					${/* **`open.slug`, which is the item's own workspace rather than the
+					     switcher's** — an item opened from the agenda may be in another one, and
+					     marking its project from the wrong workspace's focus would be a
+					     confident wrong answer. Its own comment at `nowOpen` says it is the only
+					     copy that is always right; `open.item.workspace` is not a field, and
+					     reading it would have fallen back to the switcher in silence. */ null}
+					prioritised=${prioritisedHere(me ? me.workspaces : [], open.slug || workspace)}
 					onComplete=${mayWrite ? complete : null}
 					onAssign=${mayWrite ? assign : null} />`
 				: agenda !== null
@@ -7121,6 +7236,10 @@ export function App () {
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} projects=${filable} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
+							${/* The board's narrowed bar is the listing's, so it carries the same
+							     control — one component, one answer (`#986`). */ null}
+							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
+							onPrioritise=${mayWrite ? prioritise : null}
 							selection=${showing.selection}
 							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
 							${/* **Offered only where one parameter is the whole remedy**: a board
@@ -7150,6 +7269,7 @@ export function App () {
 							${/* **This workspace's alone**, because a listing is narrowed to one —
 							     unlike the agenda above, which spans them and names each. */ null}
 							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
+							onPrioritise=${mayWrite ? prioritise : null}
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							${/* **No control on the finished view** (`#782`). Its order is part of what

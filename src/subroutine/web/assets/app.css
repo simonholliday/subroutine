@@ -1514,10 +1514,16 @@ fieldset {
 	font-size: var(--text-small);
 }
 
+/*
+	**The controls sit together at the right rather than being spread apart** (`#986`). This was
+	`space-between`, which is the same arrangement while the bar holds one control and pulls two
+	to opposite ends the moment it holds two — *Prioritise* against the middle of the row and
+	*Show everything* against the edge, reading as two unrelated things. `margin-right: auto` on
+	the sentence gives the identical result for one control and groups any number of them.
+*/
 .narrowed {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	gap: var(--space-6);
 	margin-bottom: var(--space-7);
 	padding: var(--space-4) var(--space-7);
@@ -1527,6 +1533,8 @@ fieldset {
 	color: var(--ink-soft);
 	font-size: var(--text-body);
 }
+
+.narrowed > span:first-child { margin-right: auto; }
 
 .narrowed strong { color: var(--ink); font-weight: 600; }
 
