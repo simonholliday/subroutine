@@ -348,6 +348,44 @@ AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = (
 )
 
 
+def agenda_asked (
+	world: World, *, workspace: str | None, now: datetime.datetime
+) -> dict[str, typing.Any]:
+	"""Return what the agenda asks every connection for.
+
+	**Lifted out of the command so that something other than a person can ask it** (`#992`).
+	Three surfaces build this request — here, `agendaRequest()` in `app.js`, and the `today`
+	branch of `mcp/tools._listed` — and nothing compared them, which is how they came to ask
+	three different questions of one function. The guard drives this; a copy of it inside a
+	Typer closure could only ever be driven by running the command.
+
+	**The horizon is passed rather than left to default.** `GET /v1/agenda` omits the
+	`upcoming` bucket unless asked, because an agent asking "what is on today" means today; a
+	person running `subroutine agenda` wants the week in front of them, and §12.2a's agenda
+	has a heading for it.
+
+	**`date` and `timezone` are this machine's, resolved once** (§13.7). Each instance would
+	otherwise apply its own notion of the caller's timezone, and a person whose work profile
+	says America/New_York and whose personal one says Europe/London would get two different
+	days merged into one list. **That reasoning does not survive its own case and `#995` is
+	the item**: the zone sent is the *typing machine's*, which on a mismatched pair is a third
+	answer matching neither.
+	"""
+
+	zone = world.settings.default_timezone
+
+	return {
+		"date": subroutine.domain.schedule.local_date(now, zone),
+		"timezone": zone,
+		"horizon_days": subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+		# `-w` narrows the agenda the same way it narrows every other listing. Unset spans
+		# everything, which is what makes this one list rather than one per workspace
+		# (§13.7) — the dentist and the stand-up belong in the same place. Naming a
+		# workspace is how you ask for half of it.
+		"workspace": workspace,
+	}
+
+
 @dataclasses.dataclass(frozen=True)
 class Program:
 	"""What a command has of the program around it: how to speak, and how to reach.
@@ -3656,30 +3694,12 @@ def register (
 		# round rather than the natural-reading way.
 
 		with program.opened(strict=strict) as world:
-			# **Resolved once, here, in this machine's zone** (§13.7). Each instance would
-			# otherwise apply its own notion of the caller's timezone, and a person whose work
-			# profile says America/New_York and whose personal one says Europe/London would
-			# get two different days merged into one list.
-			zone = world.settings.default_timezone
-			day = subroutine.domain.schedule.local_date(subroutine.db.types.utcnow(), zone)
+			asked = agenda_asked(
+				world, workspace=selected.workspace, now=subroutine.db.types.utcnow()
+			)
 
 			gathered = subroutine.fanout.gather(
-				world.clients,
-				# The horizon is passed rather than left to default. `GET /v1/agenda` omits
-				# the `upcoming` bucket unless asked, because an agent asking "what is on
-				# today" means today; a person running `subroutine today` wants the week in
-				# front of them, and §12.2a's agenda has four buckets.
-				lambda client: client.agenda(
-					date=day,
-					timezone=zone,
-					horizon_days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
-					# `-w` narrows the agenda the same way it narrows every other listing.
-					# Unset spans everything, which is what makes `today` one list rather
-					# than one per workspace (§13.7) — the dentist and the stand-up belong
-					# in the same place. Naming a workspace is how you ask for half of it.
-					workspace=selected.workspace,
-				),
-				strict=strict,
+				world.clients, lambda client: client.agenda(**asked), strict=strict
 			)
 
 			_report(program, world, gathered.failures)
@@ -6270,6 +6290,29 @@ def _asked (given: str, question: str) -> str:
 	return answer
 
 
+def agenda_rows (
+	world: World, gathered: subroutine.fanout.Gathered[subroutine.views.Agenda]
+) -> dict[str, list[Row]]:
+	"""Return every agenda bucket, merged across connections and ordered as it is read.
+
+	**Re-sorted across connections, not concatenated.** Each connection answers already
+	ordered, and appending one block after another left ``--merged`` showing all of A
+	newest-first and then all of B — two sorted runs end to end, which §13.7 explicitly rules
+	out ("sorting is re-applied after the merge"). It also made the suggested ``done`` command
+	name the first *connection's* first row rather than the newest one.
+
+	**Lifted out of :func:`_render` so that the ordering has one definition and something can
+	drive it** (`#992`). It was a loop inside the renderer, so the only way to ask what order
+	the terminal puts a bucket in was to render one and read it back — and the scripted path
+	beside it does not call this at all, which is `#993`.
+	"""
+
+	return {
+		field: _in_order(_across(world, gathered, operator.attrgetter(field)), field)
+		for _heading, field, _late in AGENDA_SECTIONS
+	}
+
+
 def _render (
 	world: World,
 	gathered: subroutine.fanout.Gathered[subroutine.views.Agenda],
@@ -6286,18 +6329,7 @@ def _render (
 	"""
 
 	buckets = AGENDA_SECTIONS
-	rows: dict[str, list[Row]] = {}
-
-	for _heading, field, _late in buckets:
-		# **Re-sorted across connections, not concatenated.** Each connection answers already
-		# ordered, and appending one block after another left `--merged` showing all of A
-		# newest-first and then all of B — two sorted runs end to end, which §13.7 explicitly
-		# rules out ("sorting is re-applied after the merge"). It also made the suggested
-		# `done` command name the first *connection's* first row rather than the newest one.
-		rows[field] = _in_order(
-			_across(world, gathered, operator.attrgetter(field)),
-			field,
-		)
+	rows = agenda_rows(world, gathered)
 
 	# One width across every bucket, so the addresses line up down the whole agenda rather
 	# than stepping in and out as the sections change. The type column is measured over the

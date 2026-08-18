@@ -1336,7 +1336,7 @@ def _listed (
 	# sort key. Returned flat: the buckets are a *terminal* structure, and a model reading
 	# four headings for what is usually four rows is paying for the headings.
 	if arguments.get("today"):
-		agenda = client.agenda(workspace=workspace)
+		agenda = client.agenda(**_agenda_asked(arguments))
 
 		# **Three buckets, not four: `unscheduled` is deliberately left out.** It is the
 		# terminal's filler — "your day is empty, here is some backlog" — capped at twenty,
@@ -1457,6 +1457,19 @@ def _asks_only_of_documents (filters: dict[str, str]) -> bool:
 		in subroutine.domain.filtering.DOCUMENT_FILTERS
 		for name in filters
 	)
+
+
+def _agenda_asked (arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
+	"""Return what an agent's agenda asks the instance for.
+
+	**Lifted out of the branch so that something other than a model can ask it** (`#992`).
+	Three surfaces build this request — here, `cli/personal.agenda_asked` and
+	`agendaRequest()` in `app.js` — and nothing compared them, so they asked three different
+	questions of one function and every difference reached a reader as a different answer to
+	*what should I work on next*.
+	"""
+
+	return {"workspace": _text(arguments, "workspace")}
 
 
 def _line (
