@@ -47,6 +47,55 @@ DEFAULT_UNSCHEDULED_LIMIT = 20
 #: The CLI's default look-ahead. Not the API's — it has none (docs/design.md §8.6).
 DEFAULT_HORIZON_DAYS = 7
 
+#: What separates two rows a bucket's own keys cannot tell apart: oldest first, always
+#: ascending. Simon's decision of 2026-08-13 — age is *"one of the least significant ordering
+#: fields, maybe the last"* and not a signal, so it says nothing beyond *these are not the same
+#: row*. Named once because two readers need it and a second spelling is a page boundary that
+#: lands where the next page does not start.
+TIEBREAK = "created_at"
+
+#: How each bucket is ordered, in ``?order=``'s own grammar.
+#:
+#: **Declared rather than written out in SQL, because a second reader re-sorts these in
+#: Python** (`#993`). ``subroutine agenda`` asks one connection per place and merges the
+#: answers, so the arrangement has to be reapplied after the merge — and it was reapplied on
+#: *different keys*: the ref where the server breaks ties on :data:`TIEBREAK`, and nothing at
+#: all where the server reads ``starts_at``. Refs are allocated per workspace, so those agreed
+#: for exactly as long as an agenda was dominated by one.
+#:
+#: This is `#71`'s shape, which ``domain/ordering.py``'s own docstring records: an ordering
+#: chosen by the server and discarded one level up, where **the output looks entirely
+#: reasonable**. One declaration is what makes that impossible rather than unlikely.
+ORDERS: dict[str, tuple[str, ...]] = {
+	# Soonest first, because that is the order the days arrive in.
+	"overdue": ("due_at",),
+	"today": ("due_at",),
+	# **Ranked, which is the same rule ``?order=-priority_score`` applies** (`#853`), so the
+	# agenda and a ranked listing cannot disagree about which item is the one to start.
+	"in_progress": ("-priority_score",),
+	# **``starts_at`` second, and it is the key the client used to drop.** An appointment next
+	# Tuesday carrying no deadline is ordered by when it begins; without this it fell to the
+	# tiebreak and sorted by age, which reads as an arbitrary arrangement of things that have
+	# a very obvious one.
+	"upcoming": ("due_at", "starts_at"),
+	"unscheduled": ("-priority_score",),
+}
+
+
+def order_for (bucket: str) -> tuple[tuple[str, bool], ...]:
+	"""Return one bucket's ordering as ``(field, descending)`` pairs, tiebreak included.
+
+	For a caller sorting rows it has already been given — :func:`subroutine.domain.ordering.
+	merged` is the other half. The SQL side of the same declaration is :func:`_ordered`, and
+	the two appending the same tiebreak is the whole reason it has a name.
+	"""
+
+	keys = subroutine.domain.ordering.requested(
+		None, allowed=subroutine.domain.ordering.TASK_FIELDS, default=ORDERS[bucket]
+	)
+
+	return (*keys, (TIEBREAK, False))
+
 
 @dataclasses.dataclass(frozen=True)
 class Agenda:
@@ -133,7 +182,7 @@ def build (
 	overdue = _run(
 		session,
 		base.where(model.due_at.is_not(None), model.due_at < day_start),
-		sqlalchemy.asc(model.due_at),
+		"overdue",
 	)
 
 	seen = {task.id for task in overdue}
@@ -180,7 +229,7 @@ def build (
 		# wrote down first". This one was harmless and is gone for tidiness rather than for a
 		# defect. The column stays: `#28` records it as unwritten and `#787` is what would
 		# write it.
-		sqlalchemy.asc(model.due_at).nullslast(),
+		"today",
 	)
 	today = tuple(task for task in today if task.id not in seen)
 	seen.update(task.id for task in today)
@@ -210,7 +259,7 @@ def build (
 			subroutine.db.models.vocabulary.Status,
 			subroutine.db.models.vocabulary.Status.id == model.status_id,
 		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
-		_ranked(),
+		"in_progress",
 	)
 	started = tuple(task for task in started if task.id not in seen)
 	seen.update(task.id for task in started)
@@ -228,8 +277,7 @@ def build (
 					sqlalchemy.and_(model.starts_at > day_end, model.starts_at <= horizon),
 				)
 			),
-			sqlalchemy.asc(model.due_at).nullslast(),
-			sqlalchemy.asc(model.starts_at).nullslast(),
+			"upcoming",
 		)
 		upcoming = tuple(task for task in upcoming if task.id not in seen)
 
@@ -263,7 +311,7 @@ def build (
 	unscheduled = _run(
 		session,
 		undated.limit(unscheduled_limit),
-		_ranked(),
+		"unscheduled",
 	)
 	total = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(undated.subquery())
@@ -279,17 +327,6 @@ def build (
 		unscheduled=unscheduled,
 		unscheduled_total=total or 0,
 	)
-
-
-def _ranked () -> sqlalchemy.UnaryExpression[typing.Any]:
-	"""Return the ordering a section of candidates is read in: best first.
-
-	The same rule `?order=-priority_score` applies, so the agenda and a ranked listing cannot
-	disagree about which item is the one to start — §6.3a's bands, NULLS LAST in both
-	directions so unranked work sorts after ranked work rather than before it.
-	"""
-
-	return sqlalchemy.desc(subroutine.domain.ordering.RANKING).nullslast()
 
 
 def _visible (
@@ -355,19 +392,26 @@ def _visible (
 def _run (
 	session: sqlalchemy.orm.Session,
 	statement: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
-	*order: sqlalchemy.UnaryExpression[typing.Any],
+	bucket: str,
 ) -> tuple[subroutine.db.models.work.Task, ...]:
-	"""Execute one bucket's query with a deterministic order.
+	"""Execute one bucket's query in the order :data:`ORDERS` declares for it.
 
-	``created_at`` is appended as the final tie-break so that two tasks with identical
-	sort keys do not swap places between calls — a list that reorders itself while nothing
-	changed is one nobody trusts.
+	:data:`TIEBREAK` is appended by :func:`subroutine.domain.ordering.clauses` so that two
+	tasks with identical sort keys do not swap places between calls — a list that reorders
+	itself while nothing changed is one nobody trusts.
 	"""
 
-	model = subroutine.db.models.work.Task
-
 	return tuple(
-		session.scalars(statement.order_by(*order, sqlalchemy.asc(model.created_at)))
+		session.scalars(
+			statement.order_by(
+				*subroutine.domain.ordering.clauses(
+					None,
+					allowed=subroutine.domain.ordering.TASK_FIELDS,
+					default=ORDERS[bucket],
+					tiebreak=subroutine.db.models.work.Task.created_at,
+				)
+			)
+		)
 	)
 
 

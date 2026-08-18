@@ -255,7 +255,6 @@ def test_every_surface_names_the_same_work_in_the_same_order (
 	)
 
 
-@pytest.mark.xfail(strict=True, reason="`#993` — `--json` never calls `_in_order`")
 def test_the_scripted_agenda_is_ordered_like_the_one_a_person_reads (
 	surfaces: Surfaces, monkeypatch: pytest.MonkeyPatch
 ) -> None:

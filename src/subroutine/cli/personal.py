@@ -7310,17 +7310,19 @@ def _agenda_json (
 	``--strict`` exists for a script that would rather not have one at all.
 	"""
 
-	buckets = ("overdue", "today", "in_progress", "upcoming", "unscheduled")
+	buckets = tuple(field for _heading, field, _late in AGENDA_SECTIONS)
+	rows = agenda_rows(world, gathered)
 	first = gathered.answers[0].value if gathered.answers else None
 
 	return {
 		"date": None if first is None else first.date.isoformat(),
 		"timezone": None if first is None else first.timezone,
+		# **The same rows in the same order as the page**, which they were not: this called
+		# `_across` and never `_in_order`, so a scripted reader with two connections got two
+		# sorted runs end to end while the rendered path got one list (`#993`). On one
+		# connection the two coincide, which is why nothing had caught it.
 		**{
-			field: [
-				_as_json(world, name, task)
-				for name, task in _across(world, gathered, operator.attrgetter(field))
-			]
+			field: [_as_json(world, name, task) for name, task in rows[field]]
 			for field in buckets
 		},
 		"unscheduled_total": sum(
@@ -7586,48 +7588,31 @@ def _merged (
 	return subroutine.domain.ordering.merged(rows, key=lambda row: row[1], order=order)
 
 
-def _in_order (
-	rows: list[Row], bucket: str
-) -> list[Row]:
-	"""Order one agenda bucket the way that bucket is read.
+def _in_order (rows: list[Row], bucket: str) -> list[Row]:
+	"""Order one agenda bucket on the keys the instance ordered it by.
 
-	The dated buckets read by date — soonest first, because that is the order the days arrive
-	in. The ref is the tiebreak throughout, so two tasks with the same date do not swap places
-	between runs.
+	**Re-sorted at all because ``_across`` concatenates**, and two sorted runs end to end is
+	what §13.7 rules out: a person with a work connection and a personal one would otherwise
+	see all of one and then all of the other rather than one day.
 
-	**The two undated buckets read by rank**, which is the same rule ``?order=-priority_score``
-	applies, so the agenda and a ranked listing cannot disagree about which item is the one to
-	start. `#853`.
+	**On :data:`subroutine.domain.agenda.ORDERS` rather than on keys of its own** (`#993`).
+	This wrote the rule out a second time and got it wrong twice: the ref where the server
+	breaks ties on ``created_at``, and nothing at all where the server reads ``starts_at``.
+	Refs are allocated per workspace, so the first agreed for exactly as long as an agenda was
+	dominated by one — which is the state every fixture and this project's own instance were
+	in, and is why nothing caught it.
 
-	**And this is where the server's ordering was being discarded** — `#71`'s defect, which
-	``domain/ordering.py``'s own docstring records: *a ``--order`` flag whose result was
-	re-sorted by ``created_at`` one level further up, so the flag chose which items appeared
-	and then discarded the arrangement*. It happened again here the moment the agenda started
-	ranking: the section came back best-first and this put it back to newest-first, and the
-	output looked entirely reasonable.
+	That is `#71`'s shape, which ``domain/ordering.py``'s own docstring records: an ordering
+	chosen by the server and discarded one level up, where **the output looks entirely
+	reasonable**. Reading the declaration is what makes a third disagreement impossible rather
+	than unlikely.
 	"""
 
-	if bucket in ("unscheduled", "in_progress"):
-		return subroutine.domain.ordering.merged(
-			rows, key=lambda row: row[1], order=(("priority_score", True), ("ref", False))
-		)
-
-	# NULLs last, explicitly: a task in `today` may be there for `starts_at` and carry no
-	# deadline at all, and it belongs after the ones that do rather than before them.
-	#
-	# `_deadline` rather than `row[1].due_at` because a listing row may now hold a document,
-	# which has no deadline — and an agenda never does. Written as a guard that answers
-	# "no deadline" rather than as a cast, so a document reaching here sorts last instead of
-	# raising in a lambda inside a sort, which is a traceback nobody can place.
-	rows.sort(
-		key=lambda row: (
-			_deadline(row[1]) is None,
-			_deadline(row[1]) or datetime.datetime.max.replace(tzinfo=datetime.UTC),
-			row[1].ref,
-		)
+	return subroutine.domain.ordering.merged(
+		rows,
+		key=lambda row: row[1],
+		order=subroutine.domain.agenda.order_for(bucket),
 	)
-
-	return rows
 
 
 def suggest (command: str, about: str | None = None) -> None:

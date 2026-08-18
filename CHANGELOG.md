@@ -147,6 +147,12 @@ upgrade involves.
 
 ### Fixed
 
+- **The agenda is in the same order wherever you read it.** The terminal re-sorted every
+  section after merging your connections, and it re-sorted on different keys from the ones
+  the instance had used: by item number where the instance separates ties by age, and not at
+  all where an appointment's start date is what orders it. So work with no deadline appeared
+  in what looked like an arbitrary order, and the page and `--json` could disagree. The
+  ordering is declared once now and both read it.
 - **Relating two items from both ends no longer records it twice.** `Relates to` means the
   same thing whichever item you start from, so linking back from the other one stored a
   second identical row — and the item then showed the same line twice, with no way to tell
