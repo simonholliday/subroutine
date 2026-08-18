@@ -6013,6 +6013,46 @@ def test_the_unscheduled_bucket_says_how_much_it_is_not_showing (
 	assert "12 more unscheduled" in markup
 
 
+def test_the_agenda_says_how_much_dated_work_is_past_the_look_ahead (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#997`, Simon's decision of 2026-08-18: the edge stays and gets said.
+
+	A deadline further out than the look-ahead is in **no bucket at all** — `unscheduled`
+	requires both dates to be null, so dated work leaves that pile and there is nowhere else
+	to go. `unscheduled_total`'s sibling, and it reaches every surface for the same reason:
+	a count on one of them is `SR#583`'s shape, which is what `SR#990` exists to prevent.
+
+	**Both counts, and separately.** They have different remedies — one is a cap you can lift,
+	the other is a listing — so one total would be a figure with no action attached to it.
+	"""
+
+	markup = _rendered(
+		tmp_path, {"Agenda": {**SAMPLES["Agenda"], "later": 3}}
+	)["Agenda"]
+
+	assert "3 dated further out" in markup
+	assert "12 more unscheduled" in markup, "the other count is still its own sentence"
+
+
+def test_an_agenda_showing_everything_says_nothing_about_what_it_left_out (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""§12.2a: a line that says the same thing on every page says nothing.
+
+	The pair is what makes the count worth having — a *zero* printed beside every agenda would
+	be noise on the ordinary day, and the ordinary day is most days: measured on this project's
+	own instance, 11 of 170 open tasks carry a deadline at all.
+	"""
+
+	markup = _rendered(
+		tmp_path, {"Agenda": {**SAMPLES["Agenda"], "more": 0, "later": 0}}
+	)["Agenda"]
+
+	assert "further out" not in markup
+	assert "unscheduled." not in markup
+
+
 def test_the_agenda_can_add_something_and_says_where_it_lands (tmp_path: pathlib.Path) -> None:
 	"""§1.4: no entity may ever be *required* to create a task, and `/` is where a person lands.
 

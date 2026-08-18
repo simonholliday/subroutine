@@ -119,6 +119,14 @@ class Agenda:
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
 
+	#: How many *dated* tasks this agenda does not show — further out than the look-ahead, or
+	#: past today where no look-ahead was asked for (`#997`). The same job
+	#: :attr:`unscheduled_total` does for the other pile: the window has an edge on every
+	#: surface, and until this existed nothing said so, so a deadline three weeks away was
+	#: absent from the view whose whole job is *what is coming* with no sign it had been left
+	#: out.
+	later_total: int = 0
+
 	@property
 	def is_empty (self) -> bool:
 		"""Report whether there is nothing at all to show."""
@@ -317,6 +325,33 @@ def build (
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(undated.subquery())
 	)
 
+	# **How much dated work this agenda does not show** (`#997`). The window has an edge and
+	# every surface has the same edge, so a deadline three weeks out is in **no bucket at
+	# all** — `unscheduled` requires both dates to be null, so dated work leaves it and there
+	# is nowhere else to go. It reappears seven days before it is due.
+	#
+	# **Simon's decision of 2026-08-18 is that the edge stays and gets said**: the agenda is a
+	# day view (§8.6) and a listing already answers *what is due this quarter*, so the defect
+	# was never the edge — it was that nothing told a reader one existed. `unscheduled_total`
+	# is the worked precedent for *there is more, here is how much*.
+	#
+	# **Defined as "dated and not shown" rather than "past the horizon"**, which is the same
+	# thing when a horizon was asked for and is still right when one was not: `GET /v1/agenda`
+	# omits `upcoming` unless asked, so on that call *everything* dated beyond today is unshown
+	# and this counts all of it. A predicate written against `horizon` would have reported zero
+	# there, which is the answer that looks like good news.
+	shown = seen | {task.id for task in upcoming}
+	later = base.where(
+		sqlalchemy.or_(model.starts_at.is_not(None), model.due_at.is_not(None))
+	)
+
+	if shown:
+		later = later.where(model.id.not_in(shown))
+
+	beyond = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(later.subquery())
+	)
+
 	return Agenda(
 		date=day,
 		timezone=timezone,
@@ -326,6 +361,7 @@ def build (
 		upcoming=upcoming,
 		unscheduled=unscheduled,
 		unscheduled_total=total or 0,
+		later_total=beyond or 0,
 	)
 
 

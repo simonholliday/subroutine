@@ -368,6 +368,17 @@ def _seed (
 		subroutine.domain.tasks.create(
 			session, project=home, title="Tidy the shed", importance=3, urgency=3
 		),
+		# **Past the look-ahead, so it is in no bucket at all** (`#997`). `unscheduled`
+		# requires both dates to be null, so dated work leaves it and there is nowhere else
+		# to go — which is the whole of that item, and is why every surface has to say how
+		# much it is not showing.
+		subroutine.domain.tasks.create(
+			session,
+			project=home,
+			title="File the tax return",
+			due=TODAY + datetime.timedelta(days=30),
+			timezone=INSTANCE_ZONE,
+		),
 	]
 
 	# Written rather than left to the clock, so a tie is a property of the fixture rather than
@@ -420,6 +431,41 @@ def _twice (
 	)
 
 
+def test_every_surface_says_how_much_dated_work_it_is_not_showing (
+	surfaces: Surfaces, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#997`, Simon's decision of 2026-08-18: the edge stays and gets said.
+
+	**The window has an edge and every surface has the same one**, so a deadline past it is in
+	no bucket at all — `unscheduled` requires both dates to be null, so dated work leaves that
+	pile and there is nowhere else to go. The agenda is a day view (§8.6) and a listing already
+	answers *what is due this quarter*, so what was missing was never the work: it was any sign
+	that the view had left some out.
+
+	**Compared across the three, because a count on one surface is the divergence this
+	milestone exists to prevent.** `unscheduled_total` reaches all three and this is its
+	sibling; a terminal-only remainder would be `#583`'s shape again.
+	"""
+
+	with _at(monkeypatch, MOMENT):
+		asked = subroutine.cli.personal.agenda_asked(workspace=None)
+		terminal = surfaces.gathered(**asked).answers[0].value.later_total
+		browser = _browser_answer(surfaces, tmp_path)["later_total"]
+		agent = subroutine.mcp.tools._listed(surfaces.client, {"today": True})
+
+	assert terminal == 1, (
+		"one task is dated past the look-ahead and it is in no bucket, so the count is what "
+		f"says it exists: {terminal}"
+	)
+	assert browser == terminal, f"the page is told {browser} where the terminal is told {terminal}"
+
+	said = [line for line in agent.splitlines() if "dated further out" in line]
+
+	assert said and str(terminal) in said[0], (
+		f"an agent reads the buckets and nothing about the edge:\n{agent}"
+	)
+
+
 def _terminal (surfaces: Surfaces) -> dict[str, list[int]]:
 	"""Return what ``subroutine agenda`` puts on the page, bucket by bucket."""
 
@@ -429,13 +475,8 @@ def _terminal (surfaces: Surfaces) -> dict[str, list[int]]:
 	return {bucket: [task.ref for _name, task in rows[bucket]] for bucket in BUCKETS}
 
 
-def _browser (surfaces: Surfaces, tmp_path: pathlib.Path) -> dict[str, list[int]]:
-	"""Return what the page renders, by asking for it the way the page does.
-
-	The request comes from ``agendaRequest()`` and the grouping from ``agendaBuckets``, both
-	run in Node against the served ``app.js`` — so this is the browser's own decision rather
-	than a Python restatement of it.
-	"""
+def _browser_answer (surfaces: Surfaces, tmp_path: pathlib.Path) -> dict[str, typing.Any]:
+	"""Return what the page is handed, by asking for it the way the page asks."""
 
 	asked = _browser_request(tmp_path)
 	answer = api_support.call(
@@ -447,10 +488,21 @@ def _browser (surfaces: Surfaces, tmp_path: pathlib.Path) -> dict[str, list[int]
 
 	assert answer.status_code == 200, answer.text
 
+	return typing.cast(dict[str, typing.Any], answer.json())
+
+
+def _browser (surfaces: Surfaces, tmp_path: pathlib.Path) -> dict[str, list[int]]:
+	"""Return what the page renders, by asking for it the way the page does.
+
+	The request comes from ``agendaRequest()`` and the grouping from ``agendaBuckets``, both
+	run in Node against the served ``app.js`` — so this is the browser's own decision rather
+	than a Python restatement of it.
+	"""
+
 	grouped = test_web._ran(tmp_path, f"""
 		import * as app from "{test_web._staged(tmp_path).as_uri()}";
 
-		const agenda = {json.dumps(answer.json())};
+		const agenda = {json.dumps(_browser_answer(surfaces, tmp_path))};
 
 		process.stdout.write(JSON.stringify(app.agendaBuckets(agenda, [])));
 	""")

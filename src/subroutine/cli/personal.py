@@ -6536,6 +6536,10 @@ def _render (
 		answer.value.unscheduled_total - len(answer.value.unscheduled)
 		for answer in gathered.answers
 	)
+	# **Dated work further out than the look-ahead** (`#997`). Summed rather than taken from
+	# one answer, because §13.7 merges connections and a deadline on the work instance counts
+	# exactly as much as one on the personal list.
+	later = sum(answer.value.later_total for answer in gathered.answers)
 	printed = False
 	first: Row | None = None
 
@@ -6562,6 +6566,22 @@ def _render (
 
 	if remaining > 0:
 		console.print(rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL))
+
+	# **Said because the window has an edge and nothing else says so** (`#997`, Simon's
+	# decision of 2026-08-18). The agenda stays a day view — a listing answers *what is due
+	# this quarter* — so what was missing was never the work, it was any sign that the view
+	# had left some out. `subroutine list --filter due_at.gte=today` is where it is, and
+	# naming the command is what turns a count into something a reader can act on.
+	if later > 0:
+		console.print(
+			rich.text.Text(f"      and {later} dated further out", style=DETAIL)
+		)
+		console.print(
+			rich.text.Text(
+				"      subroutine list --filter due_at.gte=today --order due_at",
+				style=DETAIL,
+			)
+		)
 
 	if first is None:
 		_suggest(console, 'subroutine add "something to do"')
@@ -7439,6 +7459,10 @@ def _agenda_json (
 		"unscheduled_total": sum(
 			answer.value.unscheduled_total for answer in gathered.answers
 		),
+		# **What the window left out** (`#997`), summed across connections exactly as the
+		# rendered path sums it — a script asking whether this view is complete has the same
+		# question a person does.
+		"later_total": sum(answer.value.later_total for answer in gathered.answers),
 		# **Every connection that did not answer, not only the ones that failed at this
 		# call.** A connection that could not be *opened* (no token, unparseable
 		# credentials) or that failed at `identity()` was named on stderr and reported here

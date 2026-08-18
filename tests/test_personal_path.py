@@ -257,6 +257,50 @@ def test_the_older_name_for_the_agenda_says_where_it_went (
 	assert "agenda" in set(root.list_commands(context)), "the command itself is in the help"
 
 
+def test_the_agenda_says_how_much_dated_work_is_past_the_look_ahead (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#997`, Simon's decision of 2026-08-18: the edge stays and gets said.
+
+	A deadline further out than the look-ahead is in **no bucket at all** — `unscheduled`
+	requires both dates to be null, so dated work leaves that pile and there is nowhere else to
+	go. The agenda stays a day view (§8.6) and a listing already answers *what is due this
+	quarter*, so what was missing was never the work: it was any sign the view had left some
+	out.
+
+	**And the count names the command that shows it**, because a number nobody can act on is
+	worse than no number — §12.2a's habit of ending with the next thing to type.
+	"""
+
+	run("init")
+	run("add", "File the return by today+30d")
+	run("add", "Buy milk")
+
+	printed = run("agenda").output
+
+	assert "File the return" not in printed, "thirty days out is past a seven-day look-ahead"
+	assert "1 dated further out" in printed
+	assert "subroutine list --filter due_at.gte=today" in printed, (
+		"a count with no way to see what it counts is a number nobody can act on"
+	)
+
+
+def test_an_agenda_showing_everything_says_nothing_about_what_it_left_out (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: a line on every page that says the same thing says nothing.
+
+	The ordinary day is most days — measured on this project's own instance, 11 of 170 open
+	tasks carry a deadline at all — so a zero printed beside every agenda would be noise on
+	almost all of them.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	assert "further out" not in run("agenda").output
+
+
 def test_a_bare_invocation_still_prints_the_agenda (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -1368,15 +1368,26 @@ def _listed (
 		rows = every if arguments.get("limit") is None else every[:limit]
 
 		# **What is held back is said, never simply absent** (§12.2a, and `#888`'s condition on
-		# any cap here). Two things can hide a row — this limit, and the agenda's own cap on
-		# undated work — and an agent that cannot tell a short day from a truncated one will
-		# act on the wrong one.
+		# any cap here). Three things can hide a row — this limit, the agenda's own cap on
+		# undated work, and the look-ahead's edge (`#997`) — and an agent that cannot tell a
+		# short day from a truncated one will act on the wrong one.
+		#
+		# **Two counts rather than one number**, because the remedies differ: a larger limit
+		# reaches the first, and only a listing reaches the second. One total would be a
+		# figure with no action attached to it.
 		hidden = (
 			len(every) - len(rows) + agenda.unscheduled_total - len(agenda.unscheduled)
 		)
 
 		if hidden > 0:
 			rows = [*rows, f"{hidden} more not shown. Raise limit, or list ready=true."]
+
+		if agenda.later_total > 0:
+			rows = [
+				*rows,
+				f"{agenda.later_total} dated further out. "
+				f"List with filter due_at.gte=today, order due_at.",
+			]
 
 		return "\n".join(rows) if rows else "Nothing on today."
 

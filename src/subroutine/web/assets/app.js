@@ -3797,7 +3797,7 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
+	buckets, more, later = 0, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 }) {
@@ -3893,9 +3893,18 @@ export function Agenda ({
 				server already did the counting; §8.4 declines a total for a *listing* and this is
 				not one.
 			*/ null}
-			${more !== null && more !== undefined && more > 0 && html`
+			${/*
+				**And what the window left out** (`#997`). The look-ahead has an edge and every
+				surface has the same one, so a deadline three weeks away is in no bucket at all —
+				`unscheduled` requires both dates to be null, so dated work leaves it and there is
+				nowhere else to go. Simon's decision of 2026-08-18 is that the edge stays and gets
+				said: the agenda is a day view, and what was missing was any sign it had left
+				something out.
+			*/ null}
+			${((more > 0) || (later > 0)) && html`
 				<div class="cut">
-					<span>${more} more unscheduled.</span>
+					${more > 0 && html`<span>${more} more unscheduled.</span>`}
+					${later > 0 && html`<span>${later} dated further out.</span>`}
 				</div>
 			`}
 		</div>
@@ -5405,6 +5414,7 @@ export function App () {
 	   render" and "the agenda is what to render" are the same fact and two would drift. */
 	const [agenda, setAgenda] = useState(null);
 	const [unscheduled, setUnscheduled] = useState(0);
+	const [later, setLater] = useState(0);
 	/*
 		The add form: whether it is open, and the two answers it needs to draw its dropdowns
 		(`#756`).
@@ -5533,6 +5543,7 @@ export function App () {
 		setUnscheduled(
 			Math.max(0, (answered.unscheduled_total || 0) - (answered.unscheduled || []).length),
 		);
+		setLater(answered.later_total || 0);
 	}, []);
 
 	const load = useCallback(async (slug, key = null, after = null) => {
@@ -6967,7 +6978,7 @@ export function App () {
 					onComplete=${mayWrite ? complete : null}
 					onAssign=${mayWrite ? assign : null} />`
 				: agenda !== null
-					? html`<${Agenda} buckets=${agenda} more=${unscheduled}
+					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						projects=${filable} onGo=${narrow}
 						${/* **Each row is opened in its own workspace, not in the one the

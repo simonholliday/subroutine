@@ -620,7 +620,14 @@ def _searched_including_comments (
 
 
 def _agenda (context: Context) -> typing.Any:
-	"""Build the whole agenda, which is five queries and what ``subroutine agenda`` runs."""
+	"""Build the whole agenda, which is six queries and what ``subroutine agenda`` runs.
+
+	Five buckets and two counts, less one: ``upcoming`` and the two totals are three
+	statements against five bucket queries, and ``in_progress`` shares its base with the rest.
+	The number is here because it is the thing this file exists to notice moving — `#997`
+	added the second count, and a count per agenda is the cost that was weighed against
+	silently leaving dated work out of the view.
+	"""
 
 	return subroutine.domain.agenda.build(
 		context.session,

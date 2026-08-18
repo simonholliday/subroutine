@@ -168,6 +168,11 @@ upgrade involves.
 
   This does not change how a date is *written*: a day-scale deadline still reads as the day it
   was set for, because re-rendering a day through another zone would make it a different day.
+- **The agenda says how much dated work it is not showing.** A deadline further out than the
+  next seven days was in no section at all — the undated pile takes only work with no dates,
+  so anything dated left the view entirely and came back a week before it was due. The agenda
+  is still a day view and still ends at that edge; what is new is that it tells you how much
+  is past it, and names the listing that shows you. It says nothing when there is nothing.
 - **The agenda is in the same order wherever you read it.** The terminal re-sorted every
   section after merging your connections, and it re-sorted on different keys from the ones
   the instance had used: by item number where the instance separates ties by age, and not at

@@ -605,3 +605,78 @@ def test_a_project_on_hold_keeps_its_dated_work_on_the_agenda (
 
 	assert _titles(agenda.overdue) == ["Renew the certificate"]
 	assert _titles(agenda.today) == ["File the return"]
+
+
+def test_dated_work_past_the_look_ahead_is_counted_rather_than_lost (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#997`, Simon's decision of 2026-08-18: the edge stays and gets said.
+
+	**A deadline further out than the look-ahead is in no bucket at all.** ``unscheduled``
+	requires *both* dates to be null, so dated work leaves that pile and there is nowhere else
+	to go — it disappears from the view whose whole job is *what is coming*, and reappears
+	seven days before it is due.
+
+	The agenda stays a day view (§8.6) and a listing already answers *what is due this
+	quarter*, so the defect was never the edge: it was that nothing told a reader one existed.
+	``unscheduled_total`` is the worked precedent for *there is more, here is how much*.
+	"""
+
+	world = World(session)
+	world.task("File the return", due=TODAY + datetime.timedelta(days=30))
+	world.task("Buy milk")
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert _titles(agenda.upcoming) == [], "thirty days out is past a seven-day look-ahead"
+	assert _titles(agenda.unscheduled) == ["Buy milk"], "dated work is not in the undated pile"
+	assert agenda.later_total == 1, "and the count is the only thing that says it exists"
+
+
+def test_the_count_covers_everything_dated_when_no_look_ahead_was_asked_for (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**Written against "dated and not shown" rather than "past the horizon"** — `#997`.
+
+	``GET /v1/agenda`` omits ``upcoming`` unless it is asked for, deliberately, so a caller
+	that does not ask is shown *nothing* dated beyond today. A predicate written against the
+	horizon would report zero on that call, which is the answer that looks like good news:
+	the one caller who sees least would be told there is nothing more.
+	"""
+
+	world = World(session)
+	world.task("Due on Friday", due=TODAY + datetime.timedelta(days=2))
+	world.task("File the return", due=TODAY + datetime.timedelta(days=30))
+
+	unasked = world.agenda()
+
+	assert _titles(unasked.upcoming) == [], "the bucket is omitted unless asked for"
+	assert unasked.later_total == 2, "so both are unshown, and both are counted"
+
+	asked = world.agenda(horizon_days=7)
+
+	assert _titles(asked.upcoming) == ["Due on Friday"]
+	assert asked.later_total == 1, "asking for the week moves one of them into view"
+
+
+def test_work_that_is_shown_is_never_also_counted_as_missing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The claim that makes the number worth printing beside the buckets.
+
+	A count that included rows the reader can already see would read as *there is more* when
+	there is not — the failure mode `#818` records for a different question, where a plausible,
+	complete, wrong answer is worse than a refusal.
+	"""
+
+	world = World(session)
+	world.task("Renew the certificate", due=TODAY - datetime.timedelta(days=1))
+	world.task("File the return", due=TODAY)
+	world.task("Due on Friday", due=TODAY + datetime.timedelta(days=2))
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert _titles(agenda.overdue) == ["Renew the certificate"]
+	assert _titles(agenda.today) == ["File the return"]
+	assert _titles(agenda.upcoming) == ["Due on Friday"]
+	assert agenda.later_total == 0, "every dated task is on the page, so nothing is missing"

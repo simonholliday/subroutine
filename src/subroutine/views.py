@@ -1472,6 +1472,15 @@ class Agenda(pydantic.BaseModel):
 	#: an agenda that dumped a 400-item backlog would not be an agenda.
 	unscheduled_total: int
 
+	#: How many *dated* tasks this agenda does not show, because they fall further out than
+	#: the look-ahead (`#997`). The window has an edge and every surface has the same one, so
+	#: a deadline three weeks away is in no bucket at all — this is what says so, and it is
+	#: :attr:`unscheduled_total`'s job for the other pile.
+	#:
+	#: **Defaulted, like everything added to this model after it shipped** (`#345`, `#482`):
+	#: an instance one release behind sends no such key and must keep working.
+	later_total: int = 0
+
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
 #:
@@ -2262,6 +2271,7 @@ def agenda (
 		in_progress=[task(row, vocabulary) for row in built.in_progress],
 		unscheduled=[task(row, vocabulary) for row in built.unscheduled],
 		unscheduled_total=built.unscheduled_total,
+		later_total=built.later_total,
 	)
 
 
