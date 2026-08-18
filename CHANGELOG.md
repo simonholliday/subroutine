@@ -132,6 +132,11 @@ upgrade involves.
 
 ### Fixed
 
+- **The add and edit form can tell two projects with the same key apart.** A key only has
+  to be unique among its siblings, so a workspace holding `substation/dist` and
+  `websites/dist` offered two identical choices and filing into either was refused. The
+  form sends the whole address now, and an item you are editing shows the project it is
+  actually in.
 - **`today`, `tomorrow` and `yesterday` mean the whole day, wherever you write them.** A
   deadline of `--due today` was stored as the very first moment of today, so it was
   already overdue by the time you read it back — while the same word typed into quick

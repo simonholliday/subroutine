@@ -1385,7 +1385,11 @@ export function fromItem (item) {
 
 	return {
 		description: said.description || "",
-		project: said.project_key || "",
+		/* **The address, not the key** (`#977`). `project_key` is what a project is *called*
+		   and stopped identifying one at `#958`; `project_path` is what it is addressed by, and
+		   is documented as the string a caller sends back. Falling back to the key because that
+		   field is defaulted for an instance older than it (`#345`, `#482`). */
+		project: said.project_path || said.project_key || "",
 		type: said.type || "",
 		status: said.status || "",
 		assignee: said.assignee || "",
@@ -1948,13 +1952,37 @@ export function filableFor (projects, project) {
 		parent out of a pre-order list without them would leave those children indented under
 		whatever happened to precede them.
 	*/
-	const promoted = _inboxFirst(treeOrdered(projects));
+	/*
+		**The value is the whole address, not the bare key** (`#977`). A key has been unique
+		only among its *siblings* since `#958`, so a workspace holding `substation/dist` beside
+		`websites/dist` offered two options carrying one value and either one was refused —
+		correctly, by `selection.addressed`, which lists the candidates rather than guessing.
+		The refusal was `#957` working; what was broken is that this control could not offer
+		anything better, because it was sending the wrong string.
+
+		**Rebuilt from the tree rather than read off the row**, because `path` is not selectable
+		on this listing (`#770`) — the same walk `placesToGo` makes, for the same reason.
+
+		Computed *before* `_inboxFirst` reorders, so the ancestry stack reads a genuine
+		pre-order. It happens to survive that move — a contiguous subtree keeps its ancestors in
+		front of it — but depending on that is depending on a property of somebody else's
+		function.
+	*/
+	const ancestry = [];
+	const addressed = treeOrdered(projects).map((one) => {
+		ancestry.length = one.depth || 0;
+		ancestry.push(one.key);
+
+		return { ...one, address: ancestry.join(PATH_SEPARATOR) };
+	});
+
+	const promoted = _inboxFirst(addressed);
 
 	const known = promoted.map((one) => ({
-		key: one.key,
+		key: one.address,
 		label: "  ".repeat(one.depth || 0)
 			+ `${one.title || one.key}${one.is_inbox ? " (default)" : ""}`,
-		chosen: project ? one.key === project : Boolean(one.is_inbox),
+		chosen: project ? one.address === project : Boolean(one.is_inbox),
 	}));
 
 	if (!project || known.some((one) => one.chosen)) return known;

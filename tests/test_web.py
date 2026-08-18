@@ -3333,6 +3333,49 @@ def test_promoting_the_inbox_takes_anything_filed_under_it (tmp_path: pathlib.Pa
 	]
 
 
+def test_two_projects_with_one_key_are_told_apart (tmp_path: pathlib.Path) -> None:
+	"""`SR#977`: a key stopped identifying a project at `SR#958`.
+
+	It is unique among its *siblings* now, so a workspace holding `substation/dist` beside
+	`websites/dist` rendered two options carrying the value `dist`. Either one was **refused** —
+	`selection.addressed` turns a name matching several projects into a refusal listing the
+	candidates, which is `SR#957` working — so the fault was never a misfiled item. It was a
+	form that could not file into either project, because it was sending the wrong string.
+
+	**The claim is that the values are distinct and are addresses**, not that the labels differ:
+	two projects may legitimately share a title as well, and a label is not what gets sent.
+
+	**No fixture here built this case before**, which is why the defect survived a suite that
+	covers this function four other ways — every one of them with keys that happened to be
+	unique.
+	"""
+
+	projects = [
+		{"key": "substation", "title": "Substation", "depth": 0},
+		{"key": "dist", "title": "Distribution", "depth": 1},
+		{"key": "websites", "title": "Websites", "depth": 0},
+		{"key": "dist", "title": "Distribution", "depth": 1},
+	]
+
+	offered, chosen = _views(tmp_path, [
+		("filableFor", {"projects": projects, "project": None}),
+		("filableFor", {"projects": projects, "project": "websites/dist"}),
+	])
+
+	assert [one["key"] for one in offered] == [
+		"substation", "substation/dist", "websites", "websites/dist",
+	]
+
+	values = [one["key"] for one in offered]
+
+	assert len(set(values)) == len(values), "two options carry one value, so neither resolves"
+
+	# **Chosen by address**, and the count matters as much as the flag: comparing against the
+	# bare key matches nothing here, and the not-in-the-listing fallback then *prepends* a fifth
+	# option — so a version that still reads the key fails on the length before the flag.
+	assert [one["chosen"] for one in chosen] == [False, False, False, True]
+
+
 def test_a_new_item_goes_where_the_address_says (tmp_path: pathlib.Path) -> None:
 	"""Simon's requirement, verbatim: *if a project is already selected (in URL), that is default
 	project for the item to be added to*.
