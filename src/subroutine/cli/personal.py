@@ -3481,6 +3481,9 @@ def register (
 		description: str = typer.Option(
 			"", "--description", help="What it is about, in full. The title stays one line."
 		),
+		under: int = typer.Option(
+			None, "--under", help="File it underneath this item, by number."
+		),
 		repeat: str = typer.Option(
 			"", "--repeat", help="How often it comes round, like 'every other tuesday'."
 		),
@@ -3545,6 +3548,12 @@ def register (
 				# unreachable from every client. Reported by an agent asked why the six items
 				# it had just filed had no descriptions.
 				description=description.strip() or None,
+			# **The same word `move` uses, for the same act** (`#510`). `POST /v1/tasks`
+			# has taken a parent since M1 and no client passed one, so breaking a piece of
+			# work into parts — the first step of handing any of it over — needed raw HTTP.
+			# **Not a sigil**: §6.13's line is deliberately small and a parent is a
+			# statement about where this item sits rather than part of the sentence.
+			parent=under,
 				# **Set precisely, rather than only read out of a sentence** (`#94`, Simon's
 				# direction of 2026-08-16). The grammar reads *"every 14 days"* out of a
 				# captured line, which is the fast path and stays the fast path — but a line

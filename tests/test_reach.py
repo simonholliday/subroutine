@@ -1057,6 +1057,12 @@ SPELLED_DIFFERENTLY = {
 	# and the client — having no such constraint on a *parameter* name — calls it `start`.
 	"from_": {"start"},
 	"actor_filter": {"mine"},
+
+	#: The body field is `parent_task_id` and both clients call the argument `parent`,
+	#: which is what `move` has always called the same thing. `#510` widened the field
+	#: to take a ref rather than renaming it, because renaming it is a breaking wire
+	#: change; the client offers the name a caller would reach for either way.
+	"parent_task_id": {"parent"},
 }
 
 #: Fields `POST /v1/tasks` accepts that §6.13's capture line sets instead.
@@ -1078,18 +1084,6 @@ BY_THE_CAPTURE_GRAMMAR = frozenset({
 #: A request field no client passes, and why. Same discipline as every list here: a written
 #: reason, and something that makes the entry go away.
 UNREACHED_FIELDS: dict[str, Excuse] = {
-	"parent_task_id": (
-		"tracked",
-		"`#510`. **This entry replaces a wrong one and that is the point of it.** The field sat "
-		"in `BY_THE_CAPTURE_GRAMMAR`, excused because §6.13's line was said to set it instead — "
-		"and the line has no parent sigil at all: `grep -c parent domain/capture.py` is 0, and "
-		"`/v1/meta` publishes the grammar's whole vocabulary without one. So a client cannot "
-		"file a task underneath another one, and the guard was told not to look.\n\n"
-		"The inverse of `assignee_id`'s failure below: that one was *missing* and the guard "
-		"manufactured a gap; this one was *present* and hid a real one. Both read identically "
-		"from inside the list, and only running the grammar tells them apart. Found by writing "
-		"`#501`'s subtree test and having nothing that could build a subtree.",
-	),
 	"expected_version": (
 		"tracked",
 		"`#494`. §8.9's concurrency check is built, tested and reachable only over raw HTTP — "

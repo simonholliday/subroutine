@@ -930,12 +930,22 @@ class Client(typing.Protocol):
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		parent: int | None = None,
 		description: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
 	) -> Captured:
 		"""Create a task from a line of text (§6.13).
+
+		``parent`` is the ref of the task this one goes underneath — the first step of
+		breaking work up and handing the parts over, and reachable from no client at all
+		until `#510`. It is a ref rather than an id for :meth:`move`'s reason: a ref is
+		what a caller has. A parent they cannot see is *not found* rather than ignored.
+
+		**The capture grammar has no sigil for it and this does not add one.** §6.13's
+		line is deliberately small, and `test_reach` was told for months that the grammar
+		covered this field when it does not — which is what hid the gap.
 
 		``project`` is where it goes when the *line* does not say — a `+KEY` in the text wins,
 		because that is somebody being explicit about this one item (§13.7a, `#159`).

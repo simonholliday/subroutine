@@ -22,6 +22,12 @@ upgrade involves.
 
 ### Added
 
+- **A task can be filed underneath another one.** `subroutine add "Write the changelog"
+  --under 12` puts it under item 12, which is the first step of breaking a piece of work
+  into parts and handing any of them over. The API has accepted a parent since the
+  beginning and no client could pass one, so until now it took a hand-written HTTP
+  request. A parent you cannot see is reported as no such item rather than quietly
+  ignored.
 - **The masthead takes you to any project, not just any workspace.** It lists every workspace
   with the projects of the one you are in nested underneath and indented by name, so a
   sub-project is one choice rather than an address to type. **And it is there when there is

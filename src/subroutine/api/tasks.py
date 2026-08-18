@@ -90,7 +90,13 @@ class Create(subroutine.api.schemas.RequestModel):
 
 	workspace_id: str | None = None
 	project: str | None = None
-	parent_task_id: uuid.UUID | None = None
+	#: The task this one goes underneath, by ref or by id (`#510`). **Widened from a bare
+	#: UUID rather than renamed**: the argument two fields below applies here word for
+	#: word — a caller holding a UUID for a task is a caller who has already made a
+	#: request they should not have had to, and they have `#42`. Renaming it to `parent`,
+	#: which is what `Move` calls the same thing, is a breaking wire change and so is
+	#: somebody else's to take.
+	parent_task_id: subroutine.api.schemas.Reference | None = None
 
 	type: str | None = None
 	status: str | None = None

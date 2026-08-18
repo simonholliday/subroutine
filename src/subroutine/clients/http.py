@@ -932,6 +932,7 @@ class Client:
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		parent: int | None = None,
 		description: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
@@ -966,6 +967,7 @@ class Client:
 				# is being asked of the server; what was missing was any way to say it from
 				# here, which is why no test of the route could have found it.
 				description=description,
+				parent_task_id=parent,
 				# **Only when the line did not say.** A `+KEY` in the text is somebody being
 				# explicit about this item and must beat a default that came from a file three
 				# directories up, which they may not have known was there.

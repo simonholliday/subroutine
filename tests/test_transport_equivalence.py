@@ -3661,3 +3661,35 @@ def test_both_change_the_fields_beside_an_address_the_same_way (pair: Pair) -> N
 	# Clearing means *not stated*, so the instance's own zone shows through rather than UTC
 	# being asserted on the workspace's behalf (§12.3).
 	assert local.update_workspace(slug, timezone=None).timezone is None
+
+
+def test_a_task_can_be_filed_underneath_another_one_on_both_transports (pair: Pair) -> None:
+	"""`#510`: `POST /v1/tasks` took a parent and no client could pass one.
+
+	Breaking work into parts and handing the parts over is the delegation story `#473`, `#493`
+	and `#501` are about, and its first step — *file this under that* — was reachable from raw
+	HTTP and nothing else. `#501` had already given both clients ``subtree``, so they could
+	read a tree that only `curl` could build.
+
+	**Driven rather than declared, because `test_reach` reads signatures.** It compares argument
+	*names* against request-model fields, so a client that accepts ``parent`` and then drops it
+	on the floor satisfies it completely — which is `#919`, and is how ``starts`` and ``snooze``
+	both shipped accepted-and-ignored after `#854` widened the signatures and not the bodies.
+	The assertion is therefore on the stored parent, read back, on both transports.
+
+	**A parent the caller cannot see must be *not found* rather than ignored**, which is the
+	other half and the reason both sides resolve rather than assign: silently filing at the top
+	level would be a plausible, complete, wrong answer.
+	"""
+
+	local, remote = pair.both()
+	above = make(pair, "The parent task")
+
+	for client in (local, remote):
+		below = client.capture(text=f"A part of it via {type(client).__name__}", parent=above.ref).task
+
+		assert below.parent_ref == above.ref, type(client).__name__
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.NotFound):
+			client.capture(text="Filed under nothing", parent=above.ref + 10_000)

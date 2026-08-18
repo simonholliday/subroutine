@@ -1714,6 +1714,7 @@ class Client:
 		timezone: str | None = None,
 		type: str | None = None,
 		project: str | None = None,
+		parent: int | None = None,
 		description: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
@@ -1778,6 +1779,19 @@ class Client:
 							("recurrence_trigger", recurrence_trigger),
 						)
 						if value is not None
+					},
+				),
+				# **Resolved here, the way `api/tasks._resolve` resolves it** (`#510`), so a
+				# parent the caller cannot see is *not found* on both transports rather than
+				# quietly dropped on one. Passed only when given, for `description`'s reason.
+				**typing.cast(
+					dict[str, typing.Any],
+					{}
+					if parent is None
+					else {
+						"parent": self._in_the_trash_too(
+							session, actor, parent, workspace, "task"
+						)
 					},
 				),
 				now=subroutine.db.types.utcnow(),
