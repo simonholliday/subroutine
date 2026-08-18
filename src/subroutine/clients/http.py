@@ -758,6 +758,15 @@ class Client:
 
 		return subroutine.views.User.model_validate(answer)
 
+	def set_timezone (
+		self, *, username: str, timezone: str | None
+	) -> subroutine.views.User:
+		"""Say where somebody keeps their diary — your own account only."""
+
+		answer = self._json("PATCH", f"/v1/users/{username}", json={"timezone": timezone})
+
+		return subroutine.views.User.model_validate(answer)
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""
 

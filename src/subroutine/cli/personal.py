@@ -3458,6 +3458,58 @@ def _project_updated (
 				program.say("  Anything dated stays on your agenda.")
 
 
+def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
+	"""Say where you keep your diary, or report where the instance thinks you do — `#994`.
+
+	**Your own account and nobody else's**, which is why this takes no username. Simon's
+	decision of 2026-08-18: *"A user knows which timezone they are in better than anyone else."*
+	There is no permission that grants it for somebody else, so there is nothing to name.
+	"""
+
+	if zone and clear:
+		program.stop(
+			"Say a zone or pass --clear, not both.",
+			hint="Clearing puts you back on whatever this workspace uses.",
+		)
+
+	with program.opened() as world:
+		where = world.writing_to()
+		username = where.client.me().user.username
+
+		if not zone and not clear:
+			account = next(
+				(one for one in where.client.users() if one.username == username), None
+			)
+
+			if account is None or account.timezone is None:
+				program.say("You have not said which timezone you are in.")
+				program.say("  Your days are counted in this workspace's zone until you do.")
+
+			else:
+				program.say(f"You are in {account.timezone}")
+
+			_suggest(program.console, "subroutine user timezone Europe/London")
+
+			return
+
+		changed = where.client.set_timezone(
+			username=username, timezone=None if clear else zone
+		)
+
+		if changed.timezone is None:
+			program.say("Cleared. Your days are counted in this workspace's zone again.")
+
+			return
+
+		program.say(f"You are in {changed.timezone}")
+
+		# **Said because it is the only thing this changes**, and it is not obvious: a zone is
+		# usually a display setting, and this one is not — `#773` renders a day-scale date in
+		# the *task's* zone whatever the reader's is. What it moves is which day a deadline
+		# counts as, which is the whole of `#989`'s second decision.
+		program.say("  Your agenda is counted from midnight there, on every surface.")
+
+
 def _workspace_updated (
 	program: Program, *, slug: str, title: str, description: str, timezone: str
 ) -> None:
@@ -5669,6 +5721,33 @@ def register (
 			where.client.set_active(username=username, active=True)
 
 			say(f"{username} is active again")
+
+	@user_app.command("timezone")
+	def user_timezone (
+		zone: str = typer.Argument(
+			"", help="Your zone, e.g. 'Europe/London'. Say nothing to see it."
+		),
+		clear: bool = typer.Option(
+			False, "--clear", help="Follow the workspace's zone again."
+		),
+	) -> None:
+		"""Say which timezone you are in, so your days are counted where you are.
+
+		Examples:
+
+		  subroutine user timezone Europe/London
+
+		  subroutine user timezone
+
+		Your own account and nobody else's — you know which zone you are in better than
+		anybody else does, so there is no permission that lets somebody set it for you.
+
+		It decides which day a deadline counts as on every surface. It does not change how a
+		date is written down: a day belongs to the item that has it, so 'due Fri 14 Aug' says
+		Friday wherever it is read.
+		"""
+
+		_user_timezone(program, zone=zone, clear=clear)
 
 	@user_app.command("transfer")
 	def user_transfer (

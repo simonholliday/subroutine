@@ -22,6 +22,13 @@ upgrade involves.
 
 ### Added
 
+- **You can say which timezone you are in.** `subroutine user timezone Europe/London`, and
+  `subroutine user timezone` on its own reports what your account holds. It was settable when
+  an account was made and by nothing afterwards, so somebody added by a colleague, or anybody
+  who has moved since, was stuck with whatever the server was set to. Your own account and
+  nobody else's — you know where you are better than anybody else does, so there is no
+  permission that lets somebody set it for you. It decides which day a deadline counts as; it
+  does not change how a date is written, since a day belongs to the item that has it.
 - **A task can be filed underneath another one.** `subroutine add "Write the changelog"
   --under 12` puts it under item 12, which is the first step of breaking a piece of work
   into parts and handing any of them over. The API has accepted a parent since the

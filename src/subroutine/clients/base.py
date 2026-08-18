@@ -746,6 +746,21 @@ class Client(typing.Protocol):
 
 		raise NotImplementedError
 
+	def set_timezone (
+		self, *, username: str, timezone: str | None
+	) -> subroutine.views.User:
+		"""Say where somebody keeps their diary — your own account only (`#994`).
+
+		§6.5's user level, which was settable at creation and by no surface afterwards. ``None``
+		clears it, so the workspace's zone and then the instance's show through again — *not
+		stated* is what makes the chain a chain.
+
+		**No permission grants this for anybody else**, deliberately: the check is *are you this
+		person*. A permission to write it would be a permission to be wrong on their behalf.
+		"""
+
+		raise NotImplementedError
+
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace.
 

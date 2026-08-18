@@ -16,6 +16,7 @@ import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.dates
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
@@ -207,6 +208,79 @@ def set_active (
 		session.flush()
 
 	return stopping
+
+
+def set_timezone (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	timezone: str | None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> None:
+	"""Record where somebody keeps their diary — their own account, and nobody else's.
+
+	**§6.5's chain has a user level and nothing could fill it** (`#994`). ``POST /v1/users``
+	accepted a zone at creation and no surface could change one afterwards, so "the reader's
+	own timezone" resolved to a *workspace's* — which is a server's locality rather than a
+	person's. Decision `#989` makes that value decide which bucket of the agenda a task falls
+	into on every surface, so it had to become something a person can set.
+
+	**Self only, and Simon's decision of 2026-08-18 is stronger than what was proposed.**
+
+		*"A person should be able to set and update their own timezone. At this moment, I
+		don't think we have the need for someone to set anyone else's. A user knows which
+		timezone they are in better than anyone else."*
+
+	The proposal was self freely and others with ``instance:user_create``, on the grounds that
+	it matches every other cross-account write here. **The reasoning against it is better than
+	the symmetry argument**: this level exists to record where *that person* keeps their diary,
+	and nobody else can be authoritative about that. A permission to write it would be a
+	permission to be wrong on somebody's behalf.
+
+	So there is **no new permission verb**, which is worth saying because the obvious
+	implementation invents one: the check is *are you this person*, not something anybody can
+	be granted. ``permissions.WORKSPACE_LEVEL`` and the instance verbs are unchanged.
+
+	**An agent is a user too** (`#473`), so it sets its own and nobody sets it for it — which
+	is the right answer by accident of the same rule. An agent has no locality, leaves this
+	null, and the chain falls through to the workspace exactly as it does today.
+
+	**Creation is deliberately untouched.** An operator bootstrapping an account may still pass
+	one; removing an accepted request field is a breaking wire change, it harms nothing, and
+	the person can now correct it — which is precisely what they could not do before.
+
+	**Worth Simon's eye and deliberately not decided here**: this is the first write reachable
+	by a credential carrying no write scope, because there is no verb to check and identity is
+	the whole rule. The harm is bounded — a leaked read-only token of *your own* could shift
+	*your own* agenda by some hours, reversibly, visibly and attributed — and an agent's
+	credential is its own account, so nothing reaches a person's row by this route. It is
+	recorded rather than acted on because inventing a verb is exactly what the decision above
+	rules out.
+	"""
+
+	if actor is not None and actor.user.id != user.id:
+		raise subroutine.errors.Forbidden(
+			f"You can set your own timezone, not {user.username}'s.",
+			hint=(
+				"There is no permission that grants this. Ask them to set it — they know "
+				"which zone they are in better than anybody else does."
+			),
+		)
+
+	# Refused here rather than stored and met later, which is `workspaces.create`'s recorded
+	# lesson: an unknown zone written to a row surfaces as a 422 naming the *request's*
+	# timezone on some later date computation, which is a message about the wrong thing
+	# arriving long after the mistake.
+	if timezone is not None:
+		subroutine.domain.dates.zone(timezone)
+
+	# Written only when it changes, so re-running this does not move `updated_at` and make a
+	# no-op look like an act. `VersionMixin` is a plain column here — nothing increments it
+	# for us — so §8.9 would otherwise compare a number that never moved.
+	if user.timezone != timezone:
+		user.timezone = timezone
+		user.version += 1
+		session.flush()
 
 
 def transfer (

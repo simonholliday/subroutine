@@ -119,8 +119,16 @@ class Update(subroutine.api.schemas.RequestModel):
 	#: only a person may hand one over.
 	responsible: str | None = None
 
+	#: Where this person keeps their diary — §6.5's user level, and **their own account only**
+	#: (`#994`, Simon's decision of 2026-08-18). Absent leaves it alone and null clears it, so
+	#: the workspace's zone and then the instance's show through again (§8.3). Null is a value
+	#: here rather than a gap: *not stated* is what makes the chain a chain.
+	timezone: str | None = None
 
-@router.patch("/{username}", summary="Mark somebody as having left, or hand an agent over")
+
+@router.patch(
+	"/{username}", summary="Mark somebody as having left, hand an agent over, or say where you are"
+)
 def update (
 	username: str,
 	body: Update,
@@ -135,6 +143,11 @@ def update (
 
 	Needs ``instance:user_create`` — the same grant as making an account, because deciding
 	somebody works here and deciding they no longer do are the same decision twice.
+
+	**Except ``timezone``, which needs no permission and is refused for anybody but yourself.**
+	The check is *are you this person*, not something anybody can be granted: §6.5's user level
+	records where somebody keeps their diary, and a permission to write it would be a
+	permission to be wrong on their behalf.
 
 	**Deactivating stops every agent answerable to that person**, at their next call, wherever
 	they are running. Ask for the list first with ``GET /v1/users`` and
@@ -157,6 +170,14 @@ def update (
 	if body.is_active is not None:
 		subroutine.domain.users.set_active(
 			session, account, active=body.is_active, actor=actor
+		)
+
+	# **Read from `model_fields_set` rather than from the value**, because null is a value here:
+	# clearing a timezone puts the reader back on the workspace's, which is §8.3's whole
+	# distinction and the reason the two fields above cannot be written this way.
+	if "timezone" in body.model_fields_set:
+		subroutine.domain.users.set_timezone(
+			session, account, timezone=body.timezone, actor=actor
 		)
 
 	return subroutine.views.user(account)

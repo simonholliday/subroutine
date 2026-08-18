@@ -19,6 +19,7 @@ well-formed enough to be refused — it never reaches ``model_validate`` on the 
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -225,3 +226,134 @@ def test_an_agent_cannot_make_an_administrator (session: sqlalchemy.orm.Session)
 		)
 
 	assert "person's act" in str(refused.value.detail)
+
+
+def test_a_person_can_say_which_timezone_they_are_in (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#994`. §6.5's user level was settable at creation and by no surface afterwards.
+
+	Driven over HTTP by the client, because that is the gap this file exists for: a route the
+	API accepts and no client passes is `#427`'s blind spot, and it is the fifth instance.
+	"""
+
+	person, token = _instance(session)
+
+	# **`init` does record one, and `#994` said otherwise** — it measured the served instance,
+	# where the founder's is null, and read that as what a fresh install produces. `bootstrap`
+	# passes the machine's zone to the account *and* the workspace, so what the item describes
+	# is an account made by `POST /v1/users` without one, or a person who has since moved.
+	assert person.timezone == "UTC", "init records the machine's zone on the first account"
+
+	with _over_http(session, token) as client:
+		changed = client.set_timezone(
+			username=person.username, timezone="Australia/Sydney"
+		)
+
+	assert changed.timezone == "Australia/Sydney"
+
+
+def test_clearing_a_timezone_puts_the_reader_back_on_the_workspace_s (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Null is a value here, not a gap — *not stated* is what makes §6.5 a chain.
+
+	The pair matters more than either half: a field that can be set and not unset is one
+	somebody is stuck with the first time they get it wrong, which is `#812`'s shape and the
+	reason §8.3 pins the distinction rather than leaving it to taste.
+	"""
+
+	person, token = _instance(session)
+
+	with _over_http(session, token) as client:
+		client.set_timezone(username=person.username, timezone="Australia/Sydney")
+
+		cleared = client.set_timezone(username=person.username, timezone=None)
+
+	assert cleared.timezone is None
+
+
+def test_nobody_can_set_somebody_else_s_timezone (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Simon's decision of 2026-08-18, and the caller here is the one who could do anything else.
+
+	**The founder is a superuser holding `instance:user_create`**, which is the grant that
+	marks somebody as having left and hands an agent over — so this proves the refusal is
+	about *identity* rather than about authority, which is the whole of the decision. A test
+	using an ordinary account would have passed against a permission check as well.
+	"""
+
+	_person, token = _instance(session)
+	colleague = subroutine.domain.users.create(
+		session, username=f"jo-{uuid.uuid4().hex[:8]}", actor=None
+	)
+	session.flush()
+
+	with (
+		_over_http(session, token) as client,
+		pytest.raises(subroutine.errors.Forbidden) as refused,
+	):
+		client.set_timezone(username=colleague.username, timezone="Europe/London")
+
+	assert colleague.username in str(refused.value), (
+		"the refusal names who it is about, since there is no permission to name"
+	)
+	assert colleague.timezone is None, "nothing was written on the way to being refused"
+
+
+def test_a_timezone_nobody_has_heard_of_is_refused_where_it_is_typed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`workspaces.create`'s recorded lesson, asked of the table one along.
+
+	Stored and met later, an unknown zone surfaces as a 422 naming the *request's* timezone on
+	some later date computation — a message about the wrong thing, arriving long after the
+	mistake, to somebody who is not doing the thing that caused it.
+	"""
+
+	person, token = _instance(session)
+
+	with (
+		_over_http(session, token) as client,
+		pytest.raises(subroutine.errors.ValidationError) as refused,
+	):
+		client.set_timezone(username=person.username, timezone="Mars/Olympus")
+
+	assert "Mars/Olympus" in str(refused.value)
+	assert person.timezone == "UTC", "the row is untouched by a value it refused"
+
+
+def test_the_agenda_is_counted_from_the_zone_a_person_gave (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""What the setting is *for* — decision `#989`, and the reason `#994` blocks `#995`.
+
+	Without this, "the reader's own timezone" resolves to a *workspace's*, which is a server's
+	locality rather than a person's. So the value being settable and the value being read are
+	one claim, and asserting only the first would leave a control that changes nothing.
+	"""
+
+	person, token = _instance(session)
+
+	with _over_http(session, token) as client:
+		before = client.agenda()
+
+		client.set_timezone(username=person.username, timezone="Pacific/Auckland")
+
+		after = client.agenda()
+
+	assert before.timezone == "UTC", "a bootstrapped instance counts in its own zone"
+	assert after.timezone == "Pacific/Auckland", (
+		"the chain reads the account before the workspace (§6.5)"
+	)
+
+	# The workspace is untouched, which is what makes the line above a statement about the
+	# *chain* rather than about a value that happened to change somewhere.
+	spaces = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace)
+	).all()
+
+	assert [one.timezone for one in spaces] == ["UTC"], (
+		"only the account moved, so the agenda followed the account"
+	)

@@ -1479,6 +1479,22 @@ class Client:
 
 			return subroutine.views.user(account)
 
+	def set_timezone (
+		self, *, username: str, timezone: str | None
+	) -> subroutine.views.User:
+		"""Say where somebody keeps their diary — your own account only."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			account = subroutine.domain.users.by_username(session, username)
+
+			subroutine.domain.users.set_timezone(
+				session, account, timezone=timezone, actor=actor
+			)
+
+			return subroutine.views.user(account)
+
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
 		"""Hand an agent to somebody else, who becomes answerable for it."""
 

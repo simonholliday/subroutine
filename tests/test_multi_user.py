@@ -247,3 +247,60 @@ def test_an_instance_administrator_is_not_called_by_a_workspace_role_name (
 	# The bare word belongs to the workspace listing alone, and only where a role holds it.
 	assert "owner" in workspace
 	assert "member" in workspace
+
+
+def test_a_person_can_say_which_timezone_they_are_in_and_read_it_back (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#994`. §6.5's user level was settable at creation and by no surface afterwards.
+
+	**Both halves in one test, deliberately.** A setting that can be written and not read back
+	is half a control: the value decides which day the agenda is about (`#989`) and shows
+	nowhere else, so somebody who mistypes it has no way to find out.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	# **`init` records the machine's zone on the account**, which `#994` did not expect — it
+	# measured the served instance, where the founder's is null, and read that as what a fresh
+	# install produces. So the account this reports on is already correct, and what the item
+	# describes is somebody made by `user create`, or somebody who has since moved.
+	assert "Europe/London" in run("user", "timezone").output
+
+	said = run("user", "timezone", "Australia/Sydney").output
+
+	assert "Australia/Sydney" in said
+	assert "agenda" in said, "the one thing it changes is said, because it is not obvious"
+
+	assert "Australia/Sydney" in run("user", "timezone").output
+
+	cleared = run("user", "timezone", "--clear").output
+
+	assert "Australia/Sydney" not in cleared
+
+	# **Cleared is a state that reports itself**, and it is the only way to reach that branch
+	# here: local mode acts as the founder, whose zone `init` has already filled in.
+	assert "not said" in run("user", "timezone").output, (
+		"a person who has cleared it is told the workspace's zone is showing through"
+	)
+
+
+def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Simon's decision of 2026-08-18, checked where a person would look for the loophole.
+
+	The command takes a zone and no username, so there is nothing to name — which is the
+	decision expressed as an absence rather than as a refusal. Asserted on the *help*, because
+	an argument that does not exist cannot be tested by passing it: a second positional would
+	be read as part of the zone and refused as an unknown one, which is the right answer for
+	the wrong reason.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	offered = run("user", "timezone", "--help").output
+
+	assert "username" not in offered.lower(), (
+		"a username argument would be a way to set somebody else's, which no permission grants"
+	)

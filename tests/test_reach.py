@@ -404,6 +404,24 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"a token is, so an agent holding that authority is refused or allowed identically on "
 		"every surface. `#487` is what happens when a deny-list is mistaken for the check.",
 	),
+	"set_timezone": (
+		"budget",
+		"`#994`. It writes §6.5's user level, which records **where a person keeps their "
+		"diary** — and an agent has no locality. Its account leaves the field null, the chain "
+		"falls through to the workspace and then the instance, and that is the right answer "
+		"rather than an omission. So a tool would be schema in every session for a value the "
+		"caller has no way to be right about.\n\n"
+		"**Not a security control, and saying so matters here more than usual**: the service "
+		"refuses anybody but the account itself, and there is no permission that grants it "
+		"otherwise (Simon's decision of 2026-08-18). An agent calling this through "
+		"`subroutine_call_api` reaches its *own* row and nobody else's, which is the same "
+		"answer this list gives. `#487` is what happens when a deny-list is mistaken for the "
+		"check.\n\n"
+		"**What would change it is an agent that renders dates for a person** — a scheduled "
+		"summary, a digest — where the zone it should count from is the reader's rather than "
+		"its own. That is a question about whose day is being described, and it wants an "
+		"answer before a tool. **Deleting this entry is what would close that.**",
+	),
 	"sign_out_everywhere": (
 		"administrative",
 		"`#248`. The same tier as `set_active` beside it: ending the sessions somebody is "
