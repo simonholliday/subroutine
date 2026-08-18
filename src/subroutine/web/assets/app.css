@@ -802,6 +802,9 @@ fieldset {
 }
 
 .board .column h2 {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-3);
 	margin: 0 0 var(--space-4);
 	font-size: var(--text-small);
 	font-weight: 600;
@@ -809,6 +812,78 @@ fieldset {
 	text-transform: uppercase;
 	color: var(--ink-soft);
 }
+
+/* **A column that is over, folded to the width of its own name** (`#1008`).
+
+   `writing-mode: vertical-rl` rather than a `transform`, and the difference is the whole
+   point: the element's box genuinely becomes narrow, where a rotation would turn the heading
+   visually and leave it occupying the width it had. Nothing else has to be told about it —
+   the column simply takes less room, and the flex line reflows.
+
+   **`flex: 0 0 auto` and no maximum**, so a shut column neither grows into the space it just
+   gave up nor is stretched by `flex: 1`. The height comes from `align-items: stretch` on the
+   row, which is what keeps it a drop target for its whole height (`#796`). */
+.board .column.collapsed {
+	position: relative;
+	flex: 0 0 auto;
+	min-width: 0;
+	max-width: none;
+	width: 38px;
+	overflow: hidden;
+}
+
+/* **Out of flow, and that is load-bearing rather than tidy.** A turned heading is laid out
+   along the vertical axis, so its *intrinsic* size is the length of the words — and with
+   `height: 100%` inside a column whose own height is auto, the two resolve against each other
+   and the column demands the whole string. Measured: a folded *Cancelled* asked for 718px and
+   made the board 209px taller than it had been, which pushed the drop target below the fold
+   and broke a drag test three files away. Taking it out of flow means a folded column
+   contributes nothing to the row's height and simply takes what stretching gives it. */
+.board .column.collapsed h2 {
+	position: absolute;
+	inset: 0;
+	margin: 0;
+}
+
+/* **The whole column is the button.** A character-wide strip is a hard thing to hit, and a
+   shut column holds nothing else worth clicking, so the control fills it rather than sitting
+   in a corner of it. */
+.board .column.collapsed h2 button {
+	writing-mode: vertical-rl;
+	width: 100%;
+	height: 100%;
+	padding: var(--control-tight);
+	gap: var(--space-4);
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	border-color: transparent;
+	background: transparent;
+	font: inherit;
+	letter-spacing: inherit;
+	text-transform: inherit;
+	color: var(--ink-soft);
+	cursor: pointer;
+}
+
+.board .column.collapsed h2 button:hover { color: var(--ink); }
+
+/* The collapse control on an open column, at the same height as the title — the position a
+   reader already knows from a window's minimise button. `margin-left: auto` rather than
+   `justify-content: space-between`, so the title and its tally stay together on the left
+   however many of them there are. */
+.board .column h2 .shut {
+	margin-left: auto;
+	padding: var(--control-tight);
+	border-color: transparent;
+	background: transparent;
+	color: var(--ink-faint);
+	font-size: var(--text-body);
+	line-height: 1;
+	cursor: pointer;
+}
+
+.board .column h2 .shut:hover { color: var(--ink); }
 
 /* A count of what is on the page, which is **not** a total. This comment said the count was
    exact because a board is not paged; that was wrong and was corrected in `app.js` for `#718`

@@ -3511,6 +3511,115 @@ const DOCUMENT_COLUMNS = [
 	{ key: "archived", label: "Archived" },
 ];
 
+/* **The categories that mean the work is over**, shut unless the reader says otherwise —
+   `#1008`, Simon 2026-08-18: *"they were cancelled or superseded for a reason, and need not
+   take up screen real-estate all of the time."*
+
+   **A constant rather than anything derived, and that is what makes it safe.** A default read
+   off the rows would reshuffle the board under the reader every `POLL_MS` as items move —
+   `#966` and decision `#957` §4's shape, which has bitten here three times. A default read off
+   the *selection* is stable, and was the first version of this; it was wrong for a plainer
+   reason, below.
+
+   **`done` is deliberately absent.** Finished work is an achievement and is already a
+   selection nobody has by default — so a reader looking at a *Done* column has asked for it,
+   and answering that by hiding it is `#515`'s shape. It is also where *Show finished work*
+   lives (`FINISHED`), which is the board's only route to that selection.
+
+   **`superseded` and `archived` are here because nothing can ask them not to be.** `GET
+   /v1/documents` refuses `include_completed` and `status_category` alike — measured, 422 on
+   each — so every superseded document is in the response whether anybody wanted it or not.
+   `#713` is the filter that would let somebody genuinely not ask, on every surface rather than
+   only here; this should shrink when that lands rather than becoming a second way to say it. */
+export const CLOSED_BY_DEFAULT = new Set(["cancelled", "superseded", "archived"]);
+
+/* **What a column says when the selection left it out**, in one place because it is said
+   twice — as a sentence in an open column and beside the heading of a shut one (`#1008`).
+   Two spellings of one fact is this codebase's signature defect at its smallest scale, and
+   `#742` is where the board established that this fact matters at all. The heading is
+   `text-transform: uppercase`, so the case here is the source's rather than the reader's. */
+export const NOT_SHOWN = "Not shown";
+
+export function collapsedColumns (keys, chosen) {
+	/*
+		Decide which columns start collapsed — `#1008`.
+
+		**An explicit choice always wins, in both directions.** `false` is a reader who opened
+		something this would have closed, and it has to survive — otherwise the default
+		reasserts itself on the next render and the control appears to do nothing. Only a key
+		nobody has answered for takes a default.
+
+		**An earlier version defaulted on *what the selection left out* and it was wrong twice.**
+		It did not answer the complaint — Simon was looking at a board with `include_completed`
+		on, so his *Cancelled* column held rows rather than a placeholder, and a rule about
+		empty columns left it exactly as it was. And collapsing a *Not shown* column buries
+		*Show finished work*, which is the only way to ask for finished work from a board;
+		`test_a_board_column_nobody_asked_for_does_not_report_that_it_is_empty` caught that
+		within the hour, having been written for `#738`.
+
+		So an empty column is simply left open. It is cheap — a heading and one word — and it is
+		information: `Nothing` under *To do* is the answer somebody wanted, and
+		:func:`columns` already argues that an empty *In progress* reads as broken rather than
+		as absent and is where you drag something to.
+
+		Pure and given the keys rather than the columns, so the harness can drive it (`#640`).
+	*/
+	const wanted = chosen || {};
+
+	return new Set(keys.filter((key) => (
+		wanted[key] === undefined ? CLOSED_BY_DEFAULT.has(key) : wanted[key] === true
+	)));
+}
+
+export function collapsedChoices (storage) {
+	/*
+		What this browser remembers about collapsed columns, as `{ key: boolean }`.
+
+		`localStorage` per `#908`'s theme precedent: browser-local, no API change, no migration,
+		and no column on a `User` row that is more often an agent than a person (`#473`). A
+		second data point for `#904`.
+
+		**Anything unrecognised reads as nothing remembered.** A value written by an older
+		version or by somebody poking at storage must not put the board into a state no control
+		can get it out of — the reasoning is `themeChoice`'s and the failure would be worse here,
+		because a wrongly collapsed column hides work.
+
+		Takes the storage rather than reaching for it, because it throws in some privacy modes
+		and the render harness runs in Node, where it may not exist at all.
+	*/
+	try {
+		const held = storage && storage.getItem("board-columns");
+		const read = held ? JSON.parse(held) : null;
+
+		if (!read || typeof read !== "object" || Array.isArray(read)) return {};
+
+		return Object.fromEntries(
+			Object.entries(read).filter(([, value]) => typeof value === "boolean")
+		);
+	} catch (unreadable) {
+		return {};
+	}
+}
+
+export function rememberCollapsed (chosen, storage) {
+	/*
+		Write the reader's collapsed columns back, and return what was stored.
+
+		Written whole rather than a key at a time, because the caller holds the whole map and a
+		partial write is a second copy of it that can disagree. A storage failure is swallowed
+		for `applyTheme`'s reason: not remembering is worse than not honouring, and only for the
+		next load.
+	*/
+	try {
+		if (storage) storage.setItem("board-columns", JSON.stringify(chosen));
+	} catch (unavailable) {
+		/* A private window can refuse to remember. The choice still applies to this page. */
+	}
+
+	return chosen;
+}
+
+
 export function columns (items) {
 	/*
 		Arrange the rows a listing already fetched into the board's columns — `#653`.
@@ -4035,6 +4144,11 @@ export function Board ({
 	over = null, onOver = null, projects = null,
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
+	/* What the reader has explicitly chosen about collapsed columns, and how to change it —
+	   `#1008`. `App` holds the state and the storage because this component stays hook-free so
+	   the harness can call it (`#640`); the *defaults* are worked out below, where the columns
+	   and the selection are both to hand. */
+	choices = null, onCollapse = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -4073,6 +4187,22 @@ export function Board ({
 	const unasked = (column) =>
 		column.items.length === 0 && excluded(column.key, selection);
 
+	/*
+		**A collapsed column is still a drop target, at its narrow width** (`#1008`). The
+		handler is on the `<section>`, so width never enters into it, and `align-items: stretch`
+		keeps a shut column full height — a tall thin target with plenty of vertical travel.
+
+		**It deliberately does not spring open on hover.** Expanding mid-drag widens the column
+		and shifts everything to its right, so a reader aiming at the next column along has the
+		target moved under a committed pointer. The tally incrementing after the drop is better
+		confirmation than expansion, because nothing moves.
+	*/
+	const shut = collapsedColumns(arranged.map((column) => column.key), choices);
+
+	const classFor = (column) =>
+		`column${over === column.key ? " over" : ""}`
+		+ (shut.has(column.key) ? " collapsed" : "");
+
 	/* The same test the listing makes, and it has to be the same: both render one page of two
 	   collections, and a column tally that reads as a total is worse on a board than a short
 	   list is, because a column is where somebody looks to see that nothing is left. */
@@ -4099,7 +4229,7 @@ export function Board ({
 						of it, and reporting *#42 is in progress* about a card nobody moved is
 						the kind of true-sounding falsehood this project keeps finding.
 					*/ null}
-					<section class=${`column${over === column.key ? " over" : ""}`} key=${column.key}
+					<section class=${classFor(column)} key=${column.key}
 						onDragOver=${onMove ? ((event) => {
 							event.preventDefault();
 							event.dataTransfer.dropEffect = "move";
@@ -4124,27 +4254,51 @@ export function Board ({
 						${/* **And no tally on a column nothing was asked for** — a `0` beside
 						     *Done* is the same false statement as the word *Nothing* under it,
 						     in the place a reader glances rather than reads. */ null}
-						<h2>${column.label}${!unasked(column) && html`${" "}
-							<span class="tally">${column.items.length}</span>`}</h2>
-
-						${unasked(column)
-							? html`<p class="empty">Not shown.${" "}
-								${finishedTo && FINISHED.has(column.key)
-									? html`<a href=${finishedTo}>Show finished work</a>`
-									: null}</p>`
-							: column.items.length === 0
-							? html`<p class="empty">Nothing</p>`
+						${shut.has(column.key)
+							? html`
+								${/* **The whole collapsed column is the control**, not a strip of it. A
+									     character-wide button is a hard thing to hit, and when a column is shut
+									     there is nothing else in it to click — so the button fills it and the
+									     heading turns with it. `aria-expanded` is what says so to a reader who
+									     cannot see the rotation. */ null}
+								<h2 class="shut">
+									<button type="button" aria-expanded="false"
+										onClick=${() => onCollapse && onCollapse(column.key, false)}>
+										${column.label}
+										${/* **The count is what keeps collapsed from meaning blind**, and it says
+											     *not shown* where that is why this is shut — otherwise a column
+											     nobody asked for would read as a column holding nothing, which is
+											     the false statement `#742` exists to prevent, said sideways. */ null}
+										<span class="tally">
+											${unasked(column) ? NOT_SHOWN : column.items.length}
+										</span>
+									</button>
+								</h2>`
 							: html`
-								<ul class="rows">
-									${column.items.map((item) => html`
-										<${Row} key=${item.kind + item.ref} item=${item}
-											showKind=${showKind} workspace=${workspace}
-											place=${{ workspace, project }} onGo=${onGo}
-											onOpen=${onOpen} onComplete=${onComplete}
-											onDrag=${onDrag} projects=${projects} />
-									`)}
-								</ul>
-							`}
+								<h2>${column.label}${!unasked(column) && html`${" "}
+									<span class="tally">${column.items.length}</span>`}
+									${onCollapse && html`<button type="button" class="shut"
+										aria-expanded="true" aria-label=${`Collapse ${column.label}`}
+										onClick=${() => onCollapse(column.key, true)}>−</button>`}</h2>
+
+								${unasked(column)
+									? html`<p class="empty">${NOT_SHOWN}.${" "}
+										${finishedTo && FINISHED.has(column.key)
+											? html`<a href=${finishedTo}>Show finished work</a>`
+											: null}</p>`
+									: column.items.length === 0
+									? html`<p class="empty">Nothing</p>`
+									: html`
+										<ul class="rows">
+											${column.items.map((item) => html`
+												<${Row} key=${item.kind + item.ref} item=${item}
+													showKind=${showKind} workspace=${workspace}
+													place=${{ workspace, project }} onGo=${onGo}
+													onOpen=${onOpen} onComplete=${onComplete}
+													onDrag=${onDrag} projects=${projects} />
+											`)}
+										</ul>
+									`}`}
 					</section>
 				`)}
 			</div>
@@ -5591,6 +5745,16 @@ export function App () {
 	   document by the time this runs, so re-applying it on mount would be a second copy of a
 	   decision the page has made. */
 	const [theme, setTheme] = useState(() => themeChoice(globalThis.localStorage));
+	/* **What this browser remembers about collapsed columns** (`#1008`), read once for the
+	   same reason the theme is: the value belongs to the browser rather than to a request, and
+	   re-reading it on every render would make storage a dependency of the poll.
+
+	   Only what somebody explicitly chose lives here — the *defaults* are decided per render by
+	   `collapsedColumns`, because they depend on the selection in the address and that changes
+	   under this component without storage having anything to say about it. */
+	const [columnChoices, setColumnChoices] = useState(
+		() => collapsedChoices(globalThis.localStorage)
+	);
 	/* The project the address narrows to, or null for the whole workspace (`#647`). Held
 	   beside the workspace rather than derived on each render, because the poll and every
 	   write reload the list and all of them have to narrow the same way. */
@@ -6505,6 +6669,24 @@ export function App () {
 		lifted.current = item;
 	}, []);
 
+	/*
+		Remember that a column was opened or shut, and put it into force — `#1008`.
+
+		**Both directions are recorded, and `false` is the load-bearing one.** A reader who opens
+		a column the defaults would close has to have that survive the next render, or the
+		default reasserts itself and the control appears to do nothing —
+		:func:`collapsedColumns` only takes a default where the key is absent.
+
+		Written to storage on the way through rather than in an effect, because the value being
+		stored is the value being set: an effect watching the state would be a second place the
+		same fact is decided, and it would fire on mount and write back what it had just read.
+	*/
+	const collapse = useCallback((key, shut) => {
+		setColumnChoices((held) => rememberCollapsed(
+			{ ...held, [key]: shut }, globalThis.localStorage
+		));
+	}, []);
+
 	const status = useCallback((row, where) => wrote(
 		row,
 		() => ({ text: `#${row.ref} is ${where.replace(/_/g, " ")}.`, tone: "good" }),
@@ -7242,6 +7424,13 @@ export function App () {
 							onPrioritise=${mayWrite ? prioritise : null}
 							selection=${showing.selection}
 							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
+							${/* **Storage holds the reader's explicit choices and nothing else**
+							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
+							     touched. `Board` works the set out against the columns it has
+							     already arranged — computing it here would mean calling
+							     `columns` twice on one render, which is two answers that can
+							     disagree. */ null}
+							choices=${columnChoices} onCollapse=${collapse}
 							${/* **Offered only where one parameter is the whole remedy**: a board
 							     narrowed by `status_category` has every other column absent for a
 							     reason no single link undoes, and a link per column claiming to

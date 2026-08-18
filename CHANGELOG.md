@@ -22,6 +22,19 @@ upgrade involves.
 
 ### Added
 
+- **A board column can be folded away, and the ones holding work that is over start folded.**
+  *Cancelled*, *Superseded* and *Archived* now begin as a narrow strip with their name turned on
+  its side and a count beside it, so a board full of abandoned and replaced work gives its width
+  back to the work you are doing. Click the strip to open it again, or the small control at the
+  top right of any open column to fold that one — the browser remembers, per column, until you
+  say otherwise.
+  **Nothing is hidden that you cannot see is there**: a folded column keeps its place in the
+  order, says how many items it is holding, and stays a drop target, so you can still drag a
+  card onto it. *Done* is deliberately not folded, because finished work is something you have
+  to ask for and it is where *Show finished work* lives. An empty column stays open too — a
+  board with nothing in progress is telling you something, and it is where you drag the next
+  thing.
+
 - **One project in a workspace can be prioritised, and its work rises.** `subroutine project
   prioritise web`, and `--none` to stop. Its tasks — and everything filed underneath it — sort
   higher in ranked listings and on your agenda under *Next*, while anything genuinely urgent or

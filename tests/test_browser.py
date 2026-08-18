@@ -1322,6 +1322,15 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	thing, and refetching without reloading does the reverse. `tests/dom.js` cannot execute
 	`App` (`SR#640`) and will not dispatch an event by decision, so there is no cheaper reader.
 
+	**27 to 28, for `SR#1008`, and this one is geometry rather than wiring.** A folded column
+	claims to take about a character's width, and `writing-mode: vertical-rl` is what makes that
+	true — one CSS declaration with no JavaScript, where a `transform` would look identical in a
+	screenshot and occupy the width it had. `SR#965` is the same argument one property along and
+	is the strongest kind this file takes: there is no cheaper reader, because there is nothing
+	to unit-test. The wiring rode along rather than earning a slot of its own — the decision,
+	the storage and the rendering are pure and checked in `tests/test_web.py`, three tests there
+	against one gesture here.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1334,7 +1343,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 27, (
+	assert len(tests) <= 28, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -2271,3 +2280,112 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 			f"`.linked li > a` is one class more specific than `.mark`, so without the `>` it "
 			f"takes the link colour and loses its outline: {row} against {reference}"
 		)
+
+
+def test_a_column_that_is_over_starts_folded_and_opens_when_asked (running: typing.Any) -> None:
+	"""`#1008`. Simon: cancelled and superseded work need not take the width all day.
+
+	**Geometry, and a browser is the only thing that has it.** The claim is that a shut column
+	takes about a character's width where an open one takes 260 or more — `writing-mode:
+	vertical-rl` is what makes that true, and it is one CSS declaration with no JavaScript to
+	unit-test. A rotation applied with `transform` would look identical in a screenshot and
+	occupy the old width, which is the defect this asserts the absence of.
+
+	**And the wiring, which is `#640` for the sixth time.** The state, the storage and the
+	callback all live in `App`, which `tests/dom.js` cannot execute and which will not dispatch
+	an event by decision — so the decision (`collapsedColumns`), the storage (`collapsedChoices`,
+	`rememberCollapsed`) and the rendering are all checked in `tests/test_web.py` at no cost
+	here, and what is left is the half that has ever actually broken: that pressing the thing
+	changes the page, and that the change survives a reload.
+
+	**The reload is not a flourish.** Remembering is the whole reason this is `localStorage`
+	rather than component state, and a version that renders correctly and forgets on every
+	navigation would pass every other check in this file.
+	"""
+
+	opened, _written, *_ = running
+	page = opened("/projects?view=board&include_completed=true")
+
+	page.wait_for_selector("section.column.collapsed", timeout=10_000)
+
+	def measured (target: typing.Any) -> typing.Any:
+		"""Every column's label, width and whether it is folded."""
+
+		return target.eval_on_selector_all("section.column", """found => found.map((one) => ({
+			label: (one.querySelector("h2") || {}).textContent.trim(),
+			width: one.getBoundingClientRect().width,
+			height: one.getBoundingClientRect().height,
+			shut: one.classList.contains("collapsed"),
+		}))""")
+
+	columns = measured(page)
+	shut = [one for one in columns if one["shut"]]
+	open_ones = [one for one in columns if not one["shut"]]
+
+	assert shut and open_ones, f"nothing folded, or everything did: {columns}"
+
+	assert all("Cancelled" in one["label"] for one in shut), (
+		f"something other than work that is over started folded: {shut}"
+	)
+
+	# **The number is the claim.** A column merely styled narrower would still be 260px wide
+	# and would pass a check that only asked whether the class was applied.
+	assert max(one["width"] for one in shut) < 60, (
+		f"a folded column is {shut} — that is not a character's width, so the heading did not "
+		f"turn and the column gave nothing back"
+	)
+	assert min(one["width"] for one in open_ones) > 200, (
+		f"folding one column shrank the others: {open_ones}"
+	)
+
+	assert not page.eval_on_selector_all("section.column.collapsed .rows li", "f => f.length"), (
+		"a folded column rendered its rows, so it is hiding nothing and costing a click"
+	)
+
+	# **The name has to still be readable, and a box measurement cannot see that** — `#965`'s
+	# lesson, met again. The width above is satisfied by `width: 38px` alone, so deleting
+	# `writing-mode: vertical-rl` left every other assertion here green while the label spilled
+	# out of a column that clips it: the reader would see `Can`. An element's box is not its
+	# content, so the content is what this compares.
+	spilling = page.eval_on_selector_all("section.column.collapsed h2 button", """f => f.map(
+		(one) => ({ over: one.scrollWidth - one.clientWidth, text: one.textContent.trim() })
+	)""")
+
+	assert spilling, "nothing was folded, so this measured nothing"
+	assert all(one["over"] <= 2 for one in spilling), (
+		f"a folded column's name does not fit in it and is clipped: {spilling} — the heading "
+		f"did not turn, so it is laid out along the axis the column has no room on"
+	)
+
+	# **A folded column must take height rather than demand it**, and the first version of this
+	# demanded it. A turned heading is laid out along the vertical axis, so its intrinsic size
+	# is the length of the words; with `height: 100%` inside an auto-height column the two
+	# resolved against each other and *Cancelled* asked for 718px, making the board 209px
+	# taller. Nothing here saw it — what failed was `test_dragging_a_card_to_another_column`,
+	# because the drop target moved below the fold and Playwright scrolled mid-gesture and
+	# lifted a different card. A guard on the width alone is blind to it, which is why this
+	# asks about the other axis.
+	assert max(one["width"] for one in shut) < min(one["height"] for one in shut) , (
+		f"a folded column is not taller than it is wide: {shut}"
+	)
+	assert max(one["height"] for one in shut) <= max(one["height"] for one in open_ones), (
+		f"a folded column is making the board taller than its contents need: {columns}"
+	)
+
+	page.click("section.column.collapsed h2 button")
+	page.wait_for_selector("section.column:not(.collapsed) .rows li", timeout=10_000)
+
+	# Read back rather than trusting the click, because the class is what was clicked on.
+	assert not [one for one in measured(page) if one["shut"]], (
+		"the column was pressed and stayed folded"
+	)
+
+	# **A second page in the same context**, which is a fresh render reading the same storage —
+	# the one thing component state would pass every other assertion here without doing.
+	again = opened("/projects?view=board&include_completed=true")
+
+	again.wait_for_selector("section.column", timeout=10_000)
+
+	assert not [one for one in measured(again) if one["shut"]], (
+		"the reader opened a column and the next page folded it again, so nothing was remembered"
+	)

@@ -10094,3 +10094,141 @@ def test_an_item_in_another_project_says_nothing (tmp_path: pathlib.Path) -> Non
 	}).values()
 
 	assert "(prioritised)" not in said, said
+
+
+def test_a_column_that_is_over_starts_shut_and_a_reader_can_open_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1008`, Simon 2026-08-18: cancelled and superseded work need not take the width all day.
+
+	**Both directions of an explicit choice are asserted, and `false` is the one that matters.**
+	A reader who opens *Cancelled* must have that survive the next render — otherwise the
+	default reasserts itself, the column shuts under them, and the control appears inert. That
+	is the half a set of collapsed keys cannot express, which is why what is stored is a map
+	with two values rather than a list.
+
+	**An empty column is deliberately left open.** `To do` with nothing in it is the answer
+	somebody wanted, and `columns()` argues that an empty *In progress* reads as broken rather
+	than as absent and is where you drag something to.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import {{ collapsedColumns, CLOSED_BY_DEFAULT }} from "{_staged(tmp_path).as_uri()}";
+
+		const board = ["todo", "in_progress", "done", "cancelled", "superseded", "archived"];
+		const shut = (chosen) => [...collapsedColumns(board, chosen)].sort();
+
+		console.log(JSON.stringify({{
+			byDefault: shut(null),
+			opened: shut({{ cancelled: false }}),
+			closed: shut({{ todo: true }}),
+			bothWays: shut({{ cancelled: false, done: true }}),
+			empty: shut({{}}),
+			over: [...CLOSED_BY_DEFAULT].sort(),
+		}}));
+	""")
+
+	assert answers["byDefault"] == ["archived", "cancelled", "superseded"], (
+		"work that is over should start shut, and nothing else should"
+	)
+	assert answers["empty"] == answers["byDefault"], "nothing remembered is not a choice"
+
+	assert answers["opened"] == ["archived", "superseded"], (
+		"a reader opened Cancelled and the default shut it again"
+	)
+	assert answers["closed"] == sorted(answers["byDefault"] + ["todo"])
+
+	assert answers["bothWays"] == ["archived", "done", "superseded"], (
+		"one explicit choice was honoured and the other was not"
+	)
+
+	assert "done" not in answers["over"], (
+		"finished work is a selection nobody has by default, so a reader looking at a Done "
+		"column has asked for it — and it is where 'Show finished work' lives"
+	)
+
+
+def test_a_collapsed_column_says_what_is_in_it_without_showing_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1008`. Collapsed must not mean blind, or the reader cannot tell whether to open it.
+
+	**The count is what makes the column honest**, and it is load-bearing rather than
+	decoration: a shut column is the one place a row is fetched and not rendered, so the number
+	is the whole of what says the rows are still there. It says *Not shown* instead where that
+	is why the column is empty — a `0` beside a category nobody asked for is the same false
+	statement `#742` established under an open one, said sideways.
+	"""
+
+	cancelled = {"ref": 7, "kind": "task", "title": "Abandoned experiment",
+		"status_category": "cancelled"}
+	live = {"ref": 8, "kind": "task", "title": "Still going", "status_category": "todo"}
+
+	rendered = _rendered(tmp_path, {"Board": {
+		"items": [cancelled, live], "workspace": "projects",
+		"selection": {"include_completed": "true"},
+	}})["Board"]
+
+	assert "Still going" in rendered, "an open column stopped rendering its rows"
+	assert "Abandoned experiment" not in rendered, (
+		f"a column that starts shut rendered its contents: {rendered}"
+	)
+
+	shut = rendered.split("Cancelled")[1]
+
+	assert shut.lstrip().startswith("<span>1"), (
+		f"the shut column did not say how much it is holding: {rendered}"
+	)
+
+
+def test_a_reader_who_opens_a_column_is_remembered (tmp_path: pathlib.Path) -> None:
+	"""`#1008`. `localStorage` per `#908`'s theme precedent, and defensive for its reasons.
+
+	**Anything unrecognised reads as nothing remembered.** A value written by an older version
+	or by somebody poking at storage must not put the board into a state no control can get it
+	out of — and the failure is worse here than for a theme, because a wrongly shut column
+	hides work rather than recolouring it.
+
+	Storage throwing is the same answer rather than an exception: a private window can refuse,
+	and a board that will not render because it could not read a preference is a worse bargain
+	than one that renders with its defaults.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import {{ collapsedChoices, rememberCollapsed }} from "{_staged(tmp_path).as_uri()}";
+
+		const stored = (value) => ({{ getItem: () => value }});
+		const broken = {{ getItem: () => {{ throw new Error("no storage here"); }} }};
+
+		let written = null;
+		const writable = {{
+			getItem: () => written,
+			setItem: (_key, value) => {{ written = value; }},
+		}};
+
+		rememberCollapsed({{ cancelled: false, superseded: true }}, writable);
+
+		console.log(JSON.stringify({{
+			roundTrip: collapsedChoices(writable),
+			nothing: collapsedChoices(stored(null)),
+			nonsense: collapsedChoices(stored("{{ not json")),
+			array: collapsedChoices(stored("[1, 2]")),
+			mixed: collapsedChoices(stored('{{"a": true, "b": "yes", "c": 3}}')),
+			absent: collapsedChoices(undefined),
+			broken: collapsedChoices(broken),
+		}}));
+	""")
+
+	assert answers["roundTrip"] == {"cancelled": False, "superseded": True}, (
+		"what was remembered did not come back, so a reader's choice lasts one render"
+	)
+
+	for state in ("nothing", "nonsense", "array", "absent", "broken"):
+		assert answers[state] == {}, (
+			f"{state} was read as a choice somebody made: {answers[state]}"
+		)
+
+	assert answers["mixed"] == {"a": True}, (
+		"a value that is not a yes or a no is not an answer, and keeping it would put the "
+		"board into a state no control can name"
+	)
