@@ -1976,9 +1976,14 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	# control holding two of six and failed as though the tree had been flattened, which
 	# is a claim about the code rather than about the clock. Second instance of the shape
 	# in this file: wait for the thing being asserted on, not only for what preceded it.
-	page.wait_for_function(
-		"document.querySelectorAll('header .who select option').length > 2",
-		timeout=10_000,
+	#
+	# **Said in CSS rather than in JavaScript** (`#1000`). `wait_for_function` takes its
+	# predicate as a *string*, which Playwright evaluates in the page — and `#805` serves a
+	# policy with no `unsafe-eval`, so Chromium refuses it and the guard blames the product
+	# for a policy the product is right to have. `attached` because an `<option>` is never
+	# *visible* to Playwright, so the default state times out on a control already correct.
+	page.wait_for_selector(
+		"header .who select option:nth-child(3)", state="attached", timeout=10_000
 	)
 
 	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [

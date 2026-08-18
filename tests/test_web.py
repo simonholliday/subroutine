@@ -9802,3 +9802,38 @@ def test_going_home_writes_an_address_with_no_arrangement (tmp_path: pathlib.Pat
 		"a listing stopped carrying its arrangement, which is what SR#651 is for"
 	)
 
+
+
+def test_no_browser_test_waits_by_evaluating_a_string () -> None:
+	"""`SR#1000`: `wait_for_function` takes a string, and the served policy forbids evaluating one.
+
+	`SR#805` gives every response a content security policy with no `unsafe-eval`, so Chromium
+	refuses the predicate Playwright injects — **intermittently**, which is worse than always:
+	the run that failed and the run that passed were the same file, unchanged, minutes apart.
+	A guard that blames the product at random for a policy the product is right to have is the
+	shape `SR#998` filed a *slow* guard over.
+
+	**Here rather than in `tests/test_browser.py`**, which is capped at twenty-six tests
+	answering what only a browser can (`SR#964`). This needs no browser: it reads a file.
+
+	**Walked as an AST rather than grepped**, so the paragraph in `test_browser.py` explaining
+	why the call is not used cannot be read as a use of it — `SR#836`'s trap, where a scan over
+	prose reports the sentence that describes the rule.
+	"""
+
+	source = pathlib.Path(__file__).parent / "test_browser.py"
+	tree = ast.parse(source.read_text(encoding="utf-8"))
+	found = [
+		node.lineno
+		for node in ast.walk(tree)
+		if isinstance(node, ast.Call)
+		and isinstance(node.func, ast.Attribute)
+		and node.func.attr == "wait_for_function"
+	]
+
+	assert not found, (
+		f"{source.name} evaluates a string to wait, at line(s) {found}. The policy this "
+		f"application serves has no 'unsafe-eval', so the wait is refused rather than slow. "
+		f"Say the condition in CSS — 'option:nth-child(3)' is 'more than two options' — or "
+		f"poll from Python with `_until`."
+	)
