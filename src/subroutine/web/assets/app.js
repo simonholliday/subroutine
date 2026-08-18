@@ -1814,7 +1814,7 @@ export function placesToGo (workspaces, projects, showing) {
 	*/
 	const spaces = (workspaces || [])
 		.slice()
-		.sort((a, b) => `${a.title || a.slug}`.localeCompare(`${b.title || b.slug}`));
+		.sort((a, b) => `${a.slug}`.localeCompare(`${b.slug}`));
 	const where = showing || {};
 	const here = where.workspace || null;
 	const inside = where.project || null;
@@ -1832,9 +1832,33 @@ export function placesToGo (workspaces, projects, showing) {
 		   be a request that landed showing through as a rule nobody chose. */
 		const mine = !where.agenda && space.slug === here;
 
+		/*
+			**A workspace by its slug, and a project by its title** — `#979`, Simon 2026-08-18,
+			within an hour of the version that used the title for both.
+
+			A title is free text and **is not unique**: this instance has two workspaces called
+			`Personal`, so the control offered the same word twice, took you to different places
+			from each, and named neither. A slug is unique by construction (§5.4) and is the
+			segment a person types, so it is the only one of the two that can identify a
+			destination — which is the whole job of this control.
+
+			**`#912` and `#968` had both settled that and `#975` reached past them.** A row's
+			project label is the slug address for this reason, and *each address stays
+			independently typeable* beat the reading-economy argument on the agenda. What `#975`
+			answered was `#912`'s other half — indentation says `Web UI` is inside `Subroutine`
+			where two names side by side do not — and containment is not identity.
+
+			**A project keeps its title**, which is what was actually asked for, and its `key` is
+			no better: it stopped being unique in its workspace at `#958`, so it identifies
+			nothing a title does not. The tree supplies the rest.
+
+			**Not a disambiguator only where titles collide.** That is drop-if-uniform, which
+			decision `#957` §4 refuses on this surface by name: the page polls, so a label that
+			appears and vanishes under the cursor is the thing that rule exists to prevent.
+		*/
 		options.push({
 			value: `/${encodeURIComponent(space.slug)}`,
-			label: `${space.title || space.slug}`,
+			label: `${space.slug}`,
 			depth: 0,
 			chosen: !where.agenda && mine && !inside,
 		});

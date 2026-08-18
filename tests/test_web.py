@@ -3041,8 +3041,11 @@ def test_a_sub_project_cannot_be_mistaken_for_a_root_one (tmp_path: pathlib.Path
 	)
 
 
+#: **Two of them are called `Personal`**, which is what the served instance really holds and is
+#: the case `SR#979` was found by. A roster of distinct titles cannot tell a control that
+#: identifies its destinations from one that merely names them.
 SPACES = [
-	{"id": "1", "slug": "projects", "title": "Subroutine"},
+	{"id": "1", "slug": "projects", "title": "Personal"},
 	{"id": "2", "slug": "personal", "title": "Personal"},
 	{"id": "3", "slug": "acme", "title": "Acme"},
 ]
@@ -3096,11 +3099,21 @@ def test_only_a_query_that_is_nothing_but_a_ref_opens_an_item (
 	}
 
 
-def test_the_masthead_offers_every_workspace_by_name (tmp_path: pathlib.Path) -> None:
-	"""`SR#975`, Simon's. It listed slugs, which are what you *type* rather than what you read.
+def test_a_workspace_is_offered_by_the_name_that_identifies_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#979`, Simon 2026-08-18, and it corrects `SR#975` within the hour.
 
-	**Alphabetically**, which the roster is not: `workspaces.readable` orders by `created_at`,
-	so the fixture arrives in the order somebody happened to make them.
+	**A title is free text and is not unique.** The served instance has two workspaces called
+	`Personal`, so a control labelled by title offered one word twice, went to different places
+	from each, and named neither. A slug is unique by construction (§5.4) and is what a person
+	types, so it is the only one of the two that can identify a destination.
+
+	**The fixture gives two workspaces one title on purpose**, because that is the case that
+	separates identifying from naming — and no fixture here built it, which is exactly why
+	`SR#975` shipped. Every workspace in the version this replaces had a distinct title.
+
+	**Alphabetically**, which the roster is not: `workspaces.readable` orders by `created_at`.
 	"""
 
 	[shown] = _views(tmp_path, [("placesToGo", {
@@ -3108,8 +3121,8 @@ def test_the_masthead_offers_every_workspace_by_name (tmp_path: pathlib.Path) ->
 	})])
 
 	assert [one["label"] for one in shown] == [
-		"All workspaces", "Acme", "Personal", "Subroutine",
-	]
+		"All workspaces", "acme", "personal", "projects",
+	], "two workspaces are called Personal, so a title names neither of them"
 
 	# **The value is an address**, so `goTo` reads it back through `parseAddress` and the thing
 	# chosen is the thing that ends up in the bar — `SR#959`'s argument for the row labels.
@@ -3118,6 +3131,14 @@ def test_the_masthead_offers_every_workspace_by_name (tmp_path: pathlib.Path) ->
 	# On the agenda nothing else is selected, which is what `SR#969` settled: the control says
 	# what is showing, and what is showing at `/` is every workspace.
 	assert [one["chosen"] for one in shown] == [True, False, False, False]
+
+	# **Every label is distinct**, which is the claim rather than the list above — a list can be
+	# edited to match whatever the code does, and this cannot be satisfied by a title.
+	labels = [one["label"] for one in shown]
+
+	assert len(set(labels)) == len(labels), (
+		f"two entries in a control that navigates are called the same thing: {labels}"
+	)
 
 
 def test_only_the_workspace_you_are_in_offers_its_projects (tmp_path: pathlib.Path) -> None:
@@ -3140,14 +3161,14 @@ def test_only_the_workspace_you_are_in_offers_its_projects (tmp_path: pathlib.Pa
 
 	assert [(one["label"], one["depth"]) for one in inside] == [
 		("All workspaces", 0),
-		("Acme", 0),
-		("Personal", 0),
-		("Subroutine", 0),
+		("acme", 0),
+		("personal", 0),
+		("projects", 0),
 		("Alpha", 1),
 		("Inbox", 1),
 		("Substation", 1),
 		("Packaging", 2),
-	]
+	], "a workspace is its slug and a project is its title — `SR#979`"
 
 	# **The Inbox sorts by its name here**, unlike in the add form: this control is not choosing
 	# a destination, so there is no default to keep in view.

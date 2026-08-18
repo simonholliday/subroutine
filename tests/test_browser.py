@@ -1947,19 +1947,21 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 
 	assert control.count() == 1, "one workspace still has no control to choose it with"
 
-	# **By name, not by slug.** The fixture's workspace is `projects` and is called `Subroutine`,
-	# so a version reading the slug renders a different word here.
+	# **By slug, which is the one of the two names that identifies** — `SR#979`. A title is
+	# free text and the served instance has two workspaces called `Personal`, so a control
+	# labelled by title offered one word twice and named neither destination.
 	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
-		"All workspaces", "Subroutine",
+		"All workspaces", "projects",
 	]
 
 	control.select_option("/projects")
 	page.wait_for_url("http://app.test/projects*", timeout=10_000)
 	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
 
-	# The projects arrive with the workspace, so the tree is only offered once inside one.
+	# The projects arrive with the workspace, so the tree is only offered once inside one —
+	# and a project *is* named by its title, which is what `SR#975` was asked for.
 	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
-		"All workspaces", "Subroutine", "Acme", "Inbox", "Websites", "Handouts",
+		"All workspaces", "projects", "Acme", "Inbox", "Websites", "Handouts",
 	], "the tree is in creation order, or the nesting was flattened"
 
 	reads.clear()
