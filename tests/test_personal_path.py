@@ -6323,3 +6323,105 @@ def test_a_scripted_row_carries_the_whole_address (
 	rows = json.loads(run("list", "--json", "--project", "substation/dist").output)
 
 	assert [row["project_path"] for row in rows] == ["substation/dist"]
+
+
+def _agendas (*zones: tuple[str, str]) -> typing.Any:
+	"""Wrap one agenda per connection, each counting its day in the zone it was given."""
+
+	return subroutine.fanout.Gathered(
+		answers=tuple(
+			subroutine.fanout.Answer(
+				connection=subroutine.connections.Connection(name=name, url=None),
+				value=subroutine.views.Agenda(
+					date=datetime.date(2026, 11, 5),
+					timezone=zone,
+					overdue=[],
+					today=[],
+					upcoming=[],
+					unscheduled=[],
+					unscheduled_total=0,
+				),
+			)
+			for name, zone in zones
+		),
+		failures=(),
+	)
+
+
+def test_connections_counting_different_days_are_said_rather_than_resolved () -> None:
+	"""`SR#995`, and the half that replaced sending one zone to everybody.
+
+	The old behaviour made the answer consistent by making it wrong: it sent the **typing
+	machine's** zone, so somebody with a work profile on America/New_York and a personal one on
+	Europe/London got a third day matching neither, and nothing said so. Each instance resolves
+	the reader's own zone now, so the answers can genuinely be about different days — which is
+	the truth of the arrangement, and the person is the only one who can settle it.
+	"""
+
+	said: list[str] = []
+	program = subroutine.cli.personal.Program(
+		say=lambda text: pytest.fail(f"this belongs on stderr, not in the agenda: {text}"),
+		fail=lambda error: pytest.fail(f"nothing here ends the command: {error}"),
+		stop=lambda *arguments: pytest.fail("nor stops it"),
+		settings=subroutine.config.Settings,
+		console=rich.console.Console(),
+		warn=said.append,
+		mask=lambda text: text,
+		selected=subroutine.cli.personal.Selected(),
+	)
+
+	subroutine.cli.personal._report_zones(
+		program, _agendas(("work", "America/New_York"), ("personal", "Europe/London"))
+	)
+
+	assert said, "a merge of two different days says so"
+	assert "America/New_York" in said[0] and "Europe/London" in said[0]
+	assert "work" in said[0] and "personal" in said[0], (
+		"which connection is in which zone, since the remedy is per account"
+	)
+
+
+def test_connections_agreeing_about_the_day_say_nothing () -> None:
+	"""The other half, and it is what keeps the line from being noise.
+
+	**Keyed on the zones rather than on the dates**, deliberately: two zones are on the same
+	date for part of every day, so a warning keyed on the dates would appear and disappear
+	under the reader while nothing changed — `SR#966`'s recorded failure, where a message whose
+	trigger is a coincidence reads as a fault in the program.
+	"""
+
+	said: list[str] = []
+	program = subroutine.cli.personal.Program(
+		say=said.append,
+		fail=lambda error: pytest.fail(f"nothing here ends the command: {error}"),
+		stop=lambda *arguments: pytest.fail("nor stops it"),
+		settings=subroutine.config.Settings,
+		console=rich.console.Console(),
+		warn=said.append,
+		mask=lambda text: text,
+		selected=subroutine.cli.personal.Selected(),
+	)
+
+	subroutine.cli.personal._report_zones(
+		program, _agendas(("work", "Europe/London"), ("personal", "Europe/London"))
+	)
+
+	assert not said, f"two connections in one zone are one day: {said}"
+
+
+def test_the_scripted_agenda_says_which_zone_each_connection_counted_in () -> None:
+	"""`SR#995`'s other reader. The rendered path says it in words; this is for a script.
+
+	The two scalars beside it are the *first* answer's, which is the whole truth only while
+	these agree — so a script merging several instances has to be able to tell, and comparing
+	one field is how.
+	"""
+
+	said = subroutine.cli.personal._agenda_json(
+		_one_connection(), _agendas(("work", "America/New_York"), ("personal", "Europe/London"))
+	)
+
+	assert said["timezones"] == {
+		"work": "America/New_York", "personal": "Europe/London",
+	}
+	assert said["timezone"] == "America/New_York", "the scalar is the first answer's, as before"

@@ -361,9 +361,7 @@ AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = tuple(
 )
 
 
-def agenda_asked (
-	world: World, *, workspace: str | None, now: datetime.datetime
-) -> dict[str, typing.Any]:
+def agenda_asked (*, workspace: str | None) -> dict[str, typing.Any]:
 	"""Return what the agenda asks every connection for.
 
 	**Lifted out of the command so that something other than a person can ask it** (`#992`).
@@ -377,19 +375,32 @@ def agenda_asked (
 	person running `subroutine agenda` wants the week in front of them, and §12.2a's agenda
 	has a heading for it.
 
-	**`date` and `timezone` are this machine's, resolved once** (§13.7). Each instance would
-	otherwise apply its own notion of the caller's timezone, and a person whose work profile
-	says America/New_York and whose personal one says Europe/London would get two different
-	days merged into one list. **That reasoning does not survive its own case and `#995` is
-	the item**: the zone sent is the *typing machine's*, which on a mismatched pair is a third
-	answer matching neither.
+	**Neither `date` nor `timezone` is sent, so §6.5's chain decides** — Simon's decision of
+	2026-08-18, decision `#989`: *"a user should always see items displayed in their own local
+	timezone, where possible."*
+
+	This used to fill the chain's `explicit` slot with `world.settings.default_timezone`, a
+	*client-machine* setting whose default is that machine's OS zone. **Its stated reason does
+	not survive its own case** (`#995`): the argument was the merge, and with a work connection
+	on America/New_York and a personal one on Europe/London the value sent is the *typing
+	machine's* — a third answer matching neither. It did not resolve the ambiguity, it resolved
+	it arbitrarily and said nothing.
+
+	`agendaRequest()` in `app.js` had already decided the same question the other way, with the
+	reason written down: *"`Intl` knows where the machine is; it does not know where the reader
+	keeps their diary."*
+
+	**So a genuine disagreement is reported rather than resolved** — :func:`_report_zones` — and
+	the value the chain reads is one a person can set, which is `#994` and is why that blocked
+	this.
+
+	**It takes neither the world nor the clock any more**, and that is the change rather than a
+	tidy-up: what a person's agenda is about stopped being a property of the machine they typed
+	on. A parameter left behind for a value nothing reads is the shape `#303` went round this
+	repository deleting.
 	"""
 
-	zone = world.settings.default_timezone
-
 	return {
-		"date": subroutine.domain.schedule.local_date(now, zone),
-		"timezone": zone,
 		"horizon_days": subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
 		# `-w` narrows the agenda the same way it narrows every other listing. Unset spans
 		# everything, which is what makes this one list rather than one per workspace
@@ -3216,6 +3227,39 @@ def _require_connection (
 	return item.client
 
 
+def _report_zones (
+	program: Program, gathered: subroutine.fanout.Gathered[subroutine.views.Agenda]
+) -> None:
+	"""Say when two connections are not counting the same day — `#995`.
+
+	**Reported rather than silently resolved.** ``subroutine agenda`` used to send one zone to
+	every connection, which made the answer consistent by making it wrong: the value was the
+	*typing machine's*, so a person with a work profile on America/New_York and a personal one
+	on Europe/London got a third day matching neither, and nothing said so.
+
+	Each instance resolves the reader's own zone now (§6.5), so the answers can genuinely be
+	about different days. That is the truth of the arrangement and the person is the only one
+	who can settle it — by setting the same zone on both accounts, or by knowing.
+
+	**On the zones rather than on the dates**, deliberately. Two zones are on the same date for
+	part of every day, so a warning keyed on the dates would appear and disappear under the
+	reader while nothing changed — which is the failure `#966` records about a message whose
+	trigger is a coincidence.
+	"""
+
+	zones = {answer.connection.name: answer.value.timezone for answer in gathered.answers}
+
+	if len(set(zones.values())) < 2:
+		return
+
+	named = ", ".join(f"{name} in {zone}" for name, zone in sorted(zones.items()))
+
+	program.warn(
+		f"These connections are counting different days: {named}. "
+		f"Set the same timezone on each account to merge one day rather than two."
+	)
+
+
 def _report (program: Program, world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
 	"""Name every connection that could not be reached, and carry on.
 
@@ -3665,12 +3709,17 @@ def register (
 				# mean, and it is the same argument `--type` already makes.
 				recurrence=repeat.strip() or None,
 				recurrence_anchor=repeat_from.strip() or None,
-				# **This machine's zone, for the reason `today` states in the same words**
-				# (§13.7): resolved here so every connection reads "friday" as the same day.
-				# It was not passed at all, so each instance applied its own notion of the
-				# caller — a person whose work profile says America/New_York and whose
-				# personal one says Europe/London filed *two different Fridays* and then
-				# merged them into one agenda that had already decided which day it was.
+				# **This machine's zone, because a date somebody types means the day it is
+				# where they are** (§13.7). Resolved here so every connection files the same
+				# Friday; it was not passed at all, so each instance applied its own notion
+				# of the caller and a person with two profiles filed *two different Fridays*.
+				#
+				# **The agenda deliberately does the opposite now** (`#995`): it sends no zone
+				# and lets §6.5's chain decide, because *which day is this answer about* is a
+				# question about the reader rather than about the keyboard. Writing and
+				# reading part company here on purpose — and whether a written date should
+				# resolve against the writer's account rather than their machine is a real
+				# question this leaves open rather than answers.
 				timezone=world.settings.default_timezone,
 				# **No `--repeat-trigger`, deliberately** (`#94`). `time` is refused by name
 				# until `#916` expands a rule into a date-ranged view, so the flag would offer
@@ -3759,15 +3808,14 @@ def register (
 		# round rather than the natural-reading way.
 
 		with program.opened(strict=strict) as world:
-			asked = agenda_asked(
-				world, workspace=selected.workspace, now=subroutine.db.types.utcnow()
-			)
+			asked = agenda_asked(workspace=selected.workspace)
 
 			gathered = subroutine.fanout.gather(
 				world.clients, lambda client: client.agenda(**asked), strict=strict
 			)
 
 			_report(program, world, gathered.failures)
+			_report_zones(program, gathered)
 
 			if json_output:
 				say(json.dumps(_agenda_json(world, gathered), indent=2))
@@ -7317,6 +7365,14 @@ def _agenda_json (
 	return {
 		"date": None if first is None else first.date.isoformat(),
 		"timezone": None if first is None else first.timezone,
+		# **Per connection, because they can genuinely differ** (`#995`). Each instance
+		# resolves the reader's own zone (§6.5), so the two scalars above are the first
+		# answer's and are the whole truth only while these agree. A script merging several
+		# instances has to be able to tell — the rendered path says it in words, and this is
+		# the same fact for something that is not reading.
+		"timezones": {
+			answer.connection.name: answer.value.timezone for answer in gathered.answers
+		},
 		# **The same rows in the same order as the page**, which they were not: this called
 		# `_across` and never `_in_order`, so a scripted reader with two connections got two
 		# sorted runs end to end while the rendered path got one list (`#993`). On one

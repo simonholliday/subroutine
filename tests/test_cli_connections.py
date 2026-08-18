@@ -2966,37 +2966,41 @@ def test_a_credentials_file_anybody_can_read_is_said_by_an_ordinary_command (
 	assert str(where) not in run("list").output, "and nothing is said when it is not loose"
 
 
-def test_a_timezone_this_machine_cannot_use_is_refused_by_add_as_it_is_by_today (
+def test_writing_a_date_reads_this_machine_s_zone_and_reading_the_agenda_does_not (
 	home: pathlib.Path,
 	run: typing.Callable[..., typer.testing.Result],
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""``today`` resolved the day here and ``add`` let each instance decide.
+	"""The seam `SR#995` left, stated in a way a clock cannot move.
 
-	``today``'s own comment states the rule in as many words — *"resolved once, here, in this
-	machine's zone, because each instance would otherwise apply its own notion of the caller's
-	timezone, and a person whose work profile says America/New_York and whose personal one
-	says Europe/London would get two different days merged into one list"*. ``add`` passed no
-	timezone at all, so the argument held for reading and not for writing.
+	**Writing a date resolves where you are typing.** ``add "Pay the rent by friday"`` means
+	the Friday it is where the person is, so this machine's zone is what decides it — and it is
+	sent, so every connection files the same day rather than each applying its own notion of
+	the caller.
 
-	**Asserted through the misconfiguration rather than through a date**, deliberately: a test
-	comparing days depends on what time it is run, which this suite has been bitten by, and a
-	setting neither command can use is true at every hour. Before this, ``today`` refused it
-	and ``add`` filed happily — which is the same divergence stated in a way a clock cannot
-	move.
+	**Reading the agenda resolves where the reader keeps their diary.** ``agenda`` used to send
+	the same machine zone and no longer sends one at all: §6.5's chain decides, so the terminal,
+	the browser and an agent are about one day. Its old reason was the merge, and the value it
+	sent on a mismatched pair was a *third* answer matching neither instance.
+
+	**Asserted through a setting neither could use**, deliberately: a test comparing days
+	depends on what time it is run, which this suite has been bitten by, and an unusable zone
+	is unusable at every hour. So the pair is one command refusing it and one not reading it —
+	which is the seam itself rather than a claim about a date.
 	"""
 
 	run("init", "--workspace", "Personal")
 	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", "Nowhere/Atall")
 
-	refused = run("today", expect=1)
-
-	assert "Nowhere/Atall" in refused.output, "today has always refused it"
-
 	filed = run("add", "Pay the rent by friday", expect=1)
 
 	assert "Nowhere/Atall" in filed.output, (
-		"add read the zone from nowhere, so a setting today refuses was invisible to it"
+		"a written date is resolved here, so a zone this machine cannot use is refused here"
+	)
+
+	# Not merely "it exits 0": a command that printed a refusal and carried on would too.
+	assert "Nowhere" not in run("today").output, (
+		"the agenda stopped reading this setting, so a bad one cannot reach it (SR#995)"
 	)
 
 

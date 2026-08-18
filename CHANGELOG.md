@@ -147,6 +147,20 @@ upgrade involves.
 
 ### Fixed
 
+- **Your agenda is counted in your own timezone on every surface, not in the timezone of
+  whichever machine you typed on.** `subroutine agenda` used to send its own machine's zone to
+  every instance it asked, so the terminal could be about a different day from the page and
+  from what an agent was told — and on two connections in different zones the value sent
+  matched neither of them. Every surface now lets the instance resolve your zone the same way:
+  your account first, then the workspace, then the instance.
+
+  **If your machine's zone differs from your account's, say which one you are in** —
+  `subroutine user timezone Europe/London` — or your days will be counted where the server is.
+  Two connections whose accounts disagree are now told about rather than quietly resolved to a
+  third answer, and `--json` says which zone each one counted in.
+
+  This does not change how a date is *written*: a day-scale deadline still reads as the day it
+  was set for, because re-rendering a day through another zone would make it a different day.
 - **The agenda is in the same order wherever you read it.** The terminal re-sorted every
   section after merging your connections, and it re-sorted on different keys from the ones
   the instance had used: by item number where the instance separates ties by age, and not at

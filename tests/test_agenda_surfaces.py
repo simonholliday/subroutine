@@ -32,11 +32,12 @@ browser has chips, an agent gets a flat line.
 * **A real clock makes the timezone assertion pass for part of the day**, which is `#737`'s
   shape — a fixture that passes because of *when* it ran. The instant is fixed.
 
-**Five of these are ``xfail(strict=True)`` and each names the item that removes the mark.**
-The guard is built *second* rather than last, deliberately (`#990`), so it is written against
-the divergence as it stands and each remaining fix turns one assertion green. ``strict`` is
-what makes that a ratchet rather than a note: the day a fix lands, the mark itself fails until
-somebody takes it off, so the guard cannot be left describing a defect that has gone.
+**Five of these were ``xfail(strict=True)`` when this file was written, and every one has been
+taken off.** The guard is built *second* rather than last, deliberately (`#990`), so it was
+written against the divergence as it stood and each fix turned one assertion green — `#991`,
+`#993`, `#995`. ``strict`` is what made that a ratchet rather than a note: the day a fix
+landed, the mark itself failed until somebody removed it, so the guard could not be left
+describing a defect that had gone.
 """
 
 import contextlib
@@ -179,7 +180,6 @@ def test_the_sections_cover_every_bucket_the_agenda_carries () -> None:
 	)
 
 
-@pytest.mark.xfail(strict=True, reason="`#995` — the terminal sends the typing machine's zone")
 def test_every_surface_asks_the_agenda_for_the_same_day_in_the_same_zone (
 	surfaces: Surfaces, tmp_path: pathlib.Path
 ) -> None:
@@ -191,9 +191,7 @@ def test_every_surface_asks_the_agenda_for_the_same_day_in_the_same_zone (
 	browser deliberately refuses to, with the reason written into ``agendaRequest``.
 	"""
 
-	asked = subroutine.cli.personal.agenda_asked(
-		surfaces.world, workspace=None, now=MOMENT
-	)
+	asked = subroutine.cli.personal.agenda_asked(workspace=None)
 	browser = _browser_asked(tmp_path)
 	agent = subroutine.mcp.tools._agenda_asked({})
 
@@ -220,7 +218,7 @@ def test_every_surface_asks_for_the_same_look_ahead (
 
 	said = {
 		"the terminal": subroutine.cli.personal.agenda_asked(
-			surfaces.world, workspace=None, now=MOMENT
+			workspace=None
 		).get("horizon_days"),
 		"the browser": _browser_asked(tmp_path).get("horizon_days"),
 		"an agent": subroutine.mcp.tools._agenda_asked({}).get("horizon_days"),
@@ -229,7 +227,6 @@ def test_every_surface_asks_for_the_same_look_ahead (
 	assert len(set(said.values())) == 1, f"three look-aheads, not one: {said}"
 
 
-@pytest.mark.xfail(strict=True, reason="`#991`, `#993`, `#995` — all three divergences land here")
 def test_every_surface_names_the_same_work_in_the_same_order (
 	surfaces: Surfaces, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -266,9 +263,7 @@ def test_the_scripted_agenda_is_ordered_like_the_one_a_person_reads (
 	"""
 
 	with _at(monkeypatch, MOMENT):
-		asked = subroutine.cli.personal.agenda_asked(
-			surfaces.world, workspace=None, now=MOMENT
-		)
+		asked = subroutine.cli.personal.agenda_asked(workspace=None)
 		gathered = _twice(surfaces.gathered(**asked))
 
 		rendered = {
@@ -284,7 +279,6 @@ def test_the_scripted_agenda_is_ordered_like_the_one_a_person_reads (
 	assert said == rendered, _difference("--json", said, "the page", rendered)
 
 
-@pytest.mark.xfail(strict=True, reason="`#993`, `#995` — the two answers still bucket differently")
 def test_every_agenda_row_an_agent_reads_says_which_bucket_it_is_in (
 	surfaces: Surfaces, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -429,7 +423,7 @@ def _twice (
 def _terminal (surfaces: Surfaces) -> dict[str, list[int]]:
 	"""Return what ``subroutine agenda`` puts on the page, bucket by bucket."""
 
-	asked = subroutine.cli.personal.agenda_asked(surfaces.world, workspace=None, now=MOMENT)
+	asked = subroutine.cli.personal.agenda_asked(workspace=None)
 	rows = subroutine.cli.personal.agenda_rows(surfaces.world, surfaces.gathered(**asked))
 
 	return {bucket: [task.ref for _name, task in rows[bucket]] for bucket in BUCKETS}
