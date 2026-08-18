@@ -324,6 +324,29 @@ UNGIVEN_NUMBER = -1
 #: only ever holds tasks, and passes them through the same helpers because a task is an item.
 Row = tuple[str, Item]
 
+#: What the terminal calls each bucket, and whether it is late.
+#:
+#: **The order is not here** — it is :data:`subroutine.views.AGENDA_BUCKETS`, so the terminal,
+#: the browser and an agent cannot disagree about which section comes first or which sections
+#: there are (`#992`). What is here is the terminal's own two facts about each.
+#:
+#: A bucket the agenda carries and this does not name raises at import, which is the intended
+#: failure: a heading nobody chose is worse than a build that stops.
+_HEADINGS: dict[str, tuple[str, bool]] = {
+	"overdue": ("Overdue", True),
+	"today": ("Today", False),
+	# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
+	# neither scheduled nor a candidate to pick up, and it is the first thing to look at
+	# after what the day demands — a person who left something half-finished yesterday
+	# should not have to find it among two hundred captured tasks.
+	"in_progress": ("In progress", False),
+	"upcoming": (f"Next {subroutine.domain.agenda.DEFAULT_HORIZON_DAYS} days", False),
+	# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
+	# by capture order — the heading names what the section is *for*, and the old one
+	# named only what its rows lacked.
+	"unscheduled": ("Next", False),
+}
+
 #: The agenda's sections, in the order a day is read: heading, the field on
 #: :class:`subroutine.views.Agenda` that fills it, and whether it is late.
 #:
@@ -332,19 +355,9 @@ Row = tuple[str, Item]
 #: a local in one function meant the browser's copy could — and did — drift: it was missing
 #: ``in_progress`` entirely and still called the last section *Unscheduled*, under a comment
 #: claiming to print "deliberately the same words". `tests/test_web.py` compares them now.
-AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = (
-	("Overdue", "overdue", True),
-	("Today", "today", False),
-	# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
-	# neither scheduled nor a candidate to pick up, and it is the first thing to look at
-	# after what the day demands — a person who left something half-finished yesterday
-	# should not have to find it among two hundred captured tasks.
-	("In progress", "in_progress", False),
-	("Next 7 days", "upcoming", False),
-	# **"Next" rather than "Unscheduled"**, because it is ordered by rank now rather than
-	# by capture order — the heading names what the section is *for*, and the old one
-	# named only what its rows lacked.
-	("Next", "unscheduled", False),
+AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = tuple(
+	(_HEADINGS[field][0], field, _HEADINGS[field][1])
+	for field in subroutine.views.AGENDA_BUCKETS
 )
 
 

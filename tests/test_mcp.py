@@ -58,6 +58,7 @@ import subroutine.mcp.relay
 import subroutine.mcp.session
 import subroutine.mcp.tools
 import subroutine.permissions
+import subroutine.views
 
 
 def _adding (name: str = "add") -> subroutine.mcp.protocol.Tool:
@@ -846,8 +847,16 @@ def test_an_agent_can_ask_what_is_on_today (
 	"""`#149`. ``today`` is the question this product is built around and MCP had no tool.
 
 	An argument on ``subroutine_list`` rather than a tool of its own, and flat rather than in
-	the four buckets: the buckets are a *terminal* structure, and a model reading four
-	headings for what is usually four rows is paying for the headings.
+	the five buckets: the buckets are a *terminal* structure, and a model reading five headings
+	for what is usually five rows is paying for the headings.
+
+	**This asserted the opposite until 2026-08-18, and the reversal is Simon's** (`#991`,
+	decision `#989`). It required ``unscheduled`` to be absent, on the argument that it is the
+	terminal's filler and none of it is *on today*. What reversed it is a measurement: **11 of
+	170 open tasks on this project's own instance are dated**, so on an ordinary day an agent
+	was told *"Nothing on today."* while the browser showed twenty ranked items. The intent is
+	kept and the satisfier changed — the question is still *what is on now*, and the answer now
+	says which part of the day each row belongs to.
 	"""
 
 	ref = _added(bound, "Ring the dentist")
@@ -861,11 +870,32 @@ def test_an_agent_can_ask_what_is_on_today (
 	assert not failed, on_today
 	assert "Ring the dentist" in on_today
 
-	# **The agenda's fourth bucket is left out, and this is what says so.** `unscheduled` is
-	# the terminal's filler — "your day is empty, here is some backlog", capped at twenty —
-	# and none of it is on today. Including it answered the question with the whole backlog,
-	# which is what running this against the real instance showed before anybody read it.
-	assert "Rewrite the importer" not in on_today
+	# **Every bucket reaches an agent, which is the half that changed.**
+	assert "Rewrite the importer" in on_today, (
+		f"undated work is on the agenda every other surface renders: {on_today}"
+	)
+
+	# **And each row says which bucket it is in, which is the condition on the parity rather
+	# than a nicety.** Without it a backlog suggestion is distinguishable from a commitment
+	# only by the absence of a deadline, so flat parity would be worse than the drop it
+	# replaced. Read off the rows rather than the whole answer, because a word appearing
+	# somewhere in a block of text is not a label on anything.
+	buckets = {
+		next(
+			(
+				cell
+				for cell in (part.strip() for part in line.split("  "))
+				if cell in subroutine.views.AGENDA_BUCKETS
+			),
+			None,
+		)
+		for line in on_today.splitlines()
+		if line.startswith("#")
+	}
+
+	assert buckets == {"today", "unscheduled"}, (
+		f"a row names the section of the day it is in: {on_today}"
+	)
 
 
 def test_an_agent_can_make_and_list_a_project (

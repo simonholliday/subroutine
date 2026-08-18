@@ -34,6 +34,7 @@ import subroutine.clients.base
 import subroutine.config
 import subroutine.db.types
 import subroutine.directory
+import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.filtering
@@ -619,7 +620,9 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					},
 					"today": {
 						"type": "boolean",
-						"description": "The agenda: overdue, due today, and planned next.",
+						"description": (
+							"The agenda: overdue, today, in progress, upcoming, next."
+						),
 					},
 					"filter": DATE_FILTER,
 					"workspace": WORKSPACE,
@@ -1334,22 +1337,46 @@ def _listed (
 	# `today` asks what is on now — overdue, due, planned, in progress — which no ordering of
 	# a backlog produces, because "overdue" is a comparison against the clock rather than a
 	# sort key. Returned flat: the buckets are a *terminal* structure, and a model reading
-	# four headings for what is usually four rows is paying for the headings.
+	# five headings for what is usually five rows is paying for the headings.
 	if arguments.get("today"):
 		agenda = client.agenda(**_agenda_asked(arguments))
 
-		# **Three buckets, not four: `unscheduled` is deliberately left out.** It is the
-		# terminal's filler — "your day is empty, here is some backlog" — capped at twenty,
-		# and none of it is *on today*. Concatenating it answered "what is on today" with the
-		# whole backlog, which was measured against the real instance rather than reasoned
-		# about. An agent whose day is empty should ask `ready=true`, which is the better
-		# question and already a cheaper one.
+		# **Every bucket, and each row saying which it is in** — Simon's decision of
+		# 2026-08-18, decision `#989`. Three of the five reached an agent until then: the
+		# argument for dropping `unscheduled` was that it is the terminal's filler and none of
+		# it is *on today*, and the measurement that reversed it is that **11 of 170 open tasks
+		# here are dated**. So on an ordinary day an agent was told *"Nothing on today."* while
+		# the browser showed twenty ranked items — the divergence is the common case, not the
+		# edge. `in_progress` was missing by omission rather than by choice.
+		#
+		# **The label is what earns the bytes.** These rows carried no bucket at all, so
+		# overdue was distinguishable from due-today only by comparing dates and a backlog row
+		# would be distinguishable from a commitment only by the absence of a deadline. Flat
+		# parity without labels would be worse than the drop it replaced.
 		moment = subroutine.db.types.utcnow()
-		rows = [
-			_line(task, now=moment)
-			for bucket in (agenda.overdue, agenda.today, agenda.upcoming)
-			for task in bucket
+		every = [
+			_line(task, now=moment, bucket=bucket)
+			for bucket in subroutine.views.AGENDA_BUCKETS
+			for task in getattr(agenda, bucket)
 		]
+
+		# **`limit` narrows an agenda only when it is asked for**, unlike the backlog below
+		# where twenty is a sensible page. A day is a structure rather than a page: silently
+		# returning the first twenty rows of it would drop whichever bucket came last, which
+		# is the drop this decision just reversed. It was computed on this branch and read by
+		# nothing at all until now — `#251`'s shape, a declared argument that is a no-op.
+		rows = every if arguments.get("limit") is None else every[:limit]
+
+		# **What is held back is said, never simply absent** (§12.2a, and `#888`'s condition on
+		# any cap here). Two things can hide a row — this limit, and the agenda's own cap on
+		# undated work — and an agent that cannot tell a short day from a truncated one will
+		# act on the wrong one.
+		hidden = (
+			len(every) - len(rows) + agenda.unscheduled_total - len(agenda.unscheduled)
+		)
+
+		if hidden > 0:
+			rows = [*rows, f"{hidden} more not shown. Raise limit, or list ready=true."]
 
 		return "\n".join(rows) if rows else "Nothing on today."
 
@@ -1467,15 +1494,32 @@ def _agenda_asked (arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
 	`agendaRequest()` in `app.js` — and nothing compared them, so they asked three different
 	questions of one function and every difference reached a reader as a different answer to
 	*what should I work on next*.
+
+	**The look-ahead is asked for rather than left to default** (`#991`). ``GET /v1/agenda``
+	omits ``upcoming`` unless asked, deliberately, so a client can reason about the window it
+	gets — and this asked for nothing, so the bucket was always empty and a deadline on Friday
+	was on no agenda an agent could see.
+
+	**Not a default on ``clients/base.Client.agenda`` instead**, which is where `#991` proposed
+	putting it. Two reasons, both found by building: the browser is not a client and reaches
+	the endpoint directly, so a client-side default could never be the shared one; and ``None``
+	already means *omit the bucket* on the wire, so giving it a value would leave no way to
+	say that. What the three surfaces share is the *number*, and they name it each.
 	"""
 
-	return {"workspace": _text(arguments, "workspace")}
+	return {
+		"workspace": _text(arguments, "workspace"),
+		"horizon_days": subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+	}
 
 
 def _line (
-	item: subroutine.views.Task | subroutine.views.Document, *, now: datetime.datetime
+	item: subroutine.views.Task | subroutine.views.Document,
+	*,
+	now: datetime.datetime,
+	bucket: str | None = None,
 ) -> str:
-	"""Return one item as a line: address, kind, state, rank, estimate, title.
+	"""Return one item as a line: address, kind, bucket, state, rank, estimate, title.
 
 	Assembled here rather than reusing ``?format=compact``, which is a *terminal* rendering —
 	aligned columns with long titles cut short. A model reading a truncated title has been
@@ -1488,6 +1532,15 @@ def _line (
 	"""
 
 	cells = [subroutine.domain.refs.format_ref(item.ref), item.type]
+
+	# **Which section of the day this is, before anything a workspace can rename** (`#991`).
+	# An agenda is returned flat, so without this an agent has the rows and not the structure —
+	# and `unscheduled` reads exactly like `today` with the deadline left off. Ahead of the
+	# status because §5.5 makes that vocabulary a workspace's own: an installation is free to
+	# call a status *Today*, and a reader taking the first cell it recognises must not be able
+	# to read one as the other.
+	if bucket is not None:
+		cells.append(bucket)
 
 	if isinstance(item, subroutine.views.Task):
 		# **What is already started, and who is holding it** (`#841`). `#705` tells an agent to

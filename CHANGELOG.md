@@ -114,6 +114,14 @@ upgrade involves.
 
 ### Changed
 
+- **An agent asking what is on today gets the same agenda everybody else does.** It used to
+  be given three of the five sections — overdue, due today and the week ahead — and the two
+  it was not given are the ones most days actually have anything in. On this project's own
+  instance 11 of 170 open tasks carry a date, so an agent was told *nothing on today* while
+  the same instance showed a person twenty ranked items. It now gets work in progress and
+  the ranked backlog as well, **and each row says which section of the day it belongs to**,
+  so a suggestion is not mistaken for a commitment. `limit` narrows it, which it silently
+  did not before.
 - **A project key is now unique among its siblings rather than across its workspace, and a
   project is addressed by its whole path.** `substation/dist` rather than
   `substation-substation-dist`: `web-ui` and `marketing` can exist under any number of

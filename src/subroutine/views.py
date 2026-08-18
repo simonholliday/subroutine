@@ -1473,6 +1473,27 @@ class Agenda(pydantic.BaseModel):
 	unscheduled_total: int
 
 
+#: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
+#:
+#: **Here rather than once per surface** (`#992`, and `#913`'s move for the same reason). Three
+#: surfaces walk these in order — the terminal's sections, the browser's `BUCKETS` and an
+#: agent's flat list — and until this existed each carried its own copy, so the order and the
+#: membership were free to disagree. They did: `in_progress` reached the dataclass, the CLI and
+#: the browser and never reached an agent at all.
+#:
+#: **The keys, and deliberately not the labels.** What each surface *calls* a bucket differs
+#: for good reasons — the terminal says `Next 7 days` where the look-ahead is seven, an agent
+#: is handed the bare key because it is parsing rather than reading — and collapsing that into
+#: one string would make a rendering decision on behalf of surfaces that have already made it.
+AGENDA_BUCKETS: tuple[str, ...] = (
+	"overdue",
+	"today",
+	"in_progress",
+	"upcoming",
+	"unscheduled",
+)
+
+
 #: What a listing calls work that cannot start yet, and work that is holding others up.
 #:
 #: **Here rather than once per surface** (`#913`). The terminal named them and the agent's

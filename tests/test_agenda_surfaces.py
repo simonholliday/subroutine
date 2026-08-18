@@ -208,7 +208,6 @@ def test_every_surface_asks_the_agenda_for_the_same_day_in_the_same_zone (
 	)
 
 
-@pytest.mark.xfail(strict=True, reason="`#991` — an agent asks for no look-ahead at all")
 def test_every_surface_asks_for_the_same_look_ahead (
 	surfaces: Surfaces, tmp_path: pathlib.Path
 ) -> None:
@@ -286,7 +285,7 @@ def test_the_scripted_agenda_is_ordered_like_the_one_a_person_reads (
 	assert said == rendered, _difference("--json", said, "the page", rendered)
 
 
-@pytest.mark.xfail(strict=True, reason="`#991` — an agent's rows carry no bucket at all")
+@pytest.mark.xfail(strict=True, reason="`#993`, `#995` — the two answers still bucket differently")
 def test_every_agenda_row_an_agent_reads_says_which_bucket_it_is_in (
 	surfaces: Surfaces, monkeypatch: pytest.MonkeyPatch
 ) -> None:
