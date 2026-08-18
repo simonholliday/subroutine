@@ -147,11 +147,13 @@ upgrade involves.
 
 ### Fixed
 
-- **`subroutine today` is `subroutine agenda` now, and the old name goes on working.** It is
-  the one thing in the product that was not already called an agenda — the endpoint, the
-  client method and the browser's own page all were — and one name across the surfaces is what
-  makes *they should all say the same thing* something a reader can rely on rather than
-  something they have to check. `today` is hidden from the help and does exactly what it did.
+- **`subroutine today` is now `subroutine agenda`, and the old name is gone.** **This is a
+  breaking change**: `subroutine today` no longer prints anything, it says where the command
+  went and stops. Scripts and aliases naming it need one word changed. It is the one thing in
+  the product that was not already called an agenda — the endpoint, the client method and the
+  browser's own page all were — and one name across every surface is what makes *they should
+  all say the same thing* something you can rely on rather than something you have to check.
+  A bare `subroutine` still prints it, as it always has.
 - **Your agenda is counted in your own timezone on every surface, not in the timezone of
   whichever machine you typed on.** `subroutine agenda` used to send its own machine's zone to
   every instance it asked, so the terminal could be about a different day from the page and

@@ -3815,20 +3815,30 @@ def register (
 		_agenda(program, json_output=json_output, strict=strict, workspace=selected.workspace)
 
 	@app.command("today", hidden=True)
-	def today (
-		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
-		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
-		),
-	) -> None:
-		"""The older name for 'subroutine agenda'. Both do the same thing.
+	def today_moved () -> None:
+		"""Say where this went. It is not an alias and does not print an agenda.
 
-		Examples:
-
-		  subroutine today
+		'subroutine agenda' is the command now.
 		"""
 
-		_agenda(program, json_output=json_output, strict=strict, workspace=selected.workspace)
+		# **Not the synonym `#996` shipped**, and Simon reversed that within the afternoon
+		# (`#1003`). It kept `today` on `ls`/`list`'s precedent — nothing anybody has typed
+		# stops working — and the argument does not transfer: `ls` is a convenience nobody
+		# ever had to unlearn, where this was the *former primary name* for the thing `#990`
+		# was about unifying. Two names for one answer is the condition that milestone exists
+		# to remove.
+		#
+		# **A signpost rather than a bare removal**, which is `#509`'s shape and its recorded
+		# rule: this refuses, which is what a removed command should do. Measured before
+		# choosing it — Typer offers a near-miss where it can find one, and with this gone
+		# there is none, so a bare removal answers `No such command 'today'.` and nothing
+		# else. Honest, and useless to somebody with it in their shell history.
+		program.say("'subroutine today' is now 'subroutine agenda'.")
+		program.say("")
+		program.say("Every surface calls it an agenda — the page, the API and the tools an")
+		program.say("agent uses — so the command does too.")
+
+		raise typer.Exit(2)
 
 	class _Listing(typer.core.TyperCommand):
 		"""``list``, with its catch-all argument kept out of the usage line.
@@ -6332,7 +6342,7 @@ def register (
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
 
-		today(json_output=False, strict=False)
+		agenda(json_output=False, strict=False)
 
 	return show_today, selected
 

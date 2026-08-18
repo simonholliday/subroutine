@@ -309,7 +309,7 @@ def test_the_agenda_merges_both_instances_into_one_day (
 	person's day in two lists.
 	"""
 
-	output = run("today").output
+	output = run("agenda").output
 
 	assert "Pay the gas bill" in output
 	assert "Fix the deploy script" in output
@@ -321,7 +321,7 @@ def test_a_remote_row_prints_an_address_that_can_be_typed_back (
 	"""What is printed is what can be typed back, per row rather than in a footer."""
 
 	line = next(
-		text for text in run("today").output.splitlines() if "Fix the deploy script" in text
+		text for text in run("agenda").output.splitlines() if "Fix the deploy script" in text
 	)
 	address = line.split()[0]
 
@@ -384,7 +384,7 @@ def test_advice_printed_under_a_flag_still_works_once_the_flag_is_gone (
 
 	tip = next(
 		line
-		for line in run("-c", "work", "-w", "acme", "today").output.splitlines()
+		for line in run("-c", "work", "-w", "acme", "agenda").output.splitlines()
 		if "subroutine done" in line
 	)
 	typed = tip.split("subroutine done")[1].split()[0]
@@ -560,7 +560,7 @@ def test_an_unreachable_connection_is_named_and_skipped (
 		declare(home, f'\n[connections.work]\nurl = "{nowhere}"\n')
 		subroutine.credentials.store("work", "sr_not_a_real_token")
 
-		result = run("today")
+		result = run("agenda")
 
 	assert "work" in result.output, "the connection that failed is named"
 	assert "Pay the gas bill" in result.output, "and the rest of the list still prints"
@@ -596,7 +596,7 @@ def test_when_nothing_can_be_reached_the_reason_is_still_printed (
 	finally:
 		engine.dispose()
 
-	result = run("today", expect=1)
+	result = run("agenda", expect=1)
 
 	assert "workspace" in result.output, f"the reason was not printed:\n{result.output}"
 	assert "to see what is configured" not in result.output, (
@@ -627,7 +627,7 @@ def test_strict_makes_an_unreachable_connection_fatal_and_says_so_plainly (
 		declare(home, f'\n[connections.work]\nurl = "{nowhere}"\n')
 		subroutine.credentials.store("work", "sr_not_a_real_token")
 
-		result = run("today", "--strict", expect=1)
+		result = run("agenda", "--strict", expect=1)
 
 	assert "could not be reached" in result.output
 	assert "Traceback" not in result.output
@@ -647,7 +647,7 @@ def test_the_same_instance_configured_twice_is_refused_by_name (
 	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
 	subroutine.credentials.store("acme", two.token)
 
-	result = run("today", expect=1)
+	result = run("agenda", expect=1)
 
 	assert "same instance" in result.output
 	assert "work" in result.output and "acme" in result.output
@@ -689,8 +689,8 @@ def test_a_duplicate_stops_only_the_reads_that_combine_connections (
 
 	# Every one of these puts rows from more than one connection into a single sequence.
 	for refused in (
-		("today",),
-		("today", "--json"),
+		("agenda",),
+		("agenda", "--json"),
 		("list", "--json"),
 		("list", "--merged"),
 		("changes", "--json"),
@@ -707,7 +707,7 @@ def test_the_scripted_path_carries_the_address_and_says_what_it_missed (
 ) -> None:
 	"""A script merging two connections needs the thing it can type back."""
 
-	agenda = json.loads(run("today", "--json").output)
+	agenda = json.loads(run("agenda", "--json").output)
 	rows = [*agenda["overdue"], *agenda["today"], *agenda["upcoming"], *agenda["unscheduled"]]
 	remote = next(row for row in rows if row["title"].startswith("Fix the deploy"))
 
@@ -2657,7 +2657,7 @@ def test_a_merged_agenda_still_refuses_when_two_connections_are_one_instance (
 	declare(home, f'\n[connections.acme]\nurl = "{two.url}"\n')
 	subroutine.credentials.store("acme", two.token)
 
-	refused = run("today", expect=1).output
+	refused = run("agenda", expect=1).output
 
 	assert "same instance" in refused
 	assert "work" in refused and "acme" in refused
@@ -2999,7 +2999,7 @@ def test_writing_a_date_reads_this_machine_s_zone_and_reading_the_agenda_does_no
 	)
 
 	# Not merely "it exits 0": a command that printed a refusal and carried on would too.
-	assert "Nowhere" not in run("today").output, (
+	assert "Nowhere" not in run("agenda").output, (
 		"the agenda stopped reading this setting, so a bad one cannot reach it (SR#995)"
 	)
 

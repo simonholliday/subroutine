@@ -1035,7 +1035,7 @@ _CONSOLE = re.compile(r"```console\n(.*?)```", re.DOTALL)
 #: ``tests/test_plugin.py``'s list rather than shared: that one reads the skill's prose and
 #: this one reads shell lines, so the two collect different noise and merging them would make
 #: each carry the other's exceptions.
-_NOT_A_COMMAND = frozenset({"add", "today", "done", "help", "explain"})
+_NOT_A_COMMAND = frozenset({"add", "done", "help", "explain"})
 
 
 def _typed (block: str) -> list[str]:

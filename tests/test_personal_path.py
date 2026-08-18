@@ -213,30 +213,36 @@ def test_every_command_suggests_the_next_one (
 	assert "Tip: subroutine agenda" in run("done", "1").output
 
 
-def test_the_older_name_for_the_agenda_goes_on_working (
+def test_the_older_name_for_the_agenda_says_where_it_went (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""`SR#996`. `ls`/`list`'s rule: nothing anybody has typed stops working.
+	"""`SR#1003`, reversing `SR#996` within the afternoon on Simon's decision.
 
-	**And a synonym you can *see* is a second thing to choose between** (§12.2a), so `today`
-	is hidden and never suggested — what it prints is what the command it is a synonym for
-	prints, down to the tip.
+	`SR#996` kept `today` as a hidden synonym on `ls`/`list`'s precedent — nothing anybody has
+	typed stops working. **That argument does not transfer**: `ls` is a convenience nobody ever
+	had to unlearn, where this was the *former primary name* for the thing `SR#990` was about
+	unifying, so keeping it sustained two names for one answer.
 
-	**Compared rather than sampled**, because the two are one body and the way that stops being
-	true is somebody giving one of them an argument the other has not got. Asserting a word
-	appears in both would survive that.
+	**A signpost rather than a bare removal**, which is `SR#509`'s shape and its recorded rule:
+	it refuses, which is what a removed command should do. Typer offers a near-miss where it can
+	find one, and with this gone there is none — so without this, a reader with `today` in their
+	shell history gets `No such command 'today'.` and nothing else.
 	"""
 
 	run("init")
 	run("add", "Buy milk")
 
-	assert run("today").output == run("agenda").output, (
-		"the older name is the same command, not a second one that agrees today"
+	moved = run("today", expect=2)
+
+	assert "subroutine agenda" in moved.output, "a removed command names the one that works"
+	assert "Buy milk" not in moved.output, (
+		"it refuses rather than printing an agenda, or it is an alias wearing a notice"
 	)
 
 	# **Asked of the command rather than of the help text**, because the word appears in prose
 	# there — *"this shows today's agenda"* — and a scan over rendered help would be reading a
 	# sentence rather than a registration.
+	#
 	# **Typed loosely, with the reason written down**, exactly as `tests/test_cli_help.py`
 	# records it: Typer vendors its own click shim, so what `get_command` returns is a
 	# `typer._click.core.Command` — a private class that is not a `click.Command` and that
@@ -244,12 +250,31 @@ def test_the_older_name_for_the_agenda_goes_on_working (
 	# untrue.
 	root: typing.Any = typer.main.get_command(subroutine.cli.main.app)
 	context = click.Context(root, info_name="subroutine")
-	shown = set(root.list_commands(context))
 
 	assert root.get_command(context, "today").hidden, (
-		"a synonym in the help is a second thing to choose between (§12.2a)"
+		"a command that only says where it went is not offered in the help"
 	)
-	assert "agenda" in shown, "the command itself is in the help"
+	assert "agenda" in set(root.list_commands(context)), "the command itself is in the help"
+
+
+def test_a_bare_invocation_still_prints_the_agenda (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1003`'s near miss, and it is why this has a test of its own.
+
+	The bare `subroutine` invocation called the `today` command **by name**, so replacing that
+	command with a signpost would have made the first thing anybody types print a notice about
+	a rename. Ruff caught it as an undefined name only because the function was renamed at the
+	same time — had the signpost kept the name, nothing would have seen it.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	printed = run().output
+
+	assert "Buy milk" in printed, "a bare invocation is the agenda (§12.2)"
+	assert "is now" not in printed, "and not a notice about a command that moved"
 
 
 def test_a_suggestion_is_marked_as_one_without_relying_on_colour (

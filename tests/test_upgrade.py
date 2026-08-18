@@ -139,7 +139,7 @@ def test_a_database_behind_this_build_is_refused_with_the_remedy (
 	run("init", "--workspace", "Personal")
 	stamp(database, previous_revision())
 
-	result = run("today", expect=1)
+	result = run("agenda", expect=1)
 
 	assert previous_revision() in result.output, "it says where the database is"
 	assert head_revision() in result.output, "and what is expected"
@@ -158,7 +158,7 @@ def test_a_database_ahead_of_this_build_says_to_update_the_software (
 	run("init", "--workspace", "Personal")
 	stamp(database, FROM_THE_FUTURE)
 
-	result = run("today", expect=1)
+	result = run("agenda", expect=1)
 
 	assert FROM_THE_FUTURE in result.output
 	assert "no downgrade" in result.output
@@ -289,7 +289,7 @@ def test_upgrade_takes_a_backup_before_it_migrates (
 	assert older in backups[0].name, "the copy records the schema it was taken on"
 
 	# And the instance is usable again, which is the only outcome that matters to its owner.
-	assert "Something from before the upgrade" in run("today").output
+	assert "Something from before the upgrade" in run("agenda").output
 
 
 def test_upgrade_refuses_a_database_from_the_future_without_touching_it (
