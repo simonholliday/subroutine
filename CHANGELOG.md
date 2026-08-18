@@ -126,6 +126,11 @@ upgrade involves.
 
 ### Fixed
 
+- **Giving a task a deadline no longer takes it off the agenda.** On the web, dating
+  something removed it from the page until the day it fell due — so the one edit you make
+  to be sure of a piece of work was the edit that hid it. The agenda now shows the same
+  seven-day look-ahead the terminal does. A deadline further out than that is still only
+  visible in a listing, on every surface.
 - **A very large number written after a `#` no longer refuses what you wrote.** A comment
   or a description that mentioned one — an order number, an identifier from another
   system — was rejected in full, and the message sent you off to check that the database

@@ -44,6 +44,7 @@ import subroutine.api.web
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.db.seed
+import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
@@ -5755,8 +5756,32 @@ def test_the_agenda_asks_across_every_workspace (tmp_path: pathlib.Path) -> None
 
 	[asked] = _agenda(tmp_path, [("agendaRequest", None)])
 
-	assert asked["path"] == "/agenda"
+	assert asked["path"].startswith("/agenda")
 	assert "workspace" not in asked["path"], "the agenda must not be scoped to one workspace"
+
+
+def test_the_agenda_asks_for_the_look_ahead (tmp_path: pathlib.Path) -> None:
+	"""`SR#985`: without this, any future deadline took a task off the page entirely.
+
+	`GET /v1/agenda` omits `upcoming` unless asked — deliberately, so a client can reason about
+	the window it gets — and this page asked for nothing while rendering a `Next 7 days` heading
+	it could never be given data for. So dating a task removed it from every bucket, where the
+	same edit on the terminal moves it *up*.
+
+	**The number is read off the CLI's rather than written out here.** That is `SR#927`'s H-15
+	again, one test along: a literal cannot notice that the thing it claims to mirror has moved,
+	and it fails whoever changes the original instead.
+
+	Driven rather than scanned, because the rendering was right throughout — `agendaBuckets` has
+	always rendered an `upcoming` array correctly, since its own tests hand it one. The *request*
+	was the wrong half, which is `SR#640` for the fifth time.
+	"""
+
+	[asked] = _agenda(tmp_path, [("agendaRequest", None)])
+	wanted = subroutine.domain.agenda.DEFAULT_HORIZON_DAYS
+
+	assert wanted > 0, "the CLI's look-ahead could not be read"
+	assert f"horizon_days={wanted}" in asked["path"]
 
 
 def test_a_bucket_with_nothing_in_it_is_not_shown (tmp_path: pathlib.Path) -> None:

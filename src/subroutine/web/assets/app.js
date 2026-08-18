@@ -1962,6 +1962,13 @@ export function filableFor (projects, project) {
 	return [{ key: project, label: project, chosen: true }].concat(known);
 }
 
+/*
+	How far ahead the agenda looks, in days. **The CLI's number, deliberately** — it is
+	`domain.agenda.DEFAULT_HORIZON_DAYS`, and `tests/test_web.py` compares the two so this
+	cannot drift from the surface it is meant to match.
+*/
+const HORIZON_DAYS = 7;
+
 export function agendaRequest () {
 	/*
 		What is due, across **every** workspace this reader can see — `#652`, decision `#649`.
@@ -1979,7 +1986,15 @@ export function agendaRequest () {
 		of what an explicit level is for. `Intl` knows where the machine is; it does not know
 		where the reader keeps their diary.
 	*/
-	return { path: "/agenda", method: "GET" };
+	/*
+		**The look-ahead is asked for, and a bucket nobody requests is a bucket nobody gets**
+		(`#985`). This sent no query at all, and `GET /v1/agenda` omits `upcoming` unless
+		asked — so *any* future deadline took a task out of every bucket and off this page
+		entirely, until the day it fell due. Three correct decisions with no wire between
+		them: the domain, the endpoint and `BUCKETS` were each right on their own, and this
+		page rendered a `Next 7 days` heading it could never be given data for.
+	*/
+	return { path: `/agenda?horizon_days=${HORIZON_DAYS}`, method: "GET" };
 }
 
 /* ---- addresses (`#638`) -------------------------------------------------- */
@@ -3458,7 +3473,7 @@ const BUCKETS = [
 	{ key: "overdue", label: "Overdue" },
 	{ key: "today", label: "Today" },
 	{ key: "in_progress", label: "In progress" },
-	{ key: "upcoming", label: "Next 7 days" },
+	{ key: "upcoming", label: `Next ${HORIZON_DAYS} days` },
 	{ key: "unscheduled", label: "Next" },
 ];
 
