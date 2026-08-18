@@ -4296,7 +4296,7 @@ def register (
 			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
 		),
 	) -> None:
-		"""Find things by their words — in the title, and in what you wrote about them.
+		"""Find things by any of their words, wherever they were written.
 
 		Searches tasks and documents together, like 'subroutine list', because one number
 		names either and a search that found only half of them would be lying about the rest.

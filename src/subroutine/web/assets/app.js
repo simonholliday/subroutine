@@ -5637,7 +5637,7 @@ export function Seeking ({ onSearch, asked, busy }) {
 		<form class="seeking" onSubmit=${submit} role="search">
 			<input key=${asked} name="q" type="search" disabled=${busy}
 				defaultValue=${asked} aria-label="Search"
-				placeholder="Search titles and descriptions" />
+				placeholder="Search anything" />
 			<button type="submit" disabled=${busy}>Search</button>
 		</form>
 	`;

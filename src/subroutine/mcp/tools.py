@@ -634,7 +634,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_search",
 			title="Search",
-			description="Find items by words, in titles and bodies. Tasks and documents both.",
+			description="Find items by their words. Tasks and documents both.",
 			schema={
 				"type": "object",
 				"properties": {

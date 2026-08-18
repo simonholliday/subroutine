@@ -2287,3 +2287,78 @@ def test_the_readme_has_both_kinds_of_row () -> None:
 
 	assert sum(rows.values()) > 25, "no Built rows were read"
 	assert sum(not built for built in rows.values()) > 5, "no Planned rows were read"
+
+
+#: What a search actually reads, so a hint naming one of these is a claim about the mechanism
+#: rather than about the reader's outcome. Kept as words rather than derived from
+#: `search.anywhere`, which takes its columns from four call sites and so has no single list to
+#: read — and the failure being prevented is prose, so the words are the right subject.
+_SEARCH_MECHANISM = ("title", "description", "body", "bodies", "comment", "prose")
+
+#: The one place each surface tells a reader what search does. A fourth surface with a hint of
+#: its own belongs here; the floor below is what refuses a scan that stopped finding them.
+SEARCH_HINTS = {
+	"browser": (
+		ROOT / "src" / "subroutine" / "web" / "assets" / "app.js",
+		re.compile(r'placeholder="(Search[^"]*)"'),
+	),
+	"agent": (
+		ROOT / "src" / "subroutine" / "mcp" / "tools.py",
+		re.compile(r'description="(Find items[^"]*)"'),
+	),
+	"terminal": (
+		ROOT / "src" / "subroutine" / "cli" / "personal.py",
+		re.compile(r'"""(Find things[^\n]*)'),
+	),
+}
+
+
+def test_no_search_hint_names_the_places_a_search_looks () -> None:
+	"""`#1009`, Simon 2026-08-18, reading the browser's own search box.
+
+	It said *"Search titles and descriptions"*, which had been false since `#823` widened search
+	to read comments — and the agent's said *"in titles and bodies"*, wrong the same way, and the
+	terminal's named the title and what you wrote about an item. Three surfaces, three wordings,
+	none of them checked, all of them understating.
+
+	**The rule is about which question the hint answers.** *Where the program looks* is a
+	mechanism and changes as the product improves; *what the reader gets* does not. That is this
+	project's own Voice rule and the coding-style skill's — prefer the outcome over the
+	mechanism — and the evidence is in the three: the terminal's was the vaguest and is the only
+	one that survived, because "what you wrote about them" covers a comment where "descriptions"
+	cannot.
+
+	**`#582`'s shape, and `test_no_published_page_counts_the_tools` is its sibling.** A countable
+	claim is false the moment one is added; an enumerated one is false the moment somewhere else
+	is read. Both are silent, and both were found by a person reading rather than by the suite.
+
+	**Not a check that the wording is identical.** Three surfaces address three readers at three
+	lengths, and demanding one string would be the divergence this project actually has — two
+	copies of one sentence that must agree — wearing a guard's clothes. What they must share is
+	that none of them enumerates.
+	"""
+
+	found = {}
+
+	for surface, (path, pattern) in SEARCH_HINTS.items():
+		match = pattern.search(path.read_text(encoding="utf-8"))
+
+		assert match is not None, (
+			f"the {surface}'s search hint was not found in {path.name}, so this checked "
+			f"nothing there — the scan has gone stale rather than the tree having got better"
+		)
+
+		found[surface] = match.group(1)
+
+	naming = [
+		f"{surface}: {hint!r} names {word!r}"
+		for surface, hint in found.items()
+		for word in _SEARCH_MECHANISM
+		if word in hint.casefold()
+	]
+
+	assert not naming, (
+		"a search hint lists where a search looks, which is a claim that goes stale the next "
+		f"time it reads somewhere else: {'; '.join(naming)}. Say what the reader gets instead "
+		"— 'Search anything' is the browser's, and Simon's, answer."
+	)

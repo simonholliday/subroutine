@@ -174,6 +174,14 @@ upgrade involves.
 
 ### Fixed
 
+- **Search says what it does rather than listing where it looks.** The browser's search box said
+  *"Search titles and descriptions"* and now says *"Search anything"*; an agent was told search
+  covered *"titles and bodies"*, and the terminal's help named the title and what you had written
+  about an item. All three had been out of date since search started reading comments, and none
+  of them mentioned that typing a number finds that item. Nothing about searching has changed —
+  what changed is three sentences that had quietly stopped being true, and they are worded now so
+  that reading somewhere new does not make them false again.
+
 - **`subroutine login link` works on a fresh install, instead of asking you to configure
   something first.** The README gives new self-hosters `subroutine serve` and then
   `subroutine login link`, and the second command refused unless `public_url` was set — so the
