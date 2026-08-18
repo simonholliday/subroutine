@@ -1802,7 +1802,7 @@ def _moment (world: World, written: str) -> datetime.datetime | datetime.date:
 	**Two readers disagree about a deferred item and both are right** (`#771`, and `#858`
 	asked for this to be written down). ``readiness.undeferred`` compares to the minute, so
 	``subroutine list`` shows it at six in the morning; ``domain.agenda`` compares against the
-	*end of the day being shown*, so ``subroutine today`` has it from midnight. That is not a
+	*end of the day being shown*, so ``subroutine agenda`` has it from midnight. That is not a
 	defect to reconcile: an agenda answers *what is today about*, and an item arriving at six
 	is part of today from the moment the day starts.
 
@@ -2375,7 +2375,7 @@ def _settled (
 		)
 
 	# Deliberately *not* refused here. A read spans everything reachable and needs no
-	# context at all, so refusing at this point would stop `subroutine today` working
+	# context at all, so refusing at this point would stop `subroutine agenda` working
 	# for anybody with two workspaces — which is precisely the person §13.7 is for.
 	# The refusal belongs to the write, and `_writing_workspace` makes it.
 	return current
@@ -2877,7 +2877,7 @@ def _moved_to (program: Program, which: str, status: str, *, verb: str, said: st
 		moved = client.update(ref=task.ref, status=status, workspace=located.workspace)
 
 		program.say(_acted(world, dataclasses.replace(located, item=moved), said))
-		_suggest(program.console, "subroutine today")
+		_suggest(program.console, "subroutine agenda")
 
 
 def _in_an_editor (program: Program, current: str) -> str:
@@ -3783,10 +3783,10 @@ def register (
 			if left is not None:
 				console.print(rich.text.Text(f"  {left}", style=DETAIL))
 
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
-	@app.command()
-	def today (
+	@app.command("agenda")
+	def agenda (
 		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
 		strict: bool = typer.Option(
 			False, "--strict", help="Stop if any connection cannot be reached."
@@ -3796,33 +3796,34 @@ def register (
 
 		Examples:
 
-		  subroutine today
+		  subroutine agenda
 
-		  subroutine -w work today
+		  subroutine -w work agenda
 		"""
 
 		# **`-w` precedes the command**, because it is an application-wide option: it changes
-		# what every command means, not what this one does. `subroutine today -w work` is
+		# what every command means, not what this one does. `subroutine agenda -w work` is
 		# therefore refused by Typer as an unknown option, which is correct and is also the
 		# order most people will try first — so the example above is written the working way
 		# round rather than the natural-reading way.
 
-		with program.opened(strict=strict) as world:
-			asked = agenda_asked(workspace=selected.workspace)
+		_agenda(program, json_output=json_output, strict=strict, workspace=selected.workspace)
 
-			gathered = subroutine.fanout.gather(
-				world.clients, lambda client: client.agenda(**asked), strict=strict
-			)
+	@app.command("today", hidden=True)
+	def today (
+		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""The older name for 'subroutine agenda'. Both do the same thing.
 
-			_report(program, world, gathered.failures)
-			_report_zones(program, gathered)
+		Examples:
 
-			if json_output:
-				say(json.dumps(_agenda_json(world, gathered), indent=2))
+		  subroutine today
+		"""
 
-				return
-
-			_render(world, gathered, say=say, console=console)
+		_agenda(program, json_output=json_output, strict=strict, workspace=selected.workspace)
 
 	class _Listing(typer.core.TyperCommand):
 		"""``list``, with its catch-all argument kept out of the usage line.
@@ -4378,7 +4379,7 @@ def register (
 			_because(client, located, because, what="Done")
 
 			say(_acted(world, dataclasses.replace(located, item=finished), "Done"))
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	@app.command()
 	def skip (
@@ -4406,7 +4407,7 @@ def register (
 			_because(client, located, because, what="Skipped")
 
 			say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	@app.command()
 	def plan (
@@ -4445,7 +4446,7 @@ def register (
 			_because(client, located, because, what=planned)
 
 			say(_acted(world, dataclasses.replace(located, item=changed), planned))
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	@app.command()
 	def defer (
@@ -4488,7 +4489,7 @@ def register (
 			_because(client, located, because, what=hidden)
 
 			say(_acted(world, dataclasses.replace(located, item=changed), hidden))
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	@app.command()
 	def move (
@@ -5256,7 +5257,7 @@ def register (
 			)
 
 			say(_acted(world, dataclasses.replace(located, item=back), "Restored"))
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
 	# about never *requiring* a project in order to keep a to-do list, not about hiding the
@@ -5929,7 +5930,7 @@ def register (
 			shown = f"{connection}/{workspace}" if world.qualifies_connection else workspace
 			say(f"Now working in {shown}.")
 			say("")
-			_suggest(console, "subroutine today")
+			_suggest(console, "subroutine agenda")
 
 	# **Visible on a one-connection install, unlike `use` and `connections`.** Those answer
 	# *where* work goes, which is a question nobody has until there are two answers. This
@@ -6453,6 +6454,45 @@ def agenda_rows (
 	}
 
 
+def _agenda (
+	program: Program, *, json_output: bool, strict: bool, workspace: str | None
+) -> None:
+	"""Show what somebody is doing today, merged across every connection they can reach.
+
+	**The command is `subroutine agenda` and `subroutine agenda` is a hidden synonym** (`#996`).
+	Simon, 2026-08-18: the rename *"helps consolidate that expectation of similarity"* across
+	the surfaces — and it is consolidation rather than redesign, because everything below the
+	CLI was already called agenda: ``GET /v1/agenda``, :meth:`Client.agenda`,
+	:class:`subroutine.views.Agenda`, :mod:`subroutine.domain.agenda`. ``today`` was the only
+	thing in the product wearing the other name.
+
+	``ls``/``list`` is the precedent, and the reasoning is §12.2a's: nothing anybody has typed
+	stops working, and a synonym you can *see* is a second thing to choose between.
+
+	**This is not `#509`'s situation, which is why an alias is safe here.** There,
+	``subroutine upgrade`` and ``db upgrade`` swapped meanings, so a surviving alias would have
+	answered to a name that used to mean the opposite. ``today`` goes on meaning exactly what
+	it meant.
+	"""
+
+	with program.opened(strict=strict) as world:
+		asked = agenda_asked(workspace=workspace)
+
+		gathered = subroutine.fanout.gather(
+			world.clients, lambda client: client.agenda(**asked), strict=strict
+		)
+
+		_report(program, world, gathered.failures)
+		_report_zones(program, gathered)
+
+		if json_output:
+			program.say(json.dumps(_agenda_json(world, gathered), indent=2))
+
+			return
+
+		_render(world, gathered, say=program.say, console=program.console)
+
+
 def _render (
 	world: World,
 	gathered: subroutine.fanout.Gathered[subroutine.views.Agenda],
@@ -6616,7 +6656,7 @@ def _suggest (
 	exactly like a second line of what happened.
 
 	``about`` says what the command *gets you*, for the ones whose name does not. It is left off
-	where the command already reads as English — a line explaining that ``subroutine today``
+	where the command already reads as English — a line explaining that ``subroutine agenda``
 	shows today is noise, and noise is how a signpost stops being read.
 	"""
 

@@ -63,7 +63,7 @@ def _dates_body () -> str:
 	return f"""Three date fields, kept apart on purpose.
 
   due          A deadline. The date something has to be finished by.
-  starts       When it begins. This is what 'today' shows.
+  starts       When it begins. This is what 'agenda' shows.
                It takes a time, so 'monday at 14:00' is an appointment.
   hidden until A defer. The task does not appear at all before this. It is
                the only one of the three that hides anything.
@@ -183,7 +183,7 @@ documents and are never reused, so they grow and leave gaps.
 
 Any list this tool prints shows it:
 
-  subroutine today
+  subroutine agenda
     #1  Call the dentist  (due Sun 2 Aug)
     #7  Buy milk
 
@@ -254,7 +254,7 @@ to a browser.""",
 		summary="Machine-readable output, and how to run commands as somebody else.",
 		body="""Every command that reads takes --json:
 
-  subroutine today --json
+  subroutine agenda --json
   subroutine list --json
   subroutine show 7 --json
   subroutine add "Buy milk" --json

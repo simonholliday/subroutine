@@ -20,7 +20,7 @@ whoever is standing the server up, and if that is also you, read it first.
 | Anywhere | Your calendar application | [Your work in your calendar](#your-work-in-your-calendar) |
 
 **Two of these can be true at once and that is normal.** Your own list on this laptop and your
-team's on a server is one arrangement, not two — `subroutine today` asks every instance you can
+team's on a server is one arrangement, not two — `subroutine agenda` asks every instance you can
 reach and merges the answers, so the dentist and the stand-up land in one list. Reading spans
 everything; only writing has to pick.
 

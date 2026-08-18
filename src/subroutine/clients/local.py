@@ -3,7 +3,7 @@
 Opened directly and driven through the service layer — the same services, the same
 ``authorize()`` and the same views the HTTP routers use, minus the HTTP. That is what
 docs/design.md §13.7 means by the local database being a connection like any other: there is one
-code path for ``subroutine today`` and it does not know which of its answers came over a
+code path for ``subroutine agenda`` and it does not know which of its answers came over a
 socket.
 
 **A session per operation, and that is deliberate.** It matches what a request does, so the
@@ -2407,7 +2407,7 @@ class Client:
 		**A connection is allowed to fail; it is not allowed to escape.** ``fanout._attempt``
 		catches only :class:`~subroutine.errors.SubroutineError`, deliberately — so a bare
 		``OperationalError`` from *this* connection would take down the whole of
-		``subroutine today``, including every remote that answered perfectly. The local database
+		``subroutine agenda``, including every remote that answered perfectly. The local database
 		is a connection like any other (§13.7), and that has to include how it fails.
 
 		Reported as ``service_unavailable`` for the same reason the HTTP client does: the

@@ -9,7 +9,7 @@ named connections and asks all of them.
 rests on.** Local mode began as what happened when nothing was configured, which would have
 given one person two different experiences of one command depending on where their tasks
 were. Instead this installation's own database is a connection named ``local``, present
-without being declared, and ``subroutine today`` fans out across it and every remote in
+without being declared, and ``subroutine agenda`` fans out across it and every remote in
 exactly the same way. Declare it only to rename it or to turn it off.
 
 Three names are involved and confusing them is how a merged view starts lying:

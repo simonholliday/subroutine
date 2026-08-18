@@ -2,7 +2,7 @@
 
 **This is deliberately not in the ``api`` package**, and moving it out was a requirement
 rather than tidying. docs/design.md §13.7 makes the local database a connection like any other, so
-``subroutine today`` fans out across it and every remote through one code path that does not
+``subroutine agenda`` fans out across it and every remote through one code path that does not
 know which of its answers arrived over a socket — and that is only true if the local client
 and the HTTP client return *the same objects*. Two definitions of "a task" that happen to
 agree would be two definitions free to stop agreeing. So the schemas live where both can

@@ -20,9 +20,11 @@ import sys
 import typing
 import uuid
 
+import click
 import pytest
 import rich.console
 import rich.text
+import typer.main
 import typer.testing
 
 import subroutine.cli.main
@@ -109,8 +111,8 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 @pytest.mark.parametrize(
 	"command",
-	[("list",), ("today",), ("add", "Buy milk"), ("show", "1")],
-	ids=["list", "today", "add", "show"],
+	[("list",), ("agenda",), ("add", "Buy milk"), ("show", "1")],
+	ids=["list", "agenda", "add", "show"],
 )
 def test_an_instance_nobody_created_says_so_and_names_the_one_command (
 	run: typing.Callable[..., typer.testing.Result], command: tuple[str, ...]
@@ -149,7 +151,7 @@ def test_the_four_command_personal_test (
 
 	assert "Added: Call the dentist" in second.output
 
-	third = run("today")
+	third = run("agenda")
 
 	assert "Call the dentist" in third.output
 
@@ -159,7 +161,7 @@ def test_the_four_command_personal_test (
 
 	# And it is gone from the list afterwards, which is the whole point of the fourth
 	# command.
-	assert "Call the dentist" not in run("today").output
+	assert "Call the dentist" not in run("agenda").output
 
 
 def test_no_command_in_the_personal_path_mentions_the_full_model (
@@ -177,7 +179,7 @@ def test_no_command_in_the_personal_path_mentions_the_full_model (
 
 	transcript = "\n".join(
 		run(*command).output
-		for command in (("today",), ("ls",), ("done", "1"), ("plan", "1", "tomorrow"))
+		for command in (("agenda",), ("ls",), ("done", "1"), ("plan", "1", "tomorrow"))
 	)
 
 	for word in FORBIDDEN:
@@ -206,9 +208,48 @@ def test_every_command_suggests_the_next_one (
 	run("init")
 
 	assert "subroutine add" in run("init").output
-	assert "Tip: subroutine today" in run("add", "Buy milk").output
-	assert "Tip: subroutine done" in run("today").output
-	assert "Tip: subroutine today" in run("done", "1").output
+	assert "Tip: subroutine agenda" in run("add", "Buy milk").output
+	assert "Tip: subroutine done" in run("agenda").output
+	assert "Tip: subroutine agenda" in run("done", "1").output
+
+
+def test_the_older_name_for_the_agenda_goes_on_working (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#996`. `ls`/`list`'s rule: nothing anybody has typed stops working.
+
+	**And a synonym you can *see* is a second thing to choose between** (§12.2a), so `today`
+	is hidden and never suggested — what it prints is what the command it is a synonym for
+	prints, down to the tip.
+
+	**Compared rather than sampled**, because the two are one body and the way that stops being
+	true is somebody giving one of them an argument the other has not got. Asserting a word
+	appears in both would survive that.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	assert run("today").output == run("agenda").output, (
+		"the older name is the same command, not a second one that agrees today"
+	)
+
+	# **Asked of the command rather than of the help text**, because the word appears in prose
+	# there — *"this shows today's agenda"* — and a scan over rendered help would be reading a
+	# sentence rather than a registration.
+	# **Typed loosely, with the reason written down**, exactly as `tests/test_cli_help.py`
+	# records it: Typer vendors its own click shim, so what `get_command` returns is a
+	# `typer._click.core.Command` — a private class that is not a `click.Command` and that
+	# Typer exports no name for. Claiming either type here would be a cast asserting something
+	# untrue.
+	root: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	context = click.Context(root, info_name="subroutine")
+	shown = set(root.list_commands(context))
+
+	assert root.get_command(context, "today").hidden, (
+		"a synonym in the help is a second thing to choose between (§12.2a)"
+	)
+	assert "agenda" in shown, "the command itself is in the help"
 
 
 def test_a_suggestion_is_marked_as_one_without_relying_on_colour (
@@ -218,7 +259,7 @@ def test_a_suggestion_is_marked_as_one_without_relying_on_colour (
 
 	This test is the guard rather than the marker being there, and the distinction matters —
 	the version of ``test_every_command_suggests_the_next_one`` above that only looked for
-	``"subroutine today"`` passed just as happily on the broken output as on the fixed one,
+	``"subroutine agenda"`` passed just as happily on the broken output as on the fixed one,
 	which is why the defect survived to be found by somebody reading the README.
 
 	Colour is already gone here: the runner has no terminal, so rich emits none. What is left
@@ -232,7 +273,7 @@ def test_a_suggestion_is_marked_as_one_without_relying_on_colour (
 
 	assert "\033[" not in printed, "no colour to lean on, which is the point"
 
-	suggestions = [line for line in printed.splitlines() if "subroutine today" in line]
+	suggestions = [line for line in printed.splitlines() if "subroutine agenda" in line]
 
 	assert suggestions, printed
 	assert all(line.strip().startswith("Tip:") for line in suggestions), printed
@@ -245,7 +286,7 @@ def test_an_empty_list_says_what_to_do_about_it (
 
 	run("init")
 
-	assert 'subroutine add "something to do"' in run("today").output
+	assert 'subroutine add "something to do"' in run("agenda").output
 	assert 'subroutine add "something to do"' in run("list").output
 
 
@@ -260,7 +301,7 @@ def test_a_bare_number_addresses_a_task_by_its_ref_number (
 
 	shown = {
 		line.split(maxsplit=1)[0]: line.split(maxsplit=1)[1].strip()
-		for line in run("today").output.splitlines()
+		for line in run("agenda").output.splitlines()
 		if line.strip().startswith("#")
 	}
 
@@ -269,7 +310,7 @@ def test_a_bare_number_addresses_a_task_by_its_ref_number (
 	# Typed without the sigil, because a shell would eat it (docs/design.md §12.2a).
 	run("done", "2")
 
-	remaining = run("today").output
+	remaining = run("agenda").output
 
 	assert shown["#2"] not in remaining
 	assert shown["#1"] in remaining
@@ -544,21 +585,21 @@ def test_plan_and_defer_move_a_task_between_days (
 
 	run("init")
 	run("add", "Buy milk")
-	run("today")
+	run("agenda")
 
 	# The confirmation echoes the day that was just set, not the deadline. `_when` prefers
 	# a deadline, which is right in a list and wrong here — the user said "tomorrow" and
 	# used to be shown Friday.
 	assert "Starts " in run("plan", "1", "tomorrow").output
 
-	run("today")
+	run("agenda")
 
 	hidden = run("defer", "1", "2026-12-01")
 
 	assert "Hidden until" in hidden.output
 
 	# Deferred means hidden: the agenda is empty again.
-	assert "Buy milk" not in run("today").output
+	assert "Buy milk" not in run("agenda").output
 
 
 def test_a_defer_keeps_the_time_of_day_it_was_given (
@@ -890,7 +931,7 @@ def test_json_output_carries_enough_to_act_on (
 	run("init")
 	run("add", "Buy milk")
 
-	document = json.loads(run("today", "--json").output)
+	document = json.loads(run("agenda", "--json").output)
 
 	assert document["unscheduled"][0]["title"] == "Buy milk"
 	assert document["unscheduled"][0]["ref"]
@@ -1046,7 +1087,7 @@ def test_a_bad_date_is_refused_with_what_would_have_worked (
 
 	run("init")
 	run("add", "Buy milk")
-	run("today")
+	run("agenda")
 
 	result = run("plan", "1", "someday", expect=1)
 
@@ -1150,7 +1191,7 @@ def test_help_leads_with_examples (
 	block, not after it.
 	"""
 
-	for command in ("add", "today", "done", "plan"):
+	for command in ("add", "agenda", "done", "plan"):
 		text = run(command, "--help").output
 
 		assert "subroutine " + command in text, command
@@ -1169,7 +1210,7 @@ def test_output_is_plain_when_it_is_not_a_terminal (
 	run("init")
 	run("add", "Buy milk before friday")
 
-	assert "\x1b[" not in run("today").output
+	assert "\x1b[" not in run("agenda").output
 	assert "\x1b[" not in run("ls").output
 
 
@@ -1180,7 +1221,7 @@ def test_a_missing_argument_asks_rather_than_erroring (
 
 	run("init")
 	run("add", "Buy milk")
-	run("today")
+	run("agenda")
 
 	result = run("done", input="1\n")
 
@@ -1455,7 +1496,7 @@ def test_the_agenda_offers_candidates_best_first_rather_than_oldest_first (
 	run("add", "Buy milk")
 	run("add", "Fix the leaking tap !3/3")
 
-	printed = _sections(run("today").output)
+	printed = _sections(run("agenda").output)
 
 	assert printed["Next"] == ["2", "4", "1", "3"], printed
 
@@ -1486,7 +1527,7 @@ def test_the_agenda_picks_its_candidates_by_rank_before_it_stops_at_twenty (
 
 	run("add", "The one that matters !5/5")
 
-	printed = _sections(run("today").output)
+	printed = _sections(run("agenda").output)
 
 	assert printed["Next"][0] == "26", printed
 	assert len(printed["Next"]) == 20, "the cap moved; this test is about what survives it"
@@ -1511,7 +1552,7 @@ def test_the_agenda_keeps_the_order_it_was_given (
 	run("add", "Written first !5/5")
 	run("add", "Written second !1/1")
 
-	printed = _sections(run("today").output)
+	printed = _sections(run("agenda").output)
 
 	# Newest-first would put the `!1/1` on top, which is what this used to do.
 	assert printed["Next"] == ["1", "2"], printed
@@ -1535,7 +1576,7 @@ def test_the_agenda_says_what_is_already_started (
 	run("add", "Fix the leaking tap !3/3")
 	run("start", "2")
 
-	printed = _sections(run("today").output)
+	printed = _sections(run("agenda").output)
 
 	assert printed["In progress"] == ["2"], printed
 	assert printed["Next"] == ["1"], printed
@@ -1543,7 +1584,7 @@ def test_the_agenda_says_what_is_already_started (
 	# And the heading is dropped entirely when nothing is started, like every other bucket.
 	run("stop", "2")
 
-	assert "In progress" not in run("today").output
+	assert "In progress" not in run("agenda").output
 
 
 def test_the_scripted_agenda_carries_every_section_the_terminal_prints (
@@ -1560,7 +1601,7 @@ def test_the_scripted_agenda_carries_every_section_the_terminal_prints (
 	run("add", "Renew the passport !5/5")
 	run("start", "1")
 
-	scripted = json.loads(run("today", "--json").output)
+	scripted = json.loads(run("agenda", "--json").output)
 
 	assert [row["ref"] for row in scripted["in_progress"]] == [1]
 	assert scripted["unscheduled"] == []
@@ -1579,11 +1620,11 @@ def test_the_agenda_labels_kinds_by_the_same_rule (
 	run("init")
 	run("add", "Ordinary work")
 
-	assert "task" not in run("today").output.lower()
+	assert "task" not in run("agenda").output.lower()
 
 	_a_typed_task(home, title="The parser drops a token", type_key="bug")
 
-	mixed = run("today").output
+	mixed = run("agenda").output
 
 	assert "bug" in mixed
 	assert "task" in mixed
@@ -1921,7 +1962,7 @@ def test_an_explicit_today_carries_no_beginner_signpost (
 ) -> None:
 	"""The same output, a different question, and that is why they are told apart.
 
-	A bare `subroutine` is somebody arriving; `subroutine today` is somebody who already
+	A bare `subroutine` is somebody arriving; `subroutine agenda` is somebody who already
 	knows what they want. A daily habit should not carry a signpost forever, and the two are
 	distinguishable because Typer reports whether a subcommand was invoked.
 	"""
@@ -1929,7 +1970,7 @@ def test_an_explicit_today_carries_no_beginner_signpost (
 	run("init")
 	run("add", "buy milk")
 
-	assert "--help" not in run("today").output
+	assert "--help" not in run("agenda").output
 
 
 def test_help_and_dash_dash_help_are_the_same_answer (
@@ -1983,7 +2024,7 @@ def test_a_deferred_task_says_so_wherever_it_appears (
 	run("add", "Renew the passport from 2026-12-01 due 2026-12-15")
 
 	# Hidden from the agenda, which is the behaviour being explained rather than a defect.
-	assert "Renew the passport" not in run("today").output
+	assert "Renew the passport" not in run("agenda").output
 
 	# **And hidden from the plain listing too, since `#73`.** The marker's job moved with it:
 	# it no longer announces a deferral in a list somebody did not ask for, it labels the row
@@ -6051,7 +6092,7 @@ def test_a_title_carrying_terminal_escapes_is_printed_rather_than_obeyed (
 	run("init")
 	run("add", "Buy milk \x1b[2K\x1b[1;31mDANGER\x1b[0m")
 
-	for command in (("list",), ("today",), ("show", "1")):
+	for command in (("list",), ("agenda",), ("show", "1")):
 		printed = run(*command).output
 
 		assert "\x1b[2K" not in printed, f"'{' '.join(command)}' passed an escape through"

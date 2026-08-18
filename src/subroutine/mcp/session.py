@@ -9,7 +9,7 @@ the one on the server. ``subroutine mcp`` is a transport adapter now
 (:mod:`subroutine.mcp.relay`) and this module runs server-side, so there is one implementation
 and it is the instance's.
 
-**One connection, not the fan-out the CLI does.** ``subroutine today`` merges every configured
+**One connection, not the fan-out the CLI does.** ``subroutine agenda`` merges every configured
 instance because a person has one day and it does not care which server a dentist appointment
 lives on. A tool call is the opposite: it writes somewhere, and "somewhere" has to be a
 decision the caller can see rather than one a process makes on their behalf.

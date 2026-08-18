@@ -880,7 +880,7 @@ Everything above set up a server. This is the other end: your own account, on yo
 or on the same machine, listing the server's work beside your own.
 
 **It is a *connection*, and your own database is one too.** That is the whole design (§13.7):
-`subroutine today` asks every connection and merges the answers, so the dentist and the
+`subroutine agenda` asks every connection and merges the answers, so the dentist and the
 stand-up appear in one list rather than in two tools. Your own database is called `local` and
 exists whether or not you declare it.
 
@@ -1410,7 +1410,7 @@ a database this build does not match and it is refused, with the direction of th
 deciding the remedy:
 
 ```console
-$ subroutine today
+$ subroutine agenda
   Nothing could be read.
   Local: This database is at schema 233f898a2bee, and this build expects f159c8635e54.
     Run 'subroutine db upgrade' — it backs up first, then migrates.

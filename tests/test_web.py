@@ -5852,7 +5852,7 @@ def test_a_bucket_with_nothing_in_it_is_not_shown (tmp_path: pathlib.Path) -> No
 
 
 def test_the_buckets_keep_the_order_a_day_is_read (tmp_path: pathlib.Path) -> None:
-	"""The same words, and the same order, `subroutine today` prints.
+	"""The same words, and the same order, `subroutine agenda` prints.
 
 	§12.2 already decided what the agenda says, and one product answering one question two ways
 	is worse than either answer on its own.
@@ -5860,7 +5860,7 @@ def test_the_buckets_keep_the_order_a_day_is_read (tmp_path: pathlib.Path) -> No
 	**Read off the terminal's own list rather than written out here** (`#927`'s H-15). This
 	asserted a literal four-item list under a docstring claiming it matched the CLI — and by
 	the time anybody looked it matched neither: `in_progress` was missing entirely, so an item
-	somebody had started and dated nowhere appeared in `subroutine today`, in the agent's
+	somebody had started and dated nowhere appeared in `subroutine agenda`, in the agent's
 	agenda, and on no browser surface at all; and the last section was still `Unscheduled`
 	where the CLI had renamed it `Next`. **A test written as a literal cannot notice that the
 	thing it claims to mirror has moved** — it fails whoever changes the original instead.
@@ -5987,7 +5987,7 @@ def test_a_day_with_nothing_in_it_says_so_once (tmp_path: pathlib.Path) -> None:
 def test_an_agenda_row_from_elsewhere_is_addressed_by_its_workspace (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""`sandbox/#1` beside a bare `#589` — the same answer `subroutine today` gives.
+	"""`sandbox/#1` beside a bare `#589` — the same answer `subroutine agenda` gives.
 
 	It goes in the ref cell rather than in a badge, because it is part of the address rather
 	than a fact beside it (`SR#638`).
@@ -6625,7 +6625,7 @@ def test_a_day_is_read_in_the_timezone_that_stored_it (tmp_path: pathlib.Path) -
 	`SR#589` is due all day on **Friday 14 August**, stored as `2026-08-14T23:59:59.999999Z`
 	because §6.5 puts an all-day deadline at the last instant of its day in the task's own
 	timezone. Rendered in the *reader's* timezone that is Saturday the 15th anywhere east of
-	UTC — so `subroutine today` printed `(due Fri 14 Aug)` and the browser printed 15 Aug, about
+	UTC — so `subroutine agenda` printed `(due Fri 14 Aug)` and the browser printed 15 Aug, about
 	one item, at one moment.
 
 	**Wrong in both directions, for different fields**, which is why the fix is one function

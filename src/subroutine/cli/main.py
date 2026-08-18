@@ -579,7 +579,7 @@ def mcp (
 	rather than connecting to a port. There is nothing to expose and no listener: if the
 	client is not running it, nothing is serving.
 
-	One connection, chosen here. Unlike 'today', which merges every configured instance
+	One connection, chosen here. Unlike 'agenda', which merges every configured instance
 	because a person has one day, a tool call writes somewhere — and where it writes has to
 	be a decision you can see rather than one this process takes for you.
 
@@ -3212,7 +3212,7 @@ def _default (
 
 	  subroutine add "Call the dentist before Sunday"
 
-	  subroutine today
+	  subroutine agenda
 
 	  subroutine done 1
 
@@ -3249,7 +3249,7 @@ def _default (
 	# wondering what exists — every command prints the next one to try — and this, the single
 	# most likely first thing anybody types, had no such line at all.
 	#
-	# On the *bare* invocation only, never on an explicit `subroutine today`. The two are the
+	# On the *bare* invocation only, never on an explicit `subroutine agenda`. The two are the
 	# same output and different questions: bare is somebody arriving, `today` is somebody who
 	# already knows what they want, and a daily habit should not carry a beginner's signpost
 	# forever. `invoked_subcommand` is what tells them apart.

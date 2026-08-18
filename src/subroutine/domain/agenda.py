@@ -378,7 +378,7 @@ def _visible (
 		)
 		.where(subroutine.domain.readiness.undeferred(model, now=until))
 		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**
-		# (`#853`). Two of the buckets are ranked, and `subroutine today` asks one connection
+		# (`#853`). Two of the buckets are ranked, and `subroutine agenda` asks one connection
 		# per place and merges the answers — so the rank has to survive the wire or the merge
 		# sorts on nulls and silently keeps whichever connection answered first. The
 		# expression is a plain `CASE` over two columns, so this costs nothing a sort by it

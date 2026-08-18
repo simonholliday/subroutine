@@ -1450,10 +1450,10 @@ def test_the_scan_ignores_a_line_that_runs_something_else (tmp_path: pathlib.Pat
 	"""
 
 	found = _invocations(
-		[_page(tmp_path, "claude mcp add subroutine -- subroutine mcp", "subroutine today")]
+		[_page(tmp_path, "claude mcp add subroutine -- subroutine mcp", "subroutine agenda")]
 	)
 
-	assert [invocation.line for invocation in found] == ["subroutine today"]
+	assert [invocation.line for invocation in found] == ["subroutine agenda"]
 
 
 def test_the_scan_steps_over_sudo_and_an_environment_prefix (

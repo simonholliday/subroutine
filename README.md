@@ -16,7 +16,7 @@ $ subroutine init
 $ subroutine add "try this out ~10m"
 ```
 
-Every command also answers to `subr` — `subr today` is `subroutine today`, for something you
+Every command also answers to `subr` — `subr agenda` is `subroutine agenda`, for something you
 type all day.
 
 **For your agent** — a plugin, which needs nothing installed first:
@@ -28,7 +28,7 @@ $ claude plugin install subroutine@subroutine
 
 From then on: *"file that as a bug"*, *"what can I actually start?"*, *"write down why we
 rejected the other approach."* You never type a ticket. When you want to look at it yourself,
-run `subroutine today` or open the instance in a browser.
+run `subroutine agenda` or open the instance in a browser.
 
 **The plugin fetches Subroutine itself, through
 [uv](https://docs.astral.sh/uv/getting-started/installation/)** — so it works on arrival on a
@@ -80,7 +80,7 @@ a workflow and six required fields.
 - **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
   tool, and not an agent framework with a read-only human view.
 - **One list across every machine.** Your laptop and the team's server in one
-  `subroutine today`, each row printing an address you can type back.
+  `subroutine agenda`, each row printing an address you can type back.
 
 > **My context window ends. The instance does not.**
 >
@@ -111,7 +111,7 @@ properly for this one — you will be typing `subroutine` often enough to want i
 $ uv tool install subroutine    # or: pipx install subroutine
 $ subroutine init
 $ subroutine add "Call the dentist before Sunday"
-$ subroutine today
+$ subroutine agenda
 ```
 
 **3. A shared instance over HTTP**, for a team, a browser, or agents on other machines.
@@ -214,9 +214,9 @@ $ subroutine init
 
 $ subroutine add "Call the dentist before Sunday"
   Added: Call the dentist  (due Sun 9 Aug)
-    Tip: subroutine today
+    Tip: subroutine agenda
 
-$ subroutine today
+$ subroutine agenda
   Nothing due today.
   Next 7 days
      #1  Call the dentist  (due Sun 9 Aug)
@@ -225,7 +225,7 @@ $ subroutine today
 
 $ subroutine done 1
   Done: Call the dentist
-    Tip: subroutine today
+    Tip: subroutine agenda
 ```
 
 `#1` is the task's own number. It is allocated once and never reused, so it goes on meaning
@@ -522,11 +522,11 @@ The server talks to whichever *connection* is current, so pointing an agent at a
 instance is a matter of `subroutine use`, not of reconfiguring the agent.
 
 And if you keep your own list here and your team's on a company server, both are just
-*connections* — one `subroutine today` shows the dentist and the stand-up together, and each
+*connections* — one `subroutine agenda` shows the dentist and the stand-up together, and each
 row prints an address you can type back:
 
 ```console
-$ subroutine today
+$ subroutine agenda
   Today
               #1  Pay the gas bill  (for Sat 1 Aug)
     work/acme/#1  Fix the deploy script  (for Sat 1 Aug)

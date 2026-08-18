@@ -299,7 +299,7 @@ NOT_IN_CLI: dict[str, Excuse] = {
 		"the fact a person acts on, where a list of instants is the thing a month grid is "
 		"drawn from. A command printing the next five dates would be a second way to ask what "
 		"`show` answers, which is the duplication `SR#154` closed for `help` and `explain`.\n\n"
-		"**What would remove it**: a date-ranged view at the terminal. `subroutine today` is "
+		"**What would remove it**: a date-ranged view at the terminal. `subroutine agenda` is "
 		"the nearest thing and deliberately spans one day; `SR#916`'s feed is where a range "
 		"gets a consumer, and `SR#576` is where an event acquires a span to draw.",
 	),

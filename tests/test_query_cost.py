@@ -620,7 +620,7 @@ def _searched_including_comments (
 
 
 def _agenda (context: Context) -> typing.Any:
-	"""Build the whole agenda, which is five queries and what ``subroutine today`` runs."""
+	"""Build the whole agenda, which is five queries and what ``subroutine agenda`` runs."""
 
 	return subroutine.domain.agenda.build(
 		context.session,
