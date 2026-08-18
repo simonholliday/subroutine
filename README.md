@@ -144,6 +144,7 @@ not built — named here because a tool that overstates itself wastes your after
 | Tasks and documents, sharing one numbering scheme | **Built** |
 | Projects, sub-projects and workspaces | **Built** |
 | Priorities — importance × urgency, ranked in bands | **Built** |
+| One prioritised project per workspace, whose work rises without hiding anybody else's | **Built** |
 | Deadlines, planned days, and deferring until later | **Built** |
 | `blocks` dependencies, and `--ready` to filter by them | **Built** |
 | Milestones — an item whose blockers are its contents | **Built** |

@@ -594,7 +594,11 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"read through, so getting it wrong moves every deadline everybody can see. Same "
 		"argument as `rename_workspace` above and for the same reason: an agent should reach "
 		"this through `subroutine_call_api` having been asked, not through a tool it can call "
-		"on its own.",
+		"on its own. **And a second field with the same shape since `#986`**: "
+		"`prioritised_project` reorders every ranked listing and agenda in the workspace, for "
+		"everybody in it, and decision `#982`'s whole argument is that a focus set and forgotten "
+		"is worse than none — which is exactly what a tool an agent can reach unasked would "
+		"produce.",
 	),
 	"rename_project": (
 		"budget",
