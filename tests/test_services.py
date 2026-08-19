@@ -473,9 +473,15 @@ def test_creating_a_project_makes_its_owner_a_member_of_it (
 
 
 #: Settings a template may write, because each only *describes* how a project is meant to be
-#: used. Nothing reads them yet and that is not the test — the test is that none of them can
-#: change what the program refuses. See the note in the template test below.
-DESCRIBES = frozenset({"visible_status_keys"})
+#: used — the test is that none of them can change what the program refuses.
+#:
+#: **Empty since `#1028`**, and deliberately kept rather than deleted with its last entry.
+#: ``visible_status_keys`` was the only one and was read by nothing anywhere in ``src/``: the
+#: ninth instance of the declared-and-read-by-nothing family, sitting in the settings map for
+#: months while three templates seeded it. `#1029` is the item that would give a template
+#: something to write again — the statuses a project's board shows — and this is what will make
+#: adding it a decision rather than a habit.
+DESCRIBES: frozenset[str] = frozenset()
 
 
 def test_a_project_template_writes_settings_and_nothing_else (
@@ -488,8 +494,12 @@ def test_a_project_template_writes_settings_and_nothing_else (
 	personal = _project(session, workspace, template="personal")
 	software = _project(session, workspace, template="software")
 
-	assert personal.settings["visible_status_keys"] == ["open", "done"]
-	assert "in_progress" in software.settings["visible_status_keys"]
+	# **A template writes nothing at all today** (`#1028`), and that is asserted rather than
+	# left implicit: `project.template` is still accepted, still validated and still refuses an
+	# unknown name, so a reader meeting the column has no way to tell *writes nothing yet* from
+	# *writes something this test forgot to check*.
+	assert personal.settings == {}, "a template wrote a setting nothing declares"
+	assert software.settings == {}, "a template wrote a setting nothing declares"
 
 	# **A template may describe; it may not gate** (`#133`). Neither key here is read by
 	# anything yet, and that is fine for one of them and was not for the other: a *descriptive*

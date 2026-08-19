@@ -35,6 +35,10 @@ upgrade involves.
   setting a colour on a workspace marks everything in it at once.
   There is no control for it in the browser yet; set one over the API or from either client.
 
+- **A project template no longer writes a setting nothing reads.** `visible_status_keys` was
+  seeded into every project's `settings` by its template and consulted by no part of the
+  program. It is gone; `template` itself is unchanged and still accepted.
+
 - **Settings are validated against a declared registry.** A key nothing declares is refused by
   name rather than stored, and a map is merged **per key** — so setting one thing leaves
   everything else alone, and sending a key as `null` clears just that one.

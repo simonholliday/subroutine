@@ -103,6 +103,17 @@ class Project(
 
 	# Seed-time only: the template writes `settings` and then has no further effect, so
 	# a project can be reconfigured afterwards and no template is a cage.
+	#
+	# **Nothing reads the value today** (`#1028`). The one setting a template ever wrote —
+	# `visible_status_keys` — was read nowhere in `src/`, so removing it left this accepted at
+	# creation, validated against three names, refused by name when wrong, and with no effect on
+	# anything. Kept rather than dropped on Simon's decision of 2026-08-19: `#1029` is the item
+	# that gives it a job again — the statuses a project's board shows — which is the only thing
+	# it was ever for. `#524`'s precedent, where `is_system` was kept and excused naming `#826`:
+	# a column with a nameable future use is not the same as one nobody can name a use for.
+	#
+	# The refusal is still worth having without a reader. It stops a caller inventing a fourth
+	# template and believing in it, which is a different failure from the value being ignored.
 	template: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(32), default="blank", nullable=False
 	)

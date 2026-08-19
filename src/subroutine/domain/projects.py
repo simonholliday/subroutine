@@ -83,6 +83,17 @@ PATH_PATTERN = re.compile(
 )
 
 #: What a template writes into ``project.settings``, and nothing else (docs/design.md §6.12).
+#:
+#: **Every one of them writes nothing, as of `#1028`.** The single key these carried,
+#: ``visible_status_keys``, was seeded by three templates and read **nowhere** in ``src/`` —
+#: stored, published on the project view, and consumed by nothing. Ninth instance of the
+#: declared-and-read-by-nothing family, and `domain/settings.py` exists because of it.
+#:
+#: **The names are kept and so is the column**, on Simon's decision of 2026-08-19. `#1029` is
+#: what gives them a job again: the statuses a project's board shows, which is the only thing a
+#: template was ever meant to decide. Until then ``template`` is accepted, validated and
+#: without effect — said plainly here rather than left for somebody to discover by changing it
+#: and watching nothing happen, which is how this family is always found.
 #: Templates are seed-time only: they set defaults and then have no further effect, so a
 #: project stays reconfigurable and no template is a cage.
 #:
@@ -101,18 +112,9 @@ PATH_PATTERN = re.compile(
 #: not be stored. `config.Settings` keeps the instance-level default, which is `False` and so
 #: claims nothing, and is where the setting will land when there is something to switch on.
 TEMPLATES: dict[str, dict[str, typing.Any]] = {
-	"personal": {"visible_status_keys": ["open", "done"]},
-	"software": {
-		"visible_status_keys": [
-			"open",
-			"in_progress",
-			"blocked",
-			"needs_input",
-			"done",
-			"cancelled",
-		]
-	},
-	"blank": {"visible_status_keys": ["open", "done"]},
+	"personal": {},
+	"software": {},
+	"blank": {},
 }
 
 
