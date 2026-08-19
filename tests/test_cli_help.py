@@ -12,7 +12,11 @@ specification section number or an item reference belongs in a comment above the
 where it is still beside the code and is not shown to anybody typing ``--help``.
 """
 
+import ast
+import inspect
+import pathlib
 import re
+import textwrap
 import typing
 
 import click
@@ -151,3 +155,214 @@ def test_the_walk_reaches_every_command_the_app_registers () -> None:
 	# unopened — which is a smaller version of the same defect, and the one that would hide
 	# `token create` and `db backup`.
 	assert len(walked) > 40, f"the walk reached {len(walked)} commands, which is too few"
+
+
+#: Where the program's own advice is written.
+#:
+#: `#1004`. ``cli/personal`` holds ``_suggest`` and every caller of it; ``cli/main`` holds the
+#: two that go through the public ``suggest``. Read as a directory rather than as two names, so
+#: a third module growing a tip is covered without anybody remembering this file.
+ADVICE = pathlib.Path(subroutine.cli.main.__file__).parent
+
+#: The functions that print a tip, and which argument carries the command.
+#:
+#: ``_suggest`` takes a console first because most callers have one; ``suggest`` is the public
+#: face for the two that do not. Two positions rather than one is the cost of that, and it is
+#: cheaper than a guard that reads the wrong argument in silence.
+SUGGESTERS = {"_suggest": 1, "suggest": 0}
+
+#: How few tips would mean this has stopped reading the source.
+#:
+#: `#405`'s floor, and it does real work here: the scan below reports offenders, so a scan that
+#: reads nothing reports none and is indistinguishable from a clean tree. Around forty at the
+#: time of writing, measured with ``grep -c '_suggest(' src/subroutine/cli/personal.py``.
+FEWEST_TIPS = 30
+
+
+def _leading_literal (node: ast.expr) -> str | None:
+	"""Return the literal head of a command string, or ``None`` where there is not one.
+
+	An f-string is the common case — ``f"subroutine changes --since {last}"`` — and its head is
+	a plain constant, which is where the command name always is. Anything else is skipped
+	rather than guessed at, and the floor above is what stops skipping everything reading as
+	success.
+	"""
+
+	if isinstance(node, ast.Constant) and isinstance(node.value, str):
+		return node.value
+
+	if isinstance(node, ast.JoinedStr) and node.values:
+		first = node.values[0]
+
+		if isinstance(first, ast.Constant) and isinstance(first.value, str):
+			return first.value
+
+	return None
+
+
+def _tips () -> list[tuple[str, int, str]]:
+	"""Return every suggested command line, as ``(file, line, text)``.
+
+	Read off the source rather than by running the commands, because a tip is printed on one
+	branch of one command and driving all of them is a different and much larger test.
+	"""
+
+	found: list[tuple[str, int, str]] = []
+
+	for path in sorted(ADVICE.glob("*.py")):
+		tree = ast.parse(path.read_text(encoding="utf-8"))
+
+		for node in ast.walk(tree):
+			if not isinstance(node, ast.Call):
+				continue
+
+			# `_suggest(...)` and `personal.suggest(...)` are both reached, because the second
+			# is how `cli/main` calls it and its two tips are as published as any other.
+			name = (
+				node.func.id
+				if isinstance(node.func, ast.Name)
+				else node.func.attr
+				if isinstance(node.func, ast.Attribute)
+				else None
+			)
+
+			if name not in SUGGESTERS:
+				continue
+
+			where = SUGGESTERS[name]
+			given = node.args[where] if len(node.args) > where else None
+
+			for keyword in node.keywords:
+				if keyword.arg == "command":
+					given = keyword.value
+
+			if given is None:
+				continue
+
+			text = _leading_literal(given)
+
+			if text is not None:
+				found.append((path.name, node.lineno, text))
+
+	return found
+
+
+def _signpost (command: typing.Any) -> bool:
+	"""Say whether a command exists only to report that it has moved.
+
+	**Derived from what the function does, not from what it is called.** `#509`'s signposts —
+	``subroutine today`` and ``subroutine upgrade`` — print where something went and end in
+	``raise typer.Exit(2)``, so they cannot succeed on any path. A body whose last statement is
+	a ``raise`` is exactly that and nothing else, measured: it names those two and no others.
+
+	**``hidden`` is the wrong question here**, which is worth writing down because the neighbour
+	guard in ``tests/test_packaging.py`` asks it and is right to. There a workflow demonstrates
+	the path a stranger is shown, so *offered* is the test. A tip is the opposite — §1.4 hides
+	``use``, ``claim`` and ``connections`` from the general help precisely so they can be
+	revealed at the moment they are useful, and a tip is that reveal. Refusing hidden commands
+	here would fail the mechanism for doing progressive disclosure correctly.
+	"""
+
+	callback = getattr(command, "callback", None)
+
+	if callback is None:
+		return False
+
+	try:
+		source = textwrap.dedent(inspect.getsource(callback))
+
+	except (OSError, TypeError):
+		return False
+
+	for node in ast.walk(ast.parse(source)):
+		if isinstance(node, ast.FunctionDef) and node.name == callback.__name__:
+			return bool(node.body) and isinstance(node.body[-1], ast.Raise)
+
+	return False
+
+
+def _unreachable (line: str) -> str | None:
+	"""Return why a suggested command line names nothing, or ``None`` where it is fine.
+
+	**Walked against the tree rather than matched against a list of names**, because the two
+	failures are different: a word that names no subcommand of a group is a broken tip, and a
+	word after a leaf command is an argument and is none of this guard's business.
+	``subroutine project prioritise web`` is the case that decides it — ``web`` is a project,
+	and a flat check either refuses it or stops looking one word too early.
+	"""
+
+	words = line.split()
+
+	if not words or words[0] != "subroutine":
+		return None
+
+	# **Typed loosely, for the reason `_commands` above writes out**: Typer vendors its own
+	# click shim, so what `get_command` returns is a private `typer._click.core.Command` that
+	# is not a `click.Command` and that Typer exports no name for. Only `list_commands` and
+	# `get_command` are used, which both kinds carry.
+	node: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	path = "subroutine"
+
+	for word in words[1:]:
+		# A flag, an argument, or an f-string's brace: the command name is over. Anything
+		# quoted stops it too, which is what keeps `add "something to do"` out.
+		if not re.fullmatch(r"[a-z][a-z0-9-]*", word):
+			break
+
+		if not hasattr(node, "list_commands"):
+			# A leaf, so this word is an argument to it rather than a subcommand.
+			break
+
+		context = click.Context(node, info_name=path)
+		child = node.get_command(context, word)
+
+		if child is None:
+			return f"{path!r} has no {word!r}"
+
+		node = child
+		path = f"{path} {word}"
+
+	if _signpost(node):
+		return f"{path!r} is a signpost that always fails"
+
+	return None
+
+
+def test_every_command_the_program_suggests_is_one_it_can_run () -> None:
+	"""`#1004`. The tips are the most-read advice in the product and nothing checked them.
+
+	§12.2a's habit is that a command ends by naming the next one, so somebody following the
+	program is following a list of string literals. The same guard already exists twice pointed
+	elsewhere — ``tests/test_plugin.py`` over the skill's prose, ``tests/test_documentation.py``
+	over the README — both written because a page naming a renamed command is worse than one
+	saying less: the reader cannot tell a typo of theirs from a promise of ours (`#134`, `#136`,
+	`#138`). The program's own mouth was the surface with no such check.
+
+	**What it must catch, and what it must not.** A tip naming a command that has gone, and a
+	tip naming one of `#509`'s signposts — which is what `#1011` found in CI, where a workflow
+	ran ``subroutine today`` for five pushes after it stopped working. What it must *not* catch
+	is a tip naming a hidden command: ``use``, ``claim`` and ``connections`` are hidden from the
+	general help so they can be revealed when they become relevant, and a tip is how that
+	reveal happens. **This item's own falsification said to use ``subroutine today`` "which was
+	removed" — it was not**, and building the neighbour guard in ``tests/test_packaging.py``
+	found that out the expensive way, by passing against the live defect.
+
+	Flags and arguments are deliberately not checked. A flag belongs to one command and the
+	false-positive rate of checking those is unknown; this is the cheap half that is certain.
+	"""
+
+	tips = _tips()
+
+	assert len(tips) >= FEWEST_TIPS, (
+		f"only {len(tips)} tips were found, which is fewer than the {FEWEST_TIPS} that exist "
+		f"— this has stopped reading the source, and no offenders reads exactly like a clean "
+		f"tree"
+	)
+
+	broken = [
+		f"{name}:{line} suggests {text!r} — {why}"
+		for name, line, text in tips
+		if (why := _unreachable(text)) is not None
+	]
+
+	assert not broken, "the program suggests commands it cannot run:\n  " + "\n  ".join(broken)
