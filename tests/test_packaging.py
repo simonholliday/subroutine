@@ -747,3 +747,93 @@ def test_every_pinned_action_says_which_version_it_is () -> None:
 	assert not nameless, (
 		"a pinned action does not say which version its commit is:\n  " + "\n  ".join(nameless)
 	)
+
+
+#: Every ``subroutine <command>`` a workflow runs. A *space* rather than any separator, which is
+#: what keeps the `subroutine-remote` plugin directory out — measured over the workflows rather
+#: than guessed at, and it was the only false positive there was.
+_RUNS_A_COMMAND = re.compile(r"\bsubroutine ([a-z][a-z0-9-]*)")
+
+
+def _offered () -> set[str]:
+	"""Return every command and group name the program *offers*, which is not every one it has.
+
+	**Registered is the wrong question, and finding that out is what this test is for.** The
+	first version asked whether the workflow's commands exist; it passed against the live
+	defect, because `#1003` did not delete ``subroutine today`` — it left `#509`'s signpost,
+	which is registered, prints where the command went, and exits 2. A command that always
+	fails is *present* and is not *offered*.
+
+	``hidden`` is the difference and it is already the right one: §1.4 hides what a person
+	should not be shown, and `#509`'s signposts are hidden because they are not part of the
+	surface any more. So a job demonstrating the first-contact path may run only what a
+	stranger is offered, which is what that job exists to prove.
+
+	``bool`` rather than ``is True``, because Typer leaves an unset ``hidden`` as a
+	``DefaultPlaceholder`` wrapping the default — measured: it is falsey when unset, and would
+	be truthy if a group were ever hidden by one. Comparing against ``True`` would read every
+	group as offered whatever it said.
+
+	The same derivation ``tests/test_plugin.py`` makes of the skill, one property wider — `name`
+	is None where the decorator did not override it, so the callback is the fallback.
+	"""
+
+	return {
+		command.name or (command.callback.__name__ if command.callback else "")
+		for command in subroutine.cli.main.app.registered_commands
+		if not bool(command.hidden)
+	} | {
+		group.name
+		for group in subroutine.cli.main.app.registered_groups
+		if group.name and not bool(group.hidden)
+	}
+
+
+def test_every_command_a_workflow_runs_is_one_the_program_offers () -> None:
+	"""`#1011`. CI was red for five pushes because it ran a command that had been retired.
+
+	`#1003` retired ``subroutine today`` and left `#509`'s signpost, which prints where the
+	command went and **exits 2**. The *First run* job still ran it, so under ``set -euo
+	pipefail`` the step failed — and every other job passed, on all four Pythons.
+
+	**Two copies of §13.5b's personal test, and only one was updated.** That step's own comment
+	says *"The suite runs this too; it runs here as well because this job is the only one with
+	nothing configured and no fixtures"* — and ``tests/test_personal_path.py`` was moved to
+	``agenda`` while the workflow was not. One test written down twice, free to disagree, which
+	is the defect this codebase finds most often.
+
+	**Nothing local could see it and that is structural.** ``scripts/check.py`` runs eight steps
+	and says on every run that eleven CI steps were not run; the *First run* job is one of the
+	eleven, and it is one of the eleven precisely because it needs a machine with nothing on it.
+	`#893` is the same sentence about a different rare moment.
+
+	**The guard already existed one file along.** ``tests/test_plugin.py`` checks every
+	``subroutine x`` in the skill's prose against the real app (`#134`, `#136`, `#138`); nothing
+	asked it of the workflows, which are the only place a command is *run* the way a stranger
+	runs it. So a rename broke them silently until somebody pushed.
+	"""
+
+	offered = _offered()
+	found: dict[str, set[str]] = {}
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		named = set(_RUNS_A_COMMAND.findall(path.read_text(encoding="utf-8")))
+
+		if named:
+			found[path.name] = named
+
+	assert found, (
+		"no workflow was found to run any command at all — this has stopped reading them, "
+		"which reads exactly like a clean tree"
+	)
+
+	missing = {
+		name: sorted(named - offered) for name, named in found.items() if named - offered
+	}
+
+	assert not missing, (
+		f"a workflow runs a command this program does not offer: {missing}. Either it was "
+		f"retired and left as a signpost that exits non-zero, or it is hidden and so is not "
+		f"the path a stranger is shown. Every other job can pass while that one fails, and "
+		f"the local gate cannot see it at all — scripts/check.py runs eight steps of nineteen."
+	)

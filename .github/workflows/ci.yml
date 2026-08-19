@@ -294,13 +294,13 @@ jobs:
           # stranger with the words *workspace* and *project* while this job reported
           # success (`SR#219`, `SR#222`).
           subroutine add "Call the dentist before Sunday" 2>&1 | tee /tmp/add.txt
-          subroutine today 2>&1 | tee /tmp/today.txt
+          subroutine agenda 2>&1 | tee /tmp/agenda.txt
           subroutine done 1 2>&1 | tee /tmp/done.txt
           grep -q 'Added: Call the dentist' /tmp/add.txt
-          grep -q 'Call the dentist' /tmp/today.txt
+          grep -q 'Call the dentist' /tmp/agenda.txt
           grep -q 'Done: Call the dentist' /tmp/done.txt
           if grep -Eiq 'workspace|status|project|criterion|verification|session|claim' \
-              /tmp/add.txt /tmp/today.txt /tmp/done.txt; then
+              /tmp/add.txt /tmp/agenda.txt /tmp/done.txt; then
             echo "The personal path mentioned something §1.4 says it must not." >&2
             exit 1
           fi
