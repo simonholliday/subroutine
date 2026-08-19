@@ -687,7 +687,7 @@ def test_a_restore_puts_the_data_back (
 	engine = subroutine.db.session.create_engine(own_database)
 
 	try:
-		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+		_restored(engine, written.path, as_clone=False)
 
 	finally:
 		engine.dispose()
@@ -720,7 +720,7 @@ def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 	engine = subroutine.db.session.create_engine(own_database)
 
 	try:
-		subroutine.db.backup.restore(engine, written.path, as_clone=True)
+		_restored(engine, written.path, as_clone=True)
 
 	finally:
 		engine.dispose()
@@ -729,6 +729,66 @@ def test_a_clone_keeps_the_data_and_takes_a_new_identity (
 
 	assert restored is not None
 	assert restored != identity
+
+
+#: What a refusal says when something else is connected to the database (`#171`).
+#:
+#: `#377`. These tests each own their database outright, so this refusal is never a legitimate
+#: outcome for one of them — and when it fires it *pre-empts* the check under test, which then
+#: reports an opaque substring mismatch about a message it never expected to see.
+_IN_USE = "using this database"
+
+
+def _refusal (raised: subroutine.errors.SubroutineError) -> str:
+	"""Return a refusal's text, failing loudly where it is `#377`'s race instead.
+
+	**Twice this cost most of a session** (`#377`, and `#284` before it was merged into it).
+	The assertion read ``assert 'runs on' in 'Something else is using this database: 1 other
+	connection'`` — true of nothing, about a database the change in flight had never touched,
+	in a test whose name mentions engines. Both times it was read as a regression from whatever
+	was being worked on, and both times it passed on a re-run.
+
+	**The cause has never been identified and this does not claim to fix it.** `#725` measured
+	four hypotheses away — a lingering ``pg_dump``, a disposed pool's backend, an autovacuum
+	worker, and 504 restore runs under eight-way parallel load with no reproduction — and
+	shipped the two things `#377` asked for: the refusal names the connection rather than
+	counting it, and it is asked twice so something on its way out does not count. There has
+	been no sighting since the day that landed.
+
+	What this adds is the cheap half that holds whatever the cause turns out to be: **a failure
+	that says which failure it is.** The message now carries the backend type, its state, its
+	application name and its age, so a recurrence is a minute's reading rather than an
+	afternoon's diagnosis of an innocent change.
+	"""
+
+	said = str(raised)
+
+	assert _IN_USE not in said, (
+		f"`#377`: a connection leaked into this test's own database, so the in-use refusal "
+		f"fired before the check under test could. **This is not a regression in whatever you "
+		f"are changing** — it has been seen three times since 2026-08-02, always in an "
+		f"unrelated change, and it passes on a re-run. What the database said: {said}"
+	)
+
+	return said
+
+
+def _restored (engine: typing.Any, path: pathlib.Path, **how: typing.Any) -> None:
+	"""Restore, turning `#377`'s race into a failure that names itself.
+
+	The counterpart to :func:`_refusal`, for the tests that expect a restore to *succeed* —
+	which is where the 2026-08-09 sighting landed, on ``test_a_restore_puts_the_data_back``.
+	There the refusal is not caught at all, so it surfaces as a ``ValidationError`` about a
+	database the change in flight never touched.
+	"""
+
+	try:
+		subroutine.db.backup.restore(engine, path, **how)
+
+	except subroutine.errors.SubroutineError as refused:
+		_refusal(refused)
+
+		raise
 
 
 def test_a_backup_from_the_other_engine_is_refused_before_anything_is_dropped (
@@ -771,7 +831,7 @@ def test_a_backup_from_the_other_engine_is_refused_before_anything_is_dropped (
 	finally:
 		engine.dispose()
 
-	assert "runs on" in str(refused.value)
+	assert "runs on" in _refusal(refused.value)
 
 	# The point of the item: still there, and still itself.
 	assert _instance_id(own_database) == identity
@@ -811,6 +871,9 @@ def test_a_restore_is_refused_while_something_else_holds_the_database (
 			engine = subroutine.db.session.create_engine(own_database)
 
 			try:
+				# **Not through `_restored`**, which exists to turn this refusal into a
+				# failure naming `#377`. Here it is the behaviour under test: something
+				# genuinely is connected, and refusing is the whole point.
 				with pytest.raises(subroutine.errors.SubroutineError) as refused:
 					subroutine.db.backup.restore(engine, written.path, as_clone=False)
 
@@ -887,7 +950,7 @@ def test_a_restore_is_not_undone_by_the_log_it_replaced (tmp_path: pathlib.Path)
 	engine = subroutine.db.session.create_engine(url)
 
 	try:
-		subroutine.db.backup.restore(engine, written.path, as_clone=False)
+		_restored(engine, written.path, as_clone=False)
 
 	finally:
 		engine.dispose()
