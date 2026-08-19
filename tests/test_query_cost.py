@@ -1031,15 +1031,23 @@ def test_a_prioritised_project_costs_about_what_an_unordered_page_costs (
 	)
 
 
-def test_reaching_the_pointer_from_inside_the_ordering_costs_more (
+def test_neither_way_of_reaching_the_prioritised_project_is_expensive (
 	seeded: tuple[sqlalchemy.engine.Engine, str]
 ) -> None:
-	"""The literal is the cheaper spelling, measured — and it is **not** `#856` (`#986`).
+	"""Neither spelling is `#856`, and that is the whole of what can be measured (`#986`, `#1013`).
 
-	**This test was written to assert the correlated version crosses the ceiling, and
-	measuring refused it.** Item `#986` said to *"falsify by making the term correlated and
-	watching the ratio guard fire; if it does not, the guard is the thing to fix first"* — it
-	does not fire, at 2.5x against a 25x ceiling, and the guard is not the thing that is wrong.
+	**This test has now refused two claims in turn, and the second refusal was CI's.** `#986`
+	said to *"falsify by making the term correlated and watching the ratio guard fire; if it
+	does not, the guard is the thing to fix first"*. It does not fire — 2.2x against a 25x
+	ceiling — so the first version asserted the weaker claim that the literal is the *cheaper*
+	spelling. That failed on three Pythons of four the first time CI reached it: the margin is
+	**1-3% and its sign flips between machines**, which is a stopwatch reading rather than a
+	difference.
+
+	**It contradicted the paragraph below it**, which is the tell worth keeping. Having
+	established that the two are indistinguishable, it asserted a strict inequality between
+	them; five local runs passed and proved nothing, because a quiet machine is biased
+	consistently and a shared runner is not.
 
 	**`#856`'s objection does not transfer, and the difference is what the subquery does.**
 	That one aggregated over the *link* table for every candidate row — a join and a count, 972
@@ -1048,9 +1056,14 @@ def test_reaching_the_pointer_from_inside_the_ordering_costs_more (
 	both "a correlated subquery in ``ORDER BY``" and one of them is a catastrophe while the
 	other is a rounding error, which is worth knowing before the next term is written.
 
-	**So what is asserted is the claim that survives**: the shape actually chosen is the
-	cheaper one. That is falsifiable, it is the reason the design passes paths in as literals,
-	and it does not require pretending a measurement said something it did not.
+	**So what is asserted is what a shared runner can see**: both spellings sit an order of
+	magnitude under the ceiling. The reason the design passes paths in as literals is the
+	*shape* — a correlated subquery is evaluated per candidate row in principle, and `#856` is
+	where that bites — rather than a measured difference at this size.
+
+	**Not fixed by widening a tolerance**, deliberately: a margin loose enough to survive the
+	noise here would be loose enough to admit the catastrophe :data:`RATIO_CEILING` already
+	catches, which is a second and weaker copy of a guard that works.
 	"""
 
 	engine, backend = seeded
@@ -1078,13 +1091,14 @@ def test_reaching_the_pointer_from_inside_the_ordering_costs_more (
 		},
 	)
 
-	assert measured.ratio("correlated") > measured.ratio("literal"), (
-		f"On {backend}, asking the workspace which project is prioritised from inside the "
-		f"ordering cost no more than resolving it in Python first. Either the measurement is "
-		f"not running what it thinks it is, or the argument for passing the paths in as "
-		f"literals has stopped being true and the code comments saying so want "
-		f"correcting.\n{measured.report()}"
-	)
+	for spelling in ("literal", "correlated"):
+		assert measured.ratio(spelling) < RATIO_CEILING, (
+			f"On {backend}, the {spelling} spelling of the prioritised-project ordering costs "
+			f"{measured.ratio(spelling):.1f}x an unordered page, past the {RATIO_CEILING}x "
+			f"ceiling. That is `#856`'s shape arriving here after all, and the fix is the one "
+			f"`#856` took: aggregate once per statement rather than once per candidate "
+			f"row.\n{measured.report()}"
+		)
 
 
 def test_a_quadratic_ordering_is_caught (
