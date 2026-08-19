@@ -35,6 +35,8 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
 
+    timeout-minutes: 25
+
     services:
       postgres:
         image: postgres:16
@@ -107,6 +109,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
+    timeout-minutes: 15
+
     steps:
       # Full history and tags: `check_release_notes.py` compares this commit's migration head
       # against the head at the previous tag, and a shallow clone has neither.
@@ -178,6 +182,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
+    # Generous, because these two reach an index we do not run. `timeout-minutes` bounds the
+    # job once it is *running*, so an environment waiting on a human is not counted against it.
+    timeout-minutes: 20
+
     environment:
       name: testpypi
       url: https://test.pypi.org/p/subroutine
@@ -217,6 +225,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
+    timeout-minutes: 20
+
     environment:
       name: pypi
       url: https://pypi.org/p/subroutine
@@ -245,6 +255,8 @@ jobs:
     needs: pypi
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+
+    timeout-minutes: 15
 
     # The only job here that writes anything back to the repository, which is why the file
     # declares `contents: read` at the top and this one widens it for itself alone.

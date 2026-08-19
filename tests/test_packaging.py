@@ -18,6 +18,7 @@ import pathlib
 import re
 import sys
 import tomllib
+import typing
 
 import pytest
 import typer.testing
@@ -836,4 +837,89 @@ def test_every_command_a_workflow_runs_is_one_the_program_offers () -> None:
 		f"retired and left as a signpost that exits non-zero, or it is hidden and so is not "
 		f"the path a stranger is shown. Every other job can pass while that one fails, and "
 		f"the local gate cannot see it at all — scripts/check.py runs eight steps of nineteen."
+	)
+
+
+#: The most a job may be allowed, in minutes.
+#:
+#: A ceiling on the ceiling, and the reason is the failure mode it exists to prevent: the
+#: cheapest way to make a timeout stop firing is to raise it, and the cheapest number to raise
+#: it to is GitHub's own default of 360. That is the state `#1015` found — six hours, applied
+#: by omission rather than by anybody deciding it. A job here that genuinely wants more than an
+#: hour is a job worth arguing about, which is what failing this makes somebody do.
+LONGEST_A_JOB_MAY_TAKE = 60
+
+#: How few jobs would mean this has stopped reading the workflows.
+#:
+#: `#405`'s floor, and it earns itself here rather than being a formality: the assertion below
+#: is over a set built by a walk, so a walk that reads nothing produces no offenders and reads
+#: exactly like a clean tree. Eleven jobs across two files at the time of writing.
+FEWEST_JOBS = 8
+
+
+def _jobs () -> dict[str, dict[str, typing.Any]]:
+	"""Return every job CI runs, keyed ``<file>:<job>``.
+
+	Read off the workflows rather than a list beside them, for `#405`'s reason: a list of what
+	CI does is a second copy of what CI does, and the copy is the one that goes stale.
+	"""
+
+	found: dict[str, dict[str, typing.Any]] = {}
+
+	for path in sorted(WORKFLOWS.glob("*.yml")):
+		loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+		for name, job in (loaded.get("jobs") or {}).items():
+			found[f"{path.name}:{name}"] = job
+
+	return found
+
+
+def test_every_job_says_how_long_it_may_take () -> None:
+	"""`#1015`. A job that hangs must fail in minutes, not in six hours.
+
+	**The measurement this came from**: `playwright install --with-deps chromium` spent 66
+	minutes in a job that normally finishes in 90 seconds, and the tests it installs a browser
+	for never ran at all. Eight jobs had already passed and could say nothing, because a run's
+	conclusion waits for its slowest job.
+
+	**The hang itself was somebody else's outage and is not ours to prevent.** What is ours is
+	how long it costs: with no ``timeout-minutes`` anywhere in either workflow, GitHub's default
+	of 360 minutes applied to all eleven jobs, so a step that never returned was entitled to six
+	hours of a runner and six hours of nobody knowing.
+
+	A default that nobody chose is this repository's recorded signature defect wearing a
+	different hat — it is `#251`'s inert control from the other side, a setting that governs
+	real behaviour and that no one has ever decided.
+	"""
+
+	jobs = _jobs()
+
+	assert len(jobs) >= FEWEST_JOBS, (
+		f"only {len(jobs)} jobs were found, which is fewer than the {FEWEST_JOBS} that exist — "
+		f"this has stopped reading the workflows, and no offenders reads exactly like a clean "
+		f"tree"
+	)
+
+	unbounded = sorted(name for name, job in jobs.items() if "timeout-minutes" not in job)
+
+	assert not unbounded, (
+		f"these jobs may run for GitHub's default of six hours: {unbounded}. Give each a "
+		f"`timeout-minutes` sized off what it has actually been measured taking, so a hang "
+		f"fails as a timeout naming the job rather than as a run that never concludes."
+	)
+
+	# A string is legitimate — the workflows quote several numbers — and an expression is not,
+	# because a ceiling nobody can read from the file is not a ceiling anybody will check.
+	too_long = sorted(
+		(name, job["timeout-minutes"])
+		for name, job in jobs.items()
+		if int(job["timeout-minutes"]) > LONGEST_A_JOB_MAY_TAKE
+	)
+
+	assert not too_long, (
+		f"these jobs are allowed longer than {LONGEST_A_JOB_MAY_TAKE} minutes: {too_long}. "
+		f"Raising the ceiling is the cheapest way to stop a timeout firing and almost never "
+		f"the right one — measure what the job takes first, because a job that has grown to an "
+		f"hour has a second problem."
 	)

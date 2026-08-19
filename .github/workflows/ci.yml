@@ -25,6 +25,8 @@ jobs:
     name: Lint and types
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
       # Full history and tags, because the release check compares this commit's migration
       # head against the one at the most recent tag. A shallow clone has neither, and the
@@ -68,6 +70,8 @@ jobs:
     name: Dependency licences
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -103,6 +107,8 @@ jobs:
     name: Plugin manifests
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -122,6 +128,11 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+
+    # The longest job here, and the one whose duration is real work rather than setup:
+    # measured at 7-9 minutes across the matrix. Everything else is a small multiple of a
+    # runner's fixed costs.
+    timeout-minutes: 25
 
     strategy:
       fail-fast: false
@@ -203,6 +214,11 @@ jobs:
     name: Browser tests
     runs-on: ubuntu-latest
 
+    # `#1015`: this is the job the ceiling was written for. It normally takes 90 seconds and
+    # once spent 66 minutes inside `playwright install`, which reaches the network. Fifteen
+    # minutes is ten times its worst measured run and still bounds a hang usefully.
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
@@ -245,6 +261,8 @@ jobs:
   first-run:
     name: First run
     runs-on: ubuntu-latest
+
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
