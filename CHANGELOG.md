@@ -215,6 +215,11 @@ upgrade involves.
   the item's status happened to be is no part of it. `include_completed=false` still narrows the
   trash if that is what you want.
 
+- **A filled label shows its word.** The type and status labels added above rendered as blank
+  grey lozenges in both themes — the rule named a colour that does not exist, so the browser
+  dropped it and the text took the colour of its own background. Fixed before anybody upgrading
+  would have met it.
+
 - **A claim now reads as the state it is.** A row said `si is on it`, and an expired claim said
   `si left it` — a past event drawn as though it were a property of the item. It says
   `claimed by @si` while somebody holds it and nothing once the lease has run out, which is what

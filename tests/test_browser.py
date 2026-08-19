@@ -2294,6 +2294,40 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 		)
 
 
+def _contrast (ink: str, behind: str) -> float:
+	"""Return the WCAG contrast ratio between two computed CSS colours — `SR#1021`.
+
+	`SR#902` measured this by hand once, found the item number on every row at 3.31:1 against a
+	4.5 minimum, and left nothing that could ask again. This is that arithmetic, so a claim
+	about legibility is a number rather than a comparison of two other numbers.
+
+	**Takes what the browser computed**, which is always `rgb(...)` or `rgba(...)` — never a
+	token, never a hex — so it needs no colour parsing beyond pulling the digits out.
+	"""
+
+	def channels (value: str) -> tuple[float, float, float]:
+		found = [float(part) for part in re.findall(r"[\d.]+", value)][:3]
+
+		assert len(found) == 3, f"not a computed colour: {value!r}"
+
+		return typing.cast(tuple[float, float, float], tuple(found))
+
+	def luminance (value: str) -> float:
+		linear = []
+
+		for part in channels(value):
+			scaled = part / 255
+			linear.append(
+				scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
+			)
+
+		return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+	lighter, darker = sorted((luminance(ink), luminance(behind)), reverse=True)
+
+	return (lighter + 0.05) / (darker + 0.05)
+
+
 def test_the_three_families_of_mark_are_drawn_as_three_different_things (
 	running: typing.Any,
 ) -> None:
@@ -2314,12 +2348,25 @@ def test_the_three_families_of_mark_are_drawn_as_three_different_things (
 	would pass on a theme this app does not serve — `SR#906` made both themes one declaration
 	per colour, so the values are the browser's to compute and only their *relationships* are
 	this project's to assert.
+
+	**And the word has to be legible against the fill, which is `SR#1021`.** The first version
+	of this test compared two backgrounds and two borders and never read the text colour — so
+	`color: var(--page)`, naming a token that does not exist, satisfied every assertion here
+	while every identity mark on the served instance was a blank lozenge. `SR#965`'s lesson one
+	property along: **an element's box is not its content**, and a test that measures boxes is
+	blind to the whole family of defects a reader can see.
 	"""
 
 	opened, *_ = running
 
 	page = opened("/projects/subroutine/ui/42")
 	page.wait_for_selector(".linked .mark", timeout=10_000)
+
+	# What an unfilled mark is actually read against, so the contrast check below has a real
+	# second colour rather than `rgba(0, 0, 0, 0)`.
+	reference_page = page.eval_on_selector(
+		"body", "one => getComputedStyle(one).backgroundColor"
+	)
 
 	drawn = page.eval_on_selector_all(
 		".linked .mark",
@@ -2336,6 +2383,7 @@ def test_the_three_families_of_mark_are_drawn_as_three_different_things (
 				fill: style.backgroundColor,
 				edge: style.borderTopStyle,
 				line: style.borderTopColor,
+				ink: style.color,
 			};
 		})""",
 	)
@@ -2370,6 +2418,22 @@ def test_the_three_families_of_mark_are_drawn_as_three_different_things (
 	assert address["fill"] != identity["fill"], (
 		f"an address is filled like an identity: {drawn}"
 	)
+
+	# **Every mark, not the three picked above.** A filled chip whose word is the colour of its
+	# own fill is what shipped, and it is invisible to any comparison *between* marks — so this
+	# asks each one whether it can be read, which is the claim a reader actually has.
+	for mark in drawn:
+		# **A transparent fill is not a colour to be read against**, and `rgba(0, 0, 0, 0)` is
+		# a perfectly truthy string — so the page's own background is what an unfilled mark
+		# actually sits on. Measured wrongly first, which reported every outlined mark as
+		# failing against black.
+		behind = reference_page if mark["fill"].endswith(", 0)") else mark["fill"]
+
+		assert _contrast(mark["ink"], behind) >= 4.5, (
+			f"a mark's word is not legible against what is behind it: {mark}. `SR#1021` was "
+			f"`color: var(--page)` — a token that does not exist, so the declaration was "
+			f"dropped and the text inherited the fill it was sitting on."
+		)
 
 
 def test_a_column_that_is_over_starts_folded_and_opens_when_asked (running: typing.Any) -> None:

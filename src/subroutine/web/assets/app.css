@@ -1155,7 +1155,14 @@ fieldset {
 .mark.identity {
 	background: var(--ink-soft);
 	border-color: var(--ink-soft);
-	color: var(--page);
+	/* **`--bg`, and this said `--page`, which is not a token** (`#1021`). An undefined custom
+	   property is not an error — the declaration is dropped — so the colour fell back to what
+	   `.marks` sets on the line, which is `--ink-soft`: text the colour of its own fill, on
+	   the served instance, in both themes. `#923` is the guard and was closed without one.
+
+	   The pairing is measured rather than assumed: 5.91:1 in light and 7.65:1 in dark, both
+	   clear of `#902`'s 4.5 minimum. */
+	color: var(--bg);
 }
 
 /*

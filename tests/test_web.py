@@ -1235,6 +1235,68 @@ def _rules_only (text: str) -> str:
 	return re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
 
 
+def test_every_token_the_stylesheet_names_is_one_that_exists () -> None:
+	"""`#923`, and it took `#1021` shipping to get built.
+
+	**An undefined custom property is not an error — the declaration is simply dropped**, so
+	`color: var(--page)` renders as *no colour was set* and the browser reports it to nobody.
+	That shipped on 2026-08-19: the token is `--bg`, so a filled chip's text fell back to
+	inheriting its own fill and every identity mark on the served instance was a blank lozenge,
+	in both themes, found by Simon within minutes of a deploy.
+
+	**The guard beside this one could not see it, and `#923` was closed on the belief that it
+	could.** `test_every_size_in_the_stylesheet_comes_from_a_named_step` reads two property
+	families — `font-size` and the spacing properties — against `--text*`, `--space*` and
+	`--control*`. It never looks at a colour, a border or a radius. Its docstring describes what
+	it *does* accurately and says nothing about what it *covers*, and the close matched the
+	prose to this item's words. **A guard's docstring describes its mechanism, not its reach.**
+
+	**Both sides derived from the stylesheet**, which is `#907`'s argument and the reason this
+	covers a token added tomorrow: a second list of names is the thing that goes stale.
+
+	**Fallbacks are refused by name rather than allowed.** `var(--x, 4px)` resolves even when
+	`--x` is missing, so it would walk straight past this — and a fallback is a second value in
+	a system whose whole point is one. There are none today, which is the cheapest moment to
+	say so.
+	"""
+
+	text = (ASSETS / "app.css").read_text(encoding="utf-8")
+	rules = _rules_only(text)
+
+	# Declared anywhere, not only on a bare `:root`: `#908`'s theme blocks redefine tokens under
+	# `@media (prefers-color-scheme: dark)` and `[data-theme]`, and a token first declared in one
+	# of those is still declared.
+	declared = set(re.findall(r"(--[a-z0-9-]+)\s*:", text))
+
+	assert len(declared) >= 20, (
+		f"only {len(declared)} tokens were found, so this is checking almost nothing"
+	)
+
+	used = set(re.findall(r"var\(\s*(--[a-z0-9-]+)\s*[),]", rules))
+
+	assert len(used) >= 20, (
+		f"only {len(used)} `var()` references were found, so this has stopped reading the rules"
+	)
+
+	missing = sorted(used - declared)
+
+	assert not missing, (
+		f"the stylesheet names {missing}, which nothing declares. A browser drops the whole "
+		f"declaration rather than raising, so the property is simply unset and the page looks "
+		f"almost right — `#1021` was text the colour of its own background."
+	)
+
+	# **A fallback is a second value, and this is where that is refused** (`#923`). It also
+	# hides the failure above: `var(--page, red)` resolves and this check would pass.
+	fallbacks = sorted(set(re.findall(r"var\(\s*--[a-z0-9-]+\s*,[^)]*\)", rules)))
+
+	assert not fallbacks, (
+		f"{fallbacks} carry a fallback. A token that needs one is a token that is not a step, "
+		f"and a fallback resolves even where the token is missing — which is exactly the "
+		f"failure above, made invisible again."
+	)
+
+
 def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	"""**`#907`, applying decision `#906`. This is what makes it a system rather than a rename.**
 
