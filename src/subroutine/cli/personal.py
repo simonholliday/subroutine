@@ -2193,8 +2193,31 @@ def _listing (
 		# The domain owns the comparison so that the merged order matches the order each
 		# page arrived in, NULLS LAST included (§10.3): a document sorts last in a list
 		# ranked by priority, which is the same answer §6.3a gives an unranked task.
+		#
+		# **On the order the answer is actually in, which is not always `merging`** (`#1012`).
+		# This sorted by the *parsed* order and then cut — and `relevance` is not in that,
+		# because it enters the vocabulary per request and `_ordering` parses against the
+		# static one. So a search was cut on `-created_at` and only then re-merged by
+		# relevance one level up, which throws the best matches away before anything ranks
+		# them. Measured on the served instance: `search timezone --limit 4` answered
+		# `989 906 904 1001` where the top four by relevance are `4 989 525 827` — and the
+		# top match appeared at no limit below the one that cut nothing at all.
+		#
+		# `#878` fixed the merge in `_listed` and left this one, so the ranking was applied
+		# to whatever the wrong ordering had happened to keep. `#71`'s shape, one layer down:
+		# an ordering chosen by the server and discarded above it, where the output looks
+		# entirely reasonable.
 		rows = subroutine.domain.ordering.merged(
-			rows, key=lambda row: row[1], order=merging
+			rows,
+			key=lambda row: row[1],
+			order=subroutine.domain.ordering.merge_order(
+				order,
+				merging,
+				ranked=any(
+					getattr(row[1], subroutine.domain.ordering.RELEVANCE, None) is not None
+					for row in rows
+				),
+			),
 		)
 
 		# **What was cut is carried, not discarded.** `rows[:limit]` used to be the end of

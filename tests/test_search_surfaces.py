@@ -63,6 +63,7 @@ import subroutine.db.models.project
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.documents
+import subroutine.domain.search
 import subroutine.domain.tasks
 import subroutine.fanout
 import subroutine.mcp.tools
@@ -329,3 +330,137 @@ def _refs_of (surfaces: Surfaces, kind: str) -> set[int]:
 	)
 
 	return {row.ref for row in rows}
+
+
+#: How many times :data:`TERM` appears in each seeded title, in creation order — **descending,
+#: so the earliest-created item ranks highest.** That is the whole of this fixture: `-relevance`
+#: and `-created_at` are then near-opposites, and a page cut on the wrong one is not merely
+#: differently arranged, it holds different rows. Alternating kinds on top of that keeps the
+#: ranking interleaved, which is what `#1010`'s fixture is for.
+WEIGHTS = (8, 7, 6, 5, 4, 3, 2, 1)
+
+
+@pytest.fixture
+def ranked (session: sqlalchemy.orm.Session) -> typing.Iterator[Surfaces]:
+	"""Build the same backlog on an instance whose backend can actually rank."""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Ranked"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Ranked"
+	)
+
+	made: list[int] = []
+
+	for number, weight in enumerate(WEIGHTS):
+		title = " ".join([TERM] * weight) + f" item {number}"
+		made.append(
+			subroutine.domain.tasks.create(session, project=setup.inbox, title=title).ref
+			if number % 2 == 0
+			else subroutine.domain.documents.create(
+				session, project=setup.inbox, title=title
+			).ref
+		)
+
+	session.flush()
+
+	factory = api_support.factory_for(session)
+	settings = subroutine.config.Settings(
+		dev_mode=True, search_backend=subroutine.domain.search.NATIVE
+	)
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"), settings, session_factory=factory
+	)
+
+	with client:
+		yield Surfaces(
+			session=session,
+			world=_world(settings, client),
+			client=client,
+			application=api_support.build_app(factory),
+			token=issued.value.get_secret_value(),
+			seeded=tuple(made),
+		)
+
+
+def test_a_page_of_a_ranked_search_is_the_top_of_the_ranking (ranked: Surfaces) -> None:
+	"""`#1012`. The cut has to be made on the order the answer is in, not on some other one.
+
+	**Measured on the served instance before the fix**: `search timezone --limit 4` answered
+	`989 906 904 1001` where the top four by relevance are `4 989 525 827` — and the top match
+	appeared at *no* limit below the one that cut nothing at all. `cli/personal._listing`
+	merged and cut on the **parsed** order, which without `--order` is `-created_at`, and only
+	then did `_listed` re-merge the survivors by relevance. So the ranking was applied to
+	whatever the wrong ordering had happened to keep. `#878` fixed the outer merge and left
+	this one; `#71` is the original shape.
+
+	**Two reasons `tests/test_search_surfaces.py` could not already see it, and both are
+	fixture rather than assertion:**
+
+	* **The default backend does not rank at all.** `search_backend` defaults to ``like``, where
+	  `relevance` is not even in the sort vocabulary — so `merge_order` fell through to the
+	  parsed order on *both* sides and the two layers agreed by having nothing to disagree
+	  about. This fixture asks for ``native``.
+	* **Every row scored the same.** The other seed titles every item ``f"{TERM} task {n}"``,
+	  so ranking by relevance and ranking by creation date give the same answer. :data:`WEIGHTS`
+	  makes every score distinct *and* puts them in the reverse of creation order, so the two
+	  orderings are near-opposites and a cut on the wrong one cannot pass.
+
+	**Compared against the instance's own ranking rather than against another surface**, which
+	is the correction this item came from: two surfaces were compared to each other, both were
+	wrong at a small limit, and the more plausible-looking one was taken as ground truth.
+	"""
+
+	if subroutine.domain.search.chosen(ranked.session, settings=ranked.world.settings) != (
+		subroutine.domain.search.NATIVE
+	):
+		pytest.skip(
+			"the `like` backend has no ranking to cut wrongly — `relevance` is not in its "
+			"vocabulary at all, so both layers order by the same thing and this defect "
+			"cannot occur. Structural rather than a gap: see `api/tasks`'s note on `#823`."
+		)
+
+	# **The instance's own answer, whole**, which is what a page has to be the top of.
+	whole = [item.ref for item in ranked.client.tasks(q=TERM, limit=100)] + [
+		item.ref for item in ranked.client.documents(q=TERM, limit=100)
+	]
+
+	assert sorted(whole) == sorted(ranked.seeded), (
+		f"the term did not match every seeded item, so the ranking below is about a "
+		f"different set: {whole} against {list(ranked.seeded)}"
+	)
+
+	# **The scores have to differ, and asserting the *order* does not say so.** The first
+	# version checked that the ranking equals the seeded order — which it does either way,
+	# because equal scores fall through to the `ref` tiebreak and the refs *are* the seeded
+	# order. Falsified by flattening `WEIGHTS` to all-ones: it passed, over a fixture that had
+	# stopped being able to tell one ordering from another. The scores are the subject, so the
+	# scores are what this reads.
+	scored = [
+		item.relevance
+		for item in ranked.client.tasks(q=TERM, limit=100)
+		+ list(ranked.client.documents(q=TERM, limit=100))
+	]
+
+	assert None not in scored, (
+		f"the backend returned no ranking, so nothing here is about relevance: {scored}"
+	)
+	assert len(set(scored)) == len(scored), (
+		f"two rows scored the same, so `-relevance` and `-created_at` can agree by tiebreak "
+		f"and this test cannot tell them apart: {scored}"
+	)
+
+	full = _terminal(ranked, limit=100)
+
+	assert full == list(ranked.seeded), (
+		f"the ranking is not the seeded order, so `WEIGHTS` has stopped putting the scores in "
+		f"the reverse of creation order and the two orderings are no longer opposites: {full}"
+	)
+
+	for limit in (2, 3, 5):
+		assert _terminal(ranked, limit=limit) == full[:limit], (
+			f"a page of {limit} is not the first {limit} of the ranking — the cut was made on "
+			f"a different order from the one the rows came back in, so the best matches were "
+			f"thrown away before anything ranked them"
+		)

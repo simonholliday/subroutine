@@ -174,6 +174,14 @@ upgrade involves.
 
 ### Fixed
 
+- **A search at the terminal no longer drops its best matches.** `subroutine search` fetched
+  more rows than it was going to show, then cut them down using the *wrong* order — by date
+  rather than by how well each one answered — before ranking whatever survived. So the best
+  match could be missing from a short page entirely, and only appeared once the page was big
+  enough to hold every result. Measured on a real backlog: a search for *timezone* showing four
+  results left out the single best one at every size below fourteen. Searches that show
+  everything they found were always right, which is why this went unnoticed.
+
 - **An agent searching now gets the same answer as the terminal and the browser.** Asking an
   agent for a page of results returned tasks first and then documents, each ranked within its own
   half — so on a short page a document that answered the question better than anything else was
