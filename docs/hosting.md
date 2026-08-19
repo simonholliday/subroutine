@@ -509,9 +509,15 @@ $ curl -s localhost:8471/readyz
   {"status":"ready","api_version":"1.0","schema_revision":"3a3d6accc196"}
 ```
 
-`/healthz` says the process is up. `/readyz` says it can reach its database *and* that the
-database is at the schema this build expects — which is the one that goes red after an upgrade
-you have not finished.
+`/healthz` says the process is up. `/readyz` says it can reach its database, that the database
+is at the schema this build expects — which is the one that goes red after an upgrade you have
+not finished — and that it is still serving the same instance it started on.
+
+That last one is the answer to *am I serving the data I think I am*. A process whose database
+file is replaced underneath it keeps its handles on the old one, so it goes on reading data
+nobody else can see; comparing the instance identity is what turns that from silence into a
+503. It is also why a `db restore --as-clone` makes a running service report not-ready: a clone
+is deliberately a new instance, and the process needs restarting.
 
 ## A reverse proxy
 
@@ -1224,14 +1230,20 @@ same. Getting it wrong is invisible in both directions, so you are asked.
 **Stop the service before you restore.** A running one keeps its file handles on the database
 that was just replaced: it goes on writing to something with no name any more, its reads are
 stale, and its next checkpoint can land on top of the restored file and corrupt it — while the
-API answers normally throughout, `/readyz` included. Subroutine refuses when it can see another
-connection, and `--force` overrides that for the case where it cannot:
+API answers normally throughout. Subroutine refuses when it can see another connection, and
+`--force` overrides that for the case where it cannot:
 
 ```console
 $ sudo systemctl stop subroutine
 $ subroutine db restore <file> --recover
 $ sudo systemctl start subroutine
 ```
+
+`/readyz` is the exception, and only since it began comparing the instance identity: it used to
+answer `ready` throughout this, which is how the problem was found in the first place. Do not
+rely on it to notice — it can only see a replacement that changed the identity, so a `--recover`
+restore of the same instance underneath a running process is still silent, and stopping the
+service first is still the answer.
 
 Two more things this will not do to you. **A backup from the other engine is refused before
 anything is dropped** — a `.db` is a SQLite database and a `.sql` is a PostgreSQL script, they

@@ -174,6 +174,18 @@ upgrade involves.
 
 ### Fixed
 
+- **`/readyz` notices when the database underneath a running instance has been replaced.** It
+  reported *ready* on a process whose database file had been swapped out from under it — the
+  process keeps its handles on the old file, so its reads succeed against data nobody else can
+  see and every probe answers 200. Somebody confirming a restore had worked was told it had. It
+  now compares the instance identity it started on against what the database says and answers
+  503 when they differ, naming both.
+  **A `db restore --as-clone` will make a running service report not-ready, and that is
+  correct** — a clone is deliberately a new instance, so the process is serving something that
+  is no longer what your agents and configuration refer to. Restart it. A `--recover` restore
+  keeps the identity and changes nothing. This is not a substitute for stopping the service
+  before restoring: it can only see a replacement that changed the identity.
+
 - **The trash now holds work you had finished before you deleted it.** `subroutine list
   --trash` and `GET /v1/tasks?deleted=true` left out anything already marked done or cancelled,
   because a listing hides finished work unless you ask — so an item you completed and then

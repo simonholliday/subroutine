@@ -23,7 +23,10 @@ import subroutine.api.middleware
 import subroutine.api.routing
 import subroutine.config
 import subroutine.db.migrate
+import subroutine.db.models.system
 import subroutine.db.session
+import subroutine.db.types
+import subroutine.domain.instances
 
 
 @pytest.fixture
@@ -94,6 +97,96 @@ def test_readiness_refuses_an_unmigrated_database (tmp_path: pathlib.Path) -> No
 	# somebody to migrate an empty database is advice that does nothing (`#175`). The same
 	# three-way decision the CLI makes, from the same function, so the two cannot drift.
 	assert "subroutine init" in body["hint"]
+
+
+def _instance (session: sqlalchemy.orm.Session) -> subroutine.db.models.system.Instance:
+	"""Give this database the single ``instance`` row a real installation has."""
+
+	established, _made = subroutine.domain.instances.establish(session, name="Probe")
+
+	session.flush()
+
+	return established
+
+
+def test_readiness_notices_the_database_underneath_it_has_been_replaced (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#179`. **A reachable connection is not readiness, and this said it was.**
+
+	A serving process whose database file has been replaced keeps its descriptors on the
+	unlinked file, so its reads succeed against data nobody else can see and every probe
+	answers 200 — this one included. The clean-room sysadmin who found it used ``/readyz`` to
+	confirm a restore had worked, and it told them yes.
+
+	`#171` closed the route that produced it, so what is left is everything out of band: an
+	operator with ``cp``, a volume remount, a restore run with ``--force``. The claim was wrong
+	however it was reached.
+
+	**The identity is what answers the operator's question.** *Am I serving the data I think I
+	am* is a question about which instance this is, not about whether a socket works — and the
+	instance id is the thing agents and configuration already refer to.
+	"""
+
+	established = _instance(session)
+	application = api_support.build_app(api_support.factory_for(session))
+
+	# The first reading latches, because the database may not be up when the process starts —
+	# which is the whole reason this endpoint exists.
+	assert api_support.call(application, "GET", "/readyz").status_code == 200
+
+	# What a replaced file looks like from inside the process: same connection, same schema,
+	# different instance. Nothing about the transport has changed.
+	established.id = subroutine.db.types.new_uuid()
+
+	session.flush()
+
+	response = api_support.call(application, "GET", "/readyz")
+
+	assert response.status_code == 503
+
+	body = response.json()
+
+	assert body["code"] == "service_unavailable"
+	assert str(established.id) in body["detail"], "the detail must say which one it is serving"
+	assert "Restart" in body["hint"]
+
+
+def test_readiness_says_nothing_while_the_instance_is_the_one_it_started_on (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half, and without it the check above passes on an endpoint that always refuses.
+
+	A ``db restore --recover`` keeps the identity deliberately (§12.6a), so the ordinary case —
+	a process serving the database it has always served — must go on answering ready however
+	many times it is asked.
+	"""
+
+	_instance(session)
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for _ in range(3):
+		assert api_support.call(application, "GET", "/readyz").status_code == 200
+
+
+def test_readiness_latches_nothing_until_there_is_an_instance_to_latch (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A process started before ``subroutine init`` must not be pinned to the absence.
+
+	Latching ``None`` and comparing against it would make the first real instance look like a
+	replacement — the check firing on the one moment it is most likely to be met, which is
+	somebody setting the thing up.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	assert api_support.call(application, "GET", "/readyz").status_code == 200
+
+	_instance(session)
+
+	assert api_support.call(application, "GET", "/readyz").status_code == 200
 
 
 #: What SQLite says when the directory above the database does not exist. Pinned as a constant

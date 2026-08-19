@@ -33,6 +33,7 @@ import subroutine
 import subroutine.api.routing
 import subroutine.config
 import subroutine.db.migrate
+import subroutine.domain.instances
 import subroutine.errors
 
 #: The same logger the rest of the API writes to, so an operator following a served instance
@@ -95,8 +96,79 @@ def readiness (request: starlette.requests.Request) -> dict[str, typing.Any]:
 
 		raise subroutine.errors.ServiceUnavailable(detail, hint=hint)
 
+	_refuse_a_database_that_has_been_replaced(request)
+
 	return {
 		"status": "ready",
 		"api_version": subroutine.API_VERSION,
 		"schema_revision": revision,
 	}
+
+
+def _refuse_a_database_that_has_been_replaced (
+	request: starlette.requests.Request,
+) -> None:
+	"""Report not-ready when the instance underneath this process is no longer the same one.
+
+	`#179`. **A reachable connection is not readiness, and this endpoint was calling it that.**
+	A serving process whose database file has been replaced keeps its descriptors on the
+	unlinked file, so its reads succeed against data nobody else can see and every probe
+	answers 200 — including this one. The clean-room sysadmin who found it used ``/readyz`` to
+	confirm a restore had worked, and it told them yes.
+
+	`#171` closed the route that produced it: ``db restore`` refuses while anything holds the
+	database. What is left is everything out of band — an operator with ``cp``, a volume
+	remount, a restore run with ``--force`` — and the claim was wrong regardless of how it was
+	reached.
+
+	**Latched on the first reading rather than at startup**, because the database may well not
+	be up when the process starts; that is what this endpoint is for. So the identity is taken
+	the first time it can be seen and compared on every check after.
+
+	**A clone is a change and is meant to fail here.** ``db restore --as-clone`` mints a new
+	identity deliberately, so a process left running over one is serving something that is no
+	longer what agents and configuration refer to, and it should be restarted. A ``--recover``
+	restore keeps the identity and passes, which is the split §12.6a already draws.
+
+	Nothing is latched while there is no instance row, so a process started before
+	``subroutine init`` becomes ready when the instance appears rather than being pinned to its
+	absence.
+	"""
+
+	factory = request.app.state.session_factory
+
+	with factory() as opened:
+		instance = subroutine.domain.instances.get(opened)
+
+	if instance is None:
+		return
+
+	now = str(instance.id)
+	known = getattr(request.app.state, "serving_instance", None)
+
+	if known is None:
+		request.app.state.serving_instance = now
+
+		return
+
+	if known == now:
+		return
+
+	# Logged whoever can reach this, unlike `#832`'s driver errors: an instance id is this
+	# installation's own published identity — `/v1/meta` carries it — so it discloses nothing,
+	# and it is the one fact that says which database is which.
+	_logger.error(
+		"the database underneath this process has been replaced: serving %s, started on %s",
+		now,
+		known,
+	)
+
+	raise subroutine.errors.ServiceUnavailable(
+		f"This process started on instance {known} and the database now says {now}.",
+		hint=(
+			"The database was replaced underneath a running process, so what it is serving "
+			"is not what anybody else can see. Restart the service. If this followed a "
+			"'db restore --as-clone', that is expected — a clone is deliberately a new "
+			"instance."
+		),
+	)

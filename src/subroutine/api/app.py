@@ -252,6 +252,12 @@ def create_app (
 	# every time a load balancer asks whether it is alive.
 	application.state.schema_head = subroutine.db.migrate.head_revision()
 
+	# **The identity of the database this process is serving, latched on the first reading**
+	# (`#179`). Not read here, because the database may not be up yet — which is the whole
+	# reason `/readyz` exists — so it is taken the first time that check can see an instance
+	# row, and compared on every one after.
+	application.state.serving_instance = None
+
 	if session_factory is None:
 		engine = subroutine.db.session.create_engine(resolved.database_url)
 
