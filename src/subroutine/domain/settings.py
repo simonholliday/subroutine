@@ -28,6 +28,19 @@ is `#898`'s decided default one layer in and catches a typo where somebody can s
 ignoring on read is what makes a downgrade survivable, since an instance rolled back to a version
 that does not know a key must still serve the entity holding it.
 
+**This registry describes what a *caller* may set. It is not the whole content of those
+columns** (`#1030`). ``db/seed.py`` writes ``seed_version`` into ``workspace.settings`` and
+reads it back to decide how far a workspace has been seeded — machinery rather than a
+preference, in the same map, and described nowhere here. Live project rows also carry keys from
+templates that no longer write them.
+
+**So :func:`applied` merging per key is load-bearing for something it was not designed for.**
+It was chosen because a caller setting a colour has no business knowing what else is configured;
+it is also the only thing stopping that caller wiping the seeder's own record. Making this field
+replace wholesale — which is what every *other* field on these entities does, and therefore the
+obvious tidy-up — would re-seed every workspace from zero on the next upgrade.
+``tests/test_settings.py`` holds it, driven with ``seed_version`` itself.
+
 **A JSON column is replaced, never mutated** (`#42`). SQLAlchemy does not watch inside one, so
 ``project.settings[key] = value`` is silently never written — and replacing it with an *identical*
 dict still marks the row dirty and moves ``updated_at``, so a write happens only when the value

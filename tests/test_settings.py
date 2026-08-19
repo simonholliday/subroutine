@@ -15,6 +15,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.seed
 import subroutine.domain.bootstrap
 import subroutine.domain.palette
 import subroutine.domain.projects
@@ -398,3 +399,56 @@ def test_every_setting_is_reachable_from_the_scope_registry () -> None:
 	assert reachable == set(subroutine.domain.settings.SETTINGS), (
 		"a setting is declared and offered at no scope, so nothing can ever set it"
 	)
+
+
+def test_a_write_keeps_the_keys_it_was_not_told_about () -> None:
+	"""`#1030`. The property standing between setting a colour and re-seeding every workspace.
+
+	**`workspace.settings` holds machinery as well as preferences.** `db/seed.py` writes
+	``seed_version`` there and `_applied_version` reads it to decide how far a workspace has
+	been seeded — treating an absent or unreadable value as *nothing has been applied*, and
+	starting over. It is in the same JSON column as the settings a person sets, and this
+	registry does not describe it.
+
+	**So the per-key merge is load-bearing for something it was not designed for.** It was
+	chosen because a caller setting a colour has no business knowing what else is configured;
+	it also happens to be the only thing stopping that caller wiping the seeder's own record.
+
+	**Measured on the live instance the day `#1025` shipped**, which is why this exists: five
+	projects were written to, and every one of them still carried ``visible_status_keys`` and
+	four carried ``require_verification_to_complete`` — a key removed from the templates by
+	`#133` and still in the data. Replace semantics would have deleted three keys from each,
+	silently, in a write about a colour.
+
+	**Driven with the real key rather than an invented one**, so the case names the thing that
+	would actually break. The obvious tidy-up — making this field replace like every other field
+	on these entities does — passes the whole suite without this.
+	"""
+
+	held = {
+		subroutine.db.seed.SEED_VERSION_KEY: 4,
+		"visible_status_keys": ["open", "done"],
+	}
+
+	after = subroutine.domain.settings.applied(
+		held, {"appearance.colour": "teal"}, scope=subroutine.domain.settings.WORKSPACE
+	)
+
+	assert after[subroutine.db.seed.SEED_VERSION_KEY] == 4, (
+		"a write about a colour dropped the seeder's own record, so the next upgrade re-seeds "
+		"this workspace from zero"
+	)
+	assert after["visible_status_keys"] == ["open", "done"], (
+		"a write dropped a key this build no longer declares — which is every key on every "
+		"project row created before it"
+	)
+	assert after["appearance.colour"] == "teal", "and the thing actually being set is set"
+
+	# **Clearing one key leaves the others**, which is the same property from the other side and
+	# is the case a replace would also get wrong — by clearing everything rather than one thing.
+	cleared = subroutine.domain.settings.applied(
+		after, {"appearance.colour": None}, scope=subroutine.domain.settings.WORKSPACE
+	)
+
+	assert "appearance.colour" not in cleared, "clearing has to remove the key, not null it"
+	assert cleared[subroutine.db.seed.SEED_VERSION_KEY] == 4, "and take nothing else with it"
