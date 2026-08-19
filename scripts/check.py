@@ -183,6 +183,38 @@ NOT_LOCALLY: dict[tuple[str, str], str] = {
 }
 
 
+def _not_yet_added () -> list[str]:
+	"""Return files that are not ignored and not yet added, as repository-relative paths.
+
+	`#626`. Several guards enumerate the tree through git, and until this item two of them
+	asked ``git ls-files`` — *what is committed* — where the question they meant was *what is
+	about to be*. Both now include untracked files, so this is no longer the difference between
+	a green run and a red one. It is printed anyway, because the failure it came from was not
+	really about those two guards.
+
+    **The gate is at its blindest exactly when it is trusted most.** The rule everybody takes
+	from `c35a64b` is *run the gate just before committing*, and that is precisely the moment a
+	new file is still untracked. A summary saying "All 8 passed" over three files nothing read
+	means something different from what it says, and the next guard written against
+	``git ls-files`` will reintroduce this silently.
+
+	Ignored files are left out, so a scratch file or a virtualenv is not reported as a gap.
+	"""
+
+	found = subprocess.run(
+		["git", "ls-files", "--others", "--exclude-standard"],
+		cwd=ROOT,
+		capture_output=True,
+		text=True,
+		check=False,
+	)
+
+	if found.returncode != 0:
+		return []
+
+	return sorted(found.stdout.split())
+
+
 def main (argv: list[str] | None = None) -> int:
 	"""Run every check and report each one, returning non-zero if any failed."""
 
@@ -199,6 +231,17 @@ def main (argv: list[str] | None = None) -> int:
 
 	for check, ok in results:
 		print(f"  {'pass' if ok else 'FAIL'}  {check.step}: {' '.join(check.command)}")
+
+	waiting = _not_yet_added()
+
+	if waiting:
+		print(
+			f"\n  {len(waiting)} file(s) are not ignored and not yet added, so a guard "
+			f"reading git may not have seen them:"
+		)
+
+		for name in waiting:
+			print(f"    {name}")
 
 	failed = [check for check, ok in results if not ok]
 

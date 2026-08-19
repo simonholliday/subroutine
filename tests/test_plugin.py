@@ -748,7 +748,20 @@ def test_a_changed_plugin_carries_a_version_nobody_has_installed (plugin: str) -
 	if changed.returncode != 0:
 		pytest.skip("git could not compare the plugin against that commit")
 
-	touched = sorted(changed.stdout.split())
+	# **A new file is a change and `git diff` cannot see one** (`#626`). The docstring above
+	# promises the working tree counts, and for an untracked file it did not: measured by
+	# dropping a file into `plugins/subroutine/` and watching this pass. A new skill, a new
+	# asset or a second `.mcp.json` is exactly the kind of change that most needs a bump,
+	# because it is what a cached install would never receive.
+	#
+	# `--exclude-standard` so an ignored file cannot fail somebody's build, which is the same
+	# line `tests/test_references.tracked` draws for the same reason.
+	added = subprocess.run(
+		["git", "ls-files", "--others", "--exclude-standard", "--", str(directory)],
+		capture_output=True, text=True, cwd=ROOT, check=False,
+	)
+
+	touched = sorted(changed.stdout.split() + added.stdout.split())
 
 	assert not touched, (
 		f"{directory.name} has changed since {commit[:9]} set version {declared} "

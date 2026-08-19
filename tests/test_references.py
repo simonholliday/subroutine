@@ -139,15 +139,35 @@ PRESENT = "docs/errors.md"
 
 
 def tracked (root: pathlib.Path = ROOT) -> list[str]:
-	"""Return every file git tracks, as repository-relative paths.
+	"""Return every file bound for the repository, as repository-relative paths.
 
 	Takes the tree as an argument so that a test can point it at a synthetic one. A scanner
 	that can only ever read the real repository cannot be shown a planted offender, and this
 	project has twice shipped a guard that was checking almost nothing.
+
+	**Untracked files count, and leaving them out is what `#626` was** (`--others
+	--exclude-standard`). ``git ls-files`` alone answers *what is committed*, and the ratchet's
+	question is *what is about to be* — so a new module was invisible here until it was staged.
+	Measured: the gate reported seven steps green, ``git add`` and ``git commit`` followed, and
+	the very next run of the same command failed on a file that had not changed. `df5369f` sat
+	red in the history because of it.
+
+	**That is `c35a64b`'s lesson in a disguise the recorded version does not cover.** The rule
+	people take from it is *run the gate just before committing* — which is exactly the moment a
+	new file is still untracked, so the gate is at its blindest when it is trusted most.
+
+	``--exclude-standard`` is what keeps this honest rather than merely wider: anything
+	``.gitignore`` covers stays out, so a scratch file, ``CLAUDE.md`` and the session's own
+	notes cannot fail somebody's build. What is left is a file that is not ignored and not yet
+	added, which is a file on its way in.
 	"""
 
 	found = subprocess.run(
-		["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True
+		["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+		cwd=root,
+		capture_output=True,
+		text=True,
+		check=True,
 	)
 
 	return found.stdout.split()
@@ -321,12 +341,27 @@ def test_the_scanner_finds_a_planted_reference (tmp_path: pathlib.Path) -> None:
 
 	assert counted == {"module.py": 1}, f"the scanner missed a planted mention: {counted}"
 
-	untracked = tmp_path / "ignored.py"
-	untracked.write_text("# See SPEC.md too.\n", encoding="utf-8")
+	# **A file that is not yet added is still on its way in** (`#626`). Leaving it out is what
+	# let a new module cross this ratchet: the gate passed, `git add` and `git commit`
+	# followed, and the next run of the same command failed on a file that had not changed.
+	coming = tmp_path / "new_module.py"
+	coming.write_text("# See SPEC.md as well.\n", encoding="utf-8")
 
-	assert mentions("SPEC.md", root=tmp_path, skip=None) == {"module.py": 1}, (
-		"an untracked file was counted — the scan is walking the directory rather than what "
-		"git tracks, so anything in a build directory would be policed too"
+	assert mentions("SPEC.md", root=tmp_path, skip=None) == {
+		"module.py": 1,
+		"new_module.py": 1,
+	}, "a file that is not ignored and not yet added was missed, which is `#626` exactly"
+
+	# **And the reason this stayed narrow for so long is a real one**, so it is asserted rather
+	# than dropped: a scan walking the directory would police a build directory, somebody's
+	# virtualenv, and every note they had not meant to publish. `--exclude-standard` is what
+	# separates the two — ignored is out, not-yet-added is in.
+	(tmp_path / ".gitignore").write_text("build/\n", encoding="utf-8")
+	(tmp_path / "build").mkdir()
+	(tmp_path / "build" / "generated.py").write_text("# See SPEC.md.\n", encoding="utf-8")
+
+	assert "build/generated.py" not in mentions("SPEC.md", root=tmp_path, skip=None), (
+		"an ignored file was counted — anything under a build directory would fail the build"
 	)
 
 
