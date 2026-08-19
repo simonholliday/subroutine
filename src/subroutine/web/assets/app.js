@@ -87,6 +87,10 @@ const TASK_FIELDS = [
 	"relevance",
 	"ref", "title", "due_at", "starts_at", "starts_is_all_day", "blocked", "project_key",
 	"project_path",
+	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest
+	   ancestor's, or its workspace's. Resolved on the server, so what arrives is a palette name
+	   and this client holds no copy of the inheritance rule (`#925`). */
+	"project_colour",
 	"assignee",
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
@@ -152,6 +156,9 @@ const DOCUMENT_FIELDS = [
 	   of them carries is no key at all. */
 	"relevance",
 	"ref", "title", "project_key", "project_path", "status", "status_is_default",
+	/* `#1027`, and both kinds ask for it: a document lives in a project exactly as a task
+	   does, so a listing of decisions is marked the same way a listing of bugs is. */
+	"project_colour",
 	/* `#1019`, and both kinds ask for the same reason: a tag is scoped to the *workspace*
 	   rather than to a kind (`#819`), so a document carries them exactly as a task does. */
 	"tags",
@@ -4156,8 +4163,23 @@ export function Row ({
 	   draggable by the browser already — dragging one is *copy this link* — so putting the
 	   handler there would make one gesture mean two things depending on where the pointer went
 	   down. The row is the card; the card is what moves. */
+	/*
+		**The colour of the project this belongs to** (`#1027`), as a name the stylesheet maps to
+		a hue — never a value, so the same field can be rendered by a surface that draws no
+		colour at all, or by none.
+
+		**Resolved on the server** (`#925`): a project's own, or the nearest ancestor's, or its
+		workspace's, or nothing. The browser could walk `project_path` itself and would then hold
+		a copy of the inheritance rule, in three surfaces.
+
+		**Absent rather than empty when nothing up the tree has chosen one**, so the CSS matches
+		on the attribute existing and a plain row keeps its full width — an edge of a transparent
+		colour still takes its three pixels and would shift every uncoloured row.
+	*/
+	const hue = item.project_colour || null;
+
 	return html`
-		<li ...${lift}>
+		<li ...${lift} data-colour=${hue}>
 			${address
 				? html`<a class="row" href=${address} onClick=${open}>${identity}</a>`
 				: html`<button class="row" onClick=${open}>${identity}</button>`}

@@ -46,6 +46,37 @@
 	--warn: light-dark(#b42318, #f27a70);
 	--radius: 6px;
 
+	/* **The palette a workspace or a project may be marked with** (`#1027`, design `#1023`).
+	   Eight names, chosen from `domain/palette.py`, which stores a *name* and never a value —
+	   `#102`'s sixteen-ANSI rule means anything appearing on more than one surface has to be a
+	   name, and it is what lets the terminal render one later or not at all.
+
+	   **Red and blue are absent and that is not taste**: `--warn` is red and carries overdue and
+	   blocked, `--accent` is blue and carries focus and a live claim. A project wearing either
+	   would put two meanings on one hue on the same page.
+
+	   **One token per hue, not four.** `#1023` §5 costed `edge`, `fill`, `ink` and `line`; two
+	   of those have no reader, and a declared-and-read-by-nothing token is the defect this
+	   arc's own registry exists to end. One value serves the accent bar and the project label,
+	   and it is held to the *text* floor, which is the stricter of the two uses.
+
+	   **Generated against the floor and then verified, rather than picked.** Every value is the
+	   most saturated colour at its hue that still clears 4.6:1 on the hardest background of its
+	   theme — because OKLCH lightness is close to but not the same as WCAG relative luminance,
+	   so one lightness across eight hues does *not* give eight equal contrasts. Neighbours are
+	   separated on the **lightness** axis as well as the hue axis: there is not 45 degrees of
+	   hue room between the reserved red and the reserved blue for eight of anything, so the
+	   tight pairs are pulled apart with the other axis instead of pretending the room exists.
+	   `tests/test_browser.py` holds both properties. */
+	--hue-amber: light-dark(#9d6304, #ffb24f);
+	--hue-green: light-dark(#047e39, #04be58);
+	--hue-teal: light-dark(#055959, #02f6f6);
+	--hue-cyan: light-dark(#0779a0, #0aa6da);
+	--hue-indigo: light-dark(#3402c9, #8b9bff);
+	--hue-violet: light-dark(#9d00ca, #cd46ff);
+	--hue-magenta: light-dark(#980363, #ff71bb);
+	--hue-slate: light-dark(#5b646f, #808a95);
+
 	/* **The type scale** (`#906`, decided from `#441`). Five steps, and nothing outside them —
 	   which is the whole difference between what colour has here and what type had. There were
 	   45 `font-size` declarations across eight values and **39 of them sat in three values
@@ -1072,6 +1103,54 @@ fieldset {
 
 .rows li:first-child { border-top: 0; }
 .rows li:hover { background: var(--bg-sunken); }
+
+/*
+	**A row wears the colour of the project it belongs to** — `#1027`, decision `#1023`, and
+	`#102` as Simon amended it on 2026-08-19: colour may carry identity where the identity is a
+	bounded unordered category, is redundant with a word already on the row, and is stored as a
+	name. All three hold, and the third is what the palette above is.
+
+	**Which field, decided by measuring.** Eleven item types are in live use here against a
+	categorical limit of eight to ten — and every one already carries a distinct glyph *and* its
+	word. A project carried nothing. Colour goes where there is no other channel.
+
+	**A left edge rather than a tinted card.** A tint would turn sixteen contrast pairs into
+	eighty — five ink tokens against eight backgrounds in two themes, with `.row .ref` at 13px
+	as the worst case — and would fight `--bg-raised` and `--bg-sunken`, which already carry
+	elevation. Two meanings on one property is the duplicated-rule defect in a stylesheet.
+
+	**An inset shadow rather than a border, and the browser is what corrected that.** A border
+	takes width: `#911` holds the identity line to the card's *whole* width, and a 4px edge made
+	every row 4px narrower than the card containing it — so the guard for a defect Simon reported
+	from a real board failed on this change. An inset shadow paints inside the padding the row
+	already has and moves nothing, which is what the sentence above claimed before it was true.
+
+	A row with no colour in force carries no edge at all rather than a transparent one, because
+	`no colour` is a real answer — nothing up this project's tree has chosen one.
+*/
+li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
+
+li[data-colour="amber"] { --row-hue: var(--hue-amber); }
+li[data-colour="green"] { --row-hue: var(--hue-green); }
+li[data-colour="teal"] { --row-hue: var(--hue-teal); }
+li[data-colour="cyan"] { --row-hue: var(--hue-cyan); }
+li[data-colour="indigo"] { --row-hue: var(--hue-indigo); }
+li[data-colour="violet"] { --row-hue: var(--hue-violet); }
+li[data-colour="magenta"] { --row-hue: var(--hue-magenta); }
+li[data-colour="slate"] { --row-hue: var(--hue-slate); }
+
+/*
+	**The label is deliberately *not* tinted, and a guard is what decided that.** Tinting the
+	project's own mark was written first, on the reasoning that the bar should be redundant with
+	a word and this is the word. `test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does`
+	refused it: the same project chip is an `<a>`, so tinting it in a listing and not in an
+	item's link list made one mark two colours depending which page it was on — and the link
+	colour is what says it can be clicked.
+
+	**`#102` is satisfied without it.** Nothing here is said in a colour alone: the row already
+	carries the project's *name*, in words, and the bar is redundant with that. The tint would
+	have been a second encoding of a fact that already had two.
+*/
 
 .row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 

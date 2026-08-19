@@ -20,6 +20,7 @@ still run everything else, and in CI it would mean reporting success on half a t
 
 import functools
 import json
+import math
 import pathlib
 import re
 import shutil
@@ -461,6 +462,11 @@ CARD: dict[str, typing.Any] = {
 	# the top level would render a one-segment label, which is what a bare key looked like —
 	# so the whole point of the change would be invisible to every page built from this.
 	"project_path": "subroutine/ui",
+	# **The colour in force for its project** (`SR#1027`). Without one here the accent bar is
+	# drawn by nothing and the wiring that puts it there is checked by nothing — a harness that
+	# cannot reach a state looks exactly like one nobody needed it to, which is the fourth time
+	# a gap here has been indistinguishable from a missing test.
+	"project_colour": "teal",
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
@@ -500,7 +506,14 @@ CARD_ROW = ".rows li:has(a[href$='/42'])"
 
 #: Five more cards in the same column, so the board has a tall column and an empty one — the
 #: shape `#796` failed on, and the one a person meets on their first board.
-CROWD = [dict(CARD, ref=100 + n, title=f"Task number {n}") for n in range(5)]
+#: **One of them wears no colour**, which is what makes the accent bar falsifiable: a page where
+#: every row is coloured can say the edge is drawn and never that an uncoloured row is left
+#: alone. `no colour` is a real answer — nothing up that project's tree has chosen one — and it
+#: has to look different from a colour nobody can see.
+CROWD = [
+	dict(CARD, ref=100 + n, title=f"Task number {n}", project_colour=None if n == 0 else "teal")
+	for n in range(5)
+]
 
 #: What `/v1/agenda` answers — one row in each of two workspaces, so the page spans them.
 #:
@@ -1343,6 +1356,25 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	pure — seven tests in `tests/test_web.py` against one here, and this one asserts three
 	relationships rather than any literal, so it survives a theme change.
 
+	**29 to 30, for `SR#1027`, and this is the strongest case this file takes.** The claim is
+	that eight colours are each *legible* and each *distinguishable from the other seven*, in
+	both themes. Every value is a `light-dark()` pair, so the number a reader actually meets is
+	computed by the browser from `color-scheme` — `tests/dom.js` cannot compute one at all, and
+	a literal written into a Python test would assert the value we typed rather than the value
+	anybody sees. `SR#1021` is the recorded proof: a token that did not exist satisfied every
+	comparison in this file while every filled mark on the served instance was blank.
+
+	**And the second property has no other reader anywhere.** Contrast says a colour can be read
+	against its background; nothing said two colours can be told apart from *each other*, which
+	is the entire point of a categorical palette. A palette can pass every contrast assertion
+	ever written and still put two projects in shades nobody separates.
+
+	**Read for fat, and the rest stayed out.** The registry, the refusals, the inheritance walk
+	and the merge rule are all pure and are checked in `tests/test_settings.py` and
+	`tests/test_transport_equivalence.py` — thirteen tests there against one here, and this one
+	asserts two arithmetic properties rather than any literal, so it survives every value being
+	retuned.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1355,11 +1387,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 29, (
+	assert len(tests) <= 30, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 29 in five days."
+		f"read every raise in this docstring as a set: it has moved 17 to 30 in five days."
 	)
 
 
@@ -2543,3 +2575,171 @@ def test_a_column_that_is_over_starts_folded_and_opens_when_asked (running: typi
 	assert not [one for one in measured(again) if one["shut"]], (
 		"the reader opened a column and the next page folded it again, so nothing was remembered"
 	)
+
+
+#: How far apart two of the palette's colours must be, in OKLab, to count as distinguishable.
+#:
+#: **Measured rather than chosen.** The closest pair in the palette as it stands is 0.096 in
+#: light and 0.116 in dark, so this refuses a *regression* — somebody adding a ninth hue into
+#: the gap, or retuning one into its neighbour — rather than describing what is there. A
+#: just-noticeable difference is around 0.02, so eight colours at 0.08 apart is comfortable and
+#: is roughly where a categorical palette stops being able to grow.
+FURTHEST_TWO_HUES_MAY_BE = 0.08
+
+
+def _oklab (value: str) -> tuple[float, float, float]:
+	"""Return a computed CSS colour in OKLab, where distance is roughly perceptual.
+
+	**Not sRGB, where distance means nothing** — two colours the same Euclidean distance apart
+	in sRGB can be obviously different or indistinguishable depending where they sit. OKLab is
+	the cheapest space in which one number answers *can a reader tell these apart*.
+	"""
+
+	found = [float(part) for part in re.findall(r"[\d.]+", value)][:3]
+
+	assert len(found) == 3, f"not a computed colour: {value!r}"
+
+	def linear (part: float) -> float:
+		scaled = part / 255
+
+		return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4
+
+	red, green, blue = (linear(part) for part in found)
+
+	long = (0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue) ** (1 / 3)
+	medium = (0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue) ** (1 / 3)
+	short = (0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue) ** (1 / 3)
+
+	return (
+		0.2104542553 * long + 0.7936177850 * medium - 0.0040720468 * short,
+		1.9779984951 * long - 2.4285922050 * medium + 0.4505937099 * short,
+		0.0259040371 * long + 0.7827717662 * medium - 0.8086757660 * short,
+	)
+
+
+def test_every_colour_a_project_may_wear_is_legible_and_unlike_the_other_seven (
+	running: typing.Any,
+) -> None:
+	"""`SR#1027`, design `SR#1023`. Two properties, eight colours, both themes.
+
+	**Legible**, because the hue is the project's *label* as well as its bar — `SR#102` as
+	amended requires the colour to be redundant with a word, and a word nobody can read is not
+	redundant with anything. 4.5:1 is `SR#902`'s floor and the same one every mark is held to.
+
+	**And unlike each other**, which nothing else in this repository asks of anything. A palette
+	whose every member clears the contrast floor can still put two projects in shades a reader
+	does not separate — and that failure looks like the feature working, which is the worst kind
+	this project keeps finding. Contrast is about a colour and its background; this is about a
+	colour and its neighbours, and the two are independent.
+
+	**Both themes, because a `light-dark()` pair is two values and only one is ever on screen.**
+	`SR#906` made every token one declaration precisely so a value cannot exist in one theme and
+	not the other — but it does nothing to stop the *dark* half of two hues colliding while the
+	light halves are fine. Measured by pinning `data-theme`, which is the reader's own override
+	(`SR#908`) and therefore the mechanism a person would actually use.
+	"""
+
+	opened, *_ = running
+
+	page = opened("/")
+	page.wait_for_selector(".app", timeout=10_000)
+
+	names = [
+		"amber", "green", "teal", "cyan", "indigo", "violet", "magenta", "slate",
+	]
+
+	for theme in ("light", "dark"):
+		# The reader's own override rather than an emulated system preference: `light-dark()`
+		# reads `color-scheme`, and this attribute is what pins it (`SR#908`).
+		page.evaluate("theme => { document.documentElement.dataset.theme = theme }", theme)
+
+		measured = page.evaluate(
+			"""names => {
+				const root = document.documentElement;
+				const probe = document.createElement("span");
+
+				document.body.appendChild(probe);
+
+				const read = {};
+
+				for (const name of names) {
+					probe.style.color = `var(--hue-${name})`;
+					read[name] = getComputedStyle(probe).color;
+				}
+
+				probe.remove();
+
+				return {
+					hues: read,
+					page: getComputedStyle(document.body).backgroundColor,
+					sunken: getComputedStyle(root).getPropertyValue("--bg-sunken").trim(),
+				};
+			}""",
+			names,
+		)
+
+		hues = measured["hues"]
+
+		# **The probe has to have resolved something**, or every assertion below compares eight
+		# copies of the same inherited colour and passes by having nothing to disagree about.
+		# An undefined custom property is not an error — the declaration is simply dropped
+		# (`SR#923`), which is exactly how `SR#1021` shipped.
+		assert len(set(hues.values())) == len(names), (
+			f"the palette does not resolve to {len(names)} distinct colours in {theme}, so a "
+			f"token is missing and the declaration was dropped: {hues}"
+		)
+
+		for name, value in hues.items():
+			assert _contrast(value, measured["page"]) >= 4.5, (
+				f"--hue-{name} is not legible on the page in {theme}: "
+				f"{_contrast(value, measured['page']):.2f}:1 against a floor of 4.5. It is a "
+				f"project's label as well as its bar, and a word nobody can read is not the "
+				f"redundancy `SR#102` requires."
+			)
+
+		for first in range(len(names)):
+			for second in range(first + 1, len(names)):
+				one, other = names[first], names[second]
+				apart = math.dist(_oklab(hues[one]), _oklab(hues[other]))
+
+				assert apart >= FURTHEST_TWO_HUES_MAY_BE, (
+					f"--hue-{one} and --hue-{other} are {apart:.4f} apart in {theme}, under "
+					f"{FURTHEST_TWO_HUES_MAY_BE}. Two projects would wear shades a reader does "
+					f"not separate, which looks exactly like the feature working."
+				)
+
+	# **And the wiring, which is the half a pure function cannot reach.** The rule being right
+	# and the value being legible say nothing about whether a row is given the attribute the
+	# rule keys on — `SR#640`'s shape, six times in this repository, and `tests/dom.js` drops
+	# every attribute (`SR#784`) so it cannot see this either.
+	listed = opened("/projects")
+	listed.wait_for_selector(".rows li", timeout=10_000)
+
+	drawn = listed.eval_on_selector_all(
+		".rows li",
+		"""all => all.map(one => ({
+			colour: one.dataset.colour || null,
+			shadow: getComputedStyle(one).boxShadow,
+		}))""",
+	)
+
+	coloured = [one for one in drawn if one["colour"]]
+	plain = [one for one in drawn if not one["colour"]]
+
+	# The fixture has to carry both, or one of the two assertions below is about nothing.
+	assert coloured and plain, (
+		f"the listing does not hold both a coloured row and an uncoloured one, so this "
+		f"compares nothing: {drawn}"
+	)
+
+	for one in coloured:
+		assert one["shadow"] != "none", (
+			f"a row whose project has a colour draws no accent bar: {one}. The attribute is "
+			f"written and the cascade is not reaching it."
+		)
+
+	for one in plain:
+		assert one["shadow"] == "none", (
+			f"a row whose project has no colour is still drawing a bar: {one}. `no colour` is "
+			f"a real answer, and it has to look different from a colour nobody can see."
+		)

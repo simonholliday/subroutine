@@ -28,9 +28,12 @@ upgrade involves.
   own, or the nearest ancestor's, or its workspace's, or none. Colours are chosen from a
   **named palette** rather than given as hex, so the same choice can be rendered by any surface
   and is guaranteed to be legible in both light and dark themes; a value that is not one of the
-  names is refused with the whole list. Set one with
-  `subroutine project update web --settings appearance.colour=teal` once the browser lands, or
-  through either client today.
+  names is refused with the whole list.
+  **Every row, board card, agenda line and item page carries a bar in that colour** — so on a
+  page holding work from several projects you can see at a glance which is which, without
+  reading a word. A project that has not been given one inherits from whatever is above it, so
+  setting a colour on a workspace marks everything in it at once.
+  There is no control for it in the browser yet; set one over the API or from either client.
 
 - **Settings are validated against a declared registry.** A key nothing declares is refused by
   name rather than stored, and a map is merged **per key** — so setting one thing leaves
