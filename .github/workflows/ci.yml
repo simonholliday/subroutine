@@ -217,6 +217,12 @@ jobs:
     # `#1015`: this is the job the ceiling was written for. It normally takes 90 seconds and
     # once spent 66 minutes inside `playwright install`, which reaches the network. Fifteen
     # minutes is ten times its worst measured run and still bounds a hang usefully.
+    #
+    # **It must stay above the install action's own retry budget** (`#1022`): three bounded
+    # attempts at 150 seconds is 7m30s in the worst case, and the browser download and the
+    # suite come on top of that. Lowering this below about twelve would make the job ceiling
+    # fire *during* a retry, reporting a hang as a timeout on the job rather than as the three
+    # failed attempts it actually was.
     timeout-minutes: 15
 
     steps:
@@ -241,10 +247,10 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
 
-      # `--with-deps` is the system libraries Chromium needs on a bare runner, which are not
-      # in the image. Without it the browser installs and refuses to start.
-      - name: Install a browser
-        run: playwright install --with-deps chromium
+      # The system libraries Chromium needs on a bare runner, then the browser. Without the
+      # libraries the browser installs and refuses to start; the two are separate steps inside
+      # the action so that a hang names which of them stalled (`SR#1022`).
+      - uses: ./.github/actions/install-browser
 
       # **The variable is the whole point of the job.** Without it an absent browser is a skip
       # and this job would report success having run nothing — which is the defect it exists

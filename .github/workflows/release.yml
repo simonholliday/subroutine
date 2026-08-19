@@ -76,9 +76,9 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev,postgres]'
 
-      # `--with-deps` is the system libraries Chromium needs on a bare runner.
-      - name: Install a browser
-        run: playwright install --with-deps chromium
+      # The system libraries Chromium needs on a bare runner, then the browser — bounded and
+      # retried, because a stall here costs a version number (`SR#1022`).
+      - uses: ./.github/actions/install-browser
 
       # **Serial, where CI and the local gate run this in parallel** (`SR#936`). This is the one
       # job that installs a browser *and* runs the whole suite in one command, so `-n` here

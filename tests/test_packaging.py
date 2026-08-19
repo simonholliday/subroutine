@@ -707,12 +707,19 @@ def test_every_action_is_pinned_to_a_commit () -> None:
 
 	``.github/dependabot.yml`` is the other half. A commit nothing watches ages past a security
 	fix, which is the failure pinning exists to prevent.
+
+	**A path inside this repository is exempt, and that is the rule rather than a hole**
+	(`#1022`). This guard's own reasoning is that a reference is *a name its owner can repoint*;
+	``./.github/actions/install-browser`` names a directory in this commit, so it has no owner
+	but us and no ref to move. Pinning it would mean pinning a repository to itself. It is
+	reviewed as ordinary code in the diff that changes it, which is more than a third-party
+	commit gets.
 	"""
 
 	loose = [
 		f"{where}: {action}@{reference}"
 		for where, action, reference in _action_uses()
-		if not _COMMIT.match(reference)
+		if not _COMMIT.match(reference) and not action.startswith("./")
 	]
 
 	assert not loose, (
@@ -735,6 +742,7 @@ def test_every_pinned_action_says_which_version_it_is () -> None:
 	"""
 
 	nameless = []
+	read = 0
 
 	for path in sorted(WORKFLOWS.glob("*.yml")):
 		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -742,11 +750,64 @@ def test_every_pinned_action_says_which_version_it_is () -> None:
 
 			names_one = stripped.startswith(("- uses:", "uses:"))
 
-			if names_one and "#" not in stripped:
+			if not names_one:
+				continue
+
+			read += 1
+
+			# **A path inside this repository has no version to name** (`#1022`). It is not
+			# pinned, because there is nothing to pin it to — see the guard above for why that
+			# is the rule rather than an exception being carved out here.
+			if "uses: ./" in stripped:
+				continue
+
+			if "#" not in stripped:
 				nameless.append(f"{path.name}:{number}: {stripped}")
 
 	assert not nameless, (
 		"a pinned action does not say which version its commit is:\n  " + "\n  ".join(nameless)
+	)
+
+	# `#405`'s floor. This scan reports *offenders*, so one that has stopped finding `uses:`
+	# lines at all reports none and is indistinguishable from a clean set of workflows.
+	assert read > 5, (
+		f"only {read} `uses:` lines were read across the workflows, so this is looking at "
+		f"something other than what CI runs"
+	)
+
+
+def test_every_action_this_repository_supplies_is_one_that_exists () -> None:
+	"""`#1022`. The other half of exempting a local path from the two guards above.
+
+	A third-party action is pinned to a commit, so a typo in its name fails when the workflow
+	runs and the pin is what somebody reviews. ``./.github/actions/instal-browser`` has neither:
+	nothing checks the spelling, and the failure arrives on a runner rather than in a diff.
+
+	**So the exemption buys itself a guard.** An action referenced by path must exist, and must
+	parse — which is the same trade `#952` made for the third-party half, one direction over.
+	"""
+
+	missing = []
+
+	for where, action, _reference in _action_uses():
+		if not action.startswith("./"):
+			continue
+
+		found = ROOT / action.removeprefix("./") / "action.yml"
+
+		if not found.exists():
+			missing.append(f"{where}: {action} — no action.yml at {found}")
+
+			continue
+
+		loaded = yaml.safe_load(found.read_text(encoding="utf-8"))
+
+		if not (loaded or {}).get("runs"):
+			missing.append(f"{where}: {action} — action.yml declares no `runs`")
+
+	assert not missing, (
+		"a workflow names an action in this repository that is not there:\n  "
+		+ "\n  ".join(missing)
 	)
 
 

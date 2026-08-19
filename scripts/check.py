@@ -144,7 +144,11 @@ NOT_LOCALLY: dict[tuple[str, str], str] = {
 		"The same again. This job installs only the development extra, because it needs no "
 		"database of its own."
 	),
-	("Browser tests", "Install a browser"): (
+	("Browser tests", "Install the browser's system libraries"): (
+		"Runs `apt-get` on the runner, which a development machine does not need and this "
+		"script must never do — the environment here is the operator's."
+	),
+	("Browser tests", "Download the browser"): (
 		"Downloads ~400MB of Chromium into the runner. A development machine has one already "
 		"— that is what makes these tests runnable here at all — and fetching another on "
 		"every gate run would be the slowest step by an order of magnitude."

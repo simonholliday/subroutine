@@ -60,6 +60,37 @@ def _loaded () -> types.ModuleType:
 script = _loaded()
 
 
+def _running (step: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+	"""Return the ``run:`` steps one workflow step stands for.
+
+	Usually itself, or nothing. **But a step may be a composite action this repository
+	supplies**, and then the commands CI runs are inside it (`#1022`) — so this follows a
+	``uses: ./`` into its ``action.yml`` and returns what it holds.
+
+	Without that, moving a step into an action would take it out of :func:`_steps` and out of
+	the comparison below, silently. The guard would go on passing while covering less, which is
+	the shape this project keeps finding: a check that shares a blind spot with the thing it
+	checks. A third-party action is deliberately not followed — what it runs is not ours to
+	account for, and it is pinned to a commit for that reason.
+	"""
+
+	if "run" in step:
+		return [step]
+
+	uses = str(step.get("uses", ""))
+
+	if not uses.startswith("./"):
+		return []
+
+	found = ROOT / uses.removeprefix("./") / "action.yml"
+
+	assert found.exists(), f"a workflow names {uses!r} and there is no action.yml there"
+
+	loaded = yaml.safe_load(found.read_text(encoding="utf-8"))
+
+	return [inner for inner in (loaded["runs"].get("steps") or []) if "run" in inner]
+
+
 def _steps () -> dict[tuple[str, str], str]:
 	"""Return every ``run:`` step in the workflow, keyed by job name and step name.
 
@@ -67,6 +98,9 @@ def _steps () -> dict[tuple[str, str], str]:
 	not part of what the workflow claims this project verifies. A step with no ``name:`` would
 	be unaddressable, so it is refused loudly rather than skipped: a nameless step is one this
 	comparison cannot see, and quietly ignoring it is how the two lists would come apart.
+
+	**A composite action of ours counts as the steps inside it**, which is what stops moving a
+	step into one from removing it from this comparison — see :func:`_running`.
 	"""
 
 	# `safe_load`, not `load`. Nothing reads this file at runtime, and a parser that can
@@ -78,12 +112,10 @@ def _steps () -> dict[tuple[str, str], str]:
 		name = job["name"]
 
 		for step in job["steps"]:
-			if "run" not in step:
-				continue
+			for running in _running(step):
+				assert "name" in running, f"a step in {name!r} has a 'run:' and no 'name:'"
 
-			assert "name" in step, f"a step in {name!r} has a 'run:' and no 'name:'"
-
-			found[(name, step["name"])] = step["run"]
+				found[(name, running["name"])] = running["run"]
 
 	return found
 

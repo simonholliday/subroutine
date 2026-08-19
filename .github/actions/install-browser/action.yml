@@ -1,0 +1,61 @@
+name: Install a browser
+description: >
+  Install Chromium and the system libraries it needs, bounded so that a stalled Ubuntu mirror
+  cannot take the job with it.
+
+# **One implementation, two callers** (`SR#1022`). Both `ci.yml` and `release.yml` need a
+# browser, and the release one matters more — a hang there costs a version number. Two copies
+# of this would be two copies of a rule that has to agree, which is this repository's own
+# signature defect.
+
+runs:
+  using: composite
+
+  steps:
+    # **Split from the download so that a hang names which half** (`SR#1022`). Twice on
+    # 2026-08-19, seven hours apart, this hung and took the job with it; both times the log
+    # said the same thing and neither had been read:
+    #
+    #     15:51:13  playwright install --with-deps chromium
+    #     15:51:51  Get:5 https://archive.ubuntu.com/ubuntu noble-security InRelease
+    #     16:06:04  ##[error]The operation was canceled.
+    #
+    # Thirty-eight seconds in, `apt-get update` stalled on `archive.ubuntu.com` — after the
+    # Azure mirror's entries came back `Ign:` — and said nothing for fourteen minutes. The
+    # browser download never started. A single step could not have told anybody that.
+    - name: Install the browser's system libraries
+      shell: bash
+      run: |
+        # **apt had no useful timeout of its own here.** It stalled for 14m13s without a word,
+        # which is what turned somebody else's mirror having a bad afternoon into a dead job.
+        # Twenty seconds is far longer than a healthy fetch and far shorter than the ceiling.
+        printf '%s\n' \
+          'Acquire::http::Timeout "20";' \
+          'Acquire::https::Timeout "20";' \
+          'Acquire::Retries "2";' \
+          | sudo tee /etc/apt/apt.conf.d/99-subroutine-timeouts > /dev/null
+
+        # **Retried, which `SR#1015` argued against and the second sighting overturned.** That
+        # was written when this had happened once, and read it as a hang a retry would not fix
+        # reliably. The log shows a transient network stall on a mirror we do not own, which is
+        # exactly the shape a retry does fix. Bounded at 150s an attempt, so three stalls cost
+        # seven minutes rather than the job — and a slow-but-working install is not retried,
+        # because the two good runs measured took 21s and 72s for this and the download
+        # together.
+        for attempt in 1 2 3; do
+          if timeout 150 playwright install-deps chromium; then
+            exit 0
+          fi
+
+          echo "::warning::the browser's system libraries did not install on attempt ${attempt}"
+        done
+
+        echo "::error::apt did not finish in three bounded attempts — see SR#1022"
+        exit 1
+
+    # Its own step, so the annotation on a hang says *download* rather than *install*. This
+    # half reaches Microsoft's CDN rather than Ubuntu's archive, and has never been the one
+    # that stalled.
+    - name: Download the browser
+      shell: bash
+      run: playwright install chromium
