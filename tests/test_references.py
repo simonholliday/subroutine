@@ -104,7 +104,17 @@ ABSENT: dict[str, Absent] = {
 		),
 	),
 	"CLAUDE.md": Absent(
-		ceiling=16,
+		# **Raised from 16 to 23 for `#926`**, and the case is the same shape as the browser
+		# suite's cap: the guard that reads CLAUDE.md has to name it. Seven mentions in
+		# `tests/test_project_notes.py` — the module docstring saying what it checks, the
+		# constants saying where, and the skip saying why it does not run in CI.
+		#
+		# **The ratchet was right to ask.** Everything else that has ever pushed this number up
+		# was a reference a reader could not follow, and this is the first that is a *subject*
+		# rather than a pointer: the file is what that module is about, so naming it is the
+		# opposite of leaving a dangling reference. That distinction is not derivable, which is
+		# why it is written here rather than pattern-matched.
+		ceiling=23,
 		why=(
 			"Stays a file and stays out of the repository (#411). It is loaded from a known "
 			"path at session start, which an instance document would not be."
