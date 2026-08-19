@@ -2115,6 +2115,7 @@ def completion_wanted (
 	*,
 	about_completion: bool = False,
 	about_activity: bool = False,
+	about_deletion: bool = False,
 	naming_one_item: bool = False,
 ) -> bool:
 	"""Say whether a listing should reach finished work.
@@ -2154,6 +2155,18 @@ def completion_wanted (
 	``include_completed=false`` is honoured here rather than refused — where beside
 	``completed_at`` it asks for finished work and no finished work, which means nothing.
 
+	**``about_deletion`` is the fourth, and it is the trash** (`#900`). ``deleted=true`` asks
+	*what did I delete*, and what an item's status happened to be is no part of that question —
+	finishing something and then deleting it is entirely ordinary. Measured on the served
+	instance: 23 rows against 26 with completion asked for, so three deleted items were
+	reachable by ``subroutine show`` and by **no listing at all**. A reader looking for
+	something they deleted is told it is not there, and a reader emptying the trash empties
+	part of it.
+
+	It is honoured rather than refused, like the two above and unlike ``about_completion``:
+	*what is in the trash that I had not finished* is a coherent question, where *finished work
+	and no finished work* is not.
+
 	**``naming_one_item`` is the third spelling, and it is the one that hurt** (`#873`). `#867`
 	made a search that is exactly a ref match the item with that number — and 548 of this
 	instance's 721 tasks are finished, so for **three items in four** the lookup found the row
@@ -2161,9 +2174,11 @@ def completion_wanted (
 	and the reader has already decided which, so answering "nothing" about something
 	``subroutine show`` reads happily is `#700`'s divergence between a lookup and a listing.
 
-	`#818`'s own sentence is the lesson and this is its third instance: *a rule written down in
-	one vocabulary does not reach the next one.* It knew about categories, then about filters,
-	and not about a lookup.
+	`#818`'s own sentence is the lesson and this is now its **fourth** instance: *a rule written
+	down in one vocabulary does not reach the next one.* It knew about categories, then about
+	filters, then about a lookup, and not about the trash. Four spellings of one sentence, each
+	found separately and none by the guard written for the last — which is the argument for
+	asking, of any narrowing added here, whether completion is part of what it asked about.
 
 	**It widens the whole listing rather than exempting one row**, which is a choice worth
 	stating. Exempting only the matched row would mean pushing the ref down into
@@ -2181,7 +2196,11 @@ def completion_wanted (
 	if not wants_finished:
 		# Not `bool(asked)`: three-valued, so *did not say* means include and *said no* means
 		# exclude. Collapsing them would make the answer ignore a caller who was explicit.
-		return asked is not False if (about_activity or naming_one_item) else bool(asked)
+		return (
+			asked is not False
+			if (about_activity or about_deletion or naming_one_item)
+			else bool(asked)
+		)
 
 	if asked is False:
 		raise subroutine.errors.ValidationError(

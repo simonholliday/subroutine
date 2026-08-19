@@ -369,6 +369,10 @@ class Client:
 			about_activity=subroutine.domain.filtering.about(
 				filters or {}, subroutine.domain.filtering.TOUCHED_AT
 			),
+			# **The trash is a question about deletion, not about status** (`#900`). Asking what
+			# you deleted must reach something you had finished first, which is entirely ordinary
+			# — three items here were reachable by `show` and by no listing at all.
+			about_deletion=deleted,
 			# `#873`, and here for the reason the paragraph above gives: the terminal and the
 			# endpoint have to reach the same rows for the same question.
 			naming_one_item=q is not None

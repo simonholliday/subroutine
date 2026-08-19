@@ -2838,6 +2838,61 @@ def test_a_number_search_still_honours_being_told_to_exclude_finished_work (
 	assert made["ref"] not in {row["ref"] for row in found["items"]}
 
 
+def test_the_trash_holds_work_that_was_finished_before_it_was_deleted (
+	world: World,
+) -> None:
+	"""`#900`. The one listing whose whole question is *what did I delete*.
+
+	Finishing something and then deleting it is entirely ordinary, and what its status happened
+	to be is no part of what ``deleted=true`` asked. Measured on the served instance before the
+	fix: **23 rows against 26** with completion asked for, so three deleted items were reachable
+	by ``subroutine show`` and by no listing at all. A reader looking for something they deleted
+	is told it is not there; a reader emptying the trash empties part of it.
+
+	`#818`'s sentence, **fourth** instance: *a rule written down in one vocabulary does not
+	reach the next one.* Categories, then filters, then a lookup, and not the trash.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Finished, then binned"}).json()
+
+	world.call("POST", f"/v1/tasks/{made['ref']}/complete")
+	world.call("DELETE", f"/v1/tasks/{made['ref']}")
+
+	found = world.call("GET", "/v1/tasks?deleted=true&limit=50").json()
+
+	assert made["ref"] in {row["ref"] for row in found["items"]}
+
+
+def test_the_trash_still_honours_being_told_to_exclude_finished_work (
+	world: World,
+) -> None:
+	"""Where the trash lands of the two endings, and it is the honoured one.
+
+	*What is in the trash that I had not finished* is a coherent question, so an explicit
+	``include_completed=false`` narrows rather than being refused — the ending ``about_activity``
+	and ``naming_one_item`` have, and not ``about_completion``'s, where asking for finished work
+	and no finished work means nothing.
+	"""
+
+	finished = world.call("POST", "/v1/tasks", json={"title": "Finished, then binned"}).json()
+	open_one = world.call("POST", "/v1/tasks", json={"title": "Just binned"}).json()
+
+	world.call("POST", f"/v1/tasks/{finished['ref']}/complete")
+
+	for made in (finished, open_one):
+		world.call("DELETE", f"/v1/tasks/{made['ref']}")
+
+	found = world.call(
+		"GET", "/v1/tasks?deleted=true&include_completed=false&limit=50"
+	).json()
+	refs = {row["ref"] for row in found["items"]}
+
+	# Both assertions matter: the first is the narrowing doing its job, and without the second
+	# a listing that had simply stopped returning anything would pass.
+	assert finished["ref"] not in refs
+	assert open_one["ref"] in refs
+
+
 def test_a_word_search_goes_on_hiding_finished_work (world: World) -> None:
 	"""The other half, and what stops `#873`'s fix being a widening of every search.
 

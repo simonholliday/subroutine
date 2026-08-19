@@ -174,6 +174,14 @@ upgrade involves.
 
 ### Fixed
 
+- **The trash now holds work you had finished before you deleted it.** `subroutine list
+  --trash` and `GET /v1/tasks?deleted=true` left out anything already marked done or cancelled,
+  because a listing hides finished work unless you ask — so an item you completed and then
+  deleted was readable by its number and appeared in no listing at all. Measured on a real
+  instance: three of twenty-six. Asking what you deleted is a question about deletion, and what
+  the item's status happened to be is no part of it. `include_completed=false` still narrows the
+  trash if that is what you want.
+
 - **Setting a deadline to *today* now puts it on today.** A task whose deadline you changed had
   its dates read in the timezone it was *created* in, whoever changed them and wherever they
   were — so somebody in London setting *due today* on a task filed in UTC stored the end of a

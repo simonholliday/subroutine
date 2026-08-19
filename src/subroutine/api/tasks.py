@@ -408,6 +408,10 @@ def listing (
 		include_completed,
 		about_completion=dates.about(subroutine.domain.filtering.COMPLETION_FIELD),
 		about_activity=dates.about(subroutine.domain.filtering.TOUCHED_AT),
+		# **The trash is a question about deletion, not about status** (`#900`). Asking what
+		# you deleted must reach something you had finished first, which is entirely ordinary
+		# — three items here were reachable by `show` and by no listing at all.
+		about_deletion=deleted,
 		# **A number is a lookup, not a filter** (`#873`). `#867` made an exact ref match find
 		# the item; three items in four here are finished, so without this the row was found
 		# and then hidden by the rule that a listing shows unfinished work.

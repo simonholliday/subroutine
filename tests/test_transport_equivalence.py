@@ -1179,6 +1179,29 @@ def test_both_list_the_trash_and_only_the_trash (pair: Pair) -> None:
 	assert [task.ref for task in local.tasks()] == [kept.ref]
 
 
+def test_both_keep_finished_work_in_the_trash (pair: Pair) -> None:
+	"""`#900`. Driven on both transports because the rule is in the domain for that reason.
+
+	``completion_wanted`` lives in ``domain/tasks`` rather than in the router so a narrowing
+	cannot widen on one transport and not the other — the divergence S3-07 removed. It has now
+	been given a fourth spelling of one sentence, and the value of putting it there is only
+	realised by a test that asks both.
+
+	Measured on the served instance before the fix: ``deleted=true`` answered **23** rows and
+	**26** with completion asked for, so three deleted items were readable by ref and by no
+	listing at all.
+	"""
+
+	finished = make(pair, "Finished, then binned")
+	local, remote = pair.both()
+
+	local.complete(ref=finished.ref)
+	local.discard(ref=finished.ref)
+
+	assert finished.ref in [task.ref for task in local.tasks(deleted=True)]
+	assert finished.ref in [task.ref for task in remote.tasks(deleted=True)]
+
+
 def test_both_find_a_deleted_item_when_asked_for_it_by_ref (pair: Pair) -> None:
 	"""**A live divergence**, found by building `restore` and watching it fail.
 
