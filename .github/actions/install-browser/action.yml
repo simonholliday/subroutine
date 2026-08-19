@@ -26,32 +26,58 @@ runs:
     - name: Install the browser's system libraries
       shell: bash
       run: |
-        # **apt had no useful timeout of its own here.** It stalled for 14m13s without a word,
-        # which is what turned somebody else's mirror having a bad afternoon into a dead job.
-        # Twenty seconds is far longer than a healthy fetch and far shorter than the ceiling.
+        # **apt's own timeouts, kept although they are not the fix.** `SR#1022` added these
+        # after a 14m13s stall; `SR#1031` measured a 101-second gap with them in force, so apt
+        # was trickling rather than idle and its timeout never fired. Harmless, and they still
+        # bound the case where a connection genuinely dies.
         printf '%s\n' \
           'Acquire::http::Timeout "20";' \
           'Acquire::https::Timeout "20";' \
           'Acquire::Retries "2";' \
           | sudo tee /etc/apt/apt.conf.d/99-subroutine-timeouts > /dev/null
 
-        # **Retried, which `SR#1015` argued against and the second sighting overturned.** That
-        # was written when this had happened once, and read it as a hang a retry would not fix
-        # reliably. The log shows a transient network stall on a mirror we do not own, which is
-        # exactly the shape a retry does fix. Bounded at 150s an attempt, so three stalls cost
-        # seven minutes rather than the job — and a slow-but-working install is not retried,
-        # because the two good runs measured took 21s and 72s for this and the download
-        # together.
-        for attempt in 1 2 3; do
-          if timeout 150 playwright install-deps chromium; then
+        # **A killed attempt leaves its apt behind, and that is what broke the retry**
+        # (`SR#1031`). `playwright install-deps` runs apt under `sudo`, so `timeout` signals
+        # *playwright* and the root-owned `apt-get` survives — an unprivileged process cannot
+        # signal it. Attempt 2 then met `Could not get lock ... held by process 2350` and died
+        # in one second, and so did attempt 3. Three attempts on paper, one in practice, and a
+        # failure message claiming otherwise.
+        #
+        # So the cleanup is what makes a retry mean anything. Root, because what is being
+        # killed is root's; `-x` matches the process *name* exactly, so it cannot match the
+        # command doing the matching.
+        clear_the_lock () {
+          sudo pkill -9 -x apt-get || true
+          sudo pkill -9 -x dpkg || true
+          sudo rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock \
+            /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend
+          # An apt killed mid-transaction can leave dpkg half-configured, which fails every
+          # later install with a different message than the one that caused it.
+          sudo dpkg --configure -a || true
+        }
+
+        for attempt in 1 2; do
+          if timeout 180 playwright install-deps chromium; then
+            echo "installed the browser's system libraries on attempt ${attempt}"
             exit 0
           fi
 
           echo "::warning::the browser's system libraries did not install on attempt ${attempt}"
+          clear_the_lock
         done
 
-        echo "::error::apt did not finish in three bounded attempts — see SR#1022"
-        exit 1
+        # **This is a warning and not an error, which is the change `SR#1031` really makes.**
+        # Nothing here cares whether `apt-get` succeeded; it cares whether Chromium launches,
+        # and the suite is what answers that. Failing here asserts a *mechanism* where an
+        # *outcome* is what matters — and it makes a mirror we do not own able to stop a build
+        # that would otherwise have passed.
+        #
+        # **If the libraries are genuinely missing the next step still fails**, and it fails
+        # better: Playwright names the ones it cannot find, where this said only that apt did
+        # not finish. The reason `--with-deps` was here at all — *without it the browser
+        # installs and refuses to start* — was measured once, on a runner image that has moved
+        # several times since and has never been re-measured.
+        echo "::warning::could not install the browser's system libraries — carrying on, because whether Chromium runs is what the suite is about (SR#1031)"
 
     # Its own step, so the annotation on a hang says *download* rather than *install*. This
     # half reaches Microsoft's CDN rather than Ubuntu's archive, and has never been the one
