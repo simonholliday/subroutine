@@ -247,9 +247,20 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
 
-      # The system libraries Chromium needs on a bare runner, then the browser. Without the
-      # libraries the browser installs and refuses to start; the two are separate steps inside
-      # the action so that a hang names which of them stalled (`SR#1022`).
+      # The browser, and whatever `install-deps` decides it needs. Two steps inside the action,
+      # so a hang names which of them stalled (`SR#1022`).
+      #
+      # **What that first half actually installs, measured on run 32308038524**: nine *font*
+      # packages — `fonts-freefont-ttf`, `fonts-unifont`, `fonts-wqy-zenhei`, the `xfonts-*`
+      # set — and **not one shared library**. So the claim this comment used to make, that
+      # without it the browser refuses to start, is no longer true of `ubuntu-latest`:
+      # Chromium's own libraries are already in the image.
+      #
+      # **Kept anyway, and that is a judgement rather than inertia** (`SR#1031`). What is left
+      # at stake is glyph coverage for scripts the base image cannot draw, and a missing font
+      # changes *metrics* — which is what half the browser tests measure. Trading an occasional
+      # apt warning, which no longer fails the job, for a layout difference nobody could trace
+      # is the wrong way round.
       - uses: ./.github/actions/install-browser
 
       # **The variable is the whole point of the job.** Without it an absent browser is a skip

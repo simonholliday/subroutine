@@ -72,11 +72,15 @@ runs:
         # *outcome* is what matters — and it makes a mirror we do not own able to stop a build
         # that would otherwise have passed.
         #
-        # **If the libraries are genuinely missing the next step still fails**, and it fails
-        # better: Playwright names the ones it cannot find, where this said only that apt did
-        # not finish. The reason `--with-deps` was here at all — *without it the browser
-        # installs and refuses to start* — was measured once, on a runner image that has moved
-        # several times since and has never been re-measured.
+        # **If anything is genuinely missing the next step still fails**, and it fails better:
+        # Playwright names what it cannot find, where this said only that apt did not finish.
+        #
+        # **Re-measured on run 32308038524, and the old justification is dead**: this installs
+        # nine *font* packages and no shared libraries at all, so *without it the browser
+        # refuses to start* has stopped being true of `ubuntu-latest`. What is still at stake is
+        # glyph coverage — and a missing font changes text *metrics*, which is what half of
+        # `tests/test_browser.py` measures. That is why the step is kept and why failing on it
+        # is not.
         echo "::warning::could not install the browser's system libraries — carrying on, because whether Chromium runs is what the suite is about (SR#1031)"
 
     # Its own step, so the annotation on a hang says *download* rather than *install*. This
