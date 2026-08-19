@@ -680,3 +680,89 @@ def test_work_that_is_shown_is_never_also_counted_as_missing (
 	assert _titles(agenda.today) == ["File the return"]
 	assert _titles(agenda.upcoming) == ["Due on Friday"]
 	assert agenda.later_total == 0, "every dated task is on the page, so nothing is missing"
+
+
+def test_a_deadline_set_to_today_is_on_the_setter_s_today (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1014`. The commonest thing anybody does with a to-do list, and it did not work.
+
+	**What it looked like**: six items set ``due: "today"`` answered ``today: 0``, and every
+	one of them sat under *Next 7 days* while its own row rendered *due Wed 19 Aug*. One
+	screen, saying two things about the same date, with nothing to suggest anything was wrong.
+
+	**The cause was one word.** ``update`` resolved dates through
+	``_timezone(..., explicit=timezone or task.timezone)`` — and ``explicit`` is the *top* of
+	§6.5's chain, so the zone a task was created in outranked the zone of everybody who
+	touched it afterwards. Creation always records one, so the user step below it was
+	unreachable for every task that has ever existed.
+
+	That contradicted two things the code already said about itself: ``zone_for``'s docstring
+	calls itself *the one place that owns* the chain, and it has no such step; and the column's
+	own comment calls it *the zone the dates were authored in*, which is a record of a past
+	write rather than an input to the next one.
+
+	**Why the zone has to be written back too**, which is the half that is easy to miss:
+	resolving in the caller's zone and leaving the old one behind moves the contradiction
+	instead of removing it. The instant would land inside the reader's day while the rendering,
+	which reads the stored zone (`#773`), went on naming a different one — the same defect
+	pointing the other way, and this fixture is built to catch that: assert the day as well as
+	the bucket, or the second half is unfalsifiable.
+
+	**The fixture cannot be in one zone.** `Etc/UTC` against `Europe/London` in July is an
+	hour apart, so a whole-day deadline lands either side of midnight depending on which zone
+	resolved it. A test written in one zone passes against both implementations.
+	"""
+
+	world = World(session)
+
+	# Authored in UTC, which is what every task filed before its owner set a timezone looks
+	# like. The divergence is the whole fixture: nothing here can fail in a single zone.
+	task = world.task("Return the library books", timezone="Etc/UTC")
+
+	assert task.timezone == "Etc/UTC"
+
+	subroutine.domain.tasks.update(
+		session, task, due="today", now=NOW, actor=world.principal
+	)
+
+	# End of 30 July in London, which is 22:59:59.999999Z in BST. The other implementation
+	# stores 23:59:59.999999Z — an hour later, and one hour outside the reader's day.
+	assert task.due_at == datetime.datetime(
+		2026, 7, 30, 22, 59, 59, 999999, tzinfo=datetime.UTC
+	)
+	assert task.due_is_all_day
+
+	# The zone the date was authored in, so that what a reader is shown agrees with the
+	# bucket it was put in rather than being computed from a zone nobody used.
+	assert task.timezone == LONDON
+
+	agenda = world.agenda()
+
+	assert _titles(agenda.today) == ["Return the library books"]
+	assert _titles(agenda.upcoming) == []
+
+
+def test_a_date_left_alone_does_not_take_the_zone_with_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1014`'s other side: editing a title from another zone authors no date.
+
+	Rewriting the column on the way past would silently re-render every date on the task —
+	the same defect as the one above, caused by the fix for it. So the write is conditional
+	on a date having actually moved, and this is what holds that condition in place.
+	"""
+
+	world = World(session)
+	task = world.task(
+		"Renew the passport", due=datetime.date(2026, 7, 30), timezone="Etc/UTC"
+	)
+
+	before = task.due_at
+
+	subroutine.domain.tasks.update(
+		session, task, title="Renew the passport today", now=NOW, actor=world.principal
+	)
+
+	assert task.timezone == "Etc/UTC"
+	assert task.due_at == before

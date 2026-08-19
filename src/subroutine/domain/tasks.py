@@ -893,9 +893,15 @@ def update (
 	if estimate is not subroutine.domain.patch.UNSET and estimate is not None:
 		cleaned_estimate = subroutine.domain.durations.parse(estimate)
 
-	zone = _timezone(
-		session, task.workspace_id, actor=actor, explicit=timezone or task.timezone
-	)
+	# **§6.5's chain, and `task.timezone` is deliberately not in it** (`#1014`). It used to be
+	# passed as `explicit`, which is the chain's *top* step — so the zone a task was created in
+	# outranked the zone of everybody who touched it afterwards, for ever. Creation always
+	# records one, so the user step was unreachable for every task that exists.
+	#
+	# That contradicted the column's own comment, which calls it *the zone the dates were
+	# authored in* and gives its two purposes as recurrence and rendering. A record of a past
+	# write had become an input to the next one.
+	zone = _timezone(session, task.workspace_id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
 
 	finished_now = False
@@ -1153,6 +1159,24 @@ def update (
 	if defer is not subroutine.domain.patch.UNSET:
 		task.snoozed_until = defer.instant
 		task.snoozed_is_all_day = defer.is_all_day
+
+	# **A date rewritten in a new zone carries that zone with it** (`#1014`), which is what the
+	# column promises: *the zone the dates were authored in*. Resolving in the caller's zone
+	# and leaving the old one behind would move the contradiction rather than remove it — the
+	# instant would land inside the reader's day while rendering, which reads the stored zone
+	# (`#773`), went on naming a different one.
+	#
+	# **Only when a date actually moved.** A caller editing a title from another zone has
+	# authored no date, and rewriting the column on their way past would silently re-render
+	# every date on the task.
+	#
+	# The cost, which is real and pre-existing: one column serves three date fields, so
+	# re-dating one of them re-renders the other two. A per-field zone is a schema change and
+	# a decision nobody has taken; this is deliberately not that.
+	if any(
+		moved is not subroutine.domain.patch.UNSET for moved in (deadline, beginning, defer)
+	):
+		task.timezone = zone
 
 	# **Applied before the "nothing changed" return below**, because a repeat lives on the
 	# *series* rather than on this row: `changes_between` compares the task with itself and
@@ -1905,8 +1929,15 @@ def _snapshot (
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
 		"starts_at": task.starts_at,
+		# `#1016`. Its two siblings were both here and this one was not, so flipping only
+		# whether a start is a whole day moved the row, bumped the version, and left no trace
+		# — reachable, because an all-day start and a timed midnight are the same instant.
+		"starts_is_all_day": task.starts_is_all_day,
 		"snoozed_until": task.snoozed_until,
 		"snoozed_is_all_day": task.snoozed_is_all_day,
+		# `#1014`. Writable since a date rewritten in a new zone carries that zone with it, and
+		# a field `update` can write that this dict forgets produces no event at all.
+		"timezone": task.timezone,
 	}
 
 

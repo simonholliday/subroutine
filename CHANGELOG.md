@@ -174,6 +174,25 @@ upgrade involves.
 
 ### Fixed
 
+- **Setting a deadline to *today* now puts it on today.** A task whose deadline you changed had
+  its dates read in the timezone it was *created* in, whoever changed them and wherever they
+  were — so somebody in London setting *due today* on a task filed in UTC stored the end of a
+  day that had already finished where they were standing. The item then sat under *Next 7 days*
+  while its own row said *due today*: one screen, two answers, and nothing to say which was
+  right. Deadlines, starts and defers are now read in your own timezone, per the documented
+  order — an explicit one, then yours, then the workspace's, then the instance's — and the task
+  records the zone the date was actually written in, so what you are shown and where it is filed
+  can no longer disagree.
+  **Nothing is rewritten behind you**: a task keeps its zone until somebody changes one of its
+  dates, so editing a title from another country leaves every date on it reading exactly as it
+  did. Existing deadlines are untouched and will read as they always have until they are next
+  changed.
+
+- **Making a start date a whole day is now in the item's history.** Switching a start from a
+  time to a whole day, where the two happen to be the same moment, changed the item and left no
+  record of it — so a change feed said nothing had happened while anybody holding the older
+  version was quietly refused.
+
 - **A search at the terminal no longer drops its best matches.** `subroutine search` fetched
   more rows than it was going to show, then cut them down using the *wrong* order — by date
   rather than by how well each one answered — before ranking whatever survived. So the best

@@ -2105,3 +2105,61 @@ def test_a_page_of_tasks_costs_the_same_number_of_queries_however_many_projects 
 	assert "substation/level0/level1/level2/level3/level4" in addresses, (
 		"the seed is the deep case, or this measures a page of roots"
 	)
+
+
+def test_making_a_start_a_whole_day_is_recorded_even_though_the_instant_is_the_same (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1016`. ``starts_is_all_day`` was missing from ``tasks._snapshot`` and so was silent.
+
+	Its two siblings were both there — ``due_is_all_day`` and ``snoozed_is_all_day`` — so this
+	was an omission rather than a rule, and it is `urgency`'s defect from 2026-07-29 in the
+	field next door.
+
+	**The reachable case is the one where the instant does not move.** In UTC, an all-day start
+	on 2 September and a timed start at midnight on 2 September are the same microsecond, so
+	the only thing that changes is the flag. The row changes, ``version`` moves, an ETag a
+	client is holding stops matching — and without this the history said nothing happened.
+
+	**The guard beside this one structurally cannot see it.**
+	``test_every_field_an_update_can_change_is_recorded_as_an_event`` iterates ``CHANGEABLE``,
+	which is a register; a field missing from the register is missing from the test. That is
+	`#405`'s two-directional lesson, and the other direction — deriving what ``update`` writes
+	by walking its assignments — is `#427`'s method and a bigger piece than this.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+	task = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		title="Something to do",
+		starts=datetime.datetime(2026, 9, 2, 0, 0, tzinfo=datetime.UTC),
+		timezone="UTC",
+	)
+	session.flush()
+
+	# Read into locals before asserting. Asserting on the attribute itself narrows it to
+	# `Literal[False]` for the rest of the function, and mypy has no reason to think `update`
+	# moved it — so the second assertion below becomes unreachable and the test stops existing.
+	was_all_day = task.starts_is_all_day
+	instant = task.starts_at
+
+	assert not was_all_day
+
+	before = len(_events(session, workspace.id, "task", task.id))
+
+	subroutine.domain.tasks.update(
+		session, task, starts=datetime.date(2026, 9, 2), timezone="UTC"
+	)
+	session.flush()
+
+	# The whole point of the fixture: nothing else moved, so a snapshot that forgets the flag
+	# compares the task with itself and returns before writing anything.
+	assert task.starts_at == instant
+	assert task.starts_is_all_day
+
+	recorded = _events(session, workspace.id, "task", task.id)
+
+	assert len(recorded) == before + 1, "flipping only the all-day flag wrote no event"
+	assert "starts_is_all_day" in (recorded[-1].changes or {})
