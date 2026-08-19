@@ -12,7 +12,6 @@ rather than forbidden, and a token's project scope narrows a listing exactly as 
 a write.
 """
 
-import datetime
 import typing
 import uuid
 
@@ -337,8 +336,14 @@ def listing (
 	q: str | None = fastapi.Query(
 		None, description="Words to look for in the title or the description. Every one must appear."
 	),
-	due_before: datetime.datetime | None = fastapi.Query(None, description="Due strictly before."),
-	due_after: datetime.datetime | None = fastapi.Query(None, description="Due strictly after."),
+	# **A string rather than a `datetime`, which is what stopped a bare date being a 500**
+	# (`#1017`). Pydantic reads `2026-08-18` as a naive datetime and `db/types.UtcDateTime`
+	# refuses one at execute time, where the refusal becomes `internal_error` and says nothing
+	# about the parameter. Read through `domain/filtering.ALIASES` instead, so these take
+	# whatever `due_at.lt` and `due_at.gt` take — a date, an instant or a §9.3 expression — and
+	# a value that cannot be read is a 422 naming the field.
+	due_before: str | None = fastapi.Query(None, description="Due strictly before."),
+	due_after: str | None = fastapi.Query(None, description="Due strictly after."),
 	include_completed: bool | None = fastapi.Query(
 		None,
 		description=(
@@ -585,17 +590,17 @@ def listing (
 				numbered=subroutine.domain.refs.parse_ref(q),
 			)
 
-	if due_before is not None:
-		statement = statement.where(model.due_at < due_before)
-
-	if due_after is not None:
-		statement = statement.where(model.due_at > due_after)
-
 	# **§9.6's dotted filters, read here because reading them needs the workspace** (`#815`).
 	# The names were resolved before this handler ran; what is left is the values, and they take
 	# a timezone — §6.5's chain, with the workspace in it, which is why this cannot be a
-	# dependency. `due_before` and `due_after` above are the older spelling of one of these and
-	# keep working: they take an instant, where `due_at.lte` also takes `end_of_week`.
+	# dependency.
+	#
+	# **`due_before` and `due_after` are resolved here too and no longer applied above**
+	# (`#1017`). They are declared on this signature so `query.refuse_unknown` goes on accepting
+	# them and OpenAPI goes on publishing them; what reads them is `filtering.ALIASES`, which
+	# turns each into the `due_at` comparison it has always been a synonym for. So the two
+	# spellings are one implementation rather than two that agree — and the boundary rule that
+	# makes `due_at.lt=2026-08-03` exclude the whole of the 3rd now governs both.
 	statement = subroutine.api.filters.narrowed(
 		statement, dates, session=session, actor=actor, workspace=workspace
 	)

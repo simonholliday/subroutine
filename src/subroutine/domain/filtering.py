@@ -469,6 +469,41 @@ class Comparison (typing.NamedTuple):
 	#: Exactly as it arrived. Reading it needs a timezone, which is why this is not a moment.
 	value: str
 
+	@property
+	def reported (self) -> str:
+		"""What a refusal about this value should call it.
+
+		**The field for a dotted name, the name itself for an alias** (`#1017`). A caller who
+		wrote ``estimate_minutes.lte`` is told about ``estimate_minutes``, because the operator
+		is not what they got wrong; a caller who wrote ``due_after`` must not be told about
+		``due_at``, which is not a parameter this route accepts flat and which they never sent.
+
+		Derived rather than stored, so it cannot fall out of step with :data:`ALIASES`.
+		"""
+
+		return self.field if SEPARATOR in self.name else self.name
+
+
+#: The flat parameters that mean exactly what a dotted one means, by entity.
+#:
+#: **`due_before` and `due_after` predate §9.6's grammar** and were the only two
+#: ``datetime.datetime`` query parameters in the API — so they were the one shape the newer
+#: machinery could not protect, and a bare date reached a column as a *naive* datetime and came
+#: back as a 500 (`#1017`). Routing them through the same resolution makes the two spellings one
+#: implementation rather than two that agree today: a change to :data:`BOUNDARIES` now moves
+#: both, where before it could move one and leave the other.
+#:
+#: **A table rather than a branch**, because the next legacy parameter is an entry. Each maps to
+#: the dotted spelling it is a synonym for, and the operator is what decides its boundary — so
+#: ``due_before`` is ``lt`` and takes the *start* of the day it names, exactly as
+#: ``due_at.lt`` does.
+ALIASES: dict[str, dict[str, tuple[str, str]]] = {
+	"task": {
+		"due_before": ("due_at", "lt"),
+		"due_after": ("due_at", "gt"),
+	},
+}
+
 
 def understood (
 	parameters: typing.Iterable[tuple[str, str]], *, entity: str
@@ -485,16 +520,26 @@ def understood (
 	where forgetting it is impossible. Reading a *value* needs the timezone, which is not known
 	until the workspace has been resolved inside the handler. Doing both late would mean
 	``refuse_unknown`` had to let dotted names through on faith.
+
+	**Plus the handful of flat names in :data:`ALIASES`**, which are older spellings of a dotted
+	one and are resolved into it here so that both take the same values and land on the same
+	boundary (`#1017`).
 	"""
 
 	available = FILTERS.get(entity, {})
+	aliases = ALIASES.get(entity, {})
 	comparisons = []
 
 	for name, value in parameters:
-		if SEPARATOR not in name:
+		aliased = aliases.get(name)
+
+		if aliased is not None:
+			field, operator = aliased
+		elif SEPARATOR in name:
+			field, _, operator = name.partition(SEPARATOR)
+		else:
 			continue
 
-		field, _, operator = name.partition(SEPARATOR)
 		found = available.get(field)
 
 		if found is None:
@@ -568,7 +613,7 @@ def predicates (
 				comparison.against.column,
 				comparison.operator,
 				comparison.value,
-				comparison.field,
+				comparison.reported,
 				where.now,
 				where.timezone,
 			)

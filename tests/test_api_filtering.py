@@ -20,6 +20,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.filters
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.system
@@ -627,3 +628,144 @@ def test_a_length_that_cannot_be_read_is_refused_in_its_own_words (world: World)
 	assert reported["field"] == "estimate_minutes"
 	assert "30m" in reported["message"], "it has to say what a length looks like"
 	assert "relative_dates" not in (reported["hint"] or ""), "and not what a date looks like"
+
+
+def _dated (world: World) -> None:
+	"""Give the three tasks deadlines on the days they are named after.
+
+	The fixture dates them by ``created_at`` alone, because that is what `#815`'s five questions
+	are about. `#1017` is about the *deadline* pair, which needs a column nothing else here
+	sets — so it is set per test rather than in the fixture, where it would silently change what
+	every other case is asking.
+	"""
+
+	for title, when in DAYS.items():
+		world.session.execute(
+			sqlalchemy.update(subroutine.db.models.work.Task)
+			.where(subroutine.db.models.work.Task.title == title)
+			.values(due_at=when, due_is_all_day=False)
+		)
+
+	world.session.flush()
+
+
+def test_a_bare_date_reaches_the_older_spelling_of_a_deadline_bound (world: World) -> None:
+	"""`#1017`. ``?due_after=2026-08-18`` was a **500** on the served instance.
+
+	`due_before` and `due_after` are the only two ``datetime.datetime`` query parameters in the
+	whole API, so they are the one shape §9.6's grammar could not protect. Pydantic reads a bare
+	date as a *naive* datetime, which `db/types.UtcDateTime` refuses on the way to the column —
+	correctly, and at execute time, where a refusal becomes ``internal_error`` and the caller is
+	told nothing about the parameter they sent.
+
+	**Asserted against the newer spelling rather than against a literal list**, which is the
+	whole point of the fix: the two are one implementation now, so a change to the boundary rule
+	cannot move one and leave the other. A hand-written expectation would pass while they
+	diverged.
+	"""
+
+	_dated(world)
+
+	assert world.titles("/v1/tasks?due_after=2026-08-03") == ["the 5th"]
+	assert world.titles("/v1/tasks?due_after=2026-08-03") == world.titles(
+		"/v1/tasks?due_at.gt=2026-08-03"
+	)
+
+	assert world.titles("/v1/tasks?due_before=2026-08-03") == ["the 1st"]
+	assert world.titles("/v1/tasks?due_before=2026-08-03") == world.titles(
+		"/v1/tasks?due_at.lt=2026-08-03"
+	)
+
+
+def test_the_older_spelling_still_takes_the_instant_it_always_did (world: World) -> None:
+	"""What the fix must not break: a full timestamp is what every existing caller sends.
+
+	`#1017` widens these two from an instant to *whatever the caller supplied*, which is the
+	same widening `due_at.gt` already has. The ISO form has always worked and is the only form
+	anything in the wild is using, so it is asserted rather than assumed.
+	"""
+
+	_dated(world)
+
+	assert world.titles("/v1/tasks?due_after=2026-08-03T12:00:00Z") == ["the 5th"]
+	assert world.titles("/v1/tasks?due_before=2026-08-03T12:00:00Z") == ["the 1st"]
+
+
+def test_the_older_spelling_reaches_the_expression_grammar_too (world: World) -> None:
+	"""And it gains what it never had: the vocabulary `/v1/meta` publishes.
+
+	`?due_before=start_of_week+3d` is the case `#815` fixed for the dotted spelling and left
+	broken for this one — a 422 about an invalid character in a year, for a grammar the same
+	instance advertises.
+	"""
+
+	_dated(world)
+
+	# **Two expressions, because one cannot fail.** The first version asserted only that
+	# `now-1y` answered 200 with three rows — and a parameter that is *ignored* answers exactly
+	# that, so it survived the falsification that emptied `ALIASES`. Every deadline here is in
+	# the past, so `now` must exclude all three, and only a filter that was genuinely applied
+	# can tell the two apart.
+	assert world.titles("/v1/tasks?due_after=now-1y") == ["the 1st", "the 3rd", "the 5th"]
+	assert world.titles("/v1/tasks?due_after=now") == []
+
+
+def test_a_deadline_bound_that_cannot_be_read_names_the_field (world: World) -> None:
+	"""A 422 naming the parameter, never a 500 — which is the half of `#1017` that is not a widening.
+
+	Whichever way the boundary question had been settled, a value the program cannot read is a
+	fault in the request and has to be reported as one. ``internal_error`` sends the reader to
+	their own configuration, which is `#377`'s recorded cost in a different module.
+	"""
+
+	answer = world.call("GET", "/v1/tasks?due_after=whenever")
+
+	assert answer.status_code == 422, answer.text
+	assert answer.json()["errors"][0]["field"] == "due_after", "it names what they sent"
+
+
+def test_an_alias_resolves_to_the_field_it_is_a_synonym_for () -> None:
+	"""`#1017`. The half of the fix nothing on the wire can currently reach.
+
+	`Asked.about` decides whether a listing reaches finished work, and it used to read each
+	comparison's name *as written* and partition it on the separator. An alias carries no
+	separator, so `due_after` would have been compared against `due_at` and answered no — a
+	filter that was applied and invisible to the rule that reads it.
+
+	**No alias is on a completion field today, so nothing over HTTP can show this.** That is
+	exactly why it is asserted here rather than left as a defensive edit: an unreachable
+	correctness fix with no test is indistinguishable from one that does nothing, which is the
+	shape this project keeps finding.
+	"""
+
+	resolved = subroutine.domain.filtering.understood(
+		[("due_after", "2026-08-03")], entity="task"
+	)
+
+	assert len(resolved) == 1, "the alias is read even though it carries no separator"
+	assert resolved[0].field == "due_at", "and resolves to the field it is a synonym for"
+	assert resolved[0].operator == "gt", "with the operator that decides its boundary"
+	assert resolved[0].name == "due_after", "while still remembering what the caller wrote"
+
+	asked = subroutine.api.filters.Asked(entity="task", comparisons=resolved)
+
+	assert asked.about("due_at"), "so the listing knows which column was asked about"
+
+
+def test_a_flat_name_that_is_not_an_alias_is_still_left_alone () -> None:
+	"""The other direction, which is what stops :data:`ALIASES` swallowing the whole query string.
+
+	Every listing's flat parameters — `project`, `q`, `limit` — arrive here too, and each is
+	owned by `api/query.refuse_unknown` rather than by this grammar. A version that treated any
+	unrecognised flat name as a filter would refuse them all by name as unknown *fields*, which
+	is a confident wrong answer about a parameter the route genuinely accepts.
+	"""
+
+	assert subroutine.domain.filtering.understood(
+		[("project", "subroutine"), ("q", "colour"), ("limit", "5")], entity="task"
+	) == []
+
+	# And an alias belongs to the entity that declares it: a document has no deadline pair.
+	assert subroutine.domain.filtering.understood(
+		[("due_after", "2026-08-03")], entity="document"
+	) == []

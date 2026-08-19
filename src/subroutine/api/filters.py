@@ -56,8 +56,14 @@ class Asked (typing.NamedTuple):
 		reaches finished work — narrows the statement these predicates are added to.
 		"""
 
+		# **The resolved field rather than the name as written** (`#1017`). An alias such as
+		# `due_after` carries no separator, so asking `about` for the name would compare
+		# `"due_after"` against `"due_at"` and answer no — a filter that was applied and is
+		# invisible to the rule that decides whether the listing reaches finished work. A
+		# resolved field has no separator either, so `about` partitions it to itself and needs
+		# no change to serve both.
 		return subroutine.domain.filtering.about(
-			(comparison.name for comparison in self.comparisons), field
+			(comparison.field for comparison in self.comparisons), field
 		)
 
 

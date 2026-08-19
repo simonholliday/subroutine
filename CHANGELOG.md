@@ -195,6 +195,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A plain date given to `due_before` or `due_after` is answered instead of failing.**
+  `?due_after=2026-08-18` returned a 500 and told the caller nothing about the parameter they
+  had sent; only a full timestamp worked. The two are now read exactly as `due_at.lt` and
+  `due_at.gt` are, so they take a date, a timestamp *or* the relative words `/v1/meta` publishes
+  — `yesterday`, `start_of_week+3d`, `now-1y` — and a date takes in the whole day it names, in
+  your own timezone. A value that cannot be read is now a 422 naming the parameter.
+
 - **`/readyz` notices when the database underneath a running instance has been replaced.** It
   reported *ready* on a process whose database file had been swapped out from under it — the
   process keeps its handles on the old file, so its reads succeed against data nobody else can
