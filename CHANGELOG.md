@@ -22,6 +22,27 @@ upgrade involves.
 
 ### Added
 
+- **The small labels on a row now say which *kind* of fact they are.** Every one used to be the
+  same rounded lozenge, so a project, a tag, a status and *Blocked* looked alike and only the
+  words told them apart. There are three shapes now: what an item **is** (its type, then its
+  status) is filled; what is **true of it now** (blocked, blocker, overdue, deferred, claimed,
+  repeats) is outlined; and **where it lives and whose it is** carries no box at all.
+  **Addresses use the sigils you already type**: `#ops` for a tag and `@si` for a person, so a
+  sub-project and a tag of the same name can no longer be confused. A project keeps the bare
+  word. Every label still says its word, so nothing here is carried by shape or colour alone.
+
+- **Tags appear on a row for the first time.** They reached the item page and no listing, board
+  or agenda — so a label you had applied was invisible everywhere you would have looked for it.
+
+- **An item's page opens with the same labels its row carries**, directly under the title. It
+  was the one screen with no summary at a glance, and it is the one you land on from a card. The
+  four fact-sheet lines that now repeat a label — status, type, assignee and tags — have gone;
+  the project line stays, because only it can say a project is prioritised.
+
+- **A board column stops repeating its own name on every card.** *Done*, *Cancelled* and
+  *Superseded* say it once, at the top. **To do does not**, deliberately: `open`, `blocked` and
+  `needs_input` all live in that column, so the label there is the only thing separating them.
+
 - **A board column can be folded away, and the ones holding work that is over start folded.**
   *Cancelled*, *Superseded* and *Archived* now begin as a narrow strip with their name turned on
   its side and a count beside it, so a board full of abandoned and replaced work gives its width
@@ -193,6 +214,16 @@ upgrade involves.
   instance: three of twenty-six. Asking what you deleted is a question about deletion, and what
   the item's status happened to be is no part of it. `include_completed=false` still narrows the
   trash if that is what you want.
+
+- **A claim now reads as the state it is.** A row said `si is on it`, and an expired claim said
+  `si left it` — a past event drawn as though it were a property of the item. It says
+  `claimed by @si` while somebody holds it and nothing once the lease has run out, which is what
+  the terminal and the agent have always done. The agent's own wording moves from `held by` to
+  `claimed by` to match, so all three surfaces use the word the `claim` command uses.
+
+- **An item that is blocked no longer says so twice.** `blocked` is both a status somebody sets
+  and a state worked out from what an item is waiting on, so a card could carry two identical
+  labels meaning two different things.
 
 - **Setting a deadline to *today* now puts it on today.** A task whose deadline you changed had
   its dates read in the timezone it was *created* in, whoever changed them and wherever they

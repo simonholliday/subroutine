@@ -632,7 +632,7 @@ def test_a_listing_says_who_is_holding_something_and_forgets_when_the_lease_runs
 	taken, failed = _called(bound, "subroutine_claim", ref=ref)
 
 	assert not failed, taken
-	assert f"held by @{who}" in _called(bound, "subroutine_list")[0]
+	assert f"claimed by @{who}" in _called(bound, "subroutine_list")[0]
 
 	# Backdated rather than waited for: the lease is half an hour by default, and the point is
 	# the clock rather than the duration.
@@ -645,7 +645,7 @@ def test_a_listing_says_who_is_holding_something_and_forgets_when_the_lease_runs
 
 	expired = _called(bound, "subroutine_list")[0]
 
-	assert "held by" not in expired, (
+	assert "claimed by" not in expired, (
 		f"an expired lease is still reported as held: {expired!r}"
 	)
 	assert "Rotate the certificates" in expired, "the row itself should still be there"

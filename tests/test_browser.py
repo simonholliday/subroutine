@@ -1331,6 +1331,18 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	the storage and the rendering are pure and checked in `tests/test_web.py`, three tests there
 	against one gesture here.
 
+	**28 to 29, for `SR#1019`, and it is `SR#965`'s kind again — there is nothing cheaper.** The
+	claim is that three families of mark are *drawn* as three different things, and the whole of
+	that lives in the cascade: `.mark.identity` fills, `.mark.state` outlines, `.mark.address`
+	does neither. `tests/dom.js` drops every attribute (`SR#784`), so it can report that a class
+	was written and nothing about whether anything looked different — which is precisely the
+	defect being fixed, since eleven chips already differed by a class that drew them alike.
+
+	**Read for fat, and the rest of a day's work stayed out.** The families, both suppression
+	rules, the sigils, the claim wording and the tag marks are all decided in `marks`, which is
+	pure — seven tests in `tests/test_web.py` against one here, and this one asserts three
+	relationships rather than any literal, so it survives a theme change.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1343,11 +1355,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 28, (
+	assert len(tests) <= 29, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 26 in three days."
+		f"read every raise in this docstring as a set: it has moved 17 to 29 in five days."
 	)
 
 
@@ -2211,8 +2223,8 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 	# back to a link's own mark would compare the thing with itself and pass whatever happened.
 	#
 	# **`a.mark`, which is the project label and the only mark that is an anchor.** Measured
-	# rather than assumed: a plain chip is `--ink-soft` and a `.mark.quiet` is `--ink-faint`,
-	# so *any two marks* is not a comparison — it is two different kinds of chip and it fails
+	# rather than assumed: the families are drawn differently on purpose since `SR#1019`, so
+	# *any two marks* is not a comparison — it is two different kinds of chip and it fails
 	# whatever the cascade does. The anchor is also the one the specificity actually reaches,
 	# since `.linked li > a` can only ever have hit an `<a>`.
 	listing = opened("/projects")
@@ -2280,6 +2292,84 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 			f"`.linked li > a` is one class more specific than `.mark`, so without the `>` it "
 			f"takes the link colour and loses its outline: {row} against {reference}"
 		)
+
+
+def test_the_three_families_of_mark_are_drawn_as_three_different_things (
+	running: typing.Any,
+) -> None:
+	"""`SR#1019`, Simon: *"it's hard to tell what kind of label each is."*
+
+	**Eleven chips differed only by tone**, so a project address, a tag, a status and a state
+	were one rounded lozenge and the *category* of a mark was carried by nothing at all. The
+	families are the fix, and this is the only place that can say they arrived: `tests/dom.js`
+	drops every attribute (`SR#784`), so it can report that a class was written and nothing
+	whatever about whether the cascade drew anything differently.
+
+	**Three properties rather than one**, because each family is defined by a different one and
+	a check on any single property passes for the wrong reason: identity is a *fill*, state is
+	an *outline*, and address is the absence of both. Reading only `borderTopStyle` would call
+	identity and state the same thing.
+
+	**Read off the page rather than compared against literals.** A colour written down here
+	would pass on a theme this app does not serve — `SR#906` made both themes one declaration
+	per colour, so the values are the browser's to compute and only their *relationships* are
+	this project's to assert.
+	"""
+
+	opened, *_ = running
+
+	page = opened("/projects/subroutine/ui/42")
+	page.wait_for_selector(".linked .mark", timeout=10_000)
+
+	drawn = page.eval_on_selector_all(
+		".linked .mark",
+		"""marks => marks.map((one) => {
+			const style = getComputedStyle(one);
+
+			return {
+				said: one.textContent.trim(),
+				family: one.classList.contains("identity") ? "identity"
+					: one.classList.contains("state") ? "state"
+					: one.classList.contains("address") ? "address"
+					: one.classList.contains("context") ? "context"
+					: "",
+				fill: style.backgroundColor,
+				edge: style.borderTopStyle,
+				line: style.borderTopColor,
+			};
+		})""",
+	)
+
+	found = {mark["family"] for mark in drawn}
+
+	# **The fixture has to be able to show the difference before anything is compared**, which
+	# is `SR#1010`'s lesson: three families and a page carrying one is a test that passes by
+	# having nothing to disagree about. `LINKED` serves a type, a non-default status, a blocker
+	# and a project, which is one of each.
+	assert {"identity", "state", "address"} <= found, (
+		f"the page does not carry all three families, so this compares nothing: {drawn}"
+	)
+
+	def pick (family: str) -> dict[str, typing.Any]:
+		"""Return the first mark of one family, which the assertion above proved is there."""
+
+		return next(one for one in drawn if one["family"] == family)
+
+	identity, state, address = pick("identity"), pick("state"), pick("address")
+
+	assert identity["fill"] != state["fill"], (
+		f"identity and state are filled the same, so the two are one shape: {drawn}"
+	)
+	assert state["edge"] == "solid" and "0)" not in state["line"], (
+		f"a state has no visible outline, which is the only thing marking its family: {drawn}"
+	)
+	assert "0)" in address["line"] or address["edge"] == "none", (
+		f"an address is boxed, which is the confusion this replaced — a boxed tag beside a "
+		f"boxed status reads as the same kind of thing: {drawn}"
+	)
+	assert address["fill"] != identity["fill"], (
+		f"an address is filled like an identity: {drawn}"
+	)
 
 
 def test_a_column_that_is_over_starts_folded_and_opens_when_asked (running: typing.Any) -> None:

@@ -620,9 +620,14 @@ def test_a_row_says_who_is_holding_it (tmp_path: pathlib.Path) -> None:
 	task, and decide not to"* — and release has four possible destinations and cannot tell them
 	apart. So the lease is shown as what it is, and `in_progress` stays a declaration.
 
-	**Expired is its own mark rather than nothing.** A claim that ran out unreleased is *started
-	and walked away from*, which is the state a person watching agents work most wants and
-	cannot see at all today. `views.Task` reports an expired lease for exactly this reason.
+	**An expired lease is no longer drawn, and that reverses `SR#726`** (`SR#1019`, Simon). It
+	used to have its own mark on the argument that *started and walked away from* is what a
+	person watching agents work most wants to see. What outweighed it: a chip reads as a
+	property of the item and *left it* is an event, whose home is the item's history.
+
+	**`holding` is unchanged and still reports it**, which is the half worth keeping — the
+	distinction is live, `views.Task` publishes the expiry so a client can make it, and this
+	still drives both readings. Only the *drawing* stopped.
 	"""
 
 	# **Relative to the moment this runs, not a date somebody typed** (`SR#737`). The first
@@ -654,13 +659,14 @@ def test_a_row_says_who_is_holding_it (tmp_path: pathlib.Path) -> None:
 		"Listing": {"items": [stale]},
 	})
 
-	assert "agent is on it" in rendered["Row"], (
+	assert "claimed by @agent" in rendered["Row"], (
 		f"a row does not say who is holding it: {rendered['Row']}"
 	)
 
-	assert "agent left it" in rendered["Listing"], (
-		f"an expired claim was shown as nobody, or as somebody still working: "
-		f"{rendered['Listing']}"
+	# **The other half, and without it the wording above is the only thing asserted.** An
+	# expired lease must draw nothing at all — not the live wording, and not a mark of its own.
+	assert "agent" not in rendered["Listing"], (
+		f"an expired claim was still drawn, which `SR#1019` removed: {rendered['Listing']}"
 	)
 
 
@@ -1411,8 +1417,14 @@ def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 	# marks are template literals — a deadline, a defer, a lease all carry a value — so a floor
 	# on the string set would have to be 2, which is the number this test is *about* and could
 	# not tell a broken scan from a complete one.
-	assert body.count("found.push") >= 6, (
-		f"`marks` pushes {body.count('found.push')} marks, so the body was not fully matched"
+	#
+	# **Every push rather than `found.push`** (`SR#1019`): the function gathers into three
+	# arrays now, one per family, so counting the first would have fallen to 3 and read as a
+	# scan that had stopped matching the body. Twelve at the time of writing.
+	pushed = body.count(".push(")
+
+	assert pushed >= 10, (
+		f"`marks` pushes {pushed} marks, so the body was not fully matched"
 	)
 
 	for name, word in (
@@ -3674,9 +3686,11 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "frame" ? app.frame(argument.showing, argument.open)
 			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
 			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
+			: name === "soleStatusIn" ? app.soleStatusIn(
+				argument.vocabulary, argument.kind, argument.category)
 			: name === "marks" ? app.marks(
 				argument.item, argument.showKind, argument.ordering, argument.projects,
-				argument.place, argument.linkable)
+				argument.place, argument.linkable, argument.hideStatus)
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 
@@ -10231,4 +10245,230 @@ def test_a_reader_who_opens_a_column_is_remembered (tmp_path: pathlib.Path) -> N
 	assert answers["mixed"] == {"a": True}, (
 		"a value that is not a yes or a no is not an answer, and keeping it would put the "
 		"board into a state no control can name"
+	)
+
+
+# ---- what kind of fact a mark is (`SR#1019`) -----------------------------------------------
+
+
+def _families (marks: list[dict[str, typing.Any]]) -> list[tuple[str, str]]:
+	"""Return each mark as ``(family, text)``, which is the pair this change is about."""
+
+	return [(mark.get("family") or "", mark["text"]) for mark in marks]
+
+
+def test_every_mark_says_which_family_it_belongs_to (tmp_path: pathlib.Path) -> None:
+	"""`SR#1019`, Simon: *"it's hard to tell what kind of label each is."*
+
+	**Eleven chips differed only by tone, so the *category* of a mark was carried by nothing.**
+	A project address, a tag, a status and a state were one rounded lozenge, and the confusion
+	he named — a sub-project sharing a tag's name — had nothing at all to separate the two.
+
+	**Asserted as a family per mark rather than as a rendered class**, because the class is one
+	template away and the decision is here: `marks` is the pure function every surface calls,
+	so a mark that reaches a row without a family reaches four surfaces without one.
+
+	`SR#102` is why this is reinforcement rather than information: every mark still says its
+	word, so a reader in monochrome loses the grouping and nothing else.
+	"""
+
+	item = {
+		"ref": 1, "kind": "task", "title": "Something", "type": "bug",
+		"project_key": "ui", "project_path": "subroutine/ui", "workspace": "projects",
+		"assignee": "si", "tags": ["ops", "security"],
+		"status": "needs_input", "status_is_default": False,
+		"blocked": True, "blocking": True, "recurrence_description": "every monday",
+	}
+
+	found = _addressing(tmp_path, [("marks", {"item": item, "showKind": False})])[0]
+
+	assert _families(found) == [
+		("identity", "bug"),
+		("identity", "needs_input"),
+		("state", "Blocked"),
+		("state", "Blocker"),
+		("state", "Repeats"),
+		("address", "projects/subroutine/ui"),
+		("address", "#ops"),
+		("address", "#security"),
+		("address", "@si"),
+	], found
+
+	# **Every mark, not most of them.** A family added to nine of ten reads as done and leaves
+	# the tenth drawn as whatever `.mark` alone looks like, which is what this replaces.
+	assert all(mark.get("family") for mark in found), f"a mark carries no family: {found}"
+
+
+def test_a_tag_and_an_assignee_carry_the_sigil_a_person_would_type (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1019`, Simon's decision: `#` for tags and `@` for people, and no `+` on a project.
+
+	**Quick capture already reads all three**, so the chips say what somebody would type to
+	reproduce them — which is the argument for sigils over shapes: no new vocabulary, legible
+	in monochrome, and it separates a tag from a sub-project of the same name.
+
+	**A project deliberately has no sigil.** Simon gave the reason as *the only linked item
+	without one*, and `SR#1020` will make tags and assignees links too — so the reason expires
+	and the decision does not: with `#` and `@` in place a bare word is already the third
+	distinguishable thing, whatever is clickable.
+	"""
+
+	item = {
+		"ref": 2, "kind": "task", "title": "Named", "workspace": "projects",
+		"project_key": "ui", "project_path": "subroutine/ui",
+		"tags": ["ops"], "assignee": "si",
+	}
+
+	found = _addressing(tmp_path, [("marks", {"item": item, "showKind": False})])[0]
+	said = [mark["text"] for mark in found]
+
+	# The whole address, because nothing was narrowed — `place` is null, so the label keeps
+	# the workspace it would otherwise strip (decision `SR#957` §4).
+	assert said == ["projects/subroutine/ui", "#ops", "@si"], said
+
+
+def test_a_claim_says_who_holds_it_now_and_an_expired_one_says_nothing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1019`, Simon: *"'claimed by' better represents a current state than 'left it'."*
+
+	**This reverses `SR#726`**, which drew an expired lease deliberately on the argument that
+	*started and walked away from* is what somebody watching agents work most wants to see.
+	What outweighed it: a chip reads as a property and *left it* is an event, whose home is the
+	item's history.
+
+	**It also ends a divergence.** `mcp/tools` reads `views.holder`, which applies the clock, so
+	the agent has never shown an expired lease — the browser was the only surface that did, and
+	the two now say the same words as well as the same thing.
+	"""
+
+	now = datetime.datetime.now(datetime.UTC)
+	live = {
+		"ref": 3, "kind": "task", "title": "Being done", "claimed_by_id": "u1",
+		"claimed_by": "agent",
+		"claim_expires_at": (now + datetime.timedelta(hours=1)).isoformat(),
+	}
+	expired = {**live, "claim_expires_at": (now - datetime.timedelta(hours=1)).isoformat()}
+
+	held, gone = _addressing(tmp_path, [
+		("marks", {"item": live, "showKind": False}),
+		("marks", {"item": expired, "showKind": False}),
+	])
+
+	assert _families(held) == [("state", "claimed by @agent")], held
+	assert gone == [], f"an expired lease still drew a mark: {gone}"
+
+
+def test_a_status_stands_down_where_a_state_already_says_the_word (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1019`, Simon's decision B. **One word, two facts, and a card said it twice.**
+
+	The seeded status `blocked` means *declared, often outside the system* (`SR#96`); the
+	derived state means *an unfinished blocker in the link graph* (`SR#425`). Both reach one
+	card, and it read `Blocked Blocked` — two chips, two meanings, and nothing to tell a reader
+	they were different things.
+
+	**The state keeps the word** because the status is the workspace's own vocabulary and is not
+	ours to rename (§5.5).
+
+	**And it generalises for nothing extra**: a workspace that renames a status to `Deferred` or
+	`Overdue` gets the same treatment without anybody adding a case, which is why this compares
+	against what the state marks *say* rather than against a list of keys.
+	"""
+
+	both = {
+		"ref": 4, "kind": "task", "title": "Waiting", "blocked": True,
+		"status": "blocked", "status_is_default": False,
+	}
+	# The same shape, with a status no state mark says — the half that stops this being a rule
+	# that hides every status.
+	other = {**both, "status": "needs_input"}
+
+	twice, kept = _addressing(tmp_path, [
+		("marks", {"item": both, "showKind": False}),
+		("marks", {"item": other, "showKind": False}),
+	])
+
+	assert _families(twice) == [("state", "Blocked")], twice
+	assert _families(kept) == [
+		("identity", "needs_input"), ("state", "Blocked"),
+	], kept
+
+
+def test_a_category_holding_one_status_is_what_lets_a_column_stop_repeating_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1019`, Simon's decision A, and the measurement that ruled out the obvious answer.
+
+	*"Items in the done column all have the done label — these seem superfluous."* True of
+	**Done**, **Cancelled** and **Superseded**, each the only status in its category. **False of
+	To do**, where `seed.py` puts `open`, `blocked` and `needs_input`, and only the first is the
+	default — so suppressing the chip on boards wholesale would delete the one thing separating
+	three states from the busiest column on the page.
+
+	**Not computed from the rows either.** §12.2a's drop-if-uniform would answer *Done*
+	correctly by looking at what is in it — and decision `SR#957` §4 refused that for the
+	browser, because the page polls and a chip appearing as a column fills is `SR#966`'s shape.
+	Asking the *vocabulary* is stable: it cannot change while nobody edits it.
+
+	**Unknown vocabulary keeps the chip.** `words` clears it before fetching and treats its own
+	failure as survivable (§1.4), so null is a state a working page reaches, and hiding a fact
+	because a request is in flight is the wrong direction to fail.
+	"""
+
+	statuses = {
+		"task": [
+			{"key": "open", "category": "todo", "is_default": True},
+			{"key": "blocked", "category": "todo"},
+			{"key": "needs_input", "category": "todo"},
+			{"key": "done", "category": "done"},
+		],
+	}
+
+	answers = _addressing(tmp_path, [
+		("soleStatusIn", {"vocabulary": statuses, "kind": "task", "category": "done"}),
+		("soleStatusIn", {"vocabulary": statuses, "kind": "task", "category": "todo"}),
+		("soleStatusIn", {"vocabulary": None, "kind": "task", "category": "done"}),
+		("soleStatusIn", {"vocabulary": statuses, "kind": "task", "category": "invented"}),
+	])
+
+	assert answers == [True, False, False, False], answers
+
+
+def test_a_board_column_that_names_one_status_does_not_repeat_it_on_every_card (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The wiring, driven — `SR#1019`. The rule above is right and reaches nothing by itself.
+
+	**`SR#640`'s lesson, five times over in this file**: a pure function can be correct, the
+	display correct, and nothing joining them. So this renders the board and reads the cards.
+	"""
+
+	statuses = {
+		"task": [
+			{"key": "open", "category": "todo", "is_default": True},
+			{"key": "needs_input", "category": "todo"},
+			{"key": "done", "category": "done"},
+		],
+	}
+	finished = {
+		"ref": 5, "kind": "task", "title": "Over", "status": "done",
+		"status_is_default": False, "status_category": "done",
+	}
+	waiting = {
+		"ref": 6, "kind": "task", "title": "Waiting", "status": "needs_input",
+		"status_is_default": False, "status_category": "todo",
+	}
+
+	rendered = _rendered(tmp_path, {
+		"Board": {"items": [finished, waiting], "workspace": "projects", "statuses": statuses},
+	})["Board"]
+
+	assert "needs_input" in rendered, (
+		f"the To do column dropped a status its own name does not say: {rendered}"
+	)
+	assert "done" not in rendered.replace("Done", ""), (
+		f"the Done column repeated its own name on every card: {rendered}"
 	)

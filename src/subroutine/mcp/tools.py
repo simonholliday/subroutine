@@ -1617,7 +1617,11 @@ def _line (
 		held = subroutine.views.holder(item, now=now)
 
 		if held is not None:
-			cells.append(f"held by @{held}")
+			# **`claimed by`, matching the `claim` and `release` verbs** (`#1019`, Simon). It
+			# was `held by`, and the browser said `x is on it` — one lease with two names on
+			# two surfaces, which is `#913`'s defect one fact along. The row's wording is not
+			# in §21.2's schema budget, so agreeing cost nothing.
+			cells.append(f"claimed by @{held}")
 
 		# **Before the rank, because it changes what the rank means** (`#425`). A default
 		# listing put a blocked item above the thing blocking it with nothing to say so, and an

@@ -150,6 +150,12 @@ class LinkEnd(pydantic.BaseModel):
 	#: of a rule, because a client would otherwise need a second copy of the grammar.
 	recurrence_description: str | None = None
 
+	#: What somebody labelled it (`#1019`). Here because a link line draws the same marks a
+	#: row does and the two must not say different things about one item, which is the whole
+	#: obligation this model carries — the guard derives its field list from what ``marks``
+	#: reads, so a mark added to a row fails until this can answer it.
+	tags: list[str] = pydantic.Field(default_factory=list)
+
 	#: Whether the thing at this end is finished (`#210`). A link is how `#84` models a
 	#: milestone — an item whose blockers are its contents — so a client rendering "N of M"
 	#: needs this and would otherwise have to fetch every end to count them.

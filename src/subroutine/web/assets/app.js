@@ -119,6 +119,11 @@ const TASK_FIELDS = [
 	   whether that still means anything — `claimed_by` alone would be null on an instance older
 	   than the field while the item was genuinely claimed. */
 	"claimed_by_id", "claimed_by", "claim_expires_at",
+	/* **What somebody labelled it** (`#1019`). `marks` never read these, so a tag reached the
+	   item page's fact sheet and no listing, board or agenda — invisible for as long as tags
+	   have existed. A field rendered and not asked for arrives as absent rather than as
+	   unknown, which is what the guard beside this one is for. */
+	"tags",
 	/* Rendered by `when` on anything finished, and the field the *done* view is ordered on
 	   (`#706`). §22 has no rule about showing the sort key and `#661` is the item that wants
 	   one; a page whose whole claim is *most recently finished first* had better say when each
@@ -147,6 +152,9 @@ const DOCUMENT_FIELDS = [
 	   of them carries is no key at all. */
 	"relevance",
 	"ref", "title", "project_key", "project_path", "status", "status_is_default",
+	/* `#1019`, and both kinds ask for the same reason: a tag is scoped to the *workspace*
+	   rather than to a kind (`#819`), so a document carries them exactly as a task does. */
+	"tags",
 	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
 	   `Task` or `Document`, which answers what shape it has and not what it is about, and
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
@@ -1697,6 +1705,31 @@ export function statusFor (vocabulary, kind, category) {
 	return { key: (known.find((one) => one.is_default) || known[0]).key, because: null };
 }
 
+export function soleStatusIn (vocabulary, kind, category) {
+	/*
+		Whether a category has exactly one status, so a column naming it says everything — `#1019`.
+
+		**This is what lets a board drop the status chip without dropping information.** Simon:
+		*"items in the done column all have the done label — these seem superfluous."* True of
+		*Done*, *Cancelled* and *Superseded*, each the only status in its category — and **false
+		of To do**, where `open`, `blocked` and `needs_input` all live and only the first is the
+		default, so the chip is the one thing separating three states.
+
+		**A fact about the workspace's vocabulary, not about the page's contents**, and that is
+		the whole reason it is asked this way. §12.2a's drop-if-uniform would answer *Done* too,
+		by looking at the rows — but decision `#957` §4 refused that for the browser because the
+		page polls, so a chip would appear and vanish under the reader as a column filled. This
+		answer cannot change while nobody edits the vocabulary.
+
+		**Unknown vocabulary keeps the chip.** `words` clears it before fetching and treats its
+		own failure as survivable (§1.4), so null is a state a working page reaches — and
+		hiding a fact because a request is in flight is the wrong direction to fail.
+	*/
+	if (!vocabulary) return false;
+
+	return (vocabulary[kind] || []).filter((one) => one.category === category).length === 1;
+}
+
 export function unmovable (because, category) {
 	/*
 		What to say when a card cannot be moved — `#791`.
@@ -3221,7 +3254,23 @@ export const TYPE_ICONS = {
    something else is holding shut, and a key for the item that opens it — which is `#861`'s
    stated intent, that the blocker is *the item you should pick* rather than a thing to warn
    about. A stop-hand or a warning triangle would say the opposite. */
-export const MARK_ICONS = { Blocked: "lock-simple", Blocker: "key", Repeats: "repeat" };
+/*
+	A glyph per *kind* of mark, keyed on what the mark is rather than on what it says.
+
+	**It was keyed on the rendered text** (`#1019`), looked up as `MARK_ICONS[mark.text]` at
+	draw time — so rewording `Blocked` would have dropped its picture in silence, and
+	`Deferred to Fri 21 Aug` could never have had one at all because its words vary by item.
+	This change reworded two of the three keys it held, which is how that came up.
+
+	**Still a constant rather than a string beside each push**, because
+	`test_every_glyph_named_is_one_that_was_vendored` scans it: a name with no path data draws
+	nothing and says nothing, which is `#925`'s recorded defect and was found with a typo.
+*/
+export const MARK_ICONS = {
+	blocked: "lock-simple",
+	blocker: "key",
+	repeats: "repeat",
+};
 
 /* What an item type this client does not recognise is drawn as. */
 export const UNKNOWN_ICON = "circle-dashed";
@@ -3253,7 +3302,8 @@ export function Icon ({ name, decorative = true }) {
 }
 
 export function marks (
-	item, showKind, ordering = null, projects = null, place = null, linkable = false
+	item, showKind, ordering = null, projects = null, place = null, linkable = false,
+	hideStatus = false
 ) {
 	/*
 		The small labels under a title.
@@ -3281,9 +3331,16 @@ export function marks (
 		opinion, and it degrades on its own.
 	*/
 	if (item.type) {
-		found.push({ text: item.type, icon: TYPE_ICONS[item.type] || UNKNOWN_ICON });
+		found.push({
+			text: item.type,
+			family: "identity",
+			icon: TYPE_ICONS[item.type] || UNKNOWN_ICON,
+		});
 	} else if (showKind) {
-		found.push({ text: item.kind === "document" ? "Document" : "Task" });
+		found.push({
+			text: item.kind === "document" ? "Document" : "Task",
+			family: "identity",
+		});
 	}
 
 	/*
@@ -3297,8 +3354,20 @@ export function marks (
 	*/
 	const sorted = orderingValue(ordering, item);
 
-	if (sorted) found.push({ text: sorted, tone: "quiet" });
-	if (item.blocked) found.push({ text: "Blocked", tone: "blocked" });
+	if (sorted) found.push({ text: sorted, family: "context" });
+
+	/*
+		**Gathered rather than pushed** (`#1019`), because the status chip below has to know
+		what they say before it decides whether to speak. The seeded status `blocked` means
+		*declared, often outside the system* (`#96`) and the derived state means *an
+		unfinished blocker in the graph* (`#425`) — two facts, one word, and a card carrying
+		both read `Blocked Blocked`.
+	*/
+	const states = [];
+
+	if (item.blocked) {
+		states.push({ text: "Blocked", family: "state", tone: "blocked", icon: MARK_ICONS.blocked });
+	}
 	/*
 		**And the other end of it** (`#861`, which is `#569` reaching the surface it was
 		reported from). `#569` began with an agent reading a *board*: the urgent item carried
@@ -3327,7 +3396,15 @@ export function marks (
 		own argument against a word this close to `blocked` is on `cli/personal.BLOCKING_MARK`
 		and still stands; what outweighed it is that one relationship had two names.
 	*/
-	if (item.blocking) found.push({ text: "Blocker", tone: "quiet" });
+	/*
+		**A chip like every other state, where it used to be a borderless caption** (`#1019`,
+		Simon). `quiet` was chosen to keep a *warning* tone off the item you should pick, and
+		that argument is untouched — the outline is what says *this is a state*, and the
+		colour is still reserved for the two that are problems.
+	*/
+	if (item.blocking) {
+		states.push({ text: "Blocker", family: "state", icon: MARK_ICONS.blocker });
+	}
 	/*
 		**That it comes back at all** — `#925`, Simon: *"nothing indicates that it is a repeating
 		task"*. The terminal's row has said so since the day the CLI learned about repeats and
@@ -3344,7 +3421,9 @@ export function marks (
 		decides the order of that sentence: the word carries the information and the picture is
 		what makes it findable at a glance, so a reader who cannot see the glyph loses nothing.
 	*/
-	if (item.recurrence_description) found.push({ text: "Repeats", tone: "quiet" });
+	if (item.recurrence_description) {
+		states.push({ text: "Repeats", family: "state", icon: MARK_ICONS.repeats });
+	}
 	/*
 		**`quiet`, not `late`** (`#862`). A deferred item is not a problem — it is a decision
 		somebody made, and the mark exists so the reader can see the decision rather than be
@@ -3354,13 +3433,17 @@ export function marks (
 		with: the question a parked item raises is *when does this come back*.
 	*/
 	if (deferred(item)) {
-		found.push({
+		states.push({
 			text: `Deferred to ${day(item.snoozed_until, item.timezone, item.snoozed_is_all_day)}`,
-			tone: "quiet",
+			family: "state",
 		});
 	}
 	if (overdue(item)) {
-		found.push({ text: `Overdue ${day(item.due_at, item.timezone)}`, tone: "late" });
+		states.push({
+			text: `Overdue ${day(item.due_at, item.timezone)}`,
+			family: "state",
+			tone: "late",
+		});
 	}
 
 	/*
@@ -3377,10 +3460,29 @@ export function marks (
 	*/
 	const lease = holding(item);
 
-	if (lease) {
-		found.push(lease.held
-			? { text: lease.who ? `${lease.who} is on it` : "Claimed", tone: "claimed" }
-			: { text: lease.who ? `${lease.who} left it` : "Claim expired", tone: "stale" });
+	/*
+		**A live lease only, and the expired one is gone** — `#1019`, Simon: *"we should lose
+		labels which represent a past event and not a property"*.
+
+		**This reverses `#726`'s explicit choice** rather than tidying it away, so the argument
+		it loses is written here: an expired claim is *started and walked away from*, which
+		`holding`'s own comment calls the thing a person watching agents work most wants to
+		see. What outweighed it is that a chip reads as a property of the item, and *left it*
+		is an event — the record of which is the item's history, where an event belongs.
+
+		**It also ends a divergence.** `mcp/tools.py` reads `views.holder`, which applies the
+		clock and returns nobody, so the agent has never shown an expired lease. The browser
+		was the only surface that did.
+
+		**`claimed by`, matching the `claim` and `release` verbs**, and `@` because a username
+		is a person — the sigil the agent's row already uses and quick capture already reads.
+	*/
+	if (lease && lease.held) {
+		states.push({
+			text: lease.who ? `claimed by @${lease.who}` : "Claimed",
+			family: "state",
+			tone: "claimed",
+		});
 	}
 
 	/* **Where it lives, and clicking it narrows the view to that path** — decision `#957` §4.
@@ -3390,9 +3492,19 @@ export function marks (
 	const label = projectLabel(item, place);
 	const home = (item.workspace || (place && place.workspace)) || "";
 
+	const address = [];
+
 	if (label) {
-		found.push({
+		address.push({
 			text: label,
+			/* **No sigil, deliberately** (`#1019`, Simon). A project is the only mark that is
+			   an address, and `#ops` and `@si` beside it carry theirs — so a bare word is
+			   already the third distinguishable thing, and the collision this was written for
+			   (a sub-project sharing a tag's name) is settled by the *tag's* sigil.
+			   **Simon's stated reason expires**: he gave it as *the only linked item without a
+			   sigil*, and `#1020` will make tags and assignees links too. The decision holds on
+			   the reading above, which does not depend on what is clickable. */
+			family: "address",
 			/* **A link only where somebody is listening**, which is `#251`'s rule: a surface
 			   that cannot navigate renders the label and no anchor, rather than an anchor whose
 			   only outcome is a page that has not moved. */
@@ -3402,10 +3514,52 @@ export function marks (
 		});
 	}
 
-	if (item.assignee) found.push({ text: item.assignee });
-	if (item.status && !item.status_is_default) found.push({ text: item.status });
+	/*
+		**Tags reach a row for the first time** (`#1019`). `marks` never read them — they went
+		to the item page's fact sheet and nowhere else — so a label somebody applied was
+		invisible on every listing, board and agenda since tags existed.
 
-	return found;
+		**`#` is quick capture's own sigil**, so the chip reads as the thing a person types.
+		Measured before deciding whether to cap them: four is the most any item here carries,
+		so there is no overflow to design.
+	*/
+	for (const tag of item.tags || []) {
+		address.push({ text: `#${tag}`, family: "address" });
+	}
+
+	if (item.assignee) address.push({ text: `@${item.assignee}`, family: "address" });
+
+	/*
+		**The status, and the two things that silence it** — `#1019`, both Simon's.
+
+		**One**: where the column a card sits in already says it. That is the caller's to know,
+		because only a board has columns — and it is not computed from the page's contents.
+		§12.2a's drop-if-uniform was refused for the browser by decision `#957` §4, because the
+		page polls and a chip vanishing under the reader is `#966`'s shape.
+
+		**Two**: where a state mark already carries the word. `blocked` is a seeded status *and*
+		a derived state, so a card could say it twice with two meanings. The status is the
+		workspace's own vocabulary and is not ours to rename (§5.5), so the state keeps the word
+		— and this generalises for nothing extra, to a workspace that renames one `Deferred`.
+
+		**Compared case-blind on the key**, which is what the view sends: the status arrives as
+		`blocked` and the mark says `Blocked`.
+	*/
+	const said = new Set(states.map((mark) => mark.text.toLowerCase()));
+	const status = item.status && !item.status_is_default && !hideStatus
+		&& !said.has(String(item.status).toLowerCase())
+		? [{ text: item.status, family: "identity" }]
+		: [];
+
+	/*
+		**Assembled rather than pushed in place**, so the order is one statement: what it is,
+		why it is here, what is true of it now, where it lives.
+
+		The ordering value stays second and that is `#661`'s alignment argument — a reader
+		checking an order reads down one edge, so it must land in the same place on every line.
+		Putting the status before it would move it whenever a status happened to show.
+	*/
+	return [...found, ...status, ...states, ...address];
 }
 
 export function moment (value, now = null) {
@@ -3848,6 +4002,11 @@ export function Marks ({ badges, onGo = null }) {
 	*/
 	if (!badges || badges.length === 0) return null;
 
+	/* **Two classes, and they answer different questions** (`#1019`). `family` is what kind of
+	   fact this is — identity, state, address, context — and decides the shape; `tone` is
+	   `#102`'s exception colour and is set on three marks only. Keeping them apart is what
+	   stopped the stylesheet being a set of tones that happened to look different. */
+
 	return html`
 		<span class="marks">
 			${badges.map((mark) => (mark.href && onGo
@@ -3858,14 +4017,14 @@ export function Marks ({ badges, onGo = null }) {
 				   somebody is listening. Both halves are checked because they are two
 				   decisions, taken in two places. */
 				? html`
-					<a class="mark ${mark.tone || ""}" href=${mark.href}
+					<a class="mark ${mark.family || ""} ${mark.tone || ""}" href=${mark.href}
 						onClick=${(event) => followed(event, () => onGo(mark.href))}>
-						<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+						<${Icon} name=${mark.icon} />${" "}${mark.text}
 					</a>
 				`
 				: html`
-					<span class="mark ${mark.tone || ""}">
-						<${Icon} name=${mark.icon || MARK_ICONS[mark.text]} />${" "}${mark.text}
+					<span class="mark ${mark.family || ""} ${mark.tone || ""}">
+						<${Icon} name=${mark.icon} />${" "}${mark.text}
 					</span>
 				`))}
 		</span>
@@ -3883,10 +4042,15 @@ export function Row ({
 	/* Where to go when a label is clicked. Absent renders the label as a plain span rather
 	   than a link that does nothing, which is `#251`'s shape. */
 	onGo = null,
+	/* **Whether the container already says the status** (`#1019`) — true only on a board, and
+	   only for a column whose category holds one status. A row cannot work this out: a list and
+	   an agenda have no columns, and the answer is about the workspace's vocabulary rather than
+	   about this item. */
+	hideStatus = false,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering, projects, place, !!onGo);
+	const badges = marks(item, showKind, ordering, projects, place, !!onGo, hideStatus);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -4149,6 +4313,10 @@ export function Board ({
 	   the harness can call it (`#640`); the *defaults* are worked out below, where the columns
 	   and the selection are both to hand. */
 	choices = null, onCollapse = null,
+	/* **What this workspace calls its statuses** (`#1019`), so a column can tell whether its
+	   own name already says everything. Only the board needs it: a list and an agenda have no
+	   columns to be redundant with. */
+	statuses = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -4295,7 +4463,12 @@ export function Board ({
 													showKind=${showKind} workspace=${workspace}
 													place=${{ workspace, project }} onGo=${onGo}
 													onOpen=${onOpen} onComplete=${onComplete}
-													onDrag=${onDrag} projects=${projects} />
+													onDrag=${onDrag} projects=${projects}
+													hideStatus=${soleStatusIn(
+														statuses,
+														item.kind === "document" ? "document" : "task",
+														column.key,
+													)} />
 											`)}
 										</ul>
 									`}`}
@@ -5159,22 +5332,26 @@ export function Facts ({ item, prioritised = [] }) {
 	const add = (label, value) => value && rows.push([label, value]);
 
 	/*
-		**The one place an item says its project is marked, and a row is not** — `#986`, decision
-		`#982` §4. This is a fact sheet about one item rather than a column down a page, so the
-		rule that drops a mark appearing on 84% of rows does not reach it: here it appears once,
-		beside the project it is about, and answers *why is this ranked where it is*.
-
 		**Compared on the path, never on the key.** A key is unique only among its siblings since
 		`#958`, so two projects may be keyed `dist` and comparing keys would mark the wrong one.
 	*/
 	const raised = prioritised.includes(item.project_path || item.project_key);
 
-	add("Status", item.status);
+	/*
+		**Status, type, assignee and tags are marks now** (`#1019`) and are not repeated here —
+		a fact sheet three lines below a chip saying the same word is the duplication this
+		change was about, one surface along.
+
+		**The project stays and is not one of those**, because only this row can say
+		*(prioritised)*. `#982` §4 refuses that as a *mark* — it would appear on 84% of rows
+		here, and a visible magnitude invites *"can I set it to 2?"*, which is the dial that
+		design declines. `#986` put it here for the opposite reason: a fact sheet is about one
+		item, so the rule that drops a repeated mark does not reach it, and it answers *why is
+		this ranked where it is* exactly once, beside the project it is about.
+	*/
 	add("Project", item.project_key && (
 		raised ? `${item.project_key} (prioritised)` : item.project_key
 	));
-	add("Type", item.type);
-	add("Assignee", item.assignee);
 	add(
 		"Priority",
 		item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null,
@@ -5203,7 +5380,6 @@ export function Facts ({ item, prioritised = [] }) {
 	*/
 	add("Repeats", item.recurrence_description);
 	add("Estimate", item.estimate_human);
-	add("Tags", item.tags && item.tags.length > 0 ? item.tags.join(", ") : null);
 	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);
 	add("Updated", day(item.updated_at));
 
@@ -5421,6 +5597,23 @@ export function Detail ({
 					reading=${reading} onReading=${onReading} />`
 				: html`
 					<h2>#${item.ref} ${item.title}</h2>
+					${/*
+						**The same marks a row draws, directly under the title** — `#1019`,
+						Simon: *"I think yes, we should be consistent."*
+
+						This was the one surface with no at-a-glance summary, and it is the one
+						a reader lands on from a card — so the type, the state and the place had
+						to be re-read out of a fact sheet after being visible on the row they
+						clicked. Four `Facts` rows came out with it, which is the half that
+						makes this a change rather than an addition.
+
+						**No ordering value and no status suppression**: a page is not a list,
+						so it is ordered by nothing, and it has no column that could already be
+						saying the status. `place` is null because an item page is not narrowed
+						to anything, so the project label says its whole address.
+					*/ null}
+					<${Marks} badges=${marks(item, true, null, null, null, !!onGo)}
+						onGo=${onGo} />
 					<${Facts} item=${item} prioritised=${prioritised} />
 
 					${onEdit && html`
@@ -7431,6 +7624,11 @@ export function App () {
 							     `columns` twice on one render, which is two answers that can
 							     disagree. */ null}
 							choices=${columnChoices} onCollapse=${collapse}
+							${/* **What this workspace calls its statuses** (`#1019`), so a column
+							     whose category holds exactly one can stop repeating it on every
+							     card. Already fetched for the item page's status control, so
+							     this costs no request. */ null}
+							statuses=${vocabulary && vocabulary.statuses}
 							${/* **Offered only where one parameter is the whole remedy**: a board
 							     narrowed by `status_category` has every other column absent for a
 							     reason no single link undoes, and a link per column claiming to

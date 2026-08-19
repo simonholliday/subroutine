@@ -1136,26 +1136,77 @@ fieldset {
 	flex: 0 0 auto;
 }
 
+/*
+	**Three families, so a mark says which kind of fact it is** — `#1019`, Simon: *"it's hard
+	to tell what kind of label each is, since they look similar."* Eleven chips differed only
+	by tone, so the *category* of a mark was carried by nothing at all.
+
+	**`#102` is what shapes this rather than taste.** Nothing may be said in colour alone, and
+	nothing may be said in a shape alone either — so the family is *reinforcement* and the word
+	is what carries it. A reader in monochrome loses the grouping and no information.
+
+	* **identity** — what it *is*: the type, then the status. Exactly one of each, so a solid
+	  fill is affordable and is what makes the left edge of every row scannable.
+	* **state** — what is true *now*: blocked, blocker, overdue, deferred, claimed, repeats.
+	  An outline, and colour only for the two that are problems.
+	* **address** — where it lives and whose it is. No box at all: `#ops` and `@si` carry
+	  quick capture's own sigils, and a project is the bare word beside them.
+*/
+.mark.identity {
+	background: var(--ink-soft);
+	border-color: var(--ink-soft);
+	color: var(--page);
+}
+
+/*
+	**The outline is the family and a glyph is a bonus**, which is a compromise rather than the
+	design: only `lock-simple`, `key` and `repeat` are vendored, so *deferred*, *overdue* and
+	*claimed* have no picture. Drawing one from memory is what `#925` warns against — a glyph
+	name with no path data draws nothing and says nothing — so three states go without until
+	somebody vendors them from Phosphor's own source.
+*/
+.mark.state { border-color: var(--line-strong); }
+
+/*
+	**No border, because a sigil is the marker.** A boxed `#ops` beside a boxed status reads as
+	the same kind of thing, which is the confusion this whole change is about; unboxed, the
+	three addresses group by eye and stay out of the way of the two that decide what a row is.
+*/
+.mark.address {
+	border-color: transparent;
+	padding-left: 0;
+	padding-right: var(--space-3);
+}
+
 .mark.late { color: var(--warn); border-color: currentColor; }
 .mark.blocked { color: var(--warn); border-color: currentColor; }
 
 /*
-	Who is holding an item (`#726`). **Accent for a live lease, faint for one that ran out** —
-	and each says the word too, so a reader who cannot separate the hues loses nothing
-	(decision `#102`). *left it* is deliberately quieter than *is on it*: an expired claim is
-	worth seeing and is not an alarm.
+	Who is holding an item (`#726`). **An expired lease is drawn no longer** (`#1019`), so the
+	dashed `stale` rule went with it — see `marks` for the argument it reverses.
+
+	**Accent, and the tension in that is recorded rather than implicit.** `#102` reserves
+	colour for exceptions, and a claim is not a *problem* the way overdue and blocked are — it
+	is ordinary work in progress. Keeping it stands on rarity instead: one live claim in 172
+	open tasks here, and rarity is what an exception is.
+
+	**What would make it wrong**: claiming becoming routine. If a listing ever shows this on a
+	third of its rows, colour has started encoding a scale, and this is the rule to come back
+	to. Simon's decision of 2026-08-19, taken with that written down.
 */
 .mark.claimed { color: var(--accent); border-color: currentColor; }
-.mark.stale { color: var(--ink-faint); border-style: dashed; }
 
 /*
-	The value the page is sorted on (`#661`). **No border**, because it is not a label on this
-	item the way *Blocked* or a project key is — it is the same field repeated down the whole
-	column, and giving it a chip's outline would make a reader read it row by row instead of
-	scanning it. Decision `#102` is untouched: nothing here is said in a colour, and this one is
-	quieter because it is *more* repetitive rather than less important.
+	The value the page is sorted on (`#661`) — the `context` family, and the only mark that is a
+	fact about the *page* rather than about the item.
+
+	**No border**, because it is not a label on this item the way *Blocked* or a project key is
+	— it is the same field repeated down the whole column, and giving it a chip's outline would
+	make a reader read it row by row instead of scanning it. Decision `#102` is untouched:
+	nothing here is said in a colour, and this one is quieter because it is *more* repetitive
+	rather than less important.
 */
-.mark.quiet {
+.mark.context {
 	border-color: transparent;
 	padding-left: 0;
 	color: var(--ink-faint);
