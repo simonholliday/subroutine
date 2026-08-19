@@ -55,6 +55,7 @@ import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
+import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.text
 import subroutine.domain.workspaces
@@ -360,6 +361,21 @@ class Task(pydantic.BaseModel):
 	#: Empty only where an ancestor could not be read, which no supported path produces.
 	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
 	project_path: str = ""
+
+	#: The colour this item is marked with — a palette *name*, never a value (`#1026`).
+	#:
+	#: **What is in force, not what was chosen.** A project's own colour, or the nearest
+	#: ancestor's, or its workspace's, or ``None``. Which of those supplied it is deliberately
+	#: not reported: a row renders a mark and has no use for the provenance, and a settings form
+	#: reads the entity's own ``settings`` to tell chosen from inherited.
+	#:
+	#: **A name so that every surface can render it its own way**, or ignore it — the terminal
+	#: draws nothing today (Simon, 2026-08-19) and needs no resolver to decline. A stored value
+	#: could not be rendered under `#102`'s sixteen-ANSI rule at all.
+	#:
+	#: **Defaulted** (`#345`, `#482`), and ``None`` is a real answer meaning *nothing up this
+	#: tree has chosen one* rather than *this instance did not say*.
+	project_colour: str | None = None
 	parent_task_id: uuid.UUID | None
 
 	#: Who holds a lease on this, and until when (§14.11, `#350`).
@@ -1422,6 +1438,21 @@ class Document(pydantic.BaseModel):
 	#: Empty only where an ancestor could not be read, which no supported path produces.
 	#: **Defaulted** (`#345`, `#482`): an instance older than this field sends no such key.
 	project_path: str = ""
+
+	#: The colour this item is marked with — a palette *name*, never a value (`#1026`).
+	#:
+	#: **What is in force, not what was chosen.** A project's own colour, or the nearest
+	#: ancestor's, or its workspace's, or ``None``. Which of those supplied it is deliberately
+	#: not reported: a row renders a mark and has no use for the provenance, and a settings form
+	#: reads the entity's own ``settings`` to tell chosen from inherited.
+	#:
+	#: **A name so that every surface can render it its own way**, or ignore it — the terminal
+	#: draws nothing today (Simon, 2026-08-19) and needs no resolver to decline. A stored value
+	#: could not be rendered under `#102`'s sixteen-ANSI rule at all.
+	#:
+	#: **Defaulted** (`#345`, `#482`), and ``None`` is a real answer meaning *nothing up this
+	#: tree has chosen one* rather than *this instance did not say*.
+	project_colour: str | None = None
 	parent_id: uuid.UUID | None
 
 	status: str
@@ -1741,6 +1772,18 @@ class Vocabulary:
 		# be on every line. This class is already the answer to "what does a page of rows need
 		# that a row cannot know on its own", and an ancestor's key is exactly that.
 		self.project_paths = subroutine.domain.projects.paths_for(session, set(project_ids))
+		# **The colour in force for each project, resolved upwards** (`#1026`, design `#1023`).
+		# A project's own, or the nearest ancestor's, or its workspace's, or none. Batch-loaded
+		# for the same reason the addresses above are: it renders on every line, so a per-row
+		# walk is `#39`'s N+1 on a column that is always there.
+		#
+		# **Resolved here rather than in each client.** A row carries `project_path`, so a
+		# browser could walk it — and would then hold a copy of the inheritance rule, in three
+		# surfaces. `#925`: when a client would need a copy of a rule to render a field, publish
+		# the rendering instead.
+		self.project_colours = subroutine.domain.settings.for_projects(
+			session, subroutine.domain.settings.COLOUR, set(project_ids)
+		)
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
 		# question of either. Two queries rather than one because the join tables are two —
@@ -1941,6 +1984,7 @@ def task (
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
+		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_task_id=row.parent_task_id,
 		parent_ref=_parent_field(vocabulary, row.parent_task_id, "ref"),
 		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
@@ -2052,6 +2096,7 @@ def document (
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
+		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_id=row.parent_id,
 		status=str(status.get("key", "")),
 		status_category=str(status.get("category", "")),

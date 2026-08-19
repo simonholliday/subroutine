@@ -788,6 +788,7 @@ class Client(typing.Protocol):
 		description: str | None = UNSET,
 		visibility: str = UNSET,
 		status: str = UNSET,
+		settings: dict[str, typing.Any] = UNSET,
 		workspace: str | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address — items ``#434`` and ``#983``.
@@ -849,6 +850,7 @@ class Client(typing.Protocol):
 		description: str | None = UNSET,
 		timezone: str | None = UNSET,
 		prioritised_project: str | None = UNSET,
+		settings: dict[str, typing.Any] = UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address — item ``#434``.

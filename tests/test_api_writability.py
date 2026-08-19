@@ -131,6 +131,7 @@ DERIVED: dict[str, str] = {
 	),
 	"project_key": "The key of project_id, resolved for display.",
 	"project_path": "The whole address of project_id — its ancestors' keys and its own, composed for display (`#512`). Derived from the tree rather than stored, so moving a project changes it without anybody writing it.",
+	"project_colour": "The colour in force for project_id (`#1026`) — the project's own, or the nearest ancestor's, or its workspace's. Set on the *project* through its `settings`, never on an item, and derived from the tree exactly as `project_path` is: moving a project changes it without anybody writing it.",
 	"claimed_by": (
 		"The username of claimed_by_id, resolved for display (`#726`) — the same shape as "
 		"`assignee` beside `assignee_id`. A lease is taken and given back by `claim` and "

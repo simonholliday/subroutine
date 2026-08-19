@@ -94,6 +94,11 @@ class Update(subroutine.api.schemas.RequestModel):
 	description: str | None = None
 	timezone: str | None = None
 
+	#: What this workspace is configured with, merged **per key** into whatever is there
+	#: (`#1025`). Every project in it inherits these unless it sets its own — see
+	#: `domain/settings.py`, which holds the registry and the merge rule.
+	settings: dict[str, typing.Any] | None = None
+
 	#: The one project whose work rises in this workspace's ranked listings (decision ``#982``),
 	#: named the way a caller addresses one — its key or its whole path. Null clears it.
 	#:
@@ -336,6 +341,10 @@ def change (
 	# cross-workspace check in `workspaces.update` is defence behind that rather than the only
 	# guard. Read from `model_fields_set` because null is a value here: it clears the priority,
 	# where an absent key means *leave it alone* (§8.3).
+	# Null means *leave it alone* rather than *clear them all*, for `api/projects.py`'s reason.
+	if "settings" in supplied and body.settings is not None:
+		changes["settings"] = body.settings
+
 	if "prioritised_project" in supplied:
 		changes["prioritised_project"] = (
 			None

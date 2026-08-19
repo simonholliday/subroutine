@@ -26,6 +26,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.patch
 import subroutine.domain.scoping
+import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -327,6 +328,7 @@ def update (
 	visibility: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	status_key: str = subroutine.domain.patch.UNSET,
+	settings: dict[str, typing.Any] = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
@@ -415,6 +417,17 @@ def update (
 	if status_key is not subroutine.domain.patch.UNSET:
 		cleaned_status = status_for(session, project.workspace_id, status_key).id
 
+	# **Merged per key rather than replaced**, and validated here in the same pass as everything
+	# else — a settings map naming a key nothing declares must refuse before any assignment, the
+	# rule this function's docstring states. `domain.settings.applied` is where the merge rule
+	# and its argument live.
+	cleaned_settings: typing.Any = subroutine.domain.patch.UNSET
+
+	if settings is not subroutine.domain.patch.UNSET:
+		cleaned_settings = subroutine.domain.settings.applied(
+			project.settings, settings, scope=subroutine.domain.settings.PROJECT
+		)
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 
@@ -425,6 +438,10 @@ def update (
 		("visibility", visibility),
 		("owner_id", owner_id),
 		("status_id", cleaned_status),
+		# **The whole dict, replaced rather than mutated** (`#42`). SQLAlchemy does not watch
+		# inside a JSON column, so assigning into one is silently never written — and the
+		# equality check just below is what stops an identical map moving `updated_at`.
+		("settings", cleaned_settings),
 	):
 		if value is subroutine.domain.patch.UNSET:
 			continue

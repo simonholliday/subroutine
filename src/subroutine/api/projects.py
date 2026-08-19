@@ -94,6 +94,12 @@ class Update(subroutine.api.schemas.RequestModel):
 	visibility: str | None = None
 	owner_id: uuid.UUID | None = None
 
+	#: What this project is configured with, merged **per key** into whatever is there
+	#: (`#1025`). A key sent as null is cleared; a key not mentioned is untouched; a key
+	#: nothing declares is refused by name. `domain/settings.py` is the registry and holds the
+	#: argument for merging where every other field on this model replaces.
+	settings: dict[str, typing.Any] | None = None
+
 	#: A project status key from this workspace's own vocabulary — `active`, `on_hold`,
 	#: `completed` or `archived` as seeded, and renameable (§5.5). **Absent until `#983`**,
 	#: which is why three of the four seeded values could never be reached: a project was
@@ -318,6 +324,13 @@ def change (
 	# who meant "leave it alone" and said it the long way (`#176`).
 	if "key" in supplied and body.key is not None:
 		changes["key"] = body.key
+
+	# **Null means *leave it alone*, as it does for `key` and `visibility` above.** Clearing
+	# every setting at once is not something a caller has ever asked for and would be an
+	# expensive thing to do by accident; a *setting* is cleared by naming it with a null value,
+	# which is the granularity somebody actually addresses.
+	if "settings" in supplied and body.settings is not None:
+		changes["settings"] = body.settings
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, project)):
 		updated = subroutine.domain.projects.update(

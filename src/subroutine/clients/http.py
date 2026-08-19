@@ -801,6 +801,7 @@ class Client:
 		description: str | None = subroutine.clients.base.UNSET,
 		visibility: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace: str | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address, over the wire.
@@ -817,6 +818,7 @@ class Client:
 			"description": description,
 			"visibility": visibility,
 			"status": status,
+			"settings": settings,
 		}
 		body = self._json(
 			"PATCH",
@@ -863,6 +865,7 @@ class Client:
 		description: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 		prioritised_project: str | None = subroutine.clients.base.UNSET,
+		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, over the wire."""
@@ -874,6 +877,7 @@ class Client:
 			"description": description,
 			"timezone": timezone,
 			"prioritised_project": prioritised_project,
+			"settings": settings,
 		}
 		body = self._json(
 			"PATCH",

@@ -21,6 +21,7 @@ import subroutine.domain.dates
 import subroutine.domain.events
 import subroutine.domain.patch
 import subroutine.domain.projects
+import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.domain.versions
 import subroutine.errors
@@ -144,6 +145,7 @@ def update (
 	prioritised_project: subroutine.db.models.project.Project | None = (
 		subroutine.domain.patch.UNSET
 	),
+	settings: dict[str, typing.Any] = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.Workspace:
@@ -219,6 +221,15 @@ def update (
 
 	if description is not subroutine.domain.patch.UNSET:
 		changed["description"] = description
+
+	if settings is not subroutine.domain.patch.UNSET:
+		# **Merged per key rather than replaced**, and validated against the registry — see
+		# `domain.settings.applied` for why this one field departs from §8.3's whole-value rule.
+		# The dict is *replaced* on the row rather than mutated, which is `#42`: SQLAlchemy does
+		# not watch inside a JSON column, so an in-place write is silently never stored.
+		changed["settings"] = subroutine.domain.settings.applied(
+			workspace.settings, settings, scope=subroutine.domain.settings.WORKSPACE
+		)
 
 	if timezone is not subroutine.domain.patch.UNSET:
 		# Validated on the way *in*. Unvalidated, a bad zone is stored happily and then fails

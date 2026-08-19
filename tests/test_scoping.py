@@ -58,6 +58,13 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",
+	"domain/settings.py": "resolves a setting upwards through a project's ancestors and its "
+	"workspace (`#1026`), for projects a caller already holds — so the rows are vetted before "
+	"this sees them. **Narrowing here would disclose nothing and would render a wrong answer**: "
+	"visibility inherits *down* a tree (§7.3a hides a project when it or any ancestor is "
+	"private without a membership), so anybody who can see a row can already see every ancestor "
+	"this reads — and skipping an unreadable ancestor would silently return the colour of a "
+	"*different* level. `paths_for`'s argument, unchanged",
 	"domain/workspaces.py": "**names `Project` and selects none of them** (`#986`). `update` "
 	"takes an already-resolved project so that it can refuse one belonging to another "
 	"workspace, which is a type annotation rather than a query; the selects in this module are "

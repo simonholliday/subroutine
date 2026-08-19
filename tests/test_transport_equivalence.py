@@ -3904,3 +3904,103 @@ def test_both_transports_mint_a_sign_in_link_on_an_instance_with_no_public_url (
 		assert minted.address_assumed, (
 			f"{client!r} reported a configured address for one it worked out"
 		)
+
+
+def _colour_of (client: subroutine.clients.base.Client, ref: int) -> str | None:
+	"""Return the colour in force on one item, refusing a ref that resolves to nothing.
+
+	``task`` answers ``None`` for *no such task here*, which on a one-connection fixture would
+	be a silent pass for every colour assertion below — the absent row and the absent colour
+	read identically. Asserted rather than narrowed away.
+	"""
+
+	found = client.task(ref=ref)
+
+	assert found is not None, f"{client!r} cannot see the task it just filed"
+
+	return found.project_colour
+
+
+def test_both_transports_set_a_colour_and_read_back_the_one_in_force (pair: Pair) -> None:
+	"""`#1025`, `#1026`. The whole loop, per transport: set it, then read what an item reports.
+
+	**Both halves matter and only one of them is the write.** A colour is stored on a *project*
+	or a *workspace* and reported on every *item* under it, so a transport that accepted the
+	setting and returned a row without it would look entirely correct from the writing end.
+	`#640`'s shape — the rule right, the display right, no wire between them — five times in this
+	repository, so it is asserted end to end rather than at the boundary.
+
+	**The inheritance is driven rather than asserted from the domain**, because that is where
+	the two could diverge: the resolution runs server-side (`#925`), so a client that failed to
+	*ask* for the field, or a renderer that dropped it, is invisible to a domain test.
+	"""
+
+	# **Annotated, because `enumerate` over a heterogeneous tuple widens to `object`.** Iterating
+	# `both()` directly keeps the join and every other test here does that; a counter is wanted
+	# for the per-pass project key, so the element type is stated rather than inferred.
+	clients: tuple[subroutine.clients.base.Client, ...] = pair.both()
+
+	for index, client in enumerate(clients):
+		project = client.create_project(key=f"paint{index}", title=f"Paint {index}")
+		filed = client.capture(text=f"Something to colour +paint{index}").task
+
+		# Nothing set anywhere: no colour, rather than a default nobody chose.
+		assert _colour_of(client, filed.ref) is None
+
+		# The workspace's, which everything in it inherits.
+		client.update_workspace(
+			pair.workspace.slug, settings={"appearance.colour": "slate"}
+		)
+
+		assert _colour_of(client, filed.ref) == "slate", (
+			f"{client!r} did not inherit the workspace's colour"
+		)
+
+		# The project's own beats it.
+		client.update_project(project.key, settings={"appearance.colour": "teal"})
+
+		assert _colour_of(client, filed.ref) == "teal", (
+			f"{client!r} did not prefer the project's own colour"
+		)
+
+		# And clearing it falls back rather than going blank, which is the difference between
+		# *not stated* and *no colour* and is the whole of the inheritance rule.
+		client.update_project(project.key, settings={"appearance.colour": None})
+
+		assert _colour_of(client, filed.ref) == "slate", (
+			f"{client!r} cleared the project's colour and did not fall back to the workspace's"
+		)
+
+		# **Put the workspace back, because both clients share one.** Without this the second
+		# pass starts with `slate` already inherited and its first assertion — that nothing set
+		# anywhere means no colour — fails against correct behaviour. Found by the failure
+		# rather than foreseen, and it is the same shape as `#986`'s module-scoped `running`:
+		# a test that passes alone and fails in a loop, which is the one direction
+		# ordering-dependent state fails in.
+		client.update_workspace(pair.workspace.slug, settings={"appearance.colour": None})
+
+
+def test_both_transports_refuse_a_setting_nothing_declares (pair: Pair) -> None:
+	"""`#898`'s rule one layer in, asked of each surface.
+
+	A settings map is the one field here that is a *namespace*, so a quietly kept typo would sit
+	in the database looking configured. Refusing it is what the registry is for, and refusing it
+	on **both** transports is what stops the local client being the lenient one — the divergence
+	`#712`, `#921` and `#1007` are all instances of.
+	"""
+
+	# **Annotated, because `enumerate` over a heterogeneous tuple widens to `object`.** Iterating
+	# `both()` directly keeps the join and every other test here does that; a counter is wanted
+	# for the per-pass project key, so the element type is stated rather than inferred.
+	clients: tuple[subroutine.clients.base.Client, ...] = pair.both()
+
+	for index, client in enumerate(clients):
+		client.create_project(key=f"reject{index}", title=f"Reject {index}")
+
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.update_project(
+				f"reject{index}", settings={"appearence.colour": "teal"}
+			)
+
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.update_project(f"reject{index}", settings={"appearance.colour": "burgundy"})

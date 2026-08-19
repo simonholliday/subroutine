@@ -1605,6 +1605,7 @@ class Client:
 		description: str | None = subroutine.clients.base.UNSET,
 		visibility: str = subroutine.clients.base.UNSET,
 		status: str = subroutine.clients.base.UNSET,
+		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace: str | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address, in process."""
@@ -1616,6 +1617,7 @@ class Client:
 			"description": description,
 			"visibility": visibility,
 			"status_key": status,
+			"settings": settings,
 		}
 
 		with self._writing() as (session, actor):
@@ -1702,6 +1704,7 @@ class Client:
 		description: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
 		prioritised_project: str | None = subroutine.clients.base.UNSET,
+		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, in process."""
@@ -1709,7 +1712,10 @@ class Client:
 		self._refuse_if_read_only()
 
 		given: dict[str, typing.Any] = {
-			"title": title, "description": description, "timezone": timezone
+			"title": title,
+			"description": description,
+			"timezone": timezone,
+			"settings": settings,
 		}
 
 		with self._writing() as (session, actor):

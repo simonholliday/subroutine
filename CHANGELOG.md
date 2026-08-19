@@ -22,6 +22,20 @@ upgrade involves.
 
 ### Added
 
+- **A workspace and a project can be given a colour, and everything under it inherits one.**
+  `PATCH /v1/workspaces` and `PATCH /v1/projects` accept a `settings` map, and every task and
+  document now reports `project_colour` — the colour in force for it, which is its project's
+  own, or the nearest ancestor's, or its workspace's, or none. Colours are chosen from a
+  **named palette** rather than given as hex, so the same choice can be rendered by any surface
+  and is guaranteed to be legible in both light and dark themes; a value that is not one of the
+  names is refused with the whole list. Set one with
+  `subroutine project update web --settings appearance.colour=teal` once the browser lands, or
+  through either client today.
+
+- **Settings are validated against a declared registry.** A key nothing declares is refused by
+  name rather than stored, and a map is merged **per key** — so setting one thing leaves
+  everything else alone, and sending a key as `null` clears just that one.
+
 - **The small labels on a row now say which *kind* of fact they are.** Every one used to be the
   same rounded lozenge, so a project, a tag, a status and *Blocked* looked alike and only the
   words told them apart. There are three shapes now: what an item **is** (its type, then its
