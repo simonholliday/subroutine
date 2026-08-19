@@ -33,7 +33,9 @@ upgrade involves.
   page holding work from several projects you can see at a glance which is which, without
   reading a word. A project that has not been given one inherits from whatever is above it, so
   setting a colour on a workspace marks everything in it at once.
-  There is no control for it in the browser yet; set one over the API or from either client.
+  Set one with `subroutine workspace update projects --colour indigo` or
+  `subroutine project update web --colour teal`; `--colour ''` clears it. There is no control
+  for it in the browser yet.
 
 - **A project template no longer writes a setting nothing reads.** `visible_status_keys` was
   seeded into every project's `settings` by its template and consulted by no part of the

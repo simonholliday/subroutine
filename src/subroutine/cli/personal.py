@@ -57,11 +57,13 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.filtering
 import subroutine.domain.ordering
+import subroutine.domain.palette
 import subroutine.domain.projects
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.search
+import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
@@ -3548,6 +3550,20 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 			_suggest(program.console, f"subroutine use {renamed.slug}")
 
 
+#: What ``--colour`` offers, composed once. **At module level because `#943`'s ratchet counts
+#: lines inside ``register``**, and a help string assembled in the closure is three lines of
+#: sentence per command for a value that is the same on both.
+_COLOURS = ", ".join(subroutine.domain.palette.NAMES)
+
+#: A project's, which falls back to whatever is above it rather than to nothing.
+COLOUR_HELP = f"What its work is marked with: {_COLOURS}. Pass '' to inherit."
+
+#: A workspace's, which everything in it takes unless a project says otherwise.
+WORKSPACE_COLOUR_HELP = (
+	f"What its work is marked with, unless a project says otherwise: {_COLOURS}. Pass '' to clear."
+)
+
+
 def _project_updated (
 	program: Program,
 	*,
@@ -3555,6 +3571,7 @@ def _project_updated (
 	title: str,
 	description: str,
 	status: str,
+	colour: str,
 	private: bool | None,
 ) -> None:
 	"""Change the fields beside a project's address, and say what it means — `#983`, `#434`."""
@@ -3573,9 +3590,18 @@ def _project_updated (
 	if private is not None:
 		changes["visibility"] = "private" if private else "public"
 
+	# **A settings map rather than a column, and merged per key** (`#1025`). An empty string
+	# clears it, which is how every other option here spells *unset* — and clearing means the
+	# project falls back to whatever is above it rather than going unmarked.
+	if colour is not UNGIVEN:
+		changes["settings"] = {
+			subroutine.domain.settings.COLOUR.key: colour or None
+		}
+
 	if not changes:
 		program.stop(
-			"Nothing to change.", hint="Pass --title, --description, --status or --private."
+			"Nothing to change.",
+			hint="Pass --title, --description, --status, --colour or --private.",
 		)
 
 	with program.opened() as world:
@@ -3880,10 +3906,75 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 		program.say("  Your agenda is counted from midnight there, on every surface.")
 
 
+def _connections_listed (program: Program) -> None:
+	"""Print every instance this machine reaches, and which one a write goes to.
+
+	**Lifted out of ``register`` to pay for `#1025`'s two ``--colour`` options** (`#943`'s
+	ratchet, which only goes down). It needed nothing but :class:`Program`, which is what that
+	class exists for: seven of these were closure names until `#943`, and a helper reachable
+	only by running a Typer command is one nothing can test directly.
+	"""
+
+	resolved = program.settings()
+	current = None
+
+	try:
+		roster = subroutine.connections.roster(resolved)
+
+		# Resolved without opening anything, deliberately: this is the command somebody runs
+		# when a connection is *not* working, so it must not need one to answer.
+		current = subroutine.context.resolve(
+			roster,
+			connection=program.selected.connection,
+			workspace=program.selected.workspace,
+			marker=subroutine.directory.find(),
+		)
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+	_warn_about_the_credentials_file(program.warn)
+
+	# Named per connection, because a person with three of them needs to know *which*.
+	for exposed in roster:
+		if subroutine.connections.in_the_clear(exposed):
+			program.warn(
+				f"{exposed.name} is reached over plain http, so its token crosses the "
+				f"network readable by anything in between."
+			)
+
+	rows = [
+		_connection_row(program, connection, roster, resolved, current) for connection in roster
+	]
+	widths = [max(len(row[column]) for row in rows) for column in range(3)]
+
+	for row in rows:
+		program.say(
+			f"{row[0].ljust(widths[0])}  {row[1].ljust(widths[1])}  "
+			f"{row[2].ljust(widths[2])}  {row[3]}"
+		)
+
+	# **Where it came from, when the two answers differ** (`#278`). One word in a column cannot
+	# say why, and why is the whole question when somebody has just watched a write land
+	# somewhere they did not expect. Silent when they agree, which is the ordinary case.
+	if current.connection != roster.default:
+		program.say("")
+		program.say(f"Writing to {current.describe(qualified=roster.qualifies)}.")
+
+	program.say("")
+	_suggest(program.console, "subroutine use")
+
+
 def _workspace_updated (
-	program: Program, *, slug: str, title: str, description: str, timezone: str
+	program: Program,
+	*,
+	slug: str,
+	title: str,
+	description: str,
+	timezone: str,
+	colour: str,
 ) -> None:
-	"""Change the fields beside a workspace's address — `#434`."""
+	"""Change the fields beside a workspace's address — `#434`, `#1025`."""
 
 	changes: dict[str, typing.Any] = {}
 
@@ -3896,8 +3987,17 @@ def _workspace_updated (
 	if timezone is not UNGIVEN:
 		changes["timezone"] = timezone or None
 
+	# Everything in the workspace inherits this unless a project sets its own (`#1026`).
+	if colour is not UNGIVEN:
+		changes["settings"] = {
+			subroutine.domain.settings.COLOUR.key: colour or None
+		}
+
 	if not changes:
-		program.stop("Nothing to change.", hint="Pass --title, --description or --timezone.")
+		program.stop(
+			"Nothing to change.",
+			hint="Pass --title, --description, --timezone or --colour.",
+		)
 
 	with program.opened() as world:
 		where = world.writing_to()
@@ -5644,6 +5744,9 @@ def register (
 			show_default=False,
 			help="active, on_hold, completed or archived.",
 		),
+		colour: str = typer.Option(
+			UNGIVEN, "--colour", show_default=False, help=COLOUR_HELP
+		),
 		private: bool | None = typer.Option(
 			None, "--private/--public", show_default=False, help="Who can see it."
 		),
@@ -5669,6 +5772,7 @@ def register (
 			title=title,
 			description=description,
 			status=status,
+			colour=colour,
 			private=private,
 		)
 
@@ -5741,6 +5845,9 @@ def register (
 			show_default=False,
 			help="Its zone, e.g. 'Europe/London'. Pass '' to follow the instance.",
 		),
+		colour: str = typer.Option(
+			UNGIVEN, "--colour", show_default=False, help=WORKSPACE_COLOUR_HELP
+		),
 	) -> None:
 		"""Change what a workspace is called, what it is for, or which zone its dates are in.
 
@@ -5759,7 +5866,12 @@ def register (
 		"""
 
 		_workspace_updated(
-			program, slug=slug, title=title, description=description, timezone=timezone
+			program,
+			slug=slug,
+			title=title,
+			description=description,
+			timezone=timezone,
+			colour=colour,
 		)
 
 	@project_app.command("prioritise")
@@ -6320,53 +6432,7 @@ def register (
 		if context.invoked_subcommand is not None:
 			return
 
-		resolved = settings()
-		current = None
-
-		try:
-			roster = subroutine.connections.roster(resolved)
-
-			# Resolved without opening anything, deliberately: this is the command somebody
-			# runs when a connection is *not* working, so it must not need one to answer.
-			current = subroutine.context.resolve(
-				roster,
-				connection=selected.connection,
-				workspace=selected.workspace,
-				marker=subroutine.directory.find(),
-			)
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
-
-		_warn_about_the_credentials_file(warn)
-
-		# Named per connection, because a person with three of them needs to know *which*.
-		for exposed in roster:
-			if subroutine.connections.in_the_clear(exposed):
-				warn(
-					f"{exposed.name} is reached over plain http, so its token crosses the "
-					f"network readable by anything in between."
-				)
-
-		rows = [_connection_row(program, connection, roster, resolved, current) for connection in roster]
-		widths = [max(len(row[column]) for row in rows) for column in range(3)]
-
-		for row in rows:
-			say(
-				f"{row[0].ljust(widths[0])}  {row[1].ljust(widths[1])}  "
-				f"{row[2].ljust(widths[2])}  {row[3]}"
-			)
-
-		# **Where it came from, when the two answers differ** (`#278`). One word in a column
-		# cannot say why, and why is the whole question when somebody has just watched a write
-		# land somewhere they did not expect. Silent when they agree, which is the ordinary
-		# case and needs no explanation.
-		if current.connection != roster.default:
-			say("")
-			say(f"Writing to {current.describe(qualified=roster.qualifies)}.")
-
-		say("")
-		_suggest(console, "subroutine use")
+		_connections_listed(program)
 
 	@connections_app.command("add")
 	def connections_add (
