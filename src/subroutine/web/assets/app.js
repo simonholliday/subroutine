@@ -4690,6 +4690,9 @@ export function Fields ({
 	busy, vocabulary, projects, members, project, values, reading, onReading,
 	/* The prioritised project's address, so the dropdown can mark it (`#986`). */
 	prioritised = null,
+	/* Which prose box is being previewed and what it held when the button was pressed — one
+	   answer for the whole page, in `App`, like every other piece of state here (`#776`). */
+	previewing = null, onPreviewing = null, where = null,
 }) {
 	/*
 		Every field beyond the one that names the item — shared by adding and editing (`#757`).
@@ -4752,9 +4755,9 @@ export function Fields ({
 		<fieldset class="details">
 			<legend>Everything else</legend>
 
-			<label class="wide"><span>Description</span>
-				<textarea name="description" rows="3" disabled=${busy}
-					defaultValue=${held.description || ""}></textarea></label>
+			<${Written} name="description" label="Description" rows="3" busy=${busy}
+				value=${held.description || ""} where=${where}
+				previewing=${previewing} onPreviewing=${onPreviewing} />
 
 			${/* **The Inbox is named rather than left blank**, because it is where an item with
 			     no project goes — a blank option here would be a control whose effect the
@@ -4959,6 +4962,7 @@ export const DOCUMENT_HINT = "What did you conclude?";
 
 export function DocumentFields ({
 	busy, vocabulary, projects, project, values, prioritised = null,
+	previewing = null, onPreviewing = null, where = null,
 }) {
 	/*
 		A document's fields — `#761`. Deliberately not `Fields`.
@@ -4990,10 +4994,9 @@ export function DocumentFields ({
 		<fieldset class="details">
 			<legend>The document</legend>
 
-			<label class="wide"><span>What it says</span>
-				<textarea name="body" rows="12" disabled=${busy}
-					placeholder="Markdown works, and #42 links."
-					defaultValue=${held.body || ""}></textarea></label>
+			<${Written} name="body" label="What it says" rows="12" busy=${busy}
+				value=${held.body || ""} placeholder="Markdown works, and #42 links."
+				where=${where} previewing=${previewing} onPreviewing=${onPreviewing} />
 
 			${pick("type", "Type", offered(vocabulary && vocabulary.item_types, "document"))}
 			${/* Narrowed the same way a task's is (`#1029`) — a document's statuses are a
@@ -5011,6 +5014,7 @@ export function DocumentFields ({
 export function Adding ({
 	onAdd, busy, note, expanded, onExpand, vocabulary, projects, members, project,
 	writing, onWriting, reading, onReading, prioritised = null,
+	previewing = null, onPreviewing = null, where = null,
 }) {
 	/*
 		**One box, and the capture grammar behind it** (§6.13). `+project`, `!4/3`, `#tag`,
@@ -5086,10 +5090,12 @@ export function Adding ({
 
 			${expanded && (writing
 				? html`<${DocumentFields} busy=${busy} vocabulary=${vocabulary}
-					projects=${projects} project=${project} prioritised=${prioritised} />`
+					projects=${projects} project=${project} prioritised=${prioritised}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing} />`
 				: html`<${Fields} busy=${busy} vocabulary=${vocabulary}
 					projects=${projects} members=${members} project=${project}
 					prioritised=${prioritised}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
 					reading=${reading} onReading=${onReading} />`)}
 
 			${/* **Only where it is not obvious.** A listing is one workspace and saying so on
@@ -5102,7 +5108,7 @@ export function Adding ({
 
 export function Editing ({
 	item, busy, onSave, onCancel, vocabulary, projects, members, conflict, reading, onReading,
-	prioritised = null,
+	prioritised = null, previewing = null, onPreviewing = null, where = null,
 }) {
 	/*
 		The same form, filled from an item — `#757`.
@@ -5139,6 +5145,7 @@ export function Editing ({
 
 			<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
 				members=${members} values=${fromItem(item)} prioritised=${prioritised}
+				where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
 				reading=${reading} onReading=${onReading} />
 		</form>
 	`;
@@ -5717,6 +5724,8 @@ export function Detail ({
 	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
+	/* Which prose box is being previewed, and how to change it — `#776`. */
+	previewing = null, onPreviewing = null,
 	/* Which projects are prioritised, addressed — for the fact sheet's project row (`#986`). */
 	prioritised = [],
 	/* **What the address already said**, so a linked item's project chip strips it exactly as
@@ -5751,6 +5760,7 @@ export function Detail ({
 				? html`<${Editing} item=${item} busy=${busy} onSave=${onSave}
 					onCancel=${() => onEdit(false)} conflict=${conflict}
 					vocabulary=${vocabulary} projects=${projects} members=${members}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
 					reading=${reading} onReading=${onReading} />`
 				: html`
 					<h2>#${item.ref} ${item.title}</h2>
@@ -5895,7 +5905,8 @@ export function Detail ({
 					`)}
 				</ul>
 
-				${onComment && html`<${Saying} busy=${busy} onComment=${onComment} />`}
+				${onComment && html`<${Saying} busy=${busy} onComment=${onComment}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing} />`}
 			`}
 		</div>
 	`;
@@ -5984,7 +5995,79 @@ export function Seeking ({ onSearch, asked, busy }) {
 	`;
 }
 
-export function Saying ({ onComment, busy }) {
+export function Written ({
+	name, label, rows, value = "", busy = false, required = false, placeholder = null,
+	where = null, previewing = null, onPreviewing = null,
+}) {
+	/*
+		A box for prose, and a way to see it as it will read — `#776`, Simon's suggestion of
+		2026-08-10.
+
+		**Cheap, because the renderer is already ours and already pure.** `markdown.render` is a
+		function from text to a string — which is what let 25 hostile payloads be fed through
+		its own entry point in `#637` — so a preview is that call plus somewhere to put the
+		answer. No library, no build step, nothing new served.
+
+		**The textarea stays mounted and is hidden**, which is the whole of why this works.
+		Swapping it out for the preview would drop an *uncontrolled* field, so coming back would
+		show `defaultValue` — the stored text rather than what somebody has been typing. `#757`
+		chose `defaultValue` over `value` precisely so a re-render cannot reach in and reset
+		what is being written, and throwing it away on a toggle would be that loss arriving
+		from a friendlier direction.
+
+		**A toggle rather than side by side**, which is a trade rather than a shortcut. Live
+		text beside the box needs a mirror of every keystroke, and a mirror is the controlled
+		field `#757` refused. This reads the value once, when the button is pressed.
+
+		**No state of its own**, like every other form component here (`Adding`'s own comment
+		says why): the answer lives in `App` and arrives as a prop, so `tests/dom.js` can render
+		this and `#640`'s gap does not widen.
+
+		The preview goes through `Prose`, which catches — `#679`/`#680` are why that matters
+		here more than anywhere else: this is the one place the renderer is asked to read
+		*incomplete* Markdown, and every half-written state is on the way to a finished one.
+	*/
+	const showing = Boolean(previewing) && previewing.name === name;
+
+	const toggle = (event) => {
+		if (!onPreviewing) return;
+
+		/* **Read once, from the form this button is in.** The box is uncontrolled, so its
+		   current text lives in the DOM and nowhere else — which is `#757`'s decision and the
+		   reason a live preview would need a mirror of every keystroke. */
+		const form = event.currentTarget.form;
+		const box = form && form.elements[name];
+
+		onPreviewing(showing ? null : { name, text: box ? box.value : "" });
+	};
+
+	return html`
+		<label class=${`wide written${showing ? " previewing" : ""}`}>
+			<span>${label}</span>
+
+			${onPreviewing && html`
+				<button type="button" class="preview" disabled=${busy} onClick=${toggle}
+					aria-pressed=${showing ? "true" : "false"}>
+					${showing ? "Write" : "Preview"}
+				</button>
+			`}
+
+			${/* **Hidden rather than unmounted**, so an uncontrolled field keeps what is in
+			     it — see above. `hidden` and not a class, because a hidden form control is
+			     still submitted and still readable, which is exactly what is wanted. */ null}
+			<textarea name=${name} rows=${rows} disabled=${busy} required=${required}
+				hidden=${showing} placeholder=${placeholder} aria-label=${label}
+				defaultValue=${value}></textarea>
+
+			${showing && html`
+				<${Prose} className="rendered" text=${previewing.text} where=${where} />
+			`}
+		</label>
+	`;
+}
+
+
+export function Saying ({ onComment, busy, where = null, previewing = null, onPreviewing = null }) {
 	/*
 		Writing down what happened — `#759`.
 
@@ -6013,9 +6096,9 @@ export function Saying ({ onComment, busy }) {
 
 	return html`
 		<form class="saying" onSubmit=${submit}>
-			<textarea name="body" rows="3" required disabled=${busy}
-				aria-label="Add a comment"
-				placeholder="Markdown works, and #42 links."></textarea>
+			<${Written} name="body" label="Add a comment" rows="3" required busy=${busy}
+				placeholder="Markdown works, and #42 links." where=${where}
+				previewing=${previewing} onPreviewing=${onPreviewing} />
 			<button type="submit" disabled=${busy}>Add a comment</button>
 		</form>
 	`;
@@ -6058,6 +6141,12 @@ export function App () {
 	const [ready, setReady] = useState(false);
 	const [members, setMembers] = useState([]);
 	const [note, setNote] = useState(null);
+
+	/* **Which prose box is being previewed, and what it held when the button was pressed**
+	   (`#776`). One answer for the page rather than one per box: two previews at once is a
+	   state nobody asked for, and this is where every other form's state already lives —
+	   `Adding`'s own comment says why none of them keeps its own. */
+	const [previewing, setPreviewing] = useState(null);
 
 	/* **Whether the instance has been redeployed under this page** — `#785`. Its own state
 	   rather than a `note`, because a note is what just happened and is replaced by the next
@@ -7602,6 +7691,11 @@ export function App () {
 		   `Board` and `Listing` each pass this through and none of them has any business
 		   knowing what a repeat preview is. */
 		reading, onReading: readRepeat,
+		/* **In the bundle for the same reason** (`#776`): the capture form has two prose boxes
+		   and `Agenda`, `Board` and `Listing` each pass this through knowing nothing about
+		   what a preview is. One answer for the page, so opening a second box closes the
+		   first — two previews at once is a state nobody asked for. */
+		previewing, onPreviewing: setPreviewing, where: mentionHref(workspace),
 	};
 
 	if (error) {
@@ -7768,6 +7862,7 @@ export function App () {
 				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${mayWrite ? save : null}
 					reading=${reading} onReading=${readRepeat}
+					previewing=${previewing} onPreviewing=${setPreviewing}
 					onStatus=${mayWrite ? status : null}
 					statuses=${vocabulary && vocabulary.statuses}
 					onComment=${mayComment ? comment : null}

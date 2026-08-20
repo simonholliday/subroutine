@@ -1834,3 +1834,39 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	outline: var(--focus-ring);
 	outline-offset: 1px;
 }
+
+/* Prose being written, and a way to see it as it will read — `SR#776`.
+
+   The label is already a column, so the button and the preview stack under the box without
+   any layout of their own. The button sits at the end of the label's own line rather than
+   above the box, which is where a reader looks for a control that is *about* the field. */
+.written {
+	position: relative;
+}
+
+.written > .preview {
+	position: absolute;
+	inset-block-start: 0;
+	inset-inline-end: 0;
+	padding: var(--control-tight);
+	font-size: var(--text-fine);
+}
+
+/* **The same height as the box it replaces**, or toggling would move everything under it —
+   which on a twelve-row document body is the whole page jumping under the cursor. A minimum
+   rather than a fixed height: prose that renders taller than the box is worth seeing whole,
+   and the box is what somebody scrolls. */
+.written > .rendered {
+	min-block-size: 6em;
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--bg-sunken);
+	overflow-x: auto;
+}
+
+/* An empty box previews as nothing, and nothing looks like a broken control. */
+.written > .rendered:empty::before {
+	content: "Nothing written yet.";
+	color: var(--ink-faint);
+}

@@ -22,6 +22,11 @@ upgrade involves.
 
 ### Added
 
+- **Prose being written can be seen as it will read.** A task's description, a document's
+  body and a comment box each carry a **Preview** button now, which renders what you have typed
+  with the same Markdown renderer the item page uses. Press it again to go back; what you were
+  writing is still there.
+
 - **An item shows what refers to it.** Every `#42` written in a title, a description, a
   document body or a comment has been indexed since the first release and read by nothing, so
   *what refers to this?* was answerable on no surface. `subroutine show` now ends with a

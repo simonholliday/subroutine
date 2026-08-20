@@ -221,6 +221,9 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
 	"Adding": {"busy": False},
+	# `#776`: a prose box with a way to see it as it will read. Rendered writing rather than
+	# previewing, because that is the state every one of them is in most of the time.
+	"Written": {"name": "description", "label": "Description", "rows": "3", "value": "Some prose."},
 	# **The shared field block** (`SR#757`), rendered with everything it can draw so that a
 	# malformed template in any one control fails here rather than in front of a reader.
 	"Fields": {
@@ -2072,6 +2075,162 @@ def test_nothing_in_the_browser_app_is_declared_and_never_read () -> None:
 		"declared and never read in app.js: "
 		+ ", ".join(f"line {line}: {name}" for line, name in dead)
 	)
+
+
+#: Documents that are *finished* and correct, used as a source of half-written ones — `#776`.
+#:
+#: **A preview renders incomplete Markdown, which stored prose never is.** Everything the
+#: renderer has ever been asked came from a database, so it was whole; somebody typing meets
+#: every state on the way to it — an unclosed fence, a lone bracket, a table with one pipe, a
+#: heading with no text. That is the half of this item that is not one call.
+ON_THE_WAY = [
+	"# A heading\n\nSome prose with a [link](https://example.com) in it.\n",
+	"```python\nprint('hello')\n```\n\nAfter the fence.\n",
+	"| one | two |\n| --- | --- |\n| a | b |\n",
+	"- first\n- second\n  - nested\n\n> quoted\n> across two lines\n",
+	"Some **bold** and `code` and a #42 mention, then a\n\n---\n\nrule.\n",
+]
+
+
+def test_every_prose_box_offers_a_preview () -> None:
+	"""Three boxes want it — a task's description, a document's body, and a comment (`#776`).
+
+	**Asserted over the source, and the reason is the same one `#964` gives**: the wiring is in
+	`App`, which uses hooks, so `tests/dom.js` cannot call it (`#640`). What is checked is that
+	no ``<textarea`` is left standing outside `Written` — a box added later without one would
+	be the only one in the app that could not be read back, silently.
+	"""
+
+	# **`_without_comments`, not `_without_prose`**: the markup lives inside template
+	# literals, and the version that blanks strings blanks every element with them — measured,
+	# it found no textareas at all and the guard passed for the wrong reason.
+	source = _without_comments(_served_modules()["app.js"])
+	boxes = re.findall(r"<textarea", source)
+	written = re.findall(r"<\$\{Written\}", source)
+
+	assert len(boxes) == 1, (
+		f"{len(boxes)} textareas are declared outside `Written`, so a prose box exists that "
+		f"cannot be previewed"
+	)
+	assert len(written) >= 3, f"only {len(written)} prose boxes go through `Written`"
+
+
+def test_a_prose_box_can_be_read_as_it_will_look (tmp_path: pathlib.Path) -> None:
+	"""`#776`, Simon's suggestion of 2026-08-10.
+
+	**Cheap, because the renderer is already ours and already pure.** ``markdown.render`` is a
+	function from text to a string — which is what let 25 hostile payloads be fed through its
+	own entry point in `#637` — so a preview is that call plus somewhere to put the answer.
+
+	**The box stays mounted when the preview is showing**, and that is the assertion that
+	matters. Swapping it out drops an *uncontrolled* field, so coming back would show
+	``defaultValue`` — the stored text rather than what somebody has been typing, which is the
+	loss `#757` chose ``defaultValue`` to prevent, arriving from a friendlier direction.
+	"""
+
+	writing, previewing = [
+		rendered["Written"]
+		for rendered in (
+			_rendered(tmp_path, {"Written": {
+				"name": "description", "label": "Description", "rows": "3",
+				"value": "A **bold** claim.", "onPreviewing": True,
+			}}),
+			_rendered(tmp_path, {"Written": {
+				"name": "description", "label": "Description", "rows": "3",
+				"value": "A **bold** claim.", "onPreviewing": True,
+				"previewing": {"name": "description", "text": "A **bold** claim."},
+			}}),
+		)
+	]
+
+	assert "<textarea" in writing and "<strong>" not in writing, (
+		f"the box is previewing before anybody asked: {writing}"
+	)
+	assert "Preview" in writing, "there is no way to ask for one"
+
+	assert "<strong>bold</strong>" in previewing, (
+		f"the preview is not rendered as Markdown: {previewing}"
+	)
+	assert "<textarea" in previewing, (
+		"the box was unmounted, so going back to it loses what was being typed"
+	)
+	assert "Write" in previewing, "there is no way back to the box"
+
+
+def test_only_the_box_that_was_asked_about_previews (tmp_path: pathlib.Path) -> None:
+	"""One answer for the page, so opening a second box closes the first.
+
+	Two previews at once is a state nobody asked for, and the state lives in `App` for the
+	reason `Adding`'s own comment gives — no form component here keeps its own, so the render
+	harness can call every one of them (`#640`).
+	"""
+
+	[other] = _views_of_written(tmp_path, "body", {"name": "description", "text": "elsewhere"})
+
+	assert "<textarea" in other and "elsewhere" not in other, (
+		f"a box previewed something asked about another one: {other}"
+	)
+
+
+def _views_of_written (
+	tmp_path: pathlib.Path, name: str, previewing: dict[str, str] | None
+) -> list[str]:
+	"""Render one prose box, in one state."""
+
+	return [
+		_rendered(tmp_path, {"Written": {
+			"name": name, "label": "What it says", "rows": "3", "value": "stored",
+			"onPreviewing": True, "previewing": previewing,
+		}})["Written"]
+	]
+
+
+def test_prose_being_written_renders_at_every_length (tmp_path: pathlib.Path) -> None:
+	"""`#776`. Every prefix of a valid document, because that is what typing looks like.
+
+	The renderer has only ever been handed *stored* text, which is whole by the time it gets
+	there. A preview is the first thing to ask it about a document that is not finished yet,
+	and `#679`/`#680` are why that is worth a test rather than an assumption: ``markdown.blocks``
+	overflowed the stack at 3,360 nested blockquotes, and **typing ``>>>>>>…`` is a thing a
+	person does**.
+
+	Prefixes rather than whole documents, which is the case none of the existing generated
+	inputs builds: `HOSTILE` is a table of finished attacks and `ON_THE_WAY` is a table of
+	finished prose, and what is checked here is everything in between.
+	"""
+
+	prefixes = [
+		whole[:length]
+		for whole in ON_THE_WAY
+		for length in range(1, len(whole) + 1)
+	]
+
+	assert len(prefixes) > 250, f"only {len(prefixes)} prefixes, so this is barely a scan"
+
+	for source, html in zip(prefixes, _markdown(tmp_path, prefixes), strict=True):
+		assert _tags(html) <= EMITTED_TAGS, (
+			f"{source!r} produced {_tags(html) - EMITTED_TAGS}"
+		)
+		assert "<script" not in html.lower(), f"{source!r} produced a script element"
+
+
+def test_prose_being_written_survives_what_a_person_leans_on (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The other half, and it is the one `#679` actually met.
+
+	A prefix of a valid document is well-behaved by construction. What is not is a key held
+	down — ``>>>>>>…``, ``####…``, ``[[[[…`` — which nobody would ever *store* and everybody
+	produces on the way to something. ``markdown.blocks`` is capped at 32 levels for exactly
+	this, and the cap has never been asked about from the surface that reaches it.
+	"""
+
+	leaned = [character * 200 for character in (">", "#", "[", "*", "`", "-", "|", "_")]
+
+	for source, html in zip(leaned, _markdown(tmp_path, leaned), strict=True):
+		assert _tags(html) <= EMITTED_TAGS, (
+			f"{source[:8]!r}… produced {_tags(html) - EMITTED_TAGS}"
+		)
 
 
 def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
