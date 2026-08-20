@@ -4267,8 +4267,9 @@ export function Row ({
 			<${Marks} badges=${badges} onGo=${onGo} />
 			${date && html`<span class="when">${date}</span>`}
 			${acting && html`
-				<button class="finish" onClick=${() => onComplete(item)}
-					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+				<button class="finish action" onClick=${() => onComplete(item)}
+					aria-label=${`Complete #${item.ref}, ${item.title}`}
+					><${Icon} name="check" />Complete</button>
 			`}
 		</div>
 	`;
@@ -4296,7 +4297,7 @@ export function Row ({
 		<li ...${lift} data-colour=${hue}>
 			${address
 				? html`<a class="row" href=${address} onClick=${open}>${identity}</a>`
-				: html`<button class="row" onClick=${open}>${identity}</button>`}
+				: html`<button class="row inline" onClick=${open}>${identity}</button>`}
 			${meta}
 		</li>
 	`;
@@ -4566,7 +4567,7 @@ export function Board ({
 									     heading turns with it. `aria-expanded` is what says so to a reader who
 									     cannot see the rotation. */ null}
 								<h2 class="shut">
-									<button type="button" aria-expanded="false"
+									<button type="button" class="reveal" aria-expanded="false"
 										onClick=${() => onCollapse && onCollapse(column.key, false)}>
 										${column.label}
 										${/* **The count is what keeps collapsed from meaning blind**, and it says
@@ -4581,7 +4582,7 @@ export function Board ({
 							: html`
 								<h2>${column.label}${!unasked(column) && html`${" "}
 									<span class="tally">${column.items.length}</span>`}
-									${onCollapse && html`<button type="button" class="shut"
+									${onCollapse && html`<button type="button" class="shut reveal"
 										aria-expanded="true" aria-label=${`Collapse ${column.label}`}
 										onClick=${() => onCollapse(column.key, true)}>−</button>`}</h2>
 
@@ -4616,7 +4617,7 @@ export function Board ({
 				<div class="cut">
 					<span>Showing ${items.length}. There are more.</span>
 					${onMore && html`
-						<button onClick=${onMore} disabled=${busy}>Show more</button>
+						<button class="action" onClick=${onMore} disabled=${busy}>Show more</button>
 					`}
 				</div>
 			`}
@@ -5075,10 +5076,16 @@ export function Adding ({
 				<input name="text" required disabled=${busy}
 					aria-label=${writing ? "The document's title" : "Add an item"}
 					placeholder=${writing ? DOCUMENT_HINT : CAPTURE_HINT} />
-				<button type="submit" disabled=${busy}>${writing ? "Write" : "Add"}</button>
+				<button type="submit" class="primary" disabled=${busy}
+					>${writing ? "Write" : "Add"}</button>
 				${onExpand && html`
-					<button type="button" class="more" aria-expanded=${expanded ? "true" : "false"}
-						onClick=${() => onExpand(!expanded)}>${expanded ? "Less" : "More"}</button>
+					${/* **A reveal, and it draws the state it already declared** — design `#1045`.
+					     `aria-expanded` has been here since this was written and nothing showed it,
+					     so *More* looked exactly like *Cancel* and *Search*. The caret turns. */ null}
+					<button type="button" class="more reveal"
+						aria-expanded=${expanded ? "true" : "false"}
+						onClick=${() => onExpand(!expanded)}
+						>${expanded ? "Less" : "More"}<${Icon} name="caret-down" /></button>
 				`}
 			</div>
 
@@ -5147,8 +5154,10 @@ export function Editing ({
 			<div class="line">
 				<input name="title" required disabled=${busy} aria-label="Title"
 					defaultValue=${item.title} />
-				<button type="submit" disabled=${busy}>Save</button>
-				<button type="button" class="more" onClick=${onCancel}>Cancel</button>
+				<button type="submit" class="primary" disabled=${busy}>Save</button>
+				${/* **Quiet, because it changes nothing** — design `#1045`. It wore `More`'s
+				     look, in `More`'s position, doing the opposite of revealing anything. */ null}
+				<button type="button" class="quiet" onClick=${onCancel}>Cancel</button>
 			</div>
 
 			${conflict && html`<${Conflict} theirs=${conflict} />`}
@@ -5230,7 +5239,7 @@ export function Narrowed ({
 		<div class="narrowed">
 			<span>Showing <strong>${project}</strong> and anything under it.</span>
 			${onPrioritise && html`
-				<button type="button" class="prioritise" disabled=${busy}
+				<button type="button" class="prioritise action" disabled=${busy}
 					onClick=${() => onPrioritise(raised ? null : project)}
 					title=${raised
 						? "Stop raising this project's work"
@@ -5242,7 +5251,7 @@ export function Narrowed ({
 			${onWiden && (widenTo
 				? html`<a class="widen" href=${widenTo}
 					onClick=${(event) => followed(event, onWiden)}>Show everything</a>`
-				: html`<button onClick=${onWiden}>Show everything</button>`)}
+				: html`<button class="action" onClick=${onWiden}>Show everything</button>`)}
 		</div>
 	`;
 }
@@ -5350,7 +5359,7 @@ export function Listing ({
 				<div class="cut">
 					<span>Showing ${items.length}. There are more.</span>
 					${onMore && html`
-						<button onClick=${onMore} disabled=${busy}>Show more</button>
+						<button class="action" onClick=${onMore} disabled=${busy}>Show more</button>
 					`}
 				</div>
 			`}
@@ -5377,11 +5386,12 @@ export function Note ({ note, onUndo, onDismiss }) {
 	return html`
 		<div class=${`note ${note.tone}`} role=${note.tone === "bad" ? "alert" : "status"}>
 			<span class="said">${note.text}</span>
-			${note.undo && html`<button class="undo" onClick=${onUndo}>Undo</button>`}
+			${note.undo && html`<button class="undo action" onClick=${onUndo}>Undo</button>`}
 			${note.act && html`
-				<button class="undo" onClick=${note.act.go}>${note.act.label}</button>
+				<button class="undo action" onClick=${note.act.go}>${note.act.label}</button>
 			`}
-			<button class="dismiss" onClick=${onDismiss} aria-label="Dismiss this message">×</button>
+			<button class="dismiss quiet" onClick=${onDismiss}
+				aria-label="Dismiss this message">×</button>
 		</div>
 	`;
 }
@@ -5706,8 +5716,9 @@ export function Doing ({
 	return html`
 		<div class="doing">
 			${completable(item) && html`
-				<button class="finish" disabled=${busy} onClick=${() => onComplete(item)}
-					aria-label=${`Complete #${item.ref}, ${item.title}`}>Complete</button>
+				<button class="finish action" disabled=${busy} onClick=${() => onComplete(item)}
+					aria-label=${`Complete #${item.ref}, ${item.title}`}
+					><${Icon} name="check" />Complete</button>
 			`}
 
 			${onStatus && where.length > 0 && html`
@@ -5778,7 +5789,7 @@ export function Detail ({
 		<div class="detail">
 			${backTo
 				? html`<a class="back" href=${backTo} onClick=${back}>← All items</a>`
-				: html`<button class="back" onClick=${back}>← All items</button>`}
+				: html`<button class="back quiet" onClick=${back}>← All items</button>`}
 			${/* **Editing replaces the item's own display rather than sitting beside it**
 			     (`#757`). Two copies of a title on one screen, one of them stale, is the shape
 			     this project keeps paying for — and a reader has to be able to see what they
@@ -5811,7 +5822,7 @@ export function Detail ({
 					<${Facts} item=${item} prioritised=${prioritised} />
 
 					${onEdit && html`
-						<button class="edit" disabled=${busy}
+						<button class="edit action" disabled=${busy}
 							onClick=${() => onEdit(true)}>Edit</button>
 					`}
 
@@ -5875,16 +5886,20 @@ export function Detail ({
 								     cancelled blocker said `done` on this page, about an item
 								     nobody finished. The status chip is what tells them
 								     apart. */ null}
+								${/* **The one link end with no address is a button standing in for an
+								     anchor**, so it wears `inline` — the role for a control that must
+								     read as the link it replaces rather than draw itself a box
+								     (design `#1045`). */ null}
 								${to
 									? html`<a class=${link.other.is_complete ? "over" : null}
 										href=${to} onClick=${follow}>
 										#${link.other.ref} ${link.other.title}</a>`
-									: html`<button class=${link.other.is_complete ? "over" : null}
+									: html`<button class=${`inline${link.other.is_complete ? " over" : ""}`}
 										onClick=${follow}>
 										#${link.other.ref} ${link.other.title}</button>`}
 								<${Marks} badges=${badges} onGo=${onGo} />
 								${onUnlink && html`
-									<button class="unlink" disabled=${busy}
+									<button class="unlink action" disabled=${busy}
 										aria-label=${`Remove the link to #${link.other.ref}`}
 										onClick=${() => onUnlink(link)}>Remove</button>
 								`}
@@ -5983,7 +5998,7 @@ export function Linking ({ onLink, types, busy }) {
 			</select>
 			<input name="target" required disabled=${busy} inputMode="numeric"
 				aria-label="Which item" placeholder="#42" />
-			<button type="submit" disabled=${busy}>Link</button>
+			<button type="submit" class="primary" disabled=${busy}>Link</button>
 		</form>
 	`;
 }
@@ -6017,7 +6032,10 @@ export function Seeking ({ onSearch, asked, busy }) {
 			<input key=${asked} name="q" type="search" disabled=${busy}
 				defaultValue=${asked} aria-label="Search"
 				placeholder="Search anything" />
-			<button type="submit" disabled=${busy}>Search</button>
+			${/* **An action, not a primary** — Simon, 2026-08-20. It is this form's submit, and
+			     the rule is *commits the thing this form exists to make*: a search makes
+			     nothing, and three accent fills on one screen is the noise being removed. */ null}
+			<button type="submit" class="action" disabled=${busy}>Search</button>
 		</form>
 	`;
 }
@@ -6056,7 +6074,7 @@ export function Written ({
 	*/
 	const showing = Boolean(previewing) && previewing.name === name;
 
-	const toggle = (event) => {
+	const toggle = (wanted) => (event) => {
 		if (!onPreviewing) return;
 
 		/* **Read once, from the form this button is in.** The box is uncontrolled, so its
@@ -6065,7 +6083,7 @@ export function Written ({
 		const form = event.currentTarget.form;
 		const box = form && form.elements[name];
 
-		onPreviewing(showing ? null : { name, text: box ? box.value : "" });
+		onPreviewing(wanted ? { name, text: box ? box.value : "" } : null);
 	};
 
 	return html`
@@ -6073,10 +6091,27 @@ export function Written ({
 			<span>${label}</span>
 
 			${onPreviewing && html`
-				<button type="button" class="preview" disabled=${busy} onClick=${toggle}
-					aria-pressed=${showing ? "true" : "false"}>
-					${showing ? "Write" : "Preview"}
-				</button>
+				${/*
+					**A segmented control, and both words are always there** — Simon 2026-08-20,
+					design `#1045`. It was one button whose label was the *other* state, which
+					is ambiguous twice over: a button reading *Preview* cannot say whether that
+					is what you are looking at or what pressing it gives you. Two segments
+					cannot be.
+
+					**And it wore the accent fill of a control that writes**, three inches above
+					a Save. The accent is spent on committing; this commits nothing.
+
+					**Marked with a fill *and* the word** (`#102`), so nothing here is carried
+					by the mark alone — both labels stay readable in either state.
+				*/ null}
+				<div class="toggle preview" role="group" aria-label=${`How to see ${label}`}>
+					<button type="button" class="segment" disabled=${busy}
+						onClick=${toggle(false)}
+						aria-pressed=${showing ? "false" : "true"}>Write</button>
+					<button type="button" class="segment" disabled=${busy}
+						onClick=${toggle(true)}
+						aria-pressed=${showing ? "true" : "false"}>Preview</button>
+				</div>
 			`}
 
 			${/* **Hidden rather than unmounted**, so an uncontrolled field keeps what is in
@@ -6126,7 +6161,7 @@ export function Saying ({ onComment, busy, where = null, previewing = null, onPr
 			<${Written} name="body" label="Add a comment" rows="3" required busy=${busy}
 				placeholder="Markdown works, and #42 links." where=${where}
 				previewing=${previewing} onPreviewing=${onPreviewing} />
-			<button type="submit" disabled=${busy}>Add a comment</button>
+			<button type="submit" class="primary" disabled=${busy}>Add a comment</button>
 		</form>
 	`;
 }
@@ -6152,7 +6187,7 @@ export function Failed ({ error, onRetry }) {
 		<div class="failed">
 			<p>That did not work.</p>
 			<p class="why">${error.message}</p>
-			<button class="back" onClick=${onRetry}>Try again</button>
+			<button class="back action" onClick=${onRetry}>Try again</button>
 		</div>
 	`;
 }
@@ -7995,7 +8030,7 @@ export function App () {
 					`}
 					${me && html`
 						${" · "}
-						<button class="link" onClick=${signOut}>Sign out</button>
+						<button class="link inline" onClick=${signOut}>Sign out</button>
 					`}
 				</div>
 

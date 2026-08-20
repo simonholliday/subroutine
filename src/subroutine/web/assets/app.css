@@ -267,6 +267,165 @@ button, input, select, textarea {
 
 button { cursor: pointer; }
 
+/* ---- what a button's look means — design `#1045`, `#1046` ---------------- */
+
+/*
+	**A role says what pressing it does; a size says where it is.** `#763` settled the second
+	and nothing had ever settled the first — so nine different treatments had grown, and no two
+	of them agreed: *More*, *Cancel* and *Search* were one look doing three unrelated things,
+	while *Save*, *Complete* and *Remove* were three looks all committing a change. **Complete
+	and Show more were byte-identical**, one changing an item and one loading rows.
+
+	Every button carries exactly one of these six classes. Anything that draws its own fill
+	instead is what `test_every_button_wears_one_of_the_six_roles` refuses.
+
+	The four rules, and each answers something a reader could not work out:
+
+	1. **Anything that changes an item draws itself a box** — `.action`. *Complete* stopped
+	   being grey text that reads as a label saying the item is complete.
+	2. **Anything that changes nothing has no box** — `.quiet`. *Cancel* stopped looking like
+	   *More*, in the same position, doing the opposite.
+	3. **The accent fill is spent only on committing** — `.primary`, one per form. *Preview*
+	   wrote nothing and wore *Save*'s fill.
+	4. **A reveal says so in a glyph** — `.reveal`. `aria-expanded` was already on both such
+	   controls and nothing drew it.
+*/
+
+.primary, .action, .quiet, .reveal, .segment {
+	padding: var(--control-button);
+	border: 1px solid transparent;
+	border-radius: var(--radius);
+	font: inherit;
+	cursor: pointer;
+}
+
+/* **Commits the thing this form exists to make**, and there is one per form. Creating nothing
+   is what keeps a submit out of the accent — Simon's answer of 2026-08-20 about `Search`,
+   which is a form's submit and an `.action`. */
+.primary {
+	background: var(--accent);
+	border-color: transparent;
+	color: var(--bg);
+	font-weight: 500;
+}
+
+/* **Changes an item, without being what this form is for.** A box, because that is the whole
+   of *is this a button*; no fill, because the fill is spent. */
+.action {
+	background: transparent;
+	border-color: var(--line-strong);
+	color: var(--ink-soft);
+}
+
+.action:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
+
+/* **A glyph beside the word, never instead of it** (`#102`). `Complete` was the control Simon
+   read as a label saying the item *is* complete; a box says it is pressable and a tick says
+   what pressing it does. */
+.action .icon { width: 1em; height: 1em; margin-inline-end: var(--space-3); }
+.action { display: inline-flex; align-items: center; }
+
+/* **Changes nothing** — abandons, dismisses, goes back. No box at all, which is what says so
+   before the word is read. */
+.quiet {
+	background: transparent;
+	border-color: transparent;
+	color: var(--ink-faint);
+}
+
+.quiet:hover:not(:disabled) { color: var(--ink); }
+
+/* **Shows or hides more of what is already here.** Quiet, plus a caret that turns — the state
+   is in `aria-expanded` either way, and this is what draws it. */
+.reveal {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-3);
+	background: transparent;
+	border-color: transparent;
+	color: var(--ink-faint);
+}
+
+.reveal:hover:not(:disabled) { color: var(--ink); }
+.reveal .icon { width: 1em; height: 1em; }
+.reveal[aria-expanded="true"] .icon { transform: rotate(180deg); }
+
+/*
+	**`.toggle` is the group and `.segment` is the control**, which is why a segment carries
+	the role rather than the wrapper: a role is what pressing *a button* does, and a `<div>` is
+	not pressed.
+
+	**Chooses between named states, and both are always visible** — Simon, 2026-08-20. It was
+	one button whose label was the *other* state, which is ambiguous twice over: a button
+	reading *Preview* cannot say whether that is what you are looking at or what pressing it
+	gives you, and it wore the accent fill of a control that writes.
+
+	**Marked with a fill *and* the word** (`#102`): both labels are readable at every moment and
+	the mark is never the only thing carrying which is which.
+
+	**Grey rather than the ink, for now** — his answer, and provisional in his own words. It is
+	one token read in one place so that changing it is one line.
+*/
+.toggle {
+	display: inline-flex;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.segment {
+	padding: var(--control-tight);
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
+.segment[aria-pressed="true"] {
+	background: var(--bg-sunken);
+	color: var(--ink);
+	font-weight: 500;
+}
+
+.segment:hover:not([aria-pressed="true"]) { color: var(--ink); }
+
+/* **Lives in prose or a nav bar and must never become a box** — signing out, and a row with no
+   address to be an anchor. It reads as the link it stands in for (`#927`'s M-26). */
+.inline {
+	padding: 0;
+	background: transparent;
+	border: 0;
+	color: var(--accent);
+	font: inherit;
+	cursor: pointer;
+}
+
+.inline:hover { text-decoration: underline; }
+
+.primary:disabled, .action:disabled, .quiet:disabled,
+.reveal:disabled, .segment:disabled { opacity: 0.5; cursor: default; }
+
+.primary:focus-visible, .action:focus-visible, .quiet:focus-visible,
+.reveal:focus-visible, .segment:focus-visible, .inline:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: 1px;
+}
+
+/* **Tight where the control sits on a row or inside a card**, and `.doing` is deliberately
+   absent: an open item's Complete and Edit are *standing* actions with nothing competing for
+   the space, which `#763` chose at the button size and this does not reopen. That is `#763`'s
+   size
+   vocabulary rather than a role: a role says what pressing it does and a size says where it
+   is, and the two are orthogonal. */
+.rows .action, .rows .quiet, .card .action, .card .quiet,
+.meta .action, .meta .quiet, .note .action, .note .quiet,
+.narrowed .action, .cut .action, .linked .action {
+	padding: var(--control-tight);
+	font-size: var(--text-small);
+}
+
+
 button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: 0.5; }
 
 /* **The border goes and the padding with it**, which is the one place a base rule is a
@@ -398,32 +557,11 @@ fieldset {
 .adding input::placeholder { color: var(--ink-faint); }
 .adding :disabled { opacity: 0.5; }
 
-.adding button {
-	flex: 0 0 auto;
-	padding: var(--control-button);
-	background: var(--accent);
-	border: 1px solid transparent;
-	border-radius: var(--radius);
-	color: var(--bg);
-	font: inherit;
-	font-weight: 500;
-	cursor: pointer;
-}
+/* Layout only; the look is `.primary` (design `#1045`). */
+.adding button { flex: 0 0 auto; }
 
-/* **Quieter than Add, because it is not the thing to do** — it opens the fields somebody wants
-   only when they want them, and two equally loud buttons would make that a choice rather than
-   an aside. */
-.adding button.more {
-	background: transparent;
-	border-color: var(--line-strong);
-	color: var(--ink-soft);
-	font-weight: 400;
-}
 
-.adding button.more:hover { color: var(--ink); border-color: var(--ink-soft); }
 
-.adding button:disabled { opacity: 0.45; cursor: default; }
-.adding button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* As many columns of at least 190px as the form's width allows, down to one on a phone.
    **This said "two columns where there is room and one where there is not"**, which is not what
@@ -543,16 +681,9 @@ fieldset {
 /* Editing an item is the same form with the title in place of the capture line — `SR#757`. */
 .adding.editing { margin: 0 0 var(--space-7); }
 
-.edit {
-	margin-bottom: var(--space-6);
-	padding: var(--space-3) var(--space-6);
-	background: transparent;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	cursor: pointer;
-}
+/* Layout only; the look and the size are `.action` inside `.doing`'s sibling — a fourth
+   padding was what this had, and `#763` allows three. */
+.edit { margin-bottom: var(--space-6); }
 
 .edit:hover { color: var(--ink); border-color: var(--ink-soft); }
 .edit:disabled { opacity: 0.5; cursor: default; }
@@ -580,18 +711,9 @@ fieldset {
 .seeking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .seeking input::placeholder { color: var(--ink-faint); }
 
-.seeking button {
-	flex: 0 0 auto;
-	padding: var(--control-button);
-	background: transparent;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	cursor: pointer;
-}
+/* Layout only; the look is `.action`. */
+.seeking button { flex: 0 0 auto; }
 
-.seeking button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .seeking :disabled { opacity: 0.5; cursor: default; }
 
 /* Which kind the disclosed form is about to write — `SR#761`. Above the fields it changes,
@@ -635,17 +757,7 @@ fieldset {
 .linking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .linking input::placeholder { color: var(--ink-faint); }
 
-.linking button {
-	padding: var(--control-button);
-	background: transparent;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	cursor: pointer;
-}
 
-.linking button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .linking :disabled { opacity: 0.5; cursor: default; }
 
 /*
@@ -668,20 +780,13 @@ fieldset {
    down most of the column and the item is what a reader is scanning for. */
 .linked .label { color: var(--ink-soft); }
 
-.linked .unlink {
-	margin-left: var(--space-4);
-	padding: 0;
-	background: transparent;
-	border: 0;
-	color: var(--ink-faint);
-	font: inherit;
-	font-size: var(--text-small);
-	text-decoration: underline;
-	cursor: pointer;
-}
+/* Layout only; the look is `.action`. **It was underlined text with no box**, which is
+   what a control that changes nothing wears — and unlinking changes the item. */
+.linked .unlink { margin-left: var(--space-4); }
 
-.linked .unlink:hover { color: var(--warn); }
-.linked .unlink:disabled { opacity: 0.5; cursor: default; }
+/* **Warns on hover and never at rest** (`#102`): the colour is a reaction to the pointer
+   rather than information only a sighted reader gets. */
+.linked .unlink:hover:not(:disabled) { color: var(--warn); border-color: var(--warn); }
 
 /* Writing down what happened — `SR#759`. Wider than the add box because prose is what goes in
    it, and stacked because the button has nothing to sit beside. */
@@ -707,18 +812,7 @@ fieldset {
 .saying textarea:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .saying textarea::placeholder { color: var(--ink-faint); }
 
-.saying button {
-	padding: var(--control-button);
-	background: var(--accent);
-	border: 1px solid transparent;
-	border-radius: var(--radius);
-	color: var(--bg);
-	font: inherit;
-	font-weight: 500;
-	cursor: pointer;
-}
 
-.saying button:disabled { opacity: 0.45; cursor: default; }
 
 /* **A 409 is news, not a failure** — nothing was written and nothing typed was lost, so this
    is marked the way an exception is marked and says the whole of it in words (`SR#102`). */
@@ -751,19 +845,9 @@ fieldset {
 .note.good { border-left-color: var(--accent); }
 .note .said { flex: 1 1 auto; }
 
-.note button {
-	flex: 0 0 auto;
-	padding: var(--control-tight);
-	background: transparent;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	font-size: var(--text-small);
-	cursor: pointer;
-}
+/* Layout only; the look is `.action` or `.quiet`. */
+.note button { flex: 0 0 auto; }
 
-.note button:hover { color: var(--ink); border-color: var(--ink-soft); }
 .note .dismiss { border-color: transparent; font-size: var(--text-body); line-height: 1; }
 
 /* ---- the board (`#653`) ------------------------------------------------- */
@@ -1093,8 +1177,7 @@ fieldset {
 }
 
 /* Pushed to the far end, so the actions are one group however many chips precede them. */
-.meta .finish { margin-left: auto; }
-
+.meta 
 /* The row, its properties and its actions are one item, and the `li` is what says so. */
 .rows li {
 	display: block;
@@ -1154,20 +1237,11 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
-.finish {
-	padding: var(--control-tight);
-	background: var(--bg-sunken);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	font-size: var(--text-small);
-	white-space: nowrap;
-	cursor: pointer;
-}
 
-.finish:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
-.finish:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+/* Layout only; the look is `.action` (design `#1045`). **It was a sunken fill with a
+   border — byte-identical to `Show more`, which loads rows, and is why Simon read it as a
+   label saying the item *is* complete rather than a button that completes it.** */
+.finish { white-space: nowrap; }
 .finish:disabled { opacity: 0.5; cursor: default; }
 
 .row .ref { color: var(--ink-faint); font-size: var(--text-small); }
@@ -1436,7 +1510,6 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
    **Found by the guard rather than by the sweep**, on its first run: it is addressed by class,
    so the measurement that counted control *elements* never saw it and it was a fourteenth
    padding hiding behind a list of thirteen. */
-.doing .finish { margin: 0; padding: var(--control-button); font-size: var(--text-small); }
 
 .assign {
 	display: flex;
@@ -1611,7 +1684,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
    this rule is one class more specific than `.mark` — so without the `>` every mark on this
    page would take the accent colour and lose its border, and `.mark.late` and `.mark.claimed`
    would stop saying anything. A chip must look the same here as it does on a row. */
-.linked li > a, .linked li > button {
+.linked li > a, .linked li > button:not(.action) {
 	background: transparent;
 	border: 0;
 	padding: 0;
@@ -1622,7 +1695,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	text-align: left;
 }
 
-.linked li > a:hover, .linked li > button:hover { text-decoration: underline; }
+.linked li > a:hover, .linked li > button:not(.action):hover { text-decoration: underline; }
 
 /* ---- states ------------------------------------------------------------ */
 
@@ -1694,19 +1767,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	font-size: var(--text-body);
 }
 
-.cut button {
-	padding: var(--control-tight);
-	background: var(--bg-sunken);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink);
-	font: inherit;
-	font-size: var(--text-small);
-	cursor: pointer;
-}
 
-.cut button:hover:not(:disabled) { border-color: var(--ink-soft); }
-.cut button:disabled { opacity: 0.5; cursor: default; }
 
 /* What the address narrowed the list to (`#647`). It says so in words rather than by looking
    different, because a filter a reader did not apply is one they cannot be expected to
@@ -1750,18 +1811,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .narrowed strong { color: var(--ink); font-weight: 600; }
 
-.narrowed button {
-	padding: var(--control-tight);
-	background: transparent;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink-soft);
-	font: inherit;
-	font-size: var(--text-small);
-	cursor: pointer;
-}
 
-.narrowed button:hover { color: var(--ink); border-color: var(--ink-soft); }
 
 /*
 	Something that would not render, said in words — `#679`, `#680`.

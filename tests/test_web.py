@@ -9996,7 +9996,124 @@ CONTROLS_BY_CLASS = {
 	".finish": "a row's Complete, which is a button and says so nowhere in its selector",
 	".views a": "the view switcher, anchors since `#722` so a middle-click opens a tab",
 	".narrowed a.widen": "*show everything*, an anchor for the same reason",
+	# **The six roles** (design `#1045`, `#1046`). A button's size lives on its role now rather
+	# than on wherever it happened to be written, so these carry every padding this scan
+	# existed to count — and the floor below fell to 14 the moment they did.
+	".primary": "commits what a form exists to make",
+	".action": "changes an item",
+	".quiet": "changes nothing — abandons, dismisses, goes back",
+	".reveal": "shows or hides more of what is already here",
+	".segment": "one control of a segmented toggle",
 }
+
+
+#: The six roles a button may wear — design `#1045`, Simon 2026-08-20. A role says what pressing
+#: it does; `#763`'s three sizes say where it is, and the two are orthogonal.
+ROLES = ("primary", "action", "quiet", "reveal", "segment", "inline")
+
+
+def test_every_button_wears_exactly_one_role () -> None:
+	"""`#1046`. **Nine treatments had grown and no two of them agreed about anything.**
+
+	*More*, *Cancel* and *Search* were one look doing three unrelated things — reveal, abandon,
+	submit — while *Save*, *Complete* and *Remove* were three looks all committing a change.
+	**Complete and Show more were byte-identical**, one changing an item and one loading rows.
+	Every one was chosen where it was written, because nothing said what a look *meant*.
+
+	**Read off the source rather than listed**, so a button written tomorrow is a case tomorrow
+	— which is the whole difference between this and the convention it replaces.
+
+	**Two rather than one**: a button with no role falls back to the browser's own look, and a
+	button with two is a rule nobody can read off the page.
+	"""
+
+	# **`_without_comments`, never `_without_prose`.** The second blanks the text of a template
+	# literal — and in this app the markup *is* that text, so the scan would read nothing and
+	# report a clean page. `#776` met the same thing and this is the second instance.
+	found = re.findall(r"<button\b[^>]*>", _without_comments(_served_modules()["app.js"]), re.S)
+
+	assert len(found) >= 15, (
+		f"only {len(found)} buttons were found, so this scan is broken rather than the page"
+	)
+
+	bare, several = [], []
+
+	for one in found:
+		# **Read off the whole tag, not off a quoted `class="…"`.** One button's class is a
+		# template literal — `class=${`inline${…}`}` — because whether a link end is struck
+		# through is decided there, and a scan that only understood the quoted form reported it
+		# as wearing no role at all. Word boundaries, so `action` in an `aria-label` would be a
+		# false positive and nothing here has one.
+		wearing = {name for name in ROLES if re.search(rf"\b{name}\b", one)}
+
+		if not wearing:
+			bare.append(one[:70])
+
+		elif len(wearing) > 1:
+			several.append(f"{one[:50]} — {sorted(wearing)}")
+
+	assert not bare, (
+		f"{len(bare)} buttons wear no role, so each lands on the user agent's own look and on "
+		"whichever rule it was written next to:\n  " + "\n  ".join(bare)
+	)
+	assert not several, (
+		"a button cannot both, and a reader has to be able to tell what pressing it does from "
+		"how it looks:\n  " + "\n  ".join(several)
+	)
+
+
+def test_only_the_primary_role_spends_the_accent_fill () -> None:
+	"""`#1046`, rule 3: the accent is for committing and nothing else wears it.
+
+	*Preview* wore *Save*'s fill while writing nothing — three inches above a control that
+	writes. **The fill is the loudest thing this page has**, so what it means has to be one
+	thing.
+
+	Asserted on the *stylesheet* rather than in a browser because it is a claim about which
+	selector carries `--accent` as a background, which is text. The browser's job is the
+	computed colour of what is drawn, and `tests/test_browser.py` asks that.
+	"""
+
+	text = _rules_only((ASSETS / "app.css").read_text(encoding="utf-8"))
+	filled = [
+		" ".join(selector.split())
+		for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text)
+		if re.search(r"background:\s*var\(--accent\)", body)
+	]
+
+	assert filled, "nothing is filled with the accent, so this is checking nothing"
+
+	stray = [one for one in filled if not one.startswith(".primary")]
+
+	assert not stray, (
+		f"{stray} fill themselves with the accent. It is spent on committing — one per form — "
+		f"and a control that writes nothing wearing it is what `#1045` is about."
+	)
+
+
+def test_a_reveal_says_so_in_a_glyph_as_well_as_in_a_word () -> None:
+	"""`#1046`, rule 4, and Simon's *'a button which reveals more content should indicate that'*.
+
+	`aria-expanded` was on both controls before this and **nothing drew it**, so *More* looked
+	exactly like *Cancel* and *Search*. The state was already declared; what was missing was
+	any way to see it.
+
+	**Both halves**, because either alone is the defect: a caret with no `aria-expanded` says
+	nothing to a reader who cannot see it, and `aria-expanded` with no caret is what there was.
+	"""
+
+	source = _without_comments(_served_modules()["app.js"])
+	reveals = re.findall(r"<button\b[^>]*\bclass=\"[^\"]*\breveal\b[^\"]*\"[^>]*>", source, re.S)
+
+	assert len(reveals) >= 2, f"only {len(reveals)} reveals found, so this scan reads nothing"
+
+	silent = [one[:70] for one in reveals if "aria-expanded" not in one]
+
+	assert not silent, f"a reveal that says nothing to a screen reader: {silent}"
+
+	assert '.reveal[aria-expanded="true"] .icon' in (ASSETS / "app.css").read_text(
+		encoding="utf-8"
+	), "nothing turns the caret, so the state is declared and drawn by nothing"
 
 
 def test_a_control_is_one_of_three_sizes () -> None:
@@ -10039,7 +10156,11 @@ def test_a_control_is_one_of_three_sizes () -> None:
 		if padding.group(1).strip() == "0" and "border: 0" in body:
 			continue
 
-		found += 1
+		# **Counted per selector rather than per rule** (`#1046`). The six roles share one
+		# padding declaration — which is the whole point of them — so counting rules made the
+		# floor fall as the page got *more* consistent, which is the opposite of what a floor
+		# is for. Each comma-separated part is a control that has a size.
+		found += len([one for one in name.split(",") if one.strip()])
 
 		if padding.group(1).strip() not in sizes:
 			wrong.append(f"{name[:44]} — padding: {padding.group(1).strip()}")
@@ -10154,9 +10275,17 @@ def test_a_type_this_client_has_never_seen_still_gets_a_chip (tmp_path: pathlib.
 
 	# **A glyph either way**, so an unrecognised type reads as *something, unspecified* rather
 	# than as a row that lost a picture every other row has.
-	assert shown.count("<svg") == known.count("<svg") == 1, (
-		f"a recognised type draws {known.count('<svg')} glyphs and an unrecognised one "
-		f"{shown.count('<svg')}"
+	#
+	# **Counted before the row's controls**, because `#1046` gave `Complete` a tick: a count
+	# over the whole row would be two either way and would stop saying anything about the type.
+	def glyphs (markup: str) -> int:
+		"""How many glyphs the row's marks draw, which is this test's subject."""
+
+		return markup[: markup.index("<button")].count("<svg")
+
+	assert glyphs(shown) == glyphs(known) == 1, (
+		f"a recognised type draws {glyphs(known)} glyphs and an unrecognised one "
+		f"{glyphs(shown)}"
 	)
 
 

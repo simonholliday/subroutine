@@ -22,6 +22,24 @@ upgrade involves.
 
 ### Added
 
+- **Every button in the browser says what pressing it does.** Nine visual treatments had grown,
+  each chosen where it was written, and no two agreed: *More*, *Cancel* and *Search* were one
+  look doing three unrelated things, while *Save*, *Complete* and *Remove* were three looks all
+  committing a change. *Complete* and *Show more* were indistinguishable — one changes an item,
+  the other loads rows.
+
+  There are six roles now. **Primary** commits what a form exists to make and is the only thing
+  wearing the accent fill, one per form. **Action** changes an item and draws itself a box —
+  *Complete* is one, with a tick. **Quiet** changes nothing and has no box, so *Cancel* stops
+  looking like *More*. **Reveal** shows more and says so with a caret that turns. **Segment** is
+  one control of a toggle. **Inline** reads as the link it stands in for.
+
+  **Write | Preview is a segmented control**, both words always visible with the current one
+  marked, rather than a button whose label was the other state — and it no longer wears the fill
+  of a control that writes.
+
+### Added
+
 - **A request that can never finish is stopped and says so, rather than hanging.** Nothing
   bounded how long one statement could run, so a row lock, a query that would never finish or a
   database that had stopped answering all reached the caller as *silence* — which from outside
