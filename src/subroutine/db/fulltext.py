@@ -87,13 +87,40 @@ def _configuration () -> typing.Any:
 	return sqlalchemy.text(f"'{CONFIGURATION}'")
 
 
-def document (*columns: typing.Any) -> typing.Any:
-	"""Return the text of a row: its searchable columns, joined by a space.
+#: What a title is worth, against the prose beneath it — `#624`.
+#:
+#: **`A` and `B` rather than numbers**, because that is the whole of what PostgreSQL offers: a
+#: lexeme carries one of four labels and ``ts_rank``'s default weights turn them into
+#: ``{D: 0.1, C: 0.2, B: 0.4, A: 1.0}``. So a title match is worth two and a half times a body
+#: match and no argument has to be passed to say so.
+#:
+#: **By position, and the convention is held by a test rather than by a comment.** Every
+#: declaration in the models names the title first and the prose after it, so the rule is
+#: *the first column is what the row is called*. That is an unwritten rule until something
+#: asks it, which is `test_every_search_index_names_its_title_first`.
+LEADING = "A"
 
-	**Nullable throughout.** ``description`` and ``body`` are both nullable, and one NULL in a
-	concatenation makes the whole thing NULL — which would silently empty the searchable text
-	of every item nobody had described. ``coalesce`` per column rather than around the join, so
-	one missing field costs that field and not the row.
+#: What the prose under a title is worth. A comment's body is indexed alone, so its label is
+#: unobservable: a weight only decides anything where two of them meet in one vector, and
+#: `#870` already answers a comment's rank another way — a hit there is reported as
+#: ``elsewhere`` rather than scored against a title.
+FOLLOWING = "B"
+
+
+def vector (*columns: typing.Any) -> typing.Any:
+	"""Return the indexed form of a row's text — what the index stores and the query asks for.
+
+	**One ``to_tsvector`` per column now, labelled and concatenated** (`#624`), where this used
+	to join the columns into one string and index that. Unweighted, ranking is term frequency
+	and density alone, so a long body mentioning a word repeatedly outranks a title that is
+	*about* it. Measured on this project's own instance: searching for ``seeded`` put `#625` —
+	whose title is *A search for 'seeded' finds 'seed'* — **fifth**, below three body matches
+	and a 97 KB specification.
+
+	**Nullable throughout.** ``description`` and ``body`` are both nullable, and one NULL makes
+	the whole expression NULL — which would silently empty the searchable text of every item
+	nobody had described. ``coalesce`` per column, so one missing field costs that field and
+	not the row.
 
 	**Literals rather than bind parameters**, which is not a style choice: an index stores a
 	rendered expression, and a query carrying ``$1`` where the index carries ``''`` is a
@@ -106,30 +133,28 @@ def document (*columns: typing.Any) -> typing.Any:
 	and ``create_all`` builds it nowhere. **Nothing fails.** The search goes on working and
 	goes on being slow, which is this codebase's inert-control defect in the one form no test
 	can see: only ``EXPLAIN`` can tell an index that is missing from one that is unused.
+
+	**Which rows match does not change**, and that is what makes this safe. ``@@`` ignores
+	weights entirely, so the same search finds the same items; only their order moves.
 	"""
 
 	empty = sqlalchemy.text("''")
-	separator = sqlalchemy.text("' '")
-	parts: list[typing.Any] = []
-
-	for column in columns:
-		if parts:
-			parts.append(separator)
-
-		parts.append(sqlalchemy.func.coalesce(column, empty))
+	parts = [
+		sqlalchemy.func.setweight(
+			sqlalchemy.func.to_tsvector(
+				_configuration(), sqlalchemy.func.coalesce(column, empty)
+			),
+			sqlalchemy.text(f"'{LEADING if at == 0 else FOLLOWING}'"),
+		)
+		for at, column in enumerate(columns)
+	]
 
 	joined: typing.Any = parts[0]
 
 	for part in parts[1:]:
-		joined = joined + part
+		joined = joined.op("||")(part)
 
 	return joined
-
-
-def vector (*columns: typing.Any) -> typing.Any:
-	"""Return the indexed form of a row's text — what the index stores and the query asks for."""
-
-	return sqlalchemy.func.to_tsvector(_configuration(), document(*columns))
 
 
 def query (terms: typing.Sequence[str]) -> typing.Any:

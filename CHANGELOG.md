@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `3a3d6accc196`.
+> **This release changes the database schema**, to `c9e4a1b73f52`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -241,6 +241,15 @@ upgrade involves.
   which the program suggests when it notices.
 
 ### Fixed
+
+- **A search ranks a title match above a body match.** Ranking was term frequency and density
+  alone, so a long description mentioning a word repeatedly outranked the item whose *title*
+  was about it — searching this project for `seeded` put the item called *A search for 'seeded'
+  finds 'seed'* fifth, below three body matches and a 97 KB specification. A title now counts
+  for two and a half times the prose beneath it.
+
+  **Which rows a search finds is unchanged**; only their order moves. PostgreSQL only, like the
+  index itself — a SQLite instance answers `q` the way it always has, unranked.
 
 - **The agenda says when something was dated in a different timezone from your own.** A
   deadline set for the end of somebody's UTC day falls just past the end of a London reader's,

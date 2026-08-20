@@ -318,3 +318,160 @@ def test_the_backend_guard_can_see_a_call_that_omits_settings (tmp_path: pathlib
 
 	assert len(bare) == 1, f"the walk did not find the offending call: {bare}"
 	assert len(passing) == 1, f"the walk did not find the correct call: {passing}"
+
+
+def test_a_title_match_outranks_a_body_match (session: sqlalchemy.orm.Session) -> None:
+	"""`#624`. The indexed text was one string, so ranking was frequency and density alone.
+
+	Measured on this project's own instance before this: searching for ``seeded`` put the item
+	titled *A search for 'seeded' finds 'seed'* **fifth**, below three body matches and a 97 KB
+	specification. A term in a title is the stronger signal and the index could not say so.
+
+	**The fixture has to make the two genuinely disagree**, which is `#1013`'s recorded trap:
+	equal scores fall through to the ``ref`` tiebreak, so a seed where the title match happens
+	to have the lower ref would satisfy this either way. So the body match is written first —
+	it takes the lower ref — and mentions the term four times, which is what wins under
+	frequency alone and loses under weights.
+	"""
+
+	_postgresql_only(session)
+
+	setup = subroutine.domain.bootstrap.initialise(session, username="si", instance_name="Test")
+	wordy = subroutine.domain.tasks.create(
+		session,
+		project=setup.inbox,
+		title="Notes from the migration",
+		description="pagination pagination pagination pagination",
+		actor=None,
+	)
+	named = subroutine.domain.tasks.create(
+		session,
+		project=setup.inbox,
+		title="Pagination resumes from the wrong cursor row",
+		actor=None,
+	)
+
+	session.flush()
+
+	assert wordy.ref < named.ref, "the tiebreak favours the body match, or this proves nothing"
+
+	model = subroutine.db.models.work.Task
+	scored = subroutine.db.fulltext.rank(
+		["pagination"], model.title, model.description, ref=None, numbered=None
+	)
+	ordered = list(
+		session.execute(
+			sqlalchemy.select(model.ref, scored.label("relevance"))
+			.where(
+				subroutine.domain.search.matching(
+					"pagination",
+					model.title,
+					model.description,
+					ref=None,
+					backend=subroutine.domain.search.NATIVE,
+				)
+			)
+			.order_by(sqlalchemy.desc("relevance"), model.ref)
+		)
+	)
+
+	assert [row.ref for row in ordered] == [named.ref, wordy.ref], (
+		f"a body mentioning it four times outranks the title it is about: {ordered}"
+	)
+
+
+def test_weighting_changes_the_order_and_not_which_rows_match (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The half that makes `#624` safe to ship, and it is why no data is rewritten.
+
+	``@@`` ignores weights entirely, so the same search finds the same items and only their
+	order moves. Without this the migration would be a change to what a search *answers*, which
+	is a different and much larger claim — the kind `#871` says belongs in the changelog rather
+	than arriving as a performance note.
+	"""
+
+	_postgresql_only(session)
+
+	setup = subroutine.domain.bootstrap.initialise(session, username="si", instance_name="Test")
+
+	for title, description in (
+		("Pagination resumes wrongly", None),
+		("Notes", "pagination is the thing"),
+		("Nothing to do with it", "something else entirely"),
+	):
+		subroutine.domain.tasks.create(
+			session,
+			project=setup.inbox,
+			title=title,
+			description=description,
+			actor=None,
+		)
+
+	session.flush()
+
+	model = subroutine.db.models.work.Task
+	found = session.scalars(
+		sqlalchemy.select(model.ref).where(
+			subroutine.domain.search.matching(
+				"pagination",
+				model.title,
+				model.description,
+				ref=None,
+				backend=subroutine.domain.search.NATIVE,
+			)
+		)
+	).all()
+
+	assert len(found) == 2, f"the weighted expression changed which rows match: {found}"
+
+
+def test_every_search_index_names_its_title_first () -> None:
+	"""What holds `#624`'s weighting, because it is decided by **position**.
+
+	:func:`subroutine.db.fulltext.vector` labels the first column ``A`` and the rest ``B``, so
+	the rule is *the first column is what the row is called*. Every declaration obeys it today
+	and nothing said so — an unwritten rule cannot be re-asked of the next table somebody makes
+	searchable, and getting it backwards would rank a body above the title silently.
+
+	A comment is the exception and is allowed one column: its body is indexed alone, so the
+	label is unobservable — a weight decides something only where two of them meet in one
+	vector.
+	"""
+
+	source = SOURCE / "subroutine" / "db" / "models"
+	declared: list[tuple[str, list[str]]] = []
+
+	for module in sorted(source.glob("*.py")):
+		tree = ast.parse(module.read_text(encoding="utf-8"))
+
+		for node in ast.walk(tree):
+			if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+				continue
+
+			if node.func.attr != "index":
+				continue
+
+			named = node.args[0]
+
+			if not isinstance(named, ast.Constant):
+				continue
+
+			declared.append((
+				str(named.value),
+				[
+					argument.attr
+					for argument in node.args[1:]
+					if isinstance(argument, ast.Attribute)
+				],
+			))
+
+	assert len(declared) >= 3, f"no search index was found to check: {declared}"
+
+	for name, columns in declared:
+		if len(columns) < 2:
+			continue
+
+		assert columns[0] == "title", (
+			f"{name} weights {columns[0]!r} as the title, because it is declared first"
+		)
