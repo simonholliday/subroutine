@@ -236,6 +236,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A scripted search says why each row matched.** `subroutine search <term> --json` now
+  carries `matched` — `title`, `description`, `body`, `number` or `elsewhere` — the same cell
+  the terminal has shown beside each hit since 0.7.0. Without it a script got the row and not
+  the reason, and a hit whose title does not contain the term reads as a broken search. It is
+  the computed cell rather than the fields it was computed from, so a listing does not grow
+  every hit's whole description; `null` on any listing that was not a search.
+
 - **Asking for finished work by its status *key* finds it.** `?status=done`,
   `subroutine list --status done` and an agent's `status="done"` all answered nothing on an
   instance full of completed work, while asking the same question by category or by

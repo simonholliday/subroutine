@@ -1139,22 +1139,40 @@ def _read_by_the_terminal_row () -> dict[str, str]:
 	return found
 
 
+class Instead (typing.NamedTuple):
+	"""What a script gets in place of a terminal cell, and why."""
+
+	#: The key on the scripted row that carries the same fact. ``None`` where nothing does,
+	#: which is a gap being recorded rather than a substitution being described.
+	key: str | None
+
+	#: Why it is not carried under the terminal's own name.
+	why: str
+
+
 #: A field the terminal row shows and the scripted row deliberately does not carry under that
 #: name, and what a script gets instead. Same rule as the registers in
 #: ``test_api_writability.py``, and for the same reason: "the JSON does not have it" describes
 #: the code rather than giving a reason, and `#820` is what happens when nothing checks one.
-RENDERED_ONLY: dict[str, str] = {
-	"estimate_human": (
-		"Carried as `estimate_minutes`. §6.4's grammar is a rendering — a script handed '2h' "
-		"has to parse the terminal's prose back into the number it was made from."
+#:
+#: **The substitute is named rather than described, and it is verified** (`#840`, on `#925`'s
+#: lesson). This was prose, so an entry could name a stand-in that did not exist — which is
+#: exactly the defect `#925` found in the guard built to catch it, where an excuse saying *read
+#: another way* made the whole comparison vacuous.
+RENDERED_ONLY: dict[str, Instead] = {
+	"estimate_human": Instead(
+		"estimate_minutes",
+		"§6.4's grammar is a rendering — a script handed '2h' has to parse the terminal's "
+		"prose back into the number it was made from.",
 	),
-	"description": (
+	"description": Instead(
+		"matched",
 		"`_match_cell` reads it to say *why* a search matched, and a listing row carries "
 		"neither body — §14.10 makes response size a first-order cost, and the whole "
-		"description on every row of a search is the opposite of that. What a scripted "
-		"search cannot see is the match *reason*, which is `#840`."
+		"description on every row of a search is the opposite of that. A script gets the "
+		"computed cell rather than the fields it was computed from.",
 	),
-	"body": "The same, for a document.",
+	"body": Instead("matched", "The same, for a document."),
 }
 
 
@@ -1192,6 +1210,86 @@ def test_the_scripted_row_carries_what_the_terminal_row_shows (
 		f"The terminal row shows {missing} and the scripted row does not carry them. Add them "
 		f"to `_as_json`, or record in RENDERED_ONLY what a script gets instead."
 	)
+
+
+def test_every_substitute_the_excuses_name_is_on_the_scripted_row (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#925`'s lesson, applied to this register rather than to the one that taught it.
+
+	An excuse naming a stand-in nobody verifies is worth less than no excuse: it reads as a
+	considered decision and asserts something the guard never checks. `#925` found exactly that
+	in the guard written to catch it — an entry saying *read another way*, which made the whole
+	comparison vacuous, so deleting the thing being excused left it green.
+
+	**Driven rather than read**, for the reason the comparison above gives: a static check
+	confirms two spellings agree and says nothing about what a caller receives. The key must be
+	*present* on an unsearched row, not merely non-null — ``matched`` is null until somebody
+	searches, exactly as ``relevance`` is, and that is how a script tells *not searched* from
+	*searched and could not say*.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something to hand over @si !4/3 ~2h #urgent by friday")
+
+	rows = json.loads(run("list", "--json").output)
+
+	assert rows, "Nothing was listed, so no substitute can be looked for."
+
+	wanted = {entry.key for entry in RENDERED_ONLY.values() if entry.key is not None}
+	absent = sorted(key for key in wanted if key not in rows[0])
+
+	assert not absent, (
+		f"RENDERED_ONLY says a script gets {absent} instead, and the scripted row has no such "
+		f"key. Either carry it in `_as_json` or say plainly that nothing carries this fact."
+	)
+
+
+def test_a_scripted_search_says_why_each_row_matched (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#840`. The terminal explains a hit and the scripted reader was handed the row alone.
+
+	*A hit whose reason is invisible reads as a bug* is `_match_cell`'s own argument, and its
+	worked example is searching this project for "pagination" and getting a document whose
+	title says nothing about it. **That argument does not weaken for a caller with no eyes** —
+	it is stronger, because a script cannot glance at the row and work it out.
+
+	Three rows, three reasons, so the assertion is about the *value* rather than the key: a
+	field that was always ``"title"`` would satisfy a check that only asked whether it was
+	there.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Pagination resumes from the wrong cursor row")
+	run("add", "Something else entirely", "--description", "the cursor is what breaks")
+
+	rows = json.loads(run("search", "cursor", "--json").output)
+	reasons = {row["title"]: row["matched"] for row in rows}
+
+	assert len(reasons) == 2, f"the probe matched {reasons}, so it proves nothing"
+	assert reasons["Pagination resumes from the wrong cursor row"] == "title"
+	assert reasons["Something else entirely"] == "description"
+
+
+def test_an_unsearched_scripted_row_says_nothing_about_matching (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, and without it the field could be a constant and pass.
+
+	Null means *nothing was searched for*, which is a different claim from *searched and could
+	not say* — the second is the empty string, and collapsing them would be an absence two
+	behaviours produce. The key is still present, exactly as ``relevance`` is on an unranked
+	listing, because a script has to tell the two apart without knowing what it asked.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Nobody searched for this")
+
+	row = json.loads(run("list", "--json").output)[0]
+
+	assert "matched" in row, "the key vanishes when nothing was searched for"
+	assert row["matched"] is None, f"an unsearched row claims a reason: {row['matched']!r}"
 
 
 def test_every_field_excused_from_the_scripted_row_is_still_rendered () -> None:

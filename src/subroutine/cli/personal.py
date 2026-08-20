@@ -2828,7 +2828,7 @@ def _listed (
 		if json_output:
 			program.say(
 				json.dumps(
-					[_as_json(world, name, item) for name, item in flat()], indent=2
+					[_as_json(world, name, item, term=q) for name, item in flat()], indent=2
 				)
 			)
 
@@ -7818,7 +7818,7 @@ def _when_rendered (task: subroutine.views.Task) -> str:
 
 
 def _as_json (
-	world: World, connection: str, item: Item
+	world: World, connection: str, item: Item, *, term: str | None = None
 ) -> dict[str, typing.Any]:
 	"""Return one listing row as the scripted path sees it.
 
@@ -7855,6 +7855,20 @@ def _as_json (
 		# scripted reader that could see a task's tags and not a document's would be the
 		# §12.2a drift this function's own docstring is about.
 		"tags": list(item.tags),
+		# **Why this row matched, or null when nothing was searched for** (`#840`). The
+		# terminal has rendered this since `#870` on the argument that *a hit whose reason is
+		# invisible reads as a bug* — searching for "pagination" returns a document whose title
+		# says nothing about it, and with no reason the honest reading of that row is that the
+		# search is broken. That argument does not weaken for a caller with no eyes.
+		#
+		# **The computed cell, not the fields it was computed from.** A listing row carrying
+		# every hit's whole `description` is what §14.10 exists to prevent; the name of the
+		# field that matched is one short string, and it is the same string the terminal shows.
+		#
+		# Empty rather than null where a search was made and this could not say — the
+		# case-folding disagreement `_match_cell` documents. Null means *nothing was searched
+		# for*, and collapsing the two would be an absence two behaviours produce.
+		"matched": _match_cell(item, term) if term else None,
 		# **How well this row answered the search that found it, or null** (`#878`). A script
 		# merging two connections has to put them into one order, and this is the only key that
 		# says what order the instance chose — the same field the browser reads and the
