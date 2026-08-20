@@ -22,6 +22,15 @@ upgrade involves.
 
 ### Added
 
+- **An item shows what refers to it.** Every `#42` written in a title, a description, a
+  document body or a comment has been indexed since the first release and read by nothing, so
+  *what refers to this?* was answerable on no surface. `subroutine show` now ends with a
+  **Referred to by** section, `subroutine_show` carries the same, and
+  `GET /v1/tasks/{ref}/backlinks` and `/v1/documents/{ref}/backlinks` answer it directly.
+
+  A mention from a comment names the item the comment is on and says so, because a comment has
+  no number of its own. A mention from a project you cannot see is not listed at all.
+
 - **The browser notices when the instance is redeployed under it and offers to reload.** It
   compares the version that served the page against the one answering an hour later, and shows
   a line beside the work with a *Reload* button on it. It never reloads by itself — you may be

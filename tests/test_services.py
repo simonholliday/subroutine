@@ -67,6 +67,32 @@ def _workspace (
 	)
 
 
+def _reader (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+) -> subroutine.domain.authentication.Principal:
+	"""Return the workspace's owner, as the principal a read is narrowed against.
+
+	``mentions.backlinks`` takes one since `#144`, which is when it gained a caller: §6.15 says
+	a mention from a project the reader cannot see is omitted entirely, and a read path that
+	looked finished without that narrowing is how the agenda came to ignore ``project_scope``.
+	"""
+
+	member = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.WorkspaceMember).where(
+			subroutine.db.models.identity.WorkspaceMember.workspace_id == workspace.id
+		)
+	).first()
+
+	assert member is not None, "the workspace has no members, so nothing can read it"
+
+	owner = session.get(subroutine.db.models.identity.User, member.user_id)
+
+	assert owner is not None
+
+	return subroutine.domain.authentication.Principal(user=owner)
+
+
 def _project (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
@@ -858,17 +884,21 @@ def test_a_mention_appears_and_disappears_with_the_sentence (
 	)
 
 	mentions = subroutine.domain.mentions.backlinks(
-		session, workspace_id=workspace.id, target_type="task", target_id=target.id
+		session,
+		principal=_reader(session, workspace),
+		workspace_id=workspace.id, target_type="task", target_id=target.id
 	)
 
 	assert len(mentions) == 1
-	assert mentions[0].source_id == citing.id
+	assert mentions[0].ref == citing.ref
 
 	subroutine.domain.tasks.update(session, citing, description="No longer refers to anything.")
 
 	assert (
 		subroutine.domain.mentions.backlinks(
-			session, workspace_id=workspace.id, target_type="task", target_id=target.id
+			session,
+			principal=_reader(session, workspace),
+			workspace_id=workspace.id, target_type="task", target_id=target.id
 		)
 		== []
 	)
@@ -892,7 +922,9 @@ def test_the_same_ref_twice_is_one_mention (session: sqlalchemy.orm.Session) -> 
 	assert (
 		len(
 			subroutine.domain.mentions.backlinks(
-				session, workspace_id=workspace.id, target_type="task", target_id=target.id
+				session,
+				principal=_reader(session, workspace),
+				workspace_id=workspace.id, target_type="task", target_id=target.id
 			)
 		)
 		== 1
@@ -945,7 +977,9 @@ def test_a_task_does_not_mention_itself (session: sqlalchemy.orm.Session) -> Non
 
 	assert (
 		subroutine.domain.mentions.backlinks(
-			session, workspace_id=workspace.id, target_type="task", target_id=task.id
+			session,
+			principal=_reader(session, workspace),
+			workspace_id=workspace.id, target_type="task", target_id=task.id
 		)
 		== []
 	)
@@ -972,7 +1006,9 @@ def test_the_explicit_link_form_is_recognised (session: sqlalchemy.orm.Session) 
 	assert (
 		len(
 			subroutine.domain.mentions.backlinks(
-				session, workspace_id=workspace.id, target_type="task", target_id=target.id
+				session,
+				principal=_reader(session, workspace),
+				workspace_id=workspace.id, target_type="task", target_id=target.id
 			)
 		)
 		== 1
@@ -997,7 +1033,9 @@ def test_a_cross_workspace_link_is_not_resolved_locally (
 
 	assert (
 		subroutine.domain.mentions.backlinks(
-			session, workspace_id=workspace.id, target_type="task", target_id=target.id
+			session,
+			principal=_reader(session, workspace),
+			workspace_id=workspace.id, target_type="task", target_id=target.id
 		)
 		== []
 	)

@@ -12,6 +12,7 @@ import pytest
 import sqlalchemy.orm
 
 import subroutine.domain.authentication
+import subroutine.domain.bootstrap
 import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -762,3 +763,102 @@ def test_a_document_owner_must_be_somebody_who_can_see_it (
 
 	assert handed_over.status_code == 422, handed_over.text
 	assert handed_over.json()["errors"][0]["field"] == "owner_id"
+
+
+def test_an_item_shows_what_mentions_it (session: sqlalchemy.orm.Session) -> None:
+	"""`#144`. The mention index has been written since M1 and read by nothing.
+
+	Every `#42` in a title, a description, a body or a comment writes a row, `backlinks()` had
+	no caller, and §8.5's ``?include=backlinks`` was honestly refused — so *what refers to
+	this?*, the question the whole table exists for, was answerable on no surface at all.
+
+	**Three sources, and the comment is the one that needed thinking about.** A task or a
+	document refers to something in its own prose; a comment has no ref, so it resolves to the
+	item it is on and says ``via`` — a reader sent to #42 who cannot find the number there has
+	been sent to the wrong half of it.
+	"""
+
+	world = test_api_tasks._world(session)
+	target = world.call("POST", "/v1/tasks", json={"title": "The specification"}).json()
+	citing = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Implements it", "description": f"As decided in #{target['ref']}."},
+	).json()
+	remarking = world.call("POST", "/v1/tasks", json={"title": "Something else"}).json()
+
+	world.call(
+		"POST",
+		f"/v1/tasks/{remarking['ref']}/comments",
+		json={"body": f"This is the same question as #{target['ref']}."},
+	)
+
+	found = world.call("GET", f"/v1/tasks/{target['ref']}/backlinks").json()
+
+	assert {(row["ref"], row["via"]) for row in found["items"]} == {
+		(citing["ref"], None),
+		(remarking["ref"], "comment"),
+	}, found
+
+	assert [row["title"] for row in found["items"] if row["ref"] == citing["ref"]] == [
+		"Implements it"
+	], "a backlink names something a reader can open"
+
+
+def test_a_backlink_from_a_project_you_cannot_see_is_omitted (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§6.15, and the rule `backlinks()` carried in a docstring for a year without applying.
+
+	*A mention from a project the reader cannot see is omitted entirely* — not reported as
+	invisible the way a cross-boundary link is, because **something you cannot see mentioned
+	this** discloses that activity exists and explains nothing.
+
+	The note said whoever wired this owed the narrowing. `#144` is the wiring, and the
+	narrowing is in the domain rather than at the call site: an unnarrowed read path that
+	already looks finished is how the agenda came to ignore ``project_scope``.
+
+	**The first version of this could not fail.** It gave a stranger a token and asked for the
+	backlinks, which is refused at the workspace before anything reaches the mention index —
+	so removing the narrowing entirely left it green. A reader who can see the *target* and not
+	the item referring to it is the only shape that exercises this, and a project-scoped
+	credential is how to build one.
+	"""
+
+	world = test_api_tasks._world(session)
+	inbox = next(
+		row
+		for row in world.call("GET", "/v1/projects").json()["items"]
+		if row["key"] == subroutine.domain.bootstrap.INBOX_KEY
+	)
+
+	target = world.call("POST", "/v1/tasks", json={"title": "The specification"}).json()
+
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
+	elsewhere = world.call(
+		"POST",
+		"/v1/tasks",
+		json={
+			"title": "Refers to it from out of reach",
+			"description": f"Decided in #{target['ref']}.",
+			"project": "web",
+		},
+	).json()
+
+	assert {row["ref"] for row in
+		world.call("GET", f"/v1/tasks/{target['ref']}/backlinks").json()["items"]
+	} == {elsewhere["ref"]}, "the probe wrote no mention, so it proves nothing"
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Inbox only", project_scope=[inbox["id"]]
+	)
+
+	session.flush()
+
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+	found = narrowed.call("GET", f"/v1/tasks/{target['ref']}/backlinks").json()
+
+	assert found["items"] == [], (
+		f"a credential that cannot reach that project was told something there refers to "
+		f"this: {found}"
+	)

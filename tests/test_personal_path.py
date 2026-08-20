@@ -5025,6 +5025,69 @@ def test_show_prints_every_comment_when_there_are_few (
 	assert "What happened" in shown
 
 
+def test_show_says_what_refers_to_an_item (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#144`. The `mention` table is written by every `#42` anybody writes and read by nothing.
+
+	`domain/mentions.backlinks` had no caller and §8.5's ``?include=backlinks`` was honestly
+	refused, so *what refers to this?* — the question the whole table exists for — was
+	answerable on no surface. `#99`'s justification says a reason written as a comment gets its
+	backlink for free, which was true of the data and invisible to every reader.
+
+	**A comment resolves to the item it is on and says so.** A reader sent to #3 who cannot
+	find the number in its own prose has been sent to the wrong half of it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "The specification")
+	run("add", "Implements it", "--description", "As decided in #1.")
+	run("add", "Something else")
+	run("comment", "3", "This is the same question as #1.")
+
+	shown = run("show", "1").output
+
+	assert "Referred to by (2)" in shown, f"nothing says what refers to it: {shown}"
+	assert "Implements it" in shown
+	assert "in a comment" in shown, "a mention in a comment reads as one in the item's prose"
+
+
+def test_show_says_nothing_about_references_where_there_are_none (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2c's rule that a field nobody set is not printed, applied to a whole heading.
+
+	It is what lets `subroutine show` answer *buy milk* with a number, a title and nothing
+	else — and most items on any instance refer to nothing.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Buy milk")
+
+	shown = run("show", "1").output
+
+	assert "Buy milk" in shown, "the probe showed nothing, so it proves nothing"
+	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
+
+
+def test_the_scripted_item_carries_what_refers_to_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One item, two renderings — `#583`'s defect arriving on a new section.
+
+	A section the rendered path shows and the scripted one omits is exactly what that guard
+	was written for, and a new field is when it happens.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "The specification")
+	run("add", "Implements it", "--description", "As decided in #1.")
+
+	shown = json.loads(run("show", "1", "--json").output)
+
+	assert [one["ref"] for one in shown["backlinks"]] == [2], shown
+
+
 def test_show_says_who_wrote_each_comment (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -5553,7 +5616,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 2_631
+REGISTER_CEILING = 2_593
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -6817,3 +6880,51 @@ def test_the_scripted_agenda_says_which_zone_each_connection_counted_in () -> No
 		"work": "America/New_York", "personal": "Europe/London",
 	}
 	assert said["timezone"] == "America/New_York", "the scalar is the first answer's, as before"
+
+
+def test_show_survives_an_instance_that_cannot_answer_what_refers_to_this (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#250`'s skew shape, met within a minute of building `#144` and fixed in the same hour.
+
+	The program and the instance upgrade separately, and **upgrading the program first is the
+	ordinary order** — so a `show` that failed outright because one of its five sections is
+	newer than the server would break the commonest command over the newest one. Measured
+	against the served instance one commit behind: every `subroutine show` answered *There is
+	nothing at /v1/tasks/144/backlinks*.
+
+	**A missing route is not a missing item**, and the item was resolved before the section is
+	asked for — so a `not_found` here can only be the route.
+
+	Only that one refusal is swallowed. Anything else still reaches the reader, or a broken
+	instance would read as an item with nothing referring to it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "The specification")
+
+	def older (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.Any:
+		"""Answer the way an instance without the route does."""
+
+		raise subroutine.errors.NotFound("There is nothing at /v1/tasks/1/backlinks.")
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "backlinks", older)
+
+	shown = run("show", "1").output
+
+	assert "The specification" in shown, f"one absent section took the whole page: {shown}"
+	assert "Referred to by" not in shown
+
+	# **Only that one refusal**, or a broken instance reads as an item nothing refers to. A
+	# catch of `SubroutineError` passes the half above and fails here.
+	def broken (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.Any:
+		"""Answer the way an instance in trouble does."""
+
+		raise subroutine.errors.InternalError("The database is unreachable.")
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "backlinks", broken)
+
+	assert run("show", "1", expect=1).exit_code == 1, (
+		"an instance that could not answer was reported as one with nothing to say"
+	)

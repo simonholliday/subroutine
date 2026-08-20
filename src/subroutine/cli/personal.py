@@ -4769,57 +4769,19 @@ def register (
 			)
 			client = _matching(world.clients, located.connection)
 
-			# Asked for separately rather than embedded, because both are sub-resources over
-			# HTTP and pretending otherwise here would make the local client the only one that
-			# could answer in a single call — which is exactly the divergence S3-07 removed.
-			links = client.links(
-				ref=located.ref,
-				entity_type=located.entity_type,
-				workspace=located.workspace,
-			)
-			remarks = client.comments(
-				ref=located.ref,
-				entity_type=located.entity_type,
-				workspace=located.workspace,
-			)
-
-			# **Completed children included**, unlike every listing here. A parent showing two
-			# of its four children because the other two are finished would misreport the
-			# thing somebody opened it to see. `#84` says report the rollup and leave
-			# completion an act; this is where the rollup is read.
-			children = (
-				client.tasks(
-					parent=located.ref,
-					workspace=located.workspace,
-					limit=MAX_CHILDREN,
-					include_completed=True,
-					order="ref",
-				)
-				if located.entity_type == "task"
-				else []
-			)
-
-			events = (
-				client.history(
-					ref=located.ref,
-					entity_type=located.entity_type,
-					workspace=located.workspace,
-				)
-				if history
-				else []
-			)
+			gathered = _sections(client, located, history=history)
 
 			if json_output:
 				say(
 					json.dumps(
-						_shown_as_json(world, located, links, remarks, children, events),
+						_shown_as_json(world, located, gathered),
 						indent=2,
 					)
 				)
 
 				return
 
-			_render_item(world, located, links, remarks, children, events, console=console)
+			_render_item(world, located, gathered, console=console)
 			say("")
 
 			# **What to do next depends on where it is** (`#700`). Inviting somebody to comment
@@ -7395,13 +7357,98 @@ def _item_line (
 MAX_CHILDREN = 50
 
 
+@dataclasses.dataclass(frozen=True)
+class Sections:
+	"""Everything ``show`` renders around an item, gathered before anything is printed."""
+
+	links: typing.Sequence[subroutine.views.Link]
+	remarks: typing.Sequence[subroutine.views.Comment]
+	referring: typing.Sequence[subroutine.views.Backlink]
+	children: typing.Sequence[subroutine.views.Task]
+	events: typing.Sequence[subroutine.views.Event]
+
+
+def _referring (
+	client: subroutine.clients.base.Client, located: Located
+) -> typing.Sequence[subroutine.views.Backlink]:
+	"""Return what refers to this item, or nothing where the instance cannot answer — `#144`.
+
+	**The mention index has been written by every reference in anybody's prose since M1 and
+	read by nothing**, so *what refers to this?* — the question the table exists for — was
+	answerable on no surface until this.
+
+	**A missing route is not a missing item, and this is `#250`'s skew shape** (found within a
+	minute of building it, against an instance one commit behind). The program and the instance
+	upgrade separately, and upgrading the program first is the ordinary order — so a `show`
+	that failed outright because one of its five sections is newer than the server would break
+	the commonest command over the newest one. The item was resolved before this is called, so
+	a ``not_found`` here can only be the route.
+
+	**Silent rather than noted**, which is the trade and is worth saying out loud: a reader on
+	an older instance sees no section rather than a line explaining why. That is a plausible,
+	complete, wrong answer — and it is accepted because the program already reports the
+	mismatch that causes it, in ``whoami``'s closing line (`#381`), and a second notice on
+	every ``show`` would be noise for a state nobody stays in.
+	"""
+
+	try:
+		return client.backlinks(
+			ref=located.ref,
+			entity_type=located.entity_type,
+			workspace=located.workspace,
+		)
+
+	except subroutine.errors.NotFound:
+		return []
+
+
+def _sections (
+	client: subroutine.clients.base.Client, located: Located, *, history: bool
+) -> Sections:
+	"""Gather what hangs off one item — `#144`, and `#943`'s ratchet is why it is out here.
+
+	**Asked for separately rather than embedded**, because every one is a sub-resource over
+	HTTP and pretending otherwise would make the local client the only one that could answer in
+	a single call — which is exactly the divergence S3-07 removed.
+	"""
+
+	where = {"entity_type": located.entity_type, "workspace": located.workspace}
+
+	return Sections(
+		links=client.links(ref=located.ref, **where),
+		remarks=client.comments(ref=located.ref, **where),
+		referring=_referring(client, located),
+		# **Completed children included**, unlike every listing here. A parent showing two of
+		# its four children because the other two are finished would misreport the thing
+		# somebody opened it to see. `#84` says report the rollup and leave completion an act;
+		# this is where the rollup is read.
+		children=(
+			client.tasks(
+				parent=located.ref,
+				workspace=located.workspace,
+				limit=MAX_CHILDREN,
+				include_completed=True,
+				order="ref",
+			)
+			if located.entity_type == "task"
+			else []
+		),
+		events=(
+			client.history(
+				ref=located.ref,
+				entity_type=located.entity_type,
+				workspace=located.workspace,
+			)
+			if history
+			else []
+		),
+	)
+
+
 def _render_item (
 	world: World,
 	located: Located,
-	links: typing.Sequence[subroutine.views.Link],
-	remarks: typing.Sequence[subroutine.views.Comment],
-	children: typing.Sequence[subroutine.views.Task] = (),
-	events: typing.Sequence[subroutine.views.Event] = (),
+	gathered: Sections,
 	*,
 	console: rich.console.Console,
 ) -> None:
@@ -7417,6 +7464,12 @@ def _render_item (
 	The consequence worth stating: this output *grows* with how much the user has told the
 	system, which is the shape §1.4 asks for and the opposite of a form with empty fields.
 	"""
+
+	links = gathered.links
+	remarks = gathered.remarks
+	referring = gathered.referring
+	children = gathered.children
+	events = gathered.events
 
 	shown = world.address_of_located(located)
 	heading = rich.text.Text()
@@ -7509,6 +7562,30 @@ def _render_item (
 			# rollup carries the count, and what this line is for is seeing what the thing at
 			# the other end *is*. Removing it would hide the contents of a finished milestone.
 			line.append(link.other.title, style=DETAIL if link.other.is_complete else "")
+			console.print(line)
+
+	if referring:
+		# **What refers to this, and it is not a link** (`#144`). A link is an assertion
+		# somebody made about two items; a mention only records that one piece of writing
+		# talks about another (§6.15). They are separate sections for that reason and not
+		# merged into one — a reader deciding whether something is safe to close needs to know
+		# which of the two they are looking at.
+		#
+		# **Silent when there are none**, like every other section here: §12.2c's rule that a
+		# field nobody set is not printed, applied to a whole heading.
+		console.print("")
+		console.print(rich.text.Text(f"Referred to by ({len(referring)})", style=HEADING))
+
+		for one in referring:
+			line = rich.text.Text()
+			line.append(
+				f"  {subroutine.domain.refs.format_ref(one.ref):>6}  ", style=POSITION
+			)
+
+			# **`in a comment` where the sentence is not in that item's own prose.** A reader
+			# who opens #42 and cannot find the number has been sent to the wrong half of it.
+			line.append(f"{'in a comment' if one.via else '':<13}", style=DETAIL)
+			line.append(one.title)
 			console.print(line)
 
 	if remarks:
@@ -7989,12 +8066,7 @@ def _as_json (
 
 
 def _shown_as_json (
-	world: World,
-	located: Located,
-	links: typing.Sequence[subroutine.views.Link],
-	remarks: typing.Sequence[subroutine.views.Comment],
-	children: typing.Sequence[subroutine.views.Task] = (),
-	events: typing.Sequence[subroutine.views.Event] = (),
+	world: World, located: Located, gathered: Sections
 ) -> dict[str, typing.Any]:
 	"""Return one item, its links and its record, as the scripted path sees it.
 
@@ -8003,6 +8075,12 @@ def _shown_as_json (
 	and a caller who has already named the item is not paying for a page of them.
 	"""
 
+	links = gathered.links
+	remarks = gathered.remarks
+	referring = gathered.referring
+	children = gathered.children
+	events = gathered.events
+
 	return {
 		"address": world.address_of_located(located),
 		"connection": located.connection,
@@ -8010,6 +8088,11 @@ def _shown_as_json (
 		"item": located.item.model_dump(mode="json"),
 		"links": [link.model_dump(mode="json") for link in links],
 		"comments": [remark.model_dump(mode="json") for remark in remarks],
+		# **What refers to this** (`#144`), carried for the scripted reader as well: a script
+		# asking "is this safe to close" wants what mentions it exactly as a person does, and
+		# a section the rendered path shows and this one omits is `#583`'s two-renderings
+		# defect arriving on a new field.
+		"backlinks": [one.model_dump(mode="json") for one in referring],
 		"children": [child.model_dump(mode="json") for child in children],
 		# **Always present, empty when it was not asked for.** A key that appears only with
 		# `--history` makes a script test for the key rather than read it, and "absent" and

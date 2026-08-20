@@ -400,6 +400,19 @@ class Client(typing.Protocol):
 	) -> list[subroutine.views.Link]:
 		"""Return every link touching one item, labelled from that item's point of view."""
 
+	def backlinks (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Backlink]:
+		"""Return everything whose prose refers to one item — `#144`.
+
+		**The mention index has been written since M1 and read by nothing.** Every ``#42`` in a
+		title, a description, a body or a comment writes a row, and *what refers to this?* was
+		answerable on no surface — so the argument that a reason written as a comment gets its
+		backlink for free was true of the data and invisible to every reader.
+
+		A comment resolves to the item it is on and says so, because a comment has no ref.
+		"""
+
 	def link (
 		self,
 		*,

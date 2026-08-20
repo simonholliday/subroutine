@@ -646,6 +646,42 @@ class Task(pydantic.BaseModel):
 		)
 
 
+class Backlink(pydantic.BaseModel):
+	"""One piece of prose that refers to an item — `#144`.
+
+	**The mention table has been written by every title, description, body and comment since
+	M1 and read by nothing.** `domain/mentions.backlinks` had no caller and §8.5's
+	``?include=backlinks`` was honestly refused, so *what refers to this?* — the question the
+	whole table exists for — was answerable on no surface at all.
+
+	**It names something a reader can open**, which is what makes the list worth having: a ref
+	and a title, the same argument `#970` makes for a link's far end. A comment has no ref, so
+	it resolves to the item it is on and says ``via`` so nobody goes looking for the sentence
+	in that item's own prose.
+	"""
+
+	#: What is doing the referring, once resolved: ``task`` or ``document``.
+	kind: str
+
+	ref: int
+	title: str
+
+	#: ``"comment"`` when the sentence is in a comment rather than in the item's own prose.
+	via: str | None = None
+
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses the referring item by."""
+
+		return str(subroutine.domain.refs.format_ref(self.ref))
+
+	def columns (self) -> tuple[str, ...]:
+		"""Return this backlink as the cells of one compact line."""
+
+		return (self.address(), self.via or "", subroutine.domain.text.truncated(self.title))
+
+
 class Comment(pydantic.BaseModel):
 	"""One entry in an item's record of what happened (docs/design.md §5.10).
 

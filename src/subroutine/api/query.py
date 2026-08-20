@@ -220,8 +220,13 @@ UnknownQueryDep = fastapi.Depends(refuse_unknown)
 #: What ``?include=`` may name, per entity. Short on purpose: every entry is a promise that
 #: the extra costs a bounded number of queries, and an include that fans out per row is the
 #: N+1 this parameter exists to remove, moved inside the server where the caller cannot see
-#: it. ``backlinks`` is specified in §8.5 and is **not** here, because nothing implements it —
-#: a name accepted and ignored is exactly the failure this module was written for.
+#: it.
+#:
+#: **``backlinks`` is specified in §8.5 and is deliberately not here** (`#144`). It is served
+#: as a sub-resource — ``GET /v1/tasks/{id_or_ref}/backlinks`` — because on a page of fifty it
+#: is either fifty lookups or a join nobody asked for, which is the N+1 this parameter exists
+#: to remove rather than to hide. Every other section ``subroutine show`` renders is a
+#: sub-resource too: links, comments and history.
 INCLUDABLE: dict[str, frozenset[str]] = {
 	"task": frozenset({"links"}),
 	"document": frozenset({"links"}),

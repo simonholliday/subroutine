@@ -1990,6 +1990,23 @@ def _shown (
 			for link in links
 		)
 
+	# **What refers to this** (`#144`), and it is not the same question as what it is linked
+	# to. A link is an assertion somebody made; a mention only records that one piece of
+	# writing talks about another (§6.15) — so an agent deciding whether something is safe to
+	# close needs both, and had neither until now on any surface.
+	#
+	# **In `show` rather than in a listing row**, on `#819`'s argument: this is the tool that
+	# promises *in full*, and the cost is one request per item opened rather than per row.
+	referring = client.backlinks(ref=ref, entity_type=kind, workspace=workspace)
+
+	if referring:
+		parts.append("")
+		parts.append(f"Referred to by ({len(referring)})")
+		parts.extend(
+			f"#{one.ref}  {one.title}" + ("  (in a comment)" if one.via else "")
+			for one in referring
+		)
+
 	if arguments.get("history"):
 		parts.append("")
 		parts.extend(
@@ -2001,13 +2018,18 @@ def _shown (
 
 	if remarks:
 		parts.append("")
-		# **The date, not the author's UUID.** A raw id is thirty-six characters a model
-		# cannot resolve without another call, on every comment, in the module whose whole
-		# argument is that context is a fixed cost. When an item's record is read, *when*
-		# something happened is the part that orders it; *who* is one id lookup away and is
-		# usually the reader.
+		# **The date and the name, and the second half arrived with `#636`.** This used to
+		# carry the date alone, on the argument that the alternative was the author's UUID —
+		# thirty-six characters a model cannot resolve without another call, on every comment,
+		# in the module whose whole argument is that context is a fixed cost. That argument
+		# expired the day the response gained a username: a name is short, and on an instance
+		# where five accounts in eight are agents *who wrote this* is the difference between a
+		# colleague's note and a machine's.
 		parts.extend(
-			f"{remark.created_at.date().isoformat()}  {remark.body}" for remark in remarks
+			f"{remark.created_at.date().isoformat()}  "
+			+ (f"@{remark.author}  " if remark.author else "")
+			+ remark.body
+			for remark in remarks
 		)
 
 	return _within_budget(parts, body_at=body_at, ref=ref, kind=kind)

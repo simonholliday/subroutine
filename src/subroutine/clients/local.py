@@ -54,6 +54,7 @@ import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.local
+import subroutine.domain.mentions
 import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
@@ -916,6 +917,32 @@ class Client:
 					identifier=subject,
 				),
 			)
+
+	def backlinks (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Backlink]:
+		"""Return everything whose prose refers to one item."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return [
+				subroutine.views.Backlink(
+					kind=one.kind,
+					ref=one.ref,
+					title=one.title,
+					via=one.via,
+					created_at=one.at,
+				)
+				for one in subroutine.domain.mentions.backlinks(
+					session,
+					principal=actor,
+					workspace_id=chosen.id,
+					target_type=entity_type,
+					target_id=subject,
+				)
+			]
 
 	def link (
 		self,

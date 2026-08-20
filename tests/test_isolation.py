@@ -116,10 +116,14 @@ def test_a_mention_never_crosses_a_workspace (
 
 	for side in (left, right):
 		backlinks = subroutine.domain.mentions.backlinks(
-			session, workspace_id=side.workspace.id, target_type="task", target_id=side.task.id
+			session,
+			principal=subroutine.domain.authentication.Principal(user=side.owner),
+			workspace_id=side.workspace.id,
+			target_type="task",
+			target_id=side.task.id,
 		)
 
-		assert [mention.source_id for mention in backlinks] == [side.task.id] or backlinks == []
+		assert [one.ref for one in backlinks] == [side.task.ref] or backlinks == []
 
 	# The decisive check: nothing in one workspace points at anything in the other.
 	crossings = list(

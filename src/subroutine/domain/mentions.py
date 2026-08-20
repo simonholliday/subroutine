@@ -11,6 +11,7 @@ writes rows elsewhere. If every mention were extracted wrongly the text would st
 exactly what its author typed, which is the test of whether that separation is real.
 """
 
+import datetime
 import re
 import typing
 import uuid
@@ -18,8 +19,11 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.db.models.work
+import subroutine.domain.authentication
 import subroutine.domain.refs
+import subroutine.domain.scoping
 
 #: A reference in running text: ``#42`` (docs/design.md §6.15). It is only ever a *candidate* —
 #: a ref becomes a mention when it resolves — but the pattern still has to be tight,
@@ -187,38 +191,106 @@ def synchronize (
 	return written
 
 
+class Referring (typing.NamedTuple):
+	"""One piece of prose that refers to an item, and where a reader would find it."""
+
+	#: What is doing the referring, once resolved to something addressable — a task or a
+	#: document. A comment has no ref of its own, so it resolves to the item it is on.
+	kind: str
+
+	#: That item's number and title, which is what makes this readable on its own — the same
+	#: argument `#970` makes for a link's far end.
+	ref: int
+	title: str
+
+	#: ``"comment"`` when the sentence is in a comment on that item rather than in the item's
+	#: own prose, and ``None`` otherwise. **Named rather than left to be inferred**: *#42
+	#: mentions this* and *somebody said so under #42* are different facts, and a reader
+	#: opening #42 to find the sentence needs to know which.
+	via: str | None
+
+	#: When it was written, which is what the list is ordered by.
+	at: datetime.datetime
+
+
 def backlinks (
 	session: sqlalchemy.orm.Session,
 	*,
+	principal: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
 	target_type: str,
 	target_id: uuid.UUID,
-) -> list[subroutine.db.models.work.Mention]:
-	"""Return everything whose prose refers to one item.
+) -> list[Referring]:
+	"""Return everything whose prose refers to one item, narrowed to what this reader may see.
 
-	**Narrowed by workspace and nothing else, and that is not yet sufficient.** §6.15 says a
-	mention from a project the reader cannot see is *omitted entirely* — not reported as
-	invisible the way a cross-boundary link is, because "something you cannot see mentioned
-	this" discloses that activity exists and explains nothing. This function does not do
-	that, which is safe only because nothing calls it: it is here ahead of
-	``include=backlinks`` (M3).
+	**§6.15 says a mention from a project the reader cannot see is omitted entirely** — not
+	reported as invisible the way a cross-boundary link is, because *something you cannot see
+	mentioned this* discloses that activity exists and explains nothing.
 
-	So: **whoever wires this to an endpoint owes the project-visibility narrowing**, through
-	``domain.scoping``, before it returns anything to a caller. Written down here rather than
-	left to be noticed, because an unnarrowed read path that already looks finished is how
-	the agenda came to ignore ``project_scope``.
+	This function carried a note for years saying whoever wired it owed that narrowing, on the
+	grounds that it was safe only because nothing called it. `#144` is the wiring, so the
+	narrowing is here rather than at the call site: an unnarrowed read path that already looks
+	finished is how the agenda came to ignore ``project_scope``, and a rule stated in a
+	docstring reaches one reader where a join reaches every caller.
+
+	**Three sources and two of them are one shape** (``mixins.MENTION_SOURCE_TYPES``). A task
+	or a document is narrowed against itself. A **comment** is narrowed against the item it is
+	on, which is `#83`'s measurement — ``domain.comments`` and ``domain.scoping`` both say a
+	comment is visible exactly when its subject is — and it resolves to that item, because a
+	comment has no ref for a reader to open.
+
+	**Ordered oldest first**, matching a comment thread rather than a listing: this is a record
+	of what has been said about something, and a record is read from the beginning.
 	"""
 
 	model = subroutine.db.models.work.Mention
+	comment = subroutine.db.models.activity.Comment
+	found: list[Referring] = []
 
-	return list(
-		session.scalars(
-			sqlalchemy.select(model)
-			.where(
-				model.workspace_id == workspace_id,
-				model.target_type == target_type,
-				model.target_id == target_id,
+	for kind in ("task", "document"):
+		readable = (
+			subroutine.domain.scoping.readable_tasks(
+				principal, workspace_ids=[workspace_id]
 			)
-			.order_by(model.created_at)
-		)
-	)
+			if kind == "task"
+			else subroutine.domain.scoping.readable_documents(
+				principal, workspace_ids=[workspace_id]
+			)
+		).subquery()
+
+		# **Its own prose**, where the source *is* the item.
+		found += [
+			Referring(kind=kind, ref=row.ref, title=row.title, via=None, at=row.created_at)
+			for row in session.execute(
+				sqlalchemy.select(readable.c.ref, readable.c.title, model.created_at)
+				.join(readable, readable.c.id == model.source_id)
+				.where(
+					model.workspace_id == workspace_id,
+					model.source_type == kind,
+					model.target_type == target_type,
+					model.target_id == target_id,
+				)
+			)
+		]
+
+		# **A comment on it**, which resolves to the same item by a different route.
+		found += [
+			Referring(
+				kind=kind, ref=row.ref, title=row.title, via="comment", at=row.created_at
+			)
+			for row in session.execute(
+				sqlalchemy.select(readable.c.ref, readable.c.title, model.created_at)
+				.join(comment, comment.id == model.source_id)
+				.join(readable, readable.c.id == comment.entity_id)
+				.where(
+					model.workspace_id == workspace_id,
+					model.source_type == "comment",
+					comment.entity_type == kind,
+					comment.deleted_at.is_(None),
+					model.target_type == target_type,
+					model.target_id == target_id,
+				)
+			)
+		]
+
+	return sorted(found, key=lambda one: (one.at, one.ref))

@@ -355,6 +355,19 @@ class Client:
 
 		return self._collected(subroutine.views.Link, body, endpoint="links")
 
+	def backlinks (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Backlink]:
+		"""Return everything whose prose refers to one item."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/backlinks",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(subroutine.views.Backlink, body, endpoint="backlinks")
+
 	def link (
 		self,
 		*,

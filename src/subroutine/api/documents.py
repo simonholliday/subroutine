@@ -33,6 +33,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.documents
 import subroutine.domain.links
+import subroutine.domain.mentions
 import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.refs
@@ -696,6 +697,61 @@ def _links_for (entity_type: str) -> typing.Any:
 	return listing, create, remove
 
 
+def _backlinks_for (entity_type: str) -> typing.Any:
+	"""Build the backlink listing for one entity type — `#144`."""
+
+	def listing (
+		id_or_ref: subroutine.api.schemas.ItemAddress,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> subroutine.views.Collection[subroutine.views.Backlink]:
+		"""Return everything whose prose refers to this item.
+
+		**A sub-resource rather than §8.5's ``?include=backlinks``**, and the departure is
+		deliberate. ``INCLUDABLE``'s own rule is that every entry promises a bounded number of
+		queries *per page*, and backlinks on a page of fifty is either fifty lookups or a join
+		nobody asked for — the N+1 that parameter exists to remove, moved inside the server.
+		Every other section ``subroutine show`` renders is already a sub-resource: links,
+		comments and history.
+
+		Enveloped like every other collection (§8.4) and returned whole, for the reason the
+		links listing gives: what refers to an item is bounded by how much somebody wrote, so
+		``has_more`` is a statement rather than a shrug.
+
+		**Narrowed in the domain**, which is where §6.15's rule belongs — a mention from a
+		project the reader cannot see is omitted entirely, because *something you cannot see
+		mentioned this* discloses that activity exists and explains nothing.
+		"""
+
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+
+		found = [
+			subroutine.views.Backlink(
+				kind=one.kind,
+				ref=one.ref,
+				title=one.title,
+				via=one.via,
+				created_at=one.at,
+			)
+			for one in subroutine.domain.mentions.backlinks(
+				session,
+				principal=actor,
+				workspace_id=workspace.id,
+				target_type=entity_type,
+				target_id=near.id,
+			)
+		]
+
+		return subroutine.views.Collection(
+			items=found,
+			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+		)
+
+	return listing
+
+
 def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 	"""Mount the link endpoints for one entity type."""
 
@@ -724,6 +780,13 @@ def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 		status_code=204,
 		name=f"{noun}_link_delete",
 		summary="Withdraw a link",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/backlinks",
+		_backlinks_for(entity_type),
+		methods=["GET"],
+		name=f"{noun}_backlinks",
+		summary=f"List what refers to a {noun}",
 	)
 
 
