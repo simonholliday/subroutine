@@ -430,6 +430,12 @@ def update (
 			project.settings, settings, scope=subroutine.domain.settings.PROJECT
 		)
 
+		# **The half a registry entry cannot check on its own.** A `Kind` reads a value's shape
+		# and has no session; a setting naming *this workspace's own vocabulary* — which status
+		# keys are real — needs one. Run against the merged map rather than the incoming one, so
+		# that a key already stored stays checked when something beside it changes.
+		subroutine.domain.settings.verified(session, project.workspace_id, cleaned_settings)
+
 	# Assignment pass.
 	changes: dict[str, typing.Any] = {}
 

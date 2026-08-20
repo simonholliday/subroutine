@@ -2949,6 +2949,234 @@ def test_a_dropdown_is_built_from_the_workspace_and_not_from_a_list (
 	assert absent == [] and unknown == []
 
 
+def test_a_project_narrows_the_statuses_a_picker_offers (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1029`. Measured on the instance that asked for it: 171 open tasks, every one `open`.
+
+	**It narrows the offer and refuses nothing** (Simon, 2026-08-20). Any surface may still set
+	any status the workspace has — a preference, not a permission — so what is being checked
+	here is a control's contents rather than anything about what a write is allowed to do.
+
+	**The two escapes are the point.** A picker always offers the status the thing would have if
+	you did nothing: what an existing item is in, and what a new one will be given. Both were
+	found by working the case through rather than by the requirement asking for them, and both
+	are failures a reader would meet on the first hidden status.
+	"""
+
+	vocabulary = {"task": [
+		{"key": "open", "label": "Open", "is_default": True},
+		{"key": "blocked", "label": "Blocked", "is_default": False},
+		{"key": "needs_input", "label": "Needs input", "is_default": False},
+		{"key": "done", "label": "Done", "is_default": False},
+	]}
+
+	everything, narrowed, held, defaulted = _views(tmp_path, [
+		("offered", {"vocabulary": vocabulary, "kind": "task"}),
+		("offered", {
+			"vocabulary": vocabulary, "kind": "task",
+			"hidden": ["blocked", "needs_input"], "keep": "open",
+		}),
+		# An item already in a status the project has stopped offering.
+		("offered", {
+			"vocabulary": vocabulary, "kind": "task",
+			"hidden": ["blocked", "needs_input"], "keep": "blocked",
+		}),
+		# A project that hid the status new work is created in.
+		("offered", {
+			"vocabulary": vocabulary, "kind": "task",
+			"hidden": ["open", "blocked"], "keep": None,
+		}),
+	])
+
+	assert [one["key"] for one in everything] == ["open", "blocked", "needs_input", "done"], (
+		"a project that has configured nothing must be offered the whole vocabulary"
+	)
+
+	assert [one["key"] for one in narrowed] == ["open", "done"]
+
+	# **Without this a `<select>` reports a blocked task as Open**, because a value matching no
+	# option renders blank or falls back to the first entry — and saving anything else on the
+	# form then writes that back. The one failure here that loses data.
+	assert "blocked" in [one["key"] for one in held], (
+		"an item in a hidden status was offered no way to say what it is in"
+	)
+
+	# **Without this a project that hid its default could not file an ordinary task.** The
+	# control would pick whatever came first, and the server hands out the hidden one anyway.
+	assert [one["key"] for one in defaulted] == ["open", "needs_input", "done"]
+	assert defaulted[0]["chosen"] is True, (
+		"the default survived being hidden and is still the pre-selection"
+	)
+
+
+def test_the_form_offers_only_the_statuses_the_project_it_files_into_offers (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1029`, and this is the half that `offered`'s own test cannot reach.
+
+	**A pure function being right says nothing about anything calling it.** That is `SR#640`, and
+	it has shipped six times here — the rule right, the display right, and no wire between them.
+	`offered` narrowing correctly and `Fields` never passing it a project would pass every other
+	test in this file.
+
+	**The project is read live from the form**, so choosing a different one re-narrows in the
+	same render — which is why the value passed in is the whole address rather than a key.
+	"""
+
+	statuses = [
+		{"key": "open", "label": "Open", "is_default": True},
+		{"key": "blocked", "label": "Blocked", "is_default": False},
+	]
+	sample: dict[str, typing.Any] = {
+		"busy": False,
+		"values": {"description": "why"},
+		"project": "shopping",
+		"projects": [{
+			"id": "aaa", "key": "shopping", "title": "Shopping", "is_inbox": False,
+			"depth": 0, "hidden_statuses": ["blocked"],
+		}],
+		"members": [{"username": "si", "label": "si"}],
+		"vocabulary": {
+			"item_types": {"task": [{"key": "task", "label": "Task", "is_default": True}]},
+			"statuses": {"task": statuses},
+		},
+	}
+
+	markup = _rendered(tmp_path, {"Fields": sample})["Fields"]
+
+	assert "Open" in markup, "the form lost the status its project does offer"
+	assert "Blocked" not in markup, (
+		"the form offered a status this project hides, so nothing is passing it the project"
+	)
+
+	# **The same form filing somewhere that hides nothing offers both**, which is what stops the
+	# assertion above being satisfied by a `Blocked` that never renders anywhere.
+	sample["projects"][0]["hidden_statuses"] = []
+
+	assert "Blocked" in _rendered(tmp_path, {"Fields": sample})["Fields"]
+
+
+def test_an_items_status_control_offers_what_its_own_project_offers (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1029`. The item page's control finds its project by id, where a form uses the address.
+
+	Driven as well as unit-tested for `SR#640`'s reason: `Doing` receiving no roster at all would
+	leave `offered` correct and this control unnarrowed, and nothing else here would notice.
+	"""
+
+	statuses = [
+		{"key": "open", "label": "Open", "is_default": True},
+		{"key": "needs_input", "label": "Needs input", "is_default": False},
+	]
+	sample: dict[str, typing.Any] = {
+		"item": {
+			"ref": 42, "kind": "task", "title": "Buy milk", "status": "open",
+			"status_category": "todo", "project_id": "aaa",
+		},
+		"members": ["si"],
+		"busy": False,
+		"statuses": {"task": statuses},
+		"projects": [{
+			"id": "aaa", "key": "shopping", "depth": 0, "hidden_statuses": ["needs_input"],
+		}],
+	}
+
+	markup = _rendered(tmp_path, {"Doing": sample})["Doing"]
+
+	assert "Open" in markup
+	assert "Needs input" not in markup, (
+		"the item page offered a status its project hides"
+	)
+
+	sample["projects"][0]["hidden_statuses"] = []
+
+	assert "Needs input" in _rendered(tmp_path, {"Doing": sample})["Doing"]
+
+
+def test_the_item_page_hands_its_status_control_the_project_roster (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1029`. One wire further out than the control's own test can see.
+
+	`Doing` takes the roster as an optional argument, so a `Detail` that forgot to pass it would
+	leave every narrowing correct and every picker unnarrowed — silently, because the default is
+	*nothing hidden* and that is indistinguishable from a project that hides nothing.
+
+	**This is `SR#640`'s shape and it is the one that keeps shipping**: the rule right, the
+	display right, no wire between them. `Detail` is renderable, so unlike `App` it costs a
+	Node test rather than a browser one.
+	"""
+
+	item = {
+		"ref": 42, "kind": "task", "title": "Buy milk", "status": "open",
+		"status_category": "todo", "project_id": "aaa", "description": "Why it matters.",
+	}
+	sample = {
+		"item": item,
+		"links": [],
+		"comments": [],
+		"workspace": "personal",
+		"backTo": "/personal",
+		"members": ["si"],
+		# `Doing` is rendered only where the page can act, so the callback has to be here.
+		"onComplete": True,
+		"statuses": {"task": [
+			{"key": "open", "label": "Open", "is_default": True},
+			{"key": "needs_input", "label": "Needs input", "is_default": False},
+		]},
+		"projects": [{
+			"id": "aaa", "key": "shopping", "depth": 0, "hidden_statuses": ["needs_input"],
+		}],
+	}
+
+	markup = _rendered(tmp_path, {"Detail": sample})["Detail"]
+
+	assert "Open" in markup, "the item page did not render its status control at all"
+	assert "Needs input" not in markup, (
+		"the item page rendered a status its project hides, so the roster is not reaching Doing"
+	)
+
+
+def test_which_statuses_a_project_hides_is_found_by_id_or_by_address (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1029`. The two readers hold different things and neither should have to convert.
+
+	An item's row carries `project_id`; a form's project control carries the whole **address**,
+	and has to, because a key stopped identifying a project at `SR#958`.
+
+	**Not found means nothing hidden, deliberately.** The roster is capped and scoped to one
+	workspace, so *not here* is *not known* — and failing towards offering everything is the safe
+	direction, since an extra option is a shrug and a missing one is a control that cannot say
+	what an item is.
+	"""
+
+	projects = [
+		{"id": "aaa", "key": "substation", "depth": 0, "hidden_statuses": ["needs_input"]},
+		{"id": "bbb", "key": "dist", "depth": 1, "hidden_statuses": ["blocked"]},
+		{"id": "ccc", "key": "shopping", "depth": 0, "hidden_statuses": []},
+	]
+
+	by_id, by_address, nested, unknown, nothing = _views(tmp_path, [
+		("notOffered", {"projects": projects, "chosen": "bbb"}),
+		("notOffered", {"projects": projects, "chosen": "substation"}),
+		("notOffered", {"projects": projects, "chosen": "substation/dist"}),
+		("notOffered", {"projects": projects, "chosen": "nowhere"}),
+		("notOffered", {"projects": projects, "chosen": None}),
+	])
+
+	assert by_id == ["blocked"]
+	assert by_address == ["needs_input"]
+
+	# **The whole address, not the bare key** — a child is addressed through its parent, which is
+	# the same walk the form's own project control makes.
+	assert nested == ["blocked"], "a nested project was not found by its address"
+
+	assert unknown == [] and nothing == []
+
+
 def _date_fields () -> list[tuple[str, str, str]]:
 	"""The browser's three date fields, as `(name, label, hint)`.
 
@@ -6206,7 +6434,11 @@ def _views (
 			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
 			: name === "filed" ? app.filed(argument.values, argument.slug)
-			: name === "offered" ? app.offered(argument.vocabulary, argument.kind)
+			: name === "offered"
+				? app.offered(
+					argument.vocabulary, argument.kind, argument.hidden, argument.keep
+				)
+			: name === "notOffered" ? app.notOffered(argument.projects, argument.chosen)
 			: name === "filableFor"
 				? app.filableFor(argument.projects, argument.project, argument.prioritised)
 			: name === "prioritisedHere"

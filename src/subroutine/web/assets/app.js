@@ -1611,6 +1611,13 @@ export function projectsRequest (slug) {
 		because the Inbox is where an item with no project lands, so it is the one entry a form
 		can label as *what happens if you say nothing*.
 
+		**`id` and `hidden_statuses` are here for the status pickers** (`#1029`). A project may
+		be told which statuses it does not offer, and that setting is inherited — so the server
+		resolves the chain and publishes the answer per project, which is why this asks for the
+		resolved list rather than for `settings`. A row finds its project's by `project_id`, and
+		a *form* finds it by whichever project is selected, which is the case an item-level
+		field could never answer because nothing exists yet to carry one.
+
 		**`path` orders and `depth` indents, and only one of them is a field.** `path` is
 		sortable and *not* selectable — measured, by asking for it and being told the twenty-one
 		fields a project has. So the shape of the tree arrives as an order plus a number, which
@@ -1618,7 +1625,11 @@ export function projectsRequest (slug) {
 		of thing, when one is inside `Subroutine` and the other is a root.
 	*/
 	return {
-		path: scoped("/projects?fields=key,title,is_inbox,depth&order=path&limit=200", slug),
+		path: scoped(
+			"/projects?fields=id,key,title,is_inbox,depth,hidden_statuses"
+			+ "&order=path&limit=200",
+			slug
+		),
 		method: "GET",
 	};
 }
@@ -1657,7 +1668,7 @@ export function people (roster) {
 	}));
 }
 
-export function offered (vocabulary, kind) {
+export function offered (vocabulary, kind, hidden = null, keep = null) {
 	/*
 		The options for one dropdown, and which is chosen when nobody has chosen — `#756`.
 
@@ -1667,14 +1678,68 @@ export function offered (vocabulary, kind) {
 
 		Reads `is_default` for the pre-selection rather than assuming a key, for the same reason:
 		`open` and `task` are what `seed.py` happens to install here, not what the model promises.
+
+		## What `hidden` does, and the one rule that overrides it (`#1029`)
+
+		**A project may say which statuses it does not offer**, resolved server-side up the
+		project tree and published per project. Measured on the instance that asked for this:
+		171 open tasks, every one of them `open` — six words offered where two are used.
+
+		**It narrows the offer and refuses nothing** (Simon, 2026-08-20). Any surface may still
+		set any status the workspace has; this is a preference, not a permission, so a script or
+		an agent that learned the vocabulary last week cannot be broken by somebody's tidying.
+
+		**A picker always offers the status the thing would have if you did nothing.** One rule,
+		read two ways: for an item that exists, `keep` is what it is in now; for one that does
+		not, `is_default` is what the server will give it. Both survive being hidden.
+
+		Without the first, a `<select>` whose value matches no option renders blank or falls back
+		to its first entry — so a blocked task would report as *Open*, and saving anything else
+		on the form would write that back. Without the second, a project that hid its default
+		could not file an ordinary task at all: the control would pick whatever came first, and
+		the server would have handed out the hidden one anyway.
+
+		Both escapes are self-healing. Move the item onto a status the project offers, or stop
+		hiding the default, and the extra entry stops appearing.
 	*/
 	const known = (vocabulary && vocabulary[kind]) || [];
+	const away = new Set(hidden || []);
 
-	return known.map((one) => ({
-		key: one.key,
-		label: one.label || one.key,
-		chosen: Boolean(one.is_default),
-	}));
+	return known
+		.filter((one) => !away.has(one.key) || one.key === keep || Boolean(one.is_default))
+		.map((one) => ({
+			key: one.key,
+			label: one.label || one.key,
+			chosen: Boolean(one.is_default),
+		}));
+}
+
+
+export function notOffered (projects, chosen) {
+	/*
+		What one project does not offer, named the way each caller already has it — `#1029`.
+
+		**An id or an address, because the two readers hold different things.** An item's row
+		carries `project_id`; a form's project control carries the whole address (`#977`), and
+		it has to, because a key stopped identifying a project at `#958`. Asking each to convert
+		would put the same walk in two more places.
+
+		**A lookup rather than a walk**, because the inheritance is already resolved: the server
+		publishes `hidden_statuses` per project, having looked up the tree itself. A client
+		walking `project_path` would need every ancestor's settings and a third copy of the
+		precedence rule, which is `#925`'s reason for publishing a rendering rather than a rule.
+
+		Answers with nothing for a project this page has not loaded, which is the honest reading:
+		the roster is capped at 200 and scoped to one workspace, so *not here* means *not known*
+		rather than *nothing hidden*. Failing towards offering everything is the safe direction —
+		an extra option is a shrug and a missing one is a control that cannot say what an item is.
+	*/
+	if (!chosen) return [];
+
+	const found = addressedProjects(projects || [])
+		.find((one) => one.id === chosen || one.address === chosen);
+
+	return (found && found.hidden_statuses) || [];
 }
 
 export function statusFor (vocabulary, kind, category) {
@@ -1981,6 +2046,32 @@ function _inboxFirst (ordered) {
 	return ordered.slice(at, after).concat(ordered.slice(0, at), ordered.slice(after));
 }
 
+export function addressedProjects (projects) {
+	/*
+		The project roster with each entry's full address on it — the walk `#977` established.
+
+		**Rebuilt from the tree rather than read off the row**, because `path` is sortable and
+		*not* selectable on that listing (`#770`). What arrives is a genuine pre-order — the
+		fetch asks for `order=path` and a parent's path is a string prefix of every
+		descendant's — so an ancestry stack indexed by `depth` reassembles the addresses in one
+		pass.
+
+		**Extracted because three things now want it**: the form's project control (`#977`), the
+		masthead's places (`#975`), and which statuses a project offers (`#1029`). Two copies of
+		one walk is this codebase's signature defect, and this one is subtle enough to drift —
+		`ancestry.length = depth` is what pops back out of a subtree, and it only works on a
+		pre-order.
+	*/
+	const ancestry = [];
+
+	return treeOrdered(projects).map((one) => {
+		ancestry.length = one.depth || 0;
+		ancestry.push(one.key);
+
+		return { ...one, address: ancestry.join(PATH_SEPARATOR) };
+	});
+}
+
 export function filableFor (projects, project, prioritised = null) {
 	/*
 		Where a new item can go, and which entry is chosen when nobody has chosen — `#756`.
@@ -2035,15 +2126,7 @@ export function filableFor (projects, project, prioritised = null) {
 		front of it — but depending on that is depending on a property of somebody else's
 		function.
 	*/
-	const ancestry = [];
-	const addressed = treeOrdered(projects).map((one) => {
-		ancestry.length = one.depth || 0;
-		ancestry.push(one.key);
-
-		return { ...one, address: ancestry.join(PATH_SEPARATOR) };
-	});
-
-	const promoted = _inboxFirst(addressed);
+	const promoted = _inboxFirst(addressedProjects(projects));
 
 	const known = promoted.map((one) => ({
 		key: one.address,
@@ -4661,7 +4744,15 @@ export function Fields ({
 				filableFor(projects, held.project || project, prioritised))}
 
 			${vocabularySelect("type", "Type", offered(vocabulary && vocabulary.item_types, "task"))}
-			${vocabularySelect("status", "Status", offered(vocabulary && vocabulary.statuses, "task"))}
+			${/* **Narrowed to what this project offers** (`#1029`). The project the form is
+			     filing into is what decides, which is why the whole address goes in — and it is
+			     read live from `held`, so choosing a different project re-narrows the statuses
+			     in the same render. `held.status` is what an item being edited is in now, and
+			     is offered whatever the project says. */ null}
+			${vocabularySelect("status", "Status", offered(
+				vocabulary && vocabulary.statuses, "task",
+				notOffered(projects, held.project || project), held.status
+			))}
 
 			<label><span>Assignee</span>
 				<select name="assignee" disabled=${busy}>
@@ -4884,7 +4975,12 @@ export function DocumentFields ({
 					defaultValue=${held.body || ""}></textarea></label>
 
 			${pick("type", "Type", offered(vocabulary && vocabulary.item_types, "document"))}
-			${pick("status", "Status", offered(vocabulary && vocabulary.statuses, "document"))}
+			${/* Narrowed the same way a task's is (`#1029`) — a document's statuses are a
+			     different vocabulary and the same project decides which of them are offered. */ null}
+			${pick("status", "Status", offered(
+				vocabulary && vocabulary.statuses, "document",
+				notOffered(projects, held.project || project), held.status
+			))}
 			${pick("project", "Project",
 				filableFor(projects, held.project || project, prioritised))}
 		</fieldset>
@@ -5501,7 +5597,9 @@ export function Prose ({ text, className, where, onOpen }) {
 		dangerouslySetInnerHTML=${{ __html: rendered }}></div>`;
 }
 
-export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, statuses }) {
+export function Doing ({
+	item, members, onComplete, onAssign, onStatus, busy, statuses, projects = null,
+}) {
 	/*
 		The two things a reader can do to an item from here.
 
@@ -5519,7 +5617,19 @@ export function Doing ({ item, members, onComplete, onAssign, onStatus, busy, st
 		opinion* — driven and confirmed rather than assumed, since the two readings of a null
 		are indistinguishable from the outside.
 	*/
-	const where = offered(statuses, item.kind === "document" ? "document" : "task");
+	/*
+		**Narrowed to what the item's own project offers** (`#1029`), found by `project_id`
+		rather than by the address a form would use — a row has the id and never the tree.
+
+		`item.status` is passed as what to keep, which is the rule that stops this control ever
+		misreporting: a `<select>` whose value matches no option renders blank or falls back to
+		its first entry, so a task in a status its project has since stopped offering would read
+		as *Open* — and pressing anything else here would write that back.
+	*/
+	const where = offered(
+		statuses, item.kind === "document" ? "document" : "task",
+		notOffered(projects, item.project_id), item.status
+	);
 
 	/*
 		**The status control is outside the completable gate, and the rest are inside it**
@@ -5646,7 +5756,7 @@ export function Detail ({
 					${onComplete && html`
 						<${Doing} item=${item} members=${members} onComplete=${onComplete}
 							onAssign=${onAssign} onStatus=${onStatus} statuses=${statuses}
-							busy=${busy} />
+							projects=${projects} busy=${busy} />
 					`}
 
 					${body && html`<${Prose} className="prose" text=${body} where=${where}

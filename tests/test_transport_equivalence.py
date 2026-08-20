@@ -4004,3 +4004,21 @@ def test_both_transports_refuse_a_setting_nothing_declares (pair: Pair) -> None:
 
 		with pytest.raises(subroutine.errors.SubroutineError):
 			client.update_project(f"reject{index}", settings={"appearance.colour": "burgundy"})
+
+		# **The workspace-aware half, which no `Kind` can reach** (`#1029`). A status key is
+		# checked against *this workspace's* vocabulary, so it needs a session — and the check
+		# runs in the service rather than in the registry, which is a second place either
+		# transport could have been the lenient one.
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.update_project(f"reject{index}", settings={"statuses.hidden": ["blockd"]})
+
+		# And the same key with a real status is accepted, so the refusal above is about the
+		# word rather than about the setting existing at all.
+		back = client.update_project(
+			f"reject{index}", settings={"statuses.hidden": ["blocked"]}
+		)
+
+		assert back.settings["statuses.hidden"] == ["blocked"], "stored as sent"
+		assert back.hidden_statuses == ["blocked"], (
+			f"{client!r} did not publish the resolved list beside the raw map"
+		)

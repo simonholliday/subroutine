@@ -55,6 +55,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.domain.hierarchy
 import subroutine.domain.palette
 import subroutine.errors
@@ -110,6 +111,54 @@ def _one_colour (value: typing.Any, key: str) -> str:
 A_COLOUR = Kind(check=_one_colour, describes="one of the palette's colour names")
 
 
+def _some_status_keys (value: typing.Any, key: str) -> list[str]:
+	"""Read a value that must be a list of status keys, and return it canonically.
+
+	**Sorted and deduplicated, because this is a set wearing a list's clothes.** A deny-list has
+	no order to preserve, and a canonical form is what stops ``["done", "blocked"]`` and
+	``["blocked", "done"]`` being two different stored values — which matters here more than it
+	usually would, since replacing a JSON column with an *equal* dict still marks the row dirty
+	and moves ``updated_at`` (`#42`).
+
+	**The keys are not checked against the workspace's vocabulary here**, because a
+	:class:`Kind` is a pure declaration with no session. That check exists and lives in
+	:attr:`Setting.verify`, which the services call where the workspace is in hand.
+	"""
+
+	if not isinstance(value, list):
+		raise subroutine.errors.ValidationError(
+			f"{key} is a list of status keys, not {type(value).__name__}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=key,
+					code="invalid_field_value",
+					message="Statuses are given as a list of their keys.",
+					hint='For example: ["blocked", "needs_input"].',
+				)
+			],
+		)
+
+	for one in value:
+		if not isinstance(one, str) or not one.strip():
+			raise subroutine.errors.ValidationError(
+				f"{key} holds a status key that is not a word.",
+				errors=[
+					subroutine.errors.FieldError(
+						field=key,
+						code="invalid_field_value",
+						message=f"{one!r} is not a status key.",
+						hint="Each entry is the key of a status, such as 'blocked'.",
+					)
+				],
+			)
+
+	return sorted({one.strip() for one in value})
+
+
+#: Some of a workspace's status keys, in no meaningful order.
+SOME_STATUS_KEYS = Kind(check=_some_status_keys, describes="a list of status keys")
+
+
 class Setting (typing.NamedTuple):
 	"""One thing an installation may configure, and everything anybody needs to know about it.
 
@@ -150,6 +199,22 @@ class Setting (typing.NamedTuple):
 	#: choosing an appearance may want a stronger check, and this is where it says so.
 	permission: str | None = None
 
+	#: A second check, run where the workspace is known — or ``None`` where the kind is the
+	#: whole rule.
+	#:
+	#: **A :class:`Kind` is a pure declaration and cannot query**, which is what keeps this
+	#: registry readable; a setting whose values name *this workspace's own vocabulary* needs a
+	#: session to be checked at all. Rather than giving every kind a session it does not want,
+	#: the setting says so here and :func:`verified` runs it from the services.
+	#:
+	#: **It exists because the alternative failure is silent.** A deny-list entry that matches
+	#: no status hides nothing and looks exactly like a setting that did not take — the
+	#: declared-and-read-by-nothing family (`#303`) one level in, at the value rather than at
+	#: the key.
+	verify: (
+		typing.Callable[[sqlalchemy.orm.Session, uuid.UUID, typing.Any], None] | None
+	) = None
+
 
 #: What a workspace or a project may be marked with, and the first entry in this registry.
 #:
@@ -166,8 +231,98 @@ COLOUR = Setting(
 	read_by="src/subroutine/views.py",
 )
 
+
+def _these_statuses_exist (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	value: typing.Any,
+) -> None:
+	"""Refuse a status key this workspace does not have, naming the ones it does."""
+
+	model = subroutine.db.models.vocabulary.Status
+	known = set(
+		session.scalars(
+			sqlalchemy.select(model.key).where(model.workspace_id == workspace_id)
+		).all()
+	)
+	missing = [one for one in value if one not in known]
+
+	if not missing:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"This workspace has no status keyed {missing[0]!r}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=HIDDEN_STATUSES.key,
+				code="invalid_field_value",
+				message=f"No such status: {', '.join(sorted(missing))}.",
+				hint=f"This workspace has: {', '.join(sorted(known))}.",
+			)
+		],
+	)
+
+
+#: The statuses a project does not offer, inherited by anything under it.
+#:
+#: **A deny-list rather than an allow-list**, which is `#826`'s asymmetry applied to
+#: configuration: a status added to a workspace later appears everywhere by default, where an
+#: allow-list would leave it silently missing from every project that had ever configured one —
+#: and an absence is the mistake nobody notices. Unset and empty mean the same harmless thing,
+#: so nothing needs backfilling.
+#:
+#: **Keys rather than ids, declining `#916`'s precedent deliberately.** That item stored
+#: item-type ids because a calendar feed *"has no reader to complain when it silently stops
+#: matching"*; this has one, since a hidden status reappearing in a dropdown is visible the same
+#: day. And a status cannot be renamed or added at all today (`#826`) — there is no write
+#: endpoint and ``db/seed.py`` is the only thing that builds one — so the hazard is unreachable
+#: rather than merely unlikely. What keys buy is a value that is readable in the JSON, typeable
+#: at the command line, and diagnosable by looking at it, which is what every other status
+#: reference on the wire already is. The obligation that leaves is written onto `#826`: if
+#: statuses ever become writable, a rename must rewrite these lists.
+#:
+#: **It narrows what is *offered* and refuses no write** (Simon, 2026-08-20). A preference, not
+#: a permission — so it cannot break a script, an import, or an agent that read the vocabulary
+#: last week, and turning it off has no data consequence because nothing was refused while it
+#: was on. The cost is named rather than hidden: a project's configured set is a suggestion, and
+#: nothing downstream may assume it is complete.
+HIDDEN_STATUSES = Setting(
+	key="statuses.hidden",
+	scopes=(PROJECT, WORKSPACE),
+	kind=SOME_STATUS_KEYS,
+	# An empty *tuple*, because a default is shared by every caller that falls back to it and a
+	# mutable one would be a single list handed to every unconfigured project on the page. The
+	# stored value is a list either way; nothing here compares the two by type.
+	default=(),
+	summary="Statuses this project does not offer when somebody sets one.",
+	read_by="src/subroutine/views.py",
+	verify=_these_statuses_exist,
+)
+
 #: Every setting this build recognises, by key.
-SETTINGS: dict[str, Setting] = {COLOUR.key: COLOUR}
+SETTINGS: dict[str, Setting] = {
+	COLOUR.key: COLOUR,
+	HIDDEN_STATUSES.key: HIDDEN_STATUSES,
+}
+
+
+def verified (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	stored: dict[str, typing.Any],
+) -> None:
+	"""Run every workspace-aware check the stored settings ask for.
+
+	Called by the services once the map to store is assembled, because that is where a session
+	and a workspace are both in hand. Silent for a setting whose :class:`Kind` is the whole rule,
+	which is most of them.
+	"""
+
+	for key, value in stored.items():
+		found = SETTINGS.get(key)
+
+		if found is not None and found.verify is not None:
+			found.verify(session, workspace_id, value)
 
 
 def offered (scope: str) -> dict[str, Setting]:

@@ -452,3 +452,128 @@ def test_a_write_keeps_the_keys_it_was_not_told_about () -> None:
 
 	assert "appearance.colour" not in cleared, "clearing has to remove the key, not null it"
 	assert cleared[subroutine.db.seed.SEED_VERSION_KEY] == 4, "and take nothing else with it"
+
+
+def test_a_list_of_statuses_is_stored_sorted_and_without_repeats () -> None:
+	"""A deny-list is a set wearing a list's clothes, so the stored form is canonical.
+
+	It matters more here than it usually would: replacing a JSON column with an *equal* dict
+	still marks the row dirty and moves ``updated_at`` (`#42`), so two spellings of one set
+	would make writing the same thing twice look like a change.
+	"""
+
+	stored = subroutine.domain.settings.validated(
+		{"statuses.hidden": ["done", "blocked", "done", " blocked "]},
+		scope=subroutine.domain.settings.PROJECT,
+	)
+
+	assert stored == {"statuses.hidden": ["blocked", "done"]}
+
+
+def test_a_status_list_that_is_not_a_list_is_refused_by_name () -> None:
+	"""One key sent as a bare word, which is the likeliest thing a hand-written call does."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.settings.validated(
+			{"statuses.hidden": "blocked"}, scope=subroutine.domain.settings.PROJECT
+		)
+
+	reported = raised.value.errors[0]
+
+	assert reported.field == "statuses.hidden"
+	assert "blocked" in (reported.hint or ""), "the shape is shown rather than described"
+
+
+def test_a_status_list_holding_something_that_is_not_a_word_is_refused () -> None:
+	"""The entry is named, because a list of five with one wrong is a needle in a haystack."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.settings.validated(
+			{"statuses.hidden": ["blocked", 7]}, scope=subroutine.domain.settings.PROJECT
+		)
+
+	assert "7" in raised.value.errors[0].message
+
+
+def test_a_status_this_workspace_does_not_have_is_refused_with_the_ones_it_does (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""The half a :class:`Kind` structurally cannot check, and the reason it exists.
+
+	A ``Kind`` is a pure declaration with no session, so it can say *this is a list of words* and
+	never *these words are statuses here*. Without the second, ``statuses.hidden = ["blockd"]``
+	hides nothing, silently, and looks exactly like a setting that did not take — the
+	declared-and-read-by-nothing family (`#303`) one level in, at the value rather than the key.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.settings.verified(
+			session, world.id, {"statuses.hidden": ["blockd"]}
+		)
+
+	reported = raised.value.errors[0]
+
+	assert reported.field == "statuses.hidden"
+	assert "blockd" in reported.message
+	assert "blocked" in (reported.hint or ""), "it says which statuses this workspace has"
+
+
+def test_a_setting_with_no_workspace_check_of_its_own_is_left_alone (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""Most settings are their own whole rule, and :func:`verified` must be silent for those.
+
+	Falsified the other way round on purpose: a colour that the palette *would* refuse is passed
+	here and accepted, which proves this step is asking each setting rather than re-running
+	validation over everything.
+	"""
+
+	subroutine.domain.settings.verified(session, world.id, {"appearance.colour": "burgundy"})
+
+
+def test_a_project_takes_the_nearest_ancestors_hidden_statuses (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""The same chain the colour walks, on the registry's second entry — `#1029`.
+
+	Driven rather than assumed to follow, because :func:`for_projects` takes the setting as an
+	argument and a chain that worked for one value and not another would be invisible from the
+	colour's own test.
+
+	**Every step changes an answer.** A level whose value equals the level below it cannot be
+	told from a level nothing consulted, which is how a precedence test passes over a missing
+	step — `#815`'s recorded trap, met on §6.5's timezone chain.
+	"""
+
+	parent = _project(session, world.id, "parent")
+	child = _project(session, world.id, "child")
+	wanted = [parent.id, child.id]
+
+	def resolved () -> dict[uuid.UUID, object]:
+		return subroutine.domain.settings.for_projects(
+			session, subroutine.domain.settings.HIDDEN_STATUSES, wanted
+		)
+
+	# Nothing set: everything is offered, which is what an unconfigured instance does today.
+	assert resolved() == {parent.id: (), child.id: ()}
+
+	world.settings = {"statuses.hidden": ["needs_input"]}
+	session.flush()
+
+	assert resolved() == {parent.id: ["needs_input"], child.id: ["needs_input"]}
+
+	parent.settings = {"statuses.hidden": ["blocked"]}
+	session.flush()
+
+	assert resolved() == {parent.id: ["blocked"], child.id: ["blocked"]}
+
+	# **Replaced, not merged, between scopes.** The nearest ancestor that says anything says all
+	# of it — which is `in_force`'s rule for every setting, and is why a project wanting its
+	# parent's list plus one more writes both. Merging up a tree would make *offer this after
+	# all* unsayable from anywhere below wherever it was hidden.
+	child.settings = {"statuses.hidden": []}
+	session.flush()
+
+	assert resolved() == {parent.id: ["blocked"], child.id: []}, (
+		"an empty list is a project saying it offers everything, not a project saying nothing"
+	)

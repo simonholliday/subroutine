@@ -1354,6 +1354,24 @@ class Project(pydantic.BaseModel):
 
 	settings: dict[str, typing.Any]
 
+	#: The statuses this project does not offer, resolved up the tree — `#1029`.
+	#:
+	#: **Beside ``settings`` rather than inside it, because they answer different questions.**
+	#: ``settings`` is what *this* project was told; this is what is **in force**, which may
+	#: come from a parent or from the workspace. A client reading the raw map would see nothing
+	#: on a project that inherits, and would have to hold every ancestor's settings and repeat
+	#: the walk to find out why — `#925`'s rule, the same one that put ``project_colour`` on a
+	#: row rather than publishing the chain.
+	#:
+	#: **On the project rather than on every item**, which is not only bytes: a form knows which
+	#: project is *selected* before anything exists to hang a field on, so this is what lets the
+	#: add form narrow at all. An item finds its own through ``project_id``, which every row
+	#: already carries.
+	#:
+	#: Defaulted, because `#345`/`#482`: a client one commit ahead of an instance must not
+	#: refuse the whole response for a field the instance has never heard of.
+	hidden_statuses: list[str] = []
+
 	archived_at: datetime.datetime | None
 	deleted_at: datetime.datetime | None
 	created_at: datetime.datetime
@@ -1783,6 +1801,13 @@ class Vocabulary:
 		# the rendering instead.
 		self.project_colours = subroutine.domain.settings.for_projects(
 			session, subroutine.domain.settings.COLOUR, set(project_ids)
+		)
+
+		#: What each project does not offer, resolved up the same chain and in the same two
+		#: queries. Only a page of projects reads it — a task's row does not carry it — but it
+		#: is loaded here so the walk is shared with the colour rather than repeated.
+		self.hidden_statuses = subroutine.domain.settings.for_projects(
+			session, subroutine.domain.settings.HIDDEN_STATUSES, set(project_ids)
 		)
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
@@ -2335,6 +2360,7 @@ def project (
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		settings=dict(row.settings),
+		hidden_statuses=list(vocabulary.hidden_statuses.get(row.id, ())),
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,

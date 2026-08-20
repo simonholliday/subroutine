@@ -231,6 +231,11 @@ def update (
 			workspace.settings, settings, scope=subroutine.domain.settings.WORKSPACE
 		)
 
+		# **The half a registry entry cannot check on its own** — a `Kind` has no session, and a
+		# setting naming this workspace's own vocabulary needs one. Against the merged map, so a
+		# stored key stays checked when something beside it changes.
+		subroutine.domain.settings.verified(session, workspace.id, changed["settings"])
+
 	if timezone is not subroutine.domain.patch.UNSET:
 		# Validated on the way *in*. Unvalidated, a bad zone is stored happily and then fails
 		# on every later date computation with a 422 naming the *request's* timezone — a message

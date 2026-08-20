@@ -1746,6 +1746,64 @@ def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
 	return workspace.role or "no role"
 
 
+def _connection_named (
+	program: Program,
+	resolved: subroutine.config.Settings,
+	name: str,
+	url: str,
+) -> tuple[str, str, subroutine.connections.Roster]:
+	"""Read and refuse the two things `connections add` cannot proceed without — `#943`.
+
+	Lifted out of ``register`` rather than written there: `#943`'s ratchet only goes down, and a
+	new option elsewhere is paid for by a block that was never a closure's business. Every
+	refusal here is about the *arguments*, before anything is reached or written, so none of it
+	needs the command's later state.
+	"""
+
+	try:
+		wanted = subroutine.connections.check_name(name)
+		roster = subroutine.connections.roster(resolved)
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+	if wanted == subroutine.connections.LOCAL_NAME:
+		program.stop(
+			f"{subroutine.connections.LOCAL_NAME!r} already means this machine's own database, "
+			"so it cannot name another instance.",
+			hint="Give it a name of its own, as in 'subroutine connections add work'.",
+		)
+
+	# **The file's names rather than the roster's**, because a connection turned off is still in
+	# the file: adding a second table under that name would leave the meaning of the file to
+	# whichever one TOML kept.
+	if wanted in subroutine.connections.declared_names():
+		program.stop(
+			f"There is already a connection called {wanted!r}.",
+			hint=(
+				f"Choose another name, or edit {subroutine.config.config_file_path()} to "
+				"change that one."
+			),
+		)
+
+	if not url.strip():
+		program.stop(
+			f"Say where {wanted!r} is.",
+			hint=(
+				f"For example: subroutine connections add {wanted} --url "
+				"https://tasks.example.com"
+			),
+		)
+
+	try:
+		address = subroutine.connections.check_url(url)
+
+	except subroutine.errors.SubroutineError as error:
+		program.fail(error)
+
+	return wanted, address, roster
+
+
 def _connection_settings (
 	connection: subroutine.connections.Connection,
 ) -> dict[str, str | bool]:
@@ -3563,6 +3621,28 @@ WORKSPACE_COLOUR_HELP = (
 	f"What its work is marked with, unless a project says otherwise: {_COLOURS}. Pass '' to clear."
 )
 
+#: Repeatable, and the whole list each time rather than one more each time — a second invocation
+#: says what the project hides now, not what to add. `''` clears it.
+HIDE_STATUS_HELP = (
+	"A status not to offer here, e.g. 'blocked'. Repeat for more, or pass '' to offer them all."
+)
+
+
+def _hidden_statuses (given: list[str] | None) -> dict[str, typing.Any] | None:
+	"""Read repeated ``--hide-status`` values into a settings change, or ``None`` for silence.
+
+	Three states from one option, and the middle one is the reason this is a function: absent
+	says nothing, ``''`` clears, and any word sets. Typer reports the first two as an empty list
+	and as a list holding one empty string, which are a character apart and mean opposite things.
+	"""
+
+	if not given:
+		return None
+
+	wanted = [one for one in given if one]
+
+	return {subroutine.domain.settings.HIDDEN_STATUSES.key: wanted or None}
+
 
 def _project_updated (
 	program: Program,
@@ -3572,6 +3652,7 @@ def _project_updated (
 	description: str,
 	status: str,
 	colour: str,
+	hide_status: list[str] | None,
 	private: bool | None,
 ) -> None:
 	"""Change the fields beside a project's address, and say what it means — `#983`, `#434`."""
@@ -3593,15 +3674,20 @@ def _project_updated (
 	# **A settings map rather than a column, and merged per key** (`#1025`). An empty string
 	# clears it, which is how every other option here spells *unset* — and clearing means the
 	# project falls back to whatever is above it rather than going unmarked.
+	settings: dict[str, typing.Any] = {}
+
 	if colour is not UNGIVEN:
-		changes["settings"] = {
-			subroutine.domain.settings.COLOUR.key: colour or None
-		}
+		settings[subroutine.domain.settings.COLOUR.key] = colour or None
+
+	settings.update(_hidden_statuses(hide_status) or {})
+
+	if settings:
+		changes["settings"] = settings
 
 	if not changes:
 		program.stop(
 			"Nothing to change.",
-			hint="Pass --title, --description, --status, --colour or --private.",
+			hint="Pass --title, --description, --status, --colour, --hide-status or --private.",
 		)
 
 	with program.opened() as world:
@@ -3973,6 +4059,7 @@ def _workspace_updated (
 	description: str,
 	timezone: str,
 	colour: str,
+	hide_status: list[str] | None,
 ) -> None:
 	"""Change the fields beside a workspace's address — `#434`, `#1025`."""
 
@@ -3987,16 +4074,22 @@ def _workspace_updated (
 	if timezone is not UNGIVEN:
 		changes["timezone"] = timezone or None
 
-	# Everything in the workspace inherits this unless a project sets its own (`#1026`).
+	# Everything in the workspace inherits these unless a project sets its own (`#1026`,
+	# `#1029`) — one chain, walked upwards, resolved on the server.
+	settings: dict[str, typing.Any] = {}
+
 	if colour is not UNGIVEN:
-		changes["settings"] = {
-			subroutine.domain.settings.COLOUR.key: colour or None
-		}
+		settings[subroutine.domain.settings.COLOUR.key] = colour or None
+
+	settings.update(_hidden_statuses(hide_status) or {})
+
+	if settings:
+		changes["settings"] = settings
 
 	if not changes:
 		program.stop(
 			"Nothing to change.",
-			hint="Pass --title, --description, --timezone or --colour.",
+			hint="Pass --title, --description, --timezone, --colour or --hide-status.",
 		)
 
 	with program.opened() as world:
@@ -5747,6 +5840,9 @@ def register (
 		colour: str = typer.Option(
 			UNGIVEN, "--colour", show_default=False, help=COLOUR_HELP
 		),
+		hide_status: list[str] = typer.Option(
+			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
+		),
 		private: bool | None = typer.Option(
 			None, "--private/--public", show_default=False, help="Who can see it."
 		),
@@ -5773,6 +5869,7 @@ def register (
 			description=description,
 			status=status,
 			colour=colour,
+			hide_status=hide_status,
 			private=private,
 		)
 
@@ -5848,6 +5945,9 @@ def register (
 		colour: str = typer.Option(
 			UNGIVEN, "--colour", show_default=False, help=WORKSPACE_COLOUR_HELP
 		),
+		hide_status: list[str] = typer.Option(
+			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
+		),
 	) -> None:
 		"""Change what a workspace is called, what it is for, or which zone its dates are in.
 
@@ -5872,6 +5972,7 @@ def register (
 			description=description,
 			timezone=timezone,
 			colour=colour,
+			hide_status=hide_status,
 		)
 
 	@project_app.command("prioritise")
@@ -6493,42 +6594,7 @@ def register (
 				"https://tasks.example.com",
 			)
 
-		try:
-			wanted = subroutine.connections.check_name(name)
-			roster = subroutine.connections.roster(resolved)
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
-
-		if wanted == subroutine.connections.LOCAL_NAME:
-			stop(
-				f"{subroutine.connections.LOCAL_NAME!r} already means this machine's own "
-				"database, so it cannot name another instance.",
-				"Give it a name of its own, as in 'subroutine connections add work'.",
-			)
-
-		# **The file's names rather than the roster's**, because a connection turned off is
-		# still in the file: adding a second table under that name would leave the meaning of
-		# the file to whichever one TOML kept.
-		if wanted in subroutine.connections.declared_names():
-			stop(
-				f"There is already a connection called {wanted!r}.",
-				f"Choose another name, or edit {subroutine.config.config_file_path()} to "
-				"change that one.",
-			)
-
-		if not url.strip():
-			stop(
-				f"Say where {wanted!r} is.",
-				f"For example: subroutine connections add {wanted} --url "
-				"https://tasks.example.com",
-			)
-
-		try:
-			address = subroutine.connections.check_url(url)
-
-		except subroutine.errors.SubroutineError as error:
-			fail(error)
+		wanted, address, roster = _connection_named(program, resolved, name, url)
 
 		connection = subroutine.connections.Connection(
 			name=wanted,

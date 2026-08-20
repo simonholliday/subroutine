@@ -22,6 +22,24 @@ upgrade involves.
 
 ### Added
 
+- **A project can say which statuses it does not offer, and everything under it inherits that.**
+  `statuses.hidden` on `PATCH /v1/projects` and `PATCH /v1/workspaces`, and
+  `subroutine project update <key> --hide-status blocked` — repeatable, and `--hide-status ''`
+  offers them all again. A workspace that shrinks its vocabulary once shrinks it for every
+  project below, unless one says otherwise. `GET /v1/projects` reports `hidden_statuses`
+  beside `settings`: the raw map is what that project was *told*, and the new field is what is
+  **in force**, resolved up the tree so a client need not walk it.
+
+  **It narrows what is offered and refuses nothing.** Any surface may still set any status the
+  workspace has — this is a preference rather than a permission, so it cannot break a script,
+  an import, or anything that read the vocabulary before you changed your mind. The browser's
+  status pickers are what read it today.
+
+  **Two things are always offered whatever you hide**: the status an item is already in, so a
+  control can never claim a state the item is not in; and the status new work is created in, so
+  a project cannot make an ordinary task unfileable. A status key the workspace does not have is
+  refused by name, with the ones it does have listed.
+
 - **A workspace and a project can be given a colour, and everything under it inherits one.**
   `PATCH /v1/workspaces` and `PATCH /v1/projects` accept a `settings` map, and every task and
   document now reports `project_colour` — the colour in force for it, which is its project's
