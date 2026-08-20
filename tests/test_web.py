@@ -521,7 +521,21 @@ def _rendered (
 			const address = node.props && node.props.href;
 			const said = address ? ' href="' + address + '"' : "";
 
-			return typeof node.type === "string" ? `<${{node.type}}${{said}}>${{inner}}` : inner;
+			/* **A textarea's value is its content**, which is what HTML says and what makes this
+			   truthful rather than an exception (`SR#1044`). Every prose box in this app is
+			   *uncontrolled* by `SR#757`'s decision — filled by `defaultValue` so a re-render
+			   cannot reach in and reset somebody's typing — so an attribute-dropping harness
+			   could not see what any of them held. `SR#1044` is what that cost: a form offering
+			   an empty box where a document's body should be, with nothing here able to ask.
+			   Textareas only, deliberately: an `<input>`'s value as *markup* would be an
+			   invention, and this stays a text harness. */
+			const held = node.type === "textarea" && node.props
+				? String(node.props.defaultValue ?? node.props.value ?? "")
+				: "";
+
+			return typeof node.type === "string"
+				? `<${{node.type}}${{said}}>${{held}}${{inner}}`
+				: inner;
 		}}
 
 		/* Every handler a component may be given, **derived from the app rather than listed**.
@@ -2930,6 +2944,94 @@ def test_a_revision_says_which_version_it_is_based_on (tmp_path: pathlib.Path) -
 	])
 
 	assert "body" not in bare
+
+
+def test_a_form_with_no_body_control_cannot_clear_a_body (tmp_path: pathlib.Path) -> None:
+	"""`SR#1044`, and it is the half of that defect nobody had met.
+
+	The rule above is right: a body emptied on a revision must be **cleared**, or emptying a
+	document is impossible. What it cannot see is *which of two things it is looking at* — an
+	emptied box and a form that has no such box are both falsy here, and until `SR#1044` nothing
+	could hand it the second.
+
+	Then `Editing` handed it exactly that. It rendered the **task** form for every item, so a
+	document being edited had no body control at all, `readForm` returned no ``body`` key, and
+	one press of Save sent ``body: null`` and emptied the document. The reported symptom was the
+	*empty box*; this is what pressing on would have done.
+
+	**`readForm` reads the named controls off the DOM**, so the key's presence is exactly the
+	question *was there a box*. That is what separates the two, and it is why this is asserted
+	on the absent key rather than on the empty string — which is the other case, one line up.
+	"""
+
+	values = {"title": "A conclusion", "type": "decision", "status": "active"}
+	item = {"ref": 4, "version": 6}
+
+	absent, emptied = _views(tmp_path, [
+		("written", {"values": values, "item": item}),
+		("written", {"values": {**values, "body": ""}, "item": item}),
+	])
+
+	assert "body" not in absent, (
+		"a form that never offered a body control was read as somebody having emptied one, so "
+		"saving it clears the document — which is what SR#1044 shipped"
+	)
+
+	# **And the real clearing still works**, which is the direction a fix here could break: a
+	# guard that refused to send null at all would make emptying a document impossible and would
+	# pass the assertion above.
+	assert emptied["body"] is None, "emptying the box no longer clears the body"
+
+
+def test_editing_a_document_offers_a_documents_fields (tmp_path: pathlib.Path) -> None:
+	"""`SR#1044`, Simon 2026-08-20, from the served instance — the reported half.
+
+	Opening **Edit** on a document showed an empty *Description* and no way to reach the body.
+	`Editing` rendered `Fields` — the task form — for every item, so a document was offered a
+	task's eight fields and none of its own. `Adding` has made this choice since `SR#761`, six
+	lines away; only the editing half never did.
+
+	**Both directions**, because a fix that renders the document form for everything is the same
+	defect facing the other way and passes the first assertion on its own.
+	"""
+
+	document = {
+		"ref": 4, "kind": "document", "title": "A conclusion", "version": 3,
+		"body": "What was decided.", "type": "decision", "status": "active",
+	}
+	vocabulary = {
+		"item_types": {
+			"task": [{"key": "task", "label": "Task", "is_default": True}],
+			"document": [{"key": "decision", "label": "Decision", "is_default": True}],
+		},
+		"statuses": {
+			"task": [{"key": "open", "label": "Open", "is_default": True}],
+			"document": [{"key": "active", "label": "Active", "is_default": True}],
+		},
+	}
+
+	rendered = _rendered(tmp_path, {
+		"Editing": {
+			"busy": False, "item": document, "members": [],
+			"projects": [{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0}],
+			"vocabulary": vocabulary,
+		},
+	})["Editing"]
+
+	assert "What was decided." in rendered, (
+		f"the body of the document being edited is nowhere on its own form: {rendered[:400]}"
+	)
+	assert "Description" not in rendered, (
+		"a document was offered a task's Description, which it does not have — so the box was "
+		"empty and its own prose was unreachable"
+	)
+
+	# **The other direction**, on the sample this file already carries: a task must still get a
+	# task's form, or the fix is the same defect the other way round.
+	task = _rendered(tmp_path, {"Editing": SAMPLES["Editing"]})["Editing"]
+
+	assert "Description" in task, "a task stopped being offered its own description"
+	assert "What it says" not in task, "a task was offered a document's body"
 
 
 def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:

@@ -979,7 +979,12 @@ export function written (values, item) {
 		const value = said(name);
 
 		if (value) body[name] = value;
-		else if (revising && name === "body") body[name] = null;
+		/* **Only where the form actually had one to empty** (`#1044`). An emptied box and an
+		   *absent* box are both falsy here, and until now nothing could hand this the second —
+		   so a form with no body control read as somebody having cleared it, and one press of
+		   Save sent `body: null` and emptied the document. `readForm` reads the named controls
+		   off the DOM, so the key's presence is exactly the question *was there a box*. */
+		else if (revising && name === "body" && name in raw) body[name] = null;
 	});
 
 	return body;
@@ -1445,6 +1450,11 @@ export function fromItem (item) {
 
 	return {
 		description: said.description || "",
+		/* **A document's prose, so this fills both forms** (`#1044`). Every other field a
+		   document has — type, status, project — is already here under the same name, so the
+		   alternative was a second builder differing in one line. Absent on a task, where it
+		   reads as the empty string and is offered to no control. */
+		body: said.body || "",
 		/* **The address, not the key** (`#977`). `project_key` is what a project is *called*
 		   and stopped identifying one at `#958`; `project_path` is what it is addressed by, and
 		   is documented as the string a caller sends back. Falling back to the key because that
@@ -5143,10 +5153,27 @@ export function Editing ({
 
 			${conflict && html`<${Conflict} theirs=${conflict} />`}
 
-			<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
-				members=${members} values=${fromItem(item)} prioritised=${prioritised}
-				where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
-				reading=${reading} onReading=${onReading} />
+			${/*
+				**Whichever form the item's kind wants** — `#1044`, Simon 2026-08-20. This was
+				always `Fields`, so opening **Edit** on a document offered a task's eight fields
+				and none of its own: an empty Description where its Body should be, and no way
+				to reach the body at all. `Adding` six lines up has made this choice since
+				`#761`; only the editing half never did.
+
+				**And the empty box was the smaller half.** `written` clears a document's body
+				when the form gives it nothing — which is right for an emptied control and is
+				what a form with *no such control* also looks like — so pressing Save here sent
+				`body: null` and wiped the document. It is guarded on both sides now: `written`
+				only clears what it was given a control for.
+			*/ null}
+			${item.kind === "document"
+				? html`<${DocumentFields} busy=${busy} vocabulary=${vocabulary}
+					projects=${projects} values=${fromItem(item)} prioritised=${prioritised}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing} />`
+				: html`<${Fields} busy=${busy} vocabulary=${vocabulary} projects=${projects}
+					members=${members} values=${fromItem(item)} prioritised=${prioritised}
+					where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
+					reading=${reading} onReading=${onReading} />`}
 		</form>
 	`;
 }

@@ -275,6 +275,18 @@ upgrade involves.
 
 ### Fixed
 
+- **Editing a document in the browser offers a document's fields, and saving keeps its body.**
+  Pressing **Edit** on a document showed a task's form: an empty *Description* where its body
+  should be, a task's dates, importance and assignee — and no way to reach the body at all.
+
+  **And pressing Save from that form emptied the document.** A body left blank on a revision is
+  taken as *cleared*, which is right and is the only way to empty one; a form with no body
+  control looks identical from there, and until now nothing could produce one. Both halves are
+  fixed: the form follows the item's kind, and a revision clears the body only where the form
+  actually had one to empty.
+
+  If this caught you, `GET /v1/documents/{ref}/events` says what changed and when.
+
 - **The rows a page shows come from the workspace its address names.** Going into a project
   from an item opened elsewhere, or stepping forward onto such an item, left one workspace's
   backlog under an address naming another — and the switcher, the capture box and the search
