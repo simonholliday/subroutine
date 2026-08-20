@@ -3622,9 +3622,22 @@ WORKSPACE_COLOUR_HELP = (
 )
 
 #: Repeatable, and the whole list each time rather than one more each time — a second invocation
-#: says what the project hides now, not what to add. `''` clears it.
+#: says what this hides now, not what to add.
+#:
+#: **Two strings, because `''` means different things at the two scopes**, which is the colour's
+#: own shape one setting along. Clearing a *workspace's* genuinely offers everything, since
+#: nothing sits above it; clearing a *project's* makes it inherit, which offers whatever the
+#: workspace offers rather than the whole vocabulary. One sentence for both was written first,
+#: said *offer them all* at each, and was false at the project — found by driving it against a
+#: workspace that hides one, minutes after it shipped.
 HIDE_STATUS_HELP = (
-	"A status not to offer here, e.g. 'blocked'. Repeat for more, or pass '' to offer them all."
+	"A status not to offer here, e.g. 'blocked'. Repeat for more, or pass '' to inherit."
+)
+
+#: A workspace's, which is the top of the chain, so clearing it really does offer everything.
+WORKSPACE_HIDE_STATUS_HELP = (
+	"A status not to offer anywhere in it, e.g. 'blocked'. Repeat for more, or pass '' to "
+	"offer them all."
 )
 
 
@@ -5946,7 +5959,7 @@ def register (
 			UNGIVEN, "--colour", show_default=False, help=WORKSPACE_COLOUR_HELP
 		),
 		hide_status: list[str] = typer.Option(
-			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
+			None, "--hide-status", show_default=False, help=WORKSPACE_HIDE_STATUS_HELP
 		),
 	) -> None:
 		"""Change what a workspace is called, what it is for, or which zone its dates are in.
