@@ -1498,6 +1498,24 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	three pages of the same setup. `offered`, `notOffered` and `allowedIn` are pure and are all
 	checked in `tests/test_web.py`; what is left here is the wiring.
 
+	**Raised to thirty-four for `SR#1041`'s sibling `SR#1042`, and this is the last of that
+	family.** The item was right and what furnished it was right; the **listing underneath**
+	still came from the workspace the switcher held, so going into a project from an item opened
+	elsewhere — or stepping forward onto one — left one workspace's backlog under an address
+	naming another, and a linked item was addressed into the wrong workspace with it.
+
+	**Four gestures in one test because they are one claim reached four ways**: a chip on an
+	open item (which the masthead also reaches, through `narrow`), Back and Forward (the
+	`popstate` handler), the masthead's own options, and a search. The first three fall to
+	separate mutations; the fourth is the only thing that distinguishes *refetching* the new
+	workspace's answers from *moving the state everything else reads*, which are two halves of
+	one step and were separably wrong.
+
+	**Nothing cheaper reaches any of it.** `popstate` is a real history event, a `<select>`'s
+	options are a rendered fact, and every one of these bindings lives in `App` (`SR#640`).
+	`parseAddress` and `chosenWorkspace` are pure and are both already checked in
+	`tests/test_web.py`; what is left here is the wiring, which is the only half that broke.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1510,11 +1528,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 33, (
+	assert len(tests) <= 34, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 33 in nine days."
+		f"read every raise in this docstring as a set: it has moved 17 to 34 in nine days."
 	)
 
 
@@ -2654,6 +2672,128 @@ def test_an_open_item_is_furnished_from_the_workspace_it_is_in (
 
 	finally:
 		unreadable[0] = False
+
+
+def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
+	running: typing.Any,
+) -> None:
+	"""`SR#1042`, the last of `SR#1040`'s family and the one no write is involved in.
+
+	`SR#1040` made the *item* read from the workspace its address names and `SR#1041` made what
+	it is furnished with follow; the **listing underneath** still came from the switcher's. So
+	going into a project from an item opened elsewhere, or stepping forward onto one, left one
+	workspace's backlog under an address naming another — and closing the item showed it.
+
+	**Two ways in, because they are two mechanisms and one is not enough.** A project chip goes
+	through `narrow`, which the masthead also reaches; Back and Forward go through the
+	`popstate` handler. Fixing either alone leaves the other, and both end at `load`.
+
+	**Asserted on the request**, which is this fixture's own rule: it answers every listing with
+	the same rows, so the page looks identical either way and only what it asked for says which
+	workspace the rows are from.
+	"""
+
+	opened, _written, _refusing, roster, _missing, reads, _unreadable = running
+
+	assert len(roster[0]["workspaces"]) > 1, "there is no second workspace to be wrong about"
+
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail", timeout=10_000)
+
+	# Into that item's project, by the control on the item itself.
+	reads.clear()
+	# **A linked item's project chip**, which is the only address on this page that goes into a
+	# project — and both ends of a link are in the item's workspace, never the switcher's.
+	chip = page.locator(".detail a.mark.address").first
+	into = chip.get_attribute("href")
+
+	assert into is not None and into.startswith("/personal/"), (
+		f"a link on an item in 'personal' is addressed {into!r} — following it opens whatever "
+		f"wears that number in the workspace the switcher holds"
+	)
+
+	chip.click()
+	page.wait_for_url(f"**{into}*", timeout=10_000)
+
+	_until(lambda: any(one.split("?")[0] == "v1/tasks" for one in reads))
+	listed = [one for one in reads if one.split("?")[0] == "v1/tasks"]
+
+	assert listed, f"nothing loaded a listing, so the address moved and the page did not: {reads}"
+
+	for one in listed:
+		assert "workspace_id=personal" in one, (
+			f"the address says personal and the rows were asked of {one!r} — a listing of one "
+			f"workspace under an address naming another"
+		)
+
+	# And the same claim reached by stepping forward, which never touches `narrow`.
+	page.goto("http://app.test/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail", timeout=10_000)
+	page.go_back()
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	reads.clear()
+	page.go_forward()
+	page.wait_for_selector(".detail", timeout=10_000)
+	_until(lambda: any(one.split("?")[0] == "v1/tasks" for one in reads))
+
+	stepped = [one for one in reads if one.split("?")[0] == "v1/tasks"]
+
+	assert stepped, f"stepping forward loaded no listing behind the item: {reads}"
+
+	for one in stepped:
+		assert "workspace_id=personal" in one, (
+			f"the listing behind the item was asked of {one!r}, so closing it shows another "
+			f"workspace's backlog"
+		)
+
+	# **And the switcher followed, which loading the right rows does not by itself say.** The
+	# state everything *else* is drawn from — the capture box, the masthead, the next narrowing
+	# — is what diverged in the first place, and a page whose rows are right while that still
+	# names another workspace is the same defect one action later. Falsified: leaving the load
+	# correct and dropping `enter` passes every assertion above.
+	page.click(".detail a.back")
+	page.wait_for_selector(".listing .adding", timeout=10_000)
+
+	page.wait_for_selector(
+		"header .who select option:text('Errands')", state="attached", timeout=10_000
+	)
+
+	places = [
+		one.strip() for one in page.locator("header .who select option").all_inner_texts()
+	]
+
+	assert "Errands" in places and "Websites" not in places, (
+		f"the masthead offers {places} — the rows came from the right workspace and the state "
+		f"everything else is drawn from still names the other one, so the capture box, the next "
+		f"narrowing and this control all start from the wrong place"
+	)
+
+	# **And one more gesture, because the two halves of arriving are separable.** Refetching the
+	# projects moves the masthead; moving `workspace` is what every *other* reader of it needs,
+	# and `chooseSearch`'s own comment says it takes "this one" with nothing to decide. So a
+	# search is the cheapest thing that asks the state directly — falsified by leaving the
+	# refetch in and dropping the assignment, which passes everything above.
+	reads.clear()
+	page.fill("form.seeking input[name=q]", "cursor")
+	page.press("form.seeking input[name=q]", "Enter")
+	_until(lambda: any("q=cursor" in one for one in reads))
+
+	searched = [one for one in reads if "q=cursor" in one]
+
+	assert searched, f"the search asked for nothing: {reads}"
+
+	for one in searched:
+		assert "workspace_id=personal" in one, (
+			f"the search went to {one!r} — refs are per workspace, so this reader is searching "
+			f"somewhere other than the page they are looking at"
+		)
+
+	page.close()
 
 
 def test_stepping_back_onto_an_item_reads_it_where_its_address_says (

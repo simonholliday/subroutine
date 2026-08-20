@@ -6549,6 +6549,30 @@ export function App () {
 	}, []);
 
 
+	/*
+		**This page is about that workspace now** — `#1042`, and it is one step in three places.
+
+		Three things follow a workspace and none of them is derived from the others: the state
+		the listing, the capture box and the permissions are drawn from, who is in it, and what
+		it calls things. `chooseWorkspace` did all three and was the only caller — so the two
+		*other* ways a reader reaches another workspace, an address stepped back onto and a
+		project chip on an item from elsewhere, moved the address and left every one of them
+		pointing at the workspace before.
+
+		**A no-op where it is already that workspace**, which is what makes it safe to call
+		without asking: choosing the one you are in should not refetch its vocabulary, and both
+		of the other callers reach it far more often with the workspace unchanged than changed.
+	*/
+	const enter = useCallback((slug) => {
+		if (!slug || slug === workspace) return;
+
+		setWorkspace(slug);
+
+		/* Not awaited, and neither is a failure lost: both swallow their own and leave the
+		   control they fill simply absent, which is what `words` argues for in its own words. */
+		roster(slug);
+		words(slug);
+	}, [roster, words, workspace]);
 	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
 			Read one item, working out what it is when nobody said.
@@ -6965,6 +6989,22 @@ export function App () {
 			nowShowing({ view: back.view, selection: back.selection });
 
 			/*
+				**The workspace the address names** — `#1042`, and `#1040` fixed the *item* half
+				of this and left the listing. Stepping forward onto an item outside the switcher's
+				workspace loaded that switcher's rows underneath it, so closing the item showed
+				one workspace's backlog under an address naming another.
+
+				`chosenWorkspace` rather than `asked.workspace` directly, because an address is
+				anybody's to type: a slug this reader cannot see falls back exactly as it does on
+				arrival, rather than loading a listing that can only refuse.
+			*/
+			const { slug } = chosenWorkspace(
+				asked, (me ? me.workspaces : []).map((space) => space.slug), workspace,
+			);
+
+			enter(slug);
+
+			/*
 				**Stepping back to `/` is stepping back to the agenda** (`#652`), and this has
 				to make the same decision `start` does or one address would mean two things
 				depending on how the reader got there. `#645`'s split — the arrival address is
@@ -6991,7 +7031,7 @@ export function App () {
 				   drift about what makes a selection different. */
 				setAgenda(null);
 				setProject(narrowed);
-				load(workspace, narrowed);
+				load(slug, narrowed);
 			}
 
 			if (asked === null || asked.ref === null) {
@@ -6999,28 +7039,17 @@ export function App () {
 				return;
 			}
 
-			/*
-				**In the workspace the address names** — `#1040`. This let the slug default to
-				the switcher's, so stepping *forward* onto an item outside it opened whichever
-				item wore that number inside it, under an address saying otherwise. A read
-				rather than a write, so nothing is damaged; what is wrong is that the page then
-				shows the wrong item confidently.
-
-				`chosenWorkspace` rather than `asked.workspace` directly, because an address is
-				anybody's to type: a slug this reader cannot see falls back exactly as it does
-				on arrival, rather than producing a request that can only 404.
-			*/
-			const { slug } = chosenWorkspace(
-				asked, (me ? me.workspaces : []).map((space) => space.slug), workspace,
-			);
-
+			/* **In the workspace the address names** — `#1040`. This let the slug default to
+			   the switcher's, so stepping *forward* onto an item outside it opened whichever
+			   item wore that number inside it, under an address saying otherwise. */
 			show({ ref: asked.ref }, { slug, history: false });
 		};
 
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, project, agenda, me, load, nowOpen, nowShowing, readAgenda, show]);
+	}, [ready, error, workspace, project, agenda, me, enter, load, nowOpen, nowShowing,
+		readAgenda, show]);
 
 	/*
 		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
@@ -7605,24 +7634,33 @@ export function App () {
 		const place = parseAddress(address);
 		const wanted = (place && place.project) || null;
 
+		/* **The workspace the address names, which need not be the one the switcher holds** —
+		   `#1042`. A project chip on an item opened from the agenda points into *that* item's
+		   workspace, and this loaded the switcher's rows underneath it: one workspace's backlog
+		   under an address naming another. The masthead reaches here too, since `goTo` sends
+		   anything naming a project to this. */
+		const where = (place && place.workspace) || workspace;
+
 		setAgenda(null);
 		setProject(wanted);
 		go(address);
 
 		try {
-			await load(workspace, wanted);
+			enter(where);
+			await load(where, wanted);
 		} catch (failure) {
 			/* A note rather than the failure page, for `widen`'s reason: there is a readable
 			   list on screen and losing it because a re-fetch did not land costs the reader
 			   their place. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
-	}, [go, load, workspace]);
+	}, [enter, go, load, workspace]);
+
 
 	const chooseWorkspace = useCallback(async (slug) => {
 		/* A workspace is the whole of it: a project from the one you were in does not exist
 		   here, and carrying it over would narrow to nothing and look like an empty backlog. */
-		setWorkspace(slug);
+		enter(slug);
 		setProject(null);
 		setNote(null);
 		nowOpen(null);
@@ -7634,11 +7672,10 @@ export function App () {
 
 		try {
 			await load(slug, null);
-			await Promise.all([roster(slug), words(slug)]);
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [go, load, nowOpen, roster, words]);
+	}, [enter, go, load, nowOpen]);
 
 	const goTo = useCallback(async (address) => {
 		/*
@@ -8028,8 +8065,14 @@ export function App () {
 					     somewhere else. A read rather than a write, so it costs a wrong page
 					     rather than a wrong change. */ null}
 					where=${mentionHref(openIn)} onBack=${() => close()}
-					backTo=${withShowing(behind, showing)} workspace=${workspace}
-					project=${project} onGo=${narrow}
+					backTo=${withShowing(behind, showing)} workspace=${openIn}
+					${/* **The item's own workspace here too, and the listing's narrowing only
+					     where they are the same place** (`#1042`). `Detail` uses these to address
+					     the *linked* items and to decide what their labels may leave out — and
+					     both ends of a link are in the item's workspace, never the switcher's.
+					     So a blocker on an item opened from the agenda was addressed
+					     `/projects/…`, and following it opened whatever wore that number there. */ null}
+					project=${openIn === workspace ? project : null} onGo=${narrow}
 					${/* **`open.slug`, which is the item's own workspace rather than the
 					     switcher's** — an item opened from the agenda may be in another one, and
 					     marking its project from the wrong workspace's focus would be a

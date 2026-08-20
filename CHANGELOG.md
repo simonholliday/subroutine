@@ -275,6 +275,12 @@ upgrade involves.
 
 ### Fixed
 
+- **The rows a page shows come from the workspace its address names.** Going into a project
+  from an item opened elsewhere, or stepping forward onto such an item, left one workspace's
+  backlog under an address naming another — and the switcher, the capture box and the search
+  went on naming the workspace you had left. A linked item on such a page was addressed into
+  the wrong workspace too, so following a blocker opened whatever wore that number there.
+
 - **An item opened from the agenda is furnished from its own workspace.** Its status picker,
   the projects its edit form offers, who it can be handed to, and which controls are drawn at
   all were all fetched for the workspace the switcher held — so an item in another workspace
