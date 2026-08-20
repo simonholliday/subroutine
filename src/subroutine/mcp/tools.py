@@ -37,6 +37,7 @@ import subroutine.directory
 import subroutine.domain.agenda
 import subroutine.domain.capture
 import subroutine.domain.dates
+import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.ordering
 import subroutine.domain.recurrence
@@ -306,16 +307,21 @@ def references (
 		subroutine.mcp.protocol.Resource(
 			uri="subroutine://conventions",
 			name="conventions",
-			title="What this workspace has decided, and what it has closed off",
+			title="What binds you in this workspace",
 			description=(
-				"The decisions in force here — how work is filed, what a title has to say, what "
-				"needs an item first — and the routes already tried and abandoned. Written by "
-				"the people and agents already working in this workspace, and binding on the "
-				"next one. Read it before your first write."
+				"Everything in force here, grouped by kind: the decisions taken, the "
+				"procedures and shapes specified, the designs settled, and the routes already "
+				"tried and abandoned. Written by the people and agents already working in this "
+				"workspace, and binding on the next one. Read it before your first write."
 			),
 			mime_type="text/markdown",
 			read=lambda: _conventions(client, workspace),
-			also_at="/v1/documents?type=decision&status=active",
+			# **Wider than the four filters it stands in for, and deliberately.** A client
+			# without resources cannot be handed one URL per governing type without being
+			# handed the type list too, which is the thing this resource exists to derive. One
+			# request that over-returns is honest; four hardcoded ones would be the defect
+			# `#1036` fixed, restored in a signpost.
+			also_at="/v1/documents?status=active",
 		),
 	]
 
@@ -399,7 +405,7 @@ def _vocabulary (client: subroutine.clients.base.Client, workspace: str | None) 
 
 
 def _conventions (client: subroutine.clients.base.Client, workspace: str | None) -> str:
-	"""Return the decisions in force in this workspace, as a readable index — `#506`.
+	"""Return what is in force in this workspace, as a readable index — `#506`, `#1036`.
 
 	**The problem it closes, measured on this project's own instance**: 57 governing documents
 	open, and the one file a session is guaranteed to read named 24 of them. Ten decisions were
@@ -418,9 +424,23 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	the index is readable on its own and an agent fetches only the one it needs — which is the
 	whole of §14's context economy. A resource that inlined 26 documents would be the thing it
 	is trying to prevent.
+
+	**Grouped by type, and it asks whether a document is in force rather than what type it
+	is** (`#1036`). Asking ``type=decision`` excluded six governing documents on this project's
+	own instance, the release procedure and the accountability model among them, with nothing
+	wrong with how any of them was written. The grouping is what makes the extra entries
+	informative rather than noise: *we decided this* and *the specification says this* and
+	*this route is closed* are different obligations.
+
+	**Everything in force is listed, and it is curated by superseding rather than truncated**
+	(Simon, 2026-08-20). An index of what binds you cannot honestly omit: an agent held to ten
+	rules it was never shown is worse off than one reading a long list. If it grows
+	uncomfortable the answer is to supersede what no longer applies, which is the product's own
+	mechanism, rather than to pick a number.
 	"""
 
-	names = _unbound(client.meta(workspace=workspace))
+	meta = client.meta(workspace=workspace)
+	names = _unbound(meta)
 
 	if names:
 		# **It refused, where the vocabulary resource lied, and neither was usable** (`#496`).
@@ -428,46 +448,149 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		# 'workspace_id'", an argument a resource has no way to pass. Answered here instead, in
 		# the same shape as the empty case below, because a document explaining why it is empty
 		# is worth more than an error explaining nothing the reader can act on.
-		return "\n".join(
-			["# What this workspace has decided", "", _choose_a_workspace(names)]
-		)
+		return "\n".join([CONVENTIONS_HEADING, "", _choose_a_workspace(names)])
 
-	found = client.documents(workspace=workspace, type="decision", status="active")
 	lines = [
-		"# What this workspace has decided",
+		CONVENTIONS_HEADING,
 		"",
-		"Each line is a decision that is **in force**, newest first. The title states the",
-		"conclusion; read the one you need with `subroutine_show`, by its number.",
-		"",
+		"Everything below is **in force** here, grouped by what kind of thing it is. The title",
+		"states the conclusion, so this index is readable on its own; read the one you need",
+		"with `subroutine_show`, by its number.",
 	]
 
-	if not found:
+	total = 0
+
+	for kind in subroutine.domain.documents.GOVERNING:
+		section, held = _governing(client, meta, workspace, kind)
+
+		lines += section
+		total += held
+
+	if not total:
 		# **A resource with nothing in it must say why**, or it reads as "there are no rules
 		# here" — which is a claim, and a false one on any instance that has been used. `#496`
 		# is the same failure on the vocabulary resource, found by a stranger's agent meeting
 		# an unset workspace.
+		#
+		# **Asked of every governing type before this is reached** (`#590`, widened by `#1036`).
+		# The version that returned as soon as the decisions came back empty made every other
+		# section reachable only through that one, so a workspace that had closed a route off
+		# without marking a decision in force was told nothing at all.
 		lines += [
+			"",
 			"Nothing is marked as in force here yet, which is not the same as nothing having",
 			"been decided. A document written before this workspace started marking them, or",
 			"one still being drafted, will not appear.",
 			"",
-			"`subroutine_list` with `type=decision` shows every decision whatever its status,",
-			"and `subroutine_document` records a new one.",
+			"`subroutine_list` with a `type` shows every document of that kind whatever its",
+			"status, and `subroutine_document` records a new one.",
 		]
 
-		# **Still asked, because the two halves are independent** (`#590`). A workspace can
-		# have closed a route off without ever marking a decision in force, and returning here
-		# would have made the negative half reachable only through the positive one.
-		return "\n".join(lines + _abandoned(client, workspace))
+		return "\n".join(lines)
 
-	lines += [f"- **#{document.ref}** — {_on_one_line(document.title)}" for document in found]
 	lines += [
 		"",
-		f"{len(found)} in force. Specifications, designs and findings are not listed here:",
-		"they describe rather than bind. `subroutine_list` with a `type` finds those.",
+		f"{total} in force. Findings and notes are not listed here: they describe rather than",
+		"bind, and `subroutine_list` with a `type` finds those. A code review's *Not issues*",
+		"section is worth reading before re-raising something it already cleared.",
 	]
 
-	return "\n".join(lines + _abandoned(client, workspace))
+	return "\n".join(lines)
+
+
+#: The one heading this resource writes above everything else, named so the ambiguous-workspace
+#: answer and the ordinary one cannot drift apart — and so a guard can state what a heading in
+#: this document is allowed to be without repeating the string (`#927`'s H-8).
+CONVENTIONS_HEADING = "# What binds you in this workspace"
+
+
+def _governing (
+	client: subroutine.clients.base.Client,
+	meta: subroutine.views.Meta,
+	workspace: str | None,
+	kind: subroutine.domain.documents.Governing,
+) -> tuple[list[str], int]:
+	"""Return one type's section of the conventions index, and how many it lists.
+
+	**Nothing here names a type or a status**, which is the whole of `#1036`: the types come
+	from :data:`~subroutine.domain.documents.GOVERNING` and the statuses from this workspace's
+	own vocabulary, so removing a type from the set removes its section, and renaming ``active``
+	leaves the index populated where it used to empty it.
+
+	Silent when a type has nothing in force, rather than carrying a heading saying so. A
+	workspace that has never written a dead end does not need a section on every read to tell
+	it that — and the closing count says how many the index holds either way.
+	"""
+
+	found: list[subroutine.views.Document] = []
+	seen: set[int] = set()
+	bound = meta.limits.max_page_size
+
+	for status in _in_force_keys(meta):
+		for document in client.documents(
+			workspace=workspace, type=kind.key, status=status, limit=bound
+		):
+			if document.ref not in seen:
+				seen.add(document.ref)
+				found.append(document)
+
+	if not found:
+		return [], 0
+
+	# Ref descending is the same ordering as newest-first — a ref is allocated in creation
+	# order within a workspace (§6.2) — and unlike ``created_at`` it stays deterministic when
+	# an installation has more than one in-force status and the two pages are merged here.
+	found.sort(key=lambda document: document.ref, reverse=True)
+
+	section = [
+		"",
+		f"## {kind.heading}",
+		"",
+		kind.obliges,
+		"",
+		*[f"- **#{one.ref}** — {_on_one_line(one.title)}" for one in found],
+	]
+
+	if len(found) >= bound:
+		# **A bound met is not a bound cleared, and the caller cannot tell the difference.**
+		# This is `#1037` — every client listing returns a bare list and discards the server's
+		# own `has_more` — so the honest answer here is to say a full page was returned rather
+		# than to imply the section is complete. Named in a comment and not in the text above:
+		# an item ref belongs to one instance and this string is served by every one.
+		section += [
+			"",
+			"That is a full page, so there may be more of these than are listed. "
+			f"`subroutine_list` with `type={kind.key}` shows every one, whatever its status.",
+		]
+
+	return section, len(found)
+
+
+def _in_force_keys (meta: subroutine.views.Meta) -> list[str]:
+	"""Return this workspace's status keys that mean *in force*, by their fixed category.
+
+	**The key is renameable and the category is not** (§5.5), and this resource used to send
+	``status="active"`` as a literal. **Measured while falsifying rather than assumed**: an
+	installation that renamed that status did not get an empty index, which is what `#1036`
+	predicted — it got no index at all, because both transports refuse an unknown status by
+	name. So the whole of what binds an agent became a protocol error reading *there is no
+	document status called 'active' here*, on the one channel it is told to read before its
+	first write. `#496`'s shape, and worse than `#496`, which at least answered.
+
+	It needs no request of its own: ``/v1/meta`` is already in hand for `#496`'s
+	ambiguous-workspace check, and it publishes every status with the category beside it.
+	"""
+
+	return [
+		status.key
+		for status in meta.statuses.get(DOCUMENT_VOCABULARY, [])
+		if status.category == subroutine.domain.documents.CURRENT_CATEGORY
+	]
+
+
+#: Which of ``/v1/meta``'s per-workspace vocabulary groups holds a document's statuses. An
+#: entity kind rather than a status or a type, so unlike either of those it is fixed.
+DOCUMENT_VOCABULARY = "document"
 
 
 def _on_one_line (title: str) -> str:
@@ -486,44 +609,6 @@ def _on_one_line (title: str) -> str:
 	"""
 
 	return " ".join(title.split())
-
-
-def _abandoned (client: subroutine.clients.base.Client, workspace: str | None) -> list[str]:
-	"""Return what this workspace has tried and closed off, as a second section — `#590`.
-
-	**A decision says what to do and a dead end says what not to bother with, and only the
-	first had a way of reaching anybody.** ``subroutine://conventions`` was built from
-	``type=decision`` alone, so the negative half of what a workspace knows was invisible to
-	the one channel `#499` calls guaranteed — and negative knowledge is the half a newcomer
-	cannot reconstruct by reading the code, because what is not there leaves no trace.
-
-	The cost of the gap is specific: an agent re-proposes something that was measured and
-	rejected, and the only evidence against it is that somebody remembers. That is expensive
-	twice — once to try it, once to argue about it.
-
-	**Silence when there are none, unlike the decisions above.** An empty decisions list is
-	answered in prose because a resource with nothing in it otherwise reads as *there are no
-	rules here*, which is a false claim about any instance in use. This section is different:
-	the reader has already been told what binds them, and a heading saying "nothing has been
-	abandoned" on every workspace that has never used the type is a line of noise on every
-	read. It appears when there is something to say.
-	"""
-
-	found = client.documents(workspace=workspace, type="dead_end", status="active")
-
-	if not found:
-		return []
-
-	return [
-		"",
-		"## What has been tried here and does not work",
-		"",
-		"Routes that were taken and closed. Read one before proposing something it covers:",
-		"the reason a path is not taken leaves no trace in the code, so this is the only",
-		"record that it was considered at all.",
-		"",
-		*[f"- **#{document.ref}** — {document.title}" for document in found],
-	]
 
 
 def catalogue (

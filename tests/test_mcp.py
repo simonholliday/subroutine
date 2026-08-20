@@ -4859,11 +4859,18 @@ def test_the_abandoned_half_is_reported_where_nothing_has_been_decided (
 ) -> None:
 	"""The two halves are independent, and the obvious shape of this function makes them not.
 
-	`_conventions` answers the no-decisions case in prose and **returns there**, so the second
+	`_conventions` answers the no-decisions case in prose and **returned there**, so the second
 	section was reachable only through the first — a workspace that had closed a route off
 	without marking any decision in force would have been told nothing about it. Found by
 	writing this rather than by reading, and the returning branch is easy to miss because the
 	one above it reads as the special case.
+
+	**The shape survived `#1036` and the wording did not, which is the correction worth
+	keeping.** With four governing types the early return is gone entirely — the empty prose is
+	reached only when *every* section came back empty — and this workspace has a dead end in
+	force, so saying "nothing is marked as in force here" would now be false rather than
+	merely awkward. The claim asserted is the one that was always meant: a workspace whose only
+	convention is a closed route is told about it.
 	"""
 
 	client, first, _second = _two_workspaces(session)
@@ -4877,8 +4884,125 @@ def test_the_abandoned_half_is_reported_where_nothing_has_been_decided (
 
 	published = _bound_to(session, first)
 
-	assert "Nothing is marked as in force" in published, "the decisions half stopped answering"
 	assert "Peppering token hashes" in published
+	assert "Nothing is marked as in force" not in published, (
+		"a dead end in force is something in force, and the index said there was nothing"
+	)
+
+
+def test_the_channel_that_binds_you_names_every_kind_of_thing_that_binds_you (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1036`. The one guard that fails against the code as it stood, and it is the item.
+
+	``subroutine://conventions`` asked ``type=decision&status=active``, and **six documents
+	were in force, governing, and excluded by the type filter alone** on this project's own
+	instance — with nothing wrong with how any of them was written. `#242` is the one that
+	shows the cost: it is the release procedure, and the standing instruction about it is to
+	read it rather than reconstruct it. An agent working here is told that by the project notes
+	it is handed at session start; an agent on **any other installation** is told nothing at
+	all, because a procedure is typed ``spec``.
+
+	**One case exercises the type set, the derivation and the grouping together.** A
+	specification and a design in force are both named, under headings that say which is
+	which — because *we decided this*, *the specification says this* and *this route is closed*
+	are different obligations, and a flat list conflates them.
+
+	A ``note`` is written alongside and must **not** appear: the fix is a classification, not a
+	widening to everything.
+	"""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		for kind, title in (
+			("decision", "Work is filed against an item first"),
+			("spec", "Cutting a release: one command, two pushes"),
+			("design", "Accountability is a property of the agent, not of the task"),
+			("dead_end", "A half-open range over path does not substitute for a prefix match"),
+			("note", "Ran the gate twice on Tuesday"),
+		):
+			client.create_document(workspace=first, type=kind, title=title, status="active")
+
+	session.flush()
+
+	published = _bound_to(session, first)
+
+	for title in (
+		"Work is filed against an item first",
+		"Cutting a release: one command, two pushes",
+		"Accountability is a property of the agent",
+		"A half-open range over path",
+	):
+		assert title in published, f"in force, governing, and not named: {title!r}"
+
+	assert "Ran the gate twice" not in published, (
+		"a note describes rather than binds, and widening to every type is not the fix"
+	)
+
+	for governing in subroutine.domain.documents.GOVERNING:
+		assert f"## {governing.heading}" in published, (
+			f"{governing.key} is named but not grouped, so a reader cannot tell what it obliges"
+		)
+
+
+def test_renaming_the_status_that_means_in_force_does_not_empty_the_index (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The status half of `#1036`, falsified separately — the type fix alone passes it.
+
+	The resource sent ``status="active"`` as a literal, and **a status key is this workspace's
+	own vocabulary** (§5.5).
+
+	**Falsifying corrected the item, which predicted an empty index.** It is not empty — both
+	transports refuse an unknown status by name, so the whole resource fails and the agent is
+	handed *there is no document status called 'active' here* in place of everything that binds
+	it. `#496`'s shape on the one channel an agent is told to read before its first write, and
+	worse than `#496`, which at least answered.
+
+	It needs no new endpoint: ``/v1/meta`` is already fetched here for `#496`'s
+	ambiguous-workspace check and publishes every status with its fixed ``category`` beside it.
+
+	The rename is done in the database rather than through a client because **no surface can
+	rename a status** — `#826` measures that the vocabulary is seeded and reachable from
+	nothing, which is why this defect could sit unnoticed. That makes it a latent one today and
+	a live one the moment `#826` is answered.
+	"""
+
+	client, first, _second = _two_workspaces(session)
+
+	with client:
+		client.create_document(
+			workspace=first, type="decision", title="Colour marks exceptions", status="active",
+		)
+
+	session.flush()
+
+	assert "Colour marks exceptions" in _bound_to(session, first), "the seed did not take"
+
+	workspace = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+			subroutine.db.models.identity.Workspace.slug == first
+		)
+	).one()
+
+	current = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.Status).where(
+			subroutine.db.models.vocabulary.Status.workspace_id == workspace.id,
+			subroutine.db.models.vocabulary.Status.entity_type == "document",
+			subroutine.db.models.vocabulary.Status.category
+			== subroutine.domain.documents.CURRENT_CATEGORY,
+		)
+	).one()
+	current.key = "in_force"
+
+	session.flush()
+
+	published = _bound_to(session, first)
+
+	assert "Colour marks exceptions" in published, (
+		"the index empties when a workspace renames the status that means in force"
+	)
 
 
 def test_finishing_something_nobody_claimed_says_so (

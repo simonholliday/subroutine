@@ -236,6 +236,26 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent is told everything that binds it here, not only the decisions.**
+  `subroutine://conventions` — the one channel a connecting agent is instructed to read before
+  its first write — asked for documents of type `decision`, so a specification, a design or a
+  dead end that was *in force and governing* reached nobody. Measured on this project's own
+  instance: six such documents, the release procedure and the accountability model among them,
+  with nothing wrong with how any of them was written.
+
+  It now asks whether a document **is in force**, and lists every kind that binds a reader —
+  decisions, specifications, designs and dead ends — **grouped under headings that say what
+  each obliges you to**, because *we decided this*, *the specification says this* and *this
+  route is closed* are different obligations. Findings and notes stay out: they describe
+  rather than bind, and the index says so and points at them.
+
+  **Two smaller faults went with it.** It relied on the default page size, so an instance with
+  more than fifty of anything would have listed a page and implied it was the whole set; each
+  kind is now fetched with an explicit bound and says plainly when it comes back full. And it
+  sent the status key `active` as a literal — a key an installation may rename — which did not
+  merely empty the index but failed the whole resource with *there is no document status called
+  'active' here*. It reads the category instead, which cannot be renamed.
+
 - **A plain date given to `due_before` or `due_after` is answered instead of failing.**
   `?due_after=2026-08-18` returned a 500 and told the caller nothing about the parameter they
   had sent; only a full timestamp worked. The two are now read exactly as `due_at.lt` and

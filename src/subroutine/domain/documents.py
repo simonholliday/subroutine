@@ -84,6 +84,85 @@ CURRENT_CATEGORY = "current"
 IN_FORCE_WHEN_WRITTEN = frozenset({"decision", "finding", "dead_end"})
 
 
+class Governing (typing.NamedTuple):
+	"""A document type that binds the next reader, and what it obliges them to.
+
+	The sentence travels with the classification deliberately. *Why is this type in the set*
+	and *what does a reader owe one of these* are the same question, so splitting them would
+	let a seventh type join the set with nothing said about what following it means.
+	"""
+
+	#: The type key, as this installation seeds it.
+	key: str
+
+	#: The heading its section takes in the conventions index.
+	heading: str
+
+	#: What a reader owes a document of this type, in one line, rendered beneath the heading.
+	obliges: str
+
+
+#: The document types that **bind** somebody arriving here, in the order the conventions
+#: index shows them (`#1036`).
+#:
+#: **Two questions were being answered by one field.** *Is this true yet* is answered by
+#: ``status``, correctly, and `#506` settled it. *Must I follow it* was answered by nothing, so
+#: ``subroutine://conventions`` guessed from ``type`` — which answers a third question, *what
+#: kind of writing is this*. Measured on this project's own instance: six documents were in
+#: force, governing, and excluded by the type filter alone, including the release procedure and
+#: the accountability model.
+#:
+#: **A type cannot answer whether something is in force and never could**, which is why the
+#: obvious fix — give ``spec`` and ``design`` an in-force default beside the three above — is
+#: wrong. `#506` admits a type when it is *true the moment it is written*; a design is not.
+#: `#445` carries eight open questions and is correctly a draft, while `#1023` records five
+#: decisions taken and is incorrectly one. One type, both states, so only the status separates
+#: them and this set says nothing about it.
+#:
+#: **``finding`` is deliberately out, and the cost is named rather than hidden** (Simon,
+#: 2026-08-20). 37 of 39 findings in force here are code reviews, whose actionable half already
+#: became items; a review describes, and its value is retrieval on demand rather than
+#: always-on. The known cost is that `#927`'s *Not issues* section genuinely binds — *read it
+#: before touching anything it covers* — so a reviewer may re-raise something already cleared.
+#: The index keeps a pointer to findings and notes for that reason.
+GOVERNING = (
+	Governing(
+		"decision",
+		"What has been decided here",
+		"Taken deliberately, with the alternatives weighed. Reopening one needs a reason the "
+		"record does not already answer.",
+	),
+	Governing(
+		"spec",
+		"What has been specified here",
+		"Agreed and written down, to be read rather than reconstructed. A procedure you "
+		"reinvent is one you get subtly wrong.",
+	),
+	Governing(
+		"design",
+		"How things here were designed",
+		"How something was settled before it was built, and why the alternatives were not "
+		"taken. One still carrying open questions is a draft and is not listed.",
+	),
+	Governing(
+		"dead_end",
+		"What has been tried here and does not work",
+		"Routes taken and closed. The reason a path is *not* taken leaves no trace in the "
+		"code, so this is the only record that it was considered at all.",
+	),
+)
+
+#: Derived from :data:`GOVERNING` rather than written twice, so the set a guard compares and
+#: the sections a reader sees cannot drift apart.
+GOVERNS = frozenset(one.key for one in GOVERNING)
+
+#: The document types that **describe** rather than bind. Not a leftover: a type belongs to
+#: exactly one of these two, so a seventh has to be classified rather than defaulting to
+#: invisible — which is how six governing documents came to be missing from the one channel
+#: that claims to name what binds you.
+DESCRIBES = frozenset({"note", "finding"})
+
+
 def create (
 	session: sqlalchemy.orm.Session,
 	*,
