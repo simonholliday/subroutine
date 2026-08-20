@@ -6938,7 +6938,22 @@ export function App () {
 				return;
 			}
 
-			show({ ref: asked.ref }, { history: false });
+			/*
+				**In the workspace the address names** — `#1040`. This let the slug default to
+				the switcher's, so stepping *forward* onto an item outside it opened whichever
+				item wore that number inside it, under an address saying otherwise. A read
+				rather than a write, so nothing is damaged; what is wrong is that the page then
+				shows the wrong item confidently.
+
+				`chosenWorkspace` rather than `asked.workspace` directly, because an address is
+				anybody's to type: a slug this reader cannot see falls back exactly as it does
+				on arrival, rather than producing a request that can only 404.
+			*/
+			const { slug } = chosenWorkspace(
+				asked, (me ? me.workspaces : []).map((space) => space.slug), workspace,
+			);
+
+			show({ ref: asked.ref }, { slug, history: false });
 		};
 
 		window.addEventListener("popstate", arrive);
@@ -6946,10 +6961,38 @@ export function App () {
 		return () => window.removeEventListener("popstate", arrive);
 	}, [ready, error, workspace, project, agenda, me, load, nowOpen, nowShowing, readAgenda, show]);
 
+	/*
+		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
+
+		`App` holds two answers and they part company the moment an item is opened from
+		somewhere that spans workspaces. `open.slug` is the one the item was actually read from;
+		`workspace` is the switcher's, set on mount and by the switcher alone. Open a row from
+		the agenda at `/` and the first moves while the second does not.
+
+		**Every write read the second.** A status change on a `sandbox` item sent
+		`PATCH /v1/tasks/20?workspace_id=projects`, and since a ref is unique *per workspace*
+		the instance did as it was told and cancelled a different task — then the re-read
+		afterwards followed it, so the reader was left in front of somebody else's item, which
+		they had just changed. Six other controls had the same defect and nobody had met them.
+
+		**Named once rather than spelled at each site**, because the sites are what went wrong:
+		`show`'s own comment already called `open.slug` *"the only copy that is always right"*,
+		and exactly one of the eight things that need it read it.
+	*/
+	const openIn = open ? open.slug || workspace : workspace;
+
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
-		   describing the state before the action. */
-		if (open && open.item.ref === row.ref && open.item.kind === row.kind) await show(row);
+		   describing the state before the action.
+
+		   **Read back where it was written** (`#1040`). This defaulted to the switcher's
+		   workspace, so a write to an item outside it was followed by a read of whatever wore
+		   that number *inside* it — which is what rewrote the address and put the reader in
+		   front of the wrong item. The write and this are the same defect twice, not a cause
+		   and a consequence: fixing one alone leaves the page still walking away. */
+		if (open && open.item.ref === row.ref && open.item.kind === row.kind) {
+			await show(row, { slug: openIn });
+		}
 
 		/* **Refresh what is showing** (`#652`). Completing from the agenda used to reload the
 		   listing underneath it, so the row stayed on screen until the next poll — a write that
@@ -6957,7 +7000,7 @@ export function App () {
 		await (agenda !== null
 			? readAgenda(me ? me.workspaces : [])
 			: load(workspace, project));
-	}, [agenda, load, me, open, project, readAgenda, show, workspace]);
+	}, [agenda, load, me, open, openIn, project, readAgenda, show, workspace]);
 
 	const wrote = useCallback(async (row, said, run) => {
 		/*
@@ -7020,13 +7063,15 @@ export function App () {
 		);
 	}, [note, workspace, wrote]);
 
-	const assign = useCallback((row, who) => wrote(
+	/* **`inside` for `status`'s reason** (`#1040`): assigning somebody else's item to somebody
+	   is a write nobody can see they made. */
+	const assign = useCallback((row, who, inside = workspace) => wrote(
 		row,
 		() => ({
 			text: who ? `#${row.ref} is ${who}'s.` : `#${row.ref} is nobody's now.`,
 			tone: "good",
 		}),
-		() => sent(assignRequest(row, who, workspace)),
+		() => sent(assignRequest(row, who, inside)),
 	), [workspace, wrote]);
 
 	const add = useCallback(async (values, asDocument) => {
@@ -7088,13 +7133,16 @@ export function App () {
 		setConflict(null);
 
 		try {
+			/* **The item's own workspace** — `#1040`. This is the widest of the seven: a save
+			   carries the title, the description, the dates and the status, so against the
+			   wrong item it overwrites all of them at once. */
 			const saved = await sent(open.item.kind === "document"
-				? documentRequest(values, open.item, workspace)
-				: updateRequest(values, open.item, workspace));
+				? documentRequest(values, open.item, openIn)
+				: updateRequest(values, open.item, openIn));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
 			setEditing(false);
-			await show(saved, { history: false });
+			await show(saved, { slug: openIn, history: false });
 		} catch (failure) {
 			/* **The current item travels on the 409**, attached by `concurrency.reporting()`
 			   precisely so a client can say what changed rather than only that something did. */
@@ -7110,7 +7158,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [open, show, workspace]);
+	}, [open, openIn, show]);
 
 	/*
 		**The card in the air** (`#711`). A ref rather than the row, because the only thing a
@@ -7153,10 +7201,13 @@ export function App () {
 		));
 	}, []);
 
-	const status = useCallback((row, where) => wrote(
+	/* **`inside` defaults to the switcher's workspace and an open item overrides it** —
+	   `#1040`, and `complete` above carries the same argument for the same reason. A board card
+	   is in the listing's workspace by construction; an open item need not be. */
+	const status = useCallback((row, where, inside = workspace) => wrote(
 		row,
 		() => ({ text: `#${row.ref} is ${where.replace(/_/g, " ")}.`, tone: "good" }),
-		() => sent(statusRequest(row, where, workspace)),
+		() => sent(statusRequest(row, where, inside)),
 	), [workspace, wrote]);
 
 	const moved = useCallback((category) => {
@@ -7260,9 +7311,12 @@ export function App () {
 		return Boolean(await wrote(
 			open.item,
 			() => ({ text: `Noted on #${open.item.ref}.`, tone: "good" }),
-			() => sent(commentRequest(open.item, body, workspace)),
+			/* **The item's own workspace, not the switcher's** — `#1040`. Prose written onto
+			   the wrong item is the least recoverable of the seven: nothing about it looks
+			   like an accident afterwards. */
+			() => sent(commentRequest(open.item, body, openIn)),
 		));
-	}, [open, workspace, wrote]);
+	}, [open, openIn, wrote]);
 
 	const link = useCallback(async (target, linkType) => {
 		/*
@@ -7286,7 +7340,9 @@ export function App () {
 			for (const kind of kinds) {
 				try {
 					made = await sent(
-						linkRequest(open.item, target, linkType, kind, workspace),
+						/* The item's own workspace — `#1040`. Both ends of a link are resolved
+						   in it, so the switcher's would name a different pair entirely. */
+						linkRequest(open.item, target, linkType, kind, openIn),
 					);
 					break;
 				} catch (failure) {
@@ -7296,7 +7352,7 @@ export function App () {
 
 			setNote({ text: `#${open.item.ref} ${made.label.toLowerCase()} `
 				+ `#${made.other.ref}.`, tone: "good" });
-			await show(open.item, { history: false });
+			await show(open.item, { slug: openIn, history: false });
 
 			return true;
 		} catch (failure) {
@@ -7306,14 +7362,14 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [open, show, vocabulary, workspace]);
+	}, [open, openIn, show, vocabulary]);
 
 	const unlink = useCallback((going) => wrote(
 		open ? open.item : { ref: 0 },
 		() => ({ text: `#${open.item.ref} no longer ${going.label.toLowerCase()} `
 			+ `#${going.other.ref}.`, tone: "good" }),
-		() => sent(unlinkRequest(open.item, going.id, workspace)),
-	), [open, workspace, wrote]);
+		() => sent(unlinkRequest(open.item, going.id, openIn)),
+	), [open, openIn, wrote]);
 
 	const showMore = useCallback(async () => {
 		/* The next page of each collection that has one, appended. `load` takes the cursors
@@ -7863,13 +7919,25 @@ export function App () {
 					editing=${editing} conflict=${conflict} onSave=${mayWrite ? save : null}
 					reading=${reading} onReading=${readRepeat}
 					previewing=${previewing} onPreviewing=${setPreviewing}
-					onStatus=${mayWrite ? status : null}
+					${/* **Bound to the item's own workspace, the way the agenda binds its rows**
+					     (`#1040`). These three take a row and default to the switcher's, which is
+					     right for a listing — one listing is one workspace — and wrong here,
+					     because an item opened from the agenda may be in another one. `Detail`
+					     cannot pass it: the component is handed an item and knows nothing about
+					     where it was read from, and `openIn` is the only place that does. */ null}
+					onStatus=${mayWrite ? (row, where) => status(row, where, openIn) : null}
 					statuses=${vocabulary && vocabulary.statuses}
 					onComment=${mayComment ? comment : null}
 					onLink=${mayWrite ? link : null} onUnlink=${mayWrite ? unlink : null}
 					vocabulary=${vocabulary} projects=${filable}
 					onEdit=${mayWrite ? (wanted) => { setEditing(wanted); setConflict(null); } : null}
-					where=${mentionHref(workspace)} onBack=${() => close()}
+					${/* **The item's own workspace** — `#1040`. `mentionHref`'s own docstring says
+					     a mention "resolves within the workspace it was written in, which is what
+					     a ref means", and it was handed the switcher's — so a `#42` in the prose
+					     of an item opened from the agenda linked to whatever wore that number
+					     somewhere else. A read rather than a write, so it costs a wrong page
+					     rather than a wrong change. */ null}
+					where=${mentionHref(openIn)} onBack=${() => close()}
 					backTo=${withShowing(behind, showing)} workspace=${workspace}
 					project=${project} onGo=${narrow}
 					${/* **`open.slug`, which is the item's own workspace rather than the
@@ -7879,8 +7947,8 @@ export function App () {
 					     copy that is always right; `open.item.workspace` is not a field, and
 					     reading it would have fallen back to the switcher in silence. */ null}
 					prioritised=${prioritisedHere(me ? me.workspaces : [], open.slug || workspace)}
-					onComplete=${mayWrite ? complete : null}
-					onAssign=${mayWrite ? assign : null} />`
+					onComplete=${mayWrite ? (row) => complete(row, openIn) : null}
+					onAssign=${mayWrite ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}

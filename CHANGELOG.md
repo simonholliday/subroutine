@@ -275,6 +275,28 @@ upgrade involves.
 
 ### Fixed
 
+- **A change made from an open item goes to that item, not to whichever item wears the same
+  number in the workspace the browser's switcher happens to hold.** Opening an item from the
+  agenda at `/` — which spans workspaces — left the page correctly showing that item while
+  every write it offered named the *other* workspace. Changing an item's status cancelled the
+  item wearing the same number somewhere else, and the re-read afterwards followed it — so the
+  reader was left in front of a different item, in a different workspace, which they had just
+  altered.
+
+  It reached seven controls: the status picker, **Complete**, the assignee, the comment box,
+  linking, unlinking and **Save** — the last of which carries the title, the description, both
+  dates and the status, so against the wrong item it overwrote all of them in one request. Only
+  the status one had been noticed. Nothing is unrecoverable: `GET /v1/tasks/{ref}/events` says
+  what changed on an item and who changed it.
+
+  Two reads had the same fault and are fixed with it: stepping **Forward** onto an item outside
+  the switcher's workspace opened the wrong one, and a `#42` written in such an item's prose
+  linked to whichever item wore that number somewhere else.
+
+  **The instance was doing as it was told throughout** — `?workspace_id=` was resolved
+  correctly, and a ref being unique per workspace is the design. Nothing on any other surface
+  was affected: the terminal, the API and an agent each name a workspace explicitly.
+
 - **A search ranks a title match above a body match.** Ranking was term frequency and density
   alone, so a long description mentioning a word repeatedly outranked the item whose *title*
   was about it — searching this project for `seeded` put the item called *A search for 'seeded'

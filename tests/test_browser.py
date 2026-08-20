@@ -604,7 +604,15 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	violations: list[str] = []
 	#: Every write the page made, so a gesture can be checked by what it sent rather than by
 	#: what the page then looks like — the request is the fact and the render is a consequence.
-	written: list[tuple[str, str, str | None]] = []
+	#:
+	#: **Four parts, and the fourth was added for `SR#1040`.** The second is the path with the
+	#: query cut off, which is what every test here matches on — and it meant the whole of
+	#: *which workspace* was invisible to this fixture, since a workspace only ever reaches a
+	#: write as `?workspace_id=`. A write to the wrong workspace was byte-identical here to the
+	#: right one, so no test could have caught the defect that shipped. The full URL is the
+	#: fourth part rather than a replacement for the second, so the eighteen tests reading
+	#: position 1 are untouched.
+	written: list[tuple[str, str, str | None, str]] = []
 	#: What `/v1/tasks` answers, so one test can ask about a board with rows and the same board
 	#: without them. A holder rather than an argument to `answered`, because the route is
 	#: registered on the context once and every page shares it.
@@ -668,7 +676,12 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				return
 
 			if route.request.method != "GET":
-				written.append((route.request.method, wanted, route.request.post_data))
+				written.append((
+					route.request.method,
+					wanted,
+					route.request.post_data,
+					route.request.url.split("://", 1)[-1].split("/", 1)[-1],
+				))
 
 				# **A write the identity has to reflect, because a reader reads it back**
 				# (`SR#986`). This harness answers every write with a card and remembers nothing,
@@ -921,7 +934,7 @@ def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> Non
 
 	assert moves, f"the drop wrote nothing: {written}"
 
-	_method, where, body = moves[0]
+	_method, where, body, _url = moves[0]
 
 	assert "42" in where, f"the write went to the wrong item: {where}"
 	assert body is not None and json.loads(body) == {"status": "doing"}, (
@@ -1375,6 +1388,31 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	asserts two arithmetic properties rather than any literal, so it survives every value being
 	retuned.
 
+	**Raised to thirty-two for `SR#1040`, and these two are the plainest raises this file has
+	had.** A person changed the status of an item and it cancelled a *different* item, in a
+	different workspace, wearing the same number — then the page followed it there, so they were
+	left looking at somebody else's work which they had just altered. Six other controls had the
+	same defect and nobody had met them; the widest overwrites a title, a description, both
+	dates and a status in one request.
+
+	**Nothing cheaper could have found it, in two separate ways.** The rule lives in `App`,
+	which `tests/dom.js` cannot execute (`SR#640`) — that alone is the ordinary argument. The
+	second is sharper: **every other test in this file opens an item in the workspace the
+	switcher holds**, where the right answer and the wrong one are the same string. A fixture
+	that cannot reach a state looks exactly like one nobody needed it to, for the fifth time
+	here, and the state in question is *an item opened from the agenda*.
+
+	**Two rather than one, because they are two mechanisms.** The first drives five controls on
+	an open item and asserts each write names the item's own workspace; the second presses Back
+	and Forward, which involves no write at all and which fixing every write leaves untouched.
+	Folding them together would have hidden that.
+
+	**Read for fat**: the first is a loop over a table of gestures rather than five tests, and
+	the two it cannot reach are named in `NOT_DRIVEN_HERE` with the reason. Everything about
+	*which* workspace an address means is `chosenWorkspace` and `parseAddress`, both pure and
+	both already checked in `tests/test_web.py` — what is left here is the wiring, which is the
+	only half that broke.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1387,11 +1425,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 30, (
+	assert len(tests) <= 32, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 30 in five days."
+		f"read every raise in this docstring as a set: it has moved 17 to 32 in nine days."
 	)
 
 
@@ -2108,6 +2146,13 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 		"the page moved and the address did not"
 	)
 
+	# **Put back, which this did not do until `SR#1040`.** `running` is module-scoped, so a
+	# one-workspace roster left here is what every later test reads — and the two tests that
+	# need an item in the *other* workspace failed on a thirty-second timeout for a row that
+	# could not be built, which says nothing about the roster. `test_prioritising_a_project…`
+	# already restores its own holder and says why; this one is the same rule, missed.
+	roster[0] = IDENTITY
+
 
 def test_searching_for_a_ref_opens_that_item_and_a_dead_one_still_searches (
 	running: typing.Any,
@@ -2223,6 +2268,188 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	# project left on the roster would mark a project in every masthead drawn after this — a
 	# state no other test asked for and none would explain.
 	roster[0] = before
+
+
+def _comments (page: typing.Any) -> None:
+	"""Write a comment on the open item."""
+
+	page.fill(".detail form.saying textarea", "Noted from the wrong workspace.")
+	page.click(".detail form.saying button[type='submit']")
+
+
+def _renames (page: typing.Any) -> None:
+	"""Open the edit form and save a new title."""
+
+	page.click(".detail button.edit")
+	page.fill(".detail form.editing input[name=title]", "Renamed by accident")
+	page.click(".detail form.editing button[type='submit']")
+
+
+#: Every control on an open item that writes, and the gesture that works it. **The list is the
+#: population**: a control added to `Detail` and not driven here is one nothing has asked this
+#: question of, which is how the reported defect reached seven controls at once.
+#:
+#: **Two are missing and are named rather than left as an unexplained absence.** *Assign* is
+#: drawn only where the roster answers with members, and this fixture answers every collection
+#: it does not know with an empty one. *Link* needs a ref that resolves, and the form tries each
+#: linkable kind in turn — so driving it here would assert on how this stand-in answers a search
+#: rather than on which workspace it was asked about. Both go through the same one value as the
+#: five below, and that value is what the falsification pass moved.
+#:
+#: **The widest is `save`**, which carries the title, the description, both dates and the status
+#: in one request: against the wrong item it overwrites all of them at once.
+ITEM_WRITES: tuple[tuple[str, str, typing.Callable[[typing.Any], None]], ...] = (
+	(
+		"status",
+		"PATCH",
+		lambda page: page.select_option(".detail .doing label.assign select", "doing"),
+	),
+	("complete", "POST", lambda page: page.click(".detail .doing button.finish")),
+	("comment", "POST", _comments),
+	("save", "PATCH", _renames),
+	("unlink", "DELETE", lambda page: page.click(".detail button.unlink >> nth=0")),
+)
+
+
+def test_a_write_from_an_open_item_names_the_workspace_that_item_is_in (
+	running: typing.Any,
+) -> None:
+	"""`SR#1040`, Simon 2026-08-20, on the served instance. It cancelled the wrong task.
+
+	Two workspaces held an item numbered 20. Changing the status of the one in `sandbox` moved
+	the one in `projects`, and the page then followed it there — so the reader was left looking
+	at a different item, in a different workspace, which they had just changed by accident.
+
+	**`App` holds two answers to *which workspace* and the writes read the wrong one.**
+	`open.slug` is the workspace the item was actually read from — its own comment at `show`
+	says it "is the only copy that is always right" — and `workspace` is the switcher's, set on
+	mount and by the switcher alone. Opening a row from the agenda moves the first and leaves
+	the second, and every write was built from the second.
+
+	**Driven from the agenda, because that is the only place the two can disagree.** Every other
+	test in this file opens an item in the workspace the switcher holds, where the right answer
+	and the wrong one are the same string — so a test asserting that the write named *a*
+	workspace passes whichever variable produced it. A harness that cannot reach a state looks
+	exactly like one nobody needed it to, for the fifth time here.
+
+	**Asserted on the requests**, which is this fixture's own rule: the wrong write succeeds,
+	so the page looks entirely correct afterwards — it is simply describing somebody else's
+	item.
+	"""
+
+	opened, written, _refusing, roster, _missing, reads = running
+
+	# **Asserted rather than set**, because a one-workspace roster left behind by an earlier
+	# test makes this fail on a thirty-second timeout for a row that cannot be built — which
+	# reads as a broken selector rather than as the fixture it is. Setting it here would hide
+	# the leak instead; `running` is module-scoped and a test that changes a holder puts it back.
+	assert len(roster[0]["workspaces"]) > 1, (
+		"the roster holds one workspace, so no row can be in another one and this test cannot "
+		"tell the item's workspace from the switcher's. An earlier test left it behind."
+	)
+
+	for name, method, drive in ITEM_WRITES:
+		page = opened("/")
+		page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+		# The row from the *other* workspace — `AGENDA`'s `today` is the only one in `w2`.
+		page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+		page.wait_for_selector(".detail .doing", timeout=10_000)
+
+		assert "/personal/" in page.url, (
+			f"opening the row left the address at {page.url!r}, so this test is not about an "
+			f"item outside the switcher's workspace and can prove nothing"
+		)
+
+		written.clear()
+		reads.clear()
+		drive(page)
+
+		page.wait_for_selector(".note", timeout=10_000)
+
+		sent = [one for one in written if one[0] == method]
+
+		assert sent, f"{name} wrote nothing at all: {written}"
+
+		# **The write first, because it is the harm.** What follows it is a consequence — the
+		# re-read below lands on whatever the write moved — and a failure reported there sends
+		# the next reader after the wrong half.
+		for one in sent:
+			assert "workspace_id=personal" in one[3], (
+				f"{name} sent {one[0]} {one[3]!r} about an item in 'personal'. A ref is unique "
+				f"per workspace, so this changes whatever item wears that number in the "
+				f"workspace the switcher happens to hold, and the instance does as it is told."
+			)
+
+		# **And the read afterwards**, which is what put the reader in front of the wrong item.
+		# `wrote` re-reads through `show`, whose slug defaults to the switcher's too — so this
+		# is the same defect a second time rather than a consequence of the first, and fixing
+		# only the write would leave the page still walking away from the item on screen.
+		asked = [one for one in reads if one.startswith("v1/tasks/")]
+
+		assert asked, f"{name} named no task at all: {reads}"
+
+		for one in asked:
+			assert "workspace_id=personal" in one, (
+				f"after {name} the page asked for {one!r}, so it read an item back out of the "
+				f"wrong workspace and rewrote the address to match"
+			)
+
+		page.close()
+
+
+def test_stepping_back_onto_an_item_reads_it_where_its_address_says (
+	running: typing.Any,
+) -> None:
+	"""`SR#1040`'s second half, which no write is involved in and nobody has met.
+
+	`arrive` — the `popstate` handler — has the address in hand and reads neither half of it: it
+	asks `show` for the ref and lets the slug default to the switcher's workspace. So stepping
+	*forward* onto an item outside it opens whatever wears that number inside it instead, under
+	an address saying otherwise.
+
+	**The same variable as the writes above and a different mechanism**, which is why it is its
+	own test: fixing every write leaves this untouched, and a reader who steps back and forward
+	is not doing anything unusual. It is a read, so nothing is damaged — what is wrong is that
+	the page confidently shows the wrong item.
+
+	**Only a browser can answer it.** `popstate` is a real history event; `tests/dom.js` cannot
+	press Back and will not dispatch an event by decision (`SR#640`).
+	"""
+
+	opened, _written, _refusing, roster, _missing, reads = running
+
+	assert len(roster[0]["workspaces"]) > 1, (
+		"the roster holds one workspace, so there is no second one to step back into."
+	)
+
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail", timeout=10_000)
+
+	there = page.url
+
+	assert "/personal/" in there, f"the item did not open in its own workspace: {there!r}"
+
+	page.go_back()
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	reads.clear()
+	page.go_forward()
+	page.wait_for_selector(".detail", timeout=10_000)
+
+	asked = [one for one in reads if one.startswith("v1/tasks/")]
+
+	assert asked, f"stepping forward read no item at all: {reads}"
+
+	for one in asked:
+		assert "workspace_id=personal" in one, (
+			f"the address says {there!r} and the page asked for {one!r} — so it is showing "
+			f"whichever item wears that number in the workspace the switcher holds"
+		)
+
+	page.close()
 
 
 def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
