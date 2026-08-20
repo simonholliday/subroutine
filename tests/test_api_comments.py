@@ -9,6 +9,7 @@ The test that matters most is the mention one. Comments wired into the mention i
 makes this more than CRUD.
 """
 
+import typing
 import uuid
 
 import pytest
@@ -291,3 +292,90 @@ def test_a_deleted_item_takes_no_new_comment_and_is_told_why (
 	assert world.call(
 		"POST", f"/v1/tasks/{ref}/comments", json={"body": "after"}
 	).status_code == 201
+
+
+def test_a_comment_says_who_wrote_it (world: test_api_tasks.World) -> None:
+	"""`#636`. The one view whose whole purpose is reading what people recorded.
+
+	It returned ``author_id`` and no name, so a surface wanting to say *who* had a lookup per
+	comment — `#39`'s N+1 where it can least be afforded, on a page that is nothing but a
+	transcript. Every neighbouring view already answers this: a task publishes ``assignee``
+	beside ``assignee_id``, a link's far end carries ``ref`` and ``title``, and ``Token``
+	carries ``username`` beside ``user_id`` with the reason written down.
+
+	**Both the listing and the write path are driven**, because they render through different
+	functions and a field wired into one is exactly the divergence this repository keeps
+	finding. The id stays beside the name: a caller that needs to tell *nobody wrote this* from
+	*the name could not be loaded* still can.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Fix the parser"}).json()
+	written = world.call(
+		"POST", f"/v1/tasks/{task['ref']}/comments", json={"body": "Reproduced on 3.11 only."}
+	).json()
+
+	assert written["author"], f"the write path answered with no author: {written}"
+	assert written["author_id"] is not None
+
+	listed = world.call("GET", f"/v1/tasks/{task['ref']}/comments").json()["items"]
+
+	assert [row["author"] for row in listed] == [written["author"]], (
+		f"the listing and the write path disagree about who wrote it: {listed}"
+	)
+
+
+def test_a_page_of_comments_names_every_author_in_one_query (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#39` on the surface least able to afford it, and the reason the renderer takes a page.
+
+	A name resolved per comment is a query per line on a view that is *only* lines. The
+	vocabulary is loaded once for the whole page, exactly as a listing's statuses and projects
+	are — so a page of ten costs what a page of one costs.
+
+	**Statements, not seconds**, which is this project's rule for `#39`: on a fixture holding a
+	handful of rows an N+1 is too fast to measure, and a threshold would pass on a quick
+	machine and fail on a shared runner.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Long conversation"}).json()
+
+	for number in range(12):
+		world.call(
+			"POST", f"/v1/tasks/{task['ref']}/comments", json={"body": f"Note {number}"}
+		)
+
+	counted: list[str] = []
+
+	def record (
+		_connection: typing.Any, _cursor: typing.Any, statement: str, *_rest: typing.Any
+	) -> None:
+		"""Note every statement the engine is asked to run."""
+
+		counted.append(statement)
+
+	def queries_for (size: int) -> int:
+		"""Return how many statements one page of ``size`` comments takes."""
+
+		counted.clear()
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", record)
+
+		try:
+			answered = world.call(
+				"GET", f"/v1/tasks/{task['ref']}/comments?limit={size}"
+			).json()
+
+			assert len(answered["items"]) == size, "the probe did not page, so it proves nothing"
+
+			return len(counted)
+
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", record)
+
+	small = queries_for(1)
+	large = queries_for(12)
+
+	assert large == small, (
+		f"a page of 12 comments took {large} statements where a page of 1 took {small}: "
+		f"the author lookup is per row"
+	)

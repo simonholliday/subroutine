@@ -79,10 +79,30 @@ class Update(subroutine.api.schemas.RequestModel):
 	expected_version: int | None = None
 
 
-def _rendered (comment: subroutine.db.models.activity.Comment) -> subroutine.views.Comment:
-	"""Render one comment."""
+def _rendered (
+	session: sqlalchemy.orm.Session,
+	comments: typing.Sequence[subroutine.db.models.activity.Comment],
+) -> list[subroutine.views.Comment]:
+	"""Render a page of comments, resolving every author in one query — `#636`.
 
-	return subroutine.views.comment(comment)
+	**A page rather than a row**, which is the whole point: naming the author per comment is
+	`#39`'s N+1 on the one view whose entire job is reading what people recorded. The single
+	writes below pass a list of one and pay for a query they were going to make anyway.
+	"""
+
+	vocabulary = subroutine.views.Vocabulary(
+		session, user_ids=[row.author_id for row in comments if row.author_id is not None]
+	)
+
+	return [subroutine.views.comment(row, vocabulary) for row in comments]
+
+
+def _one (
+	session: sqlalchemy.orm.Session, comment: subroutine.db.models.activity.Comment
+) -> subroutine.views.Comment:
+	"""Render one comment, for the write paths that answer with the row they changed."""
+
+	return _rendered(session, [comment])[0]
 
 
 def _page (
@@ -124,7 +144,7 @@ def _page (
 	rows = rows[:size]
 
 	return subroutine.api.shaping.response(
-		[_rendered(row) for row in rows],
+		_rendered(session, rows),
 		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
@@ -227,7 +247,8 @@ def _attach (
 			workspace_id=workspace_id,
 		)
 
-		return _rendered(
+		return _one(
+			session,
 			subroutine.domain.comments.create(
 				session,
 				entity_type=entity_type,
@@ -251,7 +272,7 @@ def change (
 	found = subroutine.domain.comments.get(session, comment_id, actor=actor)
 	supplied = body.model_fields_set
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(found)):
+	with subroutine.api.concurrency.reporting(lambda: _one(session, found)):
 		updated = subroutine.domain.comments.update(
 			session,
 			found,
@@ -262,7 +283,7 @@ def change (
 			**({"body": body.body} if "body" in supplied and body.body is not None else {}),
 		)
 
-	return _rendered(updated)
+	return _one(session, updated)
 
 
 @router.delete("/{comment_id}", summary="Delete a comment")
@@ -276,8 +297,9 @@ def remove (
 
 	found = subroutine.domain.comments.get(session, comment_id, actor=actor)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(found)):
-		return _rendered(
+	with subroutine.api.concurrency.reporting(lambda: _one(session, found)):
+		return _one(
+			session,
 			subroutine.domain.comments.delete(
 				session,
 				found,

@@ -236,6 +236,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A comment says who wrote it.** `GET /v1/tasks/{ref}/comments` returned `author_id` and no
+  name, so the one view whose whole purpose is reading what people recorded could not say who
+  recorded it without a lookup per line. There is an `author` field beside the id now, resolved
+  for a whole page in one query, and `subroutine show` prints it beside each date — five of
+  eight accounts on a typical instance are agents, so *who wrote this* is the difference
+  between a colleague's note and a machine's.
+
 - **A scripted search says why each row matched.** `subroutine search <term> --json` now
   carries `matched` — `title`, `description`, `body`, `number` or `elsewhere` — the same cell
   the terminal has shown beside each hit since 0.7.0. Without it a script got the row and not

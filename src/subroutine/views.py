@@ -661,6 +661,21 @@ class Comment(pydantic.BaseModel):
 	workspace_id: uuid.UUID
 	author_id: uuid.UUID | None
 
+	#: Who wrote it, by username — `#636`. **The one view whose whole purpose is reading what
+	#: people recorded could not say who recorded it**, so a surface wanting the name had a
+	#: lookup per comment, which is `#39`'s N+1 where it can least be afforded.
+	#:
+	#: Every neighbouring view already answers this: a task publishes ``assignee`` beside
+	#: ``assignee_id``, a link's far end carries ``ref`` and ``title`` rather than an id, and
+	#: :class:`Token` carries ``username`` beside ``user_id`` — *a caller may be looking at
+	#: credentials they issued for somebody else, so the name is here rather than only the id*.
+	#: That argument is stronger for a comment, not weaker.
+	#:
+	#: **Defaulted, like everything added to a response model after it shipped** (`#345`,
+	#: `#482`). An instance older than this field sends no such key, and a client one commit
+	#: ahead must not refuse the whole response over it.
+	author: str | None = None
+
 	deleted_at: datetime.datetime | None
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
@@ -2144,8 +2159,17 @@ def document (
 	)
 
 
-def comment (row: subroutine.db.models.activity.Comment) -> Comment:
-	"""Render one comment."""
+def comment (
+	row: subroutine.db.models.activity.Comment, vocabulary: Vocabulary
+) -> Comment:
+	"""Render one comment.
+
+	**The vocabulary is required rather than defaulted**, unlike :func:`event`'s ``described``.
+	That one is genuinely optional — an event's description is expensive and several callers
+	have nothing useful to say — where an author is one name every reader of a comment wants.
+	A defaulted argument here would let a call site forget and answer ``null`` silently, which
+	is `#640`'s shape: the rule right, the display right, and no wire between them.
+	"""
 
 	return Comment(
 		id=row.id,
@@ -2154,6 +2178,7 @@ def comment (row: subroutine.db.models.activity.Comment) -> Comment:
 		entity_id=row.entity_id,
 		workspace_id=row.workspace_id,
 		author_id=row.author_id,
+		author=_username(vocabulary, row.author_id),
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,
 		updated_at=row.updated_at,

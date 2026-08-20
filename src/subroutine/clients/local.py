@@ -1033,7 +1033,14 @@ class Client:
 				)
 			).all()
 
-			return [subroutine.views.comment(row) for row in rows]
+			# One query for every author on the page, not one per comment — `#636`, and
+			# `#39`'s N+1 on the view whose whole job is reading what people recorded.
+			vocabulary = subroutine.views.Vocabulary(
+				session,
+				user_ids=[row.author_id for row in rows if row.author_id is not None],
+			)
+
+			return [subroutine.views.comment(row, vocabulary) for row in rows]
 
 	def history (
 		self,
@@ -2066,14 +2073,20 @@ class Client:
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			subject = self._subject(session, actor, chosen.id, entity_type, ref)
 
+			written = subroutine.domain.comments.create(
+				session,
+				entity_type=entity_type,
+				entity_id=subject,
+				body=body,
+				actor=actor,
+			)
+
 			return subroutine.views.comment(
-				subroutine.domain.comments.create(
+				written,
+				subroutine.views.Vocabulary(
 					session,
-					entity_type=entity_type,
-					entity_id=subject,
-					body=body,
-					actor=actor,
-				)
+					user_ids=[] if written.author_id is None else [written.author_id],
+				),
 			)
 
 	def uncomment (

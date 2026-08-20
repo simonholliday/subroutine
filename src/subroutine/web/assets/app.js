@@ -1111,7 +1111,12 @@ export function authorOf (comment, members) {
 	*/
 	const found = (members || []).find((one) => one.id === (comment || {}).author_id);
 
-	return found ? found.label : null;
+	/* **The roster first, the row second** (`#636`). The roster's label marks a service
+	   account — *claude (agent)* — which the response's bare username cannot, and that
+	   distinction is this function's whole reason for existing. But somebody who has left the
+	   workspace is on no roster, and showing nothing then is a transcript with one name cut
+	   out; `views.Comment.author` answers for exactly that case. */
+	return found ? found.label : (comment || {}).author || null;
 }
 
 export function completeRequest (row, slug) {

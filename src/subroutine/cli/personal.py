@@ -7483,6 +7483,21 @@ def _render_item (
 		for remark in recent:
 			line = rich.text.Text()
 			line.append(f"  {remark.created_at.date().isoformat()}  ", style=DETAIL)
+
+			# **Who, beside when** (`#636`). A record of what happened with the names cut out
+			# is half a record, and it matters more here than the count of accounts suggests:
+			# five of this instance's eight are service accounts, so *who wrote this* is the
+			# difference between a colleague's note and a machine's (`#759`'s argument, on the
+			# surface that still lacked it).
+			#
+			# **Printed on every line rather than dropped when uniform**, which is where this
+			# parts company with §12.2a. That rule drops a column saying the same thing on
+			# every row because the reader can see the whole page and lose nothing; a name
+			# cannot be inferred from its own absence, so dropping it answers *nobody* rather
+			# than *the same person throughout*.
+			if remark.author is not None:
+				line.append(f"@{remark.author}  ", style=DETAIL)
+
 			line.append(remark.body)
 			console.print(line)
 

@@ -5025,6 +5025,33 @@ def test_show_prints_every_comment_when_there_are_few (
 	assert "What happened" in shown
 
 
+def test_show_says_who_wrote_each_comment (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#636`, on the surface where the gap turned out to be.
+
+	The item said the *browser* omitted the author; measured while building it, `#759` had
+	already fixed that and the **terminal** was the one printing a date and a body and nothing
+	else. A record of what happened with the names cut out is half a record, and it matters
+	more than the count of accounts suggests: five of this instance's eight are service
+	accounts, so *who wrote this* is the difference between a colleague's note and a machine's.
+
+	**Printed on every line rather than dropped when uniform**, which is where this parts
+	company with §12.2a. That rule drops a column saying the same thing on every row because
+	the reader sees the whole page and loses nothing; a name cannot be inferred from its own
+	absence, so dropping it answers *nobody* rather than *the same person throughout*.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something ordinary")
+	run("comment", "1", "the only thing that happened")
+
+	shown = run("show", "1").output
+
+	assert "the only thing that happened" in shown, "the probe recorded nothing"
+	assert "@si" in shown, f"the record does not say who wrote it: {shown}"
+
+
 def test_a_search_marks_the_word_it_matched (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -2674,9 +2674,15 @@ def test_a_thread_says_who_spoke (tmp_path: pathlib.Path) -> None:
 	between a colleague's note and a machine's. `SR#474` is that delegation has never once been
 	used here; attribution is the half of it a reader actually sees.
 
-	**Null rather than a guess when the author is not on the roster.** Somebody who has left, or
-	an account this reader cannot see, resolves to nothing — and nothing is what should then be
-	shown. Inventing *Unknown* would claim the lookup happened and found an answer.
+	**The roster first, the row second, and null only when neither answers** (`SR#636`). The
+	roster's label marks a service account — *claude (agent)* — which the response's bare
+	username cannot, and that distinction is this function's whole reason for existing. But
+	somebody who has left the workspace is on no roster, and showing nothing then is a
+	transcript with one name cut out, which is the defect this exists to prevent. The response
+	carries ``author`` since `SR#636` and answers exactly that case.
+
+	Inventing *Unknown* is still refused: it would claim the lookup happened and found an
+	answer, where null says plainly that nothing here knows.
 	"""
 
 	members = [
@@ -2684,17 +2690,34 @@ def test_a_thread_says_who_spoke (tmp_path: pathlib.Path) -> None:
 		{"id": "u-2", "username": "claude", "label": "claude (agent)"},
 	]
 
-	person, agent, gone, nobody = _views(tmp_path, [
+	person, agent, gone, nobody, departed = _views(tmp_path, [
 		("authorOf", {"comment": {"author_id": "u-1"}, "members": members}),
 		("authorOf", {"comment": {"author_id": "u-2"}, "members": members}),
 		("authorOf", {"comment": {"author_id": "u-9"}, "members": members}),
 		("authorOf", {"comment": {"author_id": "u-1"}, "members": []}),
+		# On no roster, and the response says who it was — `SR#636`.
+		("authorOf", {
+			"comment": {"author_id": "u-9", "author": "jo"}, "members": members,
+		}),
 	])
 
 	assert person == "si"
 	assert agent == "claude (agent)", "an agent's note is attributed as though a person wrote it"
-	assert gone is None, "an author nobody can resolve was named anyway"
+	assert gone is None, "an author neither the roster nor the row can name was named anyway"
 	assert nobody is None
+	assert departed == "jo", (
+		"somebody who has left the workspace loses their name from the transcript"
+	)
+
+	# **The roster still wins where both answer**, or the agent marker is lost — which is the
+	# one thing the response cannot carry and the roster can.
+	[marked] = _views(tmp_path, [
+		("authorOf", {
+			"comment": {"author_id": "u-2", "author": "claude"}, "members": members,
+		}),
+	])
+
+	assert marked == "claude (agent)", "the bare username displaced the roster's label"
 
 	# **Composed with the roster this page actually holds**, which is the half a hand-written
 	# `members` cannot check: `people` builds those rows, and it kept only the username until
