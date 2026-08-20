@@ -1949,6 +1949,109 @@ def _declared_and_never_read (source: str) -> list[tuple[int, str]]:
 	return sorted(dead)
 
 
+#: What a callback does when it changes *which rows there are*, as opposed to where the address
+#: bar says you are — `#964`. A `set…` covers every piece of state this app holds, `now…` covers
+#: `nowShowing` and `nowOpen`, and the three verbs are the ways a page refetches.
+#:
+#: **A prefix register rather than a list of names**, so a state added tomorrow is covered on
+#: the day it is written: every one of them is `const [x, setX] = useState(…)`.
+MOVES_THE_PAGE = ("set", "now", "load(", "readAgenda(", "refresh(", "retick(")
+
+
+def _pushes_without_moving (source: str) -> list[tuple[int, str]]:
+	"""Return every ``go(`` whose callback changes the address and nothing else — `#964`.
+
+	> `go` writes the address bar and nothing else. **No `popstate` fires for a `pushState` we
+	> made ourselves**, so a handler that stops there moves the address and leaves the page
+	> exactly as it was.
+
+	Three defects of that shape have shipped: `widen` was written with the three steps, `#959`'s
+	project label shipped with one and its own browser test caught it within the hour, and
+	`#962` was live from `#868` until Simon met it. **Nothing cheaper can see any of them** —
+	every one of these callbacks lives in `App`, which the render harness cannot call at all
+	(`#640`), so each has cost a browser test.
+
+	**Two shapes, and the second is the one that matters.** A braced callback is checked for
+	doing anything from :data:`MOVES_THE_PAGE`; a brace-less arrow — ``() => go("/")`` — is
+	flagged outright, because its whole body *is* the push. **That is what `#962` actually
+	was**, and the first version of this walked straight past it looking for braces that were
+	never there.
+
+	**What it cannot do, stated rather than discovered.** It answers *does this handler change
+	anything*, never *does it change the right thing* — a callback that resets the wrong piece
+	of state passes. The item says as much, and a scan that claimed otherwise would be worse
+	than this one: `#405`'s rule is that a guard is tested by feeding it a defect through its
+	own entry point, and the defect this admits to missing is one nobody can express.
+	"""
+
+	blanked = _without_prose(source)
+	opens: list[int] = []
+	spans: list[tuple[int, int]] = []
+
+	for position, char in enumerate(blanked):
+		if char == "{":
+			opens.append(position)
+
+		elif char == "}" and opens:
+			spans.append((opens.pop(), position))
+
+	def callback_around (position: int) -> tuple[int, int] | None:
+		"""Return the innermost braces that are a function body rather than an object."""
+
+		holding = sorted(
+			(span for span in spans if span[0] < position < span[1]),
+			key=lambda span: span[0],
+			reverse=True,
+		)
+
+		return next(
+			(
+				span
+				for span in holding
+				if re.search(r"(=>|\))\s*$", blanked[max(0, span[0] - 40):span[0]])
+			),
+			None,
+		)
+
+	bare: list[tuple[int, str]] = []
+
+	for pushed in re.finditer(r"(?<![.\w$])go\(", blanked):
+		line = blanked[:pushed.start()].count("\n") + 1
+
+		if re.search(r"=>\s*$", blanked[max(0, pushed.start() - 20):pushed.start()]):
+			bare.append((line, "a brace-less arrow whose whole body is the push"))
+
+			continue
+
+		body = callback_around(pushed.start())
+
+		if body is None:
+			bare.append((line, "a push in no callback at all"))
+
+			continue
+
+		if not any(move in blanked[body[0]:body[1]] for move in MOVES_THE_PAGE):
+			bare.append((line, "a callback that pushes the address and changes nothing"))
+
+	return sorted(bare)
+
+
+def test_a_navigation_that_changes_which_rows_there_are_also_loads_them () -> None:
+	"""`#964`. Three defects of one shape, and the third was found by Simon rather than a test.
+
+	Measured while building this, which is the item's own instruction — *the first hour is
+	measuring whether the cheap half has false positives on this file, not writing it*: it
+	flags **nothing** on the file as it stands, and it flags both known shapes when they are
+	put back. The record of what it cannot see is in `_pushes_without_moving`.
+	"""
+
+	bare = _pushes_without_moving(_served_modules()["app.js"])
+
+	assert not bare, "the address moves and the page does not: " + ", ".join(
+		f"line {line} — {why}" for line, why in bare
+	)
+
+
 def test_nothing_in_the_browser_app_is_declared_and_never_read () -> None:
 	"""`#684`, finding 7 of review `#677`. A reader found it; nothing else could have.
 
