@@ -16,10 +16,12 @@ import typing
 
 import fastapi
 import fastapi.exceptions
+import sqlalchemy.exc
 import starlette.exceptions
 import starlette.requests
 import starlette.responses
 
+import subroutine.api.dependencies
 import subroutine.api.middleware
 import subroutine.api.routing
 import subroutine.api.security
@@ -246,6 +248,71 @@ def handle_a_lost_update (
 	return respond(request, subroutine.domain.versions.raced())
 
 
+#: What PostgreSQL calls each way of giving up, and what this instance tells the caller it was
+#: waiting for. Keyed on SQLSTATE rather than on the message, which is localised and which
+#: `#568` is precisely about not reading twice.
+#:
+#: **``57014`` is not only a timeout, which is why the wording does not claim it is.** The same
+#: state answers a statement an operator cancelled with ``pg_cancel_backend``, so this says the
+#: request was given up on and leaves the cause where the database put it — the rule this
+#: project records and has broken three times.
+GAVE_UP: dict[str, str] = {
+	"57014": "was given up on before it finished",
+	"55P03": "waited for something another transaction was holding, and was given up on",
+	"40P01": "and another were each waiting for what the other held, so this one was stopped",
+}
+
+
+def handle_a_request_that_did_not_finish (
+	request: starlette.requests.Request, exception: Exception
+) -> starlette.responses.Response:
+	"""Report database work this instance stopped waiting for, rather than a bug (`#568`).
+
+	Nothing bounded how long a statement could run, so a row lock or a query that would never
+	finish reached the caller as **silence** — which from outside is indistinguishable from a
+	deploy, a network fault or a proxy, and was read as exactly that during `#553`.
+	``request_timeout_seconds`` turns the wait into a refusal; this turns the refusal into
+	something a caller can act on instead of a 500 blaming this program for the caller's query.
+
+	**Every other ``OperationalError`` is handed on unchanged.** That class is most of what a
+	database can raise — a connection dropped, a disk full, a database shut down underneath us
+	— and none of those is this. Delegating rather than re-raising keeps them logged with their
+	request id by the one function that does that.
+	"""
+
+	said = GAVE_UP.get(_sqlstate(exception))
+
+	if said is None:
+		return handle_unexpected_error(request, exception)
+
+	seconds = subroutine.api.dependencies.settings(request).request_timeout_seconds
+
+	return respond(
+		request,
+		subroutine.errors.RequestTimedOut(
+			f"This request {said}, after {seconds} seconds.",
+			hint=(
+				"Nothing was changed by it. Retrying may work; if it does not, ask for less "
+				"in one request — a narrower filter, a smaller page, or one item rather than "
+				"a listing."
+			),
+		),
+	)
+
+
+def _sqlstate (exception: Exception) -> str:
+	"""Return the five-character state the database reported, or the empty string.
+
+	Read off the driver's own exception rather than off SQLAlchemy's wrapper, and defensively:
+	a driver that names it something else should cost this translation rather than every
+	database failure, which would then reach the caller as a crash inside an error handler.
+	"""
+
+	original = getattr(exception, "orig", None)
+
+	return str(getattr(original, "sqlstate", "") or "")
+
+
 def handle_unexpected_error (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -290,6 +357,9 @@ def install (application: fastapi.FastAPI) -> None:
 	)
 	application.add_exception_handler(
 		subroutine.domain.versions.RACED, handle_a_lost_update
+	)
+	application.add_exception_handler(
+		sqlalchemy.exc.OperationalError, handle_a_request_that_did_not_finish
 	)
 
 	# The catch-all. Registered last for readability only — Starlette keys handlers by

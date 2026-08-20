@@ -22,6 +22,25 @@ upgrade involves.
 
 ### Added
 
+- **A request that can never finish is stopped and says so, rather than hanging.** Nothing
+  bounded how long one statement could run, so a row lock, a query that would never finish or a
+  database that had stopped answering all reached the caller as *silence* — which from outside
+  is indistinguishable from a deploy, a network fault or your proxy, and has been read as
+  exactly that. The new `request_timeout_seconds` setting is a bound, defaulting to **30
+  seconds**; reaching it is `503 request_timed_out`, which says the request was given up on,
+  that nothing it was doing was written, and that retrying may work.
+
+  **PostgreSQL only**, because SQLite has no statement timeout of any kind. What SQLite has is a
+  five-second wait for a contended lock, which is the case that actually hangs there, and it is
+  unchanged. **It does not reach a backup**: `POST /v1/admin/backups` legitimately takes minutes
+  and does not run on the request's own session, so no exception had to be written for it, and
+  the same is true of a restore and of `subroutine db upgrade`. Set it to `0` to wait for ever
+  as before.
+
+  `request_timed_out` is a new error code, so a client matching on codes gains one it has not
+  seen. It is deliberately not `service_unavailable`, which says the instance cannot serve
+  anything: this instance is serving, and it was this request that did not finish.
+
 - **Prose being written can be seen as it will read.** A task's description, a document's
   body and a comment box each carry a **Preview** button now, which renders what you have typed
   with the same Markdown renderer the item page uses. Press it again to go back; what you were

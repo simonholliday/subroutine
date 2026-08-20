@@ -262,7 +262,14 @@ def create_app (
 		engine = subroutine.db.session.create_engine(resolved.database_url)
 
 		application.state.engine = engine
-		application.state.session_factory = subroutine.db.session.create_session_factory(engine)
+
+		# **The limit goes on the sessions, never on the engine** (`#568`). A backup, a restore
+		# and a migration each take their own connection off this engine, and a statement
+		# timeout there would fail `POST /v1/admin/backups` on any database large enough to be
+		# worth backing up. `db/session._bounded_by` carries the whole argument.
+		application.state.session_factory = subroutine.db.session.create_session_factory(
+			engine, statement_timeout_seconds=resolved.request_timeout_seconds
+		)
 
 	application.middleware("http")(subroutine.api.middleware.correlate)
 

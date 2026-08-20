@@ -24,6 +24,7 @@ following one lands on the section describing it.
 | `not_found` | 404 | Not found | There is no such thing, or it is not visible to this caller. The two are deliberately not distinguished: saying 'forbidden' about a private project would confirm it exists (docs/design.md §7.3a). |
 | `payload_too_large` | 413 | Too large | A field or the request body exceeds the configured limit. The limit is reported rather than the value being silently truncated (docs/design.md §6.10). |
 | `rate_limited` | 429 | Too many requests | The caller is going faster than the configured limit allows. The response says when to try again. |
+| `request_timed_out` | 503 | Timed out | The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work. |
 | `schema_mismatch` | 409 | Schema mismatch | A database schema does not match the one this build expects, for a backup being put back (docs/design.md §12.6). An older schema can be migrated forward and the refusal says so; a *newer* one cannot, because this version cannot interpret data it does not know the shape of and a partial read is worse than a clear failure. The live database being out of step is a different answer (§12.4a): /readyz reports it as 503 service_unavailable, because a load balancer has to read this instance as not ready rather than as arguing. |
 | `service_unavailable` | 503 | Not ready | The instance is running but cannot serve requests yet — most often its database is unreachable, or its schema has not been brought up to date. Reported by the readiness check so that a deployment holds traffic back rather than serving errors. |
 | `unauthenticated` | 401 | Not authenticated | No credential was presented, or the one presented is not valid. Every reason reports identically: an unknown token, a revoked one and an expired one are indistinguishable from outside on purpose. |
@@ -108,6 +109,12 @@ A field or the request body exceeds the configured limit. The limit is reported 
 **Too many requests** — HTTP 429.
 
 The caller is going faster than the configured limit allows. The response says when to try again.
+
+## request_timed_out
+
+**Timed out** — HTTP 503.
+
+The database work behind this request ran longer than 'request_timeout_seconds' allows, and was given up on. Distinct from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving, and it was this request that did not finish. The detail names what was being waited for where the database said, and retrying may work.
 
 ## schema_mismatch
 

@@ -650,6 +650,36 @@ class Settings(pydantic_settings.BaseSettings):
 	# a machine's memory.
 	max_body_bytes: int = 10 * 1024 * 1024
 
+	# How long the database work behind one request may spend on any single statement, in
+	# seconds. Zero turns it off.
+	#
+	# **A request that can never finish otherwise hangs for ever** (`#568`). Nothing bounded
+	# how long a statement could wait, so a row lock, a slow query and a far end that has
+	# stopped answering all reached the caller as silence — indistinguishable from a deploy, a
+	# network fault or a proxy, which is exactly what a visitor's agent concluded about `#565`,
+	# reasonably and wrongly. **A bound is the difference between an error and an absence**,
+	# and this project keeps finding that distinction on the wrong side.
+	#
+	# **PostgreSQL only, and said rather than hidden.** It becomes `statement_timeout` on the
+	# transaction each request opens. SQLite has no statement timeout of
+	# any kind; what it has is `busy_timeout`, fixed at five seconds in `db/session.py`, which
+	# bounds the lock wait — the case that actually hangs there — and is deliberately left
+	# alone, because a person at a terminal draws on those same connections and a CLI that
+	# waits half a minute for a lock is this defect wearing the other hat.
+	#
+	# **It does not reach a backup, and that is why it is applied to the session rather than to
+	# the engine.** `POST /v1/admin/backups` legitimately takes a long time, and the item asking
+	# for this said a single number that makes backups fail is worse than none. Measured: a
+	# backup never runs on the request's session — `pg_dump` is a subprocess and `VACUUM INTO`
+	# opens its own connection off the engine — so there is no admin exemption to write down.
+	# Putting the limit on the engine's connections is what would have created the need for one.
+	#
+	# **Thirty seconds because it is a backstop rather than a budget.** Every listing here is
+	# paged and every ordering is indexed, so a request that reaches this has met something the
+	# design does not account for. A number small enough to shape behaviour would be a
+	# performance policy nobody has decided.
+	request_timeout_seconds: int = 30
+
 	# The proxies whose `X-Forwarded-For` this instance believes (`#277`). Empty means the
 	# header is ignored entirely and the immediate peer is the key, which is right for a
 	# direct bind and wrong behind Nginx Proxy Manager, where every caller shares the proxy's

@@ -213,6 +213,16 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"request id is what ties the response to the log entry that explains it.",
 		),
 		_define(
+			"request_timed_out",
+			503,
+			"Timed out",
+			"The database work behind this request ran longer than 'request_timeout_seconds' "
+			"allows, and was given up on. Distinct from 'service_unavailable', which says "
+			"the instance cannot serve anything yet: this instance is serving, and it was "
+			"this request that did not finish. The detail names what was being waited for "
+			"where the database said, and retrying may work.",
+		),
+		_define(
 			"service_unavailable",
 			503,
 			"Not ready",
@@ -416,6 +426,12 @@ class InternalError(SubroutineError):
 	"""Something failed that should not have."""
 
 	CODE = "internal_error"
+
+
+class RequestTimedOut(SubroutineError):
+	"""The database work behind this request was given up on."""
+
+	CODE = "request_timed_out"
 
 
 class ServiceUnavailable(SubroutineError):

@@ -150,6 +150,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `rate_limit_failures_per_minute` | `30` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
 | `rate_limit_polls_per_minute` | `60` | Calendar fetches per **feed** per minute. Its own bucket rather than a share of the one above: a poller and a person make requests at different rates, and one misconfigured calendar client should not empty the allowance its owner's terminal draws from |
 | `calendars_enabled` | `true` | Whether this instance serves calendar feeds at all. A feed URL is a bearer credential that ends up in a phone's settings and possibly in a screenshot, and a leak is undetectable from here — turn it off and the address answers 404 exactly as an address naming nothing does |
+| `request_timeout_seconds` | `30` | How long the database work behind one request may spend on any single statement before it is given up on. A backstop rather than a budget: a request that reaches it has met something the design does not account for, and a bound is what turns a hang into a message somebody can act on. **PostgreSQL only** — see below |
 | `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy — every field has its own limit, and ten megabytes is far more than any legitimate write |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
 | `cors_origins` | `[]` | Other origins a browser may call this API from — **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
@@ -183,6 +184,25 @@ It exists on PostgreSQL only. Asking for it on SQLite is not an error — you ge
 `GET /v1/meta` reports which one is actually answering. Turning it on needs no migration
 beyond the ordinary `subroutine db upgrade`; turning it off again is a configuration change
 and nothing else.
+
+**`request_timeout_seconds` is what stops an outage being a silence.** Nothing bounded how
+long one statement could run, so a row lock, a query that would never finish, or a database
+that had stopped answering all reached the caller the same way: no reply, for ever. From
+outside an instance that is indistinguishable from a deploy, a network fault or your proxy —
+and it has been read as exactly that here, by somebody being careful.
+
+It becomes PostgreSQL's `statement_timeout` on the transaction each request opens, so it is
+one statement's allowance rather than the whole request's. SQLite has no equivalent and gets
+nothing; what it has is a five-second wait for a contended lock, which is the case that
+actually hangs on a laptop and is not configurable.
+
+**It does not reach a backup**, which is the reason it is worth being precise about where it
+is applied. `POST /v1/admin/backups` legitimately takes minutes on a large database, and it
+does not run on the request's own session — `pg_dump` is a separate process — so no exception
+had to be written for it. The same is true of a restore and of `subroutine db upgrade`.
+
+A request that hits the limit is answered with `503 request_timed_out` saying so, and nothing
+it was doing was written. Set it to `0` to go back to waiting indefinitely.
 
 **There are deliberately no retention settings.** §5.11 and §6.9 both describe a retention
 period, and nothing purges anything yet — so `events_retention_days` and
