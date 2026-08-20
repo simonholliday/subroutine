@@ -1402,12 +1402,16 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	passes anything to it, and a `Row` rendered directly with `projects` would prove only that
 	the prop I just added works.
 
-	**The fallback is asserted too, and it is not decoration**: the app asks for two hundred
-	projects and a workspace may hold more, so a row whose project is off the end has to keep
-	its key rather than lose the chip or print `undefined`.
-	"""
+	**A row whose project was not among the fetched ones is asserted too.** The app asks for
+	two hundred and a workspace may hold more, and the chip is built from the row's own
+	``project_path`` — so the case that used to lose the chip cannot any more, and this holds
+	that property rather than describing it.
 
-	known = [{"key": "sr", "title": "Subroutine"}, {"key": "ui", "title": "Web UI"}]
+	**Nothing is passed a project list.** It was, until `#971`: the label came from
+	``projectName`` under `#912` and needed the workspace's projects to turn a key into a
+	title. `#959` made it the address, composed from a field the row already carries, and the
+	argument stayed behind reading nothing.
+	"""
 
 	filed = {"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}
 	elsewhere = dict(filed, project_key="unfetched", project_path="unfetched")
@@ -1415,14 +1419,12 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	shown = _rendered(tmp_path, {
 		"Listing": {
 			"items": [dict(filed, project_key="sr", project_path="sr")],
-			"projects": known,
 		},
 		# Nested, and the board names no project — so the whole address is what it shows.
 		"Board": {
 			"items": [dict(
 				filed, project_key="ui", project_path="subroutine/ui", status_category="todo"
 			)],
-			"projects": known,
 		},
 		# The agenda spans workspaces, so its label leads with the row's own — `/` names none.
 		"Agenda": {
@@ -1433,7 +1435,6 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 				)],
 			}],
 			"where": "projects",
-			"projects": known,
 		},
 	})
 
@@ -1444,7 +1445,7 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	)
 
 	unknown = _rendered(tmp_path, {
-		"Listing": {"items": [elsewhere], "projects": known},
+		"Listing": {"items": [elsewhere]},
 	})["Listing"]
 
 	assert "unfetched" in unknown, (
@@ -3979,8 +3980,8 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
 			: name === "marks" ? app.marks(
-				argument.item, argument.showKind, argument.ordering, argument.projects,
-				argument.place, argument.linkable, argument.hideStatus)
+				argument.item, argument.showKind, argument.ordering, argument.place,
+				argument.linkable, argument.hideStatus)
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 

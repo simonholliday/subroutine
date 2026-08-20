@@ -3392,8 +3392,7 @@ export function Icon ({ name, decorative = true }) {
 }
 
 export function marks (
-	item, showKind, ordering = null, projects = null, place = null, linkable = false,
-	hideStatus = false
+	item, showKind, ordering = null, place = null, linkable = false, hideStatus = false
 ) {
 	/*
 		The small labels under a title.
@@ -4123,9 +4122,6 @@ export function Marks ({ badges, onGo = null }) {
 
 export function Row ({
 	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
-	/* What the project chip was named from until `#959` (`#912`). Kept because `projectName`
-	   still answers "what is this project called" for anything that wants a title. */
-	projects = null,
 	/* **What the address already said**, so the project label can leave it out — decision
 	   `#957` §4. Absent means the address named nothing, which is the agenda at `/`. */
 	place = null,
@@ -4140,7 +4136,7 @@ export function Row ({
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering, projects, place, !!onGo, hideStatus);
+	const badges = marks(item, showKind, ordering, place, !!onGo, hideStatus);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -4272,7 +4268,7 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, later = 0, where, onAdd, onOpen, onComplete, busy, adding, projects = null,
+	buckets, more, later = 0, where, onAdd, onOpen, onComplete, busy, adding,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
@@ -4374,7 +4370,7 @@ export function Agenda ({
 								showKind=${false} showWhere=${showWhere} workspace=${where}
 								place=${{ workspace: null, project: null }}
 								onGo=${onGo}
-								onOpen=${onOpen} onComplete=${onComplete} projects=${projects} />
+								onOpen=${onOpen} onComplete=${onComplete} />
 						`)}
 					</ul>
 				</section>
@@ -4410,7 +4406,7 @@ export function Board ({
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
-	over = null, onOver = null, projects = null,
+	over = null, onOver = null,
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
 	/* What the reader has explicitly chosen about collapsed columns, and how to change it —
@@ -4568,7 +4564,7 @@ export function Board ({
 													showKind=${showKind} workspace=${workspace}
 													place=${{ workspace, project }} onGo=${onGo}
 													onOpen=${onOpen} onComplete=${onComplete}
-													onDrag=${onDrag} projects=${projects}
+													onDrag=${onDrag}
 													hideStatus=${soleStatusIn(
 														statuses,
 														item.kind === "document" ? "document" : "task",
@@ -5199,10 +5195,6 @@ export function Listing ({
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
 	/* Which projects are prioritised, and how to change it — `#986`. */
 	prioritised = [], onPrioritise = null,
-	/* **Its own prop rather than `adding.projects`** (`#912`). That bundle is the capture
-	   form's, and its own comment says nothing else has any business knowing what a dropdown is
-	   made of — one source in `App`, two consumers, each asked for directly. */
-	projects = null,
 }) {
 	/*
 		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
@@ -5290,7 +5282,7 @@ export function Listing ({
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
 								place=${{ workspace, project }} onGo=${onGo}
-								onComplete=${onComplete} projects=${projects} />
+								onComplete=${onComplete} />
 						`)}
 					</ul>
 				`}
@@ -5744,7 +5736,7 @@ export function Detail ({
 						saying the status. `place` is null because an item page is not narrowed
 						to anything, so the project label says its whole address.
 					*/ null}
-					<${Marks} badges=${marks(item, true, null, null, null, !!onGo)}
+					<${Marks} badges=${marks(item, true, null, null, !!onGo)}
 						onGo=${onGo} />
 					<${Facts} item=${item} prioritised=${prioritised} />
 
@@ -5795,16 +5787,7 @@ export function Detail ({
 							axis that is not colour.
 						*/
 						const end = { ...link.other, kind: link.other.entity_type };
-						/* **`null` where `Row` passes `projects`, because `marks` reads it
-						   nowhere.** Measured rather than assumed: the name appears once in
-						   that function, in its own parameter list. `#912` gave it the list so
-						   `projectName` could turn a key into a title; `#959` made the label
-						   the address instead, and the parameter outlived its last reader.
-						   Passing a live value into it from a *new* caller would be a second
-						   copy of `#251`'s inert control — `#971` is deleting it. */
-						const badges = marks(
-							end, true, null, null, { workspace, project }, !!onGo
-						);
+						const badges = marks(end, true, null, { workspace, project }, !!onGo);
 
 						return html`
 							<li key=${link.id}>
@@ -7723,7 +7706,7 @@ export function App () {
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
-						projects=${filable} onGo=${narrow}
+						onGo=${narrow}
 						${/* **Every workspace's, because the agenda spans them** — `/` sends no
 						     `workspace_id` and each workspace may prioritise one project of its
 						     own (§13.7). The listing below asks the narrower question. */ null}
@@ -7741,7 +7724,7 @@ export function App () {
 					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${mayWrite ? complete : null}
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
-							onMore=${showMore} projects=${filable} onGo=${narrow}
+							onMore=${showMore} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
 							${/* The board's narrowed bar is the listing's, so it carries the same
 							     control — one component, one answer (`#986`). */ null}
@@ -7784,7 +7767,7 @@ export function App () {
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy}
 							more=${more} adding=${adding}
 							onMore=${showMore} project=${project} workspace=${workspace}
-							projects=${filable} onGo=${narrow}
+							onGo=${narrow}
 							${/* **This workspace's alone**, because a listing is narrowed to one —
 							     unlike the agenda above, which spans them and names each. */ null}
 							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
