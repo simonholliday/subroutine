@@ -38,8 +38,6 @@ upgrade involves.
   marked, rather than a button whose label was the other state — and it no longer wears the fill
   of a control that writes.
 
-### Added
-
 - **A request that can never finish is stopped and says so, rather than hanging.** Nothing
   bounded how long one statement could run, so a row lock, a query that would never finish or a
   database that had stopped answering all reached the caller as *silence* — which from outside
