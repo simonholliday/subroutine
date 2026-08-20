@@ -22,6 +22,12 @@ upgrade involves.
 
 ### Added
 
+- **The browser notices when the instance is redeployed under it and offers to reload.** It
+  compares the version that served the page against the one answering an hour later, and shows
+  a line beside the work with a *Reload* button on it. It never reloads by itself — you may be
+  halfway through writing something — and it is not a dialogue that has to be dismissed before
+  you can carry on.
+
 - **A project can say which statuses it does not offer, and everything under it inherits that.**
   `statuses.hidden` on `PATCH /v1/projects` and `PATCH /v1/workspaces`, and
   `subroutine project update <key> --hide-status blocked` — repeatable, and `--hide-status ''`

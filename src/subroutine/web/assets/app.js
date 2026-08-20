@@ -575,6 +575,27 @@ function scoped (path, slug) {
 	return `${path}${path.includes("?") ? "&" : "?"}workspace_id=${encodeURIComponent(slug)}`;
 }
 
+export const RELEASE_CHECK_POLLS = 360;
+
+export function releaseMoved (served, reported) {
+	/*
+		Whether the instance answering now is running something other than the one that served
+		this page — `#785`.
+
+		**Moved rather than newer**, deliberately. A rollback changes the asset exactly as a
+		release does, and a page left on the version that was rolled back is the same problem
+		in the other direction; comparing for *difference* needs no ordering over a version
+		string, which `0.7.6.dev70+g72240d9c8` does not obviously have anyway.
+
+		**Both halves must be known.** An older instance publishes no `instance_version`, and
+		`null` against a string is not a release — it is a field that was not there. Offering a
+		reload on that would fire once on every load against such an instance and never stop.
+	*/
+	if (!served || !reported) return false;
+
+	return String(served) !== String(reported);
+}
+
 export function identityRequest () {
 	/* Who is reading, and which workspaces they are allowed to see. */
 	return { path: "/me", method: "GET" };
@@ -5311,6 +5332,11 @@ export function Note ({ note, onUndo, onDismiss }) {
 		itself, so a reader who cannot separate the hues loses none of it. `alert` for a
 		failure and `status` for a success, because a screen reader should interrupt for one
 		and not the other.
+
+		**`act` is a second button and not a second component** (`#785`). News with something
+		to do about it is what this already is — `undo` is exactly that shape — so a release
+		notice is one more label rather than a modal, which is the house rule for news and the
+		one thing this item asked not to build.
 	*/
 	if (!note) return null;
 
@@ -5318,6 +5344,9 @@ export function Note ({ note, onUndo, onDismiss }) {
 		<div class=${`note ${note.tone}`} role=${note.tone === "bad" ? "alert" : "status"}>
 			<span class="said">${note.text}</span>
 			${note.undo && html`<button class="undo" onClick=${onUndo}>Undo</button>`}
+			${note.act && html`
+				<button class="undo" onClick=${note.act.go}>${note.act.label}</button>
+			`}
 			<button class="dismiss" onClick=${onDismiss} aria-label="Dismiss this message">×</button>
 		</div>
 	`;
@@ -6029,6 +6058,11 @@ export function App () {
 	const [ready, setReady] = useState(false);
 	const [members, setMembers] = useState([]);
 	const [note, setNote] = useState(null);
+
+	/* **Whether the instance has been redeployed under this page** — `#785`. Its own state
+	   rather than a `note`, because a note is what just happened and is replaced by the next
+	   write: a release notice cleared by somebody saving a title is one nobody sees. */
+	const [released, setReleased] = useState(false);
 	const [busy, setBusy] = useState(false);
 	/*
 		**A counter nobody reads, bumped so the clock-dependent marks are recomputed** (`#950`,
@@ -6130,6 +6164,12 @@ export function App () {
 	*/
 	const [showing, setShowing] = useState({ view: DEFAULT_VIEW, selection: {} });
 	const since = useRef(null);
+
+	/* **What served this page, captured once and never again** — `#785`. `me` is refetched
+	   after a prioritise, so comparing against the live value would quietly move the baseline
+	   and the release would never be noticed. */
+	const served = useRef(null);
+	const polled = useRef(0);
 
 	/*
 		**The same fact again, where a callback can read it** — and the ref is the copy that is
@@ -6549,6 +6589,29 @@ export function App () {
 			   gone must go whether or not the instance answered. */
 			retick((count) => count + 1);
 
+			/* **An hour, riding the poll rather than keeping its own timer** (`#785`). A
+			   release is not something that happens between two glances at a page, and one
+			   extra request an hour against a 600-a-minute allowance costs nothing. `/v1/me`
+			   rather than `/v1/meta`, which this item proposed: it is the smaller response by
+			   a long way, it is already the first request this page makes, and it has carried
+			   `instance_version` since `#381`. */
+			polled.current += 1;
+
+			if (polled.current >= RELEASE_CHECK_POLLS) {
+				polled.current = 0;
+
+				try {
+					const running = await sent(identityRequest());
+
+					if (releaseMoved(served.current, running.instance_version)) {
+						setReleased(true);
+					}
+				} catch (unreachable) {
+					/* The next check asks again. An instance that cannot be reached says
+					   nothing about which version it is running. */
+				}
+			}
+
 			try {
 				/* **The agenda spans workspaces, so its poll must too** (`#652`) — and it has
 				   to reload the thing on screen rather than the list underneath it. `agenda` is
@@ -6624,6 +6687,8 @@ export function App () {
 			const { slug, refused } = chosenWorkspace(
 				asked, identity.workspaces.map((space) => space.slug), workspace,
 			);
+
+			if (served.current === null) served.current = identity.instance_version || "";
 
 			setMe(identity);
 			setWorkspace(slug);
@@ -7682,6 +7747,20 @@ export function App () {
 					</nav>
 				`}
 			</header>
+
+			${released && html`
+				${/* **Never reloads by itself** (`#785`). Somebody may be halfway through an
+				     edit form, and `#757` went to some trouble to make sure their typing
+				     survives a conflict; throwing it away for a version bump is the same loss
+				     from a friendlier direction. */ null}
+				<${Note}
+					note=${{
+						text: "A new version of this page is available.",
+						tone: "good",
+						act: { label: "Reload", go: () => window.location.reload() },
+					}}
+					onDismiss=${() => setReleased(false)} />
+			`}
 
 			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
 

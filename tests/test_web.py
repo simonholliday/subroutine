@@ -3987,6 +3987,141 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	)
 
 
+def test_a_page_can_tell_the_instance_has_been_redeployed_under_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#785`. The rule, before anything is wired to it.
+
+	**Moved rather than newer**, which is not a shortcut. A rollback changes the served asset
+	exactly as a release does, and a page left on the version that was rolled back is the same
+	problem pointing the other way — where an ordering over `0.7.6.dev70+g72240d9c8` is not
+	something this app can invent.
+
+	**Both halves must be known.** An instance older than `#381` publishes no
+	`instance_version`, and `null` against a string is a missing field rather than a release.
+	Offering a reload on that would fire on every load against such an instance and never stop,
+	which is worse than saying nothing.
+	"""
+
+	same, moved, back, unknown, missing = _views(tmp_path, [
+		("releaseMoved", {"served": "0.7.6", "reported": "0.7.6"}),
+		("releaseMoved", {"served": "0.7.6", "reported": "0.7.7"}),
+		("releaseMoved", {"served": "0.7.7", "reported": "0.7.6"}),
+		("releaseMoved", {"served": None, "reported": "0.7.6"}),
+		("releaseMoved", {"served": "0.7.6", "reported": None}),
+	])
+
+	assert same is False
+	assert moved is True
+	assert back is True, "a rollback serves a different asset and the page is still stale"
+	assert unknown is False, "an unknown baseline was read as a release"
+	assert missing is False, "an instance that publishes no version was read as a release"
+
+
+def test_the_release_check_rides_the_poll_about_once_an_hour () -> None:
+	"""The cadence, asserted against the poll it rides rather than written down twice.
+
+	The item's own measurement is that one extra request an hour against a 600-a-minute
+	allowance costs nothing, and that *a release is not something that happens between two
+	glances at a page*. Both fall over if this number and `POLL_MS` drift apart, and neither
+	is checked by anything that renders.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	poll = re.search(r"const POLL_MS = (\d+);", source)
+	every = re.search(r"const RELEASE_CHECK_POLLS = (\d+);", source)
+
+	assert poll is not None and every is not None, "the poll or its release check is gone"
+
+	minutes = int(poll.group(1)) * int(every.group(1)) / 60_000
+
+	assert 45 <= minutes <= 90, f"the release check runs every {minutes:g} minutes"
+
+
+def test_a_note_can_carry_something_to_do_about_it (tmp_path: pathlib.Path) -> None:
+	"""`#785`. News with an action is what a `Note` already is — `undo` is exactly that shape.
+
+	**Not a modal**, which is the house rule for news and the one thing the item asked not to
+	build: a sentence beside the work with the action in it. So the release notice is one more
+	label on the component that exists rather than a second component that has to agree with it.
+
+	The plain note is rendered beside it, because a button appearing on *every* note would be
+	the opposite defect and a test of the new one alone cannot see that.
+	"""
+
+	acting, plain = [
+		rendered["Note"]
+		for rendered in (
+			_rendered(tmp_path, {"Note": {"note": {
+				"text": "A new version of this page is available.",
+				"tone": "good",
+				"act": {"label": "Reload"},
+			}}}),
+			_rendered(tmp_path, {"Note": {"note": {"text": "Saved.", "tone": "good"}}}),
+		)
+	]
+
+	assert "A new version of this page is available." in acting
+	assert "Reload" in acting, f"the note carries no way to act on it: {acting}"
+	assert "Reload" not in plain and "Saved." in plain, (
+		f"an ordinary note grew a button it was not given: {plain}"
+	)
+
+
+def test_the_page_offers_a_reload_and_never_takes_one () -> None:
+	"""`#785`'s other half, and it is asserted over the source for a stated reason.
+
+	The wiring lives in `App`, which uses hooks, so `tests/dom.js` cannot call it at all
+	(`#640`) — and the behaviour fires **once an hour**, which is not something a browser test
+	can wait for either. So what is checked is that the reload is reachable only from a
+	handler: `window.location.reload()` appears exactly once and inside the notice's `act`.
+
+	**Never reloading by itself** is the requirement. Somebody may be halfway through an edit
+	form, and `#757` went to some trouble to make sure their typing survives a conflict;
+	throwing it away for a version bump is the same loss from a friendlier direction.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	reloads = re.findall(r"window\.location\.reload\(\)", source)
+
+	assert len(reloads) == 1, f"the page reloads itself from {len(reloads)} places"
+
+	notice = source[source.index("released && html"):]
+
+	assert "window.location.reload()" in notice[:600], (
+		"the only reload is not the one behind the release notice's button"
+	)
+	assert "releaseMoved" in source, "nothing compares the version that served this page"
+
+
+def test_the_release_check_is_actually_inside_the_poll () -> None:
+	"""**Found by falsifying, and the falsification is why this exists.**
+
+	Replacing the hourly condition with `if (false)` left every other guard in this file green:
+	the rule was right, the notice was right, and nothing asked whether anything ever ran it.
+	`#640` in its own commit — and `#964` is the item about how often this shape has shipped.
+
+	The interval body is read rather than the file, because `releaseMoved` appearing *somewhere*
+	is what the version this replaces already asserted. Four reads, and each is the thing the
+	mutation removed: the counter advances, it is compared against the constant, the answer
+	goes through the rule, and the rule's `true` reaches the state the notice renders from.
+	"""
+
+	source = _without_prose(_served_modules()["app.js"])
+	opened = source.index("const tick = setInterval(async () => {")
+	body = source[opened:source.index("}, POLL_MS);", opened)]
+
+	for wanted in (
+		"polled.current += 1",
+		"RELEASE_CHECK_POLLS",
+		"releaseMoved(",
+		"setReleased(true)",
+	):
+		assert wanted in body, (
+			f"the poll never reaches {wanted!r}, so the release check runs on no schedule"
+		)
+
+
 def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 	"""`SR#756` is titled *with every field it can have*, so the claim is derived, not asserted.
 
@@ -6572,6 +6707,8 @@ def _views (
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "moment" ? app.moment(argument.value, argument.now)
+			: name === "releaseMoved"
+				? app.releaseMoved(argument.served, argument.reported)
 			: name === "calendarDay" ? app.calendarDay(argument.value, argument.zone)
 			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
