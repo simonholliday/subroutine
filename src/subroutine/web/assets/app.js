@@ -2818,7 +2818,6 @@ export function parseAddress (pathname) {
 	if (parts.length === 0) return null;
 
 	const last = parts[parts.length - 1];
-	const ref = Number(last);
 	/* `[1-9][0-9]*`, which is `refs._TYPED` and `mentions.REF_PATTERN` — no leading zero.
 	   `subroutine show 007` is refused at a terminal, so `/projects/007` is not an item
 	   here either. A project key cannot begin with a digit (§5.4), so this segment is a

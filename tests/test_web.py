@@ -1785,6 +1785,12 @@ def _without_prose (source: str) -> str:
 	`app.js` has exactly one and it holds no quote, backtick or slash pair. A second one that
 	does would need this to know about them; the test that uses this would fail loudly rather
 	than quietly, because the source after it would be misread wholesale.
+
+	**What is removed is blanked rather than dropped, and newlines survive** (`#684`). Every
+	caller until then counted constructs, for which the two are the same; a caller that wants
+	to say *where* needs an offset that still means something, and one walker answering both is
+	better than a second copy of a walker this subtle. Blanking cannot create a match — a run
+	of spaces spells nothing — so no existing count moves.
 	"""
 
 	kept: list[str] = []
@@ -1798,7 +1804,9 @@ def _without_prose (source: str) -> str:
 
 		if quote is None:
 			if char == "/" and following == "/":
-				index = source.find("\n", index)
+				ends = source.find("\n", index)
+				kept.append(" " * ((len(source) if ends < 0 else ends) - index))
+				index = ends
 
 				if index < 0:
 					break
@@ -1806,7 +1814,9 @@ def _without_prose (source: str) -> str:
 				continue
 
 			if char == "/" and following == "*":
-				index = source.find("*/", index) + 2
+				ends = source.find("*/", index) + 2
+				kept.append(_blanked(source[index:ends]))
+				index = ends
 
 				continue
 
@@ -1831,6 +1841,7 @@ def _without_prose (source: str) -> str:
 			continue
 
 		if char == "\\":
+			kept.append(_blanked(source[index:index + 2]))
 			index += 2
 
 			continue
@@ -1844,13 +1855,120 @@ def _without_prose (source: str) -> str:
 		if quote == "`" and char == "$" and following == "{":
 			quote, index = None, index + 2
 			depth.append(1)
-			kept.append(" ")
+			# **The brace is kept, not blanked** (`#684`). The `}` that closes an interpolation
+			# survives below as itself, so blanking the `${` that opened it leaves every
+			# template contributing one unmatched brace — and a caller walking them to find an
+			# enclosing block then reads spans that belong to nothing. Measured: 51 live names
+			# reported as dead. Two characters either way, so no offset moves.
+			kept.append(" {")
 
 			continue
 
+		kept.append(_blanked(char))
 		index += 1
 
 	return "".join(kept)
+
+
+def _blanked (text: str) -> str:
+	"""Return the same length of nothing, with the line breaks left where they were."""
+
+	return "".join("\n" if char == "\n" else " " for char in text)
+
+
+def _declared_and_never_read (source: str) -> list[tuple[int, str]]:
+	"""Return every ``const`` or ``let`` in this file that nothing after it reads — `#684`.
+
+	**No linter covers `src/subroutine/web/assets/`**: ruff is Python-only and there is no npm
+	closure by decision (§22.3), so dead code, shadowed names and unreachable branches are
+	invisible here in a way they are nowhere else in this repository. `#445` §5's rule is that
+	the guard comes before any `package.json`, which argues for this rather than against it.
+
+	**Block-scoped, and that is not optional.** Counting a name across the whole file finds
+	`item.ref` and `row.ref` and reports every `const ref` as live — measured, and it flagged
+	nothing at all. The enclosing braces are found by walking, which needs
+	:func:`_without_prose` to have blanked strings and templates first, or a `}` inside a
+	rendered fragment closes a block that is still open.
+
+	**Three rules decide what counts as a read, and each was arrived at by measuring:**
+
+	- A property access does not: `item.ref` is not a read of a local `ref`.
+	- **A spread does.** ``...status`` ends in a dot and the first version rejected it, which
+	  reported four live names as dead.
+	- **A key does not, and a key is a name followed immediately by a colon.** ``ref: names``
+	  names a field; ``mayWrite ? assign : null`` is a ternary and reads one. Excluding every
+	  every ``name`` followed by whitespace and a colon flagged five live callbacks; the space
+	  is what separates them, and it is a
+	  dependency on this file's formatting rather than on JavaScript. Said out loud because a
+	  reformat would make this lie, and the failure would be a name reported as dead.
+
+	Destructuring is skipped — ``const {a, b} =`` matches nothing here — so this under-reports
+	rather than over-reports, which is the right direction for a scan nobody can turn off.
+	"""
+
+	blanked = _without_prose(source)
+	opens: list[int] = []
+	spans: list[tuple[int, int]] = []
+
+	for position, char in enumerate(blanked):
+		if char == "{":
+			opens.append(position)
+
+		elif char == "}" and opens:
+			spans.append((opens.pop(), position))
+
+	def block_around (position: int) -> tuple[int, int] | None:
+		"""Return the innermost braces holding this offset."""
+
+		holding = [span for span in spans if span[0] < position < span[1]]
+
+		return max(holding, default=None, key=lambda span: span[0])
+
+	dead: list[tuple[int, str]] = []
+
+	for found in re.finditer(r"(?:^|[;{}\s])(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", blanked):
+		name = found.group(1)
+		at = found.start(1)
+		span = block_around(at)
+
+		if span is None:
+			continue
+
+		block = blanked[span[0]:span[1]]
+		reads = [
+			read
+			for read in re.finditer(
+				rf"(?:(?<=\.\.\.)|(?<![.\w$])){re.escape(name)}\b(?!:)", block
+			)
+			if span[0] + read.start() != at
+		]
+
+		if not reads:
+			dead.append((blanked[:at].count("\n") + 1, name))
+
+	return sorted(dead)
+
+
+def test_nothing_in_the_browser_app_is_declared_and_never_read () -> None:
+	"""`#684`, finding 7 of review `#677`. A reader found it; nothing else could have.
+
+	`const ref = Number(last)` sat in `parseAddress` assigned and never read — `names`,
+	computed two lines later, is what the function returns. Trivial on its own, and what it
+	said about its surroundings is the item: **this file has no linter of any kind**.
+
+	Measured while building this, which is the whole of the item's *"weigh the cheap version"*:
+	the scan flags **one** name on the file as it stands and it is that one, with no false
+	positives. Three earlier versions of it reported four, five and six, every one of them
+	live — the record is in `_declared_and_never_read`, because each wrong answer was a rule
+	about JavaScript that reading would not have supplied.
+	"""
+
+	dead = _declared_and_never_read(_served_modules()["app.js"])
+
+	assert not dead, (
+		"declared and never read in app.js: "
+		+ ", ".join(f"line {line}: {name}" for line, name in dead)
+	)
 
 
 def test_stored_text_cannot_become_markup (tmp_path: pathlib.Path) -> None:
