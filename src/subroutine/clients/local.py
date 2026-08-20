@@ -355,32 +355,46 @@ class Client:
 		size = subroutine.domain.paging.size(limit, self.settings)
 		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 
-		# The same rule `GET /v1/tasks` applies, from the same function — a narrowing that
-		# widened on one transport and not the other is what `domain.ordering` exists to
-		# prevent for sorting, one filter along.
-		# **Asking *when* something was completed is asking for completed work** (`#818`), and
-		# it is decided here rather than in the router so both transports agree.
-		completion = subroutine.domain.tasks.completion_wanted(
-			status_category,
-			include_completed,
-			about_completion=subroutine.domain.filtering.about(
-				filters or {}, subroutine.domain.filtering.COMPLETION_FIELD
-			),
-			about_activity=subroutine.domain.filtering.about(
-				filters or {}, subroutine.domain.filtering.TOUCHED_AT
-			),
-			# **The trash is a question about deletion, not about status** (`#900`). Asking what
-			# you deleted must reach something you had finished first, which is entirely ordinary
-			# — three items here were reachable by `show` and by no listing at all.
-			about_deletion=deleted,
-			# `#873`, and here for the reason the paragraph above gives: the terminal and the
-			# endpoint have to reach the same rows for the same question.
-			naming_one_item=q is not None
-			and subroutine.domain.refs.parse_ref(q) is not None,
-		)
-
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			# **Resolved once and read twice** (`#1032`): whether this listing reaches finished
+			# work, and which status to narrow by.
+			named = (
+				None
+				if status is None
+				else subroutine.domain.tasks.status_for(session, chosen.id, status)
+			)
+
+			# The same rule `GET /v1/tasks` applies, from the same function — a narrowing that
+			# widened on one transport and not the other is what `domain.ordering` exists to
+			# prevent for sorting, one filter along.
+			# **Asking *when* something was completed is asking for completed work** (`#818`),
+			# and it is decided here rather than in the router so both transports agree.
+			#
+			# **It moved inside the session for `#1032`**, because naming the finished status by
+			# its key is the fifth spelling of that same question and answering it needs the
+			# workspace's own vocabulary — which is not in hand until the workspace is.
+			completion = subroutine.domain.tasks.completion_wanted(
+				status_category,
+				include_completed,
+				status_named=named,
+				about_completion=subroutine.domain.filtering.about(
+					filters or {}, subroutine.domain.filtering.COMPLETION_FIELD
+				),
+				about_activity=subroutine.domain.filtering.about(
+					filters or {}, subroutine.domain.filtering.TOUCHED_AT
+				),
+				# **The trash is a question about deletion, not about status** (`#900`). Asking
+				# what you deleted must reach something you had finished first, which is
+				# entirely ordinary — three items here were reachable by `show` and by no
+				# listing at all.
+				about_deletion=deleted,
+				# `#873`, and here for the reason the paragraph above gives: the terminal and
+				# the endpoint have to reach the same rows for the same question.
+				naming_one_item=q is not None
+				and subroutine.domain.refs.parse_ref(q) is not None,
+			)
 
 			# Resolved through the domain, so an unknown key is refused here exactly as
 			# `GET /v1/tasks?project=` refuses it — and a private project somebody is not a
@@ -549,11 +563,8 @@ class Client:
 			# unknown status, type or account is refused by name here exactly as it is over
 			# HTTP — which is what `tests/test_transport_equivalence.py` is for, and why these
 			# read as duplication rather than being one.
-			if status is not None:
-				statement = statement.where(
-					model.status_id
-					== subroutine.domain.tasks.status_for(session, chosen.id, status).id
-				)
+			if named is not None:
+				statement = statement.where(model.status_id == named.id)
 
 			if status_category is not None:
 				statement = statement.where(

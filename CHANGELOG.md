@@ -236,6 +236,18 @@ upgrade involves.
 
 ### Fixed
 
+- **Asking for finished work by its status *key* finds it.** `?status=done`,
+  `subroutine list --status done` and an agent's `status="done"` all answered nothing on an
+  instance full of completed work, while asking the same question by category or by
+  `completed_at` answered correctly. A listing hides finished work unless asked, and naming
+  the finished status was not recognised as asking — so the rows were found and then filtered
+  away.
+
+  It is decided by the status's **category**, not by the word, so an installation that has
+  renamed `done` still gets the right answer. `status=done&include_completed=false` is now
+  refused as the contradiction it is, naming `status` — the parameter you actually sent —
+  rather than one you did not.
+
 - **An agent is told everything that binds it here, not only the decisions.**
   `subroutine://conventions` — the one channel a connecting agent is instructed to read before
   its first write — asked for documents of type `decision`, so a specification, a design or a

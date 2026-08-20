@@ -2893,6 +2893,84 @@ def test_the_trash_still_honours_being_told_to_exclude_finished_work (
 	assert open_one["ref"] in refs
 
 
+def test_naming_the_finished_status_by_its_key_finds_finished_work (world: World) -> None:
+	"""`#1032`. The plainest of the five spellings, and the one nobody had asked about.
+
+	Measured on the served instance, same minute, same rows:
+
+	    subroutine list --status done                 ->  0 rows
+	    subroutine list --filter completed_at.gte=…   ->  five finished items
+
+	``completion_wanted`` took the *category* and never the key, so ``?status=done`` fell to
+	the default and the default hides finished work. `#818`'s sentence, **fifth** instance:
+	*a rule written down in one vocabulary does not reach the next one.*
+
+	**Both assertions matter.** Without the second, a fix that always reached finished work —
+	the obvious over-broad one — would pass the first.
+	"""
+
+	finished = world.call("POST", "/v1/tasks", json={"title": "Long since dealt with"}).json()
+	open_one = world.call("POST", "/v1/tasks", json={"title": "Still going"}).json()
+
+	world.call("POST", f"/v1/tasks/{finished['ref']}/complete")
+
+	found = world.call("GET", "/v1/tasks?status=done&limit=50").json()
+	refs = {row["ref"] for row in found["items"]}
+
+	assert finished["ref"] in refs, "naming the finished status by its key answered nothing"
+	assert open_one["ref"] not in refs, "it reached finished work and stopped narrowing"
+
+
+def test_naming_an_unfinished_status_is_not_a_request_for_finished_work (
+	world: World,
+) -> None:
+	"""The other half, and **the first version of it could not fail**.
+
+	It asked whether ``?status=blocked`` hid a task marked blocked and then completed.
+	Completing one *is a status change* — ``complete`` is a thin wrapper over ``update`` that
+	moves the status to whatever this workspace calls finished — so that row is no longer
+	blocked, and the status filter excludes it however the completion rule is set. The
+	over-broad fix, *any named status reaches finished work*, passed it happily.
+
+	**What actually separates the two is the refusal, not the rows.** Treating every named
+	status as a request for finished work makes ``include_completed=false`` beside it a
+	contradiction, so an ordinary narrowing starts answering 422. *Open work that is not
+	finished* is not a contradiction — it is a tautology, and a listing must answer it.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Still going"}).json()
+
+	answered = world.call("GET", "/v1/tasks?status=open&include_completed=false&limit=50")
+
+	assert answered.status_code == 200, answered.text
+	assert made["ref"] in {row["ref"] for row in answered.json()["items"]}
+
+
+def test_the_finished_status_refuses_being_told_to_exclude_finished_work (
+	world: World,
+) -> None:
+	"""The ending this spelling takes, and it is ``about_completion``'s rather than the trash's.
+
+	*Work whose status is 'done', and no finished work* means nothing, exactly as
+	``completed_at`` beside ``include_completed=false`` does. So it is refused rather than
+	quietly settled in one parameter's favour.
+
+	**And the refusal names the caller's own spelling** (`#547`): somebody who wrote
+	``status=done`` and is told about ``status_category`` goes looking for a parameter that is
+	not in their request.
+	"""
+
+	refused = world.call("GET", "/v1/tasks?status=done&include_completed=false")
+
+	assert refused.status_code == 422, refused.text
+
+	answer = refused.json()
+
+	assert answer["code"] == "invalid_field_value"
+	assert "status='done'" in answer["errors"][0]["message"], answer["errors"][0]["message"]
+	assert "status_category" not in answer["errors"][0]["message"]
+
+
 def test_a_word_search_goes_on_hiding_finished_work (world: World) -> None:
 	"""The other half, and what stops `#873`'s fix being a widening of every search.
 

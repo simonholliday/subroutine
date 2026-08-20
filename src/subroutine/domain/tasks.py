@@ -2113,6 +2113,7 @@ def completion_wanted (
 	category: str | None,
 	asked: bool | None,
 	*,
+	status_named: subroutine.db.models.vocabulary.Status | None = None,
 	about_completion: bool = False,
 	about_activity: bool = False,
 	about_deletion: bool = False,
@@ -2174,11 +2175,25 @@ def completion_wanted (
 	and the reader has already decided which, so answering "nothing" about something
 	``subroutine show`` reads happily is `#700`'s divergence between a lookup and a listing.
 
-	`#818`'s own sentence is the lesson and this is now its **fourth** instance: *a rule written
+	**``status_named`` is the fifth, and it is the plainest of the five** (`#1032`). A caller
+	who names the *status key* their workspace uses for finished work is asking for finished
+	work as unambiguously as one naming the category, and this function knew only the category.
+	Measured on the served instance, same minute, same rows:
+
+	    subroutine list --status done                 ->  0 rows
+	    subroutine list --filter completed_at.gte=…   ->  five finished items
+
+	**The resolved status is taken rather than its key**, because the category is the stable
+	handle and the key is workspace vocabulary (§5.5): an installation that renames ``done``
+	still has a status whose category is ``done``, and a rule matching the word would go quiet
+	the moment somebody renamed it — which is exactly `#496`'s shape.
+
+	`#818`'s own sentence is the lesson and this is now its **fifth** instance: *a rule written
 	down in one vocabulary does not reach the next one.* It knew about categories, then about
-	filters, then about a lookup, and not about the trash. Four spellings of one sentence, each
-	found separately and none by the guard written for the last — which is the argument for
-	asking, of any narrowing added here, whether completion is part of what it asked about.
+	filters, then about a lookup, then about the trash, and not about the status key sitting
+	beside the category in the same query string. Five spellings of one sentence, each found
+	separately and none by the guard written for the last — which is the argument for asking,
+	of any narrowing added here, whether completion is part of what it asked about.
 
 	**It widens the whole listing rather than exempting one row**, which is a choice worth
 	stating. Exempting only the matched row would mean pushing the ref down into
@@ -2189,8 +2204,14 @@ def completion_wanted (
 	item numbered 815* is a coherent question.
 	"""
 
-	wants_finished = about_completion or (
-		category is not None and category in FINISHED_CATEGORIES
+	named_finished = (
+		status_named is not None and status_named.category in FINISHED_CATEGORIES
+	)
+
+	wants_finished = (
+		about_completion
+		or named_finished
+		or (category is not None and category in FINISHED_CATEGORIES)
 	)
 
 	if not wants_finished:
@@ -2204,13 +2225,13 @@ def completion_wanted (
 
 	if asked is False:
 		raise subroutine.errors.ValidationError(
-			_excluding_all_of_it(category, about_completion),
+			_excluding_all_of_it(category, status_named),
 			errors=[
 				subroutine.errors.FieldError(
 					field="include_completed",
 					code="invalid_field_value",
 					message=(
-						f"{_asking_for_it(category, about_completion)} asks only for finished "
+						f"{_asking_for_it(category, status_named)} asks only for finished "
 						"work and include_completed=false excludes all of it."
 					),
 					hint="Drop include_completed — asking about finished work implies it.",
@@ -2221,20 +2242,40 @@ def completion_wanted (
 	return True
 
 
-def _asking_for_it (category: str | None, about_completion: bool) -> str:
-	"""Name whichever half of the request asked for finished work."""
+def _asking_for_it (
+	category: str | None,
+	status_named: subroutine.db.models.vocabulary.Status | None,
+) -> str:
+	"""Name whichever part of the request asked for finished work.
+
+	**In the caller's own spelling, because a refusal naming a parameter they did not send is
+	unfollowable** (`#547`). Somebody who wrote ``status=done`` and is told about
+	``status_category`` goes looking for a parameter that is not in their request.
+	"""
 
 	if category is not None and category in FINISHED_CATEGORIES:
 		return f"status_category={category!r}"
 
+	if status_named is not None and status_named.category in FINISHED_CATEGORIES:
+		return f"status={status_named.key!r}"
+
 	return "a filter on completed_at"
 
 
-def _excluding_all_of_it (category: str | None, about_completion: bool) -> str:
+def _excluding_all_of_it (
+	category: str | None,
+	status_named: subroutine.db.models.vocabulary.Status | None,
+) -> str:
 	"""Say what the contradiction was, in the caller's own terms."""
 
 	if category is not None and category in FINISHED_CATEGORIES:
 		return f"{category!r} is finished work, so excluding finished work leaves nothing."
+
+	if status_named is not None and status_named.category in FINISHED_CATEGORIES:
+		return (
+			f"{status_named.key!r} is finished work here, so excluding finished work "
+			"leaves nothing."
+		)
 
 	return (
 		"completed_at is only ever set on finished work, so excluding finished work "

@@ -408,9 +408,22 @@ def listing (
 	# **Asking *when* something was completed is asking for completed work** (`#818`), the same
 	# way naming a finished category is. Without it, the one field that is null on everything
 	# unfinished was compared against a set with all of it filtered out — and answered `[]`.
+	# **Resolved once, here, because two questions want the same row** (`#1032`): whether this
+	# listing reaches finished work, and which status to narrow by. A second lookup below would
+	# be the same query twice and a second chance for the two to disagree about an unknown key.
+	named = (
+		None
+		if status is None
+		else subroutine.domain.tasks.status_for(session, workspace.id, status)
+	)
+
 	completion = subroutine.domain.tasks.completion_wanted(
 		status_category,
 		include_completed,
+		# **Naming the finished status by its key asks for finished work** (`#1032`), as
+		# unambiguously as naming the category does. `subroutine list --status done` answered
+		# nothing on an instance holding five items finished that fortnight.
+		status_named=named,
 		about_completion=dates.about(subroutine.domain.filtering.COMPLETION_FIELD),
 		about_activity=dates.about(subroutine.domain.filtering.TOUCHED_AT),
 		# **The trash is a question about deletion, not about status** (`#900`). Asking what
@@ -445,10 +458,8 @@ def listing (
 		# work, and a parent whose listing excluded its own children made the tree decorative.
 		statement = statement.where(subroutine.domain.scoping.within_project(chosen))
 
-	if status is not None:
-		statement = statement.where(
-			model.status_id == subroutine.domain.tasks.status_for(session, workspace.id, status).id
-		)
+	if named is not None:
+		statement = statement.where(model.status_id == named.id)
 
 	if status_category is not None:
 		statement = statement.where(
