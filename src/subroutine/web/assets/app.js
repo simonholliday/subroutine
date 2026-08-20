@@ -6242,7 +6242,10 @@ export function App () {
 	   for `onAdd` all along. */
 	const allowed = allowedIn(me, workspace);
 	const mayWrite = allowed.has("task:write");
-	const mayComment = allowed.has("comment:write");
+	/* **There is no `mayComment` beside this, and `#684`'s dead-code guard is what said so.**
+	   The comment box is offered on an open item and nowhere else, so the only permission check
+	   commenting ever needed is the *item's* — `mayCommentThere` below. This one had no reader
+	   left the moment that landed. */
 	/*
 		What is on screen — the arrangement and the selection — read from the address rather
 		than remembered (`#651`), so a reader can send somebody the thing they are looking at.
@@ -6475,6 +6478,59 @@ export function App () {
 		}
 	}, []);
 
+	/*
+		**The same three answers, for the workspace the *open item* is in** — `#1041`.
+
+		`words` and `roster` above answer them for the switcher's workspace, which is right for
+		the listing, the board and the capture line and wrong for an item opened from the agenda:
+		a status picker offering another workspace's statuses cannot write any of them, and the
+		one this item is *in* is not on the list. `words`'s own comment states the rule — *"a
+		type dropdown offering another workspace's types is worse than one offering none: the
+		second is visibly unfinished and the first is confidently wrong"* — about switching
+		workspaces, and this is the same sentence one surface along.
+
+		**Kept as one extra answer rather than a cache by slug.** Two workspaces are in play at
+		most: the one the listing is showing and the one the open item is in. A map keyed by slug
+		would be a third thing to invalidate for a case that cannot arise.
+
+		`learned` is a ref rather than state because nothing renders it: it stops a second open
+		of the same foreign workspace refetching, and is cleared on failure so a retry is not
+		locked out.
+	*/
+	const [elsewhere, setElsewhere] = useState(null);
+	const learned = useRef(null);
+
+	const learnAbout = useCallback(async (slug) => {
+		/* Ask one workspace what it calls things, where work can be filed there, and who is in
+		   it — the three answers an open item has to be furnished from. */
+
+		if (!slug || learned.current === slug) return;
+
+		learned.current = slug;
+
+		try {
+			const [meta, projects, joined] = await Promise.all([
+				sent(vocabularyRequest(slug)),
+				sent(projectsRequest(slug)),
+				sent(rosterRequest(slug)),
+			]);
+
+			setElsewhere({
+				slug,
+				vocabulary: meta,
+				projects: projects.items,
+				members: people(joined.items),
+			});
+		} catch (_) {
+			/* **Nothing is stored, and that is the whole of the failure path.** A reader whose
+			   credential cannot reach this workspace is shown an empty picker rather than
+			   another workspace's words — which is what the last branch of `furnished` already
+			   says, so writing an empty answer here as well would be a second statement of one
+			   rule. Clearing `learned` is what lets the next open try again. */
+			learned.current = null;
+		}
+	}, []);
+
 	const roster = useCallback(async (slug) => {
 		/*
 			Who work can be handed to. Its own request because it changes on a different clock
@@ -6537,6 +6593,11 @@ export function App () {
 			   row from somewhere else is opened, so it is the only copy that is always right. */
 			nowOpen({ ...found, slug });
 
+			/* **And what that workspace calls things** (`#1041`). Only when it is not the one
+			   already asked: the ordinary open costs nothing, and an item from the agenda costs
+			   three requests once. */
+			if (slug !== workspace) learnAbout(slug);
+
 			/*
 				**The address is written from what came back, not from what was clicked.** So a
 				link somebody was sent with a retired project name in it corrects itself the
@@ -6574,7 +6635,7 @@ export function App () {
 		}
 
 		return false;
-	}, [fetched, go, nowOpen, workspace]);
+	}, [fetched, go, learnAbout, nowOpen, workspace]);
 
 	const close = useCallback(({ history = true } = {}) => {
 		nowOpen(null);
@@ -6981,6 +7042,34 @@ export function App () {
 	*/
 	const openIn = open ? open.slug || workspace : workspace;
 
+	/*
+		**What the open item is furnished with, which follows `openIn` and not the switcher** —
+		`#1041`, the read half of the same defect.
+
+		Its statuses, the projects it can be filed in, who it can be handed to and what its
+		reader may do there are all properties of *its* workspace. They were all the switcher's,
+		so an item opened from the agenda offered statuses it could not be moved to, projects it
+		could not be filed in, and controls that would have been refused when pressed — which
+		`allowedIn`'s own comment calls worse than not drawing them at all.
+
+		**Nothing rather than the wrong thing while the answer is in flight.** `words` already
+		chooses that for the switcher's workspace and says why; the same rule holds here, which
+		is why a mismatched `elsewhere` reads as empty rather than falling back.
+	*/
+	const furnished = openIn === workspace
+		? { vocabulary, projects: filable, members }
+		: elsewhere && elsewhere.slug === openIn
+			? elsewhere
+			: { vocabulary: null, projects: [], members: [] };
+
+	/* **The reader's standing in the *item's* workspace**, which is not the one the capture box
+	   below is drawn from. A member who may write here and only read there was offered Edit,
+	   Complete, the status control and the comment box on a foreign item, and every one of them
+	   would have been refused when pressed — `#927`'s M-25 one surface along. */
+	const allowedThere = allowedIn(me, openIn);
+	const mayWriteThere = allowedThere.has("task:write");
+	const mayCommentThere = allowedThere.has("comment:write");
+
 	const reread = useCallback(async (row) => {
 		/* Put the open item back the way `show` found it, so a detail on screen is not left
 		   describing the state before the action.
@@ -7334,7 +7423,8 @@ export function App () {
 		setBusy(true);
 
 		try {
-			const kinds = linkableTypes(vocabulary);
+			/* The item's own workspace decides what may be linked to what — `#1041`. */
+			const kinds = linkableTypes(furnished.vocabulary);
 			let made = null;
 
 			for (const kind of kinds) {
@@ -7362,7 +7452,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [open, openIn, show, vocabulary]);
+	}, [furnished, open, openIn, show]);
 
 	const unlink = useCallback((going) => wrote(
 		open ? open.item : { ref: 0 },
@@ -7915,8 +8005,8 @@ export function App () {
 			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
 
 			${open
-				? html`<${Detail} ...${open} members=${members} onOpen=${show} busy=${busy}
-					editing=${editing} conflict=${conflict} onSave=${mayWrite ? save : null}
+				? html`<${Detail} ...${open} members=${furnished.members} onOpen=${show} busy=${busy}
+					editing=${editing} conflict=${conflict} onSave=${mayWriteThere ? save : null}
 					reading=${reading} onReading=${readRepeat}
 					previewing=${previewing} onPreviewing=${setPreviewing}
 					${/* **Bound to the item's own workspace, the way the agenda binds its rows**
@@ -7925,12 +8015,12 @@ export function App () {
 					     because an item opened from the agenda may be in another one. `Detail`
 					     cannot pass it: the component is handed an item and knows nothing about
 					     where it was read from, and `openIn` is the only place that does. */ null}
-					onStatus=${mayWrite ? (row, where) => status(row, where, openIn) : null}
-					statuses=${vocabulary && vocabulary.statuses}
-					onComment=${mayComment ? comment : null}
-					onLink=${mayWrite ? link : null} onUnlink=${mayWrite ? unlink : null}
-					vocabulary=${vocabulary} projects=${filable}
-					onEdit=${mayWrite ? (wanted) => { setEditing(wanted); setConflict(null); } : null}
+					onStatus=${mayWriteThere ? (row, where) => status(row, where, openIn) : null}
+					statuses=${furnished.vocabulary && furnished.vocabulary.statuses}
+					onComment=${mayCommentThere ? comment : null}
+					onLink=${mayWriteThere ? link : null} onUnlink=${mayWriteThere ? unlink : null}
+					vocabulary=${furnished.vocabulary} projects=${furnished.projects}
+					onEdit=${mayWriteThere ? (wanted) => { setEditing(wanted); setConflict(null); } : null}
 					${/* **The item's own workspace** — `#1040`. `mentionHref`'s own docstring says
 					     a mention "resolves within the workspace it was written in, which is what
 					     a ref means", and it was handed the switcher's — so a `#42` in the prose
@@ -7947,8 +8037,8 @@ export function App () {
 					     copy that is always right; `open.item.workspace` is not a field, and
 					     reading it would have fallen back to the switcher in silence. */ null}
 					prioritised=${prioritisedHere(me ? me.workspaces : [], open.slug || workspace)}
-					onComplete=${mayWrite ? (row) => complete(row, openIn) : null}
-					onAssign=${mayWrite ? (row, who) => assign(row, who, openIn) : null} />`
+					onComplete=${mayWriteThere ? (row) => complete(row, openIn) : null}
+					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}

@@ -386,6 +386,34 @@ PROJECTS: dict[str, typing.Any] = {
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
 
+#: And where work can be filed *there* — `SR#1041`. One list served for every workspace made a
+#: form offering the switcher's projects indistinguishable from one offering the item's, exactly
+#: as one vocabulary did.
+PROJECTS_ELSEWHERE: dict[str, typing.Any] = {
+	"items": [
+		{"key": "inbox", "title": "Inbox", "is_inbox": True, "depth": 0},
+		{"key": "errands", "title": "Errands", "depth": 0},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+#: Who is in the switcher's workspace, and **nobody is in the other one** — `SR#1041`. The
+#: assignee control is drawn only where the roster answers with somebody, so two empty rosters
+#: cannot tell an item furnished from the right workspace from one furnished from the wrong one.
+#: **The membership shape, not the user's** — `views.WorkspaceMember` nests the account under
+#: `user`, and a flat row makes `people()` throw into `roster`'s catch, which reports an empty
+#: workspace. Written out here because a fixture that silently produces *nobody* is
+#: indistinguishable from a workspace with nobody in it, which is the whole thing under test.
+MEMBERS: dict[str, typing.Any] = {
+	"items": [
+		{"user": {"id": "u1", "username": "si", "is_service_account": False},
+			"role": "owner"},
+		{"user": {"id": "u2", "username": "claude", "is_service_account": True},
+			"role": "member"},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
 #: What the instance answers for a ref nobody minted. Only the fields the app reads.
 NOWHERE: dict[str, typing.Any] = {
 	"type": "about:blank", "title": "Not found", "status": 404,
@@ -447,6 +475,24 @@ EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": 
 META = {
 	"statuses": {"task": [
 		{"key": "triage", "label": "Triage", "category": "todo", "is_default": False},
+		{"key": "ready", "label": "Ready", "category": "todo", "is_default": True},
+		{"key": "doing", "label": "Under way", "category": "in_progress", "is_default": True},
+	]},
+	"item_types": {}, "link_types": [], "linkable_types": [], "workspaces": [],
+}
+
+#: What the **other** workspace calls things — `SR#1041`. Until this existed one vocabulary was
+#: served for every workspace, so an open item furnished from the wrong one and an open item
+#: furnished from the right one produced identical markup, and no test here could tell them
+#: apart. The same blindness `SR#1040` had, one field along.
+#:
+#: **`ready` and `doing` are deliberately in both**, because the tests that drive writes on an
+#: item in this workspace choose `doing` — a vocabulary with nothing in common would make those
+#: fail for a reason that is not their subject. What separates the two is `parked` here and
+#: `triage` there.
+META_ELSEWHERE: dict[str, typing.Any] = {
+	"statuses": {"task": [
+		{"key": "parked", "label": "Parked", "category": "todo", "is_default": False},
 		{"key": "ready", "label": "Ready", "category": "todo", "is_default": True},
 		{"key": "doing", "label": "Under way", "category": "in_progress", "is_default": True},
 	]},
@@ -633,6 +679,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: asserting on either of the first two passes against it. `tests/dom.js` reaches the same
 	#: conclusion from the other end — *assert on the requests, not on the markup*.
 	reads: list[str] = []
+	#: Whether the *other* workspace's vocabulary can be read at all — `SR#1041`. A reader whose
+	#: credential does not reach it is a real state, and it is the one that says what an open
+	#: item offers when its own words cannot be had: nothing, rather than another workspace's.
+	unreadable: list[bool] = [False]
 
 	def answered (route: typing.Any) -> None:
 		"""Serve one request the way the instance would.
@@ -721,12 +771,24 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 			# same warning about `/v1/tasks/42` inside `/v1/tasks/42/links`; it is the same
 			# defect and this is the third place it has appeared.
 			answer = (
-				META if wanted.startswith("v1/meta")
+				# **Per workspace, which it was not until `SR#1041`.** One vocabulary served for
+				# every workspace made a picker furnished from the wrong one indistinguishable
+				# from one furnished from the right one — `SR#1040`'s blindness, one field along.
+				(
+					None if unreadable[0] else META_ELSEWHERE
+				) if "workspace_id=personal" in route.request.url and wanted.startswith("v1/meta")
+				else META if wanted.startswith("v1/meta")
 				else roster[0] if wanted.startswith("v1/me")
 				# **Before the two branches below it**, which answer any numbered path with a
 				# card — narrower path first, the trap this block records three times over.
 				else None if _absent(wanted, missing[0])
-				else PROJECTS if wanted.split("?")[0] == "v1/projects"
+				else (
+					PROJECTS_ELSEWHERE if "workspace_id=personal" in route.request.url
+					else PROJECTS
+				) if wanted.split("?")[0] == "v1/projects"
+				# **One workspace has members and the other has none**, which is what makes an
+				# assignee control drawn from the wrong roster visible at all.
+				else MEMBERS if wanted == "v1/workspaces/projects/members"
 				# **One task, by its ref, before the collection it lives in** — narrower path
 				# first, which is the trap this block already warns about twice. `v1/tasks/42`
 				# starts with `v1/tasks`, so it was served the *collection* envelope: the app
@@ -832,7 +894,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# than eighteen edits to tests that do not care. What each one *is* is documented above;
 	# a test names only the holders it uses.
 	try:
-		yield opened, written, refusing, roster, missing, reads
+		yield opened, written, refusing, roster, missing, reads, unreadable
 	finally:
 		context.close()
 
@@ -1413,6 +1475,29 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	both already checked in `tests/test_web.py` — what is left here is the wiring, which is the
 	only half that broke.
 
+	**Raised to thirty-three for `SR#1041`, which is `SR#1040`'s other half and fails as a wrong
+	*offer* rather than as a wrong write.** An item opened from the agenda was furnished from the
+	workspace the switcher held: its status picker offered statuses that item cannot be moved to
+	and omitted the ones it can, its project list named somewhere it cannot be filed, and its
+	controls were drawn on permissions from the wrong workspace — so Edit, Complete and the
+	comment box appeared for a reader who may only read there, and every one would have been
+	refused when pressed. `allowedIn`'s own comment calls that worse than not drawing them.
+
+	**Which options a control really holds, and whether a control exists at all, are facts about
+	a rendered page.** `tests/dom.js` drops every attribute but `href` (`SR#784`) and calls
+	components as plain functions, so it can neither read a `<select>`'s options nor run the
+	binding, which lives in `App` (`SR#640`).
+
+	**And the fixture could not have shown it until now**, which is the same finding as
+	`SR#1040`'s: one vocabulary was served for every workspace and both workspaces carried
+	identical permissions, so furnishing an item from the wrong one produced byte-identical
+	markup. `META_ELSEWHERE` and the roster swap are what make the two tellable apart.
+
+	**Read for fat**: three claims in one test — the vocabulary, the requests the other two
+	answers were asked for, and the controls — because they are one rule and would otherwise be
+	three pages of the same setup. `offered`, `notOffered` and `allowedIn` are pure and are all
+	checked in `tests/test_web.py`; what is left here is the wiring.
+
 	**Read for fat, and most of the feature was kept out.** `prioritisedHere`,
 	`prioritisedSentence`, `rankedByPriority` and both dropdown marks are pure functions and are
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
@@ -1425,11 +1510,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 32, (
+	assert len(tests) <= 33, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 32 in nine days."
+		f"read every raise in this docstring as a set: it has moved 17 to 33 in nine days."
 	)
 
 
@@ -2084,7 +2169,7 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	key either way, so a one-level case cannot tell a reassembled path from a bare key.
 	"""
 
-	opened, _written, _refusing, roster, _missing, reads = running
+	opened, _written, _refusing, roster, _missing, reads, *_ = running
 	roster[0] = ALONE
 	page = opened("/")
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
@@ -2216,7 +2301,7 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	`SR#962`'s lesson: a handler that stops halfway leaves the page looking exactly as it should.
 	"""
 
-	opened, written, _refusing, roster, _missing, reads = running
+	opened, written, _refusing, roster, _missing, reads, *_ = running
 	before = roster[0]
 	page = opened("/projects/subroutine")
 	page.wait_for_selector(".narrowed", timeout=10_000)
@@ -2337,7 +2422,7 @@ def test_a_write_from_an_open_item_names_the_workspace_that_item_is_in (
 	item.
 	"""
 
-	opened, written, _refusing, roster, _missing, reads = running
+	opened, written, _refusing, roster, _missing, reads, *_ = running
 
 	# **Asserted rather than set**, because a one-workspace roster left behind by an earlier
 	# test makes this fail on a thirty-second timeout for a row that cannot be built — which
@@ -2398,6 +2483,179 @@ def test_a_write_from_an_open_item_names_the_workspace_that_item_is_in (
 		page.close()
 
 
+def _statuses_offered (page: typing.Any) -> list[str]:
+	"""What the open item's status control is willing to move it to."""
+
+	return [
+		one.strip()
+		for one in page.locator(".detail .doing label.assign select option").all_inner_texts()
+	]
+
+
+def test_an_open_item_is_furnished_from_the_workspace_it_is_in (
+	running: typing.Any,
+) -> None:
+	"""`SR#1041`, the read half of `SR#1040` and the half that fails as a wrong *offer*.
+
+	Everything workspace-shaped — the statuses, the projects work can be filed in, who it can be
+	handed to, and what the reader may do — was fetched for the workspace the switcher held and
+	handed to an item that may be in another one. So a status picker offered statuses this item
+	cannot be moved to and omitted the ones it can, and controls were drawn that the instance
+	would have refused when pressed.
+
+	**`words`'s own comment already states the rule and applies it to the wrong axis**: *"a type
+	dropdown offering another workspace's types is worse than one offering none: the second is
+	visibly unfinished and the first is confidently wrong."* That was written about switching
+	workspaces and never carried to an item opened from elsewhere.
+
+	**Both halves, because they fail in opposite directions.** A build that fetched the item's
+	vocabulary and kept the switcher's permissions passes the first; one that did the reverse
+	passes the second.
+
+	**Only a browser can ask it**: which options a `<select>` really holds and whether a control
+	exists at all are facts about a rendered page, and every binding here lives in `App`, which
+	`tests/dom.js` cannot execute (`SR#640`).
+	"""
+
+	opened, _written, _refusing, roster, _missing, reads, unreadable = running
+	before = roster[0]
+
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	# The switcher's own workspace first, so the two vocabularies are shown to differ before
+	# anything is claimed about which one an item got. Without this the test passes against a
+	# fixture serving one vocabulary everywhere, which is what it did until now.
+	page.click(".listing.agenda a.row[href='/projects/subroutine/ui/94']")
+	page.wait_for_selector(".detail .doing", timeout=10_000)
+	mine = _statuses_offered(page)
+
+	# **The switcher's workspace has people in it and the item's has none**, which is what makes
+	# a control drawn from the wrong roster visible at all. Asserted here rather than assumed,
+	# for the reason the vocabulary is: a fixture where both are empty proves nothing.
+	assert page.locator(".detail .doing label.assign").count() == 2, (
+		"the switcher's workspace has members and no assignee control was drawn, so the "
+		"comparison below cannot tell a right roster from a wrong one"
+	)
+	assert "Triage" in mine, f"the switcher's workspace does not offer Triage: {mine}"
+	assert "Parked" not in mine, f"the two workspaces do not differ, so this proves nothing: {mine}"
+
+	page.go_back()
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	reads.clear()
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail .doing", timeout=10_000)
+	# **Waited on the option itself, not on `.detail`, which never left.** `SR#998`'s trap: a
+	# wait already satisfied lets the assertion run a tick early and blame the product for being
+	# one render behind. `attached` because an `<option>` is never *visible* to Playwright.
+	page.wait_for_selector(
+		".detail .doing label.assign option:text('Parked')", state="attached", timeout=10_000
+	)
+
+	theirs = _statuses_offered(page)
+
+	assert "Parked" in theirs, (
+		f"the item's own workspace offers Parked and the control does not: {theirs}"
+	)
+	assert "Triage" not in theirs, (
+		f"the control offers {theirs}, which is the *switcher's* vocabulary — this item cannot "
+		f"be moved to Triage, and the instance would refuse it by name"
+	)
+
+	# **And who it can be handed to**, asked before the edit form replaces this block. Nobody is
+	# in this item's workspace, so the control is absent; drawn from the switcher's roster it
+	# would offer two people who are not there. Both labels here are `label.assign` — one is the
+	# status, and a second one is the assignee.
+	assert page.locator(".detail .doing label.assign").count() == 1, (
+		"an assignee control was drawn for an item whose workspace has nobody in it, so it came "
+		"from the switcher's roster"
+	)
+
+	# **Where it can be filed.** Asserted on what the form offers rather than on the request
+	# that fetched it: the request proves the fetch and says nothing about which answer the
+	# control was handed, which is the half that was wrong.
+	page.click(".detail button.edit")
+	page.wait_for_selector(".detail form.editing", timeout=10_000)
+
+	filable = [
+		one.strip()
+		for one in page.locator(
+			".detail form.editing select[name=project] option"
+		).all_inner_texts()
+	]
+
+	assert any("Errands" in one for one in filable), (
+		f"the form offers {filable}, and this item's own workspace has Errands in it"
+	)
+	assert not any("Websites" in one for one in filable), (
+		f"the form offers {filable} — those are the *switcher's* projects, and filing this "
+		f"item into one of them is a refusal by name"
+	)
+
+
+	# **The second half: what the reader may do *there*.** The roster is swapped rather than the
+	# fixture changed, because five other tests need to write on this very item.
+	roster[0] = json.loads(json.dumps(before))
+	elsewhere = next(one for one in roster[0]["workspaces"] if one["slug"] == "personal")
+	elsewhere["permissions"] = ["task:read"]
+
+	page.close()
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail", timeout=10_000)
+
+	assert page.locator(".detail form.saying").count() == 0, (
+		"the reader may not comment in this item's workspace and was offered the box anyway — "
+		"a control that refuses when pressed is worse than one that is not there"
+	)
+	assert page.locator(".detail button.edit").count() == 0, "Edit was offered and cannot work"
+	assert page.locator(".detail .doing button.finish").count() == 0, (
+		"Complete was offered and cannot work"
+	)
+
+	page.close()
+
+	# **Put back**, because `running` is module-scoped and a read-only workspace left on the
+	# roster would take the controls off every later test that needs them.
+	roster[0] = before
+
+	# **Nothing rather than the wrong thing, which is the half a fallback would hide.** The two
+	# mutations that matter here are opposite: furnishing from the switcher fails the assertions
+	# above, and *falling back* to the switcher while the item's own words are unavailable
+	# survives every one of them — because by then the right words have arrived. Refusing them
+	# outright is the state that separates the two, and it is a real one: a reader whose
+	# credential does not reach that workspace.
+	unreadable[0] = True
+
+	try:
+		page = opened("/")
+		page.wait_for_selector(".listing.agenda", timeout=10_000)
+		page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+		page.wait_for_selector(".detail .doing", timeout=10_000)
+		page.wait_for_timeout(500)
+
+		nothing = _statuses_offered(page)
+
+		assert nothing == [], (
+			f"this item's own workspace could not be read and the control offered {nothing} — "
+			f"which is the *switcher's* vocabulary, and the one thing worse than an empty "
+			f"picker is a confidently wrong one"
+		)
+
+		# The rest of the page is unharmed, so this is an empty control rather than a failure.
+		assert page.locator(".detail .doing button.finish").count() == 1, (
+			"the item stopped being completable, so this is a broken page rather than a "
+			"control with nothing to offer"
+		)
+
+		page.close()
+
+	finally:
+		unreadable[0] = False
+
+
 def test_stepping_back_onto_an_item_reads_it_where_its_address_says (
 	running: typing.Any,
 ) -> None:
@@ -2417,7 +2675,7 @@ def test_stepping_back_onto_an_item_reads_it_where_its_address_says (
 	press Back and will not dispatch an event by decision (`SR#640`).
 	"""
 
-	opened, _written, _refusing, roster, _missing, reads = running
+	opened, _written, _refusing, roster, _missing, reads, *_ = running
 
 	assert len(roster[0]["workspaces"]) > 1, (
 		"the roster holds one workspace, so there is no second one to step back into."

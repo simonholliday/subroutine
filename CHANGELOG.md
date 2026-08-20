@@ -275,6 +275,17 @@ upgrade involves.
 
 ### Fixed
 
+- **An item opened from the agenda is furnished from its own workspace.** Its status picker,
+  the projects its edit form offers, who it can be handed to, and which controls are drawn at
+  all were all fetched for the workspace the switcher held — so an item in another workspace
+  offered statuses it cannot be moved to and omitted the ones it can, offered projects it
+  cannot be filed in, offered people who are not in it, and drew Edit, Complete and the comment
+  box for a reader who may only read there. Every one of those would have been refused when
+  pressed.
+
+  Nothing is offered while the item's own workspace has not answered, and nothing is offered at
+  all if that reader cannot see it — an empty control rather than a confidently wrong one.
+
 - **A change made from an open item goes to that item, not to whichever item wears the same
   number in the workspace the browser's switcher happens to hold.** Opening an item from the
   agenda at `/` — which spans workspaces — left the page correctly showing that item while
