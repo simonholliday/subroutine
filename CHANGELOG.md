@@ -242,6 +242,13 @@ upgrade involves.
 
 ### Fixed
 
+- **The agenda says when something was dated in a different timezone from your own.** A
+  deadline set for the end of somebody's UTC day falls just past the end of a London reader's,
+  so the row said *due Thu 20 Aug* under a heading meaning *not today* — two correct rules
+  meeting on one line with nothing to explain them. A date is still shown for the day it was
+  set and still bucketed against your day; what is new is a line saying so, and only when the
+  zones actually differ.
+
 - **A comment says who wrote it.** `GET /v1/tasks/{ref}/comments` returned `author_id` and no
   name, so the one view whose whole purpose is reading what people recorded could not say who
   recorded it without a lookup per line. There is an `author` field beside the id now, resolved

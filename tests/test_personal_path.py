@@ -6720,6 +6720,59 @@ def test_connections_counting_different_days_are_said_rather_than_resolved () ->
 	)
 
 
+def test_work_dated_in_another_zone_is_said_rather_than_left_to_puzzle_over (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1039`. Two correct rules meeting on one line and contradicting each other.
+
+	`SR#773` renders a day-scale date in the **task's** own zone, because re-rendering a day
+	through another zone makes it a *different day*. `SR#989` buckets in the **reader's**,
+	because a person's agenda is about their own day. So a deadline set for the end of
+	somebody's UTC day falls 59 minutes past the end of a London reader's, and the row says
+	*due Thu 20 Aug* under a heading that means *not today*.
+
+	**Found by using the product**, on the day a second human first dated something on this
+	project's own instance — which is `SR#589`. Fifteen items dated the same day, fourteen
+	under Today and one under Next 7 days, every one rendering the same words; I spent an hour
+	diagnosing it as a write-path defect before measuring who had set the date.
+
+	Neither rule is reversed here. The disagreement is *said*, which is `_report_zones`'s shape
+	one level down: that one reports two connections counting different days, this one reports
+	two people in one workspace who are.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Dated somewhere else")
+	run("update", "1", "--due", "today", "--timezone", "Australia/Sydney")
+
+	shown = run("agenda").output
+
+	assert "Australia/Sydney" in shown, (
+		f"a date set in another zone is rendered in it and bucketed in another, silently: "
+		f"{shown}"
+	)
+
+
+def test_work_dated_in_the_readers_own_zone_says_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, and it is what keeps the line from being noise on every agenda.
+
+	One person, one zone, is the ordinary case and by far the commonest — this instance ran for
+	three weeks before it could produce the disagreement at all. A message on every read would
+	teach the reader to skim exactly the surface `SR#1005` is about.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Dated here")
+	run("update", "1", "--due", "today")
+
+	shown = run("agenda").output
+
+	assert "Dated here" in shown, "the probe put nothing on the agenda, so it proves nothing"
+	assert "your day is" not in shown, f"one person in one zone was warned about it: {shown}"
+
+
 def test_connections_agreeing_about_the_day_say_nothing () -> None:
 	"""The other half, and it is what keeps the line from being noise.
 

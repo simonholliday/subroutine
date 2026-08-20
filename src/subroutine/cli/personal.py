@@ -3420,6 +3420,54 @@ def _report_zones (
 	)
 
 
+def _report_dates_set_elsewhere (
+	program: Program, gathered: subroutine.fanout.Gathered[subroutine.views.Agenda]
+) -> None:
+	"""Say when a row's date was set in a zone other than the one bucketing it — `#1039`.
+
+	**Two correct rules meet on one line and contradict each other.** `#773` renders a
+	day-scale date in the **task's** own zone, because re-rendering a day through another zone
+	makes it a *different day*; `#989` buckets in the **reader's**, because a person's agenda
+	is about their own day. So a deadline set for the end of somebody's UTC day falls 59
+	minutes past the end of a London reader's, and the row says *due Thu 20 Aug* under a
+	heading that means *not today*.
+
+	Neither rule is wrong, and this does not resolve them — reaching for either answer would
+	overturn a written decision for a presentation problem. It says what happened, which is
+	`_report_zones`'s shape one level down: that one reports two *connections* counting
+	different days, this one reports two *people* in one workspace who are.
+
+	**Found by using the product** on the day a second human first dated something here, which
+	is `#589`. Fifteen items were dated the same day, fourteen under Today and one under Next 7
+	days, every one of them rendering the same words — and I spent an hour diagnosing it as a
+	write-path defect before measuring the actor.
+
+	**On the zones rather than on the dates**, which is `#966`'s recorded rule and `#995`'s
+	before it: two zones share a date for part of every day, so a message keyed on the dates
+	would appear and vanish under the reader while nothing changed.
+	"""
+
+	reader = {answer.value.timezone for answer in gathered.answers}
+	elsewhere = {
+		task.timezone
+		for answer in gathered.answers
+		for bucket in subroutine.views.AGENDA_BUCKETS
+		for task in getattr(answer.value, bucket, ())
+		if task.timezone is not None and task.timezone not in reader
+	}
+
+	if not elsewhere:
+		return
+
+	named = ", ".join(sorted(elsewhere))
+	yours = ", ".join(sorted(zone for zone in reader if zone is not None))
+
+	program.warn(
+		f"Some of this was dated in {named}, where your day is {yours}. A date is shown for "
+		f"the day it was set, so one of these may sit under a heading that does not match it."
+	)
+
+
 def _report (program: Program, world: World, failures: typing.Sequence[subroutine.fanout.Failure]) -> None:
 	"""Name every connection that could not be reached, and carry on.
 
@@ -6984,6 +7032,7 @@ def _agenda (
 
 		_report(program, world, gathered.failures)
 		_report_zones(program, gathered)
+		_report_dates_set_elsewhere(program, gathered)
 
 		if json_output:
 			program.say(json.dumps(_agenda_json(world, gathered), indent=2))
