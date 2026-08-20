@@ -29,12 +29,20 @@ in :data:`CHANGES`, and a field with neither an entry there nor one in :data:`NO
 by name. The population is derived; the exceptions are written; neither can fall behind quietly.
 """
 
+import datetime
+import inspect
 import typing
 import uuid
 
 import pytest
 import sqlalchemy.orm
 
+import api_support
+import subroutine.clients.base
+import subroutine.clients.http
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import test_api_tasks
@@ -128,6 +136,8 @@ class Ground(typing.NamedTuple):
 	"""One installation, one item of each kind, and everything they can be pointed at."""
 
 	world: test_api_tasks.World
+	local: subroutine.clients.local.Client
+	remote: subroutine.clients.http.Client
 	task: int
 	document: int
 	project: str
@@ -208,8 +218,40 @@ def ground (session: sqlalchemy.orm.Session) -> Ground:
 	for answer in (task, spare_task, document, spare):
 		assert answer.status_code == 201, answer.text
 
+	# **The same installation reached both ways**, so a field can be given two values through a
+	# client and read back through the same one. `clients/local` and `clients/http` assemble
+	# what they send quite differently — the second builds a body by hand — so a field dropped
+	# in one is exactly the divergence `test_transport_equivalence` exists for.
+	# **`local_user` is named**, because this instance holds two accounts by the time the
+	# fixture is built and the local client otherwise refuses: *"this database has more than one
+	# account, so there is no way to tell whose to-do list to show"*. §12.1a's guess is for one
+	# person on a laptop, and a second one is what a document's owner needed.
+	# **And `database_url` names the database this really uses**, though the factory is injected
+	# and nothing connects through it. `clients/local` translates any `SQLAlchemyError` into
+	# *"no Subroutine instance has been set up here yet"* when `has_no_instance_yet()` is true —
+	# which it is for the default SQLite path in a test — so every real failure arrived wearing
+	# a message about a database nothing was reading, and the actual error was thrown away.
+	bound = session.get_bind()
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(
+			dev_mode=True,
+			local_user=world.user.username,
+			database_url=bound.engine.url.render_as_string(hide_password=False),
+		),
+		session_factory=api_support.factory_for(session),
+	)
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=world.secret,
+		transport=api_support.SyncTransport(world.application),
+		base_url=api_support.BASE_URL,
+	)
+
 	return Ground(
 		world=world,
+		local=local,
+		remote=remote,
 		task=task.json()["ref"],
 		document=document.json()["ref"],
 		project=task.json()["project_key"],
@@ -428,3 +470,160 @@ def test_the_cases_come_from_the_models_rather_than_from_a_list () -> None:
 		f"stopped reading them and every case below it is checking nothing."
 	)
 
+
+
+#: The client methods that write an item's own fields, and how to read the item back. A create
+#: answers with the item; everything else is read again through the same client, which is what
+#: makes the answer the *stored* thing rather than what the method was told.
+#:
+#: **This is the surface `#854`'s defect actually lived on**: `clients/base.Client.update` was
+#: widened to take ``starts`` and ``snooze`` and both clients dropped them before the wire — the
+#: signature grew and the body dict did not. `test_reach` compares method names and then field
+#: names on a signature; neither asks what the body carries.
+CLIENT_WRITES: tuple[tuple[str, str, bool], ...] = (
+	("task", "capture", True),
+	("task", "update", False),
+	("task", "move", False),
+	("task", "schedule", False),
+	("document", "create_document", True),
+	("document", "update_document", False),
+)
+
+#: Arguments that say *which* item, never what it holds. Excluded rather than excused, because
+#: they are not fields of anything and a register of them would read as a list of gaps.
+NOT_A_FIELD = frozenset({"ref", "workspace", "entity_type"})
+
+
+def _client_cases () -> list[tuple[str, str, str]]:
+	"""Every (kind, method, field) a writing client method declares.
+
+	Off the signature rather than off a list, so a client widened tomorrow is covered tomorrow —
+	which is precisely how the defect this file is named for got in: the signature was the thing
+	that changed, and everything checking it read the signature.
+	"""
+
+	found: list[tuple[str, str, str]] = []
+
+	for kind, method, _creates in CLIENT_WRITES:
+		declared = inspect.signature(getattr(subroutine.clients.base.Client, method)).parameters
+
+		for field in declared:
+			if field in NOT_A_FIELD or field == "self":
+				continue
+
+			found.append((kind, method, field))
+
+	return found
+
+
+CLIENT_CASES = [one for one in _client_cases() if one[2] not in NOT_STORED]
+
+#: What a create needs beside the field being asked about, per method.
+REQUIRED: dict[str, dict[str, typing.Any]] = {
+	# **With a deadline in the line**, because a repeat needs a date to repeat from and §6.13's
+	# grammar is where a captured task gets one.
+	"capture": {"text": "Under test by 2026-12-01"},
+	"create_document": {"title": "Under test", "body": "."},
+}
+
+
+def _as_declared (annotation: typing.Any, value: typing.Any) -> typing.Any:
+	"""Return ``value`` in the shape this argument is declared to take.
+
+	The same value means the same thing on every surface and is *spelled* differently on some:
+	a ref is a string over HTTP because a path segment is, and an ``int`` to a client method
+	that says so; :meth:`schedule` predates §9.3's grammar reaching a client and takes a
+	``datetime.date`` where everything else takes the expression.
+
+	**Read off the annotation rather than listed per method**, so a second such argument needs
+	nothing written here.
+
+	**And handing a client the wrong shape is not a way to find a defect**, which is worth
+	saying because it looked like one: ``move(parent="2")`` against a declared ``int | None``
+	reaches PostgreSQL as ``task.ref = $5::VARCHAR`` and fails with *"operator does not exist:
+	integer = character varying"*, where SQLite coerces and answers. That is a caller ignoring a
+	type mypy would refuse, so it belongs here rather than on the product.
+	"""
+
+	if not isinstance(value, str):
+		return value
+
+	if "date" in str(annotation):
+		return datetime.date.fromisoformat(value)
+
+	if "int" in str(annotation) and value.isdigit():
+		return int(value)
+
+	return value
+
+
+def _through (
+	client: typing.Any, kind: str, method: str, field: str, ground: Ground, value: typing.Any
+) -> dict[str, typing.Any]:
+	"""Send one field one value through one client, and read the item back through it."""
+
+	creates = next(one[2] for one in CLIENT_WRITES if one[1] == method)
+	declared = inspect.signature(getattr(subroutine.clients.base.Client, method)).parameters
+	body: dict[str, typing.Any] = dict(REQUIRED.get(method, {}))
+
+	# **Only the companions this method actually has.** `capture` takes no `due`: §6.13's line
+	# carries the date itself, which is why its text below has one in it. A companion sent to a
+	# method that does not declare it is a `TypeError` about the test rather than the product.
+	body.update({
+		name: value for name, value in BESIDE.get(field, {}).items() if name in declared
+	})
+	body[field] = _as_declared(declared[field].annotation, value)
+
+	if not creates:
+		body["ref"] = ground.task if kind == "task" else ground.document
+
+	# **Named on every call**, because this instance holds two workspaces — see `_changed`.
+	body.setdefault("workspace", ground.world.workspace.slug)
+
+	answered = getattr(client, method)(**body)
+	made = getattr(answered, "task", answered)
+	ref = made.ref if creates else body["ref"]
+
+	read = (client.task if kind == "task" else client.document)(
+		ref=ref, workspace=ground.world.workspace.slug
+	)
+
+	return typing.cast(dict[str, typing.Any], read.model_dump(mode="json"))
+
+
+@pytest.mark.parametrize("transport", ("local", "remote"))
+@pytest.mark.parametrize(
+	("kind", "method", "field"),
+	CLIENT_CASES,
+	ids=[f"{one[0]}.{one[1]}.{one[2]}" for one in CLIENT_CASES],
+)
+def test_every_field_a_client_accepts_reaches_the_wire (
+	ground: Ground, transport: str, kind: str, method: str, field: str
+) -> None:
+	"""Give one field two values through a client, and what that client reads back must move."""
+
+	client = ground.local if transport == "local" else ground.remote
+	first, second = _values(kind, field, ground)
+
+	before = _through(client, kind, method, field, ground, first)
+	after = _through(client, kind, method, field, ground, second)
+
+	viewed = ALSO_READ_AS.get(field) or _reads_back().get(field, {field})
+	moved = {name for name in viewed if before.get(name) != after.get(name)}
+
+	assert moved, (
+		f"{transport}.{method}({field}=…) was given {first!r} and then {second!r}, and "
+		f"{sorted(viewed)} read the same both times "
+		f"({ {name: before.get(name) for name in sorted(viewed)} }). "
+		f"The client accepted the argument and nothing it sent carried it — which is exactly "
+		f"what `#854` shipped, and what a guard reading the signature cannot see."
+	)
+
+
+def test_the_client_cases_come_from_the_signatures () -> None:
+	"""The floor, for `_client_cases`'s own walk. `#405`: an empty walk reads as a clean one."""
+
+	assert len(_client_cases()) > 30, (
+		f"only {len(_client_cases())} fields were found across every writing client method, so "
+		f"the walk has stopped reading them."
+	)
