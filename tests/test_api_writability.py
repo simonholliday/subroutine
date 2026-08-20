@@ -69,6 +69,15 @@ WRITTEN_AS: dict[str, str] = {
 	"project_id": "project",
 	"body": "body",
 
+	#: **Recorded as DERIVED until `#919` drove it**, which is the other direction of an excuse
+	#: being wrong: not a name that had gone, but a field that really is written. The reason
+	#: given — *"set by writing the superseding document, not by editing the superseded one"* —
+	#: describes the superseded document's end of the relation, and this is the superseding
+	#: document's own field. ``PATCH /v1/documents/{ref} {"supersedes": …}`` sets it and null
+	#: clears it, and nothing structural could see that: a name in one register satisfies the
+	#: comparison exactly as a name in the other does.
+	"supersedes_id": "supersedes",
+
 	#: §8.5 reports a relation as an id and `#493` accepts it as a **name** — so this is the
 	#: one entry here where the two spellings differ in *kind* rather than in wording. A caller
 	#: holding a UUID for a person is a caller who has already made a request they should not
@@ -179,7 +188,6 @@ DERIVED: dict[str, str] = {
 	"updated_at": "When the row last changed.",
 	"content_updated_at": "When the *meaning* last changed (§6.1); the service decides, not the caller.",
 	"version": "The concurrency token (§8.9). Sent back as `expected_version`, never assigned.",
-	"supersedes_id": "Set by writing the superseding document, not by editing the superseded one.",
 	"parent_ref": (
 		"The ref of parent_task_id, resolved for display — the same relationship project_key "
 		"has to project_id. Re-parenting is written by setting the parent, which is #44."
