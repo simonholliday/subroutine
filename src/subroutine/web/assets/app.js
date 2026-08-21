@@ -1052,29 +1052,32 @@ export function linkRequest (item, target, linkType, kind, slug) {
 	*/
 	const { key, inverted } = linkAsked(linkType);
 	const mine = item.kind === "document" ? "documents" : "tasks";
-	const theirs = kind === "document" ? "documents" : "tasks";
 
 	/*
-		**An inverse is the same link written from the other end** (`#799`). *#42 blocked by
-		#43* is *#43 blocks #42*, so the request is posted to **their** links with this item as
-		the target — one endpoint, one link type, and no inverse for the instance to learn.
+		**An inverse is the same link written from the other end** (`#799`), and the request now
+		says so instead of acting it out (`#816`). *#42 blocked by #43* is *#43 blocks #42*, and
+		this used to post to **their** links with this item as the target — correct about the
+		row and wrong about who acted, because the event names the item the link hangs off and
+		that was the one the reader never opened. *What did I work on* then listed it.
 
-		The kind being resolved swaps with it: it is the *target's* when the link runs outwards
-		and the item at the *path* when it runs inwards, which is the same 404-means-try-the-next
-		loop either way because both are the ref the reader typed.
+		Simon's rule, settling `#815`'s question 3: **the action occurs on the item which is
+		edited to add the link.** So the request is always posted to the item in front of the
+		reader and `direction` says which way the link runs; the instance stores the row the way
+		round it has always stored it and records the action here.
+
+		One consequence worth knowing: the row and its event deliberately name different items
+		on this path. That is not a disagreement — the row says what is true and the event says
+		what somebody did.
 	*/
-	if (inverted) {
-		return {
-			path: scoped(`/${theirs}/${Number(target)}/links`, slug),
-			method: "POST",
-			body: { target: item.ref, link_type: key, target_type: item.kind },
-		};
-	}
-
 	return {
 		path: scoped(`/${mine}/${item.ref}/links`, slug),
 		method: "POST",
-		body: { target: Number(target), link_type: key, target_type: kind },
+		body: {
+			target: Number(target),
+			link_type: key,
+			target_type: kind,
+			direction: inverted ? "incoming" : "outgoing",
+		},
 	};
 }
 

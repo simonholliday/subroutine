@@ -349,6 +349,16 @@ upgrade involves.
 
 ### Fixed
 
+- **A link made from the far end records the item the reader was actually on.** *"The action
+  occurs on the item which is edited to add the link"* held everywhere except one control: the
+  browser implemented *blocked by* by swapping the ends and posting to the other item, so the
+  event named an item nobody had opened and `touched_at` listed it as worked on.
+
+  `POST /…/links` takes a `direction` now — `outgoing` by default, which is what every caller
+  already sent. The stored row is unchanged: a row records a direction and there is only one of
+  it, so the row and its event deliberately name different items on this one path. The row says
+  what is true; the event says what somebody did. Withdrawing an incoming link is the same fix.
+
 - **A row with nothing to compare sorts last in the browser, whichever way the list was
   asked for**, matching the `NULLS LAST` the server applies in both directions. It used to
   reach a comparison that contradicted itself — `NaN !== NaN` is true and neither `NaN < x`

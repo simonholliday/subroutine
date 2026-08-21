@@ -127,6 +127,7 @@ def create (
 	source: End,
 	target: End,
 	link_type_key: str,
+	acted_on: End | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Link:
 	"""Join two work items, or return the link that already joins them.
@@ -237,8 +238,19 @@ def create (
 		# why the change feed excluded link events entirely until now. This is the pair
 		# `domain.comments` already uses, and `scoping.visible_events` narrows on it without
 		# knowing what kind of thing wrote it.
-		subject_type=source.entity_type,
-		subject_id=source.id,
+		#
+		# **`acted_on` is the item somebody was looking at, which is the source on every path
+		# but one** (`#816`). Simon's rule, settling `#815`'s question 3: *the action occurs on
+		# the item which is edited to add the link*. An inverse link — `#16 blocked by #17` — is
+		# stored as `#17 blocks #16`, because the row records a direction and there is only one
+		# of it; the person was on `#16`. So the row and the event deliberately name different
+		# items here, and that is not a disagreement: **the row says what is true and the event
+		# says what somebody did.**
+		#
+		# Defaulted to the source rather than made required, because every other caller is a
+		# path where the two are the same and passing it would be ceremony.
+		subject_type=(acted_on or source).entity_type,
+		subject_id=(acted_on or source).id,
 		action=subroutine.domain.events.EventAction.CREATED,
 		changes={
 			"link_type": {"from": None, "to": link_type.key},
@@ -402,6 +414,7 @@ def remove (
 	link: subroutine.db.models.work.Link,
 	*,
 	now: datetime.datetime | None = None,
+	acted_on: End | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Link:
 	"""Withdraw a link. Soft, and idempotent."""
@@ -426,11 +439,13 @@ def remove (
 		workspace_id=link.workspace_id,
 		entity_type="link",
 		entity_id=link.id,
-		# The same subject as the creation, read off the row rather than off a caller's
-		# argument: an unlink names the link, and the item it was hung on is what decides
-		# who may know it went away (`#252`).
-		subject_type=link.source_type,
-		subject_id=link.source_id,
+		# The subject an unlink names, and it is the same question the creation answers
+		# (`#252`, `#816`). Read off the row when nobody says otherwise — an unlink names the
+		# link, and the item it was hung on is what decides who may know it went away — but a
+		# reader withdrawing an *incoming* link is standing on the target, and recording the
+		# source would attribute their work to an item they never opened.
+		subject_type=link.source_type if acted_on is None else acted_on.entity_type,
+		subject_id=link.source_id if acted_on is None else acted_on.id,
 		action=subroutine.domain.events.EventAction.DELETED,
 		actor=actor,
 	)

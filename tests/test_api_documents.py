@@ -6,6 +6,7 @@ system, derive tasks from it, and read the relationship back from both ends. Tha
 machinery for it.
 """
 
+import typing
 import uuid
 
 import pytest
@@ -861,4 +862,77 @@ def test_a_backlink_from_a_project_you_cannot_see_is_omitted (
 	assert found["items"] == [], (
 		f"a credential that cannot reach that project was told something there refers to "
 		f"this: {found}"
+	)
+
+
+def test_a_link_made_from_the_far_end_records_the_item_the_reader_was_on (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#816`, split out of `SR#815` with Simon's agreement to do it later.
+
+	**His rule, settling `SR#815`'s question 3**: *"The action occurs on the item which is
+	edited to add the link. If I edit issue #1 and say it blocks #2 — I have worked on #1."*
+	It held everywhere except one control: `SR#799` gave the browser both ends of a directed
+	link, and it implemented the inverse by swapping them and posting to the *other* item.
+
+	**So an event was doing two jobs** — recording what changed and recording who did what —
+	and they agree on every other path. *What did I work on today* listed an item the reader
+	never opened, which is a false positive: visible, unlike missing work, but a listing whose
+    membership rule is wrong in one place is one nobody can trust in any.
+
+	**The row is unchanged and that is the point.** A row records a direction and there is only
+	one of it, so `#16 blocked by #17` is stored as `#17 blocks #16` either way. What the
+	direction changes is the *event*, so the two deliberately name different items here — the
+	row says what is true and the event says what somebody did.
+	"""
+
+	near = world.call("POST", "/v1/tasks", json={"title": "The one I am reading"}).json()
+	far = world.call("POST", "/v1/tasks", json={"title": "The one that blocks it"}).json()
+
+	created = world.call(
+		"POST",
+		f"/v1/tasks/{near['ref']}/links",
+		json={"target": far["ref"], "link_type": "blocks", "direction": "incoming"},
+	)
+
+	assert created.status_code == 201, created.text
+
+	# **The row is stored the only way round a row can be stored**, which is what makes this a
+	# question about the event rather than about the link.
+	assert created.json()["direction"] == "incoming"
+	assert created.json()["other"]["ref"] == far["ref"]
+
+	def links_on (ref: int) -> list[dict[str, typing.Any]]:
+		"""Every link event in one item's own history."""
+
+		events = world.call("GET", f"/v1/tasks/{ref}/events").json()["items"]
+
+		return [one for one in events if one["entity_type"] == "link"]
+
+	assert links_on(near["ref"]), (
+		"the link was made while reading this item and its history does not mention it"
+	)
+
+	# **The half that reproduces the defect.** Before this, the event named the source — the
+	# item the reader never opened — so the far item's history carried it and the near one's
+	# did not. Both assertions are needed: the first alone passes against an event recorded
+	# on both, and the second alone passes against one recorded on neither.
+	assert not links_on(far["ref"]), (
+		"the far item's history claims somebody worked on it, and nobody opened it"
+	)
+
+	# **And the withdrawal is the mirror of it.** This route finds a link by either end, so an
+	# incoming one is unlinked from the target too.
+	link_id = created.json()["id"]
+	removed = world.call("DELETE", f"/v1/tasks/{near['ref']}/links/{link_id}")
+
+	assert removed.status_code == 204
+
+	after = world.call("GET", f"/v1/tasks/{near['ref']}/events").json()["items"]
+	withdrawn = [
+		one for one in after if one["entity_type"] == "link" and one["action"] == "deleted"
+	]
+
+	assert withdrawn, (
+		f"the link was withdrawn while reading {near['ref']} and its history does not say so"
 	)

@@ -9489,15 +9489,23 @@ def test_both_ends_of_a_directed_link_can_be_chosen (tmp_path: pathlib.Path) -> 
 	]
 
 
-def test_an_inverse_link_is_the_same_link_written_from_the_other_end (
+def test_a_link_is_always_made_on_the_item_the_reader_has_open (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""`SR#799`. *#42 blocked by #43* is *#43 blocks #42*, and the instance learns no inverse.
+	"""`SR#799` said the instance learns no inverse; `SR#816` says who made it.
 
-	So the request goes to **their** links with this item as the target, and the kind being
-	resolved swaps with it — outwards it is the target's, inwards it is the item at the path.
-	Both are the ref the reader typed, so the 404-means-try-the-next loop is the same either
-	way, which is what makes this a swap rather than a second code path.
+	*#42 blocked by #43* is *#43 blocks #42*, and the row stores it that way round because a
+	row records a direction and there is only one of it. **What changed is who the request is
+	addressed to.** This used to post to *their* links with the open item as the target —
+	correct about the row, and wrong about the event, which names the item a link hangs off.
+	So *what did I work on* listed an item the reader never opened.
+
+	Simon's rule, settling `SR#815`'s question 3: **the action occurs on the item which is
+	edited to add the link.** Both directions now go to the open item and `direction` says which
+	way the link runs.
+
+	**Both halves asserted**, because the path alone would pass against a client that sent no
+	direction at all and let every inverse be stored the wrong way round.
 	"""
 
 	item = {"ref": 42, "kind": "task"}
@@ -9506,14 +9514,20 @@ def test_an_inverse_link_is_the_same_link_written_from_the_other_end (
 		("linkRequest", [item, "43", "-blocks", "task", "projects"]),
 	])
 
-	assert outward["path"].startswith("/tasks/42/links")
-	assert outward["body"] == {"target": 43, "link_type": "blocks", "target_type": "task"}
+	for named, built in (("outward", outward), ("inward", inward)):
+		assert built["path"].startswith("/tasks/42/links"), (
+			f"the {named} link was posted somewhere other than the item the reader has open, "
+			f"so its event will name an item nobody was looking at"
+		)
 
-	assert inward["path"].startswith("/tasks/43/links"), (
-		"an inverse link was posted to the open item rather than to the other end"
-	)
-	assert inward["body"] == {"target": 42, "link_type": "blocks", "target_type": "task"}, (
-		"the ends were not swapped, or an inverse link type was invented for the instance"
+		assert built["body"]["target"] == 43 and built["body"]["link_type"] == "blocks", (
+			f"the {named} link swapped the ends or invented an inverse type for the instance"
+		)
+
+	assert outward["body"]["direction"] == "outgoing"
+	assert inward["body"]["direction"] == "incoming", (
+		"the inverse is indistinguishable from the ordinary link, so the instance would store "
+		"it the wrong way round"
 	)
 
 

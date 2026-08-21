@@ -126,6 +126,10 @@ class Update(subroutine.api.schemas.RequestModel):
 	expected_version: int | None = None
 
 
+#: Which way a link runs relative to the item in the path — `#816`.
+DIRECTIONS: frozenset[str] = frozenset({"outgoing", "incoming"})
+
+
 class LinkRequest(subroutine.api.schemas.RequestModel):
 	"""What ``POST /…/links`` accepts.
 
@@ -140,6 +144,19 @@ class LinkRequest(subroutine.api.schemas.RequestModel):
 	target: subroutine.api.schemas.Reference
 	link_type: str
 	target_type: str = "task"
+
+	#: **Which way round the link runs, from the point of view of the item in the path**
+	#: (`#816`). ``outgoing`` — the default, and what every caller sent before this existed —
+	#: stores this item as the source. ``incoming`` stores the *other* item as the source and
+	#: still records the action against this one, because that is the item somebody was
+	#: looking at when they made it.
+	#:
+	#: **The alternative was the client swapping the ends, and it is what the browser did.**
+	#: `#799` gave it both directions and it implemented the inverse by posting to the other
+	#: item's links — correct about the row and wrong about who acted, so *what did I work on*
+	#: listed an item the reader never opened. A direction here is the same request said
+	#: honestly: one endpoint, one link type, and no inverse for the instance to learn.
+	direction: str = "outgoing"
 
 
 @router.post("", status_code=201, summary="Write a document")
@@ -638,12 +655,31 @@ def _links_for (entity_type: str) -> typing.Any:
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 		far = _near(session, actor, workspace, body.target_type, str(body.target))
 
+		if body.direction not in DIRECTIONS:
+			raise subroutine.errors.ValidationError(
+				f"{body.direction!r} is not a direction.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="direction",
+						code="invalid_field_value",
+						message=f"{body.direction!r} is not a direction a link can run in.",
+						hint=f"Use one of: {', '.join(sorted(DIRECTIONS))}.",
+					)
+				],
+			)
+
+		incoming = body.direction == "incoming"
+
 		created = subroutine.domain.links.create(
 			session,
 			workspace_id=workspace.id,
-			source=near,
-			target=far,
+			source=far if incoming else near,
+			target=near if incoming else far,
 			link_type_key=body.link_type,
+			# **The row and the event name different items on this one path, deliberately**
+			# (`#816`). The row says what is true — `#17 blocks #16` — and the event says what
+			# somebody did, which happened on `#16`.
+			acted_on=near,
 			actor=actor,
 		)
 
@@ -690,7 +726,11 @@ def _links_for (entity_type: str) -> typing.Any:
 				hint="GET this item's /links to see the ones there are.",
 			)
 
-		subroutine.domain.links.remove(session, found, actor=actor)
+		# **Whichever end the reader was standing on** (`#816`). This route finds a link by
+		# either end, so an incoming one is withdrawn from the target — and recording the
+		# source would attribute the work to an item nobody opened. The row is unchanged; only
+		# what the event says somebody did.
+		subroutine.domain.links.remove(session, found, acted_on=near, actor=actor)
 
 		return fastapi.Response(status_code=204)
 
