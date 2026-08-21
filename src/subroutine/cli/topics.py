@@ -140,7 +140,12 @@ def _capture_body () -> str:
 		("!1 to !5", "how important it is"),
 		("!3/5", "important and urgent — both, and how a list shows it back"),
 		("~90m, ~2h", "how long you think it will take"),
-		("+KEY", "puts it in a particular list"),
+		# **"that already exists" is the whole of `#588`.** A tag and a project are the two
+		# structural tokens here and they behave oppositely on first use — `#errand` creates
+		# a tag silently and `+music` is refused — which is defensible, since a tag is a
+		# label and a project is structure, and was said nowhere. A reader met the asymmetry
+		# as a refusal on the first realistic line they wrote.
+		("+KEY", "puts it in a project that already exists"),
 	)
 
 	# Aligned here rather than in the template, because the left column is generated from
@@ -161,6 +166,12 @@ Rules worth knowing:
   digits and a tag is anything else, so #12 is item 12 and #3d-printing is a tag.
 
   An estimate needs a unit ({units}), so '~5 people' is not five minutes.
+
+  A tag is made as you write it and a project is not. '#errand' invents the
+  tag; '+errand' is refused unless that project is already there, because a
+  label is cheap and a place to put work is structure. Make one first with
+  'subroutine project create', or leave the +KEY off and it goes where this
+  connection ordinarily files things.
 
   A repeat it cannot read stays in the title and says so, rather than being
   guessed at: 'every fortnight' is left alone and 'every 14 days' is read."""

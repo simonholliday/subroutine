@@ -675,6 +675,47 @@ def test_capture_respects_an_explicit_project (world: World) -> None:
 	assert body["estimate_minutes"] == 120, "and still parse what it parses"
 
 
+def test_a_project_that_does_not_exist_says_how_to_make_one (world: World) -> None:
+	"""`SR#588`, found by driving the product during the direction exercise.
+
+	**A captured line's two structural tokens behave oppositely on first use.** `#errand`
+	creates a tag silently; `+music` is refused. The asymmetry is defensible — a tag is a label
+	and a project is structure, so one is cheap to make by accident and the other is not — and
+	it was written down nowhere. `explain capture` taught *"+KEY puts it in a particular list"*
+	without saying the list has to exist first, so a reader met the rule as a refusal on the
+	first realistic line they wrote.
+
+	**Listing what exists answers the wrong question.** It says *which did you mean*; somebody
+	who meant a project that is not there yet has already answered that, and is left to go
+	looking for the command. §12.2a's rule is that a refusal states the remedy.
+
+	§6.13's rule 1 is that a token the grammar cannot read stays in the title verbatim rather
+	than half-applying. This is the third case — **understood, valid, and refused** — which is
+	why the words alone are not enough.
+	"""
+
+	response = world.call("POST", "/v1/tasks", json={"text": "Practise scales +music"})
+
+	assert response.status_code == 404
+
+	body = response.json()
+	hint = body["errors"][0]["hint"]
+
+	assert "project create" in hint, (
+		f"the refusal says what exists and not how to make one: {hint!r}"
+	)
+
+	# **The half that was already right, asserted so the fix cannot replace it.** A caller who
+	# mistyped an existing project needs the list far more than they need the command.
+	world.call("POST", "/v1/projects", json={"key": "web", "title": "Web"})
+
+	listed = world.call("POST", "/v1/tasks", json={"text": "Practise scales +musci"})
+
+	assert "web" in listed.json()["errors"][0]["hint"], (
+		"the refusal stopped saying what is actually there, which is the commoner mistake"
+	)
+
+
 def test_an_explicit_project_beats_one_named_in_the_captured_line (world: World) -> None:
 	"""§6.13's rule — structured fields win over parsed ones — applied to where it lands."""
 

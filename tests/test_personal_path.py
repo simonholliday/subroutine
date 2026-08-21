@@ -1529,6 +1529,30 @@ def test_an_estimate_says_that_a_day_is_not_a_working_day (
 	)
 
 
+def test_capture_says_a_tag_is_made_and_a_project_is_not (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#588`'s other half — the refusal is the moment it bites, the page is where it belongs.
+
+	`+KEY` was described as *"puts it in a particular list"*, which is true and says nothing
+	about whether the list has to be there already. Two documented tokens of one grammar with
+	opposite behaviours on first use, and the difference reachable only by getting it wrong.
+	"""
+
+	run("init")
+
+	body = run("explain", "capture").output
+
+	assert "project create" in body, (
+		"the page describes the token and not what to do when the project is not there"
+	)
+
+	assert "#errand" in body and "+errand" in body, (
+		"the asymmetry is stated in the abstract rather than shown, and the whole difficulty "
+		"is that the two tokens look alike"
+	)
+
+
 def test_an_unknown_help_topic_lists_the_real_ones (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -405,6 +405,11 @@ def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typi
 #: Longest first when substituting, so ``doc edit`` is not read as ``doc``.
 INSTEAD_OF = {
 	"subroutine doc edit": "subroutine_document",
+	# **Both halves of one tool** (`#588`). `subroutine_project` lists with no arguments and
+	# creates with a key and a title, so the two commands translate to the same name — which is
+	# why the substitution is longest-first: without that, `project create` would be rewritten
+	# through `project list`'s entry and lose the verb.
+	"subroutine project create": "subroutine_project",
 	"subroutine project list": "subroutine_project",
 	"subroutine search": "subroutine_search",
 	"subroutine list": "subroutine_list",

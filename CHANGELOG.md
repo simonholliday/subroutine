@@ -319,6 +319,16 @@ upgrade involves.
 
 ### Fixed
 
+- **A captured line that names a project which does not exist says how to make one.** Its two
+  structural tokens behave oppositely on first use — `#errand` creates a tag silently and
+  `+music` is refused — which is deliberate, since a tag is a label and a project is structure,
+  and was written down nowhere. `explain capture` said `+KEY` *"puts it in a particular list"*
+  without saying the list has to be there first, so the rule was reachable only by getting it
+  wrong. The refusal listed every project that does exist, which answers *which did you mean*
+  and not *and if I meant a new one*.
+
+  Both now say it. Nothing about what is accepted has changed.
+
 - **The add form and the edit form put a field in the same place.** They are the same component
   in the same order, but the number of columns was derived from the width available — and the
   edit form sits inside a card, 50px narrower, which at a 190px minimum is a whole column. So

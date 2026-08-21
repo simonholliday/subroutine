@@ -357,18 +357,28 @@ def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.An
 	the outlier that was not, and answered ``+nosuchkey`` with every private project's key in
 	the workspace — the disclosure ``projects.keys_for`` describes, met one module along.
 
+	**It names making one as well as choosing one** (`#588`). A capture line's two structural
+	tokens behave oppositely on first use: ``#errand`` creates a tag silently and ``+music`` is
+	refused, and `explain capture` taught ``+KEY puts it in a particular list`` without saying
+	the list has to exist first. The asymmetry is defensible — a tag is a label and a project is
+	structure, so one is cheap to make by accident and the other is not — but a refusal that
+	names only the absence leaves somebody who wanted the obvious next thing to go looking for
+	it. Listing what exists answers *which did you mean*; it does not answer *and if I meant a
+	new one*.
+
 	Only on the refusal path, so the extra read costs nothing anybody is waiting on.
 	"""
 
 	rows = list(session.scalars(statement))
+	making = "Make one with 'subroutine project create'."
 
 	if not rows:
-		return "There are no projects here you can see."
+		return f"There are no projects here you can see. {making}"
 
 	addresses = subroutine.domain.projects.paths_for(session, [row.id for row in rows])
 	listed = ", ".join(sorted(addresses.values()))
 
-	return f"Projects here, by name or whole address: {listed}."
+	return f"Projects here, by name or whole address: {listed}. {making}"
 
 
 def _walked (
