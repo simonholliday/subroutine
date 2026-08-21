@@ -166,6 +166,55 @@ Rules worth knowing:
   guessed at: 'every fortnight' is left alone and 'every 14 days' is read."""
 
 
+def _estimates_body () -> str:
+	"""Explain what a unit of estimate means, in the terms somebody meets it in — `#544`.
+
+	**The units table is generated from the vocabulary itself**, so a unit added or re-sized
+	cannot leave this page describing the one before it. That is the whole failure being fixed:
+	the program has always been right and consistent, and nothing told the person typing.
+	"""
+
+	# **Each unit in terms of the next one down**, which is the fact somebody is missing.
+	# `humanize` renders a duration in the largest unit that fits, so asking it what a week is
+	# answers `1w` — true, and the one answer that teaches nothing.
+	units = subroutine.domain.durations.UNITS
+	sizes = []
+
+	for index, (unit, minutes) in enumerate(units[:-1]):
+		below, size = units[index + 1]
+		sizes.append(f"  1{unit}  is  {minutes // size}{below}")
+
+	smallest, _one = units[-1]
+	sizes.append(f"  1{smallest}  is  one minute, which is what everything is stored in")
+
+	table = "\n".join(sizes)
+
+	return f"""An estimate is how long you think something will take. Write it with a
+tilde, in a captured line or with --estimate:
+
+  subroutine add "Rewrite the importer ~4h"
+  subroutine update 42 --estimate 90m
+
+A day is twenty-four hours, and a week is seven of those:
+
+{table}
+
+**That is calendar time, not working time.** '~1d' is 24 hours and not the
+day you would spend on it, and '~1w' is 168 hours and not a working week.
+If you mean a working day, write '~8h'; a working week is '~40h'.
+
+Nothing here knows about weekends, holidays, or how long your day is, and
+it is deliberate: the moment a unit means "however long you work", it
+means something different for each person reading the same number.
+
+Units go largest to smallest and every duration has exactly one spelling,
+so '1h30m' is right and '30m1h' is refused. You can always write plain
+minutes instead — '90' is the same as '1h30m'.
+
+This is not a deadline. An estimate says how long, and a deadline says by
+when; 'subroutine explain dates' is the other one."""
+
+
 TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="dates",
@@ -176,6 +225,11 @@ TOPICS: tuple[Topic, ...] = (
 		name="capture",
 		summary="The shorthand `add` understands, and what it deliberately does not.",
 		body=_capture_body(),
+	),
+	Topic(
+		name="estimates",
+		summary="How long something will take, and what a day means when you write one.",
+		body=_estimates_body(),
 	),
 	Topic(
 		name="refs",

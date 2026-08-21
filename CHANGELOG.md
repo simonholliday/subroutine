@@ -22,6 +22,16 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine explain estimates`** — what a unit of estimate means, because the program and
+  the person typing one did not agree. A day is twenty-four hours and a week is a hundred and
+  sixty-eight, which is deliberate and documented in the code and was written down nowhere a
+  reader would meet it: `explain` had no estimates topic, the capture examples all use hours,
+  and the units are published only in `/v1/meta`.
+
+  Nothing has changed about what an estimate *is*. The page says what `1d` costs, says that if
+  you meant a working day you want `~8h`, and derives its table from the vocabulary itself so it
+  cannot come to describe the units of a previous release.
+
 - **Every button in the browser says what pressing it does.** Nine visual treatments had grown,
   each chosen where it was written, and no two agreed: *More*, *Cancel* and *Search* were one
   look doing three unrelated things, while *Save*, *Complete* and *Remove* were three looks all

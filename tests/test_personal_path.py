@@ -39,6 +39,7 @@ import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
 import subroutine.domain.dates
+import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.schedule
 import subroutine.errors
@@ -1467,6 +1468,65 @@ def test_the_help_topics_are_generated_from_the_parsers (
 
 	for word in subroutine.domain.capture.DEADLINE_WORDS:
 		assert word in capture
+
+	# `#544`: the same rule for the third topic, and here it is the *sizes* that matter rather
+	# than the names. A page saying `1d is 24h` beside a vocabulary that had been re-sized would
+	# be teaching the number that caused the confusion.
+	estimates = run("explain", "estimates").output
+	units = subroutine.domain.durations.UNITS
+
+	for index, (unit, minutes) in enumerate(units[:-1]):
+		below, size = units[index + 1]
+
+		assert f"1{unit}  is  {minutes // size}{below}" in estimates, (
+			f"`explain estimates` does not say what 1{unit} is, or says the wrong number: "
+			f"the vocabulary makes it {minutes // size}{below}"
+		)
+
+
+def test_an_estimate_says_that_a_day_is_not_a_working_day (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#544`, found by summing the estimates on a milestone — the first thing that ever did.
+
+	The total came to 99 hours for twelve items that were collectively about three weeks of
+	ordinary work, because `d` and `w` mean something different to the program than to everybody
+	who has typed one. `durations.UNITS` says `1d = 1440m` and the module says so plainly: *a
+	day is twenty-four hours, not a working day.*
+
+	**The program is right and consistent; nothing told the person typing it.** `explain` had no
+	`estimates` topic at all, the capture grammar's own examples use `~4h` and `~2h` so a reader
+	never met `d`, and the units are published in `/v1/meta` — the surface least likely to be
+	read by somebody filing a task.
+
+	**And the round trip is lossless, which is why it was invisible.** `~1d` is stored as 1440
+	and renders back as `1d`, so nothing ever contradicted the reader. It only breaks when
+	something *sums* — measured here at 24 of 62 estimated items using days or weeks, every one
+	of them reading as a working estimate.
+
+	Asserted through the driven command rather than on the topic's source, because a topic that
+	exists and is unreachable teaches nobody.
+	"""
+
+	run("init")
+
+	listed = run("explain").output
+
+	assert "estimates" in listed, (
+		"the topic is not offered, so it is reachable only by somebody who already knows it "
+		"is there — which is nobody with this question"
+	)
+
+	body = run("explain", "estimates").output
+
+	assert "24" in body and "168" in body, (
+		f"the page does not say what a day or a week actually costs: {body!r}"
+	)
+
+	assert "8h" in body, (
+		"the page names the problem and not the remedy — somebody who means a working day "
+		"needs to be told what to write instead"
+	)
 
 
 def test_an_unknown_help_topic_lists_the_real_ones (
