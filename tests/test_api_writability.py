@@ -43,8 +43,14 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.calendars
+import subroutine.api.comments
 import subroutine.api.documents
+import subroutine.api.projects
 import subroutine.api.tasks
+import subroutine.api.tokens
+import subroutine.api.users
+import subroutine.api.workspaces
 import subroutine.db.base
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -77,6 +83,25 @@ WRITTEN_AS: dict[str, str] = {
 	#: clears it, and nothing structural could see that: a name in one register satisfies the
 	#: comparison exactly as a name in the other does.
 	"supersedes_id": "supersedes",
+
+	#: **Widened past `task` and `document` by `#1033`**, which is where these six came from.
+	#: Each is a rename rather than a gap: the endpoint takes the word a caller would type and
+	#: the view reports what was stored.
+	"expires_at": "expires",
+	"item_type_ids": "item_types",
+	"project_scope_keys": "project_scope",
+	"project_write_scope_keys": "project_write_scope",
+
+	#: **Settable, and the accountability chain is the reason it looks as though it should not
+	#: be** (`#473`). It is *inherited* rather than chosen when an agent makes a sub-agent —
+	#: which is what stops authority being laundered in one call — and `#478` then makes
+	#: handing one over the only way to keep an agent when its person leaves. So the field is
+	#: derived at creation and writable afterwards, and only the second half reaches here.
+	"responsible_user_id": "responsible",
+
+	#: The same kind-mismatch as `assignee_id` below, one table along: a token is *issued for*
+	#: a username and reports the id it was issued for.
+	"user_id": "username",
 
 	#: §8.5 reports a relation as an id and `#493` accepts it as a **name** — so this is the
 	#: one entry here where the two spellings differ in *kind* rather than in wording. A caller
@@ -265,6 +290,42 @@ SURFACES: tuple[
 		subroutine.views.Document,
 		subroutine.api.documents.Create,
 		(subroutine.api.documents.Update, subroutine.api.documents.Move),
+	),
+	(
+		"project",
+		subroutine.views.Project,
+		subroutine.api.projects.Create,
+		(subroutine.api.projects.Update, subroutine.api.projects.Move),
+	),
+	(
+		"workspace",
+		subroutine.views.Workspace,
+		subroutine.api.workspaces.Create,
+		(subroutine.api.workspaces.Update,),
+	),
+	(
+		"user",
+		subroutine.views.User,
+		subroutine.api.users.Create,
+		(subroutine.api.users.Update,),
+	),
+	(
+		"comment",
+		subroutine.views.Comment,
+		subroutine.api.comments.Create,
+		(subroutine.api.comments.Update,),
+	),
+	(
+		"token",
+		subroutine.views.Token,
+		subroutine.api.tokens.Create,
+		(),
+	),
+	(
+		"calendar",
+		subroutine.views.Calendar,
+		subroutine.api.calendars.Create,
+		(),
 	),
 )
 
