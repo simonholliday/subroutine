@@ -32,10 +32,18 @@ router = fastapi.APIRouter(
 
 
 class Backup(pydantic.BaseModel):
-	"""One copy of the database, described well enough to choose between several."""
+	"""One copy of the database, described well enough to choose between several.
+
+	**The name identifies it and the server's path is deliberately not reported** (`#186`).
+	A caller over HTTP is somewhere else: they cannot open the file, and there is no endpoint
+	that takes a path — §12.4 gives restore none on purpose, so the one thing a reader might
+	do with it is the one thing they cannot. What it does say is where this instance keeps its
+	data, to somebody who by definition is not on that machine.
+
+	``subroutine db backup`` still prints the path, and should: it runs beside the file.
+	"""
 
 	name: str
-	path: str
 	taken_at: datetime.datetime
 	schema_head: str
 	size_bytes: int
@@ -51,11 +59,10 @@ class Backups(pydantic.BaseModel):
 
 
 def _rendered (backup: subroutine.db.backup.Backup) -> Backup:
-	"""Describe a backup for a caller, with the path as text rather than a ``Path``."""
+	"""Describe a backup for a caller who is not on the machine holding it."""
 
 	return Backup(
 		name=backup.name,
-		path=str(backup.path),
 		taken_at=backup.taken_at,
 		schema_head=backup.schema_head,
 		size_bytes=backup.size_bytes,
@@ -74,7 +81,7 @@ def create_backup (
 		description="Afterwards, keep only this many of the newest backups.",
 	),
 ) -> Backup:
-	"""Take a datetime-stamped copy of the database and report where it went."""
+	"""Take a datetime-stamped copy of the database and report what it is called."""
 
 	subroutine.domain.authorization.authorize_instance(
 		actor, subroutine.permissions.INSTANCE_ADMIN

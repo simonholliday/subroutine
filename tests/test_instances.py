@@ -1104,7 +1104,13 @@ def elsewhere (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathl
 def test_an_admin_can_take_a_backup_over_http (
 	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
 ) -> None:
-	"""An agent about to do something bulk should be able to snapshot first (§12.6)."""
+	"""An agent about to do something bulk should be able to snapshot first (§12.6).
+
+	**The file is checked through the directory rather than through the response** (`#186`).
+	It used to be opened at the path the body reported, which was the neatest available check
+	and was also the reason the path was there — a test that reads a field is a reader, and it
+	made a field nobody else could use look used.
+	"""
 
 	world = test_api_tasks._world(session)
 	response = world.call("POST", "/v1/admin/backups")
@@ -1115,12 +1121,53 @@ def test_an_admin_can_take_a_backup_over_http (
 
 	assert body["schema_head"] == subroutine.db.migrate.head_revision()
 	assert body["size_bytes"] > 0
-	assert pathlib.Path(body["path"]).is_file()
+
+	written = [one.name for one in elsewhere.rglob(body["name"])]
+
+	assert written == [body["name"]], (
+		f"the response named {body['name']!r} and the data directory holds {written}, so the "
+		f"name a caller is given does not identify the file that was made"
+	)
 
 	listed = world.call("GET", "/v1/admin/backups")
 
 	assert listed.status_code == 200
 	assert [item["name"] for item in listed.json()["items"]] == [body["name"]]
+
+
+def test_a_backup_over_http_is_named_without_naming_the_server_s_filesystem (
+	session: sqlalchemy.orm.Session, elsewhere: pathlib.Path
+) -> None:
+	"""`#186`. A caller over HTTP is somewhere else, by construction.
+
+	They cannot open the file, and **no endpoint takes a path** — §12.4 gives restore none on
+	purpose, so the one thing a reader might do with an absolute path is the one thing they
+	cannot. What it did say is where this instance keeps its data, which is a fact about the
+	machine rather than about the backup.
+
+	**Asserted on the whole body rather than on the absence of one key**, because the value is
+	the disclosure and it could come back under any name — `location`, `file`, `directory`.
+	The data directory is a temporary one here, so its own path is the thing to search for.
+	"""
+
+	world = test_api_tasks._world(session)
+	taken = world.call("POST", "/v1/admin/backups")
+
+	assert taken.status_code == 201
+
+	listed = world.call("GET", "/v1/admin/backups")
+
+	assert listed.status_code == 200
+
+	root = str(elsewhere)
+
+	for what, body in (("the backup it took", taken.text), ("the catalogue", listed.text)):
+		assert root not in body, (
+			f"{what} carries {root!r}, which is this server's own filesystem layout handed to "
+			f"somebody who is not on this server and has no endpoint that would take it"
+		)
+
+	assert taken.json()["name"], "the backup is not identified by anything at all"
 
 
 def test_a_narrowed_token_cannot_take_a_backup (

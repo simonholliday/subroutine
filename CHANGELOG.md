@@ -265,6 +265,14 @@ upgrade involves.
 
 ### Changed
 
+- **`POST /v1/admin/backups` and `GET /v1/admin/backups` no longer report the backup's absolute
+  path on the server.** A caller over HTTP is somewhere else by construction: they cannot open
+  the file, and no endpoint takes a path — restore deliberately has none — so the one thing a
+  reader might do with it is the one thing they cannot. What it did say is where the instance
+  keeps its data. Each backup is still identified by `name`.
+
+  `subroutine db backup` still prints the path, and should: it runs beside the file.
+
 - **`subroutine show --json` answers `"history": null` when the record was not asked for**,
   where it used to answer `[]`. The key is still always present — one that appears only with a
   flag makes a script test for the key rather than read it — but `[]` was the answer to two
