@@ -22,6 +22,15 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine project update <key> --hide-nothing`** — offer every status in this project,
+  whatever the workspace hides. The stored value has always had three meanings — inherit what is
+  above, hide these, or override with nothing hidden — and the command line could spell two of
+  them. The third was reachable over HTTP and from nowhere a person types.
+
+  Saying `--hide-nothing` and `--hide-status` together is refused rather than resolved. Not
+  offered on a workspace, deliberately: a workspace is the top of the chain, so unset and empty
+  already mean the same thing there and the flag would change nothing.
+
 - **`subroutine explain estimates`** — what a unit of estimate means, because the program and
   the person typing one did not agree. A day is twenty-four hours and a week is a hundred and
   sixty-eight, which is deliberate and documented in the code and was written down nowhere a

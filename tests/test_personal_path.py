@@ -1553,6 +1553,69 @@ def test_capture_says_a_tag_is_made_and_a_project_is_not (
 	)
 
 
+def test_a_project_can_say_it_offers_every_status (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1034`, found by driving `#1029` on the served instance minutes after it shipped.
+
+	**The stored value has three meanings and the command line could spell two.** Absent
+	inherits whatever is above; a list hides those; an **empty list** offers everything and
+	overrides what is above. A project inside a workspace that hides a status could say
+	*inherit* or *hide these* and could not say *offer them all anyway* — reachable over HTTP,
+	and from an agent through `subroutine_call_api`, and from nowhere a person types.
+
+	**A sentinel rather than a mirror**, which is the decision on the item. `--show-status`
+	reads more naturally and composes, and it needs a rule for a key named on both sides — a
+	contradiction the caller can express and somebody then has to resolve. `--hide-nothing`
+	cannot contradict itself, and the state is rare: the ordinary project inherits.
+
+	**Read back through what publishes it rather than through the stored value.**
+	`views.Project.hidden_statuses` is the *resolved* answer, walked up the chain, so this
+	asserts the thing a client is actually told — and inherit-versus-override are the two
+	answers that differ only after that walk.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+
+	# The workspace hides one, which is the only arrangement where the three states differ.
+	run("workspace", "update", "personal", "--hide-status", "blocked")
+
+	def offered () -> list[str]:
+		"""What the listing says this project does not offer."""
+
+		rows = json.loads(run("project", "list", "--json").output)
+		web = next(one for one in rows if one["key"] == "web")
+		hidden: list[str] = web["hidden_statuses"]
+
+		return hidden
+
+	assert offered() == ["blocked"], (
+		"the project does not start out inheriting, so this cannot tell inherit from override"
+	)
+
+	run("project", "update", "web", "--hide-nothing")
+
+	assert offered() == [], (
+		"--hide-nothing left the project inheriting the workspace's hidden status, which is "
+		"the state it exists to override"
+	)
+
+	# **And it goes back**, or the flag would be a one-way door — the shape `#969` refused on
+	# a control that could name a state it could not return from.
+	run("project", "update", "web", "--hide-status", "")
+
+	assert offered() == ["blocked"], "clearing it stopped meaning inherit"
+
+	refused = run(
+		"project", "update", "web", "--hide-nothing", "--hide-status", "blocked", expect=1
+	)
+
+	assert "opposite" in refused.output, (
+		f"saying both was accepted, so one of them silently won: {refused.output!r}"
+	)
+
+
 def test_an_unknown_help_topic_lists_the_real_ones (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -5726,11 +5789,11 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 2_593
+REGISTER_CEILING = 2_546
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 92
+MODULE_LEVEL_FLOOR = 93
 
 
 def _register_span () -> tuple[int, int]:
@@ -5786,6 +5849,11 @@ def test_the_helpers_that_left_the_closure_can_be_called_directly () -> None:
 	whole complaint: a helper deciding how a date is worded was testable only through the
 	command that printed it. This calls three of them with nothing else set up.
 	"""
+
+	assert callable(subroutine.cli.personal._whoami), (
+		"`#1034` paid for its option by lifting `whoami`'s body out; if this is gone the "
+		"ratchet was met by putting something back rather than by moving it"
+	)
 
 	assert subroutine.cli.personal._kept(1) != subroutine.cli.personal._kept(2), (
 		"`#296`'s one sentence: the verb and the possessive agree with the count"

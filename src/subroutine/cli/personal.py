@@ -3689,13 +3689,39 @@ WORKSPACE_HIDE_STATUS_HELP = (
 )
 
 
-def _hidden_statuses (given: list[str] | None) -> dict[str, typing.Any] | None:
-	"""Read repeated ``--hide-status`` values into a settings change, or ``None`` for silence.
+def _hidden_statuses (
+	given: list[str] | None, *, nothing: bool = False
+) -> dict[str, typing.Any] | None:
+	"""Read ``--hide-status`` and ``--hide-nothing`` into a settings change, or ``None``.
 
 	Three states from one option, and the middle one is the reason this is a function: absent
 	says nothing, ``''`` clears, and any word sets. Typer reports the first two as an empty list
 	and as a list holding one empty string, which are a character apart and mean opposite things.
+
+	**And a fourth the command line could not spell** (`#1034`). The stored value has three
+	meanings — absent inherits whatever is above, a list hides those, and an **empty list**
+	offers everything and overrides what is above — and only the first two had a spelling here.
+	A project inside a workspace that hides ``needs_input`` could say *inherit* or *hide these*
+	and could not say *offer them all anyway*, which was reachable over HTTP and from an agent
+	through ``subroutine_call_api``.
+
+	**A sentinel rather than a mirror**, which is the decision recorded on the item. A
+	``--show-status needs_input`` reads more naturally and composes, and it needs a rule for
+	what happens when a key is named on both sides — a contradiction the caller can express and
+	somebody then has to resolve. ``--hide-nothing`` cannot contradict itself, and the state is
+	genuinely rare: the ordinary project inherits.
+
+	**Not offered on a workspace, and that is not an oversight.** A workspace is the top of the
+	chain, so an absent value falls through to the default of nothing hidden — absent and empty
+	are already the same answer there. The flag would be a control that changes nothing, which
+	is the defect this project finds most often.
 	"""
+
+	if nothing:
+		if given and any(one for one in given):
+			raise ValueError("cannot both hide a status and hide nothing")
+
+		return {subroutine.domain.settings.HIDDEN_STATUSES.key: []}
 
 	if not given:
 		return None
@@ -3714,6 +3740,7 @@ def _project_updated (
 	status: str,
 	colour: str,
 	hide_status: list[str] | None,
+	hide_nothing: bool,
 	private: bool | None,
 ) -> None:
 	"""Change the fields beside a project's address, and say what it means — `#983`, `#434`."""
@@ -3740,7 +3767,15 @@ def _project_updated (
 	if colour is not UNGIVEN:
 		settings[subroutine.domain.settings.COLOUR.key] = colour or None
 
-	settings.update(_hidden_statuses(hide_status) or {})
+	try:
+		settings.update(_hidden_statuses(hide_status, nothing=hide_nothing) or {})
+
+	except ValueError:
+		program.stop(
+			"--hide-status and --hide-nothing say opposite things.",
+			hint="Use --hide-nothing on its own to offer every status here, whatever the "
+			"workspace hides.",
+		)
 
 	if settings:
 		changes["settings"] = settings
@@ -3748,7 +3783,8 @@ def _project_updated (
 	if not changes:
 		program.stop(
 			"Nothing to change.",
-			hint="Pass --title, --description, --status, --colour, --hide-status or --private.",
+			hint="Pass --title, --description, --status, --colour, --hide-status, "
+			"--hide-nothing or --private.",
 		)
 
 	with program.opened() as world:
@@ -4051,6 +4087,69 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 		# the *task's* zone whatever the reader's is. What it moves is which day a deadline
 		# counts as, which is the whole of `#989`'s second decision.
 		program.say("  Your agenda is counted from midnight there, on every surface.")
+
+
+def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
+	"""Say which account this machine is acting as, per connection.
+
+	**Out of `register`'s closure to pay for `#1034`'s `--hide-nothing`** (`#943`'s ratchet,
+	which only goes down). It needed `say` and `console`, both of which :class:`Program` already
+	carries — which is the whole reason that class exists, and the reason this was a lift rather
+	than a rewrite.
+	"""
+
+	with program.opened(strict=strict) as world:
+		gathered = subroutine.fanout.gather(
+			world.clients, lambda client: client.me(), strict=strict
+		)
+
+		if json_output:
+			program.say(
+				json.dumps(
+					[
+						{
+							"connection": answer.connection.name,
+							# **Beside the instance's own numbers, not instead of them**
+							# (`#381`). `instance_version` arrives inside the response;
+							# these two are properties of the process that asked, and a
+							# reader comparing them is doing the whole job of this field.
+							"program_version": subroutine.installations.program(),
+							"plugin_version": subroutine.installations.plugin(),
+							**answer.value.model_dump(mode="json"),
+						}
+						for answer in gathered.answers
+					],
+					indent=2,
+				)
+			)
+
+			return
+
+		for index, answer in enumerate(gathered.answers):
+			if index:
+				program.say("")
+
+			if world.qualifies_connection:
+				program.console.print(rich.text.Text(answer.connection.label, style=HEADING))
+
+			for line in _whoami_lines(answer.value):
+				program.console.print(line)
+
+			# **A footer, and per connection rather than once** (`#381`). The program is
+			# the same for every block and the *instance* is not, so the one line that
+			# would be repeated is also the one that has to sit beside the answer it
+			# describes — a single trailing line naming three connections' versions is
+			# unreadable, and worse, is read as applying to whichever block is nearest.
+			program.console.print("")
+
+			for line in subroutine.views.versions(
+				answer.value,
+				program=subroutine.installations.program(),
+				plugin=subroutine.installations.plugin(),
+			):
+				program.console.print(line)
+
+		_report(program, world, gathered.failures)
 
 
 def _connections_listed (program: Program) -> None:
@@ -5866,6 +5965,9 @@ def register (
 		hide_status: list[str] = typer.Option(
 			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
 		),
+		hide_nothing: bool = typer.Option(
+			False, "--hide-nothing", help="Offer every status here, whatever the workspace hides."
+		),
 		private: bool | None = typer.Option(
 			None, "--private/--public", show_default=False, help="Who can see it."
 		),
@@ -5893,6 +5995,7 @@ def register (
 			status=status,
 			colour=colour,
 			hide_status=hide_status,
+			hide_nothing=hide_nothing,
 			private=private,
 		)
 
@@ -6468,58 +6571,7 @@ def register (
 
 		# One line per connection. Refusing this reported an ambiguous configuration through
 		# the one command somebody would run to find out about it (`#327`).
-		with program.opened(strict=strict) as world:
-			gathered = subroutine.fanout.gather(
-				world.clients, lambda client: client.me(), strict=strict
-			)
-
-			if json_output:
-				say(
-					json.dumps(
-						[
-							{
-								"connection": answer.connection.name,
-								# **Beside the instance's own numbers, not instead of them**
-								# (`#381`). `instance_version` arrives inside the response;
-								# these two are properties of the process that asked, and a
-								# reader comparing them is doing the whole job of this field.
-								"program_version": subroutine.installations.program(),
-								"plugin_version": subroutine.installations.plugin(),
-								**answer.value.model_dump(mode="json"),
-							}
-							for answer in gathered.answers
-						],
-						indent=2,
-					)
-				)
-
-				return
-
-			for index, answer in enumerate(gathered.answers):
-				if index:
-					say("")
-
-				if world.qualifies_connection:
-					console.print(rich.text.Text(answer.connection.label, style=HEADING))
-
-				for line in _whoami_lines(answer.value):
-					console.print(line)
-
-				# **A footer, and per connection rather than once** (`#381`). The program is
-				# the same for every block and the *instance* is not, so the one line that
-				# would be repeated is also the one that has to sit beside the answer it
-				# describes — a single trailing line naming three connections' versions is
-				# unreadable, and worse, is read as applying to whichever block is nearest.
-				console.print("")
-
-				for line in subroutine.views.versions(
-					answer.value,
-					program=subroutine.installations.program(),
-					plugin=subroutine.installations.plugin(),
-				):
-					console.print(line)
-
-			_report(program, world, gathered.failures)
+		_whoami(program, json_output=json_output, strict=strict)
 
 	# **A group whose bare invocation is still the listing**, the way the application's own is
 	# still the agenda (§12.2a). `subroutine connections` is in other people's notes and in
