@@ -7367,6 +7367,11 @@ class Sections:
 	children: typing.Sequence[subroutine.views.Task]
 	events: typing.Sequence[subroutine.views.Event]
 
+	#: Whether the caller asked for the record at all, which `events` cannot say (`#349`). An
+	#: empty sequence is what *both* answers look like, and the scripted path has to tell them
+	#: apart — carried here rather than passed beside `Sections`, so the two cannot disagree.
+	asked_for_history: bool
+
 
 def _referring (
 	client: subroutine.clients.base.Client, located: Located
@@ -7442,6 +7447,7 @@ def _sections (
 			if history
 			else []
 		),
+		asked_for_history=history,
 	)
 
 
@@ -8094,10 +8100,24 @@ def _shown_as_json (
 		# defect arriving on a new field.
 		"backlinks": [one.model_dump(mode="json") for one in referring],
 		"children": [child.model_dump(mode="json") for child in children],
-		# **Always present, empty when it was not asked for.** A key that appears only with
-		# `--history` makes a script test for the key rather than read it, and "absent" and
-		# "nothing happened" would then be the same shape for two different facts.
-		"history": [event.model_dump(mode="json") for event in events],
+		# **Always present, and `null` when it was not asked for** (`#349`). The key is
+		# unconditional for the reason it always was: one that appears only with `--history`
+		# makes a script test for the key rather than read it, so *absent* and *nothing
+		# happened* would be one shape for two facts.
+		#
+		# **That argument was sound and it collapsed the two facts one level along anyway.**
+		# `[]` was written for *not asked* and is also what *asked, and nothing has happened*
+		# produces — and an agent reading one invocation's output cannot know which flags
+		# produced it, which a script can. It was read as "the history is empty" on `#346` by
+		# somebody with no way to know better.
+		#
+		# So the distinction moves into the value, where a reader of the output can see it,
+		# rather than staying in a comment only a reader of this file can.
+		"history": (
+			[event.model_dump(mode="json") for event in events]
+			if gathered.asked_for_history
+			else None
+		),
 	}
 
 

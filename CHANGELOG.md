@@ -265,6 +265,16 @@ upgrade involves.
 
 ### Changed
 
+- **`subroutine show --json` answers `"history": null` when the record was not asked for**,
+  where it used to answer `[]`. The key is still always present — one that appears only with a
+  flag makes a script test for the key rather than read it — but `[]` was the answer to two
+  different questions: *you did not ask* and *you asked, and nothing has happened*. A script
+  knows which flags it passed; a reader assembling one answer out of several invocations does
+  not, and one read the empty list as an empty history.
+
+  **Anything matching on `[]` to mean "no history" should match on `null` instead**, or pass
+  `--history` and read what comes back.
+
 - **An agent asking what is on today gets the same agenda everybody else does.** It used to
   be given three of the five sections — overdue, due today and the week ahead — and the two
   it was not given are the ones most days actually have anything in. On this project's own

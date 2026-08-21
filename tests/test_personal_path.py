@@ -997,20 +997,46 @@ def test_show_can_print_what_has_happened_to_an_item (
 	assert "commented" in shown, "a comment must reach the history — that is what #52 built"
 
 
-def test_the_history_is_in_the_json_whether_or_not_it_was_asked_for (
+def test_the_history_says_whether_it_was_asked_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""A key that appears only with a flag makes a script test for the key rather than read it.
+	"""`#349`, and the original argument here was sound and collapsed two facts anyway.
 
-	"Absent" and "nothing has happened" would then be the same shape for two different facts,
-	which is the `due_at: null` mistake `_as_json` already avoids for documents.
+	**The key stays unconditional and that half is unchanged**: one that appears only with a
+	flag makes a script test for the key rather than read it, so *absent* and *nothing has
+	happened* would be one shape for two facts — the `due_at: null` mistake `_as_json` already
+	avoids for documents.
+
+	**What was wrong is that `[]` was the answer to both questions.** It was written for *not
+	asked* and is also what *asked, and nothing has happened* produces. A script knows which
+	flags it passed and can tell them apart; **a reader assembling one answer out of several
+	invocations cannot** — which is what an agent is, and on `#346` one read `"history": []` and
+	reported that the history was empty. It had no way to know better.
+
+	So the distinction moved into the value, where a reader of the *output* can see it, rather
+	than staying in a comment only a reader of the source can.
+
+	**The third state is honestly unreachable for a task and the shape is still right**:
+	creation is an event, so `[]` cannot be produced here today. Asserting `null` against a
+	populated list is what the reader actually has to distinguish.
 	"""
 
 	run("init")
 	run("add", "Fix the parser")
 
-	assert json.loads(run("show", "1", "--json").output)["history"] == []
-	assert json.loads(run("show", "1", "--history", "--json").output)["history"]
+	unasked = json.loads(run("show", "1", "--json").output)["history"]
+	asked = json.loads(run("show", "1", "--history", "--json").output)["history"]
+
+	assert unasked is None, (
+		f"asking without --history answered {unasked!r}, which is what an empty history looks "
+		f"like too — the two facts this key has to keep apart."
+	)
+
+	assert asked, "asking with --history answered nothing, so the flag reached nowhere"
+
+	assert "history" in json.loads(run("show", "1", "--json").output), (
+		"the key went missing without the flag, which makes a script test for it"
+	)
 
 
 def test_a_defer_can_say_what_it_is_waiting_for (
