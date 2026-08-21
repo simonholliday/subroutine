@@ -1521,6 +1521,21 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	all checked in `tests/test_web.py` at no cost here — six tests there against one gesture and
 	three assertions here. What is left is the wiring, which is the only half that has ever
 	actually broken.
+
+	**Raised to thirty-five for `SR#800`, and the case is that the raise beside it did not
+	cover it.** `SR#863` measures the add form across two *views* and this measures the add form
+	against the *edit* form — which sits inside `.detail` and is 50px narrower, one whole column
+	at `minmax(190px, 1fr)`. A cap is a maximum, so `SR#863`'s fix could never bind there, and
+	its test could never see it: both of its pages measure the same element in the same
+	container. **Two tests of one shape, and neither is the other's duplicate.**
+
+	**Nothing cheaper reaches it.** The claim is where a field lands, which is the cascade, a
+	container's padding and a grid resolving against an available width — `tests/test_web.py`
+	has no cascade and `SR#863`'s own comment records that asking for the specified
+	`grid-template-columns` measures the stylesheet rather than the layout.
+
+	**Read for fat**: one gesture per form and two assertions, and the second is what stops the
+	first passing at a viewport where both collapse to one column.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1528,7 +1543,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 34, (
+	assert len(tests) <= 35, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -1585,6 +1600,67 @@ def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) ->
 	)
 
 	page.close()
+
+
+def test_the_two_forms_put_a_field_in_the_same_place (running: typing.Any) -> None:
+	"""`SR#800`, Simon driving `SR#755`: *"I instinctively look in the same place."*
+
+	The add form and the edit form are the same component and the same field order — what
+	differed was the **wrapping**, because ``auto-fit`` asks the container and the two forms have
+	different containers. The edit form sits inside ``.detail``, which spends 24px of padding and
+	a 1px border on each side. 50px, which at ``minmax(190px, 1fr)`` is a whole column.
+
+	**`SR#863` fixed the neighbouring half and could not fix this one**, which is why this
+	outlived it by ten days. That gave ``.adding`` its own ``max-width``, and a maximum binds
+	only where there is room to spare — inside ``.detail`` the form was *already* narrower, so
+	the cap was never reached and the comment claiming the count was "now stable" was true of one
+	form and false of the other.
+
+	**Wide on purpose.** Below 906px both forms collapse to the same smaller count and agree for
+	a reason that has nothing to do with the fix — the same trap `SR#863`'s own test records one
+	function down.
+
+	**Read for fat**: one gesture per form and two assertions. The second is what stops the first
+	passing against a viewport where both forms are one column, which is the state a broken fix
+	most easily produces.
+	"""
+
+	opened, _written, _refusing, *_ = running
+
+	# The same measurement `SR#863` uses, and for its reason: a `<fieldset>` lays its contents
+	# out in an anonymous box, so the *specified* `grid-template-columns` measures the stylesheet
+	# rather than the layout. Distinct left offsets are the column count a reader meets.
+	lands = """node => new Set(
+		[...node.children].map(kid => Math.round(kid.getBoundingClientRect().left))
+	).size"""
+
+	# **Two pages, because an open item carries no capture box** — `Adding` is rendered by the
+	# list and the board and not by `Detail`. The viewport is set identically on both, which is
+	# the whole of what has to be held equal for the comparison to mean anything.
+	listing = opened("/projects/subroutine")
+	listing.set_viewport_size({"width": 2200, "height": 900})
+	listing.click(".adding .more")
+	listing.wait_for_selector(".adding .details", timeout=10_000)
+	adding = listing.eval_on_selector(".adding .details", lands)
+	listing.close()
+
+	item = opened("/projects/subroutine/ui/42")
+	item.set_viewport_size({"width": 2200, "height": 900})
+	item.click(".detail button.edit")
+	item.wait_for_selector(".detail form.editing .details", timeout=10_000)
+	editing = item.eval_on_selector(".detail form.editing .details", lands)
+	item.close()
+
+	assert adding == editing, (
+		f"the add form lays its fields out in {adding} columns and the edit form in {editing}, "
+		f"so the same field is in a different place depending on which one you opened. A form "
+		f"whose fields move cannot be filled in without reading every label."
+	)
+
+	assert adding > 1, (
+		f"both forms are {adding} column wide, so they agree for a reason that has nothing to "
+		f"do with the fix and this would pass against any stylesheet at all."
+	)
 
 
 def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:

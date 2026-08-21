@@ -515,9 +515,11 @@ fieldset {
 /* **A form keeps the reading measure wherever it is opened** (`#863`). `#846`'s own comment
    says 1100px is "right for a list, a document and a form, and wrong for a board" — and then
    put `wide` on the *frame*, so the board's width reached the form standing above it. The
-   fields are laid out with `auto-fit`, so the column count is derived from that width and a
+   fields were laid out with `auto-fit`, so the column count was derived from that width and a
    field landed somewhere different depending on which view you had opened the box from. A
-   date and its time are siblings in one cell, so they wrapped differently too.
+   date and its time are siblings in one cell, so they wrapped differently too. **The count is
+   declared now** (`#800`), which fixes the half this could not: the cap is a *maximum*, so it
+   never bound inside `.detail`, where the edit form was already narrower.
 
    Capped here rather than by re-capping the frame, because the board genuinely wants the
    screen and that is the one thing `#846` got right. */
@@ -563,17 +565,34 @@ fieldset {
 
 
 
-/* As many columns of at least 190px as the form's width allows, down to one on a phone.
-   **This said "two columns where there is room and one where there is not"**, which is not what
-   `auto-fit` does and never was: at the reading measure it resolves to five. A sentence
-   describing an intent nobody implemented is worse than none, because it stops the next reader
-   checking — `#863`, and the same shape as the `pyproject.toml` comment `#828` found.
+/* **The column count is declared, not derived from the width available** (`#800`). `auto-fit`
+   asks the *container*, and the two forms have different containers: the add form is the frame's
+   own inner width, and the edit form sits inside `.detail`, which spends 24px of padding and a
+   1px border on each side. 50px, which at `minmax(190px, 1fr)` is a whole column — measured at
+   five against four, which is exactly the table Simon put on `#800`.
 
-   The count is now stable because `.adding` carries its own measure; before that it followed
-   whichever view the form had been opened from. */
+   **The sentence above this used to say the count was stable because `.adding` carries its own
+   measure.** True of the add form, false of the edit form, and it is the very shape `#863`
+   warned about one line further down: a description that stops the next reader checking.
+   `--measure-inner` is a *maximum*, so it binds where there is room to spare and does nothing
+   where the container is already narrower.
+
+   **Four is derived rather than chosen.** A column holds 190px, gaps are 12px, and the narrower
+   of the two containers is the viewport less 110px, so N columns need `202N - 12 <= width - 110`
+   — 906px for four and 1108px for five, against a frame that caps at 1100. Four is the most the
+   two forms can ever share, and it is also the better grouping: at five, importance and urgency
+   fall on different rows, and they are the one pair that has to be read together. */
+.adding {
+	--form-columns: 1;
+}
+
+@media (min-width: 502px) { .adding { --form-columns: 2; } }
+@media (min-width: 704px) { .adding { --form-columns: 3; } }
+@media (min-width: 906px) { .adding { --form-columns: 4; } }
+
 .adding .details {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	grid-template-columns: repeat(var(--form-columns), minmax(0, 1fr));
 	gap: var(--space-5) var(--space-6);
 	margin-top: var(--space-6);
 	padding: var(--space-7);
@@ -632,9 +651,12 @@ fieldset {
    `display: grid` here made grid items of the summary and that box alone — every field came
    out 219px wide inside a 938px row, stacked down the left, with the select clipped and the
    preview wrapped. `::details-content` addresses it directly and is too new to rely on. */
+/* The same declared count as the grid it sits inside, and for the same reason: this fieldset
+   spans `.details`, so its own width is the container's too, and `auto-fit` here would put the
+   repeat fields on a different rhythm from the fields above them in one of the two forms. */
 .adding .details .repeats .fields {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+	grid-template-columns: repeat(var(--form-columns), minmax(0, 1fr));
 	gap: var(--space-5) var(--space-6);
 	margin-top: var(--space-5);
 }

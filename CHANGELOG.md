@@ -291,6 +291,16 @@ upgrade involves.
 
 ### Fixed
 
+- **The add form and the edit form put a field in the same place.** They are the same component
+  in the same order, but the number of columns was derived from the width available — and the
+  edit form sits inside a card, 50px narrower, which at a 190px minimum is a whole column. So
+  the add form wrapped after five fields and the edit form after four, and importance and
+  urgency, the one pair that has to be read together, fell on different rows in one of them.
+
+  The count is declared now rather than derived, so it depends on the window and not on which
+  form you opened. **Four at a full-width window**, which is the most the narrower of the two
+  can hold at the same field width.
+
 - **Editing a document in the browser offers a document's fields, and saving keeps its body.**
   Pressing **Edit** on a document showed a task's form: an empty *Description* where its body
   should be, a task's dates, importance and assignee — and no way to reach the body at all.
