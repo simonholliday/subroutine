@@ -591,13 +591,31 @@ def test_both_list_the_same_rows_in_the_same_order (pair: Pair) -> None:
 	]
 
 
-def test_both_honour_the_same_page_size (pair: Pair) -> None:
-	"""Equivalence over the *parameters*, not just the methods.
+def test_both_read_past_the_first_page_and_say_when_they_have_not (pair: Pair) -> None:
+	"""Equivalence over the *parameters*, and `SR#1037` — over what comes back past the first page.
 
-	This is where the claim was actually false. `local.tasks(limit=1000)` returned every row
-	and `remote.tasks(limit=1000)` returned `max_page_size`, because each side had its own copy
-	of "how big is a page" — and the test above compares default arguments only, so it could not
-	notice. Both now go through `domain.paging.size`.
+	**The original claim.** `local.tasks(limit=1000)` returned every row and
+	`remote.tasks(limit=1000)` returned `max_page_size`, because each side had its own copy of
+	"how big is a page". Both go through `domain.paging` now.
+
+	**And they agreed on the wrong answer.** This asserted `== settings.max_page_size`, which is
+	the silent cap `SR#1037` is about: the API is completely correct — it caps one response, says
+	`has_more` and hands back a keyset cursor — and every client read `items` and threw the rest
+	away. So a caller asking for 205 got 200 and nothing said so.
+
+	**Worse than a plain cut, which is why it survived.** The way everything here detects a
+	short answer is to ask for one more than it wants: ask for 206, receive 200, conclude
+	200 < 206 and therefore that is all there is. The CLI's *…and more* was exactly that trick,
+	so the flag that exists to say *this list is not everything* was the thing least able to.
+
+	**`limit` is the caller's and `max_page_size` still bounds one response.** That reading
+	changes no published promise: the setting has always been about the size of a page. The
+	HTTP client follows the cursor to satisfy the number; the local client asks the database
+	once. Both then say whether there were more.
+
+	**Driven against a real instance rather than a low cap**, because a fixture that sets
+	`max_page_size` to 3 proves the paging works at 3 and says nothing about the number an
+	instance actually serves.
 	"""
 
 	settings = subroutine.config.Settings(dev_mode=True)
@@ -608,10 +626,30 @@ def test_both_honour_the_same_page_size (pair: Pair) -> None:
 
 	local, remote = pair.both()
 
-	assert len(local.tasks(limit=beyond)) == settings.max_page_size
+	for named, client in (("local", local), ("remote", remote)):
+		got = client.tasks(limit=beyond)
+
+		assert len(got) == beyond, (
+			f"the {named} client answered {len(got)} rows to a request for {beyond}, and "
+			f"`max_page_size` is {settings.max_page_size} — the cap on a *response* has become "
+			f"a cap on a *call*"
+		)
+
+		assert not got.has_more, (
+			f"the {named} client says there are more than {beyond} tasks, and there are "
+			f"exactly {beyond}"
+		)
+
+		short = client.tasks(limit=3)
+
+		assert len(short) == 3
+		assert short.has_more, (
+			f"the {named} client read 3 of {beyond} tasks and did not say it had stopped, "
+			f"which is the whole of what a caller cannot otherwise find out"
+		)
+
 	assert local.tasks(limit=beyond) == remote.tasks(limit=beyond)
 	assert local.tasks(limit=3) == remote.tasks(limit=3)
-	assert len(local.tasks(limit=3)) == 3
 
 
 @pytest.mark.parametrize("refused", [0, -1])

@@ -2049,9 +2049,18 @@ def _listing (
 		item = world.connection(client.connection.name)
 		rows: list[Row] = []
 
-		# One past the limit, of each kind, so that "was anything cut?" is answered by
-		# what came back rather than by a second counting query.
-		asked = limit + 1
+		# **The instance's own answer, rather than one row past the limit** (`#1037`).
+		# This asked for `limit + 1` so that *was anything cut?* was answered by what came
+		# back — which was the only thing available while every client threw the envelope
+		# away, and is exactly the trick that made the truncation invisible: ask for 501,
+		# receive 200, conclude that is all there is.
+		#
+		# **Both signals are still needed and they answer different questions.** A listing's
+		# `has_more` says the instance held more of *that kind*; the merge can also overflow
+		# because two kinds of `limit` rows each make more than `limit` between them, and no
+		# single listing knows that.
+		asked = limit
+		cut = False
 
 		parked = 0
 
@@ -2127,13 +2136,16 @@ def _listing (
 					raise
 
 				missing = unknown
-				found_here = []
+				# **An empty `Listing`, not an empty list** (`#1037`). A listing carries
+				# `has_more`, and a workspace that answered nothing genuinely has no more.
+				found_here = subroutine.clients.base.Listing()
 				answered = False
 
 			else:
 				reached = True
 				answered = True
 
+			cut = cut or found_here.has_more
 			rows.extend((client.connection.name, found) for found in found_here)
 
 			# **`--ready` is about work you could start, so a document is not an answer to
@@ -2224,7 +2236,7 @@ def _listing (
 				# more often than a document's — so reporting the document one, purely
 				# because it was asked second, names the less likely of two right answers.
 				missing = missing or unknown
-				found_documents = []
+				found_documents = subroutine.clients.base.Listing()
 
 			else:
 				# **Documents answering is reaching this workspace too.** Without this,
@@ -2237,6 +2249,7 @@ def _listing (
 				# "a filter was asked for".
 				reached = True
 
+			cut = cut or found_documents.has_more
 			rows.extend((client.connection.name, found) for found in found_documents)
 
 		# **Refused by name when the key is nowhere on this connection.** A project that
@@ -2285,7 +2298,7 @@ def _listing (
 		# and "it is not in the list" quietly stopped meaning "it does not exist", which
 		# is the one inference ref addressing is built to support. The agenda had always
 		# reported its own remainder; this is the same fact, carried the same way.
-		return Listing(rows=rows[:limit], more=len(rows) > limit, parked=parked)
+		return Listing(rows=rows[:limit], more=cut or len(rows) > limit, parked=parked)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
 

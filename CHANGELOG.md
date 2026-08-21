@@ -349,6 +349,20 @@ upgrade involves.
 
 ### Fixed
 
+- **A client reads past the first page, and says when it has not.** Every listing method — on
+  both transports — read a response's `items` and threw the rest of the envelope away, so
+  `limit=500` returned `max_page_size` rows and nothing said so. The API was correct throughout:
+  it caps one response, answers `has_more: true` and hands back a keyset cursor.
+
+  **Worse than a plain truncation**, because the way a caller detects a short answer is to ask
+  for one more than it wants — ask for 501, receive 200, conclude that is all there is. The
+  CLI's *…and more* was exactly that trick, so the flag whose job is to say *this list is not
+  everything* was the least able to.
+
+  `limit` is now what the caller asked for and `max_page_size` still bounds one response, which
+  is what the setting has always meant. A listing is still a list, so nothing that reads one has
+  to change; what it gains is `has_more`.
+
 - **A link made from the far end records the item the reader was actually on.** *"The action
   occurs on the item which is edited to add the link"* held everywhere except one control: the
   browser implemented *blocked by* by swapping the ends and posting to the other item, so the

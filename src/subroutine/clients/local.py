@@ -349,11 +349,11 @@ class Client:
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Task]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
 		model = subroutine.db.models.work.Task
-		size = subroutine.domain.paging.size(limit, self.settings)
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
 
 		with self._opened() as (session, actor):
@@ -641,12 +641,16 @@ class Client:
 							order, allowed=sortable, default=fallback, tiebreak=model.id
 						)
 					)
-					.limit(size)
+					.limit(size + 1)
 				)
 			)
 			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
 
-			return [subroutine.views.task(row, vocabulary) for row in rows]
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[subroutine.views.task(row, vocabulary) for row in rows[:size]],
+				has_more=len(rows) > size,
+			)
 
 	def task (
 		self, *, ref: int, workspace: str | None = None
@@ -676,11 +680,11 @@ class Client:
 		status: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Document]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
 		model = subroutine.db.models.work.Document
-		size = subroutine.domain.paging.size(limit, self.settings)
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -805,12 +809,16 @@ class Client:
 							order, allowed=sortable, default=fallback, tiebreak=model.id
 						)
 					)
-					.limit(size)
+					.limit(size + 1)
 				)
 			)
 			vocabulary = subroutine.views.Vocabulary.for_documents(session, rows)
 
-			return [subroutine.views.document(row, vocabulary) for row in rows]
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[subroutine.views.document(row, vocabulary) for row in rows[:size]],
+				has_more=len(rows) > size,
+			)
 
 	def document (
 		self, *, ref: int, workspace: str | None = None
@@ -1077,7 +1085,7 @@ class Client:
 		entity_type: str = "task",
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has happened to one item, newest first.
 
 		**No upper bound**, which is the one thing this shares with the route rather than with
@@ -1085,7 +1093,7 @@ class Client:
 		item and immediately reading its history shows nothing (§5.11a).
 		"""
 
-		size = subroutine.domain.paging.size(limit, self.settings)
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -1101,11 +1109,15 @@ class Client:
 			rows = session.scalars(
 				statement.order_by(
 					subroutine.db.models.activity.Event.seq.desc()
-				).limit(size)
+				).limit(size + 1)
 			).all()
 			described = subroutine.domain.events.descriptions(session, rows)
 
-			return [subroutine.views.event(row, described) for row in rows]
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[subroutine.views.event(row, described) for row in rows[:size]],
+				has_more=len(rows) > size,
+			)
 
 	def changes (
 		self,
@@ -1115,7 +1127,7 @@ class Client:
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
 		**The watermark, the scoping, both cursor refusals and "``since`` overrules ``newest``"
@@ -1132,7 +1144,7 @@ class Client:
 		miss" answerable in one call by somebody working across two.
 		"""
 
-		size = subroutine.domain.paging.size(limit, self.settings)
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 
 		with self._opened() as (session, actor):
 			if workspace is None:
@@ -1149,7 +1161,7 @@ class Client:
 				session, since=since, workspace_ids=workspace_ids
 			)
 
-			rows, _more = subroutine.domain.events.page(
+			rows, more = subroutine.domain.events.page(
 				session,
 				actor,
 				workspace_ids=workspace_ids,
@@ -1160,7 +1172,16 @@ class Client:
 			)
 			described = subroutine.domain.events.descriptions(session, rows)
 
-			return [subroutine.views.event(row, described) for row in rows]
+			# **The feed's own answer, which this was already being given and threw away**
+			# (`#1037`). `events.page` returns `(rows, more)` and the second was bound to
+			# `_more` — the underscore saying *deliberately unused* about the one fact a caller
+			# needed. Everywhere else here the extra row is the answer; here it is a real
+			# return value, and using the row count instead would be a second computation of
+			# something already correct.
+			return subroutine.clients.base.Listing(
+				[subroutine.views.event(row, described) for row in rows],
+				has_more=more,
+			)
 
 	def projects (
 		self,
@@ -1171,10 +1192,10 @@ class Client:
 		visibility: str | None = None,
 		include_archived: bool = False,
 		order: str | None = None,
-	) -> list[subroutine.views.Project]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
-		size = subroutine.domain.paging.size(limit, self.settings)
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		model = subroutine.db.models.project.Project
 
 		with self._opened() as (session, actor):
@@ -1213,13 +1234,17 @@ class Client:
 							default=subroutine.domain.ordering.DEFAULT_PROJECT_ORDER,
 							tiebreak=model.id,
 						)
-					).limit(size)
+					).limit(size + 1)
 				)
 			)
 
 			vocabulary = subroutine.views.Vocabulary.for_projects(session, rows)
 
-			return [subroutine.views.project(row, vocabulary) for row in rows]
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[subroutine.views.project(row, vocabulary) for row in rows[:size]],
+				has_more=len(rows) > size,
+			)
 
 	def create_project (
 		self,

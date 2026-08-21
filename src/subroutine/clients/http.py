@@ -228,54 +228,54 @@ class Client:
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Task]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
-		body = self._json(
-			"GET",
-			"/v1/tasks",
-			params=_dated(
-				filters,
-				_given(
-					workspace_id=workspace,
-					limit=limit,
-					# **Three-valued on the wire, not two.** Sending nothing for `False` would make
-					# "no finished work" and "did not say" the same request, and `#710`'s refusal of
-					# the contradiction with a finished `status_category` could never fire remotely.
-					include_completed=(
-						None if include_completed is None else str(include_completed).lower()
-					),
-					order=order,
-					project=project,
-					# Sent as written and resolved at the far end (`#501`). A username looked up
-					# here would be a second copy of the rule and a second refusal to keep in step
-					# with the local client's.
-					assignee=assignee,
-					status=status,
-					status_category=status_category,
-					type=type,
-					due_before=None if due_before is None else due_before.isoformat(),
-					due_after=None if due_after is None else due_after.isoformat(),
-					subtree="true" if subtree else None,
-					# Refused here as well as at the far end, so a typo costs no round trip and
-					# is named the same way whether or not a server was reachable.
-					deferred=(
-						None
-						if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
-						else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
-					),
-					q=q,
-					ready="true" if ready else None,
-					deleted="true" if deleted else None,
-					parent=parent,
+		asking = _dated(
+			filters,
+			_given(
+				workspace_id=workspace,
+				limit=limit,
+				# **Three-valued on the wire, not two.** Sending nothing for `False` would make
+				# "no finished work" and "did not say" the same request, and `#710`'s refusal of
+				# the contradiction with a finished `status_category` could never fire remotely.
+				include_completed=(
+					None if include_completed is None else str(include_completed).lower()
 				),
+				order=order,
+				project=project,
+				# Sent as written and resolved at the far end (`#501`). A username looked up
+				# here would be a second copy of the rule and a second refusal to keep in step
+				# with the local client's.
+				assignee=assignee,
+				status=status,
+				status_category=status_category,
+				type=type,
+				due_before=None if due_before is None else due_before.isoformat(),
+				due_after=None if due_after is None else due_after.isoformat(),
+				subtree="true" if subtree else None,
+				# Refused here as well as at the far end, so a typo costs no round trip and
+				# is named the same way whether or not a server was reachable.
+				deferred=(
+					None
+					if deferred == subroutine.domain.readiness.DEFAULT_DEFERRAL
+					else subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+				),
+				q=q,
+				ready="true" if ready else None,
+				deleted="true" if deleted else None,
+				parent=parent,
 			),
 		)
 
-		if "items" not in body:
-			raise self._not_an_instance("its /v1/tasks response has no 'items'")
-
-		return [self._parsed(subroutine.views.Task, item) for item in body["items"]]
+		return self._collected(
+			subroutine.views.Task,
+			self._json("GET", "/v1/tasks", params=asking),
+			endpoint="tasks",
+			path="/v1/tasks",
+			params=asking,
+			wanted=limit,
+		)
 
 	def task (
 		self, *, ref: int, workspace: str | None = None
@@ -305,28 +305,31 @@ class Client:
 		status: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Document]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
-		body = self._json(
-			"GET",
-			"/v1/documents",
-			params=_dated(
-				filters,
-				_given(
-					workspace_id=workspace,
-					limit=limit,
-					order=order,
-					project=project,
-					q=q,
-					deleted="true" if deleted else None,
-					status=status,
-					type=type,
-				),
+		asking = _dated(
+			filters,
+			_given(
+				workspace_id=workspace,
+				limit=limit,
+				order=order,
+				project=project,
+				q=q,
+				deleted="true" if deleted else None,
+				status=status,
+				type=type,
 			),
 		)
 
-		return self._collected(subroutine.views.Document, body, endpoint="documents")
+		return self._collected(
+			subroutine.views.Document,
+			self._json("GET", "/v1/documents", params=asking),
+			endpoint="documents",
+			path="/v1/documents",
+			params=asking,
+			wanted=limit,
+		)
 
 	def document (
 		self, *, ref: int, workspace: str | None = None
@@ -456,16 +459,19 @@ class Client:
 		entity_type: str = "task",
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has happened to one item, newest first."""
 
-		body = self._json(
-			"GET",
-			f"/v1/{_plural(entity_type)}/{ref}/events",
-			params=_given(workspace_id=workspace, limit=limit),
-		)
+		asking = _given(workspace_id=workspace, limit=limit)
 
-		return self._collected(subroutine.views.Event, body, endpoint="events")
+		return self._collected(
+			subroutine.views.Event,
+			self._json("GET", f"/v1/{_plural(entity_type)}/{ref}/events", params=asking),
+			endpoint="events",
+			path=f"/v1/{_plural(entity_type)}/{ref}/events",
+			params=asking,
+			wanted=limit,
+		)
 
 	def changes (
 		self,
@@ -475,24 +481,27 @@ class Client:
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see."""
 
-		body = self._json(
-			"GET",
-			"/v1/changes",
-			params=_given(
-				since=since,
-				# The endpoint takes a word rather than a flag, so a later `?actor=<username>`
-				# needs no second parameter and no deprecation.
-				actor="me" if mine else None,
-				newest=True if newest else None,
-				workspace_id=workspace,
-				limit=limit,
-			),
+		asking = _given(
+			since=since,
+			# The endpoint takes a word rather than a flag, so a later `?actor=<username>`
+			# needs no second parameter and no deprecation.
+			actor="me" if mine else None,
+			newest=True if newest else None,
+			workspace_id=workspace,
+			limit=limit,
 		)
 
-		return self._collected(subroutine.views.Event, body, endpoint="changes")
+		return self._collected(
+			subroutine.views.Event,
+			self._json("GET", "/v1/changes", params=asking),
+			endpoint="changes",
+			path="/v1/changes",
+			params=asking,
+			wanted=limit,
+		)
 
 	def projects (
 		self,
@@ -503,23 +512,26 @@ class Client:
 		visibility: str | None = None,
 		include_archived: bool = False,
 		order: str | None = None,
-	) -> list[subroutine.views.Project]:
+	) -> subroutine.clients.base.Listing[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children."""
 
-		body = self._json(
-			"GET",
-			"/v1/projects",
-			params=_given(
-				workspace_id=workspace,
-				limit=limit,
-				parent=parent,
-				visibility=visibility,
-				include_archived="true" if include_archived else None,
-				order=order,
-			),
+		asking = _given(
+			workspace_id=workspace,
+			limit=limit,
+			parent=parent,
+			visibility=visibility,
+			include_archived="true" if include_archived else None,
+			order=order,
 		)
 
-		return self._collected(subroutine.views.Project, body, endpoint="projects")
+		return self._collected(
+			subroutine.views.Project,
+			self._json("GET", "/v1/projects", params=asking),
+			endpoint="projects",
+			path="/v1/projects",
+			params=asking,
+			wanted=limit,
+		)
 
 	def create_project (
 		self,
@@ -1408,20 +1420,74 @@ class Client:
 			) from None
 
 	def _collected (
-		self, model: type[Parsed], body: typing.Any, *, endpoint: str
-	) -> list[Parsed]:
-		"""Read an enveloped collection into view models.
+		self,
+		model: type[Parsed],
+		body: typing.Any,
+		*,
+		endpoint: str,
+		path: str | None = None,
+		params: dict[str, typing.Any] | None = None,
+		wanted: int | None = None,
+	) -> subroutine.clients.base.Listing[Parsed]:
+		"""Read an enveloped collection into view models, following the cursor if there is one.
 
 		Insists on the envelope rather than tolerating a bare array, even though one endpoint
 		used to send one. Accepting both shapes would make this client the place where the
 		§8.4 rule quietly stopped being true, and the next endpoint to forget it would be
 		found by somebody else's client rather than by ours.
+
+		**And then it threw the rest of the envelope away** (`#1037`). The API caps one response
+		at the instance's ``max_page_size``, says ``has_more`` and hands back a keyset cursor;
+		this read ``items`` and nothing else, so a caller asking for 500 rows got 200 and had no
+		way to tell. **Worse than a plain cut**, because the way anything here detects a short
+		answer is to ask for one more than it wants — ask for 501, receive 200, conclude that is
+		all there is.
+
+		**``limit`` is what the caller asked for; ``max_page_size`` still bounds one response.**
+		That reading changes no published promise — the setting has always been about the size
+		of a *page* — and it stops the setting silently becoming a cap on a *call*. The number
+		of requests is bounded by the caller's own limit.
+
+		``path`` and ``params`` are what makes following possible; without them this reads the
+		one page it was handed, which is right for a collection that cannot be paged.
 		"""
 
 		if not isinstance(body, dict) or "items" not in body:
 			raise self._not_an_instance(f"its /v1/…/{endpoint} response has no 'items'")
 
-		return [self._parsed(model, item) for item in body["items"]]
+		collected = [self._parsed(model, item) for item in body["items"]]
+		page = body.get("page") or {}
+		has_more = bool(page.get("has_more"))
+		cursor = page.get("next_cursor")
+
+		while path is not None and params is not None:
+			# **Four ways to stop, and the last is the one that matters.** The caller has what
+			# it asked for; the instance says there is no more; it offered no cursor; or a page
+			# came back empty — which a correct instance cannot do and anything else would
+			# spin on for ever.
+			if wanted is not None and len(collected) >= wanted:
+				break
+
+			if not has_more or cursor is None or not body["items"]:
+				break
+
+			asking = dict(params)
+			asking["cursor"] = cursor
+
+			if wanted is not None:
+				asking["limit"] = wanted - len(collected)
+
+			body = self._json("GET", path, params=asking)
+
+			if not isinstance(body, dict) or "items" not in body:
+				raise self._not_an_instance(f"its /v1/…/{endpoint} response has no 'items'")
+
+			collected.extend(self._parsed(model, item) for item in body["items"])
+			page = body.get("page") or {}
+			has_more = bool(page.get("has_more"))
+			cursor = page.get("next_cursor")
+
+		return subroutine.clients.base.Listing(collected, has_more=has_more)
 
 	def _not_an_instance (
 		self, because: str, *, body: typing.Any | None = None

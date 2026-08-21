@@ -67,6 +67,42 @@ CALLABLE_METHODS = READING_VERBS | frozenset({"POST", "PUT", "PATCH", "DELETE"})
 API_PREFIX = "/v1"
 
 
+#: What a listing method returns — the rows, and whether they are all of them.
+#:
+#: **A list, so nothing that already reads one has to change** (`#1037`). Every caller here
+#: iterates, indexes or counts, and a subclass answers all three; what it adds is the one fact
+#: the envelope always carried and no client ever passed on. Returning a wrapper object instead
+#: would have made every existing call site a rewrite for a fact most of them do not want.
+LISTED = typing.TypeVar("LISTED")
+
+
+class Listing(list[LISTED]):
+	"""Rows from one listing, and whether the instance had more of them.
+
+	**The defect this exists for is not truncation, it is silent truncation** (`#1037`). The API
+	is completely correct — it caps at ``max_page_size``, says ``has_more: true`` and hands back
+	a keyset cursor — and every client threw the envelope away, so a caller asking for 500 got
+	200 and had no way to tell. **Worse than a plain cut**, because the way anything here
+	detects a short answer is to ask for one more than it wants: ask for 501, receive 200,
+	conclude 200 < 501 and therefore that is all there is.
+
+	``has_more`` is the instance's own answer rather than a count compared against a limit, so
+	it stays right when a page is short for some other reason.
+	"""
+
+	#: Whether the instance holds rows beyond the ones here.
+	has_more: bool = False
+
+	def __init__ (
+		self, rows: typing.Iterable[LISTED] = (), *, has_more: bool = False
+	) -> None:
+		"""Hold the rows, and what the instance said about the ones past them."""
+
+		super().__init__(rows)
+
+		self.has_more = has_more
+
+
 @dataclasses.dataclass(frozen=True)
 class Identity:
 	"""Who a connection says it is, and what it lets this credential reach.
@@ -274,7 +310,7 @@ class Client(typing.Protocol):
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Task]:
+	) -> Listing[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
 		``filters`` carries §9.6's date comparisons — ``{"created_at.gte": "yesterday"}``
@@ -357,7 +393,7 @@ class Client(typing.Protocol):
 		status: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
-	) -> list[subroutine.views.Document]:
+	) -> Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 
 		``status`` and ``type`` are what make §6.14's lifecycle usable from a client (`#501`).
@@ -485,7 +521,7 @@ class Client(typing.Protocol):
 		entity_type: str = "task",
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> Listing[subroutine.views.Event]:
 		"""Return what has happened to one item, newest first (§5.11a).
 
 		**Not the same question as :meth:`comments`, which is why both exist.** A comment is
@@ -506,7 +542,7 @@ class Client(typing.Protocol):
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
-	) -> list[subroutine.views.Event]:
+	) -> Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
 		**The resumption question, and the counterpart to :meth:`history`.** That one asks what
@@ -532,7 +568,7 @@ class Client(typing.Protocol):
 		visibility: str | None = None,
 		include_archived: bool = False,
 		order: str | None = None,
-	) -> list[subroutine.views.Project]:
+	) -> Listing[subroutine.views.Project]:
 		"""List the projects this credential can see, parents before children.
 
 		Ordered by materialised path rather than by name, so a child follows its parent and

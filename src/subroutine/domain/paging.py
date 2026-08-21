@@ -50,3 +50,43 @@ def size (limit: int | None, settings: subroutine.config.Settings) -> int:
 		)
 
 	return min(limit, settings.max_page_size)
+
+
+def asked_for (limit: int | None, settings: subroutine.config.Settings) -> int:
+	"""Return how many rows a *client's caller* asked for, refusing what :func:`size` refuses.
+
+	**The same refusals and no cap** — `#1037`. ``max_page_size`` bounds one *response*, which
+	is a fact about a transport: there is a body to keep to a sensible size and a cursor for
+	reading past it. A client's caller is not asking for a response, it is asking for rows, and
+	capping there turned the setting into a silent limit on a *call*.
+
+	It looked harmless because every client threw the envelope away, so the two halves of the
+	defect hid each other: the answer was short and nothing said so. The HTTP client follows the
+	cursor to satisfy this number and the local one asks the database for it in a single query;
+	both then say whether there were more.
+
+	**Not a change to what the setting means**, which is why it is a second function rather than
+	an argument on the first: ``size`` is still what bounds a page, and every caller of it is
+	still capped.
+	"""
+
+	if limit is None:
+		return min(settings.default_page_size, settings.max_page_size)
+
+	if limit < MIN_SIZE:
+		# The same refusal, deliberately not a shared helper: it names `max_page_size` as the
+		# top of the range it suggests, and that sentence is true of a page and not of this.
+		raise subroutine.errors.ValidationError(
+			f"A page cannot hold {limit} items.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="limit",
+					code="invalid_field_value",
+					message=f"'limit' must be at least {MIN_SIZE}.",
+					hint=f"Leave it out for the default of {settings.default_page_size}, or "
+					f"ask for anything from {MIN_SIZE} upwards.",
+				)
+			],
+		)
+
+	return limit
