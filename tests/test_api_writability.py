@@ -33,6 +33,9 @@ The second direction is checked too: a name recorded here that the view no longe
 failure, so this file cannot quietly describe a model that has moved on.
 """
 
+import importlib
+import inspect
+import pkgutil
 import re
 import typing
 import uuid
@@ -43,6 +46,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api
 import subroutine.api.calendars
 import subroutine.api.comments
 import subroutine.api.documents
@@ -122,6 +126,56 @@ WRITTEN_AS: dict[str, str] = {
 #: Computed, allocated or maintained by the system. A client cannot supply these because a
 #: client does not decide them.
 DERIVED: dict[str, str] = {
+	#: **`#1033`'s batch — the six views past `task` and `document`.** Widening the guard was
+	#: expected to surface a run of these and did: twenty-four fields, of which four were
+	#: renames and the rest are below. None turned out to be a gap, which is the answer this
+	#: direction of the guard is for — it says *nothing a view publishes is unreachable*, and
+	#: until now it said that about two views out of eight.
+
+	#: A project's place in the tree, maintained by `domain.hierarchy` when a project moves.
+	#: `path` is a materialised path of **ids** and `views.Project`'s own docstring warns it is
+	#: not an address (`#986` published one by mistake and printed a UUID at a reader).
+	"path": "the materialised path of ancestor ids, rewritten by a move rather than sent.",
+	"depth": "how far down the tree this sits, counted from the path.",
+
+	#: **Written by `workspaces.create` and by nothing a person touches** (`#301`, `#982`).
+	#: There is no uniqueness constraint on it, which is safe only for exactly that reason —
+	#: `#982` declined to copy the pattern for the prioritised project on those grounds.
+	"is_inbox": "whether this is the workspace's Inbox, set when the workspace is made.",
+
+	#: **The resolved answer rather than the stored one** (`#1026`). What is stored is one key
+	#: inside `settings`, which `PATCH` does accept; what is reported is that key resolved up
+	#: through every ancestor and the workspace, so the field a caller sends and the field a
+	#: caller reads are genuinely different values and neither is a rename of the other.
+	"hidden_statuses": (
+		"the statuses this project does not offer, resolved up the tree from the "
+		"`statuses.hidden` setting rather than reported as stored."
+	),
+
+	#: The subject of a comment, which is the route rather than the body: a comment is made at
+	#: `POST /v1/tasks/{ref}/comments`, so sending it again would be a second way to say the
+	#: same thing and a way to disagree with the path.
+	"entity_type": "which kind of item this is about, taken from the path it was posted to.",
+	"entity_id": "which item this is about, taken from the path it was posted to.",
+
+	#: **The actor, and deliberately not a field** (`#636`). Only the author may edit a comment,
+	#: so accepting an author would be accepting a claim about who is speaking.
+	"author_id": "who wrote it, taken from the credential that posted it.",
+	"author": "their display name, resolved for the reader so a comment does not need a lookup.",
+
+	#: **What a credential is, rather than what was asked for.** A secret is shown once and
+	#: stored as a hash (§7.4), so the prefix is the only part that can be reported at all.
+	"prefix": "the readable head of the credential, minted with it.",
+	"last_used_at": "when it was last presented, written by presenting it.",
+	"last_polled_at": "when the feed was last fetched, written by fetching it.",
+	"revoked_at": "when it was revoked, written by revoking it — which takes no body.",
+	"usable": "whether it would be accepted now, computed from revocation and expiry.",
+
+	#: **Derived from the scopes rather than declared beside them** (`#829`). It answers *is
+	#: this credential narrower than its owner*, which `authentication.narrowing` computes —
+	#: and a caller who could send it could claim a narrowing it does not have.
+	"narrows": "whether this credential is bounded more tightly than the account behind it.",
+
 	#: **The workings of a repeat, and none of them a caller's to send** (`#94`). `#915`
 	#: settles what each is: the words somebody typed, which occurrence this is, which
 	#: template it came from, and whether this row is the rule rather than the work.
@@ -367,14 +421,90 @@ def test_every_reported_field_can_be_written_or_says_why_not (
 	)
 
 
+#: An API module that declares a ``Create`` and is deliberately not a surface above, with the
+#: reason. **The point of the register is that adding a module cannot be silent**: a ninth
+#: endpoint that creates something either gets its view guarded or gets a sentence here.
+#: **Empty, and that is the statement.** Every module under ``api/`` that declares a ``Create``
+#: is guarded above. `sessions` and `recurrence` are not candidates at all — they declare
+#: `SignInLinkRequest` and `Parse`, because a sign-in link is minted and answered rather than
+#: stored, and a phrase is parsed and described rather than created — so neither needs an
+#: excuse here, and the check below refuses one naming a module that has no ``Create``.
+NOT_A_SURFACE: dict[str, str] = {}
+
+
+def test_every_endpoint_that_creates_something_is_a_surface_here () -> None:
+	"""`#1033`: a view this file does not know about cannot be checked by it.
+
+	**The two directions of this guard had different reach and the difference was invisible.**
+	*Stored to reported* walks every mapped model; *reported to settable* walked `SURFACES`,
+	which held `task` and `document` — so `views.Project`, `views.Workspace`, `views.User`,
+	`views.Comment`, `views.Token` and `views.Calendar` could each grow a field no endpoint
+	accepts and nothing would say so. **`#443` is titled *the writability guard covers every
+	model with a view, not two* and was closed on 2026-08-05 having widened the other half.**
+
+	**Derived from the modules rather than listed**, which is the whole point: a list of
+	surfaces is a list of the ones somebody thought of, and this file already lost six that way.
+	Everything under `api/` that declares a `Create` is either guarded above or excused here.
+	"""
+
+	creating = set()
+
+	for info in pkgutil.iter_modules(subroutine.api.__path__):
+		module = importlib.import_module(f"subroutine.api.{info.name}")
+		declared = getattr(module, "Create", None)
+
+		if (
+			inspect.isclass(declared)
+			and issubclass(declared, pydantic.BaseModel)
+			and declared.__module__ == module.__name__
+		):
+			creating.add(info.name)
+
+	assert len(creating) >= 8, (
+		f"only {sorted(creating)} declare a Create, so this scan has stopped reading the "
+		f"package and every surface below would look accounted for"
+	)
+
+	# **The module a surface's `Create` came from, not the surface's own label.** The labels are
+	# singular and the modules are plural, and matching them by a naming convention would make
+	# this pass or fail on how somebody spelled an id.
+	guarded = {
+		create.__module__.rsplit(".", 1)[-1]
+		for _name, _view, create, _changing in SURFACES
+	}
+
+	unaccounted = sorted(creating - guarded - set(NOT_A_SURFACE))
+
+	assert not unaccounted, (
+		f"{unaccounted} create something over HTTP and are not checked above. Add the view and "
+		f"its request models to SURFACES, or say in NOT_A_SURFACE why the question does not "
+		f"apply — a view nothing compares can publish a field no endpoint accepts."
+	)
+
+	gone = sorted(set(NOT_A_SURFACE) - creating)
+
+	assert not gone, (
+		f"NOT_A_SURFACE names {gone}, which no longer declares a Create — a stale excuse reads "
+		f"as a decision about something that exists."
+	)
+
+
 def test_every_field_excused_here_is_still_a_field () -> None:
 	"""The other direction, so this file cannot describe a model that has moved on.
 
 	A stale exemption is worse than none: it reads as a considered decision about something
 	that no longer exists, and it silently excuses whatever later takes the name.
+
+	**Derived from `SURFACES` rather than naming two views** (`#1033`). This had the same reach
+	as the direction it guards — `Task` and `Document`, written when those were the only two —
+	so widening one and not the other would have reported every new excuse as stale. The two
+	halves are one register and have to be read against one population.
 	"""
 
-	reported = _fields(subroutine.views.Task) | _fields(subroutine.views.Document)
+	reported: set[str] = set()
+
+	for _name, view, _create, _changing in SURFACES:
+		reported |= _fields(view)
 
 	for register, label in (
 		(DERIVED, "DERIVED"),

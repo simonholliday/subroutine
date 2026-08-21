@@ -292,6 +292,9 @@ def _cases () -> list[tuple[str, str, str]]:
 	found: list[tuple[str, str, str]] = []
 
 	for kind, _view, create, changing in test_api_writability.SURFACES:
+		if kind not in DELIVERS:
+			continue
+
 		# **The create as well as the changes**, because a field can be dropped on the way in
 		# exactly as it can on the way past — `#918` was accepted by *both* and discarded by
 		# both. A create has no "before", so the pair is two items rather than two writes to
@@ -301,6 +304,67 @@ def _cases () -> list[tuple[str, str, str]]:
 				found.append((kind, model.__qualname__.split(".")[0], field))
 
 	return found
+
+
+#: Which of `test_api_writability.SURFACES` this file drives, and why the rest are not here yet.
+#:
+#: **This used to be every surface, because there were two of them** (`#1033`). Widening that
+#: tuple from `task` and `document` to all eight widened *this* file with it, silently — the
+#: same coupling working in the direction nobody planned. Twenty more fields across four
+#: entities need a value to send and a value to read back, plus a create request that satisfies
+#: what each endpoint requires, and that is `#919`'s work rather than a side effect of somebody
+#: else's.
+#:
+#: **Named rather than derived, and this is the one register here that is a list.** The
+#: completeness check below is what stops it being a list of the ones somebody thought of: a
+#: surface is driven, or it is here with a reason, and a new surface is neither until somebody
+#: decides which.
+DELIVERS: frozenset[str] = frozenset({"task", "document"})
+
+#: A surface `test_api_writability` guards that this file does not drive, with the reason.
+NOT_DELIVERED: dict[str, str] = {
+	"project": "`#1060` — key, settings, template and visibility each need a value and a way "
+	"to read it back, and `POST /v1/projects` requires a key this file does not yet supply.",
+	"workspace": "`#1060`, and the same create-request problem: a slug is required.",
+	"user": "`#1060` — five fields, and a create needs a username and an email.",
+	"comment": "`#1060`. Only `body` is settable, so this is the cheapest of the six — but a "
+	"comment is created at a sub-resource path rather than at a collection, which is a second "
+	"shape of request this file does not build.",
+	"token": "`#1060` — seven fields, and a credential is answered once and never read back "
+	"in full, so *what does it read back as* needs answering before any case can be written.",
+	"calendar": "`#1060`, and the same once-only answer as a token.",
+}
+
+
+def test_every_guarded_surface_is_driven_here_or_says_why_not () -> None:
+	"""`#1033`: the two files share a population and must not drift apart in silence.
+
+	This one derives its cases from ``test_api_writability.SURFACES``, so widening that tuple
+	widened this file too — which is the coupling working, and working in a direction nobody
+	planned. **Left alone it would have been routed around**: the failing cases would have been
+	trimmed or the loop narrowed, and a guard that quietly covers less than it did is worse than
+	one that never covered it.
+
+	So the narrowing is written down instead, per surface, with the item that removes it.
+	"""
+
+	guarded = {kind for kind, _view, _create, _changing in test_api_writability.SURFACES}
+
+	assert len(guarded) >= 8, (
+		f"only {sorted(guarded)} are guarded next door, so this scan has stopped reading it"
+	)
+
+	unaccounted = sorted(guarded - DELIVERS - set(NOT_DELIVERED))
+
+	assert not unaccounted, (
+		f"{unaccounted} are checked for writability and not for delivery. Drive them here, or "
+		f"say why not — a field that reaches a request model and is dropped before storage "
+		f"looks identical to one that was never sent."
+	)
+
+	gone = sorted((DELIVERS | set(NOT_DELIVERED)) - guarded)
+
+	assert not gone, f"{gone} are named here and are no longer guarded next door."
 
 
 CASES = [one for one in _cases() if one[2] not in NOT_STORED]
