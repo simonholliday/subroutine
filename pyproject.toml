@@ -162,6 +162,25 @@ markers = [
 ]
 filterwarnings = ["error"]
 
+# **A hung test names itself, instead of the job dying with no log at all** (`#1048`).
+# `Tests (Python 3.11)` hung on 2026-08-20 and was killed by `#1015`'s 25-minute job ceiling
+# while its four siblings did the same work in six to nine minutes. That ceiling did exactly
+# what it was built for — 25 minutes instead of six hours — and **a killed job keeps no log**:
+# `gh run view --log` returns nothing and the archive answers `BlobNotFound`, so all that
+# survived was a step that started and never finished.
+#
+# `faulthandler` is pytest's own, so this costs no dependency, no licence check and nothing to
+# pin. It dumps every thread's stack and exits the worker, which under `xdist` is reported
+# against the test that was running — which is the whole of what was missing.
+#
+# **240 seconds is chosen from both ends.** The slowest test measured here is 14.34s, so this
+# is sixteen times it and cannot fire on a slow runner; and every CI job that runs pytest is
+# bounded at fifteen minutes or more, so it fires *first* and there is a log to read. A value
+# above the job ceiling would be a control that can never act, which is the defect this
+# repository finds most often — `tests/test_check_script.py` holds the two numbers together.
+faulthandler_timeout = 240
+faulthandler_exit_on_timeout = true
+
 [tool.coverage.run]
 # The data file is a SQLite database, and this working tree lives on a CIFS share where
 # SQLite cannot take a lock — so without this, `pytest --cov` does not degrade, it dies with

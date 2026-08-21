@@ -26,6 +26,7 @@ import importlib.util
 import pathlib
 import re
 import sys
+import tomllib
 import types
 import typing
 
@@ -428,4 +429,60 @@ def test_the_suite_is_actually_run_across_workers () -> None:
 	assert _PARALLEL in suite.command, "the whole-suite run is back to one core"
 	assert "worksteal" in suite.command, (
 		"the default scheduler leaves workers idle at the tail of this suite's long fixtures"
+	)
+
+
+def test_a_hung_test_is_stopped_before_the_job_that_would_kill_it () -> None:
+	"""`SR#1048`. Two ceilings, and the inner one is worth nothing if it is not the smaller.
+
+	`Tests (Python 3.11)` hung on 2026-08-20 and was killed by `SR#1015`'s job ceiling while
+	its four siblings did the same work in six to nine minutes. **That ceiling did exactly what
+	it was built for** — 25 minutes rather than six hours — and a killed job keeps no log at
+	all: ``gh run view --log`` returns nothing and the archive answers ``BlobNotFound``, so all
+	that survived was a step that started and never finished. Nothing said *which test*.
+
+	``faulthandler_timeout`` is pytest's own, so it costs no dependency. It dumps every
+	thread's stack and exits the worker, which ``xdist`` reports as ``worker 'gw0' crashed
+	while running <test id>`` — a named failure rather than a blank.
+
+	**The number has to sit under every job that runs pytest, and that is the whole of this
+	test.** Above them, the job dies first and there is no log to read: a control that cannot
+	act, which is the defect this repository finds most often. Below the slowest real test it
+	would fire on a slow runner instead, which the comment in ``pyproject.toml`` records with
+	the measurement — but only one of the two ends is checkable from here, and it is this one.
+	"""
+
+	settings = tomllib.loads(
+		(ROOT / "pyproject.toml").read_text(encoding="utf-8")
+	)["tool"]["pytest"]["ini_options"]
+
+	seconds = int(settings["faulthandler_timeout"])
+
+	assert settings.get("faulthandler_exit_on_timeout") is True, (
+		"the stacks are dumped and the test carries on, so a hang still costs the whole job "
+		"and `xdist` still has nothing to attribute it to"
+	)
+
+	workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+	bounded = {}
+
+	for name, job in workflow["jobs"].items():
+		runs = "\n".join(str(step.get("run", "")) for step in job.get("steps", []))
+
+		if "pytest" in runs:
+			bounded[name] = job.get("timeout-minutes")
+
+	assert bounded, "no job in this workflow runs pytest, so this has stopped reading it"
+
+	assert all(bounded.values()), (
+		f"{sorted(one for one, limit in bounded.items() if not limit)} run pytest with no "
+		f"job ceiling, so `SR#1015`'s six-hour default is back and nothing bounds them"
+	)
+
+	tightest = min(bounded.values())
+
+	assert seconds < tightest * 60, (
+		f"a test may run {seconds}s and the tightest job that runs pytest is bounded at "
+		f"{tightest} minutes ({bounded}). The job would be killed first, and a killed job "
+		f"keeps no log — which is the state this setting exists to end."
 	)
