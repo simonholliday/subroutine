@@ -816,6 +816,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address, over the wire.
 
@@ -837,11 +838,7 @@ class Client:
 			"PATCH",
 			f"/v1/projects/{project}",
 			params=_given(workspace_id=workspace),
-			json={
-				name: value
-				for name, value in given.items()
-				if value is not subroutine.clients.base.UNSET
-			},
+			json=_asked(given, expected_version),
 		)
 
 		return subroutine.views.Project.model_validate(body)
@@ -880,6 +877,7 @@ class Client:
 		prioritised_project: str | None = subroutine.clients.base.UNSET,
 		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, over the wire."""
 
@@ -896,11 +894,7 @@ class Client:
 			"PATCH",
 			f"/v1/workspaces/{workspace}",
 			params=_given(workspace_id=workspace_id),
-			json={
-				name: value
-				for name, value in given.items()
-				if value is not subroutine.clients.base.UNSET
-			},
+			json=_asked(given, expected_version),
 		)
 
 		return subroutine.views.Workspace.model_validate(body)
@@ -1231,6 +1225,7 @@ class Client:
 		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
 		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
 
@@ -1278,11 +1273,7 @@ class Client:
 			"PATCH",
 			f"/v1/tasks/{ref}",
 			params=_given(workspace_id=workspace),
-			json={
-				name: value
-				for name, value in given.items()
-				if value is not subroutine.clients.base.UNSET
-			},
+			json=_asked(given, expected_version),
 		)
 
 		return self._parsed(subroutine.views.Task, body)
@@ -1298,6 +1289,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, over the wire.
 
@@ -1322,11 +1314,7 @@ class Client:
 			"PATCH",
 			f"/v1/documents/{ref}",
 			params=_given(workspace_id=workspace),
-			json={
-				name: value
-				for name, value in given.items()
-				if value is not subroutine.clients.base.UNSET
-			},
+			json=_asked(given, expected_version),
 		)
 
 		return self._parsed(subroutine.views.Document, answered)
@@ -1651,6 +1639,35 @@ def _plural (entity_type: str) -> str:
 		)
 
 	return segments[entity_type]
+
+
+def _asked (
+	given: dict[str, typing.Any], expected_version: int | None
+) -> dict[str, typing.Any]:
+	"""Return the fields a PATCH is actually changing, plus the version it expects.
+
+	**Two different absences, which is why this is a function** (`#494`). A field left at
+	``UNSET`` is one the caller said nothing about and is dropped; ``None`` is a *value* and
+	is sent, because §8.3 makes it the way to clear something. ``expected_version`` inverts
+	both: it is not a field being changed, and ``None`` there means *did not ask* rather than
+	*asked and passed*, so it is sent only when it was given.
+
+	Folding it into ``given`` would have made ``expected_version: None`` a request to clear a
+	version, which the endpoint would refuse — and folding it in as ``UNSET`` would have made
+	the one argument here whose ``None`` means silence behave like the ones whose ``None``
+	means *clear this*.
+	"""
+
+	sending = {
+		name: value
+		for name, value in given.items()
+		if value is not subroutine.clients.base.UNSET
+	}
+
+	if expected_version is not None:
+		sending["expected_version"] = expected_version
+
+	return sending
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:

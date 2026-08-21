@@ -803,6 +803,7 @@ class Client(typing.Protocol):
 		status: str = UNSET,
 		settings: dict[str, typing.Any] = UNSET,
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address — items ``#434`` and ``#983``.
 
@@ -865,6 +866,7 @@ class Client(typing.Protocol):
 		prioritised_project: str | None = UNSET,
 		settings: dict[str, typing.Any] = UNSET,
 		workspace_id: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address — item ``#434``.
 
@@ -949,6 +951,7 @@ class Client(typing.Protocol):
 		status: str = UNSET,
 		project: str = UNSET,
 		tags: typing.Sequence[str] | None = UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).
 
@@ -1106,6 +1109,7 @@ class Client(typing.Protocol):
 		recurrence_anchor: str | None = UNSET,
 		recurrence_trigger: str | None = UNSET,
 		timezone: str | None = UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
 
@@ -1120,6 +1124,29 @@ class Client(typing.Protocol):
 
 		``estimate`` takes §6.4's grammar, so ``"4h"`` works here exactly as ``~4h`` does in
 		a captured line.
+
+		**``expected_version`` refuses the change if the task has moved on** — §8.9, and `#494`.
+		It was accepted by five routes and passed by no client method for as long as both
+		existed: built, tested, documented in four places and reachable only over raw HTTP.
+
+		**Opt-in, and ``None`` means *did not ask* rather than *asked and passed*.** That
+		asymmetry is the whole design and is why this is not defaulted to anything: a caller who
+		says nothing overwrites whatever somebody else saved while it was reading, which is the
+		right behaviour for a script that has just read the row and the wrong one for a form
+		somebody left open. Only the caller knows which it is.
+
+		**Two surfaces deliberately do not offer it, and the reasons are different.** The
+		command line does not, because a person typing `subroutine update 42 --title x` has
+		read the item in a previous command and the version they would quote is already stale
+		by however long they spent thinking — an argument that is right only when pasted from a
+		script one line earlier. `doc edit` is the one place with a real collision (two sessions
+		revising one conclusion) and it is `#842`'s problem rather than this one, since that
+		command is a whole-body replace.
+
+		**MCP does not, because claims already answer it better** (`#350`). Two agents on one
+		ranked listing is the concurrency this product actually has, and a lease says *somebody
+		has this* before the work starts, where a version clash says *you lost* after it. A tool
+		argument would also spend bytes from §21.2's budget on the weaker of the two answers.
 		"""
 
 	def discard (

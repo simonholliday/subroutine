@@ -22,6 +22,17 @@ upgrade involves.
 
 ### Added
 
+- **A client can say which version it expects to be changing.** `expected_version` — §8.9's
+  optimistic concurrency check — was accepted by five update routes and passed by no client
+  method, so the whole of it was reachable over raw HTTP and from nothing anybody would write.
+  `update`, `update_document`, `update_project` and `update_workspace` all take it now, on both
+  transports.
+
+  It stays opt-in: omitting it means *did not ask*, never *asked and passed*. Deliberately not
+  offered at the command line or to an agent — a person's version is stale by however long they
+  spent thinking, and for an agent a claim says *somebody has this* before the work rather than
+  *you lost* after it.
+
 - **`subroutine project update <key> --hide-nothing`** — offer every status in this project,
   whatever the workspace hides. The stored value has always had three meanings — inherit what is
   above, hide these, or override with nothing hidden — and the command line could spell two of

@@ -4053,3 +4053,54 @@ def test_both_transports_refuse_a_setting_nothing_declares (pair: Pair) -> None:
 		assert back.hidden_statuses == ["blocked"], (
 			f"{client!r} did not publish the resolved list beside the raw map"
 		)
+
+
+def test_a_stale_change_is_refused_on_both_transports (pair: Pair) -> None:
+	"""`#494`. §8.9's check was built, tested, documented in four places and unreachable.
+
+	`expected_version` is accepted by five update routes and was passed by **no client method**
+	for as long as both existed — so the whole of §8.9 was reachable over raw HTTP and from
+	nothing anybody would actually write. That is the inert-control defect in its fourth
+	disguise, and the disguise is what made it last: `#247`, `#251` and `#303` were controls
+	declared and read by nothing, where this is one fully implemented on one side of a boundary.
+
+	**Driven on both transports, because they cannot be wrong in the same way.** The HTTP client
+	builds a body by hand and the local client calls the domain, so a field reaching one says
+	nothing about the other — `#854`'s `starts` and `snooze` were declared on both signatures
+	and dropped by both bodies, and `test_reach` compares *signatures*, so it was satisfied
+	throughout.
+
+	**The stale number rather than a wrong one**, because the two are different claims: any
+	integer that is not the current version refuses, and only *the version I read* proves the
+	client is sending what it actually saw.
+	"""
+
+	for client in pair.both():
+		made = client.capture(text=f"Rewrite the importer {uuid.uuid4().hex[:6]}").task
+		seen = made.version
+
+		client.update(ref=made.ref, title="Somebody else got here first")
+
+		with pytest.raises(subroutine.errors.SubroutineError) as clash:
+			client.update(
+				ref=made.ref, title="Overwriting a change I never saw", expected_version=seen
+			)
+
+		assert clash.value.code == "version_conflict", (
+			f"{client!r} answered {clash.value.code!r} rather than refusing the stale version"
+		)
+
+		# **The other half, or this passes against a client that refuses every change.** An
+		# `expected_version` that is current must go through, which is the case somebody
+		# writing a form actually depends on.
+		read_back = client.task(ref=made.ref)
+
+		assert read_back is not None, f"{client!r} could not read back the task it just made"
+
+		changed = client.update(
+			ref=made.ref, title="Now I have read it", expected_version=read_back.version
+		)
+
+		assert changed.title == "Now I have read it", (
+			f"{client!r} refused a change carrying the version it had just read"
+		)

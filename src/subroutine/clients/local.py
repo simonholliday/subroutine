@@ -852,6 +852,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
 
@@ -892,7 +893,7 @@ class Client:
 					session, actor, chosen, project
 				)
 
-			revised = subroutine.domain.documents.update(session, row, actor=actor, **changes)
+			revised = subroutine.domain.documents.update(session, row, actor=actor, expected_version=expected_version, **changes)
 
 			return subroutine.views.document(
 				revised, subroutine.views.Vocabulary.for_documents(session, [revised])
@@ -1652,6 +1653,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Project:
 		"""Change the fields beside a project's address, in process."""
 
@@ -1673,7 +1675,7 @@ class Client:
 			changed = subroutine.domain.projects.update(
 				session,
 				found,
-				actor=actor,
+				actor=actor, expected_version=expected_version,
 				**{
 					name: value
 					for name, value in given.items()
@@ -1751,6 +1753,7 @@ class Client:
 		prioritised_project: str | None = subroutine.clients.base.UNSET,
 		settings: dict[str, typing.Any] = subroutine.clients.base.UNSET,
 		workspace_id: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Workspace:
 		"""Change the fields beside a workspace's address, in process."""
 
@@ -1784,7 +1787,7 @@ class Client:
 			changed = subroutine.domain.workspaces.update(
 				session,
 				chosen,
-				actor=actor,
+				actor=actor, expected_version=expected_version,
 				**{
 					name: value
 					for name, value in given.items()
@@ -2322,6 +2325,7 @@ class Client:
 		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
 		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
 
@@ -2391,7 +2395,7 @@ class Client:
 				)
 
 			subroutine.domain.tasks.update(
-				session, row, now=subroutine.db.types.utcnow(), actor=actor, **changes
+				session, row, now=subroutine.db.types.utcnow(), actor=actor, expected_version=expected_version, **changes
 			)
 
 			return subroutine.views.task(
