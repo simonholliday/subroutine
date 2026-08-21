@@ -1,6 +1,6 @@
 ---
 name: subroutine
-description: Track work in Subroutine — file tasks, find what can actually be started, record what happened, and write down conclusions the next session will need. **Read this before the first subroutine_* call of a session, including a read-only one.** It carries conventions the tool descriptions do not — how to open so you are not answering from a stale snapshot, how to ask for work that can actually be started, what a title has to say, and which end of a blocks link is the blocker. Also when the user asks what to work on, asks you to log or file something, finishes a piece of work, wonders where something was left, asks whether Subroutine is connected or what is in it, or says this project uses Subroutine — and for adopting Subroutine in a project that does not use it yet.
+description: Track work in Subroutine — file tasks, find what can actually be started, record what happened, and write down conclusions the next session will need. **Read this before the first subroutine_* call of a session, including a read-only one.** It carries conventions the tool descriptions do not — how to open so you are not answering from a stale snapshot, how to ask for work that can actually be started, what a title has to say, and which end of a blocks link is the blocker. Also when the user asks what to work on, reports a problem, asks you to log or file something, finishes a piece of work, wonders where something was left, asks whether Subroutine is connected or what is in it, or says this project uses Subroutine — and for adopting Subroutine in a project that does not use it yet.
 ---
 
 # Working with Subroutine
@@ -306,8 +306,24 @@ That record is the point. Somebody — possibly you, last week — wrote down wh
 attempted and what happened, and reading it is cheaper than repeating it. A ref names a task
 *or* a document, so this is also how you read a decision somebody pointed you at.
 
-**File the work before you start it**, so it is visible while it is happening rather than
-afterwards. One line carries the detail:
+**Filing something is a complete act on its own.** Most of the time you file work you are
+about to do, so it is visible while it is happening rather than afterwards — but the commoner
+case in a working conversation is that somebody has just told you about a problem, and what
+they want is for it to be *written down*.
+
+**A report is not an assignment.** When somebody describes a defect, file it and say you have,
+with its number. Do not begin fixing it unless they asked you to. The words that most often
+get misread are the ones about *importance* — "urgent", "this is a blocker", "we shouldn't
+ship with this" — and every one of those is a fact about the tracker rather than an instruction
+to act. They tell you what to put in `!4/2`; they say nothing about who does the work or when.
+
+If you genuinely cannot tell whether you were handed a report or a job, file it first and ask.
+Filing is cheap and reversible; a change nobody asked for costs somebody a review, and if they
+had already given the work to a person or another agent it collides with them silently — a
+claim (below) tells you somebody *has* an item, and nothing tells you an item was meant for
+them.
+
+One line carries the detail:
 
 ```
 subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops +web")

@@ -362,7 +362,35 @@ export function inOrder (rows, ordering) {
 		const first = value(one);
 		const second = value(other);
 
-		if (first !== second) {
+		/*
+			**An absent value sorts last, in both directions** — `#794`, and it is the server's
+			own rule rather than a choice made here: `ordering.clauses` appends `.nullslast()`
+			to every term, ascending and descending alike, so a row with nothing to compare is
+			at the end whichever way the reader asked.
+
+			**Without this the comparator was not total, which is worse than being wrong.**
+			`Date.parse(undefined)` is `NaN`, and `NaN !== NaN` is *true* — so the branch below
+			was taken, both `NaN < x` and `x < NaN` are false, and `compare(a, b)` and
+			`compare(b, a)` both answered "after". A sort given a comparator that contradicts
+			itself may produce any arrangement at all, so the failure is not a row in the wrong
+			place but a page in no order, varying with the engine and the input length.
+
+			**Not multiplied by `way`**, for the same reason the deferred band above is not: the
+			direction the reader chose arranges the rows that *have* a value, and says nothing
+			about where the ones that do not belong.
+
+			**Latent today and cheap now.** Every request asks for the fields an ordering can
+			use, so nothing reaches here undefined — which is exactly the state in which a fix
+			costs four lines, and the state that ends the first time a projection is narrowed.
+		*/
+		const absent = (what) => (
+			what === null || what === undefined
+			|| (typeof what === "number" && Number.isNaN(what))
+		);
+
+		if (absent(first) !== absent(second)) return absent(first) ? 1 : -1;
+
+		if (!absent(first) && first !== second) {
 			if (ordering && ordering.compare === "text") {
 				return way * String(first).localeCompare(String(second));
 			}

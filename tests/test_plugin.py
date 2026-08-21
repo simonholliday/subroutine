@@ -542,7 +542,13 @@ def test_the_skill_declares_a_name_and_a_trigger () -> None:
 
 	described = front.split("description:", 1)[1]
 
-	for trigger in ("what to work on", "log", "adopt"):
+	# `#689`: **reporting a problem is a distinct trigger from being given work**, and it is
+	# the one that was missing. An agent told about a defect read it as an assignment, which is
+	# an *intake* failure rather than a storage one — the class §14.1 says this catalogue does
+	# not contain. The remedy has to be in the description as well as in the body, because the
+	# description is what decides whether the body is read at all: `#378`'s finding, that a
+	# paragraph of correct guidance the agent never reaches is worth nothing.
+	for trigger in ("what to work on", "log", "adopt", "reports a problem"):
 		assert trigger in described.lower(), f"the description does not fire on {trigger!r}"
 
 

@@ -6544,6 +6544,59 @@ def test_the_merge_agrees_with_the_server_about_a_tie (
 	)
 
 
+@pytest.mark.parametrize("order", ["created_at", "-created_at"])
+def test_a_row_with_nothing_to_compare_sorts_last_whichever_way_it_was_asked (
+	tmp_path: pathlib.Path, order: str
+) -> None:
+	"""`SR#794`, and the defect is not a row in the wrong place — it is a page in no order.
+
+	`Date.parse(undefined)` is `NaN`, and **`NaN !== NaN` is true**, so the comparator took its
+	compare branch and both `NaN < x` and `x < NaN` are false: `compare(a, b)` and
+	`compare(b, a)` each answered *after*. A sort given a comparator that contradicts itself may
+	produce **any** arrangement, varying with the engine and with how many rows there are, so
+	the observable is not a mis-sort somebody could recognise.
+
+	**Last in both directions, which is the server's rule rather than a choice.**
+	`domain.ordering.clauses` appends `.nullslast()` to every term, ascending and descending
+	alike — asserted here against that function rather than restated, so the two cannot drift.
+
+	**Parametrised over the direction**, because a fix that multiplied by the direction would
+	pass one of them and is exactly the mistake the deferred band above it already avoids.
+
+	**Latent today**, since every request asks for the fields an ordering can use — which is why
+	this is four lines now and a diagnosis later.
+	"""
+
+	rendered = str(
+		subroutine.domain.ordering.clauses(
+			order,
+			allowed=subroutine.domain.ordering.TASK_FIELDS,
+			default=subroutine.domain.ordering.DEFAULT_TASK_ORDER,
+			tiebreak=subroutine.db.models.work.Task.id,
+		)[0]
+	).upper()
+
+	assert "NULLS LAST" in rendered, (
+		f"the server no longer sorts an absent value last under {order}, so the rule this "
+		f"agrees with has moved: {rendered}"
+	)
+
+	rows = [
+		{"ref": 1, "created_at": "2026-08-08T09:00:00+00:00"},
+		{"ref": 2},
+		{"ref": 3, "created_at": "2026-08-10T09:00:00+00:00"},
+	]
+
+	ordered = _views(tmp_path, [("inOrder", {"rows": rows, "order": order})])[0]
+
+	assert ordered[-1] == 2, (
+		f"under {order} the row with no value came out {ordered}, and it belongs last "
+		f"whichever way the reader asked — that is what NULLS LAST means"
+	)
+
+	assert sorted(ordered) == [1, 2, 3], f"rows were lost or duplicated: {ordered}"
+
+
 def test_every_spelling_of_the_tiebreak_points_the_same_way () -> None:
 	"""**`SR#879`'s guard: the rule exists four times and nothing compared them.**
 

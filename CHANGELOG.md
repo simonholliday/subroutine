@@ -284,6 +284,16 @@ upgrade involves.
 
 ### Changed
 
+- **The agent skill says that a report is not an assignment.** It described filing as something
+  you do on the way to working — *"file the work before you start it"* — and had no sentence
+  for the commoner case, where somebody has told you about a problem and what they want is for
+  it to be written down. An agent read a reported defect as a job and started fixing it.
+
+  Filing now stands as a complete act, the words that get misread are named — *urgent*, *this
+  is a blocker*, *we shouldn't ship with this* are all facts about the tracker rather than
+  instructions to act — and the skill's own description fires on somebody reporting a problem,
+  which is what decides whether any of the rest is read.
+
 - **`POST /v1/admin/backups` and `GET /v1/admin/backups` no longer report the backup's absolute
   path on the server.** A caller over HTTP is somewhere else by construction: they cannot open
   the file, and no endpoint takes a path — restore deliberately has none — so the one thing a
@@ -327,6 +337,12 @@ upgrade involves.
   which the program suggests when it notices.
 
 ### Fixed
+
+- **A row with nothing to compare sorts last in the browser, whichever way the list was
+  asked for**, matching the `NULLS LAST` the server applies in both directions. It used to
+  reach a comparison that contradicted itself — `NaN !== NaN` is true and neither `NaN < x`
+  nor `x < NaN` is — so a page containing one could come out in no order at all rather than
+  in the wrong one. Latent: every request asks for the fields an ordering can use.
 
 - **A captured line that names a project which does not exist says how to make one.** Its two
   structural tokens behave oppositely on first use — `#errand` creates a tag silently and
