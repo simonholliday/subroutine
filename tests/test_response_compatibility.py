@@ -105,6 +105,31 @@ def _source_at (tag: str, path: str) -> str | None:
 	return found.stdout if found.returncode == 0 else None
 
 
+def _base_name (node: ast.expr) -> str | None:
+	"""Return the class a base expression names, through a subscript if there is one.
+
+	``class Changes(Collection[Event])`` is an ``ast.Subscript``, which has no ``.id`` — so a
+	comprehension keeping only ``ast.Name`` drops it, and the class resolves to its own declared
+	fields with everything it inherits missing (`#1125`). That reported ``Changes.items`` and
+	``Changes.page`` as added since ``v0.7.6`` when both had been there all along.
+
+	**It went unseen for two releases and neither gap was an accident of writing it.** `Changes`
+	is the only subscripted base in the file and it was written *inside* the `v0.7.6` cycle, so
+	before that the comparison took the "the whole model is new" branch and never looked; and the
+	comparison itself steps back on a release commit (`#895`), so the first ordinary commit after
+	the tag is the first moment both halves are awake.
+	"""
+
+	if isinstance(node, ast.Name):
+		return node.id
+
+	# `Collection[Event]` — the subscript is the parameter, and the base is what it is on.
+	if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+		return node.value.id
+
+	return None
+
+
 def fields_at (source: str) -> dict[str, set[str]]:
 	"""Return every class in ``source`` and the field names it carries, inheritance included.
 
@@ -131,9 +156,7 @@ def fields_at (source: str) -> dict[str, set[str]]:
 			for entry in node.body
 			if isinstance(entry, ast.AnnAssign) and isinstance(entry.target, ast.Name)
 		}
-		bases[node.name] = [
-			entry.id for entry in node.bases if isinstance(entry, ast.Name)
-		]
+		bases[node.name] = [named for named in map(_base_name, node.bases) if named]
 
 	def resolved (name: str, seen: frozenset[str] = frozenset()) -> set[str]:
 		"""Return a class's fields plus everything it inherits from classes in this file."""
@@ -187,6 +210,40 @@ def before () -> dict[str, set[str]]:
 		pytest.skip(f"{VIEWS} did not exist at {tag}")
 
 	return fields_at(source)
+
+
+def test_a_generic_base_is_still_a_base () -> None:
+	"""`#1125` — a subscripted base was dropped, so its fields read as newly added.
+
+	Driven with a source string rather than through the release comparison, because that
+	comparison only runs when the checkout has a tag *behind* `HEAD` (`#895`) — so a test
+	depending on it would pass vacuously in exactly the state this defect hid in.
+
+	The real case is `class Changes(Collection[Event])`, the only subscripted base in
+	``views.py``, written inside the `v0.7.6` cycle. Before that release the comparison took
+	the "the whole model is new" branch; on the release commit it stepped back; and the first
+	ordinary commit after the tag is where it finally fired, two releases after the shape
+	arrived.
+	"""
+
+	source = (
+		"class Page:\n"
+		"\tlimit: int\n"
+		"class Collection:\n"
+		"\titems: list[str]\n"
+		"\tpage: Page\n"
+		"class Changes(Collection[Event]):\n"
+		"\tcovers: list[str]\n"
+	)
+
+	found = fields_at(source)
+
+	assert found["Changes"] == {"covers", "items", "page"}, (
+		"a base reached through a subscript is still a base, and its fields are inherited"
+	)
+
+	# The plain case must keep working, because the fix widens what counts as a base.
+	assert found["Collection"] == {"items", "page"}
 
 
 def test_a_field_added_since_the_last_release_carries_a_default (
