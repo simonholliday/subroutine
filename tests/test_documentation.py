@@ -92,6 +92,69 @@ _QUOTED_HEAD = (
 )
 
 
+#: The heading the settings table sits under. Named rather than matched by shape, because the
+#: page carries other tables whose first column is also a backticked word — the roles table
+#: among them, which is what a shape-matching scan reads as four extra settings.
+SETTINGS_HEADING = "### Every setting, and what it does"
+
+
+def _documented_settings () -> set[str]:
+	"""Return every setting the hosting page's table names."""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	start = page.index(SETTINGS_HEADING)
+	end = page.index("\n### ", start + len(SETTINGS_HEADING))
+
+	return set(re.findall(r"^\| `([a-z_]+)` \|", page[start:end], re.M))
+
+
+def test_every_setting_an_operator_can_set_is_on_the_hosting_page () -> None:
+	"""Both directions, derived from `config.Settings` rather than from a list (`SR#1061`).
+
+	**The page is what an operator reads while deciding whether to trust this with a
+	database**, and a setting missing from it is one they cannot know exists. A row naming a
+	setting that has gone is worse: they will try it, and `extra="ignore"` means nothing
+	refuses it.
+
+	Nothing checked this, which is how `max_page_size`'s row came to say *"the most a caller
+	may ask for"* — true when written and made false by `SR#1037` four days before a cold
+	review read it. That was found by asking which published sentence a change had broken, and
+	that question does not scale.
+
+	This guards the table's *membership*, not its prose. What a row says is still somebody's to
+	get right; what this ends is a row that has no subject, or a subject that has no row.
+	"""
+
+	documented = _documented_settings()
+	declared = set(subroutine.config.Settings.model_fields)
+
+	assert declared - documented == set(), (
+		f"settings an operator can set and the hosting page never names: "
+		f"{sorted(declared - documented)}"
+	)
+	assert documented - declared == set(), (
+		f"the hosting page names settings this build has not got: "
+		f"{sorted(documented - declared)}"
+	)
+
+
+def test_the_settings_scan_reads_the_table_and_not_the_page () -> None:
+	"""A floor, and the reason it is not a scan over every table row.
+
+	`SR#405`: the assertion above is satisfied by two empty sets. And a scan matching every
+	``| `word` |`` on this page reads the *roles* table too — measured, four extra names — so
+	one that passed would be agreeing about a set that is not the settings.
+	"""
+
+	documented = _documented_settings()
+
+	assert len(documented) > 20, f"only {len(documented)} rows read from the settings table"
+	assert "max_page_size" in documented
+	assert "worker" not in documented, (
+		"the scan reached past the settings table into the roles one"
+	)
+
+
 def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> None:
 	"""A migration moves the head and leaves the page confidently wrong (`#314`).
 

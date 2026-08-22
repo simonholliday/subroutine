@@ -157,7 +157,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `log_level` | `INFO` | How much `serve` logs |
 | `dev_mode` | `false` | Development only. Substitutes a fixed, well-known signing key when `secret_key` is unset, so a throwaway instance starts without one. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
-| `max_page_size` | `200` | The most a caller may ask for |
+| `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything — so this bounds a body rather than a call |
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
 | `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
 | `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** — see below |
