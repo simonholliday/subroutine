@@ -1419,9 +1419,20 @@ are the same three the unit sets and the same three [`init`](#first-run-and-what
 run with; a test fails the build if the two lists stop matching.
 
 **Stop the service before upgrading, not after.** The order above is deliberate: install first
-and start last, so there is never a moment where new code is serving an old database. If there
-is, `/readyz` returns 503 saying exactly that — and ordinary requests fail too, because the
-code is querying columns the database has not got yet.
+and start last, so there is never a moment where new code is serving an old database.
+
+If there is one anyway — and a mistimed deploy is the ordinary way to get there — the instance
+does not pretend everything is fine. `/readyz` returns 503 naming both revisions, and **every
+write is refused with a 409 saying the same thing** while reads go on being served. That is a
+deliberate choice rather than a half-measure: refusing to start would take the `/readyz` sentence
+away, so you would get a connection refused and have to go to the journal, and it would stop
+somebody looking something up over an upgrade they are not involved in.
+
+**What it does not protect you from, said plainly:** a migration that *backfills* an existing
+column leaves that column present and empty until it runs, so a read can be complete, plausible
+and wrong. Refusing writes stops you building on top of that; it cannot stop you being shown it.
+Six of the migrations shipped so far backfill. `subroutine db upgrade` is the supported path,
+and `/readyz` is how you find out you are not on it.
 
 `subroutine db upgrade` is the whole of the second step, and its value is the ordering rather than
 any one part of it: report what is installed and what the database is at, back up and verify the

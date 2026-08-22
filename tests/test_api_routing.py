@@ -27,6 +27,7 @@ import subroutine.api.middleware
 import subroutine.api.query
 import subroutine.api.routing
 import subroutine.config
+import subroutine.db.migrate
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.db.session
@@ -590,6 +591,12 @@ def test_a_write_is_committed_before_its_response_is_sent (
 
 	try:
 		subroutine.db.session.create_all(engine)
+		# **Stamped, because an instance is** (`#1088`'s neighbour, `#973`). A schema built
+		# straight from the models records no revision, and since a write is now refused
+		# against a database whose revision this build does not expect, an unstamped one is
+		# indistinguishable from an unmigrated deploy. `tests/conftest.py` does the same to the
+		# shared database for the same reason.
+		subroutine.db.migrate.stamp(f"sqlite:///{database}")
 
 		factory = subroutine.db.session.create_session_factory(engine)
 

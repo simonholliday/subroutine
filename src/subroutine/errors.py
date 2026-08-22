@@ -143,13 +143,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"schema_mismatch",
 			409,
 			"Schema mismatch",
-			"A database schema does not match the one this build expects, for a backup "
-			"being put back (docs/design.md §12.6). An older schema can be migrated forward and "
-			"the refusal says so; a *newer* one cannot, because this version cannot "
-			"interpret data it does not know the shape of and a partial read is worse than "
-			"a clear failure. The live database being out of step is a different answer "
-			"(§12.4a): /readyz reports it as 503 service_unavailable, because a load "
-			"balancer has to read this instance as not ready rather than as arguing.",
+			"A database schema does not match the one this build expects. An older schema "
+			"can be migrated forward and the refusal says so; a *newer* one cannot, because "
+			"this version cannot interpret data it does not know the shape of and a partial "
+			"read is worse than a clear failure. Two things answer with it: a backup being "
+			"put back (docs/design.md §12.6), and any write against a live database that has "
+			"not been migrated yet (§12.4a) — reads are still served, so an instance mid-deploy "
+			"stays readable and refuses to be changed. /readyz reports the same condition as "
+			"503 service_unavailable rather than this, because a load balancer has to read the "
+			"instance as not ready rather than as arguing.",
 		),
 		_define(
 			"cursor_expired",

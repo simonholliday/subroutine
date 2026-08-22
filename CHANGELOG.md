@@ -429,6 +429,22 @@ upgrade involves.
 
 ### Fixed
 
+- **A served instance no longer accepts writes against a database it has not been migrated
+  onto.** Between new code being deployed and `subroutine db upgrade` being run, one instance
+  gave three different answers to the same condition: `/readyz` said 503 and named both
+  revisions, an agent's tools refused with the same sentence, and an ordinary `POST` over HTTP
+  succeeded. Writes are now refused with `409 schema_mismatch`, naming both revisions and the
+  remedy.
+
+  **Reads are still served**, deliberately. Refusing to start would take away the `/readyz`
+  sentence — you would get a connection refused and have to read the journal — and would stop
+  somebody looking something up over an upgrade they are not part of.
+
+  The limit is worth knowing rather than discovering: a migration that *backfills* an existing
+  column leaves it present and empty until it runs, so a read can be complete, plausible and
+  wrong. This stops you writing on top of that; it cannot stop you being shown it.
+  [docs/hosting.md](docs/hosting.md#upgrading) says so.
+
 - **A credential narrowed to some kinds of read can ask what has changed.** `GET /v1/changes`
   and `subroutine_changes` narrow by tasks, projects and documents at once, and each enforced
   its own read scope — so a token scoped `task:read` was refused the whole feed because of a

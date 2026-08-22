@@ -35,6 +35,7 @@ import subroutine.api.projects
 import subroutine.api.query
 import subroutine.api.recurrence
 import subroutine.api.routing
+import subroutine.api.schema
 import subroutine.api.sessions
 import subroutine.api.tasks
 import subroutine.api.tokens
@@ -258,6 +259,10 @@ def create_app (
 	# row, and compared on every one after.
 	application.state.serving_instance = None
 
+	# **Latched when it agrees, re-read while it does not** (`#973`). Not read here, for the
+	# reason the line above gives: the database may not be up when the process starts.
+	application.state.schema_agrees = False
+
 	if session_factory is None:
 		engine = subroutine.db.session.create_engine(resolved.database_url)
 
@@ -321,7 +326,16 @@ def create_app (
 		# accident, months apart. A route that must answer whatever it is asked says so in
 		# `api/query.NOT_REFUSED`, which is reviewable in a way "somebody remembered" is not.
 		application.include_router(
-			router, prefix=prefix, dependencies=[subroutine.api.query.UnknownQueryDep]
+			router,
+			prefix=prefix,
+			dependencies=[
+				subroutine.api.query.UnknownQueryDep,
+				# **Here for the reason above** (`#973`). A schema check declared route by
+				# route would be the same list, falling behind the same way — and the routes it
+				# would fall behind on are the writing ones, which is where an unmigrated
+				# database does damage rather than merely answering oddly.
+				subroutine.api.schema.SchemaDep,
+			],
 		)
 
 	return application
