@@ -20,6 +20,7 @@ import datetime
 import json
 import subprocess
 import sys
+import time
 import typing
 import uuid
 
@@ -46,6 +47,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.comments
 import subroutine.domain.documents
+import subroutine.domain.events
 import subroutine.domain.filtering
 import subroutine.domain.links
 import subroutine.domain.projects
@@ -2400,6 +2402,78 @@ def test_both_refuse_a_parent_that_names_nothing (pair: Pair) -> None:
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.NotFound):
 			client.tasks(parent=9999, limit=50)
+
+
+def test_both_read_past_the_first_page_of_the_feed (pair: Pair) -> None:
+	"""`SR#1086` — the half of `SR#1066` that needed a second cursor rather than a second copy.
+
+	`SR#1037` taught every client to follow a listing's ``next_cursor``, and the feed has none:
+	§5.11 makes its cursor ``seq``, published on every row, because a client persists it
+	between polls and reasons about it. So this one collection was read a page at a time —
+	``remote.changes(limit=500)`` answered ``max_page_size`` while ``local.changes(limit=500)``
+	answered 500, honestly on both sides and not equal.
+
+	**Not by giving the endpoint a ``next_cursor``.** That would be a second way to page a feed
+	that already says where it got to, and the two would be free to disagree about which end of
+	a page they name. The client asks for the page after the one it holds, in the terms the
+	endpoint publishes.
+
+	**One past the last row rather than at it.** ``since`` is inclusive by decision, so a client
+	that persists it before finishing a page does not lose the page — that is about a *poll*.
+	Inside one call the page is in hand, so resuming *at* it would return a duplicate this
+	would then have to detect and drop.
+
+	**Counts rather than a comparison of the two feeds**, which `SR#1086` records as
+	undeterministic here: the first client's call flushes rows that create events the second
+	then sees, measured at 152 against 158 across three runs. *Did you give me the number I
+	asked for* is exact whatever else has happened since.
+
+	``newest`` is deliberately not driven here — see `SR#1097`.
+	"""
+
+	settings = subroutine.config.Settings(dev_mode=True)
+	beyond = settings.max_page_size + 5
+
+	for index in range(beyond):
+		make(pair, f"Task number {index}")
+
+	# The feed withholds the last second (§5.11), so without this every one of these is too
+	# young to be reported and both clients agree on a page of nothing.
+	time.sleep(subroutine.domain.events.WATERMARK.total_seconds() + 0.3)
+
+	local, remote = pair.both()
+
+	assert len(local.changes(limit=beyond)) >= beyond, (
+		"the seed did not produce more events than one page holds, so this asserts nothing "
+		"about paging"
+	)
+
+	for named, client in (("local", local), ("remote", remote)):
+		got = client.changes(limit=beyond)
+
+		assert len(got) == beyond, (
+			f"the {named} client answered {len(got)} events to a request for {beyond}, and "
+			f"`max_page_size` is {settings.max_page_size} — the cap on a *response* has become "
+			f"a cap on a *call*"
+		)
+
+		assert [event.seq for event in got] == sorted(event.seq for event in got), (
+			f"the {named} client returned the feed out of order across a page boundary, which "
+			"is what a resume point naming the wrong end of a page looks like"
+		)
+
+		assert len({event.seq for event in got}) == len(got), (
+			f"the {named} client returned the same event twice, so the resume point re-asked "
+			"for the row it already held"
+		)
+
+		short = client.changes(limit=3)
+
+		assert len(short) == 3
+		assert short.has_more, (
+			f"the {named} client read 3 events of more than {beyond} and did not say it had "
+			"stopped"
+		)
 
 
 def test_both_report_the_same_changes (pair: Pair) -> None:

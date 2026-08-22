@@ -37,6 +37,19 @@ import subroutine.views
 #: Any view model this client parses a response into.
 Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 
+#: How the next page of a collection is asked for, and there are exactly two.
+#:
+#: **A listing hands back an opaque ``next_cursor``**, which §8.4 makes a keyset cursor the
+#: caller neither reads nor constructs.
+#:
+#: **The change feed's cursor is ``seq``**, published on every row, because §5.11 makes it a
+#: number a client persists between polls and reasons about. So it has no ``next_cursor`` to
+#: hand back and never should: offering one would be a second way to page a feed that already
+#: says where it got to, and the two would be free to disagree about which end of a page they
+#: name.
+BY_CURSOR = "cursor"
+BY_SEQ = "since"
+
 #: What a problem document is served as. Anything else with a failing status is a proxy, a
 #: load balancer or a captive portal answering instead of the instance — worth saying so,
 #: because "not found" from nginx and "not found" from Subroutine mean very different things.
@@ -498,9 +511,16 @@ class Client:
 			subroutine.views.Event,
 			self._json("GET", "/v1/changes", params=asking),
 			endpoint="changes",
-			path="/v1/changes",
-			params=asking,
+			# **Followed forwards, and `newest` is the one call that is not** (`#1086`). With
+			# `newest` set, `has_more` means there are *earlier* events — `domain.events.page`
+			# says so — and a feed runs forwards by definition, so there is no way to ask for
+			# them. Following anyway would request whatever came after the newest event, find
+			# nothing, and turn a correct `has_more=True` into `False`: a worse answer than the
+			# short page, because it claims to be complete.
+			path=None if newest else "/v1/changes",
+			params=None if newest else asking,
 			wanted=limit,
+			resume=BY_SEQ,
 		)
 
 	def projects (
@@ -1428,6 +1448,7 @@ class Client:
 		path: str | None = None,
 		params: dict[str, typing.Any] | None = None,
 		wanted: int | None = None,
+		resume: str = BY_CURSOR,
 	) -> subroutine.clients.base.Listing[Parsed]:
 		"""Read an enveloped collection into view models, following the cursor if there is one.
 
@@ -1462,6 +1483,14 @@ class Client:
 
 		``path`` and ``params`` are what makes following possible; without them this reads the
 		one page it was handed, which is right for a collection that cannot be paged.
+
+		**``resume`` is how the next page is asked for, and the change feed is not the odd one
+		out — it is the one that publishes its cursor** (`#1086`). A listing hands back an
+		opaque ``next_cursor``; the feed's cursor is ``seq``, on every row, because §5.11 makes
+		it a number a caller stores and reasons about. So this followed every listing and read
+		one page of the feed, and a caller asking for 500 changes got ``max_page_size`` — the
+		defect `#1037` removed everywhere else, surviving in the one place the cursor was
+		already in the caller's hands.
 		"""
 
 		if not isinstance(body, dict) or "items" not in body:
@@ -1480,17 +1509,22 @@ class Client:
 
 		while wanted is not None and path is not None and params is not None:
 			# **Four ways to stop, and the last is the one that matters.** The caller has what
-			# it asked for; the instance says there is no more; it offered no cursor; or a page
-			# came back empty — which a correct instance cannot do and anything else would
-			# spin on for ever.
+			# it asked for; the instance says there is no more; there is nothing to resume
+			# from; or a page came back empty — which a correct instance cannot do and
+			# anything else would spin on for ever.
 			if len(collected) >= wanted:
 				break
 
-			if not has_more or cursor is None or not body["items"]:
+			if not has_more or not body["items"]:
+				break
+
+			carrying = _resumed(resume, collected, cursor)
+
+			if carrying is None:
 				break
 
 			asking = dict(params)
-			asking["cursor"] = cursor
+			asking.update(carrying)
 
 			if wanted is not None:
 				asking["limit"] = wanted - len(collected)
@@ -1769,6 +1803,37 @@ def _written (
 		return value
 
 	return value.isoformat()
+
+
+def _resumed (
+	how: str, collected: typing.Sequence[typing.Any], cursor: typing.Any
+) -> dict[str, typing.Any] | None:
+	"""Return the parameters that ask for the page after the one just read, or ``None``.
+
+	``None`` means *there is nothing to resume from*, which is not the same as *there is no
+	more*: an instance may say ``has_more`` and hand back no cursor, and following an absent
+	one would re-request the page just read, for ever.
+
+	**The ``seq`` is taken one past the last row rather than at it.** §5.11 makes ``since``
+	inclusive on purpose — a client that persists its cursor before it has finished processing
+	a page must not lose the page — and that reasoning is about a *poll*, between which a
+	client stores a number. Inside one call the page is already in hand, so re-asking for its
+	last row would return a duplicate this would have to detect and drop. ``seq`` is an
+	integer sequence, so ``+ 1`` skips nothing: any later event still satisfies ``>=``.
+	"""
+
+	if how == BY_SEQ:
+		if not collected:
+			return None
+
+		# `seq` rather than an attribute this can name in a type: only the event model is ever
+		# followed this way, and asking for it structurally is what stops a second model being
+		# given this resume rule without anybody noticing it has no sequence.
+		last = getattr(collected[-1], "seq", None)
+
+		return None if last is None else {"since": last + 1}
+
+	return None if cursor is None else {"cursor": cursor}
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:

@@ -530,6 +530,18 @@ upgrade involves.
   is 23:00 the same evening — which would have published a zero-length event, and some
   calendars hide those entirely.
 
+- **`subroutine changes --limit N` reads N changes over a network connection, not one page of
+  them.** Every other listing learned to follow a page boundary last week; the change feed did
+  not, because its cursor is not the opaque one the others hand back — it is the `seq` on the
+  last row you were given, which §5.11 publishes precisely so a client can store it between
+  polls. So a caller asking for 500 changes was handed `max_page_size` of them, honestly
+  labelled and short.
+
+  Asking for the newest changes — which is what you get with no `--since` — still returns one
+  page over a network connection, and says so. The feed runs forwards, so there is no way to
+  ask it for the events *before* a page; resuming from a `--since` you name reads as far as you
+  like.
+
 - **A listing with no limit is one page on both transports.** Last week's paging fix taught the
   HTTP client to follow the cursor until it held what the caller asked for — and a caller that
   named no number gave it nothing to stop at, so it read to the end of the table while the same
