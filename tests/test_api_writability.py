@@ -666,6 +666,33 @@ UNBUILT: dict[str, str] = {
 	"recurrence_anchor": "Recurrence (M7).",
 	"recurrence_template_id": "Recurrence (M7).",
 	"position": "#28 — manual backlog order is specified and nothing exposes it.",
+
+	# **Kept and not published** — `#524`, closed on decision `#906` §7's reasoning.
+	#
+	# The tempting move is `#303`'s: the seed tuple *is* the control, `key in SEEDS` answers
+	# the question, and the column is a second declaration that has to agree. **That derivation
+	# is wrong in both directions**, and `db/seed.py`'s own promise is why — *"it does not
+	# restore rows an installation deleted on purpose … local edits win over ours, without
+	# exception."* A row seeded once and dropped from the tuple later is still in the database
+	# and would read as user-created; and once `#826` lands, a workspace can invent a key a
+	# later release seeds, whose row would read as ours.
+	#
+	# **So this records something rather than restating something**, which is the test that
+	# separates it from `#303`: it is the only witness to *this installation wrote this row*,
+	# and no amount of current code can reconstruct it.
+	#
+	# Not published, because a boolean answers *did we seed this* and the question being asked
+	# of it is *what is this* — a workspace that renames `bug` to `defect` publishes
+	# `is_system: true` and a client still cannot tell which type it holds. `#906` reversed
+	# `#524`'s own publish recommendation for exactly that reason and named the successor: a
+	# classifier on `ItemType` modelled on `Status.category`, which needs the set of categories
+	# decided. Both belong to `#826`.
+	#
+	# Qualified, because the bare spelling reads as covering three columns and covers two —
+	# `Role.is_system` is written by the seeder too and `Role` is in `NOT_VIEWED`, so this
+	# register never sees it.
+	"ItemType.is_system": "#826 — the vocabulary cannot be edited, so nothing yet needs it.",
+	"LinkType.is_system": "#826 — the same column on the other seeded vocabulary.",
 }
 
 #: Stored and never reported, and that is a defect rather than a decision. Same rule as
@@ -694,11 +721,6 @@ UNREPORTED: dict[str, str] = {
 	#: `#2fa` means in this workspace — which `#102` says nothing about. The entry named the
 	#: wrong item for a week, and two separate surveys read it and repeated the mistake.
 	"Tag.description": "#905 — written by nothing and read by nothing; the one of the four kept.",
-	"is_system": (
-		"#524 — written by `db/seed.py` in three places and read nowhere. Unlike the colours "
-		"this one is a candidate for *publishing*: `#445` records that `item_types` has no "
-		"stable field a client can branch on, which is the gap this column would close."
-	),
 	"Project.timezone": (
 		"#525 — §6.5's chain is explicit → user → workspace → instance and `schedule.zone_for` "
 		"implements exactly that. A project is not a step in it, and nothing writes this."
@@ -740,7 +762,11 @@ NOT_VIEWED: dict[str, str] = {
 	"Role": (
 		"A role reaches a client as its name — `Member.role`, `WorkspaceAccess.role` — because "
 		"§7.2 makes the name the thing you grant and the permission set an implementation of "
-		"it. A view would publish `permissions` as data somebody could believe was editable."
+		"it. A view would publish `permissions` as data somebody could believe was editable. "
+		"**Note what that hides**: a role carries the same seeded-by-us flag the two "
+		"vocabulary tables do, written by the seeder and read by nothing — and having no view "
+		"is why the column register above never asks about it (`#524`). It goes the same way "
+		"as the other two: with editable roles, or not at all."
 	),
 	"LoginLink": (
 		"A credential, and one that exists for minutes (`#248`). What reaches a caller is "
