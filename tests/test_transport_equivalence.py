@@ -652,6 +652,52 @@ def test_both_read_past_the_first_page_and_say_when_they_have_not (pair: Pair) -
 	assert local.tasks(limit=3) == remote.tasks(limit=3)
 
 
+def test_a_listing_with_no_limit_answers_the_same_on_both (pair: Pair) -> None:
+	"""The default call, which is the one case `SR#1037`'s own test did not drive (`SR#1066`).
+
+	**The gap was exactly the shape of the test above it.** That drives `limit=beyond` and
+	`limit=3` — a number past a page and a number inside one — and never the call with no
+	number at all, which is the commonest one anybody writes.
+
+	`SR#1037` taught the HTTP client to follow the cursor until it held what the caller asked
+	for. With no limit there is nothing to hold it, so it followed to the end of the table
+	while the local client returned one page: **120 rows against 50**, on one database, four
+	days after it shipped.
+
+	**Simon's decision of 2026-08-22 is one default page**, and the two agree by *deferring*
+	rather than by matching a number: the HTTP client omits `limit` and lets the instance
+	apply its own `default_page_size`, which is the setting the local client reads. A constant
+	in the client would be a second copy of it, free to disagree with whichever instance a
+	connection reaches.
+
+	**More rows than a page, deliberately.** A fixture with ten tasks cannot tell the two
+	behaviours apart, because reading to the end and reading one page are the same answer —
+	which is how a green suite covered this.
+	"""
+
+	settings = subroutine.config.Settings(dev_mode=True)
+	page = min(settings.default_page_size, settings.max_page_size)
+
+	for index in range(page + 20):
+		make(pair, f"Task number {index}")
+
+	local, remote = pair.both()
+
+	for named, client in (("local", local), ("remote", remote)):
+		got = client.tasks()
+
+		assert len(got) == page, (
+			f"the {named} client answered {len(got)} rows to a listing with no limit, and one "
+			f"page here is {page}"
+		)
+
+		assert got.has_more, (
+			f"the {named} client stopped at {page} of {page + 20} tasks and did not say so"
+		)
+
+	assert local.tasks() == remote.tasks()
+
+
 @pytest.mark.parametrize("refused", [0, -1])
 def test_both_refuse_a_page_size_nothing_could_honour (pair: Pair, refused: int) -> None:
 	"""And they refuse it the same way, rather than one guessing.

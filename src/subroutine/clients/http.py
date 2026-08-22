@@ -1448,6 +1448,18 @@ class Client:
 		of a *page* — and it stops the setting silently becoming a cap on a *call*. The number
 		of requests is bounded by the caller's own limit.
 
+		**A caller that named no limit gets one page, and `has_more` says there is more**
+		(`#1066`). Following an absent limit to the end of the table is what shipped first: the
+		count check cannot fire on ``None``, so ``client.projects()`` walked the whole table
+		while the local client returned its instance's default page — 120 rows against 50,
+		measured on one database with the equivalence suite's own pair, on the one call that
+		suite does not drive.
+
+		**The two agree by deferring rather than by matching a number.** Omitting ``limit``
+		leaves the instance to apply its own ``default_page_size``, which is the same setting
+		the local client reads; a constant here would be a second copy of it, free to disagree
+		with whichever instance this connection reaches. Simon's decision of 2026-08-22.
+
 		``path`` and ``params`` are what makes following possible; without them this reads the
 		one page it was handed, which is right for a collection that cannot be paged.
 		"""
@@ -1460,12 +1472,12 @@ class Client:
 		has_more = bool(page.get("has_more"))
 		cursor = page.get("next_cursor")
 
-		while path is not None and params is not None:
+		while wanted is not None and path is not None and params is not None:
 			# **Four ways to stop, and the last is the one that matters.** The caller has what
 			# it asked for; the instance says there is no more; it offered no cursor; or a page
 			# came back empty — which a correct instance cannot do and anything else would
 			# spin on for ever.
-			if wanted is not None and len(collected) >= wanted:
+			if len(collected) >= wanted:
 				break
 
 			if not has_more or cursor is None or not body["items"]:

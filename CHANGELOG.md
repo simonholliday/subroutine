@@ -378,6 +378,15 @@ upgrade involves.
   is 23:00 the same evening — which would have published a zero-length event, and some
   calendars hide those entirely.
 
+- **A listing with no limit is one page on both transports.** Last week's paging fix taught the
+  HTTP client to follow the cursor until it held what the caller asked for — and a caller that
+  named no number gave it nothing to stop at, so it read to the end of the table while the same
+  call through the local client returned one page. `has_more` was correct on both; the row
+  counts were not.
+
+  A limit-less listing now leaves the instance to apply its own `default_page_size`, which is
+  the number the local client already used. Ask for a number to read past it.
+
 - **A client reads past the first page, and says when it has not.** Every listing method — on
   both transports — read a response's `items` and threw the rest of the envelope away, so
   `limit=500` returned `max_page_size` rows and nothing said so. The API was correct throughout:
