@@ -207,7 +207,11 @@ def listing (
 	"""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="user"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="user",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	found = subroutine.domain.users.listed(session, actor=actor)
 

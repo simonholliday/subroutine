@@ -542,7 +542,7 @@ def test_a_credentials_project_scope_is_listed_by_name (
 
 	assert rendered.project_scope_keys == [setup.inbox.key, str(gone)]
 	assert f"projects {setup.inbox.key}" in subroutine.cli.main._credential_reach(
-		rendered, None
+		rendered, None, subroutine.cli.main.Reading("UTC", assumed=False)
 	)
 
 

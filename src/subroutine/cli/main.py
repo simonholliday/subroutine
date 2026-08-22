@@ -1868,6 +1868,7 @@ def token_list () -> None:
 			places = {
 				workspace.id: workspace.slug for workspace in client.identity().workspaces
 			}
+			reading = _reading(client)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
@@ -1883,11 +1884,81 @@ def token_list () -> None:
 	for row in listed:
 		pin = None if row.workspace_id is None else places.get(row.workspace_id)
 
-		_say(f"  {row.prefix.ljust(width)}  {row.username}  {row.title}  {_credential_state(row)}")
-		_say(f"  {' ' * width}  {_credential_reach(row, pin)}")
+		_say(
+			f"  {row.prefix.ljust(width)}  {row.username}  {row.title}  "
+			f"{_credential_state(row, reading)}"
+		)
+		_say(f"  {' ' * width}  {_credential_reach(row, pin, reading)}")
+
+	_say_the_zone(reading)
 
 
-def _credential_reach (token: subroutine.views.Token, pinned: str | None) -> str:
+class Reading(typing.NamedTuple):
+	"""The zone this surface shows days in, and whether it had to be assumed.
+
+	**The administrative commands are where decision `#1088` runs out of chain.** A moment
+	renders in the reader's zone and the reader's means the account's per §6.5 — but §12.4
+	requires these commands to work against a local database when the service will not start,
+	and the credential listing itself is not about a workspace. So the fallback is this
+	machine's zone, and it is **said out loud** rather than guessed silently, which is Simon's
+	decision of 2026-08-22.
+	"""
+
+	timezone: str
+	assumed: bool
+
+	def day (self, instant: datetime.datetime) -> str:
+		"""Render one stored moment as the day it fell on where this reader is."""
+
+		return subroutine.views.moment_day(instant, self.timezone)
+
+
+def _reading (client: subroutine.clients.base.Client) -> Reading:
+	"""Return the zone this connection's account reads days in, or this machine's.
+
+	Asks ``/v1/me`` rather than ``/v1/meta``: the question here is about the *principal* and
+	is not scoped to a workspace, so the per-workspace answer beside it would be resolved
+	through whichever workspace happened to be first.
+
+	**A failure is an assumption rather than a refusal.** These commands exist to work when
+	other things do not, so an instance that cannot answer must not stop somebody reading
+	their own credential list — it changes which zone a date is shown in, which the caller is
+	then told.
+	"""
+
+	try:
+		said = client.me().reader_timezone
+
+	except subroutine.errors.SubroutineError:
+		said = None
+
+	if said is not None:
+		return Reading(said, assumed=False)
+
+	return Reading(subroutine.config.system_timezone(), assumed=True)
+
+
+def _say_the_zone (reading: Reading) -> None:
+	"""Name the zone days were shown in, where it was this machine's rather than an account's.
+
+	**Once, rather than on every cell.** §12.2a's rule that a mark saying the same thing on
+	every row says nothing applies here exactly: a listing can carry nine dates, and suffixing
+	each with the same zone name would bury the rows it is about.
+	"""
+
+	if not reading.assumed:
+		return
+
+	_say("")
+	_say(
+		f"  Days above are this machine's ({reading.timezone}). This instance did not say "
+		"which zone your account reads in."
+	)
+
+
+def _credential_reach (
+	token: subroutine.views.Token, pinned: str | None, reading: Reading
+) -> str:
 	"""Say what a credential can reach, and when it was last used.
 
 	**"Which of my tokens can write?" had no answer** (`#175`). The listing showed a prefix, an
@@ -1915,13 +1986,13 @@ def _credential_reach (token: subroutine.views.Token, pinned: str | None) -> str
 	parts.append(
 		"never used"
 		if token.last_used_at is None
-		else f"last used {token.last_used_at.date().isoformat()}"
+		else f"last used {reading.day(token.last_used_at)}"
 	)
 
 	return " · ".join(parts)
 
 
-def _credential_state (token: subroutine.views.Token) -> str:
+def _credential_state (token: subroutine.views.Token, reading: Reading) -> str:
 	"""Say whether a credential still works, and until when.
 
 	**Reported rather than left to be worked out from two nullable columns.** A listing whose
@@ -1930,15 +2001,15 @@ def _credential_state (token: subroutine.views.Token) -> str:
 	"""
 
 	if token.revoked_at is not None:
-		return f"revoked {token.revoked_at.date().isoformat()}"
+		return f"revoked {reading.day(token.revoked_at)}"
 
 	if token.expires_at is None:
 		return "no expiry"
 
 	if token.expires_at <= subroutine.db.types.utcnow():
-		return f"expired {token.expires_at.date().isoformat()}"
+		return f"expired {reading.day(token.expires_at)}"
 
-	return f"until {token.expires_at.date().isoformat()}"
+	return f"until {reading.day(token.expires_at)}"
 
 
 @agent_app.command("create")
@@ -2249,11 +2320,12 @@ def token_revoke (
 				)
 
 			stopped = client.revoke_token(id_or_prefix=named)
+			reading = _reading(client)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
-	when = "?" if stopped.revoked_at is None else stopped.revoked_at.date().isoformat()
+	when = "?" if stopped.revoked_at is None else reading.day(stopped.revoked_at)
 
 	if before.revoked_at is not None:
 		_say(f"{named} was already revoked, on {when}.")
@@ -2385,6 +2457,7 @@ def calendar_list (
 	with _administering() as client:
 		try:
 			listed = client.calendars(include_revoked=revoked)
+			reading = _reading(client)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
@@ -2398,8 +2471,10 @@ def calendar_list (
 	width = max(len(row.prefix) for row in listed)
 
 	for row in listed:
-		_say(f"  {row.prefix.ljust(width)}  {row.title}  {_calendar_state(row)}")
+		_say(f"  {row.prefix.ljust(width)}  {row.title}  {_calendar_state(row, reading)}")
 		_say(f"  {' ' * width}  {_calendar_covers(row)}")
+
+	_say_the_zone(reading)
 
 
 def _calendar_covers (feed: subroutine.views.Calendar) -> str:
@@ -2427,7 +2502,7 @@ def _calendar_covers (feed: subroutine.views.Calendar) -> str:
 	return ", ".join(parts) if parts else "everything"
 
 
-def _calendar_state (feed: subroutine.views.Calendar) -> str:
+def _calendar_state (feed: subroutine.views.Calendar, reading: Reading) -> str:
 	"""Say whether a feed still works, and when a calendar last asked it.
 
 	**Stated rather than left to be worked out from three nullable dates**, which is `token
@@ -2436,15 +2511,18 @@ def _calendar_state (feed: subroutine.views.Calendar) -> str:
 	"""
 
 	if feed.revoked_at is not None:
-		return f"revoked {feed.revoked_at.date().isoformat()}"
+		return f"revoked {reading.day(feed.revoked_at)}"
 
 	if not feed.usable:
-		return f"expired {'?' if feed.expires_at is None else feed.expires_at.date().isoformat()}"
+		return (
+			"expired "
+			f"{'?' if feed.expires_at is None else reading.day(feed.expires_at)}"
+		)
 
 	if feed.last_polled_at is None:
 		return "never polled"
 
-	return f"last polled {feed.last_polled_at.date().isoformat()}"
+	return f"last polled {reading.day(feed.last_polled_at)}"
 
 
 @calendar_app.command("reset")
@@ -2531,11 +2609,12 @@ def calendar_revoke (
 				)
 
 			stopped = client.revoke_calendar(id_or_prefix=named)
+			reading = _reading(client)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
-	when = "?" if stopped.revoked_at is None else stopped.revoked_at.date().isoformat()
+	when = "?" if stopped.revoked_at is None else reading.day(stopped.revoked_at)
 
 	if before.revoked_at is not None:
 		_say(f"{stopped.title} was already stopped, on {when}.")

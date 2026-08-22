@@ -217,7 +217,11 @@ def _attach (
 			limit=limit,
 			cursor=cursor,
 			shape=subroutine.api.shaping.wanted(
-				format=format, fields=fields, available=SELECTABLE, entity="comment"
+				format=format,
+				fields=fields,
+				available=SELECTABLE,
+				entity="comment",
+				timezone=subroutine.views.reader_zone(session, actor),
 			),
 		)
 

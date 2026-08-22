@@ -39,6 +39,7 @@ import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
 import subroutine.context
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -2303,6 +2304,63 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone (
 	assert stored == expected, (
 		f"{timezone}: at {at} it is {expected} there, and an agent planning something for "
 		f"'today' had it stored as {stored} — so the word was read in some other zone"
+	)
+
+
+@pytest.mark.parametrize(
+	("timezone", "at", "expected"),
+	[
+		("UTC", "2026-08-03T21:30:00+00:00", "2026-08-03"),
+		("Pacific/Auckland", "2026-08-03T21:30:00+00:00", "2026-08-04"),
+		("America/Los_Angeles", "2026-08-03T02:30:00+00:00", "2026-08-02"),
+	],
+)
+def test_a_comment_an_agent_reads_is_dated_where_the_account_is (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	timezone: str,
+	at: str,
+	expected: str,
+) -> None:
+	"""The read half of the same rule — `SR#1091`, decision `SR#1088`.
+
+	Its sibling above covers a day an agent **writes**. This covers a moment it **reads**: a
+	comment's ``created_at`` is a point in time and has no day until somebody names a zone,
+	and this took ``.date()`` on the stored value, which is UTC — the server's, for every
+	relayed connection since `SR#539`.
+
+	**Both directions, because they fail in opposite ones**, with UTC as the control so that a
+	change dropping the conversion fails here rather than passing one case. The instant differs
+	per case for the reason the write test records: for five hours of every day no zone in this
+	table disagrees with UTC about the date.
+	"""
+
+	who = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	assert len(who) == 1, "the fixture's one account is what carries the zone"
+
+	who[0].timezone = timezone
+	session.flush()
+
+	ref = _added(bound, "Rehang the gate")
+
+	written, failed = _called(bound, "subroutine_comment", ref=ref, body="Hinges are seized.")
+	assert not failed, written
+
+	session.execute(
+		sqlalchemy.update(subroutine.db.models.activity.Comment).values(
+			created_at=datetime.datetime.fromisoformat(at)
+		)
+	)
+	session.flush()
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+	assert not failed, shown
+	assert "Hinges are seized." in shown, f"the comment is not in the answer at all:\n{shown}"
+
+	line = next(part for part in shown.splitlines() if "Hinges are seized." in part)
+
+	assert line.startswith(expected), (
+		f"{timezone}: a comment written at {at} was dated as:\n{line}"
 	)
 
 

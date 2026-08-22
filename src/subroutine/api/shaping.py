@@ -34,10 +34,21 @@ FORMATS = ("full", "compact", "ids")
 
 
 class Shape(typing.NamedTuple):
-	"""What a caller asked a response to look like."""
+	"""What a caller asked a response to look like, and who is asking.
+
+	**The zone is here rather than beside it because the shape of a compact row depends on
+	it** (`#1091`). A cell rendering a stored moment as a day has no answer until somebody
+	names a zone, so *which day did this happen on* is genuinely part of how a response looks
+	— unlike the row set, which no display parameter may touch.
+
+	It is not a query parameter and must never become one: it is resolved from the principal
+	by :func:`subroutine.views.reader_zone`, which is §6.5's chain. A caller naming their own
+	would be naming somebody else's day on a shared instance.
+	"""
 
 	format: str = "full"
 	fields: tuple[str, ...] | None = None
+	timezone: str | None = None
 
 	@property
 	def is_default (self) -> bool:
@@ -52,8 +63,13 @@ def wanted (
 	fields: str | None,
 	available: frozenset[str],
 	entity: str,
+	timezone: str | None,
 ) -> Shape:
 	"""Read the two query parameters, or refuse with what would have worked.
+
+	``timezone`` is required rather than defaulted, so that mypy names every endpoint that
+	shapes a response and each one has to answer *whose day is this* rather than inherit a
+	silent UTC (`#1068`'s move, on a different question).
 
 	``fields`` together with a non-default ``format`` is **refused rather than resolved**.
 	Both name the shape of the response, so a request carrying both has asked for two
@@ -93,7 +109,7 @@ def wanted (
 			],
 		)
 
-	return Shape(format=chosen, fields=selected)
+	return Shape(format=chosen, fields=selected, timezone=timezone)
 
 
 def _fields (
@@ -161,7 +177,7 @@ def applied (items: typing.Sequence[typing.Any], shape: Shape) -> list[typing.An
 		return [item.address() for item in items]
 
 	if shape.format == "compact":
-		return aligned([item.columns() for item in items])
+		return aligned([item.columns(shape.timezone) for item in items])
 
 	if shape.fields is not None:
 		return [item.model_dump(mode="json", include=set(shape.fields)) for item in items]

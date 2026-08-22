@@ -631,7 +631,7 @@ class Task(pydantic.BaseModel):
 
 		return self.ref
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this task as the cells of one compact line (docs/design.md §14.10).
 
 		Each view renders its own columns because each knows which of its fields are worth a
@@ -705,7 +705,7 @@ class Backlink(pydantic.BaseModel):
 
 		return str(subroutine.domain.refs.format_ref(self.ref))
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this backlink as the cells of one compact line."""
 
 		return (self.address(), self.via or "", subroutine.domain.text.truncated(self.title))
@@ -751,11 +751,17 @@ class Comment(pydantic.BaseModel):
 
 		return str(self.id)
 
-	def columns (self) -> tuple[str, ...]:
-		"""Return this comment as the cells of one compact line."""
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this comment as the cells of one compact line.
+
+		``reader`` is the zone the *caller* reads days in, and every ``columns`` takes it
+		whether or not it uses one — because a cell rendering a moment as a day has no answer
+		without it (`#1091`), and a signature that only some of them carried would let the
+		next one be added without the question being asked.
+		"""
 
 		return (
-			self.created_at.date().isoformat(),
+			moment_day(self.created_at, reader),
 			subroutine.domain.text.truncated(self.body),
 		)
 
@@ -829,12 +835,12 @@ class Event(pydantic.BaseModel):
 
 		return str(self.seq)
 
-	def columns (self) -> tuple[str, ...]:
-		"""Return this event as the cells of one compact line."""
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this event as the cells of one compact line, dated where the caller is."""
 
 		return (
 			str(self.seq),
-			self.created_at.date().isoformat(),
+			moment_day(self.created_at, reader),
 			self.action,
 			self.entity_type,
 		)
@@ -882,7 +888,7 @@ class Link(pydantic.BaseModel):
 
 		return str(self.id)
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this link as the cells of one compact line."""
 
 		return (
@@ -933,7 +939,7 @@ class Workspace(pydantic.BaseModel):
 
 		return self.slug
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this workspace as the cells of one compact line."""
 
 		return (
@@ -984,7 +990,7 @@ class User(pydantic.BaseModel):
 
 		return self.username
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this account as the cells of one compact line.
 
 		**"instance admin", not "admin"** (`#204`). ``admin`` is also the key of a workspace
@@ -1157,6 +1163,16 @@ class Me(pydantic.BaseModel):
 	#: by a superuser, and narrowed by the credential even then (docs/design.md §7.1).
 	instance_permissions: list[str]
 
+	#: The zone this caller reads days in for a question that is **not** about a workspace —
+	#: a credential's expiry, a feed's last poll, an instance's own history (`#1091`). §6.5
+	#: with the workspace step omitted rather than guessed at, resolved here so the terminal's
+	#: administrative commands do not fall back to whichever machine happens to be running
+	#: them. Each workspace publishes its own answer beside this one.
+	#:
+	#: **Defaulted**, because an instance a release behind sends no such key and a client one
+	#: commit ahead must not refuse the whole response over it (`#345`, `#482`).
+	reader_timezone: str | None = None
+
 	workspaces: list[WorkspaceAccess]
 
 
@@ -1273,7 +1289,7 @@ class Token(pydantic.BaseModel):
 
 		return self.prefix
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this credential as the cells of one compact line."""
 
 		return (
@@ -1364,7 +1380,7 @@ class Calendar(pydantic.BaseModel):
 
 		return self.prefix
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this feed as the cells of one compact line."""
 
 		return (
@@ -1410,7 +1426,7 @@ class Member(pydantic.BaseModel):
 
 		return self.user.username
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this membership as the cells of one compact line."""
 
 		return (
@@ -1490,7 +1506,7 @@ class Project(pydantic.BaseModel):
 
 		return self.path or self.key
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this project as the cells of one compact line."""
 
 		return (
@@ -1627,7 +1643,7 @@ class Document(pydantic.BaseModel):
 
 		return self.ref
 
-	def columns (self) -> tuple[str, ...]:
+	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this document as the cells of one compact line.
 
 		No deadline and no priority column, for the reason the class docstring gives: a
@@ -2576,6 +2592,7 @@ def me (
 		instance_permissions=sorted(
 			subroutine.domain.authorization.instance_permissions(principal)
 		),
+		reader_timezone=reader_zone(session, principal),
 		workspaces=[
 			workspace_access(
 				session, principal, workspace, prioritised=focused.get(workspace.id)
@@ -2702,11 +2719,7 @@ def workspace_access (
 		# — what a day *this caller types here* means (`#1083`, decision `#1088`). Both are
 		# published because they answer different questions, and a client that only had the
 		# parts would have to hold a copy of the chain to get from one to the other.
-		reader_timezone=subroutine.domain.schedule.zone_for(
-			user=principal.user,
-			workspace=row,
-			instance=subroutine.domain.instances.get(session),
-		),
+		reader_timezone=reader_zone(session, principal, workspace=row),
 		prioritised_project=prioritised,
 		role=grant.from_role,
 		permissions=sorted(grant.permissions),
@@ -3381,6 +3394,50 @@ def _day_cell (instant: datetime.datetime, timezone: str | None) -> str:
 	"""
 
 	return subroutine.domain.schedule.day_in(instant, timezone).isoformat()
+
+
+def moment_day (instant: datetime.datetime, timezone: str | None) -> str:
+	"""Render a stored moment as the day it fell on **where the reader is** — `#1091`.
+
+	**The mirror of :func:`_day_cell`, and decision `#1088` is why they are two functions.**
+	A day is a *label*: it renders in the zone that set it and never converts, so
+	:func:`_day_cell` reaches for the value's own stored zone. A moment is a *point in time*
+	and has no day until somebody names a zone, so this one is handed the reader's — which is
+	the account's per §6.5, never the machine's and never the server's.
+
+	Public because both the terminal and an agent render moments as days and neither may
+	answer that question its own way. Do not give ``created_at`` a stored zone to make this
+	look like the other: *what day was that?* depends on who is asking rather than on who
+	wrote it, and that is the whole distinction.
+	"""
+
+	return subroutine.domain.schedule.day_in(instant, timezone).isoformat()
+
+
+def reader_zone (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace: subroutine.db.models.identity.Workspace | None = None,
+) -> str:
+	"""Return the zone this caller reads days in — §6.5 resolved for a *reader* (`#1091`).
+
+	**The workspace step is optional because some questions are not about a workspace.** A
+	credential's expiry and an instance's own history belong to the installation, so resolving
+	them through a workspace would answer with whichever one happened to be in hand. Left out,
+	the chain is user → instance, which is §6.5 with a step that does not apply omitted rather
+	than guessed at.
+
+	Here rather than in ``domain/schedule`` because it takes a principal, and here rather than
+	written out at each caller because it had two before this existed and a third was about to
+	be added — which is how one rule becomes several that agree until one is edited.
+	"""
+
+	return subroutine.domain.schedule.zone_for(
+		user=principal.user,
+		workspace=workspace,
+		instance=subroutine.domain.instances.get(session),
+	)
 
 
 def _parent_field (

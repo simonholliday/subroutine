@@ -151,7 +151,11 @@ def listing (
 		newest=newest,
 		limit=limit,
 		shape=subroutine.api.shaping.wanted(
-			format=format, fields=fields, available=SELECTABLE, entity="event"
+			format=format,
+			fields=fields,
+			available=SELECTABLE,
+			entity="event",
+			timezone=subroutine.views.reader_zone(session, actor),
 		),
 	)
 

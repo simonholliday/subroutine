@@ -196,7 +196,11 @@ def listing (
 	"""List the projects this caller can see."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="project"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="project",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
@@ -280,7 +284,11 @@ def read (
 	"""Return one project, by id or by key."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="project"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="project",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 

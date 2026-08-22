@@ -711,3 +711,143 @@ def test_every_excused_file_still_exists_and_still_truncates () -> None:
 		f"{stale} are excused from converting a day-scale date and no longer truncate one — "
 		"delete the entry"
 	)
+
+
+# ---- every moment shown as a day names the zone it is read in (`SR#1091`) --------------------
+
+#: The surfaces that render a stored moment for somebody to read, relative to the repository
+#: root. Not the whole tree: ``domain/`` computes with dates and legitimately truncates one it
+#: has already converted, so a rule aimed at rendering has to be aimed at the renderers.
+RENDERS_FOR_A_READER = ("src/subroutine/views.py", "src/subroutine/cli", "src/subroutine/mcp")
+
+#: Where a rendering surface may take a day off a value itself, and why.
+#:
+#: **Empty, and measured rather than assumed.** Every site that needed one turned out to be
+#: better written the other way — the two remaining conversions went through
+#: ``schedule.day_in`` and read *more* clearly for it, and the one refusal that had no zone in
+#: reach (``domain/authentication``) was more correct naming the instant than a day.
+READS_A_LOCAL_MOMENT: dict[str, str] = {}
+
+
+def _moments_read_without_a_zone (tree: pathlib.Path, within: tuple[str, ...]) -> dict[str, list[str]]:
+	"""Return every ``.date()`` and every argument-less ``.astimezone()`` under ``within``.
+
+	**Two spellings of one mistake, which is why one scan finds both.** ``x.date()`` asks what
+	day a moment fell on *in the zone it is stored in*, which is UTC — the server's. A bare
+	``x.astimezone()`` asks the same question of ``/etc/localtime`` — the machine's, which for
+	every relayed connection since `SR#539` is the server's too. Neither is anybody's zone, and
+	both have shipped: `SR#1091` found nine of the first and two of the second.
+
+	**It takes the tree and the reach as arguments** (`SR#405`), so a test can hand it one built
+	to hold a known offender. No offenders found and nothing to find are otherwise the same
+	answer, and that is how a scan goes quietly inert.
+
+	**A correct conversion is not a special case here, it is a different function.**
+	``schedule.day_in`` and ``views.moment_day`` both end in ``.date()`` one call deeper, in
+	``domain/``, which is outside this reach — so the rule is *call the function* rather than
+	*call it and then explain yourself*, and there is nothing for a register to hold.
+	"""
+
+	found: dict[str, list[str]] = {}
+	targets: list[pathlib.Path] = []
+
+	for named in within:
+		where = tree / named
+
+		targets.extend([where] if where.is_file() else sorted(where.rglob("*.py")))
+
+	for path in targets:
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+				continue
+
+			if node.args or node.keywords:
+				continue
+
+			if node.func.attr in ("date", "astimezone"):
+				name = str(path.relative_to(tree))
+				found.setdefault(name, []).append(f"{node.func.attr}() at line {node.lineno}")
+
+	return found
+
+
+def test_no_moment_is_shown_as_a_day_without_a_zone () -> None:
+	"""The mirror of the guard above, and decision `SR#1088` is why they are two rules.
+
+	**A day is a label and a moment is a point in time.** A day renders in the zone that set
+	it and never converts, so the guard above says *reach for the value's own stored zone*. A
+	moment has no day at all until somebody names one, so this says *reach for the reader's* —
+	the account's per §6.5, which is published on ``/v1/me`` and ``/v1/meta`` precisely so no
+	client has to hold a copy of the chain.
+
+	**Do not close this by giving ``created_at`` a stored zone.** That is the obvious-looking
+	fix and it answers the wrong question: *what day was that?* depends on who is asking, not
+	on who wrote it.
+
+	Thirteen sites when this was written — a credential's last use and expiry, a feed's last
+	poll, a comment's day and an event's day at the terminal and for an agent — and two of
+	them were the machine's zone rather than the server's, including the *heading* an event
+	listing groups by, which put two days' work under one date and called it by the earlier
+	name.
+	"""
+
+	found = _moments_read_without_a_zone(ROOT, RENDERS_FOR_A_READER)
+	offenders = {
+		path: where for path, where in found.items() if path not in READS_A_LOCAL_MOMENT
+	}
+
+	assert not offenders, (
+		"a rendering surface is taking a day off a moment in the server's or the machine's "
+		f"zone rather than the reader's: {offenders} — route it through `views.moment_day` "
+		"or `schedule.day_in` with the account's zone, or record why it is right in "
+		"READS_A_LOCAL_MOMENT"
+	)
+
+
+def test_the_moment_scan_finds_both_spellings_and_ignores_a_conversion (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Driven against a tree holding one of each, because a floor is not a fixture.
+
+	The conversion case is the one that decides whether this is usable: an ``.astimezone(zone)``
+	*with* an argument is the correct spelling and appears beside the wrong one constantly, so
+	a scan that could not tell them apart would be turned off within the week.
+	"""
+
+	source = tmp_path / "src" / "subroutine"
+	source.mkdir(parents=True)
+	(source / "shown.py").write_text(
+		"def render (event, zone):\n"
+		"\ta = event.created_at.date()\n"
+		"\tb = event.created_at.astimezone()\n"
+		"\tc = event.created_at.astimezone(zone)\n"
+		"\td = views.moment_day(event.created_at, zone)\n"
+		"\treturn a, b, c, d\n",
+		encoding="utf-8",
+	)
+
+	found = _moments_read_without_a_zone(tmp_path, ("src/subroutine/shown.py",))
+
+	assert set(found) == {"src/subroutine/shown.py"}, found
+	assert found["src/subroutine/shown.py"] == ["date() at line 2", "astimezone() at line 3"]
+
+
+def test_every_surface_the_moment_scan_reads_is_one_that_exists () -> None:
+	"""A reach naming a path that has moved reads exactly like a clean tree.
+
+	`SR#405`'s floor, in the form this scan needs: it walks three named places rather than the
+	whole tree, so a rename is the way it goes silently inert. Both halves — the places exist,
+	and excusing one that no longer offends is an expired reason left standing.
+	"""
+
+	missing = [named for named in RENDERS_FOR_A_READER if not (ROOT / named).exists()]
+
+	assert not missing, f"{missing} no longer exist, so this scan reads less than it names"
+
+	found = _moments_read_without_a_zone(ROOT, RENDERS_FOR_A_READER)
+	stale = sorted(set(READS_A_LOCAL_MOMENT) - set(found))
+
+	assert not stale, (
+		f"{stale} are excused from naming a zone and no longer read a moment as a day — "
+		"delete the entry"
+	)

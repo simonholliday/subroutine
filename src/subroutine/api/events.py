@@ -190,7 +190,11 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 			limit=limit,
 			cursor=cursor,
 			shape=subroutine.api.shaping.wanted(
-				format=format, fields=fields, available=SELECTABLE, entity="event"
+				format=format,
+				fields=fields,
+				available=SELECTABLE,
+				entity="event",
+				timezone=subroutine.views.reader_zone(session, actor),
 			),
 		)
 

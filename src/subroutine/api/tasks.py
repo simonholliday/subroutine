@@ -398,7 +398,11 @@ def listing (
 	"""List tasks, narrowed by whatever the query string asks for."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="task"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="task",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
@@ -660,7 +664,11 @@ def read (
 	"""Return one task, by id or by ref."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="task"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="task",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 

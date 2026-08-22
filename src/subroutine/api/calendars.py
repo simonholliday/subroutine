@@ -174,7 +174,11 @@ def listing (
 	"""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="calendar"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="calendar",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	found = subroutine.domain.calendars.feeds(
 		session, actor.user, include_revoked=include_revoked

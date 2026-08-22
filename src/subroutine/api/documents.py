@@ -230,7 +230,11 @@ def listing (
 	"""List the documents this caller can see."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="document"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="document",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	statement = subroutine.domain.scoping.readable_documents(
@@ -417,7 +421,11 @@ def read (
 	"""Return one document, by id or by ref."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="document"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="document",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 

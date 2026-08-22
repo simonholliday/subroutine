@@ -11,13 +11,16 @@ guard exists: a discovery endpoint that names something the endpoint refuses is 
 one that names nothing.
 """
 
+import datetime
 import json
 import typing
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.api.shaping
+import subroutine.db.models.activity
 import test_api_tasks
 
 
@@ -633,3 +636,56 @@ def test_an_endpoint_that_takes_nothing_says_so_rather_than_trailing_off (
 
 	assert "no query parameters" in hint
 	assert "It accepts: ." not in hint
+
+
+@pytest.mark.parametrize(
+	("timezone", "at", "expected"),
+	[
+		("UTC", "2026-08-03T21:30:00+00:00", "2026-08-03"),
+		("Pacific/Auckland", "2026-08-03T21:30:00+00:00", "2026-08-04"),
+		("America/Los_Angeles", "2026-08-03T02:30:00+00:00", "2026-08-02"),
+	],
+)
+def test_compact_dates_a_comment_where_the_reader_is (
+	world: test_api_tasks.World, timezone: str, at: str, expected: str
+) -> None:
+	"""`SR#1091` — the mirror of the guard above it, on the surface a script reads.
+
+	**A comment's ``created_at`` is a moment, not a day**, so it has no day at all until
+	somebody names a zone. This column took ``.date()`` on the stored value, which is UTC —
+	the server's — so a comment written at half past nine in the evening in Auckland was
+	reported as having happened the next day, and one written before eight in the morning in
+	Los Angeles as having happened the day before.
+
+	**Both directions, because they fail in opposite ones** and a fix for one is not a fix for
+	the other. UTC is kept as the control: it is the zone this suite runs in and the one where
+	the defect cannot appear, so a change that drops the conversion entirely fails here rather
+	than passing one case and looking careful.
+
+	**The instant differs per case on purpose.** For five hours of every day no zone in this
+	table disagrees with UTC about the date, so a fixed instant would make this vacuous for
+	part of the day — `SR#1090`'s recorded trap, met while writing its sibling.
+	"""
+
+	world.user.timezone = timezone
+	world.session.flush()
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Rehang the gate"}).json()
+	world.call(
+		"POST", f"/v1/tasks/{created['ref']}/comments", json={"body": "Hinges are seized."}
+	)
+
+	row = subroutine.db.models.activity.Comment
+	world.session.execute(
+		sqlalchemy.update(row).values(created_at=datetime.datetime.fromisoformat(at))
+	)
+	world.session.flush()
+
+	found = world.call(
+		"GET", f"/v1/tasks/{created['ref']}/comments?format=compact"
+	).json()["items"]
+
+	assert found, "the comment was not returned at all, so this asserts nothing"
+	assert found[0].startswith(expected), (
+		f"{timezone}: a comment written at {at} was dated as:\n{found[0]}"
+	)

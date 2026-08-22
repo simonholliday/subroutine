@@ -1391,8 +1391,14 @@ def _changed (
 	if not events:
 		return " ".join(filter(None, ["Nothing has changed.", coverage]))
 
+	# **The account's zone, not this process's** (`#1091`). This was a bare ``.astimezone()``,
+	# which is the *server's* ``/etc/localtime`` for every relayed connection since `#539` —
+	# nobody's zone, and here it decides the day as well as the time.
+	zone = subroutine.domain.dates.zone(
+		_account_zone(client, _text(arguments, "workspace"))
+	)
 	lines = [
-		f"{event.seq}  {event.created_at.astimezone():%d %b %H:%M}  {_happened(event)}  "
+		f"{event.seq}  {event.created_at.astimezone(zone):%d %b %H:%M}  {_happened(event)}  "
 		f"{_named(event)}"
 		for event in events
 	]
@@ -2038,6 +2044,13 @@ def _shown (
 	workspace = _text(arguments, "workspace")
 	found, kind = _item(client, ref, workspace)
 
+	# **The zone a comment's day and an event's day are read in** (`#1091`). Both were
+	# ``.date()`` on the stored instant, which is UTC, so a comment written at nine in the
+	# evening in Auckland was reported as having happened the next day. Resolved once here
+	# rather than per line, and it costs nothing: since `#539` these tools run inside the
+	# instance, so asking is a local read.
+	reading = _account_zone(client, workspace)
+
 	parts = [_line(found, now=subroutine.db.types.utcnow())]
 
 	# **In `show` rather than in `_line`**, on `#819`'s argument: this is the tool that
@@ -2114,7 +2127,7 @@ def _shown (
 	if arguments.get("history"):
 		parts.append("")
 		parts.extend(
-			f"{event.created_at.date().isoformat()}  {_happened(event)}"
+			f"{subroutine.views.moment_day(event.created_at, reading)}  {_happened(event)}"
 			for event in client.history(ref=ref, entity_type=kind, workspace=workspace)
 		)
 
@@ -2130,7 +2143,7 @@ def _shown (
 		# where five accounts in eight are agents *who wrote this* is the difference between a
 		# colleague's note and a machine's.
 		parts.extend(
-			f"{remark.created_at.date().isoformat()}  "
+			f"{subroutine.views.moment_day(remark.created_at, reading)}  "
 			+ (f"@{remark.author}  " if remark.author else "")
 			+ remark.body
 			for remark in remarks
@@ -2488,10 +2501,16 @@ def _ref (arguments: dict[str, typing.Any], *, field: str = "ref") -> int:
 	return found
 
 
-def _typed_day_zone (client: subroutine.clients.base.Client, workspace: str | None) -> str:
-	"""Return the zone a day an agent typed should be read in — `#1064`, decision `#1088`.
+def _account_zone (client: subroutine.clients.base.Client, workspace: str | None) -> str:
+	"""Return the account's zone here — §6.5 resolved by the instance, not by this process.
 
-	The **account's**, resolved by the instance and published on ``/v1/meta``, which
+	**One function because decision `#1088` asks one question twice.** A day an agent *writes*
+	is read in the setter's zone and a moment it *reads* is rendered in the reader's; an agent
+	is one account, so both are this. It was called ``_typed_day_zone`` while writing was its
+	only caller, which made the name a claim about the use rather than about the value
+	(`#1091`).
+
+	Resolved by the instance and published on ``/v1/meta``, which
 	``identity()`` is already the answer to. Nothing extra is fetched on the path that matters:
 	since `#539` these tools run inside the instance for a relayed connection, so this is a
 	local call rather than a round trip.
@@ -2549,9 +2568,7 @@ def _day (given: typing.Any, *, field: str, timezone: str) -> datetime.date | No
 		# Back to a day in the zone the moment was read in — the same conversion
 		# `schedule.interpret_written_day` does, and for its reason: reading it in UTC would
 		# make a Friday evening into Saturday for anybody east of Greenwich.
-		return moment.astimezone(
-			subroutine.domain.dates.zone(timezone, field)
-		).date()
+		return subroutine.domain.schedule.day_in(moment, timezone)
 
 	return moment
 
@@ -2570,7 +2587,7 @@ def _moment (
 
 	**``timezone`` is the account's, passed in** (`#1064`, decision `#1088`). It used to be
 	``config.system_timezone()`` read right here, which is the *server's* for every relayed
-	connection — see :func:`_typed_day_zone` for why that was nobody's zone.
+	connection — see :func:`_account_zone` for why that was nobody's zone.
 	"""
 
 	if not isinstance(given, str):
@@ -2795,12 +2812,12 @@ def _updated (
 	#
 	# **The zone is looked up once, and only when a day was actually named** (`#1064`). It was
 	# read from the process inside each helper before, which is the server's for every relayed
-	# connection — see :func:`_typed_day_zone`. Asking here rather than in the helpers is what
+	# connection — see :func:`_account_zone`. Asking here rather than in the helpers is what
 	# keeps a change with no dates in it from fetching an identity it has no use for.
 	days: dict[str, datetime.datetime | datetime.date | None] = {}
 
 	if any(field in arguments for field in ("plan", "defer")):
-		zone = _typed_day_zone(client, workspace)
+		zone = _account_zone(client, workspace)
 
 		days = {
 			field: (_moment if field == "defer" else _day)(

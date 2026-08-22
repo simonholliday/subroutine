@@ -41,6 +41,7 @@ import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.installations
 import subroutine.releases
+import subroutine.views
 
 #: The zone every instance in this file is created in, named once because a test that asks
 #: what day it is has to ask *this* clock rather than the machine's (`#233`). Deliberately
@@ -3040,7 +3041,7 @@ def test_neither_writing_a_date_nor_reading_the_agenda_consults_this_machine (
 	*neither* command, where before it reached exactly one.
 
 	**Not vacuous**, and that is worth stating because a passing pair looks like one: the
-	fallback in ``World.typed_day_zone`` is this same setting, for an instance a release behind
+	fallback in ``World.account_zone`` is this same setting, for an instance a release behind
 	that publishes no ``reader_timezone``. Without the field being read, ``add`` refuses here
 	exactly as it used to — which is what the earlier version asserted.
 	"""
@@ -3297,3 +3298,48 @@ def test_a_wildcard_bind_still_refuses_rather_than_naming_an_address_nobody_can_
 	assert "0.0.0.0" in result.output, "the refusal did not say what it looked at"
 	assert "public_url" in result.output, "and did not say what would fix it"
 	assert "/signin?link=" not in result.output, "it minted a link nobody could open"
+
+
+def test_a_credential_listing_says_when_its_dates_are_this_machine_s (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1091`'s fallback, and Simon's decision of 2026-08-22 is that it is *said out loud*.
+
+	**The administrative commands are where decision `SR#1088` runs out of chain.** A moment
+	renders in the reader's zone and the reader's means the account's per §6.5 — but §12.4
+	requires these to work against a local database when the service will not start, and a
+	credential listing is not about a workspace. Where the instance cannot answer, this
+	machine's zone is used, and the alternative to saying so is a date silently in the wrong
+	one on the surface somebody reads when deciding whether to revoke something.
+
+	**Both directions, because a line that fires for everybody is not a signal.** The ordinary
+	state is an instance that answers, and it says nothing.
+
+	The absent case is reached by making ``/v1/me`` answer as an instance a release behind
+	does — no such key at all (`SR#345`) — which is the only way it is reachable, and is
+	exactly the state this fallback exists for.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("token", "create", "--title", "My laptop")
+
+	note = "Days above are this machine's"
+
+	assert note not in run("token", "list").output, (
+		"an instance that says which zone the account reads in has nothing to explain"
+	)
+
+	answering = subroutine.views.me
+	monkeypatch.setattr(
+		subroutine.views,
+		"me",
+		lambda session, principal: answering(session, principal).model_copy(
+			update={"reader_timezone": None}
+		),
+	)
+	monkeypatch.setattr(subroutine.config, "system_timezone", lambda: "Pacific/Auckland")
+
+	said = run("token", "list").output
+
+	assert note in said, f"the zone was assumed and not named:\n{said}"
+	assert "Pacific/Auckland" in said, f"the note does not say which zone it used:\n{said}"

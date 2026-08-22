@@ -532,7 +532,13 @@ def _refuse_amplification (
 	held_until = actor.expires_at
 
 	if held_until is not None and (expires_at is None or expires_at > held_until):
-		until = held_until.date().isoformat()
+		# **The instant, not the day it falls on** (`#1091`). A moment has no day until
+		# somebody names a zone, and there is none to name here: this runs in the domain,
+		# below any workspace, and §6.5's chain needs a session this function does not take.
+		# Saying the instant is not a way round that — it is the better answer. A caller told
+		# "expires on 2026-09-01 or sooner" who then asks for the end of that day is refused a
+		# second time, because the bound was never a day.
+		until = held_until.isoformat()
 
 		raise subroutine.errors.Forbidden(
 			"A token cannot outlive the one that asked for it.",

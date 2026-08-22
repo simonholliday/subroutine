@@ -240,7 +240,11 @@ def listing (
 	"""List the workspaces this caller can reach."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="workspace"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="workspace",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
 	model = subroutine.db.models.identity.Workspace
@@ -309,7 +313,11 @@ def read (
 	"""Return one workspace, by id or by short name."""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="workspace"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="workspace",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
 	return subroutine.api.shaping.single(
@@ -410,7 +418,11 @@ def members (
 	"""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=MEMBER_FIELDS, entity="member"
+		format=format,
+		fields=fields,
+		available=MEMBER_FIELDS,
+		entity="member",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	found = resolve(session, actor, id_or_slug)
 	rows = subroutine.domain.workspaces.members(session, found, actor=actor)

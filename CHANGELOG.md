@@ -326,6 +326,27 @@ upgrade involves.
 
 ### Changed
 
+- **A moment shown as a day is now dated where *your account* is, not where the server is.**
+  A comment written at half past nine in the evening in Auckland was reported as having
+  happened the next day; one written before eight in the morning in Los Angeles as having
+  happened the day before. Thirteen places did this — a credential's last use and expiry, a
+  calendar feed's last poll, and every comment and history line at the terminal and for an
+  agent.
+
+  This is the other half of the day rule below, and they are opposite fixes. A **day** is a
+  label: it is shown in the zone that set it and never converted, because converting it moves
+  somebody's deadline. A **moment** is a point in time and has no day at all until somebody
+  names a zone, so it is always converted, into the zone of whoever is reading.
+
+  **Two of the thirteen used the machine's timezone rather than the server's**, including the
+  date heading `subroutine changes` groups work under — so either side of midnight it put two
+  days' work under one heading and called it by the earlier name.
+
+  `GET /v1/me` now reports `reader_timezone` beside the per-workspace one it already carried:
+  the zone your account reads days in for a question that is not about a workspace. Where an
+  instance is too old to say, the terminal uses this machine's zone **and names it** rather
+  than guessing silently.
+
 - **A day you write now means the day it is where your *account* is, not where your keyboard
   is.** `subroutine add "… by friday"`, `plan`, `defer`, `agenda <day>` and an agent's `plan`
   and `defer` all used to resolve the word against the machine they were typed on. Your agenda

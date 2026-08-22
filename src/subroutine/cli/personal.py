@@ -191,11 +191,17 @@ class World:
 	#: (`#942`). See :meth:`merging` for why it is carried this far.
 	collision: subroutine.errors.SubroutineError | None = None
 
-	def typed_day_zone (self, connection: str | None, workspace: str | None) -> str:
-		"""Return the zone a day *typed here* should be read in — `#1083`, decision `#1088`.
+	def account_zone (self, connection: str | None, workspace: str | None) -> str:
+		"""Return the account's zone here — §6.5 resolved by the instance, not by this machine.
 
-		The **account's**, resolved by the instance that will store it and published on
-		``/v1/meta``. This used to be ``settings.default_timezone``, whose default is this
+		**One function because decision `#1088` asks one question twice.** A day somebody
+		*writes* is read in the setter's zone and a moment somebody *reads* is rendered in the
+		reader's; at a terminal the setter and the reader are the same account, so both are
+		this. It was called ``typed_day_zone`` while writing was its only caller, which made
+		the name a claim about the use rather than about the value (`#1091`).
+
+		Published on ``/v1/meta`` rather than resolved here, so no client holds a copy of the
+		chain (`#925`). This used to be ``settings.default_timezone``, whose default is this
 		machine's OS zone — so ``subroutine agenda today`` and a bare ``subroutine agenda``
 		could name different days near midnight, because the answer is bucketed in the
 		account's zone and the question was asked in the laptop's.
@@ -1956,7 +1962,7 @@ def _day (world: World, written: str, *, at: "Located") -> datetime.date:
 
 	resolved = subroutine.domain.schedule.interpret_written_day(
 		written,
-		timezone=world.typed_day_zone(at.connection, at.workspace),
+		timezone=world.account_zone(at.connection, at.workspace),
 		now=subroutine.db.types.utcnow(),
 		field="when",
 	)
@@ -1992,7 +1998,7 @@ def _moment (world: World, written: str, *, at: "Located") -> datetime.datetime 
 
 	resolved = subroutine.domain.schedule.interpret_written_moment(
 		written,
-		timezone=world.typed_day_zone(at.connection, at.workspace),
+		timezone=world.account_zone(at.connection, at.workspace),
 		now=subroutine.db.types.utcnow(),
 		field="when",
 	)
@@ -2472,13 +2478,20 @@ def _say_changes (
 
 			continue
 
+		# **The account's zone, not this machine's** (`#1091`, decision `#1088`). This was a
+		# bare ``.astimezone()``, which is the laptop's — and it is the *heading* work is
+		# grouped under, so on the wrong side of midnight it put two days' events under one
+		# date and called it by the earlier name.
+		named = world.account_zone(answer.connection.name, None)
+		zone = subroutine.domain.dates.zone(named)
 		day = None
 
 		for event in answer.value:
-			when = event.created_at.astimezone()
+			when = event.created_at.astimezone(zone)
+			fell_on = subroutine.domain.schedule.day_in(event.created_at, named)
 
-			if when.date() != day:
-				day = when.date()
+			if fell_on != day:
+				day = fell_on
 
 				console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
 
@@ -6340,15 +6353,19 @@ def register (
 
 		with program.opened() as world:
 			where = world.writing_to()
+			# Neither of these rows carries a moment, so nothing here reads it; it is passed
+			# because `columns` takes it everywhere rather than only where it is used, which
+			# is what stops the next cell rendering a day in the server's zone (`#1091`).
+			reading = world.account_zone(where.name, None)
 
 			if workspace.strip():
 				members = where.client.members(workspace=workspace.strip())
-				rows = [member.columns() for member in members]
+				rows = [member.columns(reading) for member in members]
 				payload = [member.model_dump(mode="json") for member in members]
 
 			else:
 				accounts = where.client.users()
-				rows = [account.columns() for account in accounts]
+				rows = [account.columns(reading) for account in accounts]
 				payload = [account.model_dump(mode="json") for account in accounts]
 
 			if json_output:
@@ -7616,6 +7633,11 @@ def _render_item (
 	children = gathered.children
 	events = gathered.events
 
+	# **A comment's day and an event's day are the reader's, not the server's** (`#1091`).
+	# Both were ``.date()`` on the stored instant, which is UTC — so a comment written at
+	# nine in the evening in Auckland was reported as having happened the next day.
+	zone = world.account_zone(located.connection, located.workspace)
+
 	shown = world.address_of_located(located)
 	heading = rich.text.Text()
 	heading.append(f"{shown}  ", style=POSITION)
@@ -7753,7 +7775,7 @@ def _render_item (
 
 		for remark in recent:
 			line = rich.text.Text()
-			line.append(f"  {remark.created_at.date().isoformat()}  ", style=DETAIL)
+			line.append(f"  {subroutine.views.moment_day(remark.created_at, zone)}  ", style=DETAIL)
 
 			# **Who, beside when** (`#636`). A record of what happened with the names cut out
 			# is half a record, and it matters more here than the count of accounts suggests:
@@ -7783,7 +7805,7 @@ def _render_item (
 
 		for event in events:
 			line = rich.text.Text()
-			line.append(f"  {event.created_at.date().isoformat()}  ", style=DETAIL)
+			line.append(f"  {subroutine.views.moment_day(event.created_at, zone)}  ", style=DETAIL)
 			line.append(_event_line(event))
 			console.print(line)
 

@@ -166,7 +166,11 @@ def listing (
 	"""
 
 	shape = subroutine.api.shaping.wanted(
-		format=format, fields=fields, available=SELECTABLE, entity="token"
+		format=format,
+		fields=fields,
+		available=SELECTABLE,
+		entity="token",
+		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	found = subroutine.domain.tokens.issued_tokens(session, actor=actor)
 	owners = subroutine.domain.tokens.owners(session, found)
