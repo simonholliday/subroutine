@@ -46,15 +46,6 @@ NAMES: tuple[str, ...] = (
 	"slate",
 )
 
-#: What a caller sends to clear a colour rather than to choose one.
-#:
-#: **``None`` means *not stated*, which is what makes inheritance work** — a project with no
-#: colour of its own takes its parent's, and a workspace with none leaves its projects unmarked.
-#: There is deliberately no sentinel meaning *explicitly none*: a project that wanted to opt out
-#: of its workspace's colour would need one, and nobody has asked for that. Adding it later is a
-#: value in this tuple; removing one is not.
-CLEARED = None
-
 
 def refuse_unknown (value: str, *, key: str) -> str:
 	"""Return the colour named, or refuse it with the whole vocabulary.

@@ -48,9 +48,6 @@ DEFER_WORDS = ("from", "defer")
 #: of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
-#: The largest and smallest an importance may be (docs/design.md §6.3).
-IMPORTANCE_RANGE = (1, 5)
-
 #: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
 #: task to "example.com" and leaves "Email bob about it" as the title — data lost, exactly
 #: what rule 1 forbids. Measured, not theorised: it was the first thing tried.

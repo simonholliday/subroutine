@@ -31,7 +31,6 @@ LINK_ENTITY_TYPES = ("task", "document", "verification")
 MENTION_SOURCE_TYPES = ("task", "document", "comment")
 
 PROJECT_VISIBILITIES = ("public", "private")
-PROJECT_TEMPLATES = ("blank", "personal", "software")
 #: What the next occurrence's date is measured *from* — the rule's own grid, or the instant
 #: the last one was finished. "The 1st of each month" is the 1st whether or not you were late;
 #: "every 14 days" means fourteen days after you actually watered the plants.

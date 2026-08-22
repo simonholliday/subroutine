@@ -83,7 +83,6 @@ DETAIL = "dim"
 LATE = "red"
 SUGGESTION = "dim cyan"
 GROUP = "bold cyan"
-TROUBLE = "yellow"
 
 #: Where a search term matched. One of the sixteen basic names, so it is *the user's* yellow
 #: and their terminal theme decides what that looks like (decision `#102`) — a hex value would

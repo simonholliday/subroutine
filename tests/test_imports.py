@@ -34,8 +34,10 @@ import collections
 import functools
 import json
 import pathlib
+import re
 import subprocess
 import sys
+import tokenize
 import typing
 
 import pytest
@@ -342,6 +344,194 @@ def _unused () -> dict[str, set[str]]:
 			found[relative] = dead
 
 	return found
+
+
+#: Every module-level name in ``src/`` that nothing reads, with the reason it is kept anyway.
+#:
+#: **Empty, and that is the interesting part.** The five this guard was built for were all
+#: genuinely dead and two of them were second copies of a live rule — ``IMPORTANCE_RANGE``
+#: beside ``tasks.PRIORITY_RANGE``, and ``PROJECT_TEMPLATES`` beside
+#: ``projects.TEMPLATES``. `#303`'s answer applies: an inert declaration is a thing that has
+#: to agree with whatever does the work, and deleting beats wiring.
+#:
+#: An entry is a claim that a name is bound for some reason other than being read — the same
+#: shape as :data:`SIDE_EFFECT_IMPORTS`, and it needs the same kind of argument. Nothing in this
+#: package is a library anybody imports, so *"somebody outside reads it"* is not one of them.
+DECLARED_AND_UNREAD: dict[str, str] = {
+	"ix_task_search": (
+		"an Index attaches itself to its table's metadata when it is constructed; the name is "
+		"where the statement had to go, and `fulltext.index` asserts the attachment happened"
+	),
+	"ix_document_search": "the same, for documents",
+	"ix_comment_search": "the same, for comments",
+}
+
+
+def _module_level_names (path: pathlib.Path) -> list[tuple[str, int]]:
+	"""Return every name this module assigns at the top level, with its line."""
+
+	found: list[tuple[str, int]] = []
+
+	for node in ast.parse(path.read_text(encoding="utf-8")).body:
+		targets: list[ast.expr] = []
+
+		if isinstance(node, ast.Assign):
+			targets = list(node.targets)
+
+		elif isinstance(node, ast.AnnAssign):
+			targets = [node.target]
+
+		found.extend(
+			(one.id, node.lineno)
+			for one in targets
+			if isinstance(one, ast.Name) and not one.id.startswith("__")
+		)
+
+	return found
+
+
+@functools.cache
+def _code_only (path: pathlib.Path) -> str:
+	"""Return one module with its comments and string literals blanked out.
+
+	**A name mentioned in prose is not a name anybody reads**, and finding that out cost this
+	guard its first falsification: putting a dead constant back left it green, because the
+	docstring above names the very constants it was built for. Two sentences of explanation had
+	made the thing they explain undetectable.
+
+	``tokenize`` rather than a regex, so a name inside a docstring, a comment or any other
+	string is gone and the code around it is untouched. What this deliberately also drops is
+	``getattr(x, "NAME")`` — dynamic reads are not something this tree does, and one would
+	surface as an entry in :data:`DECLARED_AND_UNREAD` with a reason rather than as silence.
+	"""
+
+	kept = []
+
+	with path.open("rb") as stream:
+		for token in tokenize.tokenize(stream.readline):
+			if token.type not in (tokenize.COMMENT, tokenize.STRING):
+				kept.append(token.string)
+
+	return "\n".join(kept)
+
+
+def _unread_names (
+	source: pathlib.Path, searched: tuple[pathlib.Path, ...]
+) -> dict[str, str]:
+	"""Return each module-level name in ``source`` that nothing anywhere in ``searched`` reads.
+
+	**It takes the tree rather than finding it** (`SR#405`). The first version read ``ROOT``
+	directly, and a floor written beside it could not tell a scan that found nothing from a tree
+	with nothing to find — proved by breaking its glob and watching both tests stay green. A
+	scanner that can be handed a subject is one a test can hand a known defect to.
+	"""
+
+	corpus = {
+		path: _code_only(path)
+		for directory in searched
+		for path in directory.rglob("*.py")
+		if "versions" not in path.parts
+	}
+
+	unread = {}
+
+	for path in sorted(source.rglob("*.py")):
+		if "versions" in path.parts:
+			continue
+
+		for name, line in _module_level_names(path):
+			pattern = re.compile(rf"\b{re.escape(name)}\b")
+
+			# Its own declaration is one occurrence and does not count as a reader. Anything
+			# else anywhere — another module, a test, a script — does.
+			readers = sum(
+				len(pattern.findall(text)) - (1 if other == path else 0)
+				for other, text in corpus.items()
+			)
+
+			if readers == 0:
+				unread[name] = f"{path}:{line}"
+
+	return unread
+
+
+def _unread_in_the_source_tree () -> dict[str, str]:
+	"""Return what :func:`_unread_names` finds in this repository."""
+
+	return {
+		name: str(pathlib.Path(where).relative_to(ROOT))
+		for name, where in _unread_names(
+			ROOT / "src", (ROOT / "src", ROOT / "tests", ROOT / "scripts")
+		).items()
+	}
+
+
+def test_nothing_in_the_source_tree_is_declared_and_never_read () -> None:
+	"""The Python twin of `SR#684`, which built this for the browser assets (`SR#1074`).
+
+	**Ruff structurally cannot answer this.** The house style is ``import x`` and
+	fully-qualified names, so every module attribute is reachable by qualification from
+	anywhere — there is no unused-name analysis that would not have to be whole-program.
+	Nothing here was whole-program, so the only reader this family has ever had is somebody
+	noticing.
+
+	**A cold reviewer found two by scanning one commit range; scanning the tree found five.**
+	Two of the five were second declarations of a live rule — ``IMPORTANCE_RANGE`` beside
+	``tasks.PRIORITY_RANGE``, ``PROJECT_TEMPLATES`` beside ``projects.TEMPLATES`` — which is
+	what makes an inert constant more than untidy: it is a thing that has to agree with
+	whatever does the work, and nothing checks that it does.
+
+	A name read only from outside this repository would be a legitimate entry in
+	:data:`DECLARED_AND_UNREAD` — and there is none, because nothing here is a library.
+	"""
+
+	found = _unread_in_the_source_tree()
+
+	assert set(found) == set(DECLARED_AND_UNREAD), (
+		"declared and read by nothing: "
+		+ ", ".join(f"{name} ({where})" for name, where in sorted(found.items()))
+		+ " — delete it, or record why it is kept in DECLARED_AND_UNREAD"
+	)
+
+
+def test_the_unread_scan_can_tell_a_dead_name_from_a_live_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Driven against a tree built to contain one of each, which is the only way to know.
+
+	`SR#405`: a check that cannot be handed its subject can only confirm the arrangement it was
+	written from. The first version of the floor beside this counted names in the real tree and
+	asserted the answer was empty — and **emptying the scanner's own glob left both green**,
+	because no names found and no names unread are the same answer.
+	"""
+
+	source = tmp_path / "src"
+	source.mkdir()
+	(source / "one.py").write_text("LIVE = 1\nDEAD = 2\n", encoding="utf-8")
+
+	elsewhere = tmp_path / "tests"
+	elsewhere.mkdir()
+	(elsewhere / "reader.py").write_text(
+		"import one\n\nprint(one.LIVE)\n", encoding="utf-8"
+	)
+
+	found = _unread_names(source, (source, elsewhere))
+
+	assert set(found) == {"DEAD"}, found
+
+
+def test_the_unread_scan_reaches_the_whole_source_tree () -> None:
+	"""And a count over the real tree, so it cannot pass by reading a corner of it."""
+
+	names = [
+		name
+		for path in (ROOT / "src").rglob("*.py")
+		if "versions" not in path.parts
+		for name, _line in _module_level_names(path)
+	]
+
+	assert len(names) > 300, f"only {len(names)} module-level names reached"
+	assert "PRIORITY_RANGE" in names, "a name known to be there was not seen"
 
 
 def test_the_checker_reaches_the_whole_source_tree () -> None:

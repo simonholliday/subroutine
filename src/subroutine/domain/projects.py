@@ -72,16 +72,6 @@ KEY_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 #: buys nothing once a key is forbidden to contain this one.
 PATH_SEPARATOR = "/"
 
-#: What a project's whole address may be: keys, separated. One segment is a key, which is
-#: why every address written before `#957` goes on resolving unchanged.
-#:
-#: Used to *recognise* a path, never to validate one — :func:`check_key` is what says why a
-#: segment was refused, and a pattern that merely fails to match says nothing anybody can
-#: act on.
-PATH_PATTERN = re.compile(
-	rf"{KEY_PATTERN.pattern}(?:{re.escape(PATH_SEPARATOR)}{KEY_PATTERN.pattern})*"
-)
-
 #: What a template writes into ``project.settings``, and nothing else (docs/design.md §6.12).
 #:
 #: **Every one of them writes nothing, as of `#1028`.** The single key these carried,
